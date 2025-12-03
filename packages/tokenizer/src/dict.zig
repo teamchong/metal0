@@ -87,10 +87,10 @@ pub const PyDict = struct {
         const result = try runtime.PyList.create(allocator);
 
         // Add all keys as PyString objects
-        for (data.map.keys()) |key| {
-            const key_obj = try runtime.PyString.create(allocator, key);
+        var iter = data.map.iterator();
+        while (iter.next()) |entry| {
+            const key_obj = try runtime.PyString.create(allocator, entry.key_ptr.*);
             try runtime.PyList.append(result, key_obj);
-            // Note: Ownership transferred to list, no decref needed
         }
 
         return result;

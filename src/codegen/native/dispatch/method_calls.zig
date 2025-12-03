@@ -286,6 +286,35 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         return true;
     }
 
+    // Infer object type for type-aware dispatch
+    const obj_type = self.type_inferrer.inferExpr(obj) catch .unknown;
+
+    // CDLL methods are NOT string/list/dict methods - skip all standard methods
+    // ctypes FFI calls are handled separately in calls.zig
+    if (obj_type == .cdll or obj_type == .c_func) {
+        return false;
+    }
+
+    // Check if object comes from a C extension module (numpy, pandas, etc.)
+    // These objects are PyObject* and method calls go through Python C API
+    if (obj_type == .pyobject) {
+        // Generate: c_interop.callMethod(obj, "method", .{args...})
+        try genCExtensionMethodCall(self, obj, method_name, call.args);
+        return true;
+    }
+
+    // Check if object is a variable assigned from a C extension module call
+    if (obj == .name) {
+        const var_name = obj.name.id;
+        // Check if this var was assigned from a c_extension module
+        if (self.getSymbolType(var_name)) |var_type| {
+            if (var_type == .pyobject) {
+                try genCExtensionMethodCall(self, obj, method_name, call.args);
+                return true;
+            }
+        }
+    }
+
     // Try string methods first (most common)
     if (StringMethods.get(method_name)) |handler| {
         try handler(self, obj, call.args);
@@ -318,8 +347,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
 
     // Try file/stream methods with type-aware dispatch
     if (FileMethods.has(method_name) or StreamMethods.has(method_name)) {
-        // Infer object type to dispatch correctly
-        const obj_type = self.type_inferrer.inferExpr(obj) catch .unknown;
+        // Use already-inferred object type
         if (obj_type == .stringio or obj_type == .bytesio) {
             // StringIO/BytesIO stream methods
             if (try handleStreamMethod(self, method_name, obj, call.args)) {
@@ -337,7 +365,6 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
 
     // HashObject methods (hashlib hash objects)
     if (HashMethods.has(method_name)) {
-        const obj_type = self.type_inferrer.inferExpr(obj) catch .unknown;
         if (obj_type == .hash_object) {
             if (try handleHashMethod(self, method_name, obj, call.args)) {
                 return true;
@@ -563,6 +590,26 @@ fn handleComplexParentMethodCall(self: *NativeCodegen, call: ast.Node.Call, meth
     }
 
     return false;
+}
+
+/// Generate method call on C extension module object (PyObject*)
+/// Example: arr.sum() -> c_interop.callMethod(arr, "sum", .{}).?
+fn genCExtensionMethodCall(self: *NativeCodegen, obj: ast.Node, method_name: []const u8, args: []ast.Node) CodegenError!void {
+    const expressions = @import("../expressions.zig");
+
+    try self.emit("@as(*runtime.PyObject, @ptrCast(c_interop.callMethod(@ptrCast(");
+    try expressions.genExpr(self, obj);
+    try self.emit("), \"");
+    try self.emit(method_name);
+    try self.emit("\", .{");
+
+    // Generate arguments as tuple
+    for (args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try expressions.genExpr(self, arg);
+    }
+
+    try self.emit("}).?))");
 }
 
 /// Handle super().method() calls for inheritance

@@ -181,6 +181,45 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         return;
     }
 
+    // Detect value-returning expressions that need _ = prefix:
+    // 1. Labeled block expressions: (blk: { ... break :blk value; })
+    // 2. Try expressions for module functions: try runtime.tokenizer.init(...)
+    const needs_discard = blk: {
+        if (added_discard_prefix) break :blk false;
+        if (generated.len <= 10) break :blk false;
+
+        // Pattern 1: Labeled block expressions
+        if (std.mem.startsWith(u8, generated, "(blk: {") and
+            std.mem.indexOf(u8, generated, "break :blk") != null)
+        {
+            break :blk true;
+        }
+
+        // Pattern 2: Try expressions for runtime module functions that return values
+        if (std.mem.startsWith(u8, generated, "try runtime.tokenizer.init(")) {
+            break :blk true;
+        }
+
+        break :blk false;
+    };
+
+    if (needs_discard) {
+        // Insert "_ = " before the expression
+        const indent_len = self.indent_level * 4;
+        const expr_start = before_len - indent_len;
+
+        // Temporarily store the generated content
+        const gen_copy = self.allocator.dupe(u8, self.output.items[expr_start..]) catch return;
+        defer self.allocator.free(gen_copy);
+
+        // Reset to before indent and re-emit with _ =
+        self.output.shrinkRetainingCapacity(expr_start);
+        try self.emitIndent();
+        try self.emit("_ = ");
+        try self.emit(gen_copy[indent_len..]); // Skip the indent we already re-emitted
+        added_discard_prefix = true;
+    }
+
     // Determine if we need a semicolon:
     // - If we added "_ = " prefix, we ALWAYS need a semicolon (it's an assignment)
     // - Struct initializers like "Type{}" need semicolons

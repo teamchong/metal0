@@ -357,6 +357,7 @@ pub const Node = union(enum) {
         class_pattern: ClassPattern, // case Point(x=0, y=0)
         or_pattern: []MatchPattern, // case 1 | 2 | 3
         as_pattern: AsPattern, // case pattern as name
+        value: *Node, // case Foo.Bar.x (dotted value pattern)
     };
 
     pub const MappingPatternEntry = struct {

@@ -257,7 +257,17 @@ pub fn emitVarDeclaration(
         return;
     }
 
-    // Use renamed version if in var_renames map (for exception handling)
+    // Check if var_name would shadow a module-level import
+    // If so, use a prefixed name to avoid Zig's "shadows declaration" error
+    const shadows_import = self.imported_modules.contains(var_name);
+    if (shadows_import and !self.var_renames.contains(var_name)) {
+        // Create a unique prefixed name
+        const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
+        self.lambda_counter += 1;
+        try self.var_renames.put(var_name, prefixed_name);
+    }
+
+    // Use renamed version if in var_renames map (for exception handling or shadowing)
     const actual_name = self.var_renames.get(var_name) orelse var_name;
 
     // Check if renamed name is a pointer dereference (ends with ".*")

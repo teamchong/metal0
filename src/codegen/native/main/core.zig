@@ -28,6 +28,14 @@ const FuncSignature = struct {
 };
 const FnvFuncSigMap = hashmap_helper.StringHashMap(FuncSignature);
 
+/// ctypes function info (for argtypes/restype tracking)
+pub const CTypesFuncInfo = struct {
+    library_var: []const u8, // Variable name holding CDLL (e.g., "libc")
+    func_name: []const u8, // C function name (e.g., "strlen")
+    argtypes: []const []const u8, // ctypes type names (e.g., ["c_char_p", "c_int"])
+    restype: []const u8, // Return type (e.g., "c_size_t", "c_int")
+};
+
 /// Default parameter for test methods
 pub const TestDefaultParam = struct {
     name: []const u8,
@@ -399,6 +407,11 @@ pub const NativeCodegen = struct {
     // Used to skip calls to functions that weren't generated
     skipped_functions: FnvVoidMap,
 
+    // Track C extension modules (numpy, pandas, etc.)
+    // Maps module name -> alias name (e.g., "numpy" -> "np", "pandas" -> "pd")
+    // These are loaded at runtime via PyImport_ImportModule
+    c_extension_modules: FnvStringMap,
+
     // Track local variable types within current function/method scope
     // Maps variable name -> NativeType (e.g., "result" -> .string)
     // Cleared when entering a new function scope, used to avoid type shadowing issues
@@ -437,6 +450,10 @@ pub const NativeCodegen = struct {
     // Maps class name -> number of type params (e.g., "Box" -> 1, "Pair" -> 2)
     // Used at instantiation to generate Box(i64).init() instead of Box.init()
     generic_classes: hashmap_helper.StringHashMap(usize),
+
+    // Track ctypes function info (argtypes, restype)
+    // Maps variable name -> CTypesFuncInfo (e.g., "strlen" -> { lib: "libc", func: "strlen", argtypes: [...], restype: "c_size_t" })
+    ctypes_functions: hashmap_helper.StringHashMap(CTypesFuncInfo),
 
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
@@ -542,6 +559,7 @@ pub const NativeCodegen = struct {
             .current_function_name = null,
             .skipped_modules = FnvVoidMap.init(allocator),
             .skipped_functions = FnvVoidMap.init(allocator),
+            .c_extension_modules = FnvStringMap.init(allocator),
             .local_var_types = hashmap_helper.StringHashMap(NativeType).init(allocator),
             .local_from_imports = FnvStringMap.init(allocator),
             .loop_capture_vars = FnvVoidMap.init(allocator),
@@ -550,6 +568,7 @@ pub const NativeCodegen = struct {
             .call_graph = null,
             .generic_type_params = FnvVoidMap.init(allocator),
             .generic_classes = hashmap_helper.StringHashMap(usize).init(allocator),
+            .ctypes_functions = hashmap_helper.StringHashMap(CTypesFuncInfo).init(allocator),
         };
         return self;
     }
@@ -1058,6 +1077,25 @@ pub const NativeCodegen = struct {
     pub fn markSkippedFunction(self: *NativeCodegen, func_name: []const u8) !void {
         const name_copy = try self.allocator.dupe(u8, func_name);
         try self.skipped_functions.put(name_copy, {});
+    }
+
+    /// Check if a module is a C extension (numpy, pandas, etc.)
+    pub fn isCExtensionModule(self: *NativeCodegen, module_name: []const u8) bool {
+        return self.c_extension_modules.contains(module_name);
+    }
+
+    /// Mark a module as C extension (loaded via PyImport_ImportModule at runtime)
+    /// Maps both module_name -> module_name and alias -> module_name
+    pub fn markCExtensionModule(self: *NativeCodegen, module_name: []const u8, alias: []const u8) !void {
+        const name_copy = try self.allocator.dupe(u8, module_name);
+        // Map module_name -> module_name
+        try self.c_extension_modules.put(name_copy, name_copy);
+        // Also map alias -> module_name (e.g., np -> numpy)
+        if (!std.mem.eql(u8, module_name, alias)) {
+            const alias_copy = try self.allocator.dupe(u8, alias);
+            const name_copy2 = try self.allocator.dupe(u8, module_name);
+            try self.c_extension_modules.put(alias_copy, name_copy2);
+        }
     }
 
     /// Check if a class has a specific method (e.g., __getitem__, __len__)

@@ -78,10 +78,17 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
                 return true;
             }
 
+            // Check if this is a C extension module (numpy, pandas, etc.)
+            if (self.isCExtensionModule(module_name)) {
+                // Generate call via Python C API
+                try generateCExtensionCall(self, module_name, func_name, call);
+                return true;
+            }
+
             // Check if this is a skipped (unsupported) module
             if (self.isSkippedModule(module_name)) {
                 // Emit compile error for unsupported third-party module
-                try self.emitFmt("@compileError(\"Module '{s}' is not supported. Third-party packages require ctypes/cffi (not yet implemented).\")", .{module_name});
+                try self.emitFmt("@compileError(\"Module '{s}' is not supported. External module not found.\")", .{module_name});
                 return true;
             }
         }
@@ -111,6 +118,36 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
 
     // No dispatch handler found - use fallback
     return false;
+}
+
+/// Generate call to C extension module via Python C API
+/// Example: np.array([1, 2, 3]) -> c_interop.callModuleFunction("numpy", "array", .{args}).?
+fn generateCExtensionCall(
+    self: *NativeCodegen,
+    module_alias: []const u8,
+    func_name: []const u8,
+    call: ast.Node.Call,
+) CodegenError!void {
+    const expressions = @import("expressions.zig");
+
+    // Resolve alias to actual module name (e.g., "np" -> "numpy")
+    const actual_module_name = self.c_extension_modules.get(module_alias) orelse module_alias;
+
+    // Generate: c_interop.callModuleFunction("module_name", "func_name", .{args...}).?
+    // Use .? to unwrap optional - if null, it means Python call failed
+    try self.emit("@as(*runtime.PyObject, @ptrCast(c_interop.callModuleFunction(\"");
+    try self.emit(actual_module_name);
+    try self.emit("\", \"");
+    try self.emit(func_name);
+    try self.emit("\", .{");
+
+    // Generate arguments as tuple
+    for (call.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try expressions.genExpr(self, arg);
+    }
+
+    try self.emit("}).?))");
 }
 
 /// Generate direct C library call (zero PyObject* overhead)

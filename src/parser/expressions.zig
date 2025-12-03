@@ -122,6 +122,16 @@ pub fn parseLambda(self: *Parser) ParseError!ast.Node {
                         break;
                     }
                 }
+                // Handle / (positional-only marker) in lambda
+                if (tok.type == .Slash) {
+                    _ = self.advance(); // consume /
+                    // Just a marker for positional-only, continue parsing
+                    if (self.match(.Comma)) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
                 if (tok.type == .Ident) {
                     const param_name = self.advance().?.lexeme;
 

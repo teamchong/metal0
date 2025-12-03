@@ -158,6 +158,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
     }
 
+    // PHASE 3.6: Generate c_interop import if C extension modules are used
+    if (self.c_extension_modules.count() > 0) {
+        try self.emit("const c_interop = @import(\"./c_interop/c_interop.zig\");\n");
+    }
+
     // PHASE 3.7: Emit module assignments for registry modules
     // Note: Compiled user/stdlib modules already emitted via @import above
     for (imported_modules.items) |mod_name| {

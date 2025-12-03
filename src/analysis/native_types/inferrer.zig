@@ -42,6 +42,14 @@ fn isCommonBuiltin(name: []const u8) bool {
     return CommonBuiltins.has(name);
 }
 
+/// ctypes function info for type inference
+pub const CTypesFuncInfo = struct {
+    library_var: []const u8, // Variable name holding CDLL (e.g., "libc")
+    func_name: []const u8, // C function name (e.g., "strlen")
+    argtypes: []const []const u8, // ctypes type names (e.g., ["c_char_p", "c_int"])
+    restype: []const u8, // Return type (e.g., "c_size_t", "c_int")
+};
+
 /// Type inferrer - analyzes AST to determine native Zig types
 pub const TypeInferrer = struct {
     allocator: std.mem.Allocator,
@@ -52,6 +60,7 @@ pub const TypeInferrer = struct {
     class_fields: FnvClassMap, // class_name -> field types
     func_return_types: FnvHashMap, // function_name -> return type
     class_constructor_args: FnvArgsMap, // class_name -> constructor arg types
+    ctypes_functions: hashmap_helper.StringHashMap(CTypesFuncInfo), // ctypes function tracking
 
     pub fn init(allocator: std.mem.Allocator) InferError!TypeInferrer {
         // Allocate arena on heap to avoid copy issues
@@ -67,6 +76,7 @@ pub const TypeInferrer = struct {
             .class_fields = FnvClassMap.init(allocator),
             .func_return_types = FnvHashMap.init(allocator),
             .class_constructor_args = FnvArgsMap.init(allocator),
+            .ctypes_functions = hashmap_helper.StringHashMap(CTypesFuncInfo).init(allocator),
         };
     }
 
@@ -83,6 +93,7 @@ pub const TypeInferrer = struct {
         self.scoped_var_types.deinit();
         self.func_return_types.deinit();
         self.class_constructor_args.deinit();
+        self.ctypes_functions.deinit();
 
         // Free arena and all type allocations
         const alloc = self.allocator;
@@ -378,12 +389,13 @@ pub const TypeInferrer = struct {
 
         // Use arena allocator for type allocations
         const arena_alloc = self.arena.allocator();
-        return expressions.inferExpr(
+        return expressions.inferExprWithInferrer(
             arena_alloc,
             &self.var_types,
             &self.class_fields,
             &self.func_return_types,
             node,
+            self, // Pass TypeInferrer for ctypes tracking
         );
     }
 

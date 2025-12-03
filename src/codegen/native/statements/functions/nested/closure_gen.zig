@@ -233,17 +233,26 @@ pub fn genStandardClosure(
     try self.emit(" } };\n");
 
     // Create alias with original function name - use saved_counter
-    const closure_alias_name = try std.fmt.allocPrint(
-        self.allocator,
-        "__closure_{s}_{d}",
-        .{ func.name, saved_counter },
-    );
-    defer self.allocator.free(closure_alias_name);
+    // Check if func.name would shadow a module-level import
+    const shadows_import = self.imported_modules.contains(func.name);
+
+    // If shadowing an import, use a prefixed name to avoid Zig's "shadows declaration" error
+    const alias_name = if (shadows_import)
+        try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ func.name, saved_counter })
+    else
+        try self.allocator.dupe(u8, func.name);
+    defer self.allocator.free(alias_name);
 
     try self.emitIndent();
     try self.emit("const ");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
-    try self.output.writer(self.allocator).print(" = {s};\n", .{closure_alias_name});
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
+    try self.output.writer(self.allocator).print(" = {s};\n", .{closure_var_name});
+
+    // If we renamed the function, also add a var_rename so calls use the prefixed name
+    if (shadows_import) {
+        const alias_copy = try self.allocator.dupe(u8, alias_name);
+        try self.var_renames.put(func.name, alias_copy);
+    }
 
     // Mark this variable as a closure so calls use .call() syntax
     const func_name_copy = try self.allocator.dupe(u8, func.name);
@@ -496,17 +505,26 @@ pub fn genNestedFunctionWithOuterCapture(
     try self.emit(" } };\n");
 
     // Create alias with original function name
-    const closure_alias_name = try std.fmt.allocPrint(
-        self.allocator,
-        "__closure_{s}_{d}",
-        .{ func.name, saved_counter },
-    );
-    defer self.allocator.free(closure_alias_name);
+    // Check if func.name would shadow a module-level import
+    const shadows_import2 = self.imported_modules.contains(func.name);
+
+    // If shadowing an import, use a prefixed name to avoid Zig's "shadows declaration" error
+    const alias_name2 = if (shadows_import2)
+        try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ func.name, saved_counter })
+    else
+        try self.allocator.dupe(u8, func.name);
+    defer self.allocator.free(alias_name2);
 
     try self.emitIndent();
     try self.emit("const ");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
-    try self.output.writer(self.allocator).print(" = {s};\n", .{closure_alias_name});
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name2);
+    try self.output.writer(self.allocator).print(" = {s};\n", .{closure_var_name});
+
+    // If we renamed the function, also add a var_rename so calls use the prefixed name
+    if (shadows_import2) {
+        const alias_copy2 = try self.allocator.dupe(u8, alias_name2);
+        try self.var_renames.put(func.name, alias_copy2);
+    }
 
     // Mark this variable as a closure so calls use .call() syntax
     const func_name_copy = try self.allocator.dupe(u8, func.name);

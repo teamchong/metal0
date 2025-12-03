@@ -98,6 +98,9 @@ const syslog_mod = @import("../syslog_mod.zig");
 const curses_mod = @import("../curses_mod.zig");
 const bz2_mod = @import("../bz2_mod.zig");
 const lzma_mod = @import("../lzma_mod.zig");
+
+// metal0 native libraries
+const tokenizer_mod = @import("../tokenizer_mod.zig");
 const tarfile_mod = @import("../tarfile_mod.zig");
 const shlex_mod = @import("../shlex_mod.zig");
 const gettext_mod = @import("../gettext_mod.zig");
@@ -761,21 +764,60 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "idlelib", idlelib_mod.Funcs },
     .{ "winreg", winreg_mod.Funcs },
     .{ "winsound", winsound_mod.Funcs },
+    // metal0 native libraries (Zig implementations exposed to Python)
+    .{ "metal0.tokenizer", tokenizer_mod.Funcs },
+    .{ "tokenizer", tokenizer_mod.Funcs }, // Also support direct "from metal0 import tokenizer" alias
 });
 
 /// Try to dispatch module function call (e.g., json.loads, os.getcwd)
 /// Returns true if dispatched successfully
 pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []const u8, call: ast.Node.Call) CodegenError!bool {
-    // Check for importlib.import_module() (defensive - import already blocked)
+    // Handle importlib.import_module() - resolve at compile time for static module names
     if (std.mem.eql(u8, module_name, "importlib") and
         std.mem.eql(u8, func_name, "import_module"))
     {
-        std.debug.print("\nError: importlib.import_module() not supported in AOT compilation\n", .{});
-        std.debug.print("   |\n", .{});
-        std.debug.print("   = metal0 resolves all imports at compile time\n", .{});
-        std.debug.print("   = Dynamic runtime module loading not supported\n", .{});
-        std.debug.print("   = Suggestion: Use static imports (import json) instead\n", .{});
-        return error.OutOfMemory;
+        // Get module name argument
+        if (call.args.len > 0) {
+            const arg = call.args[0];
+            if (arg == .constant and arg.constant.value == .string) {
+                // Static module name - resolve at compile time
+                const target_module = arg.constant.value.string;
+                // Return the module struct directly (must be imported already)
+                // Replace dots with underscores for valid Zig identifier
+                var safe_buf: [256]u8 = undefined;
+                var idx: usize = 0;
+                for (target_module) |c| {
+                    if (idx >= safe_buf.len - 1) break;
+                    safe_buf[idx] = if (c == '.') '_' else c;
+                    idx += 1;
+                }
+                try self.emit(safe_buf[0..idx]);
+                return true;
+            } else if (arg == .fstring) {
+                // F-string with single literal part = static name
+                if (arg.fstring.parts.len == 1 and arg.fstring.parts[0] == .literal) {
+                    const target_module = arg.fstring.parts[0].literal;
+                    var safe_buf: [256]u8 = undefined;
+                    var idx: usize = 0;
+                    for (target_module) |c| {
+                        if (idx >= safe_buf.len - 1) break;
+                        safe_buf[idx] = if (c == '.') '_' else c;
+                        idx += 1;
+                    }
+                    try self.emit(safe_buf[0..idx]);
+                    return true;
+                }
+            }
+        }
+        // Dynamic module name - emit runtime import call (returns module struct)
+        try self.emit("runtime.importlib.importModule(__global_allocator, ");
+        if (call.args.len > 0) {
+            try self.genExpr(call.args[0]);
+        } else {
+            try self.emit("\"\"");
+        }
+        try self.emit(")");
+        return true;
     }
 
     // Handle test.support module context managers

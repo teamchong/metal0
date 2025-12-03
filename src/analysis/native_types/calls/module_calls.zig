@@ -48,8 +48,26 @@ pub fn inferModuleFunctionCall(
     const GZIP_HASH = comptime fnv_hash.hash("gzip");
     const RE_HASH = comptime fnv_hash.hash("re");
     const _STRING_HASH = comptime fnv_hash.hash("_string");
+    const CTYPES_HASH = comptime fnv_hash.hash("ctypes");
 
     switch (module_hash) {
+        CTYPES_HASH => {
+            // ctypes module type inference
+            const func_hash = fnv_hash.hash(func_name);
+            const CDLL_HASH = comptime fnv_hash.hash("CDLL");
+            const WINDLL_HASH = comptime fnv_hash.hash("WinDLL");
+            const OLEDLL_HASH = comptime fnv_hash.hash("OleDLL");
+            const PYDLL_HASH = comptime fnv_hash.hash("PyDLL");
+            if (func_hash == CDLL_HASH or func_hash == WINDLL_HASH or
+                func_hash == OLEDLL_HASH or func_hash == PYDLL_HASH)
+            {
+                // CDLL returns a library handle - store as cdll type
+                // The library path is tracked separately during codegen
+                return .{ .cdll = allocator.dupe(u8, "unknown") catch "unknown" };
+            }
+            // ctypes type constructors return their respective types
+            return .{ .int = .bounded }; // Most ctypes return ints
+        },
         SQLITE3_HASH => {
             // sqlite3 module type inference
             const func_hash = fnv_hash.hash(func_name);

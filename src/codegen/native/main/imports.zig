@@ -380,14 +380,7 @@ pub fn collectImports(
                     try imports.append(self.allocator, python_module);
                 },
                 .unsupported => {
-                    std.debug.print("Error: Dynamic imports not supported in AOT compilation\n", .{});
-                    std.debug.print("  --> import {s}\n", .{python_module});
-                    std.debug.print("   |\n", .{});
-                    std.debug.print("   = metal0 resolves all imports at compile time\n", .{});
-                    std.debug.print("   = Dynamic runtime module loading not supported\n", .{});
-                    if (std.mem.eql(u8, python_module, "importlib")) {
-                        std.debug.print("   = Suggestion: Use static imports (import json) instead of importlib.import_module('json')\n", .{});
-                    }
+                    std.debug.print("Error: Module '{s}' not supported in AOT compilation\n", .{python_module});
                     return error.UnsupportedModule;
                 },
             }
@@ -400,18 +393,20 @@ pub fn collectImports(
                 continue;
             }
 
-            // Check if it's a C extension first - C extensions should NOT be compiled from Python
+            // Check if it's a C extension first - C extensions loaded via c_interop at runtime
             const is_c_ext = import_resolver.isCExtension(python_module, self.allocator);
             if (is_c_ext) {
-                std.debug.print("Warning: C extension module '{s}' detected but not supported (requires ctypes/cffi)\n", .{python_module});
-                // Mark as skipped - we can't compile C extensions without ctypes/cffi
-                try self.markSkippedModule(python_module);
-                // Also mark any alias as skipped (e.g., np for numpy)
+                std.debug.print("Info: C extension module '{s}' will be loaded at runtime via c_interop\n", .{python_module});
+                // Mark as C extension - loaded at runtime via PyImport_ImportModule
+                // Find alias for this module (e.g., np for numpy)
+                var alias_name: []const u8 = python_module;
                 for (import_aliases.keys()) |alias| {
                     if (std.mem.eql(u8, import_aliases.get(alias).?, python_module)) {
-                        try self.markSkippedModule(alias);
+                        alias_name = alias;
+                        break;
                     }
                 }
+                try self.markCExtensionModule(python_module, alias_name);
                 continue;
             }
 

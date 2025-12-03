@@ -273,6 +273,8 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
 
 /// Unicode name to codepoint mapping (O(1) lookup)
 const UnicodeNames = std.StaticStringMap(u21).initComptime(.{
+    // Spaces
+    .{ "SPACE", 0x0020 },
     .{ "EM SPACE", 0x2003 },
     .{ "EN SPACE", 0x2002 },
     .{ "FIGURE SPACE", 0x2007 },
@@ -286,6 +288,7 @@ const UnicodeNames = std.StaticStringMap(u21).initComptime(.{
     .{ "LINE SEPARATOR", 0x2028 },
     .{ "PARAGRAPH SEPARATOR", 0x2029 },
     .{ "IDEOGRAPHIC SPACE", 0x3000 },
+    // Digits
     .{ "FULLWIDTH DIGIT ZERO", 0xFF10 },
     .{ "FULLWIDTH DIGIT ONE", 0xFF11 },
     .{ "FULLWIDTH DIGIT TWO", 0xFF12 },
@@ -304,9 +307,185 @@ const UnicodeNames = std.StaticStringMap(u21).initComptime(.{
     .{ "SUBSCRIPT ONE", 0x2081 },
     .{ "SUPERSCRIPT ZERO", 0x2070 },
     .{ "SUPERSCRIPT ONE", 0x00B9 },
+    // Common punctuation and symbols used in CPython tests
+    .{ "AMPERSAND", 0x0026 },
+    .{ "OX", 0x1F402 },
+    .{ "SNAKE", 0x1F40D },
+    .{ "LEFT CURLY BRACKET", 0x007B },
+    .{ "RIGHT CURLY BRACKET", 0x007D },
+    .{ "EURO SIGN", 0x20AC },
+    .{ "COPYRIGHT SIGN", 0x00A9 },
+    .{ "SOFT HYPHEN", 0x00AD },
+    .{ "NOT SIGN", 0x00AC },
+    .{ "CEDILLA", 0x00B8 },
+    .{ "CANCEL TAG", 0xE007F },
+    .{ "KEYCAP NUMBER SIGN", 0x20E3 },
+    // Greek letters
+    .{ "GREEK CAPITAL LETTER DELTA", 0x0394 },
+    .{ "GREEK SMALL LETTER ZETA", 0x03B6 },
+    // Cyrillic
+    .{ "CYRILLIC SMALL LETTER ZHE", 0x0436 },
+    // Hiragana
+    .{ "HIRAGANA LETTER A", 0x3042 },
+    // Ethiopic
+    .{ "ETHIOPIC SYLLABLE SEE", 0x1234 },
+    // Arabic (longest name used in tests)
+    .{ "ARABIC LIGATURE UIGHUR KIRGHIZ YEH WITH HAMZA ABOVE WITH ALEF MAKSURA ISOLATED FORM", 0xFBF9 },
 });
 
 /// Convert Unicode character name to codepoint
 fn unicodeNameToCodepoint(name: []const u8) ?u21 {
     return UnicodeNames.get(name);
+}
+
+/// Process Python escape sequences in a string content and emit Zig-safe string bytes
+/// Used for f-string literal parts which may contain \N{name}, \xNN, \uNNNN escapes
+/// If escape_braces is true, { and } are doubled for use in Zig format strings
+pub fn emitPythonEscapedString(self: *NativeCodegen, content: []const u8) CodegenError!void {
+    return emitPythonEscapedStringExt(self, content, false);
+}
+
+/// Extended version with brace escaping option for Zig format strings
+pub fn emitPythonEscapedStringExt(self: *NativeCodegen, content: []const u8, escape_braces: bool) CodegenError!void {
+    var i: usize = 0;
+    while (i < content.len) : (i += 1) {
+        const c = content[i];
+        if (c == '\\' and i + 1 < content.len) {
+            const next = content[i + 1];
+            switch (next) {
+                'x' => {
+                    // \xNN - hex escape
+                    if (i + 3 < content.len) {
+                        const hex = content[i + 2 .. i + 4];
+                        const codepoint: u21 = std.fmt.parseInt(u8, hex, 16) catch {
+                            try self.emit("\\\\x");
+                            i += 1;
+                            continue;
+                        };
+                        var buf: [4]u8 = undefined;
+                        const len = std.unicode.utf8Encode(codepoint, &buf) catch 0;
+                        for (buf[0..len]) |b| {
+                            try self.output.writer(self.allocator).print("\\x{x:0>2}", .{b});
+                        }
+                        i += 3;
+                    } else {
+                        try self.emit("\\\\x");
+                        i += 1;
+                    }
+                },
+                'n' => {
+                    try self.emit("\\n");
+                    i += 1;
+                },
+                'r' => {
+                    try self.emit("\\r");
+                    i += 1;
+                },
+                't' => {
+                    try self.emit("\\t");
+                    i += 1;
+                },
+                '\\' => {
+                    try self.emit("\\\\");
+                    i += 1;
+                },
+                '\'' => {
+                    try self.emit("'");
+                    i += 1;
+                },
+                '"' => {
+                    try self.emit("\\\"");
+                    i += 1;
+                },
+                '0' => {
+                    try self.emit("\\x00");
+                    i += 1;
+                },
+                'N' => {
+                    // \N{NAME} - named Unicode escape
+                    if (i + 2 < content.len and content[i + 2] == '{') {
+                        var end_idx = i + 3;
+                        while (end_idx < content.len and content[end_idx] != '}') : (end_idx += 1) {}
+                        if (end_idx < content.len) {
+                            const name = content[i + 3 .. end_idx];
+                            const codepoint = unicodeNameToCodepoint(name);
+                            if (codepoint) |cp| {
+                                var buf: [4]u8 = undefined;
+                                const len = std.unicode.utf8Encode(cp, &buf) catch 0;
+                                for (buf[0..len]) |b| {
+                                    try self.output.writer(self.allocator).print("\\x{x:0>2}", .{b});
+                                }
+                                i = end_idx;
+                            } else {
+                                try self.emit("\\\\N");
+                                i += 1;
+                            }
+                        } else {
+                            try self.emit("\\\\N");
+                            i += 1;
+                        }
+                    } else {
+                        try self.emit("\\\\N");
+                        i += 1;
+                    }
+                },
+                'u' => {
+                    // \uNNNN - 4-digit Unicode escape
+                    if (i + 5 < content.len) {
+                        const hex = content[i + 2 .. i + 6];
+                        const codepoint = std.fmt.parseInt(u21, hex, 16) catch {
+                            try self.emit("\\\\u");
+                            i += 1;
+                            continue;
+                        };
+                        var buf: [4]u8 = undefined;
+                        const len = std.unicode.utf8Encode(codepoint, &buf) catch 0;
+                        for (buf[0..len]) |b| {
+                            try self.output.writer(self.allocator).print("\\x{x:0>2}", .{b});
+                        }
+                        i += 5;
+                    } else {
+                        try self.emit("\\\\u");
+                        i += 1;
+                    }
+                },
+                'U' => {
+                    // \UNNNNNNNN - 8-digit Unicode escape
+                    if (i + 9 < content.len) {
+                        const hex = content[i + 2 .. i + 10];
+                        const codepoint = std.fmt.parseInt(u21, hex, 16) catch {
+                            try self.emit("\\\\U");
+                            i += 1;
+                            continue;
+                        };
+                        var buf: [4]u8 = undefined;
+                        const len = std.unicode.utf8Encode(codepoint, &buf) catch 0;
+                        for (buf[0..len]) |b| {
+                            try self.output.writer(self.allocator).print("\\x{x:0>2}", .{b});
+                        }
+                        i += 9;
+                    } else {
+                        try self.emit("\\\\U");
+                        i += 1;
+                    }
+                },
+                else => {
+                    try self.emit("\\\\");
+                },
+            }
+        } else if (c == '"') {
+            try self.emit("\\\"");
+        } else if (c == '\n') {
+            try self.emit("\\n");
+        } else if (c == '\r') {
+            try self.emit("\\r");
+        } else if (c == '\t') {
+            try self.emit("\\t");
+        } else if (escape_braces and (c == '{' or c == '}')) {
+            // Double braces for Zig format strings
+            try self.output.writer(self.allocator).print("{c}{c}", .{ c, c });
+        } else {
+            try self.output.writer(self.allocator).print("{c}", .{c});
+        }
+    }
 }

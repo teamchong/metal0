@@ -65,15 +65,52 @@ fn ensureUnicodeTypeInit() void {
         .tp_basicsize = @sizeOf(PyUnicodeObject),
         .tp_itemsize = 0,
         .tp_dealloc = unicode_dealloc,
+        .tp_vectorcall_offset = 0,
+        .tp_getattr = null,
+        .tp_setattr = null,
+        .tp_as_async = null,
         .tp_repr = unicode_repr,
+        .tp_as_number = null,
+        .tp_as_sequence = null,
+        .tp_as_mapping = null,
         .tp_hash = unicode_hash,
         .tp_call = null,
         .tp_str = unicode_str,
         .tp_getattro = null,
         .tp_setattro = null,
-        .tp_as_number = null,
-        .tp_as_sequence = null,
         .tp_as_buffer = null,
+        .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE | cpython.Py_TPFLAGS_UNICODE_SUBCLASS,
+        .tp_doc = "str(object='') -> str",
+        .tp_traverse = null,
+        .tp_clear = null,
+        .tp_richcompare = null,
+        .tp_weaklistoffset = 0,
+        .tp_iter = null,
+        .tp_iternext = null,
+        .tp_methods = null,
+        .tp_members = null,
+        .tp_getset = null,
+        .tp_base = null,
+        .tp_dict = null,
+        .tp_descr_get = null,
+        .tp_descr_set = null,
+        .tp_dictoffset = 0,
+        .tp_init = null,
+        .tp_alloc = null,
+        .tp_new = null,
+        .tp_free = null,
+        .tp_is_gc = null,
+        .tp_bases = null,
+        .tp_mro = null,
+        .tp_cache = null,
+        .tp_subclasses = null,
+        .tp_weaklist = null,
+        .tp_del = null,
+        .tp_version_tag = 0,
+        .tp_finalize = null,
+        .tp_vectorcall = null,
+        .tp_watched = 0,
+        .tp_versions_used = 0,
     };
 
     unicode_type_initialized = true;
@@ -275,9 +312,11 @@ export fn PyUnicode_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     }
 
     // Check by name for robustness
-    const type_name = std.mem.span(type_obj.tp_name);
-    if (std.mem.eql(u8, type_name, "str")) {
-        return 1;
+    if (type_obj.tp_name) |name| {
+        const type_name: []const u8 = std.mem.span(name);
+        if (std.mem.eql(u8, type_name, "str")) {
+            return 1;
+        }
     }
 
     return 0;

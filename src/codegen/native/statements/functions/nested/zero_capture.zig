@@ -377,15 +377,31 @@ pub fn genZeroCaptureClosure(
 
     // Emit alias so original name can be used: const f = __closure_f_0;
     // This allows code like [f, C.m] to work
+    // Check if func.name would shadow a module-level import
+    const shadows_import = self.imported_modules.contains(func.name);
+
+    // If shadowing an import, use a prefixed name to avoid Zig's "shadows declaration" error
+    const alias_name = if (shadows_import)
+        try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ func.name, saved_counter })
+    else
+        try self.allocator.dupe(u8, func.name);
+    defer self.allocator.free(alias_name);
+
     try self.emitIndent();
     try self.emit("const ");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
     try self.output.writer(self.allocator).print(" = {s};\n", .{wrapper_name});
+
+    // If we renamed the function, also add a var_rename so calls use the prefixed name
+    if (shadows_import) {
+        const alias_copy = try self.allocator.dupe(u8, alias_name);
+        try self.var_renames.put(func.name, alias_copy);
+    }
 
     // Suppress unused local constant warning for the alias
     try self.emitIndent();
     try self.emit("_ = &");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
     try self.emit(";\n");
 
     // Mark as closure so calls use .call() syntax

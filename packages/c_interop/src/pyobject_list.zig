@@ -1,27 +1,14 @@
 /// Python list object implementation
 ///
-/// Dynamic array with resize capability
+/// Dynamic array with resize capability - uses EXACT CPython memory layout
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
 
 const allocator = std.heap.c_allocator;
 
-/// PyListObject - Python list (dynamic array)
-pub const PyListObject = extern struct {
-    ob_base: cpython.PyVarObject,
-    ob_item: ?[*]*cpython.PyObject,  // Array of object pointers
-    allocated: isize,                 // Allocated slots
-};
-
-// Forward declarations
-fn list_dealloc(obj: *cpython.PyObject) callconv(.c) void;
-fn list_repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject;
-fn list_length(obj: *cpython.PyObject) callconv(.c) isize;
-fn list_item(obj: *cpython.PyObject, idx: isize) callconv(.c) ?*cpython.PyObject;
-fn list_concat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject;
-fn list_repeat(obj: *cpython.PyObject, n: isize) callconv(.c) ?*cpython.PyObject;
-fn list_ass_item(obj: *cpython.PyObject, idx: isize, value: ?*cpython.PyObject) callconv(.c) c_int;
+// Re-export type from cpython_object.zig for exact CPython layout
+pub const PyListObject = cpython.PyListObject;
 
 /// Sequence protocol for lists
 var list_as_sequence: cpython.PySequenceMethods = .{
@@ -38,30 +25,38 @@ var list_as_sequence: cpython.PySequenceMethods = .{
 /// PyList_Type - the 'list' type
 pub var PyList_Type: cpython.PyTypeObject = .{
     .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,
     },
     .tp_name = "list",
     .tp_basicsize = @sizeOf(PyListObject),
     .tp_itemsize = 0,
     .tp_dealloc = list_dealloc,
-    .tp_repr = list_repr,
-    .tp_as_sequence = &list_as_sequence,
-    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE | cpython.Py_TPFLAGS_HAVE_GC,
-    .tp_doc = "list() -> new empty list",
-    // Other slots null
     .tp_vectorcall_offset = 0,
     .tp_getattr = null,
     .tp_setattr = null,
     .tp_as_async = null,
+    .tp_repr = list_repr,
     .tp_as_number = null,
+    .tp_as_sequence = &list_as_sequence,
     .tp_as_mapping = null,
-    .tp_call = null,
     .tp_hash = null,
+    .tp_call = null,
     .tp_str = null,
     .tp_getattro = null,
     .tp_setattro = null,
     .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE | cpython.Py_TPFLAGS_HAVE_GC | cpython.Py_TPFLAGS_LIST_SUBCLASS,
+    .tp_doc = "list() -> new empty list",
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
     .tp_base = null,
     .tp_dict = null,
     .tp_descr_get = null,
@@ -81,6 +76,8 @@ pub var PyList_Type: cpython.PyTypeObject = .{
     .tp_version_tag = 0,
     .tp_finalize = null,
     .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
 };
 
 // ============================================================================
@@ -88,7 +85,7 @@ pub var PyList_Type: cpython.PyTypeObject = .{
 // ============================================================================
 
 /// Create new empty list
-export fn PyList_New(size: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyList_New(size: isize) callconv(.c) ?*cpython.PyObject {
     if (size < 0) return null;
     
     const obj = allocator.create(PyListObject) catch return null;
@@ -139,7 +136,7 @@ export fn PyList_GetItem(obj: *cpython.PyObject, idx: isize) callconv(.c) ?*cpyt
 }
 
 /// Set item at index
-export fn PyList_SetItem(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyList_SetItem(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObject) callconv(.c) c_int {
     if (PyList_Check(obj) == 0) return -1;
     
     const list_obj = @as(*PyListObject, @ptrCast(obj));
@@ -347,10 +344,11 @@ fn list_concat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpytho
             // Copy from b
             if (b_list.ob_item) |b_items| {
                 var i: usize = 0;
-                while (i < b_list.ob_base.ob_size) : (i += 1) {
+                const offset: usize = @intCast(a_list.ob_base.ob_size);
+                while (i < @as(usize, @intCast(b_list.ob_base.ob_size))) : (i += 1) {
                     const item = b_items[i];
                     item.ob_refcnt += 1;
-                    new_items[@intCast(a_list.ob_base.ob_size) + i] = item;
+                    new_items[offset + i] = item;
                 }
             }
         }

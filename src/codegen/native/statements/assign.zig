@@ -159,6 +159,57 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
         }
     }
 
+    // Track C extension module call results: arr = np.array([1,2,3])
+    // When a variable is assigned from a C extension module function call,
+    // track it as pyobject type for method call dispatch
+    if (assign.value.* == .call and assign.value.call.func.* == .attribute) {
+        const attr = assign.value.call.func.attribute;
+        if (attr.value.* == .name) {
+            const module_name = attr.value.name.id;
+            if (self.isCExtensionModule(module_name)) {
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        // Track as pyobject for method call dispatch
+                        const key = try self.allocator.dupe(u8, target.name.id);
+                        try self.type_inferrer.putScopedVar(key, .{ .pyobject = module_name });
+                    }
+                }
+            }
+        }
+    }
+
+    // Track ctypes function references: strlen = libc.strlen
+    // When a variable is assigned from CDLL attribute access, track it for argtypes/restype
+    // The assignment itself is a no-op - we generate the lookup at call sites
+    if (assign.value.* == .attribute) {
+        const attr_val = assign.value.attribute;
+        if (attr_val.value.* == .name) {
+            const lib_var = attr_val.value.name.id;
+            const lib_type = try self.inferExprScoped(attr_val.value.*);
+            if (lib_type == .cdll) {
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        const var_name = target.name.id;
+                        const func_name = attr_val.attr;
+                        // Create ctypes function info with default types
+                        const info = @import("../main/core.zig").CTypesFuncInfo{
+                            .library_var = try self.allocator.dupe(u8, lib_var),
+                            .func_name = try self.allocator.dupe(u8, func_name),
+                            .argtypes = &[_][]const u8{},
+                            .restype = try self.allocator.dupe(u8, "c_int"), // Default return type
+                        };
+                        const key = try self.allocator.dupe(u8, var_name);
+                        try self.ctypes_functions.put(key, info);
+                    }
+                }
+                // ctypes function assignment is a no-op - emit comment and return
+                try self.emitIndent();
+                try self.emit("// ctypes function reference tracked at compile time\n");
+                return;
+            }
+        }
+    }
+
     // Handle tuple unpacking: a, b = (1, 2)
     // Note: Parser may represent tuple targets as either .tuple or .list
     if (assign.targets.len == 1 and assign.targets[0] == .tuple) {
@@ -849,6 +900,58 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
         } else if (target == .attribute) {
             // Handle attribute assignment (self.x = value or obj.y = value)
             const attr = target.attribute;
+
+            // Check for ctypes argtypes/restype assignment: strlen.argtypes = [...], strlen.restype = c_int
+            if (attr.value.* == .name) {
+                const var_name = attr.value.name.id;
+                if (self.ctypes_functions.get(var_name)) |existing_info| {
+                    if (std.mem.eql(u8, attr.attr, "argtypes")) {
+                        // Parse argtypes list: [ctypes.c_char_p, ctypes.c_int]
+                        if (assign.value.* == .list) {
+                            var argtypes_list = std.ArrayList([]const u8){};
+                            for (assign.value.list.elts) |elem| {
+                                if (elem == .attribute and elem.attribute.value.* == .name) {
+                                    if (std.mem.eql(u8, elem.attribute.value.name.id, "ctypes")) {
+                                        try argtypes_list.append(self.allocator, try self.allocator.dupe(u8, elem.attribute.attr));
+                                    }
+                                }
+                            }
+                            // Update the info with new argtypes
+                            const new_info = @import("../main/core.zig").CTypesFuncInfo{
+                                .library_var = existing_info.library_var,
+                                .func_name = existing_info.func_name,
+                                .argtypes = try argtypes_list.toOwnedSlice(self.allocator),
+                                .restype = existing_info.restype,
+                            };
+                            try self.ctypes_functions.put(var_name, new_info);
+                        }
+                        // argtypes assignment is a no-op in generated code (tracked at compile time)
+                        try self.emitIndent();
+                        try self.emit("// ctypes argtypes tracked at compile time\n");
+                        return;
+                    } else if (std.mem.eql(u8, attr.attr, "restype")) {
+                        // Parse restype: ctypes.c_int, ctypes.c_size_t, etc.
+                        var restype_name: []const u8 = "c_int";
+                        if (assign.value.* == .attribute and assign.value.attribute.value.* == .name) {
+                            if (std.mem.eql(u8, assign.value.attribute.value.name.id, "ctypes")) {
+                                restype_name = assign.value.attribute.attr;
+                            }
+                        }
+                        // Update the info with new restype
+                        const new_info = @import("../main/core.zig").CTypesFuncInfo{
+                            .library_var = existing_info.library_var,
+                            .func_name = existing_info.func_name,
+                            .argtypes = existing_info.argtypes,
+                            .restype = try self.allocator.dupe(u8, restype_name),
+                        };
+                        try self.ctypes_functions.put(var_name, new_info);
+                        // restype assignment is a no-op in generated code
+                        try self.emitIndent();
+                        try self.emit("// ctypes restype tracked at compile time\n");
+                        return;
+                    }
+                }
+            }
 
             // Check for module class attribute assignment (e.g., array.array.foo = 1)
             // This is not supported - in Python it would raise TypeError
