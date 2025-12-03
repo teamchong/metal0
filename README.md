@@ -150,14 +150,16 @@ metal0 compiles Python's `asyncio` to optimized native code:
 
 ### Tokenizer Benchmark
 
+**100% Correctness** - Verified against tiktoken cl100k_base (3459/3459 tests pass).
+
 **BPE Encoding (59,200 encodes - 592 texts × 100 iterations):**
 
-| Implementation | Time | vs metal0 |
-|---------------|------|----------|
-| **metal0 (Zig)** | **70ms** | **1.00x** |
-| rs-bpe (Rust) | 421ms | 6.0x slower |
-| tiktoken (Rust) | 1052ms | 15.0x slower |
-| HuggingFace (Python) | 5303ms | 75.8x slower |
+| Implementation | Time | vs metal0 | Correctness |
+|---------------|------|----------|-------------|
+| **metal0 (Zig)** | **70ms** | **1.00x** | **100%** |
+| rs-bpe (Rust) | 421ms | 6.0x slower | 100% |
+| tiktoken (Rust) | 1052ms | 15.0x slower | 100% |
+| HuggingFace (Python) | 5303ms | 75.8x slower | 100% |
 
 *Tested on Apple M2 with `json.load()` data.*
 
@@ -165,10 +167,10 @@ metal0 compiles Python's `asyncio` to optimized native code:
 
 | Library | Time | vs metal0 | Size |
 |---------|------|----------|------|
-| **metal0 (WASM)** | **47.8ms** | **1.00x** | **46KB** |
-| gpt-tokenizer (JS) | 847ms | 17.7x slower | 1.1MB |
-| @anthropic-ai/tokenizer (JS) | 8515ms | 178x slower | 8.6MB |
-| tiktoken (Node) | 11884ms | 249x slower | 1.0MB |
+| @anthropic-ai/tokenizer (JS) | 64.8ms | 1.12x faster | 8.6MB |
+| **metal0 (WASM)** | **72.5ms** | **1.00x** | **46KB** |
+| gpt-tokenizer (JS) | 1487ms | 20.5x slower | 1.1MB |
+| tiktoken (Node) | 17951ms | 248x slower | 1.0MB |
 
 **BPE Training (vocab_size=32000, 300 iterations):**
 
