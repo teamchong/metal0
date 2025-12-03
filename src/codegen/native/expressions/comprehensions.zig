@@ -55,29 +55,18 @@ fn genExprWithSubs(
             try self.emit(")");
         },
         .constant => |c| {
-            switch (c.value) {
-                .int => |i| try self.output.writer(self.allocator).print("{d}", .{i}),
-                .bigint => |s| try self.output.writer(self.allocator).print("(try runtime.parseIntToBigInt(__global_allocator, \"{s}\", 10))", .{s}),
-                .float => |f| try self.output.writer(self.allocator).print("{d}", .{f}),
-                .string => |s| {
-                    try self.emit("\"");
-                    try self.emit(s);
-                    try self.emit("\"");
-                },
-                .bytes => |s| {
-                    try self.emit("\"");
-                    try self.emit(s);
-                    try self.emit("\"");
-                },
-                .bool => |b| try self.emit(if (b) "true" else "false"),
-                .none => try self.emit("null"),
-                .complex => |imag| try self.output.writer(self.allocator).print("runtime.PyComplex.create(0.0, {d})", .{imag}),
-            }
+            // Use proper constant generation to handle string escaping correctly
+            const constants = @import("constants.zig");
+            try constants.genConstant(self, c);
         },
         .call => |c| {
-            // Handle call expressions with substitution for arguments
-            // Check if calling an async function - needs _async suffix and try
-            if (c.func.* == .name) {
+            // For method calls (attribute), use proper call dispatch to handle string methods etc.
+            // For other calls, handle inline with substitution
+            if (c.func.* == .attribute) {
+                // Use full call dispatch which handles method calls properly
+                const calls = @import("calls.zig");
+                try calls.genCall(self, c);
+            } else if (c.func.* == .name) {
                 const func_name = c.func.name.id;
                 if (self.async_functions.contains(func_name)) {
                     // Async function call in comprehension
@@ -89,20 +78,28 @@ fn genExprWithSubs(
                         try genExprWithSubs(self, arg, subs);
                     }
                     try self.emit(")");
-                    return;
+                } else {
+                    // Regular function call
+                    const parent = @import("../expressions.zig");
+                    try parent.genExpr(self, c.func.*);
+                    try self.emit("(");
+                    for (c.args, 0..) |arg, i| {
+                        if (i > 0) try self.emit(", ");
+                        try genExprWithSubs(self, arg, subs);
+                    }
+                    try self.emit(")");
                 }
+            } else {
+                // Other callable (lambda, subscript, etc.)
+                const parent = @import("../expressions.zig");
+                try parent.genExpr(self, c.func.*);
+                try self.emit("(");
+                for (c.args, 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try genExprWithSubs(self, arg, subs);
+                }
+                try self.emit(")");
             }
-            // Regular function call
-            const parent = @import("../expressions.zig");
-            // Generate function part
-            try parent.genExpr(self, c.func.*);
-            try self.emit("(");
-            // Generate arguments with substitution
-            for (c.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try genExprWithSubs(self, arg, subs);
-            }
-            try self.emit(")");
         },
         .list => |l| {
             // Handle list literals with substitution
@@ -363,7 +360,7 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     try self.emit(try std.fmt.allocPrint(self.allocator, "(comp_{d}: {{\n", .{label_id}));
     self.indent();
 
-    // Determine element type - check if element is an async function call
+    // Determine element type from the expression
     const element_type: []const u8 = blk: {
         if (listcomp.elt.* == .call) {
             const call = listcomp.elt.call;
@@ -372,6 +369,20 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                 if (self.async_functions.contains(func_name)) {
                     break :blk "*runtime.GreenThread";
                 }
+            } else if (call.func.* == .attribute) {
+                // Method call - check if it's a string method that returns string
+                const method_name = call.func.attribute.attr;
+                if (isStringReturningMethod(method_name)) {
+                    break :blk "[]u8";
+                }
+            }
+        } else if (listcomp.elt.* == .constant) {
+            // Constant element
+            switch (listcomp.elt.constant.value) {
+                .string, .bytes => break :blk "[]const u8",
+                .bool => break :blk "bool",
+                .float => break :blk "f64",
+                else => {},
             }
         }
         break :blk "i64";
@@ -941,4 +952,32 @@ fn getGenExpElementType(elt: ast.Node) []const u8 {
     if (isIntExpr(elt)) return "i64";
     // Default to i64 for unknown types
     return "i64";
+}
+
+/// String methods that return a string type
+const StringReturningMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "replace", {} },
+    .{ "strip", {} },
+    .{ "lstrip", {} },
+    .{ "rstrip", {} },
+    .{ "lower", {} },
+    .{ "upper", {} },
+    .{ "capitalize", {} },
+    .{ "title", {} },
+    .{ "swapcase", {} },
+    .{ "casefold", {} },
+    .{ "center", {} },
+    .{ "ljust", {} },
+    .{ "rjust", {} },
+    .{ "zfill", {} },
+    .{ "join", {} },
+    .{ "format", {} },
+    .{ "expandtabs", {} },
+    .{ "encode", {} },
+    .{ "decode", {} },
+    .{ "translate", {} },
+});
+
+fn isStringReturningMethod(method_name: []const u8) bool {
+    return StringReturningMethods.has(method_name);
 }

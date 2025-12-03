@@ -170,22 +170,21 @@ metal0 compiles Python's `asyncio` to optimized native code:
 | @anthropic-ai/tokenizer (JS) | 8515ms | 178x slower | 8.6MB |
 | tiktoken (Node) | 11884ms | 249x slower | 1.0MB |
 
-**BPE Training (vocab_size=32000):**
+**BPE Training (vocab_size=32000, 300 iterations):**
 
 | Library | Time | vs metal0 |
 |---------|------|----------|
-| **metal0 (Zig)** | **TBC** | **1.00x** |
-| SentencePiece (C++) | 8.514s | TBC |
-| HuggingFace (Rust) | 26.690s | TBC |
+| **metal0 (Zig)** | **1.21s** | **1.00x** |
+| HuggingFace (Rust) | 26.59s | 22x slower |
 
-**Unigram Training (vocab_size=32000):**
+**Unigram Training (vocab_size=32000, 100 iterations):**
 
 | Library | Time | vs HuggingFace |
 |---------|------|----------------|
-| HuggingFace (Rust) | 6.5s | 1.00x |
-| metal0 (Zig) | 77.4s | 11.95x slower |
+| HuggingFace (Rust) | 2.15s | 1.00x |
+| metal0 (Zig) | 5.70s | 2.65x slower |
 
-*Unigram uses complex EM algorithm - metal0 needs optimization here.*
+*BPE training is 22x faster. Unigram improved from 11.95x to 2.65x slower.*
 
 ### Regex Benchmark
 

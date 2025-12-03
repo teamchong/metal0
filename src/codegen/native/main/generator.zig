@@ -551,6 +551,28 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 continue;
             }
 
+            // Check if this variable is assigned from a list comprehension
+            // List comprehensions with method calls (like .replace()) have complex element types
+            // that are better inferred inline than pre-declared with the wrong type
+            var is_listcomp_assignment = false;
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            if (assign.value.* == .listcomp) {
+                                is_listcomp_assignment = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Skip pre-declaring list comprehension results - they'll be declared inline with correct type
+            if (is_listcomp_assignment) {
+                continue;
+            }
+
             // Check if this variable is assigned from import_module() or get_feature_macros()
             // These are compile-time values that need special handling
             var is_import_module_call = false;

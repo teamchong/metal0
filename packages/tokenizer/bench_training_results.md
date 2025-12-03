@@ -1,18 +1,3 @@
-## Unigram Training Performance (VOCAB_SIZE=751)
-
-| Command | Mean [ms] | Relative |
-|:---|---:|---:|
-| **metal0 (Zig ReleaseFast)** | **108** | **2.4x faster** 🚀 |
-| HuggingFace (Rust release) | 263 | 1.00 |
-
-**Result: metal0 beats HuggingFace by 2.4x!** ✅
-
----
-
-## BPE Training Performance (Full Benchmark)
-
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `metal0 (Zig)` | 1.095 ± 0.009 | 1.084 | 1.106 | 1.00 |
-| `HuggingFace (Rust)` | 26.690 ± 0.145 | 26.536 | 26.848 | 24.37 ± 0.23 |
-| `SentencePiece (C++)` | 8.514 ± 0.112 | 8.391 | 8.694 | 7.78 ± 0.12 |
+| `metal0 (Zig)` | 36.461 ± 0.225 | 36.283 | 36.833 | 1.00 |

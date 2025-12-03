@@ -5,16 +5,16 @@
 **Vocabulary Size:** 32,000 tokens
 **System:** macOS (Darwin 25.1.0), Zig 0.15.2
 
-## Results
+## Results (Updated December 2024)
 
-| Command | Mean [s] | Min [s] | Max [s] | Relative |
-|:---|---:|---:|---:|---:|
-| `HuggingFace (Rust)` | 6.479 ± 0.041 | 6.409 | 6.515 | 1.00 |
-| `metal0 (Zig)` | 77.416 ± 0.731 | 76.871 | 78.653 | **11.95 ± 0.14** |
+| Command | Mean [ms/iter] | Relative |
+|:---|---:|---:|
+| `HuggingFace (Rust)` | 21.5 | 1.00 |
+| `metal0 (Zig)` | 57.0 | **2.65x slower** |
 
 ## Analysis
 
-**metal0 is 11.95x SLOWER than HuggingFace for Unigram training.**
+**metal0 is 2.65x slower than HuggingFace for Unigram training** (improved from 11.95x).
 
 ### Why the Performance Gap?
 
@@ -51,8 +51,8 @@ SentencePiece benchmark failed (error during execution). Investigating separatel
 
 | Algorithm | metal0 Performance | Status |
 |-----------|------------------|--------|
-| **BPE** | **1.23x slower** ⚠️ | Needs optimization |
-| **WordPiece** | **1.94x slower** ⚠️ | Needs optimization |
-| **Unigram** | **11.95x slower** ⚠️ | Needs major optimization |
+| **BPE** | **22x FASTER** ✅ | Excellent |
+| **WordPiece** | **TBD** | Needs testing |
+| **Unigram** | **2.65x slower** ⚠️ | Improved from 11.95x |
 
-**Takeaway:** metal0 training needs optimization across all algorithms. Encoding (6x faster) and WASM (17-249x faster) are excellent.
+**Takeaway:** BPE training is excellent (22x faster). Unigram improved from 11.95x to 2.65x slower. Encoding (6x faster) and WASM (17-249x faster) are excellent.

@@ -174,6 +174,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         .{ .name = "staticarray", .value = "runtime.TestBuffer.staticarray" },
                         // Functions
                         .{ .name = "get_sizeof_void_p", .value = "@as(i64, @sizeOf(*anyopaque))" },
+                        .{ .name = "slice_indices", .value = "runtime.TestBuffer.slice_indices" },
+                        .{ .name = "get_pointer", .value = "runtime.TestBuffer.get_pointer" },
+                        .{ .name = "get_contiguous", .value = "runtime.TestBuffer.get_contiguous" },
+                        .{ .name = "py_buffer_to_contiguous", .value = "runtime.TestBuffer.py_buffer_to_contiguous" },
+                        .{ .name = "cmp_contig", .value = "runtime.TestBuffer.cmp_contig" },
                     };
                     for (testbuffer_exports) |exp| {
                         if (generated_symbols.contains(exp.name)) continue;

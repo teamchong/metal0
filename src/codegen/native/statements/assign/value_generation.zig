@@ -252,7 +252,7 @@ pub fn emitVarDeclaration(
     is_arraylist: bool,
     is_dict: bool,
     is_mutable_class_instance: bool,
-    _: bool, // is_listcomp - no longer used for var/const decision
+    is_listcomp: bool,
     is_iterator: bool,
 ) CodegenError!void {
     // Check if variable was forward-declared (captured by nested class before defined)
@@ -310,8 +310,8 @@ pub fn emitVarDeclaration(
     // Note: is_mutable_class_instance was previously used when closure calls added `&` for class args,
     // but now closures pass class instances directly (no &), so this flag is no longer needed.
     _ = is_mutable_class_instance; // No longer used for var/const decision
-    // Removed is_listcomp from needs_var - listcomp results can use const unless mutated
-    const needs_var = is_arraylist or is_dict or is_mutated or is_mutable_collection or is_iterator;
+    // List comprehensions return ArrayLists which need `var` for defer deinit() calls
+    const needs_var = is_arraylist or is_dict or is_mutated or is_mutable_collection or is_iterator or is_listcomp;
 
     if (needs_var) {
         try self.emit("var ");

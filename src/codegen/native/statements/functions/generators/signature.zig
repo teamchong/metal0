@@ -412,6 +412,34 @@ pub fn hasReturnStatement(body: []ast.Node) bool {
     return false;
 }
 
+/// Check if function body contains any yield statements (is a generator)
+pub fn hasYieldStatement(body: []ast.Node) bool {
+    for (body) |stmt| {
+        if (stmt == .yield_stmt or stmt == .yield_from_stmt) return true;
+        // Check nested statements
+        if (stmt == .if_stmt) {
+            if (hasYieldStatement(stmt.if_stmt.body)) return true;
+            if (hasYieldStatement(stmt.if_stmt.else_body)) return true;
+        }
+        if (stmt == .while_stmt) {
+            if (hasYieldStatement(stmt.while_stmt.body)) return true;
+        }
+        if (stmt == .for_stmt) {
+            if (hasYieldStatement(stmt.for_stmt.body)) return true;
+        }
+        if (stmt == .try_stmt) {
+            if (hasYieldStatement(stmt.try_stmt.body)) return true;
+            for (stmt.try_stmt.handlers) |h| {
+                if (hasYieldStatement(h.body)) return true;
+            }
+        }
+        if (stmt == .with_stmt) {
+            if (hasYieldStatement(stmt.with_stmt.body)) return true;
+        }
+    }
+    return false;
+}
+
 /// Generate function signature: fn name(params...) return_type {
 pub fn genFunctionSignature(
     self: *NativeCodegen,
@@ -466,6 +494,10 @@ pub fn genFunctionSignature(
         }
     }
 
+    // Check if this is a generator function (has yield statements) - generators
+    // have their bodies transformed, so all params may appear unused in generated code
+    const is_generator = hasYieldStatement(func.body);
+
     // Generate parameters
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
@@ -478,7 +510,8 @@ pub fn genFunctionSignature(
         // Also check if parameter is captured by any nested class (used via closure)
         // Note: When parameter shadows module-level function, body uses the renamed
         // version (e.g., indices__local), so we must check for that usage too
-        const is_used_directly = param_analyzer.isNameUsedInBody(func.body, arg.name);
+        // For generators, always mark params as used since yield body isn't properly generated
+        const is_used_directly = if (is_generator) true else param_analyzer.isNameUsedInBody(func.body, arg.name);
         const is_captured = self.isVarCapturedByAnyNestedClass(arg.name);
         const is_used = is_used_directly or is_captured or shadows_module_func;
         if (!is_used) {

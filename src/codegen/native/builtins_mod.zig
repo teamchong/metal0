@@ -6,6 +6,7 @@ const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 const collections = @import("builtins/collections.zig");
 const builtins = @import("builtins.zig");
+const expressions = @import("expressions.zig");
 
 // Comptime generators
 fn genFmt(comptime prefix: []const u8, comptime fmt: []const u8, comptime default: []const u8) h.H {
@@ -78,7 +79,38 @@ fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "true"); }
 fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "@as(?*anyopaque, null)"); }
 fn genVoid(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "{}"); }
-pub const genSlice = h.c(".{ .start = @as(?i64, null), .stop = @as(?i64, null), .step = @as(?i64, null) }");
+pub fn genSlice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    // slice(stop) or slice(start, stop) or slice(start, stop, step)
+    try self.emit(".{ .start = ");
+    if (args.len >= 2) {
+        try self.emit("@as(?i64, ");
+        try expressions.genExpr(self, args[0]);
+        try self.emit(")");
+    } else {
+        try self.emit("@as(?i64, null)");
+    }
+    try self.emit(", .stop = ");
+    if (args.len >= 1) {
+        try self.emit("@as(?i64, ");
+        if (args.len == 1) {
+            try expressions.genExpr(self, args[0]);
+        } else {
+            try expressions.genExpr(self, args[1]);
+        }
+        try self.emit(")");
+    } else {
+        try self.emit("@as(?i64, null)");
+    }
+    try self.emit(", .step = ");
+    if (args.len >= 3) {
+        try self.emit("@as(?i64, ");
+        try expressions.genExpr(self, args[2]);
+        try self.emit(")");
+    } else {
+        try self.emit("@as(?i64, null)");
+    }
+    try self.emit(" }");
+}
 
 pub fn genSuper(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;

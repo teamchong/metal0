@@ -5,12 +5,6 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Build-time algorithm selection (industry standard: -D flag)
-    // Users can opt-in to each algorithm individually:
-    //   -Dinclude_bpe=true        (default: true)
-    //   -Dinclude_wordpiece=true  (default: true)
-    //   -Dinclude_unigram=true    (default: true)
-    // All algorithms included by default - dead code elimination removes unused ones
-
     const include_bpe = b.option(bool, "include_bpe", "Include BPE algorithm") orelse true;
     const include_wordpiece = b.option(bool, "include_wordpiece", "Include WordPiece algorithm") orelse true;
     const include_unigram = b.option(bool, "include_unigram", "Include Unigram algorithm") orelse true;
@@ -36,6 +30,14 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "runtime_selection", runtime_selection);
     options.addOption([]const u8, "default_algorithm", default_algorithm);
 
+    // Helper modules
+    const allocator_helper = b.addModule("allocator_helper", .{
+        .root_source_file = b.path("../../src/utils/allocator_helper.zig"),
+    });
+    const hashmap_helper = b.addModule("hashmap_helper", .{
+        .root_source_file = b.path("../../src/utils/hashmap_helper.zig"),
+    });
+
     // Training benchmark binary
     const bench_train = b.addExecutable(.{
         .name = "bench_train",
@@ -46,43 +48,14 @@ pub fn build(b: *std.Build) void {
         }),
     });
     bench_train.root_module.addOptions("build_options", options);
-
-    const allocator_helper = b.addModule("allocator_helper", .{
-        .root_source_file = b.path("../../src/utils/allocator_helper.zig"),
-    });
     bench_train.root_module.addImport("allocator_helper", allocator_helper);
+    bench_train.root_module.addImport("hashmap_helper", hashmap_helper);
 
     b.installArtifact(bench_train);
 
-    // JSON parse benchmark binary
-    const hashmap_helper = b.addModule("hashmap_helper", .{
-        .root_source_file = b.path("../../src/utils/hashmap_helper.zig"),
-    });
-    const runtime = b.addModule("runtime", .{
-        .root_source_file = b.path("../runtime/src/runtime.zig"),
-    });
-    runtime.addImport("hashmap_helper", hashmap_helper);
-
-    const bench_json_parse = b.addExecutable(.{
-        .name = "bench_metal0_json_parse",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("bench_metal0_json_parse_fast.zig"),
-            .target = target,
-            .optimize = .ReleaseFast,
-        }),
-    });
-    bench_json_parse.root_module.addImport("allocator_helper", allocator_helper);
-    bench_json_parse.root_module.addImport("hashmap_helper", hashmap_helper);
-    bench_json_parse.root_module.addImport("runtime", runtime);
-    bench_json_parse.linkLibC();
-
-    b.installArtifact(bench_json_parse);
-
     // Install step with helpful message
     const install_step = b.getInstallStep();
-    const print_step = b.addSystemCommand(&.{
-        "echo",
-    });
+    const print_step = b.addSystemCommand(&.{"echo"});
     const msg = b.fmt("Built bench_train with algorithm: {s}", .{default_algorithm});
     print_step.addArg(msg);
     install_step.dependOn(&print_step.step);

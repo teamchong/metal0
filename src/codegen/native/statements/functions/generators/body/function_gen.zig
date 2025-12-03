@@ -463,14 +463,30 @@ pub fn genFunctionBody(
     // Push new scope for function body
     try self.pushScope();
 
-    // Note: Unused parameters are handled in signature.zig with "_" prefix
-    // (e.g., unused param "op" becomes "_op" in signature)
-    // No need to emit "_ = param;" here since "_" prefix already suppresses the warning
+    // For generator functions, yield body becomes `// pass` which loses param usage.
+    // We need to emit `_ = param;` ONLY for params that:
+    // 1. Are in a generator function (yield body becomes pass)
+    // 2. Are NOT actually used in the non-yield parts of the body
+    // 3. Don't have defaults (defaults are handled below)
+    const signature = @import("../signature.zig");
+    const param_analyzer = @import("../../param_analyzer.zig");
+    if (signature.hasYieldStatement(func.body)) {
+        for (func.args) |arg| {
+            // Skip params with defaults - they're used in "const x = x_param orelse ..."
+            if (arg.default != null) continue;
+            // Only discard if param is NOT used in the body (excluding yield expressions)
+            // Use ExcludingYield variant since yield becomes `// pass`
+            if (param_analyzer.isNameUsedInBodyExcludingYield(func.body, arg.name)) continue;
+            try self.emitIndent();
+            try self.emit("_ = ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.emit(";\n");
+        }
+    }
 
     // Generate default parameter initialization (before declaring them in scope)
     // When default value references the same name as the parameter (e.g., def foo(x=x):),
     // we need to use a different local name to avoid shadowing the module-level variable
-    const param_analyzer = @import("../../param_analyzer.zig");
     for (func.args) |arg| {
         if (arg.default) |default_expr| {
             const expressions = @import("../../../../expressions.zig");

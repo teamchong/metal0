@@ -62,13 +62,13 @@ benchmark-encoding:
 	@./BENCHMARK.sh
 	@echo ""
 
-# Test correctness (comprehensive: 583 benchmark texts + edge cases)
-test-correctness: build
+# Test correctness (comprehensive: 601 texts - 592 benchmark + 9 edge cases)
+test-correctness:
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
-	@echo "$(GREEN)🔍 Correctness Test (Comprehensive)$(RESET)"
+	@echo "$(GREEN)🔍 Encoding Correctness Test (601 cases)$(RESET)"
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo ""
-	@python3 test_comprehensive.py
+	@python3 test_encoding_full.py
 	@echo ""
 
 # Web/WASM benchmarks (hyperfine-based, Node.js)
@@ -91,19 +91,12 @@ benchmark-json:
 	@./bench_json.sh
 	@echo ""
 
-# Build all native binaries (no build.zig - direct zig commands)
+# Build all native binaries (using zig build system)
 build:
 	@echo "$(YELLOW)🔨 Building native binaries...$(RESET)"
 	@mkdir -p $(BIN_DIR)
-	@$(ZIG) build-exe src/main.zig $(OPTIMIZE) -femit-bin=$(BIN_DIR)/tokenizer_bench
-	@$(ZIG) build-exe src/bench_native.zig $(OPTIMIZE) -femit-bin=$(BIN_DIR)/bench_native
-	@$(ZIG) build-exe src/bench_train.zig $(OPTIMIZE) -femit-bin=$(BIN_DIR)/bench_train
-	@$(ZIG) build-exe src/test_correctness.zig $(OPTIMIZE) -femit-bin=$(BIN_DIR)/test_correctness
-	@echo "$(GREEN)✅ Build complete:$(RESET)"
-	@echo "   - tokenizer_bench"
-	@echo "   - bench_native"
-	@echo "   - bench_train"
-	@echo "   - test_correctness"
+	@$(ZIG) build -Doptimize=ReleaseFast
+	@echo "$(GREEN)✅ Build complete$(RESET)"
 	@echo ""
 
 # Build WASM tokenizer (direct zig command)

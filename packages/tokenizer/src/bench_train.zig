@@ -4,8 +4,6 @@ const trainer_mod = @import("trainer.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const UnigramTokenizer = @import("unigram_tokenizer.zig").UnigramTokenizer;
 const allocator_helper = @import("allocator_helper");
-const json = @import("runtime/src/json/parse.zig");
-// Removed ThreadPool - using std.Thread directly
 
 // Algorithm selection based on build options
 const Trainer = if (build_options.runtime_selection)
@@ -43,35 +41,14 @@ pub fn main() !void {
     _ = try file.readAll(json_data);
 
     // Parse JSON to get texts array
-    var parsed = try json_parse.parse(json_data, allocator);
-    defer parsed.deinit(allocator);
-
-    const texts_json = switch (parsed) {
-        .object => |obj| blk: {
-            const texts_value = obj.get("texts") orelse return error.MissingTextsField;
-            break :blk switch (texts_value.*) {
-                .array => |arr| arr,
-                else => return error.InvalidTextsField,
-            };
-        },
-        else => return error.InvalidJsonRoot,
-    };
+    const parsed = try std.json.parseFromSlice(struct { texts: [][]const u8 }, allocator, json_data, .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
 
     var texts = std.ArrayList([]const u8){};
-    defer {
-        for (texts.items) |text| {
-            allocator.free(text);
-        }
-        texts.deinit(allocator);
-    }
+    defer texts.deinit(allocator);
 
-    for (texts_json.items) |*text_value| {
-        const text = switch (text_value.*) {
-            .string => |s| s,
-            else => return error.InvalidTextItem,
-        };
-        const owned_text = try allocator.dupe(u8, text);
-        try texts.append(allocator, owned_text);
+    for (parsed.value.texts) |text| {
+        try texts.append(allocator, text);
     }
 
     // Train 300 times to match HuggingFace benchmark (amortize startup overhead)

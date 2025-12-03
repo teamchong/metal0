@@ -37,6 +37,62 @@ pub fn isNameUsedInBody(body: []ast.Node, name: []const u8) bool {
     return false;
 }
 
+/// Check if a name is used in body EXCLUDING yield expressions.
+/// For generators, yield becomes `// pass` so usages there don't survive codegen.
+pub fn isNameUsedInBodyExcludingYield(body: []ast.Node, name: []const u8) bool {
+    for (body) |stmt| {
+        if (isNameUsedInStmtExcludingYield(stmt, name)) return true;
+    }
+    return false;
+}
+
+fn isNameUsedInStmtExcludingYield(stmt: ast.Node, name: []const u8) bool {
+    return switch (stmt) {
+        // Skip yield statements entirely - they become `// pass` in codegen
+        .yield_stmt, .yield_from_stmt => false,
+        .expr_stmt => |expr| isNameUsedInExpr(expr.value.*, name),
+        .assign => |assign| {
+            for (assign.targets) |target| {
+                if (isNameUsedInExpr(target, name)) return true;
+            }
+            return isNameUsedInExpr(assign.value.*, name);
+        },
+        .return_stmt => |ret| if (ret.value) |val| isNameUsedInExpr(val.*, name) else false,
+        .if_stmt => |if_stmt| {
+            if (isNameUsedInExpr(if_stmt.condition.*, name)) return true;
+            if (isNameUsedInBodyExcludingYield(if_stmt.body, name)) return true;
+            if (isNameUsedInBodyExcludingYield(if_stmt.else_body, name)) return true;
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            if (isNameUsedInExpr(while_stmt.condition.*, name)) return true;
+            if (isNameUsedInBodyExcludingYield(while_stmt.body, name)) return true;
+            return false;
+        },
+        .for_stmt => |for_stmt| {
+            if (isNameUsedInExpr(for_stmt.iter.*, name)) return true;
+            if (isNameUsedInBodyExcludingYield(for_stmt.body, name)) return true;
+            return false;
+        },
+        .function_def => |func_def| isNameUsedInBodyExcludingYield(func_def.body, name),
+        .with_stmt => |with_stmt| {
+            if (isNameUsedInExpr(with_stmt.context_expr.*, name)) return true;
+            if (isNameUsedInBodyExcludingYield(with_stmt.body, name)) return true;
+            return false;
+        },
+        .try_stmt => |try_stmt| {
+            if (isNameUsedInBodyExcludingYield(try_stmt.body, name)) return true;
+            for (try_stmt.handlers) |handler| {
+                if (isNameUsedInBodyExcludingYield(handler.body, name)) return true;
+            }
+            if (isNameUsedInBodyExcludingYield(try_stmt.else_body, name)) return true;
+            if (isNameUsedInBodyExcludingYield(try_stmt.finalbody, name)) return true;
+            return false;
+        },
+        else => false,
+    };
+}
+
 /// Check if a name is used in init body, excluding parent __init__ calls
 /// Parent calls like Exception.__init__(self, ...) or super().__init__(...) are skipped
 /// in code generation, so params only used there are effectively unused
@@ -220,6 +276,15 @@ fn isNameUsedInStmt(stmt: ast.Node, name: []const u8) bool {
                 if (isNameUsedInBody(case.body, name)) return true;
             }
             return false;
+        },
+        .yield_stmt => |yield_stmt| {
+            // Check yield expression
+            if (yield_stmt.value) |val| return isNameUsedInExpr(val.*, name);
+            return false;
+        },
+        .yield_from_stmt => |yield_from| {
+            // Check yield from iterable expression
+            return isNameUsedInExpr(yield_from.value.*, name);
         },
         else => false,
     };

@@ -150,8 +150,6 @@ pub const UnigramTrainer = struct {
                 .score = @floatFromInt(item.freq),
             });
         }
-        const num_chars = pieces.items.len - 1; // -1 for UNK
-        std.debug.print("[PROFILE] Added {d} characters to seeds\n", .{num_chars});
 
         // Use suffix arrays to find FREQUENT substrings (like HuggingFace)
         // This is much more selective than exhaustive n-gram generation
@@ -176,10 +174,10 @@ pub const UnigramTrainer = struct {
             pos += 1;
         }
 
-        std.debug.print("[PROFILE] Concatenated {d} sentences into {d} bytes\n", .{ sentences.len, concat_text.len });
+        // std.debug.print("[PROFILE] Concatenated {d} sentences into {d} bytes\n", .{ sentences.len, concat_text.len });
 
         // Use pure Zig SA-IS implementation
-        std.debug.print("[PROFILE] Calling SA-IS (pure Zig)...\n", .{});
+        // std.debug.print("[PROFILE] Calling SA-IS (pure Zig)...\n", .{});
         const frequent_substrings = try sais.findFrequentSubstrings(
             self.allocator,
             concat_text,
@@ -194,35 +192,18 @@ pub const UnigramTrainer = struct {
             self.allocator.free(frequent_substrings);
         }
 
-        std.debug.print("[PROFILE] Found {d} substrings from SA-IS\n", .{frequent_substrings.len});
+        // std.debug.print("[PROFILE] Found {d} substrings from SA-IS\n", .{frequent_substrings.len});
 
         // Convert suffix array results to pieces
-        // EXACTLY matching HuggingFace trainer.rs:238-272
-        var skipped_len: usize = 0;
-        var skipped_null: usize = 0;
-        var skipped_maxlen: usize = 0;
         const seed_size: usize = 1_000_000; // HuggingFace default
 
         for (frequent_substrings) |substr| {
-            // Filter 1: len <= 1 (line 241-242)
-            if (substr.string.len <= 1) {
-                skipped_len += 1;
-                continue;
-            }
+            // Filter: len <= 1, contains '\0', or exceeds max_piece_length
+            if (substr.string.len <= 1) continue;
+            if (std.mem.indexOfScalar(u8, substr.string, 0) != null) continue;
+            if (substr.string.len > self.config.max_piece_length) continue;
 
-            // Filter 2: contains '\0' (line 244-245)
-            if (std.mem.indexOfScalar(u8, substr.string, 0) != null) {
-                skipped_null += 1;
-                continue;
-            }
-
-            // Filter 3: is_valid_sentencepiece checks max_piece_length (line 106-107)
-            if (substr.string.len > self.config.max_piece_length) {
-                skipped_maxlen += 1;
-                continue;
-            }
-
-            // Score: frequency * length (line 250)
+            // Score: frequency * length
             const score = @as(f64, @floatFromInt(substr.freq * @as(u32, @intCast(substr.string.len))));
 
             const token_copy = try self.allocator.dupe(u8, substr.string);
@@ -231,20 +212,8 @@ pub const UnigramTrainer = struct {
                 .score = score,
             });
 
-            // Limit to seed_size (line 270-272)
-            if (pieces.items.len - 1 >= seed_size) { // -1 for UNK token
-                break;
-            }
-        }
-
-        const num_substrings = pieces.items.len - num_chars - 1; // -1 for UNK
-        std.debug.print("[PROFILE] Added {d} substrings from esaxx (total seeds: {d})\n", .{ num_substrings, pieces.items.len });
-        std.debug.print("[PROFILE] Filtered: {d} len<=1, {d} with \\0, {d} len>{d}\n", .{ skipped_len, skipped_null, skipped_maxlen, self.config.max_piece_length });
-
-        // Sample first 10 seeds for debugging
-        std.debug.print("[DEBUG] First 10 seeds:\n", .{});
-        for (pieces.items[1..@min(11, pieces.items.len)], 1..) |piece, i| {
-            std.debug.print("  [{d}] \"{s}\" (score={d:.2})\n", .{ i, piece.token, piece.score });
+            // Limit to seed_size
+            if (pieces.items.len - 1 >= seed_size) break;
         }
 
         // Convert scores to log probabilities
@@ -388,7 +357,7 @@ pub const UnigramTrainer = struct {
                 objs -= z / @as(f64, @floatFromInt(all_sentence_freq));
             }
 
-            std.debug.print("[E-STEP PROFILE] init={d}ms populate={d}ms marginal={d}ms\n", .{ @divFloor(total_init_ns, 1_000_000), @divFloor(total_populate_ns, 1_000_000), @divFloor(total_marginal_ns, 1_000_000) });
+            // std.debug.print("[E-STEP PROFILE] init={d}ms populate={d}ms marginal={d}ms\n", .{ @divFloor(total_init_ns, 1_000_000), @divFloor(total_populate_ns, 1_000_000), @divFloor(total_marginal_ns, 1_000_000) });
         }
 
         return .{ objs, expected };
@@ -552,7 +521,7 @@ pub const UnigramTrainer = struct {
             piece.score = digamma(piece.score) - logsum;
         }
 
-        std.debug.print("[DEBUG] M-step: {d} filtered, {d} kept (from {d} pieces) | max_freq={d:.2}, min_nonzero={d:.6}\n", .{ filtered_count, new_pieces.items.len, pieces.len, max_freq, min_nonzero_freq });
+        // std.debug.print("[DEBUG] M-step: {d} filtered, {d} kept (from {d} pieces) | max_freq={d:.2}, min_nonzero={d:.6}\n", .{ filtered_count, new_pieces.items.len, pieces.len, max_freq, min_nonzero_freq });
         return new_pieces;
     }
 
@@ -775,35 +744,25 @@ pub const UnigramTrainer = struct {
 
     /// Train Unigram model using EM algorithm
     pub fn train(self: *UnigramTrainer, sentences: []const Sentence) !Unigram {
-        const start_total = std.time.nanoTimestamp();
-
         // 1. Generate seed vocabulary
-        const start_seed = std.time.nanoTimestamp();
         var pieces = try self.makeSeedPieces(sentences);
         defer {
             for (pieces.items) |*piece| piece.deinit(self.allocator);
             pieces.deinit(self.allocator);
         }
-        const seed_ms = @divFloor(std.time.nanoTimestamp() - start_seed, 1_000_000);
-        std.debug.print("[PROFILE] Seed generation: {d}ms ({d} pieces)\n", .{ seed_ms, pieces.items.len });
 
         // Target vocabulary size for EM convergence
         const desired_vocab_size = (self.config.vocab_size * 11) / 10; // 1.1x target (HuggingFace default)
-        std.debug.print("[PROFILE] Seeds: {d}, Desired: {d}, Target: {d}\n", .{ pieces.items.len, desired_vocab_size, self.config.vocab_size });
+        // std.debug.print("[PROFILE] Seeds: {d}, Desired: {d}, Target: {d}\n", .{ pieces.items.len, desired_vocab_size, self.config.vocab_size });
 
         // Lattice caching disabled - adds overhead without benefit (only 1 EM iteration)
         // TODO: Re-enable when we have multiple EM iterations per training run
         _ = @TypeOf(null); // Cached lattices not used with parallel E-step
 
         // 2. EM iterations
-        var em_iteration: u32 = 0;
         while (pieces.items.len > desired_vocab_size) {
-            const start_em = std.time.nanoTimestamp();
-            em_iteration += 1;
             // Sub-iterations of EM
             var iter: u32 = 0;
-            var total_estep_ms: i128 = 0;
-            var total_mstep_ms: i128 = 0;
             while (iter < self.config.n_sub_iterations) : (iter += 1) {
                 // Convert to VocabEntry for model
                 var vocab = try self.allocator.alloc(VocabEntry, pieces.items.len);
@@ -828,12 +787,11 @@ pub const UnigramTrainer = struct {
                 //         cached_lattices[i] = try Lattice.init(self.allocator, sentence.text, model.bos_id, model.eos_id);
                 //     }
                 //     const cache_ms = @divFloor(std.time.nanoTimestamp() - start_cache, 1_000_000);
-                //     std.debug.print("[PROFILE] Lattice cache creation: {d}ms ({d} lattices)\n", .{cache_ms, cached_lattices.len});
+                //     // std.debug.print("[PROFILE] Lattice cache creation: {d}ms ({d} lattices)\n", .{cache_ms, cached_lattices.len});
                 //     cached_lattices_opt = cached_lattices;
                 // }
 
                 // E-step (parallel for speedup)
-                const start_estep = std.time.nanoTimestamp();
                 const all_sentence_freq: u32 = blk: {
                     var sum: u32 = 0;
                     for (sentences) |s| sum += s.count;
@@ -842,18 +800,13 @@ pub const UnigramTrainer = struct {
                 const e_result = try self.runEStepParallel(&model, sentences, all_sentence_freq);
                 const expected = e_result[1];
                 defer self.allocator.free(expected);
-                const estep_ms = @divFloor(std.time.nanoTimestamp() - start_estep, 1_000_000);
-                total_estep_ms += estep_ms;
 
                 // M-step
-                const start_mstep = std.time.nanoTimestamp();
                 var new_pieces = try self.runMStep(pieces.items, expected);
                 defer {
                     for (new_pieces.items) |*piece| piece.deinit(self.allocator);
                     new_pieces.deinit(self.allocator);
                 }
-                const mstep_ms = @divFloor(std.time.nanoTimestamp() - start_mstep, 1_000_000);
-                total_mstep_ms += mstep_ms;
 
                 // Update pieces
                 for (pieces.items) |*piece| piece.deinit(self.allocator);
@@ -869,10 +822,8 @@ pub const UnigramTrainer = struct {
             }
 
             // Prune vocabulary
-            const start_prune = std.time.nanoTimestamp();
             const pruned_size = @as(usize, @intFromFloat(@as(f64, @floatFromInt(pieces.items.len)) * self.config.shrinking_factor));
             const target_size = @max(desired_vocab_size, pruned_size);
-            std.debug.print("[PRUNE DEBUG] pieces={d}, shrinking_factor={d}, pruned_size={d}, desired={d}, target={d}\n", .{ pieces.items.len, self.config.shrinking_factor, pruned_size, desired_vocab_size, target_size });
 
             var pruned = try self.pruneVocab(pieces.items, sentences, target_size);
             defer {
@@ -891,18 +842,11 @@ pub const UnigramTrainer = struct {
                     .score = piece.score,
                 });
             }
-            const prune_ms = @divFloor(std.time.nanoTimestamp() - start_prune, 1_000_000);
-
-            const em_ms = @divFloor(std.time.nanoTimestamp() - start_em, 1_000_000);
-            std.debug.print("[PROFILE] EM {d}: E-step={d}ms M-step={d}ms Prune={d}ms Total={d}ms (vocab: {d} -> {d})\n", .{ em_iteration, total_estep_ms, total_mstep_ms, prune_ms, em_ms, pruned.items.len, pieces.items.len });
 
             if (pieces.items.len <= desired_vocab_size) {
                 break;
             }
         }
-
-        const total_ms = @divFloor(std.time.nanoTimestamp() - start_total, 1_000_000);
-        std.debug.print("[PROFILE] Total training time: {d}ms ({d} EM iterations)\n", .{ total_ms, em_iteration });
 
         // Finalize: Truncate to exact vocab_size (HuggingFace compatibility)
         var finalized_pieces = try self.finalize(pieces.items, sentences);
@@ -927,7 +871,7 @@ pub const UnigramTrainer = struct {
             };
         }
 
-        std.debug.print("[PROFILE] Finalized vocab size: {d} (target: {d})\n", .{ vocab.len, self.config.vocab_size });
+        // std.debug.print("[PROFILE] Finalized vocab size: {d} (target: {d})\n", .{ vocab.len, self.config.vocab_size });
         return try Unigram.init(self.allocator, vocab, 0);
     }
 
