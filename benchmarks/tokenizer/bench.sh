@@ -129,7 +129,9 @@ echo ""
 
 HFARGS=()
 for lib in "${AVAILABLE[@]}"; do
-    IFS=':::' read -r name cmd <<< "$lib"
+    # Use pattern matching instead of IFS (IFS doesn't handle multi-char delimiters)
+    name="${lib%%:::*}"
+    cmd="${lib#*:::}"
     HFARGS+=("--command-name" "$name" "$cmd")
 done
 

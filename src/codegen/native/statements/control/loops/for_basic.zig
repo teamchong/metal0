@@ -671,10 +671,20 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Check if variable is used in body - if not, use _ to avoid unused capture error
     const var_used = varUsedInBody(for_stmt.body, for_stmt.target.name.id);
+
+    // Check if this variable already exists in outer scope (Python allows reusing loop vars)
+    // If so, use a unique capture name to avoid Zig "capture shadows local" error
+    const shadows_outer = self.isDeclared(for_stmt.target.name.id);
+    const unique_capture_id = self.block_label_counter;
+    if (shadows_outer) self.block_label_counter += 1;
+
     try self.emit(") |");
     if (!var_used) {
         // Use bare _ for unused capture (Zig requires this)
         try self.emit("_");
+    } else if (shadows_outer) {
+        // Use unique capture name to avoid shadowing
+        try self.output.writer(self.allocator).print("__loop_{s}_{d}__", .{ var_name, unique_capture_id });
     } else {
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
     }
@@ -684,6 +694,14 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Push new scope for loop body
     try self.pushScope();
+
+    // If we used a unique capture name due to shadowing, assign it to the outer variable
+    // This implements Python semantics where `for x in ...` reassigns x from outer scope
+    if (var_used and shadows_outer) {
+        try self.emitIndent();
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try self.output.writer(self.allocator).print(" = __loop_{s}_{d}__;\n", .{ var_name, unique_capture_id });
+    }
 
     // If the loop variable is captured by a nested class but not directly used,
     // emit `_ = varname;` to suppress unused warning while keeping it available for captures

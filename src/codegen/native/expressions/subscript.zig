@@ -477,9 +477,70 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     try elem_type.toZigType(self.allocator, &self.output);
 
                     try self.emitFmt("){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(__global_allocator, __s.items[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(__global_allocator, __s.items[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(__global_allocator); }}", .{label_id});
+                } else if (value_type == .tuple) {
+                    // Tuple slicing with step - convert to runtime array slice
+                    // Python tuples are immutable but we can slice them
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
+                    try genExpr(self, subscript.value.*);
+                    try self.emit("; const __step: i64 = ");
+                    try genExpr(self, slice_range.step.?.*);
+                    try self.emit("; const __len = ");
+                    // Get tuple length using inline for
+                    try self.emit("comptime blk: { var count: usize = 0; inline for (std.meta.fields(@TypeOf(__s))) |_| count += 1; break :blk count; }");
+                    try self.emit("; const __start: usize = ");
+
+                    if (slice_range.lower) |lower| {
+                        try self.emit("@min(@as(usize, @intCast(");
+                        try genExpr(self, lower.*);
+                        try self.emit(")), __len)");
+                    } else {
+                        try self.emit("if (__step > 0) 0 else if (__len > 0) __len - 1 else 0");
+                    }
+
+                    try self.emit("; const __end: usize = ");
+
+                    if (slice_range.upper) |upper| {
+                        try self.emit("@min(@as(usize, @intCast(");
+                        try genExpr(self, upper.*);
+                        try self.emit(")), __len)");
+                    } else {
+                        try self.emit("if (__step > 0) __len else 0");
+                    }
+
+                    // For tuple step slicing, we need runtime array conversion
+                    // This is a simplified version that works for common cases
+                    try self.emitFmt("; var __result = std.ArrayList(@TypeOf(__s.@\"0\")){{}}; var __i: i64 = if (__step > 0) @intCast(__start) else @intCast(__start); const __end_i64: i64 = if (__step > 0) @intCast(__end) else -1; while (if (__step > 0) __i < __end_i64 else __i > __end_i64) : (__i += __step) {{ const __idx: usize = @intCast(__i); inline for (std.meta.fields(@TypeOf(__s)), 0..) |f, fi| {{ if (fi == __idx) try __result.append(__global_allocator, @field(__s, f.name)); }} }} break :slice_{d} __result; }}", .{label_id});
                 } else {
-                    // Unknown type - generate error
-                    try self.emit("@compileError(\"Slicing with step requires string or list type\")");
+                    // Unknown type - treat as generic slice (like raw []T)
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
+                    try genExpr(self, subscript.value.*);
+                    try self.emit("; const __step: i64 = ");
+                    try genExpr(self, slice_range.step.?.*);
+                    try self.emit("; const __start: usize = ");
+
+                    if (slice_range.lower) |lower| {
+                        try self.emit("@min(@as(usize, @intCast(");
+                        try genExpr(self, lower.*);
+                        try self.emit(")), __s.len)");
+                    } else {
+                        try self.emit("if (__step > 0) 0 else if (__s.len > 0) __s.len - 1 else 0");
+                    }
+
+                    try self.emit("; const __end_i64: i64 = ");
+
+                    if (slice_range.upper) |upper| {
+                        try self.emit("@intCast(@min(@as(usize, @intCast(");
+                        try genExpr(self, upper.*);
+                        try self.emit(")), __s.len))");
+                    } else {
+                        try self.emit("if (__step > 0) @as(i64, @intCast(__s.len)) else -1");
+                    }
+
+                    try self.emitFmt("; var __result = std.ArrayList(@TypeOf(__s[0])){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(__global_allocator, __s[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(__global_allocator, __s[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(__global_allocator); }}", .{label_id});
                 }
             } else if (needs_len) {
                 // Need length for upper bound - use block expression with bounds checking

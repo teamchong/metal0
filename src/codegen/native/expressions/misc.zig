@@ -76,8 +76,15 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     try self.output.writer(self.allocator).print(".@\"{d}\"", .{index});
                 }
             } else {
-                // Non-constant tuple index - error
-                try self.emit("@compileError(\"Tuple indexing requires constant index\")");
+                // Non-constant tuple index - use inline for with runtime comparison
+                // This generates: blk: { const __t = tuple; const __i = index; inline for (std.meta.fields(@TypeOf(__t)), 0..) |f, fi| { if (fi == __i) break :blk @field(__t, f.name); } unreachable; }
+                const label_id = self.block_label_counter;
+                self.block_label_counter += 1;
+                try self.output.writer(self.allocator).print("tup_{d}: {{ const __t = ", .{label_id});
+                try genExpr(self, subscript.value.*);
+                try self.emit("; const __i: usize = @intCast(");
+                try genExpr(self, subscript.slice.index.*);
+                try self.output.writer(self.allocator).print("); inline for (std.meta.fields(@TypeOf(__t)), 0..) |f, fi| {{ if (fi == __i) break :tup_{d} @field(__t, f.name); }} unreachable; }}", .{label_id});
             }
             return;
         }

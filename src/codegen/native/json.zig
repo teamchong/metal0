@@ -229,7 +229,7 @@ pub fn genJsonLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("const _content = _file.read() catch break :json_load_blk null;\n");
+    try self.emit("const _content = try runtime.PyFile.read(_file, __global_allocator);\n");
     try self.emitIndent();
     try self.emit("break :json_load_blk try runtime.json.loads(_content, __global_allocator);\n");
     self.dedent();
@@ -255,7 +255,7 @@ pub fn genJsonDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _json_str = try runtime.json.dumpsValue(_obj, __global_allocator);\n");
     try self.emitIndent();
-    try self.emit("_file.write(_json_str) catch {};\n");
+    try self.emit("_ = runtime.PyFile.write(_file, _json_str) catch 0;\n");
     try self.emitIndent();
     try self.emit("break :json_dump_blk null;\n");
     self.dedent();

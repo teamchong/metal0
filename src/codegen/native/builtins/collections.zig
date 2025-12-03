@@ -120,13 +120,74 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate code for zip(iter1, iter2, ...)
-/// Returns: iterator of tuples
-/// Note: zip() is best handled in for-loop context by statements.zig
-/// Standalone usage not supported in native codegen
+/// Returns: ArrayList of tuples pairing elements from each iterable
+/// Note: zip() in for-loops is optimized by for_special.zig
 pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    // zip() is only supported in for-loops, not as a standalone expression
-    try self.emit("@compileError(\"zip() only supported in for-loops: for x, y in zip(list1, list2)\")");
+    if (args.len < 2) {
+        try self.emit("std.ArrayList(struct{}){}");
+        return;
+    }
+
+    // Generate block that creates list of tuples
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    try self.output.writer(self.allocator).print("zip_{d}: {{\n", .{label_id});
+    self.indent_level += 1;
+
+    // Store each iterable with .items access for ArrayLists
+    for (args, 0..) |arg, i| {
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __zip_arg_{d} = ", .{i});
+        try self.genExpr(arg);
+        // Check if it's a list type that needs .items
+        const arg_type = self.type_inferrer.inferExpr(arg) catch .unknown;
+        if (arg_type == .list) {
+            try self.emit(".items");
+        }
+        try self.emit(";\n");
+    }
+
+    // Calculate minimum length
+    try self.emitIndent();
+    try self.emit("const __zip_len = @min(");
+    for (0..args.len) |i| {
+        if (i > 0) try self.emit(", ");
+        try self.output.writer(self.allocator).print("__zip_arg_{d}.len", .{i});
+    }
+    try self.emit(");\n");
+
+    // Create result list - use anytype tuple struct
+    try self.emitIndent();
+    try self.emit("var __zip_result = std.ArrayList(struct { ");
+    for (0..args.len) |i| {
+        if (i > 0) try self.emit(", ");
+        try self.output.writer(self.allocator).print("@\"{d}\": @TypeOf(__zip_arg_{d}[0])", .{ i, i });
+    }
+    try self.emit(" }){};\n");
+
+    // Iterate and build tuples
+    try self.emitIndent();
+    try self.emit("var __zip_i: usize = 0;\n");
+    try self.emitIndent();
+    try self.emit("while (__zip_i < __zip_len) : (__zip_i += 1) {\n");
+    self.indent_level += 1;
+    try self.emitIndent();
+    try self.emit("try __zip_result.append(__global_allocator, .{ ");
+    for (0..args.len) |i| {
+        if (i > 0) try self.emit(", ");
+        try self.output.writer(self.allocator).print("__zip_arg_{d}[__zip_i]", .{i});
+    }
+    try self.emit(" });\n");
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.emit("}\n");
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("break :zip_{d} __zip_result;\n", .{label_id});
+    try self.emitIndent();
+    try self.emit("}");
 }
 
 /// Generate code for sum(iterable)
