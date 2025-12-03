@@ -13,7 +13,7 @@ const FnvHashContext = @import("fnv_hash.zig").FnvHashContext;
 
 // metal0's optimized JSON parser
 const json = @import("json");
-const JsonValue = json.JsonValue;
+const JsonValue = json.Value;
 
 /// Tokenizer structure (forward declaration for parser)
 pub const TokenizerData = struct {
@@ -149,7 +149,7 @@ pub fn initFromFile(tokenizer_path: []const u8, allocator: Allocator) !Tokenizer
 
     _ = try file.readAll(buffer);
 
-    var parsed = try json.parse.parse(buffer, allocator);
+    var parsed = try json.parse(allocator, buffer);
     defer parsed.deinit(allocator);
 
     return try parseTokenizerJSON(parsed, allocator);

@@ -69,4 +69,29 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run the training benchmark");
     run_step.dependOn(&run_cmd.step);
+
+    // SIMD dispatch for JSON parsing
+    const json_simd = b.addModule("json_simd", .{
+        .root_source_file = b.path("../../packages/shared/json/simd/dispatch.zig"),
+    });
+
+    // Shared JSON library with SIMD acceleration
+    const json_mod = b.addModule("json", .{
+        .root_source_file = b.path("../../packages/shared/json/json.zig"),
+    });
+    json_mod.addImport("json_simd", json_simd);
+
+    // Test correctness binary
+    const test_correctness = b.addExecutable(.{
+        .name = "test_correctness",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/test_correctness.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_correctness.root_module.addImport("json", json_mod);
+    test_correctness.linkLibC();
+
+    b.installArtifact(test_correctness);
 }

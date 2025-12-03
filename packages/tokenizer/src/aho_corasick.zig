@@ -3,7 +3,9 @@
 /// Algorithm: Double-Array Trie + Aho-Corasick failure links
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Builder = @import("aho_corasick_builder.zig").Builder;
+const builder_mod = @import("aho_corasick_builder.zig");
+const Builder = builder_mod.Builder;
+const NO_OUTPUT = builder_mod.NO_OUTPUT;
 const simd = @import("simd_encoder.zig");
 
 const ROOT_STATE_IDX: u32 = 0;
@@ -110,10 +112,14 @@ pub const AhoCorasick = struct {
 
             state_id = child_idx;
 
-            // Check for output
+            // Check for output - output_pos points to outputs array
+            // The outputs array value is NO_OUTPUT for non-pattern states
             const output_pos = child_state.output_pos;
             if (output_pos != 0) {
-                longest_token = outputs[output_pos];
+                const token_id = outputs[output_pos];
+                if (token_id != NO_OUTPUT) {
+                    longest_token = token_id;
+                }
 
                 // Early exit if we found a match and can't extend
                 if (child_state.base == 0) return longest_token;
@@ -140,7 +146,10 @@ pub const AhoCorasick = struct {
 
             const output_pos = child_state.output_pos;
             if (output_pos != 0) {
-                longest_token = outputs[output_pos];
+                const token_id = outputs[output_pos];
+                if (token_id != NO_OUTPUT) {
+                    longest_token = token_id;
+                }
                 if (child_state.base == 0) break;
             }
 
@@ -222,3 +231,35 @@ pub const AhoCorasick = struct {
         return null;
     }
 };
+
+test "token id 0 is correctly recognized" {
+    // Test that token ID 0 (!) is properly returned, not treated as "no match"
+    const allocator = std.testing.allocator;
+
+    // Create AC with single pattern "!" mapped to token 0
+    const patterns = [_][]const u8{"!"};
+    const token_ids = [_]u32{0};
+
+    var ac = try AhoCorasick.build(allocator, &patterns, &token_ids);
+    defer ac.deinit();
+
+    // longestMatch should return 0, not null
+    const result = ac.longestMatch("!", 0);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqual(@as(u32, 0), result.?);
+}
+
+test "various token ids work" {
+    const allocator = std.testing.allocator;
+
+    const patterns = [_][]const u8{ "!", "?", "." };
+    const token_ids = [_]u32{ 0, 30, 13 };
+
+    var ac = try AhoCorasick.build(allocator, &patterns, &token_ids);
+    defer ac.deinit();
+
+    // All should work
+    try std.testing.expectEqual(@as(u32, 0), ac.longestMatch("!", 0).?);
+    try std.testing.expectEqual(@as(u32, 30), ac.longestMatch("?", 0).?);
+    try std.testing.expectEqual(@as(u32, 13), ac.longestMatch(".", 0).?);
+}

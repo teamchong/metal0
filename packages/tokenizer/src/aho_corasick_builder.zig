@@ -5,6 +5,8 @@ const Allocator = std.mem.Allocator;
 const State = @import("aho_corasick.zig").State;
 
 const ROOT_STATE_IDX: u32 = 0;
+/// Sentinel value for "no output" - using maxInt since token IDs are sequential from 0
+pub const NO_OUTPUT: u32 = std.math.maxInt(u32);
 
 /// Builder for constructing double-array (port of daachorse Builder)
 pub const Builder = struct {
@@ -16,13 +18,13 @@ pub const Builder = struct {
     const NFAState = struct {
         children: std.AutoHashMap(u8, u32),
         fail: u32 = ROOT_STATE_IDX,
-        output: u32 = 0,
+        output: u32 = NO_OUTPUT, // Use sentinel for "no output"
 
         fn init(allocator: Allocator) NFAState {
             return .{
                 .children = std.AutoHashMap(u8, u32).init(allocator),
                 .fail = ROOT_STATE_IDX,
-                .output = 0,
+                .output = NO_OUTPUT,
             };
         }
 
@@ -208,8 +210,11 @@ pub const Builder = struct {
                 // Store NFA ID in fail temporarily (resolved in second pass)
                 states.items[child_da_idx].fail = self.nfa_states.items[child_nfa_id].fail;
 
-                // Output (store NFA ID which maps to outputs array)
-                if (self.nfa_states.items[child_nfa_id].output != 0) {
+                // Output: check if this NFA state has a token output
+                // We use NO_OUTPUT sentinel since token ID 0 is valid ("!")
+                const nfa_output = self.nfa_states.items[child_nfa_id].output;
+                if (nfa_output != NO_OUTPUT) {
+                    // Store the NFA ID which indexes into outputs array
                     states.items[child_da_idx].setOutputPos(child_nfa_id);
                 }
 
