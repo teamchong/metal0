@@ -12,9 +12,16 @@ const NativeType = @import("../../../../analysis/native_types/core.zig").NativeT
 const shared = @import("../../shared_maps.zig");
 const CompOpStrings = shared.CompOpStrings;
 
-/// Check if expression is a string constant
+/// Check if expression is a string constant (NOT bytes)
 fn isStringConstant(expr: ast.Node) bool {
-    return expr == .constant and expr.constant.value == .string;
+    if (expr != .constant) return false;
+    return expr.constant.value == .string;
+}
+
+/// Check if expression is a bytes constant
+fn isBytesConstant(expr: ast.Node) bool {
+    if (expr != .constant) return false;
+    return expr.constant.value == .bytes;
 }
 
 /// Extract string content from a constant (strips quotes)
@@ -25,6 +32,19 @@ fn getStringContent(s: []const u8) []const u8 {
         return s[1 .. s.len - 1];
     }
     return s;
+}
+
+/// Get bytes content from constant
+fn getBytesContent(b: []const u8) []const u8 {
+    // Bytes literals like b"hello" - strip b prefix and quotes
+    if (b.len >= 3 and b[0] == 'b') {
+        if (b.len >= 8 and (std.mem.startsWith(u8, b[1..], "'''") or std.mem.startsWith(u8, b[1..], "\"\"\""))) {
+            return b[4 .. b.len - 3];
+        } else if (b.len >= 3) {
+            return b[2 .. b.len - 1];
+        }
+    }
+    return b;
 }
 
 /// BigInt comparison operator to enum value mapping
@@ -79,33 +99,53 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         const current_left = if (i == 0) compare.left.* else compare.comparators[i - 1];
         const current_left_type = if (i == 0) left_type else try self.inferExprScoped(compare.comparators[i - 1]);
 
-        // Special handling for string comparisons
+        // Special handling for string AND bytes comparisons
+        // Both string and bytes need std.mem.eql instead of ==
         // Also handle cases where one side is .unknown (e.g., json.loads) comparing to string
+        // AND cases where the literal is a string/bytes but inference got the other side wrong
         const left_is_string = (current_left_type == .string);
         const right_is_string = (right_type == .string);
-        const either_string = left_is_string or right_is_string;
+        // Note: bytes literals are also represented as .string in NativeType, so we
+        // only check AST constants for bytes, not NativeType
+        const left_is_string_literal = isStringConstant(current_left);
+        const right_is_string_literal = isStringConstant(compare.comparators[i]);
+        const left_is_bytes_literal = isBytesConstant(current_left);
+        const right_is_bytes_literal = isBytesConstant(compare.comparators[i]);
+        const either_string = left_is_string or right_is_string or left_is_string_literal or right_is_string_literal;
+        const either_bytes = left_is_bytes_literal or right_is_bytes_literal;
         const neither_unknown = (current_left_type != .unknown and right_type != .unknown);
 
-        if ((left_is_string and right_is_string) or (either_string and !neither_unknown)) {
-            // Check for string literal comparison optimization
+        if ((left_is_string and right_is_string) or (either_string and !neither_unknown) or (left_is_string_literal or right_is_string_literal) or
+            either_bytes) {
+            // Check for string/bytes literal comparison optimization
             // If both sides are literals, fold at compile time
-            const left_is_const = isStringConstant(current_left);
-            const right_is_const = isStringConstant(compare.comparators[i]);
+            const left_is_str_const = isStringConstant(current_left);
+            const right_is_str_const = isStringConstant(compare.comparators[i]);
+            const left_is_bytes_const = isBytesConstant(current_left);
+            const right_is_bytes_const = isBytesConstant(compare.comparators[i]);
+            const left_is_const = left_is_str_const or left_is_bytes_const;
+            const right_is_const = right_is_str_const or right_is_bytes_const;
             const right_expr = compare.comparators[i];
 
             switch (op) {
                 .Eq => {
                     if (left_is_const and right_is_const) {
-                        // Both are string literals - evaluate at compile time!
-                        const left_content = getStringContent(current_left.constant.value.string);
-                        const right_content = getStringContent(right_expr.constant.value.string);
+                        // Both are string/bytes literals - evaluate at compile time!
+                        const left_content = if (left_is_str_const)
+                            getStringContent(current_left.constant.value.string)
+                        else
+                            getBytesContent(current_left.constant.value.bytes);
+                        const right_content = if (right_is_str_const)
+                            getStringContent(right_expr.constant.value.string)
+                        else
+                            getBytesContent(right_expr.constant.value.bytes);
                         if (std.mem.eql(u8, left_content, right_content)) {
                             try self.emit("true");
                         } else {
                             try self.emit("false");
                         }
                     } else {
-                        // Regular string comparison
+                        // Regular string/bytes comparison
                         try self.emit("std.mem.eql(u8, ");
                         try genExpr(self, current_left);
                         try self.emit(", ");
@@ -115,9 +155,15 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 },
                 .NotEq => {
                     if (left_is_const and right_is_const) {
-                        // Both are string literals - evaluate at compile time!
-                        const left_content = getStringContent(current_left.constant.value.string);
-                        const right_content = getStringContent(right_expr.constant.value.string);
+                        // Both are string/bytes literals - evaluate at compile time!
+                        const left_content = if (left_is_str_const)
+                            getStringContent(current_left.constant.value.string)
+                        else
+                            getBytesContent(current_left.constant.value.bytes);
+                        const right_content = if (right_is_str_const)
+                            getStringContent(right_expr.constant.value.string)
+                        else
+                            getBytesContent(right_expr.constant.value.bytes);
                         if (!std.mem.eql(u8, left_content, right_content)) {
                             try self.emit("true");
                         } else {

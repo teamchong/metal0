@@ -317,40 +317,41 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             }
 
             // Generate: const symbol_name = module.name;
-            // Special case: if symbol_name == module name (e.g., "from time import time"),
-            // we need to use the full path (e.g., runtime.time.time) to avoid duplicate
-            // const declarations since PHASE 3.7 already emits "const time = runtime.time;"
+            // Special case: if symbol_name == module name (e.g., "from copy import copy"),
+            // skip generating this declaration entirely since PHASE 3.7 emits "const copy = std;"
+            // and copy.copy is what we want. The from-import symbol becomes identical to the module.
             const same_as_module = std.mem.eql(u8, symbol_name, from_imp.module);
+
+            if (same_as_module) {
+                // Skip - module already declared with same name, code like `copy(x)` will call copy.copy
+                // which is the correct behavior. No need for redundant const copy = std.copy;
+                continue;
+            }
+
+            // Skip 'main' - conflicts with Zig's auto-generated entry point `pub fn main()`
+            if (std.mem.eql(u8, symbol_name, "main")) {
+                continue;
+            }
+
+            // Skip single-letter type variables that conflict with generated code patterns
+            // These are rarely used at runtime and cause shadowing with internal `const T = @TypeOf(...)`
+            if (std.mem.eql(u8, from_imp.module, "typing")) {
+                if (std.mem.eql(u8, symbol_name, "T") or
+                    std.mem.eql(u8, symbol_name, "KT") or
+                    std.mem.eql(u8, symbol_name, "VT"))
+                {
+                    continue;
+                }
+            }
 
             try self.emit("const ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
             try self.emit(" = ");
 
-            if (same_as_module) {
-                // Use full path from registry to avoid referencing the duplicate const
-                if (self.import_registry.lookup(from_imp.module)) |info| {
-                    if (info.zig_import) |zig_import| {
-                        try self.emit(zig_import);
-                        try self.emit(".");
-                        try self.emit(name);
-                    } else {
-                        // Fallback: use module name (will still have duplicate issue but rare case)
-                        try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
-                        try self.emit(".");
-                        try self.emit(name);
-                    }
-                } else {
-                    // Module not in registry - use module name
-                    try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
-                    try self.emit(".");
-                    try self.emit(name);
-                }
-            } else {
-                // Normal case: use module const reference
-                try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
-                try self.emit(".");
-                try self.emit(name);
-            }
+            // Normal case: use module const reference
+            try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
+            try self.emit(".");
+            try self.emit(name);
             try self.emit(";\n");
             try generated_symbols.put(symbol_name, {});
         }

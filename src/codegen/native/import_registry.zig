@@ -243,7 +243,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("queue", .zig_runtime, "std", null); // queue module
     try registry.register("copy", .zig_runtime, "std", null); // copy module
     try registry.register("operator", .zig_runtime, null, null); // operator module (inline codegen only)
-    try registry.register("typing", .zig_runtime, null, null); // typing module (no-ops - inline codegen only)
+    try registry.register("typing", .zig_runtime, "runtime.typing", null); // typing module
     try registry.register("contextlib", .zig_runtime, "std", null); // contextlib module
     try registry.register("string", .zig_runtime, "std", null); // string module
     try registry.register("_string", .zig_runtime, "std", null); // _string module (internal string formatting)
