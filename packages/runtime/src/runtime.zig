@@ -29,6 +29,9 @@ pub const calendar = @import("calendar.zig");
 /// Export ctypes FFI module
 pub const ctypes = @import("ctypes.zig");
 
+/// Export typing module types
+pub const typing = @import("typing.zig");
+
 /// Export dynamic attribute access stubs
 const dynamic_attrs = @import("dynamic_attrs.zig");
 
