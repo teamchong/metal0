@@ -56,6 +56,7 @@ pub const genListComp = comprehensions.genListComp;
 pub const genDictComp = comprehensions.genDictComp;
 pub const genTuple = misc.genTuple;
 pub const genSubscript = misc.genSubscript;
+pub const genSubscriptLHS = misc.genSubscriptLHS;
 pub const genAttribute = misc.genAttribute;
 
 /// Check if a variable is captured by the current class from outer scope

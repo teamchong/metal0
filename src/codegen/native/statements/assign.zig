@@ -1068,12 +1068,20 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Determine the container type to generate appropriate code
                 const container_type = try self.inferExprScoped(subscript.value.*);
 
+                // Check if this is a nested subscript (chained like arr[0][1][2])
+                // Nested subscripts need special handling to avoid block expressions in LHS
+                const is_nested = subscript.value.* == .subscript;
+
                 try self.emitIndent();
 
                 if (container_type == .dict) {
                     // Dict assignment: dict.put(key, value)
                     try self.emit("try ");
-                    try self.genExpr(subscript.value.*);
+                    if (is_nested) {
+                        try self.genSubscriptLHS(subscript.value.subscript);
+                    } else {
+                        try self.genExpr(subscript.value.*);
+                    }
                     try self.emit(".put(");
                     try self.genExpr(subscript.slice.index.*);
                     try self.emit(", ");
@@ -1081,7 +1089,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit(");\n");
                 } else if (container_type == .list) {
                     // List assignment: list.items[idx] = value
-                    try self.genExpr(subscript.value.*);
+                    if (is_nested) {
+                        try self.genSubscriptLHS(subscript.value.subscript);
+                    } else {
+                        try self.genExpr(subscript.value.*);
+                    }
                     try self.emit(".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
                     try self.emit("))] = ");
@@ -1089,7 +1101,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit(";\n");
                 } else {
                     // Generic array/slice assignment: arr[idx] = value
-                    try self.genExpr(subscript.value.*);
+                    if (is_nested) {
+                        try self.genSubscriptLHS(subscript.value.subscript);
+                    } else {
+                        try self.genExpr(subscript.value.*);
+                    }
                     try self.emit("[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
                     try self.emit("))] = ");

@@ -498,7 +498,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 }
 
                 if (is_list) {
-                    try self.emitFmt(", __s.items.len); break :slice_{d} if (__start <= __s.items.len) __s.items[__start..__s.items.len] else &[_]i64{{}}; }}", .{label_id});
+                    // Get element type for empty array fallback
+                    try self.emitFmt(", __s.items.len); break :slice_{d} if (__start <= __s.items.len) __s.items[__start..__s.items.len] else &[_]", .{label_id});
+                    const elem_type = value_type.list.*;
+                    try elem_type.toZigType(self.allocator, &self.output);
+                    try self.emit("{}; }");
                 } else {
                     try self.emitFmt(", __s.len); break :slice_{d} if (__start <= __s.len) __s[__start..__s.len] else \"\"; }}", .{label_id});
                 }
@@ -583,6 +587,39 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     }
                 }
             }
+        },
+    }
+}
+
+/// Generate a subscript expression without block wrapping - for use as assignment LHS
+/// This recursively generates nested subscripts without labeled blocks, producing valid
+/// lvalues like `arr[0][1][2]` instead of `sub_N: { ... }[1][2]`
+pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) CodegenError!void {
+    // Recursively generate base without block wrapping
+    if (subscript.value.* == .subscript) {
+        // Nested subscript - recurse
+        try genSubscriptLHS(self, subscript.value.subscript);
+    } else {
+        // Base case - just emit the expression
+        try genExpr(self, subscript.value.*);
+    }
+
+    // Now emit the index access
+    switch (subscript.slice) {
+        .index => |index| {
+            // Determine if we need .items for list access
+            const container_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
+            if (container_type == .list) {
+                try self.emit(".items");
+            }
+            try self.emit("[@as(usize, @intCast(");
+            try genExpr(self, index.*);
+            try self.emit("))]");
+        },
+        .slice => {
+            // Slice access as LHS is complex - for now just generate error
+            // Slice assignment should be handled separately in assign.zig
+            try self.emit("@compileError(\"Slice LHS not supported in this context\")");
         },
     }
 }

@@ -291,7 +291,18 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
     // If iterating over list (including method calls that return lists), add .items
     if (iter_type == .list) {
-        if (is_method_call) {
+        // Check if this is a slice subscript - slices return []T directly, not ArrayList
+        const is_slice = if (iter == .subscript) blk: {
+            const sub = iter.subscript;
+            break :blk sub.slice == .slice;
+        } else false;
+
+        if (is_slice) {
+            // Slice already returns []T - wrap in parens and iterate directly
+            try self.emit("(");
+            try self.genExpr(iter);
+            try self.emit(")");
+        } else if (is_method_call) {
             // Method call returns ArrayList - wrap in parens for .items
             try self.emit("(");
             try self.genExpr(iter);
@@ -632,7 +643,19 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // ArrayList (list or deque types) need .items for iteration
         // Block expressions (listcomp, etc.) need to be wrapped in a temp variable
         if (iter_type == .list or iter_type == .deque) {
-            if (producesBlockExpression(for_stmt.iter.*)) {
+            // Check if this is a slice subscript - slices return []T directly, not ArrayList
+            const is_slice = if (for_stmt.iter.* == .subscript) blk: {
+                const sub = for_stmt.iter.subscript;
+                // Slice has .slice variant with SliceRange, index has .index variant
+                break :blk sub.slice == .slice;
+            } else false;
+
+            if (is_slice) {
+                // Slice already returns []T - wrap in parens and iterate directly
+                try self.emit("(");
+                try self.genExpr(for_stmt.iter.*);
+                try self.emit(")");
+            } else if (producesBlockExpression(for_stmt.iter.*)) {
                 // Wrap block expression: blk: { const __iter = <expr>; break :blk __iter.items; }
                 try self.emit("blk: { const __iter = ");
                 try self.genExpr(for_stmt.iter.*);
