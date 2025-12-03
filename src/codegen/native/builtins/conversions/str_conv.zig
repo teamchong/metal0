@@ -85,14 +85,33 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Fallback for unknown types: use heap allocation
-    try self.emitFmt("str_{d}: {{\n", .{str_label_id});
-    try self.emitFmt("var __str_buf_{d} = std.ArrayList(u8){{}};\n", .{str_label_id});
-    try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{any}}\", .{{", .{ str_label_id, alloc_name });
-    try self.genExpr(args[0]);
-    try self.emit("});\n");
-    try self.emitFmt("break :str_{d} try __str_buf_{d}.toOwnedSlice({s});\n", .{ str_label_id, str_label_id, alloc_name });
-    try self.emit("}");
+    // Check if this might be a PyObject (subscript on unknown type, function return, etc.)
+    // If arg is subscript on unknown type, or the type is .unknown, use runtime.pyObjToStr
+    const is_possible_pyobject = blk: {
+        if (arg_type == .unknown) {
+            // Subscript on unknown type is likely a PyList/PyDict access
+            if (args[0] == .subscript) break :blk true;
+            // Call returning unknown might be a PyObject
+            if (args[0] == .call) break :blk true;
+        }
+        break :blk false;
+    };
+
+    if (is_possible_pyobject) {
+        // Use runtime.pyObjToStr for PyObject types
+        try self.emitFmt("(try runtime.pyObjToStr({s}, ", .{alloc_name});
+        try self.genExpr(args[0]);
+        try self.emit("))");
+    } else {
+        // Fallback for unknown types: use heap allocation with {any} format
+        try self.emitFmt("str_{d}: {{\n", .{str_label_id});
+        try self.emitFmt("var __str_buf_{d} = std.ArrayList(u8){{}};\n", .{str_label_id});
+        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{any}}\", .{{", .{ str_label_id, alloc_name });
+        try self.genExpr(args[0]);
+        try self.emit("});\n");
+        try self.emitFmt("break :str_{d} try __str_buf_{d}.toOwnedSlice({s});\n", .{ str_label_id, str_label_id, alloc_name });
+        try self.emit("}");
+    }
 }
 
 /// Generate code for bytes(obj) or bytes(str, encoding)

@@ -60,46 +60,12 @@ fn genExprWithSubs(
             try constants.genConstant(self, c);
         },
         .call => |c| {
-            // For method calls (attribute), use proper call dispatch to handle string methods etc.
-            // For other calls, handle inline with substitution
-            if (c.func.* == .attribute) {
-                // Use full call dispatch which handles method calls properly
-                const calls = @import("calls.zig");
-                try calls.genCall(self, c);
-            } else if (c.func.* == .name) {
-                const func_name = c.func.name.id;
-                if (self.async_functions.contains(func_name)) {
-                    // Async function call in comprehension
-                    try self.emit("try ");
-                    try self.emit(func_name);
-                    try self.emit("_async(");
-                    for (c.args, 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
-                        try genExprWithSubs(self, arg, subs);
-                    }
-                    try self.emit(")");
-                } else {
-                    // Regular function call
-                    const parent = @import("../expressions.zig");
-                    try parent.genExpr(self, c.func.*);
-                    try self.emit("(");
-                    for (c.args, 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
-                        try genExprWithSubs(self, arg, subs);
-                    }
-                    try self.emit(")");
-                }
-            } else {
-                // Other callable (lambda, subscript, etc.)
-                const parent = @import("../expressions.zig");
-                try parent.genExpr(self, c.func.*);
-                try self.emit("(");
-                for (c.args, 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try genExprWithSubs(self, arg, subs);
-                }
-                try self.emit(")");
-            }
+            // Use full call dispatch for ALL calls to handle:
+            // - Method calls (attribute)
+            // - Imported functions (randrange from random module)
+            // - Builtins, local functions, etc.
+            const calls = @import("calls.zig");
+            try calls.genCall(self, c);
         },
         .list => |l| {
             // Handle list literals with substitution

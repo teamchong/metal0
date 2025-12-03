@@ -179,6 +179,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         .{ .name = "get_contiguous", .value = "runtime.TestBuffer.get_contiguous" },
                         .{ .name = "py_buffer_to_contiguous", .value = "runtime.TestBuffer.py_buffer_to_contiguous" },
                         .{ .name = "cmp_contig", .value = "runtime.TestBuffer.cmp_contig" },
+                        .{ .name = "is_contiguous", .value = "runtime.TestBuffer.is_contiguous" },
                         // Optional imports that may not be available (set to null)
                         .{ .name = "numpy_array", .value = "@as(?*anyopaque, null)" },
                     };

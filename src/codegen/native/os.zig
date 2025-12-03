@@ -55,10 +55,7 @@ pub const PathFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
 /// Generate code for os.getcwd()
 /// Returns current working directory as []const u8
 pub fn genGetcwd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 0) {
-        std.debug.print("os.getcwd() takes no arguments\n", .{});
-        return;
-    }
+    if (args.len != 0) return;
 
     // Use Zig's std.process.getCwdAlloc, returns []const u8
     try self.emit("(std.process.getCwdAlloc(__global_allocator) catch \"\")");
@@ -67,10 +64,7 @@ pub fn genGetcwd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.chdir(path)
 /// Changes current working directory, returns None
 pub fn genChdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.chdir() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     // std.posix.chdir returns void on success, error on failure
     try self.emit("os_chdir_blk: {\n");
@@ -92,10 +86,7 @@ pub fn genChdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Returns list of entries in directory as ArrayList
 pub fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // os.listdir() can take 0 or 1 argument
-    if (args.len > 1) {
-        std.debug.print("os.listdir() takes at most 1 argument\n", .{});
-        return;
-    }
+    if (args.len > 1) return;
 
     try self.emit("os_listdir_blk: {\n");
     self.indent();
@@ -144,10 +135,7 @@ pub fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.path.exists(path)
 /// Returns True if path exists
 pub fn genPathExists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.path.exists() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     // Use std.fs.cwd().access() to check if path exists
     try self.emit("os_path_exists_blk: {\n");
@@ -182,9 +170,15 @@ pub fn genPathExists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for os.path.join(a, b, ...)
 /// Joins path components with separator, returns []const u8
+/// Python allows 0+ args: os.path.join() -> "", os.path.join(a) -> a
 pub fn genPathJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) {
-        std.debug.print("os.path.join() requires at least 2 arguments\n", .{});
+    // Handle edge cases: 0 args returns "", 1 arg returns that arg
+    if (args.len == 0) {
+        try self.emit("\"\"");
+        return;
+    }
+    if (args.len == 1) {
+        try self.genExpr(args[0]);
         return;
     }
 
@@ -212,10 +206,7 @@ pub fn genPathJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.path.dirname(path)
 /// Returns directory component of path as []const u8
 pub fn genPathDirname(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.path.dirname() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     try self.emit("os_path_dirname_blk: {\n");
     self.indent();
@@ -233,10 +224,7 @@ pub fn genPathDirname(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
 /// Generate code for os.path.basename(path)
 /// Returns final component of path as []const u8
 pub fn genPathBasename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.path.basename() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     try self.emit("os_path_basename_blk: {\n");
     self.indent();
@@ -275,10 +263,7 @@ pub fn genSep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.getenv(key, default=None)
 /// Returns environment variable value or default
 pub fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1 or args.len > 2) {
-        std.debug.print("os.getenv() requires 1 or 2 arguments\n", .{});
-        return;
-    }
+    if (args.len < 1 or args.len > 2) return;
 
     try self.emit("os_getenv_blk: {\n");
     self.indent();
@@ -302,10 +287,7 @@ pub fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.mkdir(path, mode=0o777)
 /// Creates a single directory
 pub fn genMkdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1 or args.len > 2) {
-        std.debug.print("os.mkdir() requires 1 or 2 arguments\n", .{});
-        return;
-    }
+    if (args.len < 1 or args.len > 2) return;
 
     try self.emit("os_mkdir_blk: {\n");
     self.indent();
@@ -325,10 +307,7 @@ pub fn genMkdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.makedirs(path, mode=0o777, exist_ok=False)
 /// Creates directories recursively
 pub fn genMakedirs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1 or args.len > 3) {
-        std.debug.print("os.makedirs() requires 1 to 3 arguments\n", .{});
-        return;
-    }
+    if (args.len < 1 or args.len > 3) return;
 
     try self.emit("os_makedirs_blk: {\n");
     self.indent();
@@ -348,10 +327,7 @@ pub fn genMakedirs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.remove(path)
 /// Removes a file
 pub fn genRemove(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.remove() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     try self.emit("os_remove_blk: {\n");
     self.indent();
@@ -371,10 +347,7 @@ pub fn genRemove(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.rename(src, dst)
 /// Renames a file or directory
 pub fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 2) {
-        std.debug.print("os.rename() requires exactly 2 arguments\n", .{});
-        return;
-    }
+    if (args.len != 2) return;
 
     try self.emit("os_rename_blk: {\n");
     self.indent();
@@ -398,10 +371,7 @@ pub fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.rmdir(path)
 /// Removes an empty directory
 pub fn genRmdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.rmdir() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     try self.emit("os_rmdir_blk: {\n");
     self.indent();
@@ -421,10 +391,7 @@ pub fn genRmdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.path.isdir(path)
 /// Returns True if path is a directory
 pub fn genPathIsdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.path.isdir() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     try self.emit("os_path_isdir_blk: {\n");
     self.indent();
@@ -446,10 +413,7 @@ pub fn genPathIsdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.path.isfile(path)
 /// Returns True if path is a file
 pub fn genPathIsfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.path.isfile() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     try self.emit("os_path_isfile_blk: {\n");
     self.indent();
@@ -471,10 +435,7 @@ pub fn genPathIsfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for os.path.abspath(path)
 /// Returns absolute path
 pub fn genPathAbspath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.path.abspath() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     try self.emit("os_path_abspath_blk: {\n");
     self.indent();
@@ -495,10 +456,7 @@ pub fn genPathAbspath(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
 /// Returns (head, tail) tuple where tail is final component
 /// Python: os.path.split('/usr/bin') -> ('/usr', 'bin')
 pub fn genPathSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.path.split() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     // Generate: struct { @"0": []const u8, @"1": []const u8 } { .@"0" = dirname(path), .@"1" = basename(path) }
     try self.emit("os_path_split_blk: {\n");
@@ -549,10 +507,7 @@ pub const genUnlink = genRemove;
 
 /// Generate code for os.stat(path) - returns stat struct
 pub fn genStat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.stat() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     try self.emit("os_stat_blk: {\n");
     self.indent();
@@ -571,10 +526,7 @@ pub fn genStat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for os.path.splitext(path) - split extension
 pub fn genPathSplitext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.path.splitext() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     try self.emit("os_path_splitext_blk: {\n");
     self.indent();
@@ -595,10 +547,7 @@ pub fn genPathSplitext(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
 /// Generate code for os.path.getsize(path) - get file size
 pub fn genPathGetsize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.path.getsize() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     try self.emit("os_path_getsize_blk: {\n");
     self.indent();
@@ -623,10 +572,7 @@ pub fn genEnviron(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for os.removedirs(path) - remove directories recursively
 pub fn genRemovedirs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) {
-        std.debug.print("os.removedirs() requires exactly 1 argument\n", .{});
-        return;
-    }
+    if (args.len != 1) return;
 
     try self.emit("os_removedirs_blk: {\n");
     self.indent();

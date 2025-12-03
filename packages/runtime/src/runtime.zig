@@ -736,6 +736,27 @@ pub fn pyObjectToValue(obj: *PyObject) f64 {
     return 0.0;
 }
 
+/// Convert PyObject to string representation (like Python's str())
+pub fn pyObjToStr(allocator: std.mem.Allocator, obj: *PyObject) ![]const u8 {
+    if (PyLong_Check(obj)) {
+        const val = PyInt.getValue(obj);
+        return std.fmt.allocPrint(allocator, "{d}", .{val});
+    }
+    if (PyFloat_Check(obj)) {
+        const val = PyFloat.getValue(obj);
+        return std.fmt.allocPrint(allocator, "{d}", .{val});
+    }
+    if (PyBool_Check(obj)) {
+        const val = PyBool.getValue(obj);
+        return if (val) "True" else "False";
+    }
+    if (PyUnicode_Check(obj)) {
+        return PyString.getValue(obj);
+    }
+    // Fallback for other types
+    return std.fmt.allocPrint(allocator, "<PyObject@{*}>", .{obj});
+}
+
 // =============================================================================
 // Backwards Compatibility - Legacy TypeId enum
 // =============================================================================

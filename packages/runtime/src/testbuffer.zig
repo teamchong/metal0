@@ -291,3 +291,30 @@ pub fn cmp_contig(a: *ndarray, b: *ndarray) i64 {
     if (a.data.len > b.data.len) return 1;
     return 0;
 }
+
+/// Check if buffer is contiguous in given order
+/// order: 'C' for C-contiguous, 'F' for Fortran-contiguous, 'A' for either
+pub fn is_contiguous(buf: anytype, order: anytype) bool {
+    // Check if buffer has required methods
+    if (@typeInfo(@TypeOf(buf)) == .pointer) {
+        const ptr = buf;
+        if (@hasField(@TypeOf(ptr.*), "c_contiguous") and @hasField(@TypeOf(ptr.*), "f_contiguous")) {
+            // ndarray type - check contiguity
+            const order_char: u8 = if (@TypeOf(order) == []const u8 or @TypeOf(order) == [:0]const u8)
+                order[0]
+            else if (@typeInfo(@TypeOf(order)) == .int or @typeInfo(@TypeOf(order)) == .comptime_int)
+                @as(u8, @intCast(order))
+            else
+                'A';
+
+            return switch (order_char) {
+                'C' => ptr.c_contiguous(),
+                'F' => ptr.f_contiguous(),
+                'A' => ptr.c_contiguous() or ptr.f_contiguous(),
+                else => false,
+            };
+        }
+    }
+    // For other types, assume contiguous
+    return true;
+}
