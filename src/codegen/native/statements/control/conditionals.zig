@@ -294,15 +294,66 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         }
     }
 
+    // Check for FeatureMacros subscript - these are comptime-known, so we can eliminate dead branches
+    if (if_stmt.condition.* == .subscript) {
+        const sub = if_stmt.condition.subscript;
+        if (sub.value.* == .name and std.mem.eql(u8, sub.value.name.id, "feature_macros")) {
+            // Evaluate the feature macro key at codegen time
+            if (sub.slice == .index and sub.slice.index.* == .constant) {
+                const key = sub.slice.index.constant.value.string;
+                // Evaluate known feature macros
+                const value = blk: {
+                    if (std.mem.eql(u8, key, "HAVE_FORK")) break :blk true;
+                    if (std.mem.eql(u8, key, "MS_WINDOWS")) break :blk false;
+                    if (std.mem.eql(u8, key, "PY_HAVE_THREAD_NATIVE_ID")) break :blk true;
+                    if (std.mem.eql(u8, key, "Py_REF_DEBUG")) break :blk false;
+                    if (std.mem.eql(u8, key, "Py_TRACE_REFS")) break :blk false;
+                    if (std.mem.eql(u8, key, "USE_STACKCHECK")) break :blk false;
+                    break :blk false;
+                };
+
+                if (value) {
+                    // Condition is true - only emit if-body, skip else
+                    for (if_stmt.body) |stmt| {
+                        // Skip function definitions inside if blocks
+                        if (stmt == .function_def) continue;
+                        try self.generateStmt(stmt);
+                    }
+                } else {
+                    // Condition is false - only emit else-body
+                    for (if_stmt.else_body) |stmt| {
+                        if (stmt == .function_def) continue;
+                        try self.generateStmt(stmt);
+                    }
+                }
+                return; // Early return - we've handled this if-statement
+            }
+        }
+    }
+
     if (!skip_indent) {
         try self.emitIndent();
     }
     _ = try builder.write("if (");
 
+    // Check for FeatureMacros subscript - these return comptime bool
+    const is_feature_macros_subscript = blk: {
+        if (if_stmt.condition.* == .subscript) {
+            const sub = if_stmt.condition.subscript;
+            if (sub.value.* == .name) {
+                break :blk std.mem.eql(u8, sub.value.name.id, "feature_macros");
+            }
+        }
+        break :blk false;
+    };
+
     // Check condition type - need to handle PyObject truthiness
     const cond_type = self.type_inferrer.inferExpr(if_stmt.condition.*) catch .unknown;
     const cond_tag = @as(std.meta.Tag(@TypeOf(cond_type)), cond_type);
-    if (cond_type == .unknown) {
+    if (is_feature_macros_subscript) {
+        // FeatureMacros subscript returns comptime bool - use directly
+        try self.genExpr(if_stmt.condition.*);
+    } else if (cond_type == .unknown) {
         // Unknown type (PyObject) - use runtime truthiness check
         _ = try builder.write("runtime.pyTruthy(");
         try self.genExpr(if_stmt.condition.*);

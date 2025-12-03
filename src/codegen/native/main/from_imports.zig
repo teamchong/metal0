@@ -133,6 +133,34 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
+        // Handle _testcapi module specially - generate wrapper functions
+        if (std.mem.eql(u8, from_imp.module, "_testcapi")) {
+            for (from_imp.names, 0..) |name, i| {
+                if (std.mem.eql(u8, name, "*")) continue;
+
+                const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                    from_imp.asnames[i].?
+                else
+                    name;
+
+                if (generated_symbols.contains(symbol_name)) continue;
+
+                // Generate get_feature_macros function - returns comptime struct for dead code elimination
+                if (std.mem.eql(u8, name, "get_feature_macros")) {
+                    try self.emit("fn ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                    try self.emit("() runtime.FeatureMacros {\n");
+                    try self.emit("    return runtime.FeatureMacros{};\n");
+                    try self.emit("}\n");
+                    try generated_symbols.put(symbol_name, {});
+                } else {
+                    // Other _testcapi functions - register for dispatch
+                    try self.local_from_imports.put(symbol_name, from_imp.module);
+                }
+            }
+            continue;
+        }
+
         // Handle inline-only modules (no zig_import, functions are generated inline)
         // These modules don't have a struct to reference - their functions are
         // directly generated at call sites via dispatch (e.g., from decimal import Decimal)

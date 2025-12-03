@@ -300,6 +300,24 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 return;
             }
 
+            // Skip import_module and get_feature_macros assignments
+            // These are already emitted at module level as const
+            if (self.import_module_vars.contains(var_name) and self.isDeclared(var_name)) {
+                return;
+            }
+
+            // Also check for get_feature_macros call specifically
+            if (assign.value.* == .call) {
+                const call_val = assign.value.call;
+                if (call_val.func.* == .name) {
+                    if (std.mem.eql(u8, call_val.func.name.id, "get_feature_macros")) {
+                        if (self.isDeclared(var_name)) {
+                            return;
+                        }
+                    }
+                }
+            }
+
             // Track operator module callable structs: mod = operator.mod, pow_op = operator.pow
             // These become callable structs that need .call() syntax when invoked
             if (assign.value.* == .attribute) {
