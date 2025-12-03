@@ -348,6 +348,8 @@ pub fn InferDictValueType(comptime TupleType: type) type {
     comptime var result_type: type = i64;
     comptime var has_float = false;
     comptime var has_string = false;
+    comptime var has_tuple = false;
+    comptime var tuple_type: ?type = null;
 
     inline for (fields) |field| {
         const KV = field.type;
@@ -359,16 +361,22 @@ pub fn InferDictValueType(comptime TupleType: type) type {
 
         const V = kv_fields[1].type; // Value type
 
-        // Check value type
-        if (V == f64 or V == f32 or V == f16 or V == comptime_float) {
+        // Check if value type is itself a tuple (struct with is_tuple = true)
+        const v_info = @typeInfo(V);
+        if (v_info == .@"struct" and v_info.@"struct".is_tuple) {
+            has_tuple = true;
+            tuple_type = V;
+        } else if (V == f64 or V == f32 or V == f16 or V == comptime_float) {
             has_float = true;
         } else if (V == []const u8 or V == []u8 or isStringLiteral(V)) {
             has_string = true;
         }
     }
 
-    // Type promotion hierarchy
-    if (has_string) {
+    // Type promotion hierarchy - tuples take precedence
+    if (has_tuple) {
+        result_type = tuple_type.?;
+    } else if (has_string) {
         result_type = []const u8;
     } else if (has_float) {
         result_type = f64;

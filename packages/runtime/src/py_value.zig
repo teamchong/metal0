@@ -100,7 +100,8 @@ pub const PyValue = union(enum) {
             return .{ .list = value };
         } else if (@typeInfo(T) == .pointer) {
             const ptr_info = @typeInfo(T).pointer;
-            if (ptr_info.child == u8) {
+            // Check for sentinel-terminated pointer to u8 (C strings)
+            if (ptr_info.child == u8 and ptr_info.sentinel() != null) {
                 return .{ .string = std.mem.span(value) };
             }
             // Handle pointer to fixed-size array of u8 (string literals)
@@ -136,7 +137,8 @@ pub const PyValue = union(enum) {
             return .{ .list = value };
         } else if (@typeInfo(T) == .pointer) {
             const ptr_info = @typeInfo(T).pointer;
-            if (ptr_info.child == u8) {
+            // Check for sentinel-terminated pointer to u8 (C strings)
+            if (ptr_info.child == u8 and ptr_info.sentinel() != null) {
                 return .{ .string = std.mem.span(value) };
             }
             // Handle pointer to fixed-size array of u8 (string literals)
@@ -158,6 +160,15 @@ pub const PyValue = union(enum) {
             return .{ .ptr = @ptrCast(@constCast(value)) };
         } else if (@typeInfo(T) == .@"struct") {
             const info = @typeInfo(T).@"struct";
+            // Handle StringHashMap/AutoHashMap - store as pointer
+            // These have unmanaged and entries fields
+            if (@hasField(T, "unmanaged") and @hasField(T, "entries")) {
+                // HashMap - store pointer to the map
+                // We allocate a copy of the struct on heap so it survives
+                const ptr = try allocator.create(T);
+                ptr.* = value;
+                return .{ .ptr = @ptrCast(ptr) };
+            }
             // Handle ArrayList - convert to list using items
             if (@hasField(T, "items") and @hasField(T, "capacity")) {
                 const items_slice = value.items;

@@ -291,6 +291,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     const result = try std.process.Child.run(.{
         .allocator = aa,
         .argv = argv,
+        .max_output_bytes = 10 * 1024 * 1024, // 10MB for large error output
     });
     // CRITICAL: Child.run allocates stdout/stderr - must free to avoid leaks!
     // Using arena so no explicit free needed, but if we returned early we'd leak
@@ -600,6 +601,7 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
     const result = try std.process.Child.run(.{
         .allocator = aa,
         .argv = argv,
+        .max_output_bytes = 10 * 1024 * 1024, // 10MB for large error output
     });
 
     if (result.term.Exited != 0) {

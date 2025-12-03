@@ -195,26 +195,28 @@ fn tryNonAlphanumeric(text: []const u8, pos: *usize) bool {
     }
 
     // One or more non-whitespace, non-letter, non-digit
+    // Must handle mixed ASCII/UTF-8 sequences (e.g., emoji followed by punctuation)
     var found = false;
 
-    // Fast path: ASCII
-    while (pos.* < text.len and text[pos.*] < 128) {
+    while (pos.* < text.len) {
         const c = text[pos.*];
-        if (isWhitespace(c) or isLetterASCII(c) or isDigit(c)) break;
-        pos.* += 1;
-        found = true;
-    }
 
-    // Slow path: UTF-8
-    while (pos.* < text.len and text[pos.*] >= 128) {
-        const cp_len = unicode.utf8ByteSequenceLength(text[pos.*]) catch 1;
-        if (pos.* + cp_len > text.len) break;
+        if (c < 128) {
+            // ASCII path
+            if (isWhitespace(c) or isLetterASCII(c) or isDigit(c)) break;
+            pos.* += 1;
+            found = true;
+        } else {
+            // UTF-8 path
+            const cp_len = unicode.utf8ByteSequenceLength(c) catch 1;
+            if (pos.* + cp_len > text.len) break;
 
-        const codepoint = unicode.utf8Decode(text[pos.*..pos.* + cp_len]) catch text[pos.*];
-        if (isLetterCodepoint(codepoint) or isDigitCodepoint(codepoint)) break;
+            const codepoint = unicode.utf8Decode(text[pos.*..pos.* + cp_len]) catch c;
+            if (isLetterCodepoint(codepoint) or isDigitCodepoint(codepoint)) break;
 
-        pos.* += cp_len;
-        found = true;
+            pos.* += cp_len;
+            found = true;
+        }
     }
 
     if (!found) {
@@ -300,11 +302,22 @@ inline fn isLetterCodepoint(cp: u21) bool {
     // All other Unicode letters (simplified: most non-ASCII codepoints >= 0x100)
     // This covers CJK, Greek, Cyrillic, Arabic, etc.
     if (cp >= 0x100) {
-        // Exclude some known non-letter ranges
-        if (cp >= 0x2000 and cp <= 0x206F) return false; // General punctuation
-        if (cp >= 0x3000 and cp <= 0x303F) return false; // CJK punctuation
-        if (cp >= 0xFE30 and cp <= 0xFE4F) return false; // CJK compat forms
-        return true; // Assume letter
+        // Exclude known non-letter ranges
+
+        // General punctuation
+        if (cp >= 0x2000 and cp <= 0x206F) return false;
+        // CJK punctuation
+        if (cp >= 0x3000 and cp <= 0x303F) return false;
+        // CJK compat forms
+        if (cp >= 0xFE30 and cp <= 0xFE4F) return false;
+
+        // Emojis - NOT letters! (critical for cl100k_base correctness)
+        if (cp >= 0x1F300 and cp <= 0x1F9FF) return false; // Misc Symbols, Emoticons, Dingbats
+        if (cp >= 0x2600 and cp <= 0x26FF) return false; // Misc Symbols
+        if (cp >= 0x2700 and cp <= 0x27BF) return false; // Dingbats
+        if (cp >= 0xFE00 and cp <= 0xFE0F) return false; // Variation selectors
+
+        return true; // Assume letter (CJK, Greek, Cyrillic, Arabic, etc.)
     }
 
     return false;

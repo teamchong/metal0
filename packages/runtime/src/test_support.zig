@@ -74,6 +74,10 @@ pub const is_64bit: bool = @import("builtin").cpu.arch.ptrBitWidth() == 64;
 /// Debug build flag
 pub const Py_DEBUG: bool = @import("builtin").mode == .Debug;
 
+/// Number of bits used in hash values (NHASHBITS from sys.hash_info)
+/// CPython uses 61 bits on 64-bit platforms, 31 bits on 32-bit
+pub const NHASHBITS: i64 = if (@sizeOf(usize) == 8) 61 else 31;
+
 // ============================================================================
 // Helper functions
 // ============================================================================
@@ -336,14 +340,20 @@ pub const os_helper = struct {
     }
 
     /// Environment variable context manager stub
-    pub const EnvironmentVarGuard = struct {
-        pub fn init() EnvironmentVarGuard {
+    pub const EnvironmentVarGuardType = struct {
+        pub fn init() EnvironmentVarGuardType {
             return .{};
         }
-        pub fn deinit(_: *EnvironmentVarGuard) void {}
-        pub fn set(_: *EnvironmentVarGuard, _: []const u8, _: []const u8) void {}
-        pub fn unset(_: *EnvironmentVarGuard, _: []const u8) void {}
+        pub fn deinit(_: *EnvironmentVarGuardType) void {}
+        pub fn set(_: *EnvironmentVarGuardType, _: []const u8, _: []const u8) void {}
+        pub fn unset(_: *EnvironmentVarGuardType, _: []const u8) void {}
+        pub fn close(_: EnvironmentVarGuardType) void {}
     };
+
+    /// Factory function to create EnvironmentVarGuard instance (matches Python's os_helper.EnvironmentVarGuard())
+    pub fn EnvironmentVarGuard() EnvironmentVarGuardType {
+        return EnvironmentVarGuardType{};
+    }
 };
 
 /// import_helper submodule

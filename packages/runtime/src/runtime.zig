@@ -1129,6 +1129,70 @@ pub fn strRepeat(allocator: std.mem.Allocator, s: []const u8, n: usize) []const 
     return result;
 }
 
+/// Repeat tuple n times (Python tuple * n)
+/// Takes a Zig tuple (anonymous struct) and returns a slice with elements repeated
+pub fn tupleRepeat(allocator: std.mem.Allocator, tuple: anytype, n: usize) []const @typeInfo(@TypeOf(tuple)).@"struct".fields[0].type {
+    const T = @TypeOf(tuple);
+    const info = @typeInfo(T);
+    if (info != .@"struct") @compileError("tupleRepeat expects a tuple/struct");
+
+    const fields = info.@"struct".fields;
+    const tuple_len = fields.len;
+    const ElemType = fields[0].type;
+    const total_len = tuple_len * n;
+
+    if (n == 0) return &[_]ElemType{};
+
+    const result = allocator.alloc(ElemType, total_len) catch return &[_]ElemType{};
+    var idx: usize = 0;
+    for (0..n) |_| {
+        inline for (fields) |field| {
+            result[idx] = @field(tuple, field.name);
+            idx += 1;
+        }
+    }
+    return result;
+}
+
+/// Repeat list/slice/array n times dynamically (Python list * n with runtime n)
+/// Accepts arrays, slices, or pointers to arrays
+pub fn sliceRepeatDynamic(allocator: std.mem.Allocator, list: anytype, n: usize) []const getElemType(@TypeOf(list)) {
+    const T = @TypeOf(list);
+    const ElemType = getElemType(T);
+
+    // Get as slice for uniform handling
+    const as_slice: []const ElemType = if (@typeInfo(T) == .array)
+        &list
+    else if (@typeInfo(T) == .pointer and @typeInfo(@typeInfo(T).pointer.child) == .array)
+        list
+    else
+        list;
+
+    const list_len = as_slice.len;
+    const total_len = list_len * n;
+
+    if (n == 0) return &[_]ElemType{};
+
+    const result = allocator.alloc(ElemType, total_len) catch return &[_]ElemType{};
+    for (0..n) |i| {
+        @memcpy(result[i * list_len ..][0..list_len], as_slice);
+    }
+    return result;
+}
+
+/// Get element type from array, slice, or pointer to array
+fn getElemType(comptime T: type) type {
+    const info = @typeInfo(T);
+    return switch (info) {
+        .array => |a| a.child,
+        .pointer => |p| switch (@typeInfo(p.child)) {
+            .array => |a| a.child,
+            else => p.child,
+        },
+        else => @compileError("Expected array, slice, or pointer to array"),
+    };
+}
+
 /// Check if a byte is Unicode whitespace
 /// Handles ASCII whitespace plus Unicode whitespace characters like \xa0 (NBSP)
 pub fn isUnicodeWhitespace(c: u8) bool {
@@ -1218,6 +1282,30 @@ pub const floatIsInteger = float_ops.floatIsInteger;
 // Import and re-export integer operations
 pub const int_ops = @import("runtime/int_ops.zig");
 pub const toInt = int_ops.toInt;
+
+/// Convert value to integer for struct.pack - handles BigInt and regular integers
+pub inline fn packInt(value: anytype) u64 {
+    const T = @TypeOf(value);
+    // Handle BigInt directly
+    if (T == BigInt) {
+        // Try toInt64 first, then fallback to truncation for large values
+        return @bitCast(value.toInt64() orelse 0);
+    }
+    // Handle pointer to BigInt
+    if (@typeInfo(T) == .pointer) {
+        const child = @typeInfo(T).pointer.child;
+        if (child == BigInt) {
+            return @bitCast(value.toInt64() orelse 0);
+        }
+    }
+    // Handle regular integers and comptime_int
+    const info = @typeInfo(T);
+    if (info == .int or info == .comptime_int) {
+        return @as(u64, @intCast(value));
+    }
+    // Fallback
+    return 0;
+}
 pub const int__new__ = int_ops.int__new__;
 pub const divideInt = int_ops.divideInt;
 pub const moduloInt = int_ops.moduloInt;
