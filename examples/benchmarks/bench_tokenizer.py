@@ -3,17 +3,13 @@ Tokenizer benchmark - metal0 native Zig BPE tokenizer.
 
 Usage:
     metal0 bench_tokenizer.py
-
-Expected results (Apple M2):
-    metal0 (Zig):     2.489s  (1.00x)
-    rs-bpe (Rust):    3.866s  (1.55x slower)
-    tiktoken (Rust):  9.311s  (3.74x slower)
-    HuggingFace:      44.264s (17.78x slower)
 """
 
 from metal0 import tokenizer
 import time
 
+# Initialize tokenizer
+tokenizer.init("/Users/steven_chong/Downloads/repos/metal0/packages/tokenizer/dist/cl100k_base_full.json")
 
 # Sample texts for benchmarking
 SAMPLE_TEXTS = [
@@ -24,43 +20,34 @@ SAMPLE_TEXTS = [
     "Tokenization is the first step in natural language processing.",
 ]
 
+iterations = 100
 
-def benchmark_encode(iterations: int = 100):
-    """Benchmark encoding performance"""
-    print("Benchmarking", len(SAMPLE_TEXTS), "texts x", iterations, "iterations...")
+print("=" * 50)
+print("metal0 Tokenizer Benchmark (native Zig BPE)")
+print("=" * 50)
 
-    total_tokens = 0
-    start = time.time()
+# Warm up
+print("\nWarming up...")
+for text in SAMPLE_TEXTS:
+    tokenizer.encode(text)
 
-    i = 0
-    while i < iterations:
-        for text in SAMPLE_TEXTS:
-            tokens = tokenizer.encode(text)
-            total_tokens = total_tokens + len(tokens)
-        i = i + 1
+# Run benchmark
+print("\nBenchmarking", len(SAMPLE_TEXTS), "texts x", iterations, "iterations...")
 
-    elapsed = time.time() - start
+total_tokens = 0
+start = time.time()
 
-    print("Time:", elapsed, "s")
-    print("Total tokens:", total_tokens)
-
-    return elapsed
-
-
-if __name__ == "__main__":
-    print("=" * 50)
-    print("metal0 Tokenizer Benchmark (native Zig BPE)")
-    print("=" * 50)
-
-    # Warm up
-    print("\nWarming up...")
+i = 0
+while i < iterations:
     for text in SAMPLE_TEXTS:
-        tokenizer.encode(text)
+        tokens = tokenizer.encode(text)
+        total_tokens = total_tokens + len(tokens)
+    i = i + 1
 
-    # Run benchmark
-    print("\nRunning benchmark...")
-    encode_time = benchmark_encode(iterations=100)
+elapsed = time.time() - start
 
-    print("\n" + "=" * 50)
-    print("Done! Encode time:", encode_time, "s")
-    print("=" * 50)
+print("Time:", elapsed, "s")
+print("Total tokens:", total_tokens)
+print("\n" + "=" * 50)
+print("Done!")
+print("=" * 50)
