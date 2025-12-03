@@ -2,7 +2,16 @@
 const std = @import("std");
 const h = @import("mod_helper.zig");
 
+// Feature macros struct - returns CPython build configuration as comptime struct
+// This allows compile-time evaluation of if conditions using feature_macros['key']
+const feature_macros_code =
+    \\runtime.FeatureMacros{}
+;
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    // Feature macros function
+    .{ "get_feature_macros", h.c(feature_macros_code) },
+    // Constants
     .{ "CHAR_MAX", h.I64(127) }, .{ "CHAR_MIN", h.I64(-128) }, .{ "UCHAR_MAX", h.I64(255) },
     .{ "SHRT_MAX", h.I64(32767) }, .{ "SHRT_MIN", h.I64(-32768) }, .{ "USHRT_MAX", h.I64(65535) },
     .{ "INT_MAX", h.I64(2147483647) }, .{ "INT_MIN", h.I64(-2147483648) }, .{ "UINT_MAX", h.I64(4294967295) },

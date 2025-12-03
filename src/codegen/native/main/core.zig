@@ -47,6 +47,7 @@ pub const TestMethodInfo = struct {
     name: []const u8,
     skip_reason: ?[]const u8 = null, // null = not skipped, otherwise the reason
     needs_allocator: bool = false, // true if method needs allocator param (has fallible ops)
+    returns_error: bool = true, // true if method returns error union (uses try)
     is_skipped: bool = false, // true if method is skipped for any reason (docstring, refs skipped module, decorator)
     mock_patch_count: usize = 0, // number of @mock.patch.object decorators (each injects a mock param)
     default_params: []const TestDefaultParam = &.{}, // params with default values
@@ -437,6 +438,10 @@ pub const NativeCodegen = struct {
     // Maps variable name -> void (e.g., "fromHex" -> {})
     callable_global_vars: FnvVoidMap,
 
+    // Track import_module() assigned variables (e.g., ctypes_test = import_module("ctypes"))
+    // These are compile-time type references, not runtime variables
+    import_module_vars: FnvVoidMap,
+
     // Function traits call graph for unified analysis (built lazily on first generate())
     // Query via function_traits.isPure(), .needsAllocator(), .canUseTCO(), etc.
     call_graph: ?function_traits.CallGraph,
@@ -564,6 +569,7 @@ pub const NativeCodegen = struct {
             .local_from_imports = FnvStringMap.init(allocator),
             .loop_capture_vars = FnvVoidMap.init(allocator),
             .callable_global_vars = FnvVoidMap.init(allocator),
+            .import_module_vars = FnvVoidMap.init(allocator),
             .forward_declared_vars = FnvVoidMap.init(allocator),
             .call_graph = null,
             .generic_type_params = FnvVoidMap.init(allocator),

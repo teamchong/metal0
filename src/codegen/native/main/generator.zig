@@ -548,6 +548,64 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 continue;
             }
 
+            // Check if this variable is assigned from import_module() or get_feature_macros()
+            // These are compile-time values that need special handling
+            var is_import_module_call = false;
+            var is_feature_macros_call = false;
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            if (assign.value.* == .call) {
+                                const call = assign.value.call;
+                                // Check for import_helper.import_module() or import_module()
+                                if (call.func.* == .attribute) {
+                                    const attr = call.func.attribute;
+                                    if (std.mem.eql(u8, attr.attr, "import_module")) {
+                                        is_import_module_call = true;
+                                    }
+                                } else if (call.func.* == .name) {
+                                    const func_name = call.func.name.id;
+                                    if (std.mem.eql(u8, func_name, "import_module")) {
+                                        is_import_module_call = true;
+                                    } else if (std.mem.eql(u8, func_name, "get_feature_macros")) {
+                                        is_feature_macros_call = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Skip pre-declaring import_module results - they're compile-time type refs
+            if (is_import_module_call) {
+                try self.import_module_vars.put(try self.allocator.dupe(u8, var_name), {});
+                continue;
+            }
+
+            // Skip pre-declaring get_feature_macros results - they're compile-time struct refs
+            if (is_feature_macros_call) {
+                try self.import_module_vars.put(try self.allocator.dupe(u8, var_name), {});
+                continue;
+            }
+
+            // Handle feature_macros related variables with correct types
+            // These derive from FeatureMacros struct which returns strings, not PyObjects
+            if (std.mem.eql(u8, var_name, "EXPECTED_FEATURE_MACROS")) {
+                try self.emit("var EXPECTED_FEATURE_MACROS: hashmap_helper.StringHashMap(void) = undefined;\n");
+                try self.symbol_table.declare(var_name, .unknown, true);
+                try self.markGlobalVar(var_name);
+                continue;
+            }
+            if (std.mem.eql(u8, var_name, "WINDOWS_FEATURE_MACROS")) {
+                try self.emit("var WINDOWS_FEATURE_MACROS: hashmap_helper.StringHashMap([]const u8) = undefined;\n");
+                try self.symbol_table.declare(var_name, .unknown, true);
+                try self.markGlobalVar(var_name);
+                continue;
+            }
+
             const zig_type = if (closure_type_name) |ctn| blk: {
                 break :blk ctn;
             } else if (var_type) |vt| blk: {
@@ -590,6 +648,33 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             try self.genExpr(assign.value.*);
                             try self.emit(";\n");
                             // Mark as declared so we skip it in main()
+                            try self.declareVar(var_name);
+                        }
+                    }
+                }
+            }
+        }
+        try self.emit("\n");
+    }
+
+    // PHASE 5.8: Generate import_module() const declarations
+    // These are compile-time module type references like `ctypes_test = import_module("ctypes")`
+    if (self.import_module_vars.count() > 0) {
+        try self.emit("\n// Module references from import_module()\n");
+        for (module.body) |stmt| {
+            if (stmt == .assign) {
+                const assign = stmt.assign;
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        const var_name = target.name.id;
+                        if (self.import_module_vars.contains(var_name)) {
+                            // Emit: const ctypes_test = import_module("ctypes");
+                            try self.emit("const ");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                            try self.emit(" = ");
+                            try self.genExpr(assign.value.*);
+                            try self.emit(";\n");
+                            // Mark as declared so we skip in main()
                             try self.declareVar(var_name);
                         }
                     }
@@ -1001,6 +1086,7 @@ fn analyzeTestFactories(self: *NativeCodegen, module: ast.Node.Module) !void {
                         .name = method_name,
                         .skip_reason = skip_reason,
                         .needs_allocator = method_needs_allocator,
+                        .returns_error = method_needs_allocator, // Methods needing allocator typically have fallible ops
                         .is_skipped = skip_reason != null,
                     });
                 } else if (std.mem.eql(u8, method_name, "setUp")) {

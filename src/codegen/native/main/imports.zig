@@ -269,40 +269,59 @@ pub fn collectImports(
         import_aliases.deinit();
     }
 
-    for (module.body) |stmt| {
-        // Handle both "import X" and "from X import Y"
-        switch (stmt) {
-            .import_stmt => |imp| {
-                const module_name = imp.module;
-                try module_names.put(module_name, {});
-                // Also add root module for dotted imports (e.g., "test.support" -> "test")
-                if (std.mem.indexOfScalar(u8, module_name, '.')) |dot_idx| {
-                    try module_names.put(module_name[0..dot_idx], {});
+    // Recursive helper to scan imports from statement list
+    const ScanHelper = struct {
+        fn scanStatements(
+            s: *NativeCodegen,
+            stmts: []ast.Node,
+            mod_names: *FnvVoidMap,
+            imp_aliases: *FnvStringMap,
+        ) !void {
+            for (stmts) |stmt| {
+                switch (stmt) {
+                    .import_stmt => |imp| {
+                        const module_name = imp.module;
+                        try mod_names.put(module_name, {});
+                        if (std.mem.indexOfScalar(u8, module_name, '.')) |dot_idx| {
+                            try mod_names.put(module_name[0..dot_idx], {});
+                        }
+                        if (imp.asname) |alias| {
+                            const alias_copy = try s.allocator.dupe(u8, alias);
+                            try imp_aliases.put(alias_copy, module_name);
+                        }
+                    },
+                    .import_from => |imp| {
+                        const module_name = imp.module;
+                        try mod_names.put(module_name, {});
+                        if (std.mem.indexOfScalar(u8, module_name, '.')) |dot_idx| {
+                            try mod_names.put(module_name[0..dot_idx], {});
+                        }
+                        try s.from_imports.append(s.allocator, core.FromImportInfo{
+                            .module = module_name,
+                            .names = imp.names,
+                            .asnames = imp.asnames,
+                        });
+                    },
+                    // Scan nested blocks for imports
+                    .try_stmt => |t| {
+                        try scanStatements(s, t.body, mod_names, imp_aliases);
+                        for (t.handlers) |h| {
+                            try scanStatements(s, h.body, mod_names, imp_aliases);
+                        }
+                        try scanStatements(s, t.else_body, mod_names, imp_aliases);
+                        try scanStatements(s, t.finalbody, mod_names, imp_aliases);
+                    },
+                    .if_stmt => |i| {
+                        try scanStatements(s, i.body, mod_names, imp_aliases);
+                        try scanStatements(s, i.else_body, mod_names, imp_aliases);
+                    },
+                    else => {},
                 }
-                // Track alias: import numpy as np -> np -> numpy
-                if (imp.asname) |alias| {
-                    const alias_copy = try self.allocator.dupe(u8, alias);
-                    try import_aliases.put(alias_copy, module_name);
-                }
-            },
-            .import_from => |imp| {
-                const module_name = imp.module;
-                try module_names.put(module_name, {});
-                // Also add root module for dotted imports (e.g., "test.support" -> "test")
-                if (std.mem.indexOfScalar(u8, module_name, '.')) |dot_idx| {
-                    try module_names.put(module_name[0..dot_idx], {});
-                }
-
-                // Store from-import info for symbol re-export generation
-                try self.from_imports.append(self.allocator, core.FromImportInfo{
-                    .module = module_name,
-                    .names = imp.names,
-                    .asnames = imp.asnames,
-                });
-            },
-            else => {},
+            }
         }
-    }
+    };
+
+    try ScanHelper.scanStatements(self, module.body, &module_names, &import_aliases);
 
     // Process each module using registry
     for (module_names.keys()) |python_module| {

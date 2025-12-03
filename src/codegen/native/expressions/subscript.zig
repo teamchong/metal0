@@ -207,7 +207,21 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
             const is_likely_dict = is_unknown_pyobject and (index_type == .string);
 
-            if (is_likely_dict) {
+            // Check if this is a FeatureMacros access (feature_macros['key'])
+            const is_feature_macros = blk: {
+                if (subscript.value.* == .name) {
+                    break :blk std.mem.eql(u8, subscript.value.name.id, "feature_macros");
+                }
+                break :blk false;
+            };
+
+            if (is_feature_macros) {
+                // FeatureMacros struct access: feature_macros.index("key")
+                try genExpr(self, subscript.value.*);
+                try self.emit(".index(");
+                try genExpr(self, subscript.slice.index.*);
+                try self.emit(")");
+            } else if (is_likely_dict) {
                 // PyObject dict access: runtime.PyDict.get(obj, key).?
                 try self.emit("runtime.PyDict.get(");
                 try genExpr(self, subscript.value.*);
