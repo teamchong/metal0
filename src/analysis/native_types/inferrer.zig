@@ -424,16 +424,43 @@ pub const TypeInferrer = struct {
 
         // Only infer if no annotation was provided (type is unknown)
         if (current_type == .unknown) {
-            // Find return statement in function body
-            for (func_def.body) |body_stmt| {
-                if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
-                    const return_value = body_stmt.return_stmt.value.?.*;
-                    const inferred_type = try self.inferExpr(return_value);
-                    try self.func_return_types.put(func_def.name, inferred_type);
-                    break;
+            // Find return statement in function body (recursively including match statements)
+            if (try self.findReturnTypeInBody(func_def.body)) |inferred_type| {
+                try self.func_return_types.put(func_def.name, inferred_type);
+            }
+        }
+    }
+
+    /// Recursively find the first return statement in a body and infer its type
+    fn findReturnTypeInBody(self: *TypeInferrer, body: []const ast.Node) InferError!?NativeType {
+        for (body) |stmt| {
+            if (stmt == .return_stmt and stmt.return_stmt.value != null) {
+                return try self.inferExpr(stmt.return_stmt.value.?.*);
+            }
+            // Check nested statements
+            if (stmt == .if_stmt) {
+                if (try self.findReturnTypeInBody(stmt.if_stmt.body)) |t| return t;
+                if (try self.findReturnTypeInBody(stmt.if_stmt.else_body)) |t| return t;
+            }
+            if (stmt == .while_stmt) {
+                if (try self.findReturnTypeInBody(stmt.while_stmt.body)) |t| return t;
+            }
+            if (stmt == .for_stmt) {
+                if (try self.findReturnTypeInBody(stmt.for_stmt.body)) |t| return t;
+            }
+            if (stmt == .match_stmt) {
+                for (stmt.match_stmt.cases) |case| {
+                    if (try self.findReturnTypeInBody(case.body)) |t| return t;
+                }
+            }
+            if (stmt == .try_stmt) {
+                if (try self.findReturnTypeInBody(stmt.try_stmt.body)) |t| return t;
+                for (stmt.try_stmt.handlers) |handler| {
+                    if (try self.findReturnTypeInBody(handler.body)) |t| return t;
                 }
             }
         }
+        return null;
     }
 };
 

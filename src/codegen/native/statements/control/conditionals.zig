@@ -371,3 +371,170 @@ pub fn genContinue(self: *NativeCodegen) CodegenError!void {
     var builder = CodeBuilder.init(self);
     _ = try builder.line("continue;");
 }
+
+/// Generate match statement (PEP 634)
+/// Compiles to a chain of if/else if statements
+pub fn genMatch(self: *NativeCodegen, match_stmt: ast.Node.Match) CodegenError!void {
+    var builder = CodeBuilder.init(self);
+
+    // Store subject in a temp variable
+    try self.emitIndent();
+    _ = try builder.write("const __match_subject = ");
+    try self.genExpr(match_stmt.subject.*);
+    _ = try builder.line(";");
+
+    // Generate if/else if chain for each case
+    var first = true;
+    for (match_stmt.cases) |case| {
+        try self.emitIndent();
+        if (first) {
+            _ = try builder.write("if (");
+            first = false;
+        } else {
+            _ = try builder.write("} else if (");
+        }
+
+        // Generate pattern matching condition
+        try genPatternCondition(self, case.pattern, "__match_subject");
+
+        // Add guard condition if present
+        if (case.guard) |guard| {
+            _ = try builder.write(" and ");
+            try self.genExpr(guard.*);
+        }
+
+        _ = try builder.line(") {");
+        self.indent_level += 1;
+
+        // Generate capture bindings if needed
+        try genPatternBindings(self, case.pattern, "__match_subject");
+
+        // Generate body
+        for (case.body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+
+        self.indent_level -= 1;
+    }
+
+    // Close the if chain - add else clause for wildcard fallthrough
+    if (match_stmt.cases.len > 0) {
+        // Check if last case is wildcard (always matches)
+        const last_case = match_stmt.cases[match_stmt.cases.len - 1];
+        if (last_case.pattern != .wildcard and last_case.pattern != .capture) {
+            // Add else block to handle unmatched cases
+            try self.emitIndent();
+            _ = try builder.line("} else {");
+            self.indent_level += 1;
+            try self.emitIndent();
+            _ = try builder.line("// No pattern matched");
+            self.indent_level -= 1;
+        }
+        try self.emitIndent();
+        _ = try builder.line("}");
+    }
+}
+
+/// Generate the condition for a pattern match
+fn genPatternCondition(self: *NativeCodegen, pattern: ast.Node.MatchPattern, subject: []const u8) CodegenError!void {
+    var builder = CodeBuilder.init(self);
+
+    switch (pattern) {
+        .wildcard => {
+            // Always matches
+            _ = try builder.write("true");
+        },
+        .capture => {
+            // Variable capture - always matches
+            _ = try builder.write("true");
+        },
+        .literal => |lit| {
+            // Compare subject to literal
+            _ = try builder.write(subject);
+            _ = try builder.write(" == ");
+            try self.genExpr(lit.*);
+        },
+        .sequence => |patterns| {
+            // Check length and each element
+            _ = try builder.write(subject);
+            _ = try builder.write(".len == ");
+            try self.emitFmt("{d}", .{patterns.len});
+            for (patterns, 0..) |p, i| {
+                _ = try builder.write(" and ");
+                var idx_buf: [32]u8 = undefined;
+                const idx_str = std.fmt.bufPrint(&idx_buf, "{s}[{d}]", .{ subject, i }) catch "?";
+                try genPatternCondition(self, p, idx_str);
+            }
+        },
+        .mapping => |entries| {
+            // Check each key exists and value matches
+            for (entries, 0..) |entry, i| {
+                if (i > 0) _ = try builder.write(" and ");
+                _ = try builder.write(subject);
+                _ = try builder.write(".contains(");
+                try self.genExpr(entry.key.*);
+                _ = try builder.write(")");
+                // TODO: Also check value pattern
+            }
+            if (entries.len == 0) {
+                _ = try builder.write("true");
+            }
+        },
+        .class_pattern => |cp| {
+            // Check if subject is instance of class
+            _ = try builder.write("@TypeOf(");
+            _ = try builder.write(subject);
+            _ = try builder.write(") == ");
+            _ = try builder.write(cp.cls);
+            // TODO: Check positional and keyword patterns
+        },
+        .or_pattern => |patterns| {
+            _ = try builder.write("(");
+            for (patterns, 0..) |p, i| {
+                if (i > 0) _ = try builder.write(" or ");
+                try genPatternCondition(self, p, subject);
+            }
+            _ = try builder.write(")");
+        },
+        .as_pattern => |ap| {
+            // Match inner pattern
+            try genPatternCondition(self, ap.pattern.*, subject);
+        },
+    }
+}
+
+/// Generate variable bindings for captures in a pattern
+fn genPatternBindings(self: *NativeCodegen, pattern: ast.Node.MatchPattern, subject: []const u8) CodegenError!void {
+    var builder = CodeBuilder.init(self);
+
+    switch (pattern) {
+        .capture => |name| {
+            // Bind variable to subject
+            try self.emitIndent();
+            _ = try builder.write("const ");
+            _ = try builder.write(name);
+            _ = try builder.write(" = ");
+            _ = try builder.write(subject);
+            _ = try builder.line(";");
+        },
+        .sequence => |patterns| {
+            // Bind each element
+            for (patterns, 0..) |p, i| {
+                var idx_buf: [64]u8 = undefined;
+                const idx_str = std.fmt.bufPrint(&idx_buf, "{s}[{d}]", .{ subject, i }) catch continue;
+                try genPatternBindings(self, p, idx_str);
+            }
+        },
+        .as_pattern => |ap| {
+            // Bind the name and recurse
+            try self.emitIndent();
+            _ = try builder.write("const ");
+            _ = try builder.write(ap.name);
+            _ = try builder.write(" = ");
+            _ = try builder.write(subject);
+            _ = try builder.line(";");
+            try genPatternBindings(self, ap.pattern.*, subject);
+        },
+        else => {},
+    }
+}

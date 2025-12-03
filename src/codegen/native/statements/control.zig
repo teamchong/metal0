@@ -9,6 +9,7 @@ pub const genWhile = @import("control/loops.zig").genWhile;
 
 // Re-export conditional functions
 pub const genIf = @import("control/conditionals.zig").genIf;
+pub const genMatch = @import("control/conditionals.zig").genMatch;
 pub const genPass = @import("control/conditionals.zig").genPass;
 pub const genBreak = @import("control/conditionals.zig").genBreak;
 pub const genContinue = @import("control/conditionals.zig").genContinue;

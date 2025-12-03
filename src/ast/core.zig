@@ -53,6 +53,7 @@ pub const Node = union(enum) {
     yield_stmt: Yield,
     yield_from_stmt: YieldFrom,
     slice_expr: SliceRange,
+    match_stmt: Match,
 
     // Type aliases for backward compatibility with nested access (ast.Node.FString)
     pub const FString = fstring.FString;
@@ -329,6 +330,52 @@ pub const Node = union(enum) {
         body: *Node, // value to return if condition is true
         condition: *Node, // condition (can't use 'test' - reserved keyword in Zig)
         orelse_value: *Node, // value to return if condition is false (can't use 'orelse' - reserved)
+    };
+
+    /// Match statement (PEP 634): match subject: case pattern: body
+    pub const Match = struct {
+        subject: *Node, // The value being matched
+        cases: []MatchCase, // List of case clauses
+    };
+
+    /// Single case clause in a match statement
+    pub const MatchCase = struct {
+        pattern: MatchPattern, // Pattern to match
+        guard: ?*Node, // Optional guard condition (case x if x > 0)
+        body: []Node, // Statements to execute if matched
+    };
+
+    /// Pattern types for match/case
+    pub const MatchPattern = union(enum) {
+        literal: *Node, // case 1, case "hello", case True
+        capture: []const u8, // case x (capture variable)
+        wildcard: void, // case _
+        sequence: []MatchPattern, // case [a, b, c]
+        mapping: []MappingPatternEntry, // case {"key": value}
+        class_pattern: ClassPattern, // case Point(x=0, y=0)
+        or_pattern: []MatchPattern, // case 1 | 2 | 3
+        as_pattern: AsPattern, // case pattern as name
+    };
+
+    pub const MappingPatternEntry = struct {
+        key: *Node, // Key (literal or constant)
+        pattern: MatchPattern, // Pattern for value
+    };
+
+    pub const ClassPattern = struct {
+        cls: []const u8, // Class name
+        positional: []MatchPattern, // Positional patterns
+        keyword: []KeywordPattern, // Keyword patterns (x=0)
+    };
+
+    pub const KeywordPattern = struct {
+        name: []const u8,
+        pattern: MatchPattern,
+    };
+
+    pub const AsPattern = struct {
+        pattern: *MatchPattern, // Inner pattern
+        name: []const u8, // Capture name
     };
 
     /// Recursively free all allocations in the AST

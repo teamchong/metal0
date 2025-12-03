@@ -811,6 +811,7 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .aug_assign => |aug| try statements.genAugAssign(self, aug),
         .expr_stmt => |expr| try statements.genExprStmt(self, expr.value.*),
         .if_stmt => |if_stmt| try statements.genIf(self, if_stmt),
+        .match_stmt => |match_stmt| try statements.genMatch(self, match_stmt),
         .while_stmt => |while_stmt| try statements.genWhile(self, while_stmt),
         .for_stmt => |for_stmt| try statements.genFor(self, for_stmt),
         .return_stmt => |ret| try statements.genReturn(self, ret),

@@ -105,6 +105,8 @@ pub fn main() !void {
         try cmdCache(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "build")) {
         try cmdBuild(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "deploy")) {
+        cmdDeploy(args[2..]);
     } else if (std.mem.eql(u8, command, "run")) {
         try cmdRun(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "test")) {
@@ -682,14 +684,26 @@ fn cmdCache(allocator: std.mem.Allocator, args: []const []const u8) !void {
 fn cmdBuild(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var opts = CompileOptions{ .input_file = undefined, .mode = "build" };
     var input_file: ?[]const u8 = null;
+    var i: usize = 0;
 
-    for (args) |arg| {
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
         if (std.mem.eql(u8, arg, "--binary") or std.mem.eql(u8, arg, "-b")) {
             opts.binary = true;
         } else if (std.mem.eql(u8, arg, "--force") or std.mem.eql(u8, arg, "-f")) {
             opts.force = true;
         } else if (std.mem.eql(u8, arg, "--emit-zig")) {
             opts.emit_zig_only = true;
+        } else if (std.mem.eql(u8, arg, "--target") or std.mem.eql(u8, arg, "-t")) {
+            // Parse --target <value>
+            i += 1;
+            if (i < args.len) {
+                opts.target = parseTarget(args[i]);
+            }
+        } else if (std.mem.startsWith(u8, arg, "--target=")) {
+            // Parse --target=<value>
+            const value = arg["--target=".len..];
+            opts.target = parseTarget(value);
         } else if (!std.mem.startsWith(u8, arg, "-")) {
             if (input_file == null) input_file = arg;
         }
@@ -702,6 +716,31 @@ fn cmdBuild(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     opts.input_file = input_file.?;
     try compile.compileFile(allocator, opts);
+}
+
+fn parseTarget(value: []const u8) CompileOptions.Target {
+    if (std.mem.eql(u8, value, "native")) return .native;
+    if (std.mem.eql(u8, value, "wasm-browser") or std.mem.eql(u8, value, "wasm_browser")) return .wasm_browser;
+    if (std.mem.eql(u8, value, "wasm-edge") or std.mem.eql(u8, value, "wasm_edge")) return .wasm_edge;
+    if (std.mem.eql(u8, value, "linux-x64") or std.mem.eql(u8, value, "linux_x64")) return .linux_x64;
+    if (std.mem.eql(u8, value, "linux-arm64") or std.mem.eql(u8, value, "linux_arm64")) return .linux_arm64;
+    if (std.mem.eql(u8, value, "macos-x64") or std.mem.eql(u8, value, "macos_x64")) return .macos_x64;
+    if (std.mem.eql(u8, value, "macos-arm64") or std.mem.eql(u8, value, "macos_arm64")) return .macos_arm64;
+    if (std.mem.eql(u8, value, "windows-x64") or std.mem.eql(u8, value, "windows_x64")) return .windows_x64;
+    // Default to native for unknown targets
+    printWarn("Unknown target '{s}', using native", .{value});
+    return .native;
+}
+
+/// Deploy to remote server (WIP - not yet implemented)
+fn cmdDeploy(args: []const []const u8) void {
+    _ = args;
+    printWarn("Deploy command is work-in-progress", .{});
+    std.debug.print("\n{s}Coming soon:{s}\n", .{ Color.bold, Color.reset });
+    std.debug.print("  metal0 deploy app.py --to my-server\n", .{});
+    std.debug.print("  metal0 deploy app.py --to user@host:/path\n", .{});
+    std.debug.print("\nFor now, use:\n", .{});
+    std.debug.print("  metal0 build -b app.py && scp ./app my-server:\n\n", .{});
 }
 
 fn cmdRun(allocator: std.mem.Allocator, args: []const []const u8) !void {
@@ -1227,16 +1266,24 @@ fn printUsage() !void {
         \\   build        Compile Python to native code
         \\   run          Compile and run a Python file
         \\   test         Run test suite
+        \\   deploy       Deploy to remote server (WIP)
+        \\
+        \\{s}BUILD OPTIONS:{s}
+        \\   --target <t> Cross-compile target:
+        \\                native (default), wasm-browser, wasm-edge,
+        \\                linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64
         \\
         \\{s}EXAMPLES:{s}
-        \\   metal0 app.py                 # Run Python file (30x faster)
-        \\   metal0 -c "print('hi')"       # Execute code string
-        \\   metal0 -m pip install numpy   # Use pip through metal0
-        \\   metal0 install requests       # Install packages
-        \\   metal0 build -b app.py        # Compile to binary
+        \\   metal0 app.py                        # Run Python file (30x faster)
+        \\   metal0 -c "print('hi')"              # Execute code string
+        \\   metal0 -m pip install numpy          # Use pip through metal0
+        \\   metal0 install requests              # Install packages
+        \\   metal0 build -b app.py               # Compile to binary
+        \\   metal0 build --target wasm-edge app.py  # Compile to WASM for edge
         \\
     , .{
         Color.bold_cyan, Color.reset,
+        Color.bold,      Color.reset,
         Color.bold,      Color.reset,
         Color.bold,      Color.reset,
         Color.bold,      Color.reset,

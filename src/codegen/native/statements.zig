@@ -28,6 +28,7 @@ pub const genAnnAssign = assign.genAnnAssign;
 pub const genAugAssign = assign.genAugAssign;
 pub const genExprStmt = assign.genExprStmt;
 pub const genIf = control.genIf;
+pub const genMatch = control.genMatch;
 pub const genWhile = control.genWhile;
 pub const genFor = control.genFor;
 pub const genPass = control.genPass;

@@ -547,6 +547,12 @@ pub fn visitStmtScoped(
             // Visit finally body
             for (try_stmt.finalbody) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
         },
+        .match_stmt => |match_stmt| {
+            // Visit each case body
+            for (match_stmt.cases) |case| {
+                for (case.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, inferExprFn, s, type_inferrer);
+            }
+        },
         else => {},
     }
 }

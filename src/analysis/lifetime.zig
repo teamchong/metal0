@@ -405,6 +405,20 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
                 line = try analyzeLifetimes(info, step.*, line);
             }
         },
+        .match_stmt => |match_stmt| {
+            // Analyze subject expression
+            line = try analyzeLifetimes(info, match_stmt.subject.*, line);
+            // Analyze each case body
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    line = try analyzeLifetimes(info, guard.*, line);
+                }
+                for (case.body) |body_node| {
+                    line = try analyzeLifetimes(info, body_node, line);
+                }
+            }
+            line += 1;
+        },
         // Leaf nodes
         .constant, .import_stmt, .import_from, .pass, .break_stmt, .continue_stmt, .global_stmt, .nonlocal_stmt, .ellipsis_literal, .raise_stmt, .yield_stmt, .yield_from_stmt => {
             // No variables to track

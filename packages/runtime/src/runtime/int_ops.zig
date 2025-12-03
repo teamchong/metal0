@@ -578,10 +578,22 @@ fn parseIntWithUnicodeDigits(allocator: std.mem.Allocator, str: []const u8, base
 }
 
 /// Implement int.__new__(cls, value) - creates a new int subclass instance
-/// In Python: int.__new__(bool, 0) creates a bool with value 0
-/// Since Zig doesn't have subclassing like Python, we just return the value
-/// The cls parameter is ignored (we can't actually create a subclass instance)
-pub fn int__new__(_: anytype, value: anytype) @TypeOf(value) {
+/// Python: int.__new__(int, 0) -> 0
+/// Python: int.__new__(bool, 0) -> TypeError (can't use int.__new__ to create bool)
+/// The cls parameter must be int or a proper subclass, not bool
+pub fn int__new__(cls: anytype, value: anytype) PythonError!@TypeOf(value) {
+    // Check if cls is bool - Python raises TypeError for int.__new__(bool, ...)
+    // "int.__new__(bool) is not safe, use bool.__new__()"
+    const ClsType = @TypeOf(cls);
+    if (ClsType == type and cls == bool) {
+        return PythonError.TypeError;
+    }
+    // For string type name checks
+    if (ClsType == []const u8 or ClsType == *const [4:0]u8) {
+        if (std.mem.eql(u8, cls, "bool")) {
+            return PythonError.TypeError;
+        }
+    }
     return value;
 }
 

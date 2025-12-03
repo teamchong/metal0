@@ -282,6 +282,11 @@ pub fn returnsLambda(body: []ast.Node) bool {
         if (stmt == .for_stmt) {
             if (returnsLambda(stmt.for_stmt.body)) return true;
         }
+        if (stmt == .match_stmt) {
+            for (stmt.match_stmt.cases) |case| {
+                if (returnsLambda(case.body)) return true;
+            }
+        }
     }
     return false;
 }
@@ -327,6 +332,11 @@ pub fn getReturnedNestedFuncName(body: []ast.Node) ?[]const u8 {
         }
         if (stmt == .for_stmt) {
             if (getReturnedNestedFuncName(stmt.for_stmt.body)) |name| return name;
+        }
+        if (stmt == .match_stmt) {
+            for (stmt.match_stmt.cases) |case| {
+                if (getReturnedNestedFuncName(case.body)) |name| return name;
+            }
         }
     }
     return null;
@@ -392,6 +402,11 @@ pub fn hasReturnStatement(body: []ast.Node) bool {
         }
         if (stmt == .for_stmt) {
             if (hasReturnStatement(stmt.for_stmt.body)) return true;
+        }
+        if (stmt == .match_stmt) {
+            for (stmt.match_stmt.cases) |case| {
+                if (hasReturnStatement(case.body)) return true;
+            }
         }
     }
     return false;

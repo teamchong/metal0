@@ -209,6 +209,18 @@ fn isNameUsedInStmt(stmt: ast.Node, name: []const u8) bool {
             if (isNameUsedInBody(try_stmt.finalbody, name)) return true;
             return false;
         },
+        .match_stmt => |match_stmt| {
+            // Check subject expression
+            if (isNameUsedInExpr(match_stmt.subject.*, name)) return true;
+            // Check each case body and guard
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    if (isNameUsedInExpr(guard.*, name)) return true;
+                }
+                if (isNameUsedInBody(case.body, name)) return true;
+            }
+            return false;
+        },
         else => false,
     };
 }

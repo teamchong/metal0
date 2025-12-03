@@ -348,6 +348,20 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
                 allocator.destroy(st);
             }
         },
+        .match_stmt => |m| {
+            deinit(m.subject, allocator);
+            allocator.destroy(m.subject);
+            for (m.cases) |case| {
+                if (case.guard) |guard| {
+                    deinit(guard, allocator);
+                    allocator.destroy(guard);
+                }
+                for (case.body) |*n| deinit(n, allocator);
+                allocator.free(case.body);
+                // Note: pattern cleanup would go here if patterns had heap allocations
+            }
+            allocator.free(m.cases);
+        },
         // Leaf nodes need no cleanup
         .name, .constant, .pass, .break_stmt, .continue_stmt, .ellipsis_literal => {},
     }
