@@ -423,12 +423,13 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 try self.emit(", \"");
                 // Escape the format spec for Zig string literal
                 for (fe.format_spec) |c| {
-                    if (c == '"') {
-                        try self.emit("\\\"");
-                    } else if (c == '\\') {
-                        try self.emit("\\\\");
-                    } else {
-                        try self.output.append(self.allocator, c);
+                    switch (c) {
+                        '"' => try self.emit("\\\""),
+                        '\\' => try self.emit("\\\\"),
+                        '\n' => try self.emit("\\\\n"), // double-escape for Zig literal
+                        '\r' => try self.emit("\\\\r"),
+                        '\t' => try self.emit("\\\\t"),
+                        else => try self.output.append(self.allocator, c),
                     }
                 }
                 try self.emit("\"))");
