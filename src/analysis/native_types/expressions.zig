@@ -626,12 +626,16 @@ fn inferBinOpWithInferrer(
     const right_tag = @as(std.meta.Tag(NativeType), right_type);
 
     // Large left shift produces BigInt (e.g., 1 << 100000)
+    // Also use BigInt when shift amount is runtime (not comptime-known) for safety
     if (binop.op == .LShift) {
         if (binop.right.* == .constant and binop.right.constant.value == .int) {
             const shift_amount = binop.right.constant.value.int;
             if (shift_amount >= 63) {
                 return .bigint;
             }
+        } else {
+            // Shift amount is not comptime-known - codegen uses BigInt for safety
+            return .bigint;
         }
     }
 

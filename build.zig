@@ -286,6 +286,21 @@ pub fn build(b: *std.Build) void {
     const json_manual_step = b.step("test-json-manual", "Run manual JSON tests");
     json_manual_step.dependOn(&run_json_manual_test.step);
 
+    // Tokenizer correctness test
+    const test_correctness_exe = b.addExecutable(.{
+        .name = "test_correctness",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("packages/tokenizer/src/test_correctness.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_correctness_exe.root_module.addImport("tokenizer", tokenizer_mod);
+    test_correctness_exe.root_module.addImport("json", json_mod);
+    test_correctness_exe.root_module.addImport("allocator_helper", allocator_helper);
+    test_correctness_exe.linkLibC();
+    b.installArtifact(test_correctness_exe);
+
     // JSON parse benchmark
     const bench_json_parse = b.addExecutable(.{
         .name = "bench_metal0_json_parse",

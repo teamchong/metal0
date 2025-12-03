@@ -118,6 +118,12 @@ pub fn genStandardClosure(
     self.indent();
     try self.pushScope();
 
+    // Mark that we're inside a nested function body - this affects isDeclared()
+    // Variables from outer scope that weren't captured should be treated as undeclared
+    const saved_inside_nested = self.inside_nested_function;
+    self.inside_nested_function = true;
+    defer self.inside_nested_function = saved_inside_nested;
+
     // Add discard for capture param to avoid unused parameter warnings
     // (unittest methods like assertEqual bypass captured self and call runtime directly)
     if (captures_used) {
@@ -151,6 +157,15 @@ pub fn genStandardClosure(
     defer {
         self.func_local_uses.deinit();
         self.func_local_uses = saved_func_local_uses;
+    }
+
+    // Save and clear hoisted_vars - nested function has its own hoisting context
+    // Outer function's hoisted vars should NOT affect nested function scope
+    const saved_hoisted_vars = self.hoisted_vars;
+    self.hoisted_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.hoisted_vars.deinit();
+        self.hoisted_vars = saved_hoisted_vars;
     }
 
     // Populate func_local_uses with variables used in this function body
@@ -410,6 +425,12 @@ pub fn genNestedFunctionWithOuterCapture(
     self.indent();
     try self.pushScope();
 
+    // Mark that we're inside a nested function body - this affects isDeclared()
+    // Variables from outer scope that weren't captured should be treated as undeclared
+    const saved_inside_nested = self.inside_nested_function;
+    self.inside_nested_function = true;
+    defer self.inside_nested_function = saved_inside_nested;
+
     // Add discard for capture param to avoid unused parameter warnings
     if (captures_used) {
         try self.emitIndent();
@@ -433,11 +454,19 @@ pub fn genNestedFunctionWithOuterCapture(
     }
 
     // Save and populate func_local_uses for this nested function
-    const saved_func_local_uses = self.func_local_uses;
+    const saved_func_local_uses2 = self.func_local_uses;
     self.func_local_uses = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer {
         self.func_local_uses.deinit();
-        self.func_local_uses = saved_func_local_uses;
+        self.func_local_uses = saved_func_local_uses2;
+    }
+
+    // Save and clear hoisted_vars - nested function has its own hoisting context
+    const saved_hoisted_vars2 = self.hoisted_vars;
+    self.hoisted_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.hoisted_vars.deinit();
+        self.hoisted_vars = saved_hoisted_vars2;
     }
 
     // Populate func_local_uses with variables used in this function body

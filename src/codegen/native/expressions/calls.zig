@@ -146,7 +146,25 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     if (call.func.* == .call) {
         // Generate: inner_call(outer_args)
         // The inner call returns a callable which is then called with outer args
+        const before_len = self.output.items.len;
         try genExpr(self, call.func.*);
+        const generated = self.output.items[before_len..];
+
+        // Check if the inner call generated a labeled block expression (ends with " }")
+        // These are type expressions (subscripts, discards) that can't be called
+        // Patterns: "]; }" (subscript), "; }" (discard), "} }" (nested), etc.
+        if (generated.len >= 2 and std.mem.endsWith(u8, generated, " }")) {
+            // Inner call produced a labeled block - don't append ()
+            return;
+        }
+        // Also check for blocks ending with just "}" (no space before)
+        if (generated.len >= 1 and generated[generated.len - 1] == '}') {
+            // Check if it's a labeled block pattern (contains ": {")
+            if (std.mem.indexOf(u8, generated, ": {") != null) {
+                return;
+            }
+        }
+
         try self.emit("(");
 
         for (call.args, 0..) |arg, i| {
@@ -1184,7 +1202,18 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
     // Fallback for any other func type (e.g., subscript like dict['key']() or other expressions)
     // Generate a generic call expression
+    const before_len = self.output.items.len;
     try genExpr(self, call.func.*);
+    const generated = self.output.items[before_len..];
+
+    // Check if generated code is a labeled block (e.g., sub_N: {...} from subscript)
+    // Don't append () to blocks - they're already complete expressions
+    if (generated.len >= 1 and generated[generated.len - 1] == '}') {
+        if (std.mem.indexOf(u8, generated, ": {") != null) {
+            return; // Labeled block - don't append ()
+        }
+    }
+
     try self.emit("(");
 
     for (call.args, 0..) |arg, i| {

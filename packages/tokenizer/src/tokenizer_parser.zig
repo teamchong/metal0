@@ -9,11 +9,17 @@ const StringHashContext = helpers.StringHashContext;
 const TrieNode = helpers.TrieNode;
 const builder = @import("tokenizer_builder.zig");
 const AhoCorasick = @import("aho_corasick.zig").AhoCorasick;
+const ac_cache = @import("aho_corasick_cache.zig");
 const FnvHashContext = @import("fnv_hash.zig").FnvHashContext;
 
 // metal0's optimized JSON parser
 const json = @import("json");
 const JsonValue = json.Value;
+
+// Full cache path (contains AC + split_table + next_prefix_match)
+const FULL_CACHE_PATH = "/tmp/tokenizer_full_cache.bin";
+// Ultra cache path (contains vocab bytes + AC + split_table + next_prefix_match)
+const ULTRA_CACHE_PATH = "/tmp/tokenizer_ultra_cache.bin";
 
 /// Tokenizer structure (forward declaration for parser)
 pub const TokenizerData = struct {
@@ -27,6 +33,7 @@ pub const TokenizerData = struct {
     aho_corasick: ?AhoCorasick,
     next_prefix_match: []u32,
     allocator: Allocator,
+    owns_vocab_data: bool = true, // false if vocab keys are mmap'd
 };
 
 /// Parse tokenizer from raw JSON data (manual parser for WASM/freestanding)
@@ -140,6 +147,12 @@ pub fn initFromData(json_data: []const u8, allocator: Allocator) !TokenizerData 
 
 /// Parse tokenizer from file path
 pub fn initFromFile(tokenizer_path: []const u8, allocator: Allocator) !TokenizerData {
+    // FAST PATH: Try ultra cache FIRST (before reading JSON file!)
+    if (ac_cache.loadUltra(allocator, ULTRA_CACHE_PATH)) |cached| {
+        return buildFromUltraCache(cached, allocator);
+    }
+
+    // SLOW PATH: No cache, read and parse JSON
     const file = try std.fs.cwd().openFile(tokenizer_path, .{});
     defer file.close();
 
@@ -155,8 +168,99 @@ pub fn initFromFile(tokenizer_path: []const u8, allocator: Allocator) !Tokenizer
     return try parseTokenizerJSON(parsed, allocator);
 }
 
+/// Build TokenizerData from ultra cache (fast path)
+fn buildFromUltraCache(cached: ac_cache.UltraCache, allocator: Allocator) !TokenizerData {
+    const trie: ?*TrieNode = null;
+    const pattern_str = try allocator.dupe(u8, "'s|'t|'re|'ve|'m|'ll|'d| ?[[:alpha:]]+| ?[[:digit:]]+| ?[^[:alnum:][:space:]]+| +[[:space:]]*| +");
+
+    const vocab_size = cached.vocab_bytes.len;
+
+    // Pre-size hashmaps to avoid resizing during bulk insertion
+    var vocab = std.HashMap([]const u8, u32, FnvHashContext([]const u8), std.hash_map.default_max_load_percentage).initContext(allocator, FnvHashContext([]const u8){});
+    try vocab.ensureTotalCapacity(@intCast(vocab_size));
+
+    var vocab_r = std.AutoHashMap(u32, []const u8).init(allocator);
+    try vocab_r.ensureTotalCapacity(@intCast(vocab_size));
+
+    for (cached.vocab_bytes, 0..) |bytes, i| {
+        const token_id: u32 = @intCast(i);
+        vocab.putAssumeCapacity(bytes, token_id);
+        vocab_r.putAssumeCapacity(token_id, bytes);
+    }
+
+    const merges = std.ArrayList(Pair){};
+
+    // Pre-size merges_map (roughly same as vocab)
+    var merges_map = std.HashMap(Pair, u32, FnvHashContext(Pair), std.hash_map.default_max_load_percentage).initContext(allocator, FnvHashContext(Pair){});
+    try merges_map.ensureTotalCapacity(@intCast(vocab_size));
+
+    // Rebuild merges_map from split_table
+    for (cached.split_table, 0..) |pair, i| {
+        const token_id: u32 = @intCast(i);
+        if (pair.left != token_id or pair.right != token_id) {
+            merges_map.putAssumeCapacity(pair, token_id);
+        }
+    }
+
+    return TokenizerData{
+        .vocab = vocab,
+        .vocab_r = vocab_r,
+        .merges = merges,
+        .merges_map = merges_map,
+        .split_table = cached.split_table,
+        .pattern_str = pattern_str,
+        .trie = trie,
+        .aho_corasick = cached.ac,
+        .next_prefix_match = cached.next_prefix_match,
+        .allocator = allocator,
+        .owns_vocab_data = false, // vocab bytes are mmap'd, don't free!
+    };
+}
+
 /// Parse tokenizer from JsonValue
 pub fn parseTokenizerJSON(root_value: JsonValue, allocator: Allocator) !TokenizerData {
+    const trie: ?*TrieNode = null;
+    const pattern_str = try allocator.dupe(u8, "'s|'t|'re|'ve|'m|'ll|'d| ?[[:alpha:]]+| ?[[:digit:]]+| ?[^[:alnum:][:space:]]+| +[[:space:]]*| +");
+
+    // ULTRA FAST PATH: Try loading from ultra cache first (includes vocab bytes)
+    // This skips ALL JSON parsing and base64 decoding!
+    if (ac_cache.loadUltra(allocator, ULTRA_CACHE_PATH)) |cached| {
+        // Build vocab/vocab_r from cached vocab_bytes (O(n) simple iteration)
+        var vocab = std.HashMap([]const u8, u32, FnvHashContext([]const u8), std.hash_map.default_max_load_percentage).initContext(allocator, FnvHashContext([]const u8){});
+        var vocab_r = std.AutoHashMap(u32, []const u8).init(allocator);
+
+        for (cached.vocab_bytes, 0..) |bytes, i| {
+            const token_id: u32 = @intCast(i);
+            try vocab.put(bytes, token_id);
+            try vocab_r.put(token_id, bytes);
+        }
+
+        const merges = std.ArrayList(Pair){};
+        var merges_map = std.HashMap(Pair, u32, FnvHashContext(Pair), std.hash_map.default_max_load_percentage).initContext(allocator, FnvHashContext(Pair){});
+
+        // Rebuild merges_map from split_table
+        for (cached.split_table, 0..) |pair, i| {
+            const token_id: u32 = @intCast(i);
+            if (pair.left != token_id or pair.right != token_id) {
+                merges_map.put(pair, token_id) catch {};
+            }
+        }
+
+        return TokenizerData{
+            .vocab = vocab,
+            .vocab_r = vocab_r,
+            .merges = merges,
+            .merges_map = merges_map,
+            .split_table = cached.split_table,
+            .pattern_str = pattern_str,
+            .trie = trie,
+            .aho_corasick = cached.ac,
+            .next_prefix_match = cached.next_prefix_match,
+            .allocator = allocator,
+        };
+    }
+
+    // SLOW PATH: Parse JSON, build everything, save to ultra cache
     var vocab = std.HashMap([]const u8, u32, FnvHashContext([]const u8), std.hash_map.default_max_load_percentage).initContext(allocator, FnvHashContext([]const u8){});
     errdefer vocab.deinit();
 
@@ -193,11 +297,13 @@ pub fn parseTokenizerJSON(root_value: JsonValue, allocator: Allocator) !Tokenize
         try vocab_r.put(rank, token_bytes);
     }
 
-    const trie: ?*TrieNode = null;
+    // Build everything (slow, ~43s)
     const split_table = try builder.buildSplitTable(&vocab_r, &vocab, &merges_map, allocator);
     const aho_corasick = try builder.buildAhoCorasick(&vocab_r, allocator);
     const next_prefix_match = try builder.buildNextPrefixMatch(&vocab_r, aho_corasick.?, allocator);
-    const pattern_str = try allocator.dupe(u8, "'s|'t|'re|'ve|'m|'ll|'d| ?[[:alpha:]]+| ?[[:digit:]]+| ?[^[:alnum:][:space:]]+| +[[:space:]]*| +");
+
+    // Save to ultra cache for next time (includes vocab bytes!)
+    ac_cache.saveUltra(&vocab_r, &aho_corasick.?, split_table, next_prefix_match, ULTRA_CACHE_PATH) catch {};
 
     return TokenizerData{
         .vocab = vocab,

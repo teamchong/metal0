@@ -191,6 +191,8 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         try self.emit(exp.value);
                         try self.emit(";\n");
                         try generated_symbols.put(exp.name, {});
+                        // Register in module_level_funcs to prevent shadowing in try-except
+                        try self.module_level_funcs.put(exp.name, {});
                     }
                     continue;
                 }

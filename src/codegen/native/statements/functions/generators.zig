@@ -552,11 +552,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // We use @This().__name__ to avoid ambiguity with global __name__
     try self.emit("\n");
 
-    // Set current class name early so init() and all methods use @This() for self-references
-    // Save previous value for nested class support
+    // Set current class name and body early so init() and all methods use @This() for self-references
+    // Save previous values for nested class support
     const prev_class_name = self.current_class_name;
+    const prev_class_body = self.current_class_body;
     self.current_class_name = class.name;
+    self.current_class_body = class.body;
     defer self.current_class_name = prev_class_name;
+    defer self.current_class_body = prev_class_body;
 
     // Add pointer fields for captured outer variables
     if (captured_vars) |vars| {
@@ -1029,6 +1032,38 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
     }
 
     // Generate function header: fn ClassName(comptime T: type, comptime U: type) type {
+    // IMPORTANT: Zig doesn't allow function definitions inside function bodies.
+    // For nested generic classes inside functions, emit a simple struct instead.
+    const inside_function = self.current_function_name != null or self.indent_level > 0;
+    if (inside_function) {
+        // Nested generic class - just emit as a simple struct
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{class.name});
+        self.indent();
+
+        // Add Python class metadata
+        try self.emitIndent();
+        try self.emit("// Python class metadata\n");
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("pub const __name__: []const u8 = \"{s}\";\n", .{class.name});
+        try self.emitIndent();
+        try self.emit("pub const __doc__: ?[]const u8 = null;\n\n");
+
+        try self.emitIndent();
+        try self.emit("pub fn init() @This() {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("return @This(){};\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("};\n");
+        return;
+    }
+
     try self.emitIndent();
     const pub_prefix: []const u8 = if (self.mode == .module and self.indent_level == 0) "pub " else "";
     try self.output.writer(self.allocator).print("{s}fn {s}(", .{ pub_prefix, class.name });
@@ -1045,10 +1080,13 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
     try self.emit("return struct {\n");
     self.indent();
 
-    // Set current class name for method generation
+    // Set current class name and body for method generation
     const prev_class_name = self.current_class_name;
+    const prev_class_body = self.current_class_body;
     self.current_class_name = class.name;
+    self.current_class_body = class.body;
     defer self.current_class_name = prev_class_name;
+    defer self.current_class_body = prev_class_body;
 
     // Add Python class introspection attributes
     try self.emitIndent();

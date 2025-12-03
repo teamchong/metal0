@@ -112,12 +112,26 @@ pub fn genZeroCaptureClosure(
     self.indent();
     try self.pushScope();
 
+    // Mark that we're inside a nested function body - this affects isDeclared()
+    const saved_inside_nested = self.inside_nested_function;
+    self.inside_nested_function = true;
+    defer self.inside_nested_function = saved_inside_nested;
+
     // Save and populate func_local_uses for this nested function
     const saved_func_local_uses = self.func_local_uses;
     self.func_local_uses = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer {
         self.func_local_uses.deinit();
         self.func_local_uses = saved_func_local_uses;
+    }
+
+    // Save and clear hoisted_vars - nested function has its own hoisting context
+    // Outer function's hoisted vars should NOT affect nested function scope
+    const saved_hoisted_vars = self.hoisted_vars;
+    self.hoisted_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.hoisted_vars.deinit();
+        self.hoisted_vars = saved_hoisted_vars;
     }
 
     // Populate func_local_uses with variables used in this function body
@@ -495,6 +509,11 @@ pub fn genModuleLevelZeroCaptureClosure(
 
     // Generate function body
     try self.pushScope();
+
+    // Mark that we're inside a nested function body - this affects isDeclared()
+    const saved_inside_nested = self.inside_nested_function;
+    self.inside_nested_function = true;
+    defer self.inside_nested_function = saved_inside_nested;
 
     // Add parameter renames to var_renames temporarily
     var rename_keys = std.ArrayList([]const u8){};

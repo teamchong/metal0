@@ -123,8 +123,28 @@ pub fn collectUsesInNode(self: *NativeCodegen, node: ast.Node) !void {
         },
         // Statements
         .assign => |assign| {
-            // Value is a use, targets are assignments (not uses)
+            // Value is a use
             try collectUsesInNode(self, assign.value.*);
+            // Targets may contain subscripts with index expressions that are uses
+            // e.g., dest[to] = value - 'to' is used here
+            for (assign.targets) |target| {
+                if (target == .subscript) {
+                    // The subscript container and index are uses
+                    try collectUsesInNode(self, target.subscript.value.*);
+                    switch (target.subscript.slice) {
+                        .index => |idx| try collectUsesInNode(self, idx.*),
+                        .slice => |slice| {
+                            if (slice.lower) |lower| try collectUsesInNode(self, lower.*);
+                            if (slice.upper) |upper| try collectUsesInNode(self, upper.*);
+                            if (slice.step) |step| try collectUsesInNode(self, step.*);
+                        },
+                    }
+                } else if (target == .attribute) {
+                    // For attribute targets like obj.field = value, obj is a use
+                    try collectUsesInNode(self, target.attribute.value.*);
+                }
+                // Simple name targets (x = value) are assignments, not uses
+            }
         },
         .ann_assign => |ann_assign| {
             if (ann_assign.value) |value| {

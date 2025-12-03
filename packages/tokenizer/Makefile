@@ -22,10 +22,10 @@ help:
 	@echo "$(GREEN)Available targets:$(RESET)"
 	@echo "  make build-metal0       - Compile Python tokenizer with metal0"
 	@echo "  make test-correctness   - Verify metal0 output matches tiktoken"
-	@echo "  make benchmark-encoding - Benchmark encoding (metal0 vs others)"
+	@echo "  make benchmark-encoding - Benchmark encoding (binary)"
 	@echo "  make benchmark-train    - BPE training benchmark"
-	@echo "  make benchmark-web      - Web/WASM benchmark"
-	@echo "  make benchmark          - Run ALL benchmarks"
+	@echo "  make benchmark-web      - Web/WASM benchmark (browser)"
+	@echo "  make benchmark          - Run ALL 3 benchmarks"
 	@echo "  make clean              - Clean build artifacts"
 	@echo ""
 

@@ -442,6 +442,43 @@ fn hoistWithBodyVars(self: *NativeCodegen, body: []const ast.Node) CodegenError!
             }
             // Also recursively hoist variables from nested with body
             try hoistWithBodyVars(self, stmt.with_stmt.body);
+        } else if (stmt == .for_stmt) {
+            // For loop inside with body - hoist the loop variable if iterating over tuple
+            // Tuple iteration uses inline for, which requires the variable to be declared before the loop
+            const for_s = stmt.for_stmt;
+            if (for_s.target.* == .name) {
+                const var_name = for_s.target.name.id;
+                // Check if iterating over tuple literal (definitely needs hoisting)
+                if (for_s.iter.* == .tuple) {
+                    // Hoist tuple iteration variable - determine type from tuple elements
+                    if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+                        try self.emitIndent();
+                        try self.emit("var ");
+                        try self.emit(var_name);
+                        // Determine type from first tuple element
+                        const tuple_elts = for_s.iter.tuple.elts;
+                        if (tuple_elts.len > 0 and tuple_elts[0] == .constant) {
+                            switch (tuple_elts[0].constant.value) {
+                                .int => try self.emit(": i64 = undefined;\n"),
+                                .float => try self.emit(": f64 = undefined;\n"),
+                                .bool => try self.emit(": bool = undefined;\n"),
+                                .string => try self.emit(": []const u8 = undefined;\n"),
+                                else => try self.emit(": []const u8 = undefined;\n"),
+                            }
+                        } else {
+                            // Default to []const u8 for non-constant tuples
+                            try self.emit(": []const u8 = undefined;\n");
+                        }
+                        try self.hoisted_vars.put(var_name, {});
+                    }
+                }
+            }
+            // Also recurse into for loop body to hoist nested variables
+            try hoistWithBodyVars(self, for_s.body);
+        } else if (stmt == .if_stmt) {
+            // Recurse into if/else bodies
+            try hoistWithBodyVars(self, stmt.if_stmt.body);
+            try hoistWithBodyVars(self, stmt.if_stmt.else_body);
         }
     }
 }
@@ -526,6 +563,11 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     try self.emit(var_name);
                     try self.emit(";\n");
                     try self.declareVar(var_name);
+                } else if (is_hoisted) {
+                    // Variable was hoisted by scope analyzer - still need to assign value
+                    try self.emitIndent();
+                    try self.emit(var_name);
+                    try self.emit(" = runtime.unittest.ContextManager{};\n");
                 }
             }
         }

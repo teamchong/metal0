@@ -94,4 +94,18 @@ pub fn build(b: *std.Build) void {
     test_correctness.linkLibC();
 
     b.installArtifact(test_correctness);
+
+    // Tokenizer benchmark binary (for compare_all.py)
+    const tokenizer_bench = b.addExecutable(.{
+        .name = "tokenizer_bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/bench_simple.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    tokenizer_bench.root_module.addImport("json", json_mod);
+    tokenizer_bench.linkLibC();
+
+    b.installArtifact(tokenizer_bench);
 }

@@ -94,6 +94,44 @@ fn genExprWithSubs(
                     try genExprWithSubs(self, arg, subs);
                 }
                 try self.emit(")");
+            } else if (c.func.* == .attribute) {
+                // Attribute call (e.g., random.sample, struct.unpack_from)
+                // We need to substitute comprehension variables in the arguments
+                // Generate: module.func(arg1_subst, arg2_subst, ...)
+                try genExprWithSubs(self, c.func.*, subs);
+                try self.emit("(");
+                var first_arg = true;
+                for (c.args) |arg| {
+                    if (!first_arg) try self.emit(", ");
+                    first_arg = false;
+                    try genExprWithSubs(self, arg, subs);
+                }
+                try self.emit(")");
+            } else if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "bytes") and c.args.len > 0) {
+                // Special case: bytes([x]) in comprehension needs substitution for list elements
+                // bytes([x]) creates a single-byte bytes object from integer x
+                // We need to generate the list with proper variable substitution
+                if (c.args[0] == .list and c.args[0].list.elts.len == 1) {
+                    // bytes([x]) -> &[_]u8{@intCast(x)} for single element
+                    try self.emit("&[_]u8{@intCast(");
+                    try genExprWithSubs(self, c.args[0].list.elts[0], subs);
+                    try self.emit(")}");
+                } else {
+                    // General case: generate list with substitution
+                    try self.emit("blk: { var _bytes_list = std.ArrayList(u8){}; ");
+                    if (c.args[0] == .list) {
+                        for (c.args[0].list.elts) |elt| {
+                            try self.emit("try _bytes_list.append(__global_allocator, @intCast(");
+                            try genExprWithSubs(self, elt, subs);
+                            try self.emit(")); ");
+                        }
+                    } else {
+                        try self.emit("for ((");
+                        try genExprWithSubs(self, c.args[0], subs);
+                        try self.emit(").items) |_item| try _bytes_list.append(__global_allocator, @intCast(_item)); ");
+                    }
+                    try self.emit("break :blk _bytes_list.items; }");
+                }
             } else {
                 // Complex call - fall through to regular handler
                 // Note: this loses substitutions for args, but builtins handle their own args

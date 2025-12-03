@@ -10,6 +10,8 @@ const zig_keywords = @import("zig_keywords");
 const mutation_analysis = @import("mutation_analysis.zig");
 const usage_analysis = @import("usage_analysis.zig");
 const nested_captures = @import("nested_captures.zig");
+const scope_analyzer = @import("../../scope_analyzer.zig");
+const var_hoisting = @import("../../var_hoisting.zig");
 
 /// Info about a type check at the start of a function
 pub const TypeCheckInfo = struct {
@@ -440,9 +442,36 @@ pub fn genFunctionBody(
     self.var_renames.clearRetainingCapacity();
 
     // Register parameter renames for parameters that shadow module-level functions
+    // or sibling class methods
     // This must happen AFTER the clear and BEFORE body generation
     for (func.args) |arg| {
-        if (self.module_level_funcs.contains(arg.name)) {
+        const shadows_module = self.module_level_funcs.contains(arg.name);
+
+        // Check if parameter shadows a sibling method in the class
+        const shadows_class_method = if (self.current_class_body) |class_body| blk: {
+            for (class_body) |stmt| {
+                if (stmt == .function_def) {
+                    if (std.mem.eql(u8, stmt.function_def.name, arg.name)) {
+                        break :blk true;
+                    }
+                }
+                // Check class attributes assigned to None - these become stub methods
+                if (stmt == .assign) {
+                    for (stmt.assign.targets) |target| {
+                        if (target == .name and stmt.assign.value.* == .constant and
+                            stmt.assign.value.constant.value == .none)
+                        {
+                            if (std.mem.eql(u8, target.name.id, arg.name)) {
+                                break :blk true;
+                            }
+                        }
+                    }
+                }
+            }
+            break :blk false;
+        } else false;
+
+        if (shadows_module or shadows_class_method) {
             const renamed = try std.fmt.allocPrint(self.allocator, "{s}__local", .{arg.name});
             try self.var_renames.put(arg.name, renamed);
         }
@@ -453,6 +482,15 @@ pub fn genFunctionBody(
     // Analyze function body for used variables (prevents false "unused" detection)
     try usage_analysis.analyzeFunctionLocalUses(self, func);
 
+    // Analyze scope-escaping variables that need hoisting
+    // Variables first assigned in for/if/while/try blocks but used outside need hoisting
+    var scope_analysis = try scope_analyzer.analyzeScopes(func.body, self.allocator);
+    defer scope_analysis.deinit();
+    // Mark all escaped vars as hoisted (so assignment skips declaration)
+    for (scope_analysis.escaped_vars.items) |escaped| {
+        try self.hoisted_vars.put(escaped.name, {});
+    }
+
     // Track local variables and analyze nested class captures for closure support
     self.func_local_vars.clearRetainingCapacity();
     self.nested_class_captures.clearRetainingCapacity();
@@ -462,6 +500,10 @@ pub fn genFunctionBody(
 
     // Push new scope for function body
     try self.pushScope();
+
+    // Emit hoisted variable declarations using shared hoisting module
+    // This handles forward reference detection and fallback types
+    try var_hoisting.emitHoistedDeclarations(self, scope_analysis.escaped_vars.items, func.args);
 
     // For generator functions, yield body becomes `// pass` which loses param usage.
     // We need to emit `_ = param;` ONLY for params that:
@@ -821,6 +863,31 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
     self.func_local_mutations.clearRetainingCapacity();
     self.func_local_aug_assigns.clearRetainingCapacity();
+
+    // Save parent's hoisted vars when generating nested class methods inside a function
+    // Nested classes (like `class usub` inside an if block) call genMethodBody for their methods,
+    // which clears hoisted_vars. After the class is generated, we need parent's hoisted vars
+    // restored so subsequent assignments in the parent scope work correctly.
+    // Condition: We're inside a parent function (func_local_uses has entries from parent scope)
+    // AND we're in a nested class (class_nesting_depth > 1, since 1 = regular class method)
+    const is_nested_class_in_function = self.func_local_uses.count() > 0 and self.class_nesting_depth > 1;
+    var saved_hoisted_keys = std.ArrayList([]const u8){};
+    if (is_nested_class_in_function) {
+        var iter = self.hoisted_vars.iterator();
+        while (iter.next()) |entry| {
+            saved_hoisted_keys.append(self.allocator, entry.key_ptr.*) catch {};
+        }
+    }
+    // Restore parent's hoisted vars when this method completes (using defer)
+    defer {
+        if (is_nested_class_in_function) {
+            for (saved_hoisted_keys.items) |key| {
+                self.hoisted_vars.put(key, {}) catch {};
+            }
+        }
+        saved_hoisted_keys.deinit(self.allocator);
+    }
+
     self.hoisted_vars.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
     self.class_instance_aliases.clearRetainingCapacity();
@@ -848,6 +915,15 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Add extra class names (for inherited method bodies that call parent class constructors)
     for (extra_class_names) |name| {
         try self.nested_class_names.put(name, {});
+    }
+
+    // Analyze scope-escaping variables that need hoisting
+    // Variables first assigned in for/if/while/try blocks but used outside need hoisting
+    var scope_analysis_method = try scope_analyzer.analyzeScopes(method.body, self.allocator);
+    defer scope_analysis_method.deinit();
+    // Mark all escaped vars as hoisted (so assignment skips declaration)
+    for (scope_analysis_method.escaped_vars.items) |escaped| {
+        try self.hoisted_vars.put(escaped.name, {});
     }
 
     self.indent();
@@ -903,6 +979,10 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Note: Unused allocator param is handled in signature.zig with "_:" prefix
     // No need to emit "_ = allocator;" here
 
+    // Emit hoisted variable declarations using shared hoisting module
+    // This handles forward reference detection and fallback types
+    try var_hoisting.emitHoistedDeclarations(self, scope_analysis_method.escaped_vars.items, method.args);
+
     // Clear local variable types (new method scope)
     self.clearLocalVarTypes();
 
@@ -942,10 +1022,34 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             is_first = false;
             continue;
         }
-        // Check if this param would shadow a method name and needs renaming
-        if (zig_keywords.wouldShadowMethod(arg.name)) {
+        // Check if this param would shadow a method name or sibling class method
+        const shadows_builtin_method = zig_keywords.wouldShadowMethod(arg.name);
+        const shadows_class_method = if (self.current_class_body) |cb| blk: {
+            for (cb) |stmt| {
+                if (stmt == .function_def) {
+                    if (std.mem.eql(u8, stmt.function_def.name, arg.name)) {
+                        break :blk true;
+                    }
+                }
+                // Check class attributes assigned to None - these become stub methods
+                if (stmt == .assign) {
+                    for (stmt.assign.targets) |target| {
+                        if (target == .name and stmt.assign.value.* == .constant and
+                            stmt.assign.value.constant.value == .none)
+                        {
+                            if (std.mem.eql(u8, target.name.id, arg.name)) {
+                                break :blk true;
+                            }
+                        }
+                    }
+                }
+            }
+            break :blk false;
+        } else false;
+
+        if (shadows_builtin_method or shadows_class_method) {
             // Add rename mapping: original -> renamed
-            const renamed = try std.fmt.allocPrint(self.allocator, "{s}_arg", .{arg.name});
+            const renamed = try std.fmt.allocPrint(self.allocator, "{s}__local", .{arg.name});
             try self.var_renames.put(arg.name, renamed);
             try renamed_params.append(self.allocator, arg.name);
         }

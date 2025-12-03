@@ -246,6 +246,75 @@ fn varUsedInBody(body: []ast.Node, var_name: []const u8) bool {
     return false;
 }
 
+/// Check if a variable is reassigned in a list of statements
+/// This is used to determine if tuple unpacking should use `var` instead of `const`
+fn varIsReassignedInBody(body: []ast.Node, var_name: []const u8) bool {
+    for (body) |stmt| {
+        if (varIsReassignedInStmt(stmt, var_name)) return true;
+    }
+    return false;
+}
+
+/// Check if a variable is reassigned in a statement (appears as an assignment target)
+fn varIsReassignedInStmt(stmt: ast.Node, var_name: []const u8) bool {
+    return switch (stmt) {
+        .assign => |a| blk: {
+            for (a.targets) |target| {
+                if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .aug_assign => |a| a.target.* == .name and std.mem.eql(u8, a.target.name.id, var_name),
+        .if_stmt => |i| blk: {
+            for (i.body) |s| {
+                if (varIsReassignedInStmt(s, var_name)) break :blk true;
+            }
+            for (i.else_body) |s| {
+                if (varIsReassignedInStmt(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            for (f.body) |s| {
+                if (varIsReassignedInStmt(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (varIsReassignedInStmt(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| {
+                if (varIsReassignedInStmt(s, var_name)) break :blk true;
+            }
+            for (t.handlers) |h| {
+                for (h.body) |s| {
+                    if (varIsReassignedInStmt(s, var_name)) break :blk true;
+                }
+            }
+            for (t.else_body) |s| {
+                if (varIsReassignedInStmt(s, var_name)) break :blk true;
+            }
+            for (t.finalbody) |s| {
+                if (varIsReassignedInStmt(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (varIsReassignedInStmt(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
 /// Generate tuple unpacking for loop (e.g., for k, v in items)
 fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, body: []ast.Node) CodegenError!void {
     // Get target elements from either list or tuple
@@ -332,10 +401,14 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     // Unpack tuple elements using struct field access: const x = __tuple__.@"0"; const y = __tuple__.@"1";
     // Escape variable names if they're Zig keywords (e.g., "fn" -> @"fn")
     // Handle Python's discard pattern: `for _, v in items:` - use `_ = value;` to discard
+    // Also discard variables not used in the loop body to avoid unused variable errors
+    // If a variable is later reassigned in the body, use `var` instead of `const`
     for (var_names, 0..) |var_name, i| {
         try self.emitIndent();
-        if (std.mem.eql(u8, var_name, "_")) {
-            // Discard pattern - explicitly discard the value
+        // Check if this variable is used in the loop body
+        const is_used = varUsedInBody(body, var_name);
+        if (std.mem.eql(u8, var_name, "_") or !is_used) {
+            // Discard pattern or unused variable - explicitly discard the value
             try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
         } else {
             // Check if loop variable shadows a module-level function
@@ -347,9 +420,25 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             }
             const actual_name = self.var_renames.get(var_name) orelse var_name;
 
-            try self.emit("const ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+            // Check if variable is hoisted (used after loop) - use assignment not declaration
+            // Also check if reassigned later in the loop body - need `var` not `const`
+            const is_hoisted = self.hoisted_vars.contains(var_name);
+            const is_reassigned = varIsReassignedInBody(body, var_name);
+
+            if (is_hoisted) {
+                // Already declared at function level - just assign
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+            } else if (is_reassigned) {
+                try self.emit("var ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+            } else {
+                try self.emit("const ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+            }
             try self.output.writer(self.allocator).print(" = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
+
+            // Mark the variable as declared so reassignment won't redeclare it
+            if (!is_hoisted) try self.declareVar(var_name);
         }
     }
 
@@ -372,6 +461,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     const saved_scope_id = self.current_scope_id;
     self.current_scope_id = @intFromPtr(for_stmt.body.ptr);
     defer self.current_scope_id = saved_scope_id;
+
+    // NOTE: Do NOT clear hoisted_vars here - they are function-level declarations
+    // that persist throughout the entire function body. Clearing them would cause
+    // assignments after the loop to redeclare variables with `var` instead of
+    // using the hoisted declaration.
 
     // Check if iterating over a function call (range, enumerate, etc.)
     if (for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .name) {
@@ -426,20 +520,59 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     const tuple_var_used = varUsedInBody(for_stmt.body, for_stmt.target.name.id);
 
     // Special case: tuple iteration requires inline for (comptime)
+    // Python for-loop variables persist after the loop, so we declare before
+    // and assign inside to make the variable available after the loop ends.
     if (iter_type == .tuple) {
+        // Declare variable before loop so it persists after (Python semantics)
+        // Only declare if not already declared in current scope (handles reuse like `for index in ...` twice)
+        // Also skip if variable was hoisted at function start (avoids redeclaration)
+        if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+            try self.emitIndent();
+            try self.emit("var ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            // Determine loop variable type - use concrete type to avoid comptime_int issues
+            // For tuples of all ints, use i64. For booleans, use bool. For strings, use []const u8.
+            // String literals have length-encoded types (e.g., *const [0:0]u8, *const [1:0]u8)
+            // so we must use []const u8 to allow different lengths.
+            if (iter_type.tuple.len > 0) {
+                const first_elem_type = iter_type.tuple[0];
+                if (first_elem_type == .int) {
+                    try self.emit(": i64 = undefined;\n");
+                } else if (first_elem_type == .bool) {
+                    try self.emit(": bool = undefined;\n");
+                } else if (first_elem_type == .float) {
+                    try self.emit(": f64 = undefined;\n");
+                } else if (@as(std.meta.Tag(@TypeOf(first_elem_type)), first_elem_type) == .string) {
+                    // String literals have length in type - use []const u8 for flexibility
+                    try self.emit(": []const u8 = undefined;\n");
+                } else {
+                    try self.emit(": @TypeOf(");
+                    try self.genExpr(for_stmt.iter.*);
+                    try self.emit("[0]) = undefined;\n");
+                }
+            } else {
+                // Empty tuple - use i64 as default
+                try self.emit(": i64 = undefined;\n");
+            }
+            try self.declareVar(var_name);
+        }
+
+        // Use unique loop capture variable name to avoid shadowing in nested loops
+        const loop_var_id = self.lambda_counter;
+        self.lambda_counter += 1;
+
         try self.emitIndent();
         try self.emit("inline for (");
         try self.genExpr(for_stmt.iter.*);
-        try self.emit(") |");
-        if (!tuple_var_used) {
-            try self.emit("_");
-        } else {
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        }
-        try self.emit("| {\n");
+        try self.output.writer(self.allocator).print(") |__loop_val_{d}| {{\n", .{loop_var_id});
 
         self.indent();
         try self.pushScope();
+
+        // Assign loop value to outer variable so it persists
+        try self.emitIndent();
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
 
         // Register loop variable type as widened tuple element type
         // This allows type inference inside the loop body to know f's type
@@ -491,15 +624,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             }
         }
 
-        // If variable appears used in AST but might not be used in generated code
-        // (e.g., isinstance(x, T) becomes compile-time true), add a reference to avoid
-        // "unused capture" error. Use @TypeOf() as it doesn't require runtime evaluation.
-        if (tuple_var_used) {
-            try self.emitIndent();
-            try self.emit("_ = @TypeOf(");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-            try self.emit(");\n");
-        }
+        // No longer need @TypeOf reference since we assign __loop_val to outer var
 
         for (for_stmt.body) |stmt| {
             try self.generateStmt(stmt);
@@ -521,15 +646,32 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.emit("for (");
         try self.genExpr(for_stmt.iter.*);
         try self.emit(".keys()) |");
+
+        // If capture would shadow a hoisted variable, use a unique capture name
+        const shadows_hoisted = self.hoisted_vars.contains(var_name);
+        const capture_name = if (shadows_hoisted)
+            try std.fmt.allocPrint(self.allocator, "__cap_{s}_{d}", .{ var_name, self.output.items.len })
+        else
+            var_name;
+
         if (!tuple_var_used) {
             try self.emit("_");
         } else {
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), capture_name);
         }
         try self.emit("| {\n");
 
         self.indent();
         try self.pushScope();
+
+        // If we renamed the capture, assign to the hoisted variable
+        if (shadows_hoisted and tuple_var_used) {
+            try self.emitIndent();
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try self.emit(" = ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), capture_name);
+            try self.emit(";\n");
+        }
 
         for (for_stmt.body) |stmt| {
             try self.generateStmt(stmt);
@@ -651,9 +793,15 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             }
             const actual_name = self.var_renames.get(var_name) orelse var_name;
 
-            try self.emit("const ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
-            try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id });
+            // Check if variable is hoisted (used after loop) - use assignment not const
+            if (self.hoisted_vars.contains(var_name)) {
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id });
+            } else {
+                try self.emit("const ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id });
+            }
         }
 
         // Register loop variable type as unknown (PyObject)
@@ -772,7 +920,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Check if this variable already exists in outer scope (Python allows reusing loop vars)
     // If so, use a unique capture name to avoid Zig "capture shadows local" error
-    const shadows_outer = self.isDeclared(for_stmt.target.name.id);
+    // Also check hoisted_vars - hoisted vars are pre-declared at function start
+    // Use raw name for hoisted_vars check (scope_analyzer uses raw names)
+    const raw_var_name = for_stmt.target.name.id;
+    const shadows_outer = self.isDeclared(raw_var_name) or self.hoisted_vars.contains(raw_var_name);
     const unique_capture_id = self.block_label_counter;
     if (shadows_outer) self.block_label_counter += 1;
 

@@ -244,6 +244,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("copy", .zig_runtime, "std", null); // copy module
     try registry.register("operator", .zig_runtime, null, null); // operator module (inline codegen only)
     try registry.register("typing", .zig_runtime, "runtime.typing", null); // typing module
+    try registry.register("ast", .zig_runtime, "runtime.ast_executor", null); // ast module - uses ast_executor for parse/compile
     try registry.register("contextlib", .zig_runtime, "std", null); // contextlib module
     try registry.register("string", .zig_runtime, "std", null); // string module
     try registry.register("_string", .zig_runtime, "std", null); // _string module (internal string formatting)
@@ -297,6 +298,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("select", .zig_runtime, "std", null); // select module
     try registry.register("mmap", .zig_runtime, "std", null); // mmap module
     try registry.register("fcntl", .zig_runtime, "std", null); // fcntl module
+    try registry.register("unicodedata", .zig_runtime, null, null); // unicodedata module - inline only
 
     // Additional Tier 1: OS and filesystem modules
     try registry.register("pathlib", .zig_runtime, "runtime.pathlib", null);

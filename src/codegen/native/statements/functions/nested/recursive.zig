@@ -64,6 +64,11 @@ pub fn genRecursiveClosure(
     // Generate body
     try self.pushScope();
 
+    // Mark that we're inside a nested function body - this affects isDeclared()
+    const saved_inside_nested = self.inside_nested_function;
+    self.inside_nested_function = true;
+    defer self.inside_nested_function = saved_inside_nested;
+
     // Save and restore func_local_uses
     const saved_func_local_uses = self.func_local_uses;
     self.func_local_uses = hashmap_helper.StringHashMap(void).init(self.allocator);
@@ -72,6 +77,14 @@ pub fn genRecursiveClosure(
         self.func_local_uses = saved_func_local_uses;
     }
     try var_tracking.collectUsedNames(func.body, &self.func_local_uses);
+
+    // Save and clear hoisted_vars - nested function has its own hoisting context
+    const saved_hoisted_vars = self.hoisted_vars;
+    self.hoisted_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.hoisted_vars.deinit();
+        self.hoisted_vars = saved_hoisted_vars;
+    }
 
     // Save outer scope renames for captured variables (to restore later)
     var saved_outer_renames = std.ArrayList(?[]const u8){};

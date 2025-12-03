@@ -75,6 +75,7 @@ pub const Tokenizer = struct {
     next_prefix_match: []u32, // Precomputed next_prefix table (rs-bpe optimization)
     allocator: Allocator,
     encode_arena: std.heap.ArenaAllocator, // Reused across encode() calls - eliminates 116,600 syscalls
+    owns_vocab_data: bool = true, // false if vocab keys are mmap'd (don't free!)
 
     pub fn initFromData(json_data: []const u8, allocator: Allocator) !Tokenizer {
         const data = try parser.initFromData(json_data, allocator);
@@ -107,13 +108,17 @@ pub const Tokenizer = struct {
             .next_prefix_match = data.next_prefix_match,
             .allocator = data.allocator,
             .encode_arena = std.heap.ArenaAllocator.init(getBestArenaAllocator(allocator)),
+            .owns_vocab_data = data.owns_vocab_data, // false if mmap'd
         };
     }
 
     pub fn deinit(self: *Tokenizer) void {
-        var vocab_it = self.vocab.iterator();
-        while (vocab_it.next()) |entry| {
-            self.allocator.free(entry.key_ptr.*);
+        // Only free vocab keys if we own them (not mmap'd)
+        if (self.owns_vocab_data) {
+            var vocab_it = self.vocab.iterator();
+            while (vocab_it.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
+            }
         }
         self.vocab.deinit();
 

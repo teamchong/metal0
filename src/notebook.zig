@@ -1,7 +1,7 @@
 const std = @import("std");
 const runtime = @import("runtime");
-const json = @import("runtime").json.parse;
-const JsonValue = @import("runtime").json.JsonValue;
+const json = @import("runtime").json;
+const JsonValue = json.JsonValue;
 
 /// Represents a single cell in a Jupyter notebook
 pub const Cell = struct {
@@ -66,7 +66,7 @@ pub const Notebook = struct {
         var notebook = Notebook.init(allocator);
         errdefer notebook.deinit();
 
-        var root = try json.parse(file_content, allocator);
+        var root = try json.parse(allocator, file_content);
         defer root.deinit(allocator);
 
         // Get cells array

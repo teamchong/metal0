@@ -96,14 +96,27 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
         const func_name = args[0].call.func.name.id;
         if (std.mem.eql(u8, func_name, "type") and args[0].call.args.len == 1) {
             if (args[1] == .name) {
-                if (PyToZigTypes.get(args[1].name.id)) |ztype| {
-                    try self.emit("runtime.unittest.assertTypeIs(@TypeOf(");
-                    try parent.genExpr(self, args[0].call.args[0]);
-                    try self.emit("), ");
-                    try self.emit(ztype);
-                    try self.emit(")");
-                    return;
+                const type_name = args[1].name.id;
+                // For primitive types with direct Zig mappings, use @TypeOf comparison
+                if (PyToZigTypes.get(type_name)) |ztype| {
+                    // Skip "anytype" - those are collection types that need runtime check
+                    if (!std.mem.eql(u8, ztype, "anytype")) {
+                        try self.emit("runtime.unittest.assertTypeIs(@TypeOf(");
+                        try parent.genExpr(self, args[0].call.args[0]);
+                        try self.emit("), ");
+                        try self.emit(ztype);
+                        try self.emit(")");
+                        return;
+                    }
                 }
+                // For collection types (dict, list, set) or unknown types,
+                // use runtime string-based type check
+                try self.emit("runtime.unittest.assertTypeIsStr(");
+                try parent.genExpr(self, args[0].call.args[0]);
+                try self.emit(", \"");
+                try self.emit(type_name);
+                try self.emit("\")");
+                return;
             }
         }
     }

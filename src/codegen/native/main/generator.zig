@@ -173,26 +173,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         const mod_copy = try self.allocator.dupe(u8, mod_name);
         try self.imported_modules.put(mod_copy, {});
 
-        // Check if there's a from-import that imports a symbol with the same name as the module
-        // e.g., "from time import time" - in this case, skip generating "const time = runtime.time;"
-        // to avoid duplicate struct member name error
-        var skip_module_import = false;
-        for (self.from_imports.items) |from_imp| {
-            if (std.mem.eql(u8, from_imp.module, mod_name)) {
-                for (from_imp.names, 0..) |name, i| {
-                    const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
-                        from_imp.asnames[i].?
-                    else
-                        name;
-                    if (std.mem.eql(u8, symbol_name, mod_name)) {
-                        skip_module_import = true;
-                        break;
-                    }
-                }
-                if (skip_module_import) break;
-            }
-        }
-        if (skip_module_import) continue;
+        // NOTE: Do NOT skip module imports even if from-import has same symbol name.
+        // The from-imports.zig already handles skipping the redundant from-import symbol.
+        // We need the module import (e.g., const copy = std;) for other symbols like deepcopy.
 
         // Look up module in registry - only emit registry modules here
         if (self.import_registry.lookup(mod_name)) |info| {
@@ -552,8 +535,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             }
 
             // Check if this variable is assigned from a list comprehension
-            // List comprehensions with method calls (like .replace()) have complex element types
-            // that are better inferred inline than pre-declared with the wrong type
+            // List comprehensions need to be pre-declared at module level because they might be
+            // used in class methods (which are generated as module-level struct methods)
             var is_listcomp_assignment = false;
             for (module.body) |stmt| {
                 if (stmt == .assign) {
@@ -568,8 +551,14 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 }
             }
 
-            // Skip pre-declaring list comprehension results - they'll be declared inline with correct type
+            // Pre-declare list comprehensions as std.ArrayList(runtime.PyValue)
+            // This handles the common case where element type is complex
             if (is_listcomp_assignment) {
+                try self.emit("var ");
+                try self.emit(var_name);
+                try self.emit(": std.ArrayList(runtime.PyValue) = undefined;\n");
+                try self.symbol_table.declare(var_name, .unknown, true);
+                try self.markGlobalVar(var_name);
                 continue;
             }
 
@@ -628,6 +617,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 try self.emit("var WINDOWS_FEATURE_MACROS: hashmap_helper.StringHashMap([]const u8) = undefined;\n");
                 try self.symbol_table.declare(var_name, .unknown, true);
                 try self.markGlobalVar(var_name);
+                continue;
+            }
+
+            // Skip variables that are already module-level functions
+            // Python allows `genslices = rslices` to reassign function names,
+            // but in Zig the function is already defined so we skip pre-declaration
+            if (self.module_level_funcs.contains(var_name)) {
                 continue;
             }
 
@@ -852,6 +848,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
             // Skip if already imported
             if (lambda_imported_roots.contains(root_mod_name)) continue;
+
+            // NOTE: Do NOT skip module imports here. The from-imports.zig handles
+            // skipping redundant from-import symbols. We need the module import
+            // (e.g., const copy = std;) for other symbols like deepcopy.
 
             if (self.import_registry.lookup(root_mod_name)) |info| {
                 switch (info.strategy) {

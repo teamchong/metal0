@@ -117,6 +117,9 @@ pub fn BacktrackEncoder(comptime max_text_size: usize) type {
                         const last_bytes = self.vocab_r.get(last_token) orelse return null;
                         self.pos -= last_bytes.len;
                         self.next_token = last_token;
+                    } else {
+                        // No tokens to backtrack - we're stuck, give up
+                        self.next_token = null;
                     }
                     break;
                 }
@@ -159,6 +162,7 @@ pub fn BacktrackEncoder(comptime max_text_size: usize) type {
         }
 
         /// EXACT PORT of rs-bpe is_valid_token_pair validation logic
+        /// Returns true if token1 followed by token2 is a valid BPE encoding path
         fn isValidTokenPair(self: *const Self, token1_arg: u32, token2_arg: u32) bool {
             var token1 = token1_arg;
             var token2 = token2_arg;
@@ -167,19 +171,25 @@ pub fn BacktrackEncoder(comptime max_text_size: usize) type {
             while (true) {
                 // Check if this pair exists in pair_lookup
                 if (self.pair_lookup.get(Pair{ .left = token1, .right = token2 })) |combined| {
-                    if (combined < limit) {
-                        return false;
-                    }
-                    return true;
+                    // If the combined token has lower rank than limit, this pair is invalid
+                    return combined >= limit;
                 }
 
                 if (token1 > token2) {
                     limit = token1;
                     const split = self.split_table[token1];
+                    // Base token check: if token splits to itself, we've reached the bottom
+                    if (split.left == token1 and split.right == token1) {
+                        return true; // Base token - no merge restriction
+                    }
                     token1 = split.right;
                     if (token1 == limit) {
                         limit = token2 + 1;
                         const split2 = self.split_table[token2];
+                        // Base token check for token2
+                        if (split2.left == token2 and split2.right == token2) {
+                            return true;
+                        }
                         token2 = split2.left;
                         if (token2 + 1 == limit) {
                             return true;
@@ -188,10 +198,18 @@ pub fn BacktrackEncoder(comptime max_text_size: usize) type {
                 } else {
                     limit = token2 + 1;
                     const split = self.split_table[token2];
+                    // Base token check: if token splits to itself, we've reached the bottom
+                    if (split.left == token2 and split.right == token2) {
+                        return true;
+                    }
                     token2 = split.left;
                     if (token2 + 1 == limit) {
                         limit = token1;
                         const split2 = self.split_table[token1];
+                        // Base token check for token1
+                        if (split2.left == token1 and split2.right == token1) {
+                            return true;
+                        }
                         token1 = split2.right;
                         if (token1 == limit) {
                             return true;

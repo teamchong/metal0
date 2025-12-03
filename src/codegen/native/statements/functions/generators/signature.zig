@@ -506,6 +506,19 @@ pub fn genFunctionSignature(
         // If so, we need to rename it to avoid Zig shadowing errors
         const shadows_module_func = self.module_level_funcs.contains(arg.name);
 
+        // Check if parameter name shadows a sibling method in the same class
+        // e.g., def __release_buffer__(self, buffer): ... where 'buffer' is also a method
+        const shadows_class_method = if (self.current_class_body) |class_body| blk: {
+            for (class_body) |stmt| {
+                if (stmt == .function_def) {
+                    if (std.mem.eql(u8, stmt.function_def.name, arg.name)) {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        } else false;
+
         // Check if parameter is used in function body - prefix unused with "_"
         // Also check if parameter is captured by any nested class (used via closure)
         // Note: When parameter shadows module-level function, body uses the renamed
@@ -513,7 +526,7 @@ pub fn genFunctionSignature(
         // For generators, always mark params as used since yield body isn't properly generated
         const is_used_directly = if (is_generator) true else param_analyzer.isNameUsedInBody(func.body, arg.name);
         const is_captured = self.isVarCapturedByAnyNestedClass(arg.name);
-        const is_used = is_used_directly or is_captured or shadows_module_func;
+        const is_used = is_used_directly or is_captured or shadows_module_func or shadows_class_method;
         if (!is_used) {
             try self.emit("_");
         }
@@ -521,10 +534,10 @@ pub fn genFunctionSignature(
         // Escape Zig reserved keywords (e.g., "fn" -> @"fn", "test" -> @"test")
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
 
-        // Add suffix for parameters that shadow module-level functions
+        // Add suffix for parameters that shadow module-level functions or class methods
         // Note: var_renames is populated in function_gen.zig AFTER the clear,
         // so we don't need to put it here (it would be cleared anyway)
-        if (shadows_module_func) {
+        if (shadows_module_func or shadows_class_method) {
             try self.emit("__local");
         }
 
@@ -956,12 +969,42 @@ pub fn genMethodSignatureWithSkip(
             param_analyzer.isNameUsedInInitBody(method.body, arg.name)
         else
             param_analyzer.isNameUsedInBody(method.body, arg.name);
+        // Check if parameter name shadows a sibling method in the same class
+        // This includes both explicit methods AND attributes assigned to None (which become stub methods)
+        const shadows_class_method = if (self.current_class_body) |cb| blk: {
+            for (cb) |stmt| {
+                // Check explicit methods
+                if (stmt == .function_def) {
+                    if (std.mem.eql(u8, stmt.function_def.name, arg.name)) {
+                        break :blk true;
+                    }
+                }
+                // Check class attributes assigned to None - these become stub methods
+                if (stmt == .assign) {
+                    for (stmt.assign.targets) |target| {
+                        if (target == .name and stmt.assign.value.* == .constant and
+                            stmt.assign.value.constant.value == .none)
+                        {
+                            if (std.mem.eql(u8, target.name.id, arg.name)) {
+                                break :blk true;
+                            }
+                        }
+                    }
+                }
+            }
+            break :blk false;
+        } else false;
+
         if (is_skipped or !is_param_used) {
             // Use anonymous parameter for unused
             try self.emit("_: ");
         } else {
             // Use writeParamName to handle Zig keywords AND method shadowing (e.g., "init" -> "init_arg")
             try zig_keywords.writeParamName(self.output.writer(self.allocator), arg.name);
+            // Add __local suffix if shadows class method
+            if (shadows_class_method) {
+                try self.emit("__local");
+            }
             try self.emit(": ");
         }
         // Use anytype for method params without type annotation to support string literals

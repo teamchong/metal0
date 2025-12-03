@@ -301,6 +301,14 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
 
         // Emit declarations for variables that will be assigned in branches
         for (assigned_vars.items) |v| {
+            // Skip if already hoisted at function level
+            if (self.hoisted_vars.contains(v.name)) continue;
+
+            // Skip module-level functions - they're already declared as functions
+            // Python allows `genslices = rslices` to reassign function names,
+            // but in Zig the function is already defined so we skip hoisting
+            if (self.module_level_funcs.contains(v.name)) continue;
+
             const var_type = self.type_inferrer.inferExpr(v.node) catch .unknown;
 
             // Skip hoisting if type refers to a class defined inside the block
@@ -418,16 +426,6 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
     _ = try builder.beginBlock();
 
     for (if_stmt.body) |stmt| {
-        // Skip function definitions - they can't be generated inside if blocks in Zig
-        // The variable was already hoisted/declared above
-        if (stmt == .function_def) {
-            // Emit a comment and skip
-            try self.emitIndent();
-            try self.emit("// Function '");
-            try self.emit(stmt.function_def.name);
-            try self.emit("' hoisted - conditional function not yet supported\n");
-            continue;
-        }
         try self.generateStmt(stmt);
     }
 
@@ -448,14 +446,6 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             _ = try builder.elseClause();
             _ = try builder.beginBlock();
             for (if_stmt.else_body) |stmt| {
-                // Skip function definitions - they can't be generated inside if blocks in Zig
-                if (stmt == .function_def) {
-                    try self.emitIndent();
-                    try self.emit("// Function '");
-                    try self.emit(stmt.function_def.name);
-                    try self.emit("' hoisted - conditional function not yet supported\n");
-                    continue;
-                }
                 try self.generateStmt(stmt);
             }
             _ = try builder.endBlock();
@@ -473,8 +463,15 @@ pub fn genPass(self: *NativeCodegen) CodegenError!void {
 
 /// Generate break statement
 pub fn genBreak(self: *NativeCodegen) CodegenError!void {
-    var builder = CodeBuilder.init(self);
-    _ = try builder.line("break;");
+    // Check if we're inside a try helper that needs break handling
+    if (self.try_break_helper_id != null) {
+        // Inside try helper - return error to signal break
+        try self.emitIndent();
+        try self.emit("return error.BreakRequested;\n");
+    } else {
+        var builder = CodeBuilder.init(self);
+        _ = try builder.line("break;");
+    }
 }
 
 /// Generate continue statement

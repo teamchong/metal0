@@ -172,9 +172,12 @@ pub const BacktrackEncoder = struct {
                 self.bitfield.clear(self.pos);
                 if (self.tokens.items.len > 0) {
                     _ = self.tokens.pop();
+                    self.pos -= if (last) |t| self.tokenLen(t) else 0;
+                    self.next_token = last;
+                } else {
+                    // No tokens to backtrack - we're stuck, give up
+                    self.next_token = null;
                 }
-                self.pos -= if (last) |t| self.tokenLen(t) else 0;
-                self.next_token = last;
                 break;
             }
         }
@@ -214,6 +217,7 @@ pub const BacktrackEncoder = struct {
 };
 
 /// EXACT PORT of rs-bpe is_valid_token_pair (from byte_pair_encoding.rs lines 112-148)
+/// Returns true if token1 followed by token2 is a valid BPE encoding path
 fn isValidTokenPairImpl(
     pair_lookup: *const std.HashMap(Pair, u32, FnvHashContext(Pair), std.hash_map.default_max_load_percentage),
     split_table: []const Pair,
@@ -228,19 +232,25 @@ fn isValidTokenPairImpl(
     while (true) {
         // Check if this pair exists in pair_lookup
         if (pair_lookup.get(Pair{ .left = token1, .right = token2 })) |combined| {
-            if (combined < limit) {
-                return false;
-            }
-            return true;
+            // If the combined token has lower rank than limit, this pair is invalid
+            return combined >= limit;
         }
 
         if (token1 > token2) {
             limit = token1;
             const split = split_table[token1];
+            // Base token check: if token splits to itself, we've reached the bottom
+            if (split.left == token1 and split.right == token1) {
+                return true; // Base token - no merge restriction
+            }
             token1 = split.right;
             if (token1 == limit) {
                 limit = token2 + 1;
                 const split2 = split_table[token2];
+                // Base token check for token2
+                if (split2.left == token2 and split2.right == token2) {
+                    return true;
+                }
                 token2 = split2.left;
                 if (token2 + 1 == limit) {
                     return true;
@@ -249,10 +259,18 @@ fn isValidTokenPairImpl(
         } else {
             limit = token2 + 1;
             const split = split_table[token2];
+            // Base token check: if token splits to itself, we've reached the bottom
+            if (split.left == token2 and split.right == token2) {
+                return true;
+            }
             token2 = split.left;
             if (token2 + 1 == limit) {
                 limit = token1;
                 const split2 = split_table[token1];
+                // Base token check for token1
+                if (split2.left == token1 and split2.right == token1) {
+                    return true;
+                }
                 token1 = split2.right;
                 if (token1 == limit) {
                     return true;
