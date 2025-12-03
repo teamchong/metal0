@@ -154,34 +154,34 @@ metal0 compiles Python's `asyncio` to optimized native code:
 
 | Implementation | Time | vs metal0 |
 |---------------|------|----------|
-| **metal0 (Zig)** | **2.489s** | **1.00x** |
-| rs-bpe (Rust) | 3.866s | 1.55x slower |
-| TokenDagger (C++) | 4.195s | 1.69x slower |
-| tiktoken (Rust) | 9.311s | 3.74x slower |
-| HuggingFace (Python) | 44.264s | 17.78x slower |
+| **metal0 (Zig)** | **TBC** | **1.00x** |
+| rs-bpe (Rust) | 3.866s | TBC |
+| TokenDagger (C++) | 4.195s | TBC |
+| tiktoken (Rust) | 9.311s | TBC |
+| HuggingFace (Python) | 44.264s | TBC |
 
 **Web/WASM Encoding (583 texts × 200 iterations):**
 
 | Library | Time | vs metal0 | Size |
 |---------|------|----------|------|
-| **metal0 (WASM)** | **47.8ms** | **1.00x** | **46KB** |
-| gpt-tokenizer (JS) | 847.2ms | 17.7x slower | 1.1MB |
-| @anthropic-ai/tokenizer (JS) | 8.515s | 178.1x slower | 8.6MB |
-| tiktoken (WASM) | 11.884s | 248.5x slower | 1.0MB |
+| **metal0 (WASM)** | **TBC** | **1.00x** | **46KB** |
+| gpt-tokenizer (JS) | 847.2ms | TBC | 1.1MB |
+| @anthropic-ai/tokenizer (JS) | 8.515s | TBC | 8.6MB |
+| tiktoken (WASM) | 11.884s | TBC | 1.0MB |
 
 **BPE Training (vocab_size=32000):**
 
 | Library | Time | vs metal0 |
 |---------|------|----------|
-| **metal0 (Zig)** | **1.095s** | **1.00x** |
-| SentencePiece (C++) | 8.514s | 7.78x slower |
-| HuggingFace (Rust) | 26.690s | 24.37x slower |
+| **metal0 (Zig)** | **TBC** | **1.00x** |
+| SentencePiece (C++) | 8.514s | TBC |
+| HuggingFace (Rust) | 26.690s | TBC |
 
 **Unigram Training (vocab_size=751):**
 
 | Library | Time | vs HuggingFace |
 |---------|------|----------------|
-| **metal0 (Zig)** | **108ms** | **2.4x faster** |
+| **metal0 (Zig)** | **TBC** | **TBC** |
 | HuggingFace (Rust) | 263ms | 1.00x |
 
 ### Regex Benchmark

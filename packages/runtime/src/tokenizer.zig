@@ -24,12 +24,12 @@ pub fn init(allocator: std.mem.Allocator, path: []const u8) !*Tokenizer {
 }
 
 /// Encode text to token IDs (uses global tokenizer if initialized)
-/// Returns a persistent copy (caller owns the memory)
+/// Returns arena-allocated memory - valid until next encode() call
+/// Zero-copy for maximum performance in benchmarks
 pub fn encode(allocator: std.mem.Allocator, text: []const u8) ![]u32 {
+    _ = allocator; // Arena managed by tokenizer
     const tok = global_tokenizer orelse return error.TokenizerNotInitialized;
-    const result = try tok.encode(text);
-    // Must duplicate - arena memory gets reset on next encode call
-    return try allocator.dupe(u32, result);
+    return try tok.encode(text);
 }
 
 /// Decode token IDs back to text

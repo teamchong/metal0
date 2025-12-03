@@ -365,6 +365,8 @@ pub const import_helper = struct {
             return @import("re.zig");
         } else if (std.mem.eql(u8, module_name, "math")) {
             return @import("math.zig");
+        } else if (std.mem.eql(u8, module_name, "ctypes")) {
+            return @import("ctypes.zig");
         } else {
             @compileError("Unknown module: " ++ module_name);
         }
