@@ -95,7 +95,6 @@ pub const NativeType = union(enum) {
     pyvalue: void, // runtime.PyValue - heterogeneous value (for tuple->list conversion)
     unknown: void, // Fallback to PyObject* (should be rare)
     path: void, // pathlib.Path
-    flask_app: void, // flask.Flask application instance
     usize_slice: void, // []const usize - used for slices
     stringio: void, // io.StringIO in-memory text stream
     bytesio: void, // io.BytesIO in-memory binary stream
@@ -271,7 +270,6 @@ pub const NativeType = union(enum) {
             .pyvalue => try buf.appendSlice(allocator, "runtime.PyValue"),
             .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .path => try buf.appendSlice(allocator, "*pathlib.Path"),
-            .flask_app => try buf.appendSlice(allocator, "*runtime.flask.Flask"),
             .usize_slice => try buf.appendSlice(allocator, "[]const usize"),
             .stringio => try buf.appendSlice(allocator, "*runtime.io.StringIO"),
             .bytesio => try buf.appendSlice(allocator, "*runtime.io.BytesIO"),

@@ -455,7 +455,7 @@ fn handleSpecialMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: 
             }
         },
         .get => {
-            // get - only dict.get(key) with args, NOT module.get() like requests.get()
+            // get - only dict.get(key) with args, NOT module.get()
             if (call.args.len == 0) return false;
             // Skip if obj is a name that's an imported module
             if (obj == .name) {

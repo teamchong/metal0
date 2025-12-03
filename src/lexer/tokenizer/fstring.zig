@@ -46,6 +46,24 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
             }
         }
         if (self.peek() == '{') {
+            // Check if this is a unicode escape sequence \N{name}, \x{hex}, \u{hex}, \U{hex}
+            // In non-raw f-strings, these should be treated as literals, not expressions
+            if (!is_raw and self.current > 0) {
+                const prev_char = self.source[self.current - 1];
+                // Check for \N{name} escape - but only if there's a backslash before N
+                if (prev_char == 'N' and self.current > 1 and self.source[self.current - 2] == '\\') {
+                    // This is \N{name} unicode escape - skip to closing }
+                    _ = self.advance(); // consume '{'
+                    while (!self.isAtEnd() and self.peek() != '}') {
+                        _ = self.advance();
+                    }
+                    if (self.peek() == '}') {
+                        _ = self.advance(); // consume '}'
+                    }
+                    continue;
+                }
+            }
+
             // Save any pending literal
             if (self.current > literal_start) {
                 const literal_text = self.source[literal_start..self.current];

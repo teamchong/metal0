@@ -292,7 +292,7 @@ pub fn collectImports(
     // Process each module using registry
     for (module_names.keys()) |python_module| {
         // Handle relative imports (starting with .)
-        // Convert .app to full path like flask/app when inside flask/__init__.py
+        // Convert .module to full path like package/module when inside package/__init__.py
         if (python_module.len > 0 and python_module[0] == '.') {
             // Relative import - resolve relative to source directory
             if (source_file_dir) |dir| {

@@ -9,7 +9,7 @@ const hashmap_helper = @import("hashmap_helper");
 
 pub const ModuleInfo = struct {
     path: []const u8, // Full path to .py file
-    module_name: []const u8, // Logical module name (e.g., "flask" for flask/__init__.py)
+    module_name: []const u8, // Logical module name (e.g., "mypackage" for mypackage/__init__.py)
     imports: [][]const u8, // List of imported modules
     compiled_path: ?[]const u8, // Path to compiled .so
 
@@ -166,7 +166,7 @@ pub const ImportGraph = struct {
         errdefer self.allocator.free(path_copy);
 
         // Derive module name from path if not explicit
-        // For __init__.py, use parent directory name (e.g., flask/__init__.py -> flask)
+        // For __init__.py, use parent directory name (e.g., mypackage/__init__.py -> mypackage)
         const mod_name = if (explicit_module_name) |name|
             try self.allocator.dupe(u8, name)
         else blk: {
@@ -249,7 +249,7 @@ pub const ImportGraph = struct {
             } else {
                 std.debug.print("  Skipped import (external): {s}\n", .{import_name});
                 // Track as unresolved for potential auto-install
-                // Get base package name (e.g., "flask.app" -> "flask")
+                // Get base package name (e.g., "mypackage.module" -> "mypackage")
                 const base_name = if (std.mem.indexOf(u8, import_name, ".")) |idx|
                     import_name[0..idx]
                 else

@@ -58,7 +58,7 @@ pub const ImportInfo = struct {
     /// Only used for compile_python strategy
     python_source: ?[]const u8,
 
-    /// Whether module needs initialization (e.g., requests.init(__global_allocator))
+    /// Whether module needs initialization (e.g., module.init(__global_allocator))
     needs_init: bool = false,
 
     /// Function metadata (keyed by function name)
@@ -137,14 +137,6 @@ pub const ImportRegistry = struct {
 // Function metadata for modules (comptime maps)
 // ============================================================================
 
-/// requests module: functions use internal allocator, return errors
-const RequestsFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
-    .{ "get", FunctionMeta{ .no_alloc = true, .returns_error = true } },
-    .{ "post", FunctionMeta{ .no_alloc = true, .returns_error = true } },
-    .{ "put", FunctionMeta{ .no_alloc = true, .returns_error = true } },
-    .{ "delete", FunctionMeta{ .no_alloc = true, .returns_error = true } },
-});
-
 /// time module: pure functions, no allocator needed
 const TimeFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
     .{ "time", FunctionMeta{ .no_alloc = true, .returns_error = false } },
@@ -219,9 +211,6 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.registerWithMeta("time", .zig_runtime, "runtime.time", null, false, &TimeFuncMeta);
     try registry.registerWithMeta("math", .zig_runtime, "runtime.math", null, false, &MathFuncMeta);
     try registry.register("unittest", .zig_runtime, "runtime.unittest", null);
-    try registry.register("flask", .zig_runtime, "runtime.flask", null);
-    // requests: needs_init=true, has function metadata
-    try registry.registerWithMeta("requests", .zig_runtime, "runtime.requests", null, true, &RequestsFuncMeta);
 
     // Tier 2: C library wrappers (CPython stdlib modules only)
     try registry.registerWithMeta("sqlite3", .c_library, "@import(\"./c_interop/c_interop.zig\").sqlite3", "sqlite3", false, &Sqlite3FuncMeta);

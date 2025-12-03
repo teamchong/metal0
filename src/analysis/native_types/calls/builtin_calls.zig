@@ -225,11 +225,6 @@ pub fn inferBuiltinCall(
         return .path;
     }
 
-    // Flask() constructor
-    if (fnv_hash.hash(func_name) == comptime fnv_hash.hash("Flask")) {
-        return .flask_app;
-    }
-
     // collections module constructors
     const func_hash = fnv_hash.hash(func_name);
     const COUNTER_HASH = comptime fnv_hash.hash("Counter");

@@ -7,7 +7,7 @@ const discovery = @import("discovery.zig");
 /// These are stdlib modules - third-party packages are handled by the import registry
 pub fn isBuiltinModule(module_name: []const u8) bool {
     // Only Python stdlib modules - NO third-party packages here
-    // Third-party packages (flask, requests, werkzeug, etc.) are handled by import_registry
+    // Third-party packages are handled by import_registry or ctypes/cffi
     const stdlib_modules = [_][]const u8{
         // Core Python stdlib (still need Python source)
         "sys",         "pathlib",
