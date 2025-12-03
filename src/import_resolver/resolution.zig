@@ -254,7 +254,7 @@ pub fn isLocalModule(
     return false;
 }
 
-/// Check if a module is a C extension (.so, .dylib, .pyd)
+/// Check if a module is a C extension or package containing C extensions
 /// Searches site-packages and virtual env paths
 pub fn isCExtension(
     module_name: []const u8,
@@ -274,8 +274,9 @@ pub fn isCExtension(
         allocator.free(site_packages);
     }
 
-    // Check each site-packages directory for C extension files
+    // Check each site-packages directory
     for (site_packages) |site_dir| {
+        // 1. Check for direct C extension file (e.g., module.so)
         for (extensions) |ext| {
             const full_path = std.fmt.allocPrint(
                 allocator,
@@ -285,9 +286,32 @@ pub fn isCExtension(
             defer allocator.free(full_path);
 
             std.fs.cwd().access(full_path, .{}) catch continue;
-
-            // Found a C extension!
             return true;
+        }
+
+        // 2. Check if it's a package directory with C extensions inside
+        const pkg_path = std.fmt.allocPrint(
+            allocator,
+            "{s}/{s}",
+            .{ site_dir, module_name },
+        ) catch continue;
+        defer allocator.free(pkg_path);
+
+        // Check if package directory exists
+        var pkg_dir = std.fs.cwd().openDir(pkg_path, .{ .iterate = true }) catch continue;
+        defer pkg_dir.close();
+
+        // Scan for any .so files in the package (includes subdirs via iterate)
+        var walker = pkg_dir.walk(allocator) catch continue;
+        defer walker.deinit();
+
+        while (walker.next() catch null) |entry| {
+            if (entry.kind != .file) continue;
+            for (extensions) |ext| {
+                if (std.mem.endsWith(u8, entry.basename, ext)) {
+                    return true;
+                }
+            }
         }
     }
 

@@ -77,6 +77,13 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
             if (try module_functions.tryDispatch(self, module_name, func_name, call)) {
                 return true;
             }
+
+            // Check if this is a skipped (unsupported) module
+            if (self.isSkippedModule(module_name)) {
+                // Emit compile error for unsupported third-party module
+                try self.emitFmt("@compileError(\"Module '{s}' is not supported. Third-party packages require ctypes/cffi (not yet implemented).\")", .{module_name});
+                return true;
+            }
         }
     }
 

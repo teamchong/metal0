@@ -10,6 +10,9 @@ const build_dirs = @import("../../../build_dirs.zig");
 
 const hashmap_helper = @import("hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
+const FnvStringMap = hashmap_helper.StringHashMap([]const u8);
+const cleanup = @import("cleanup.zig");
+const freeMapKeys = cleanup.freeMapKeys;
 
 /// Infer return type from type string
 fn inferReturnTypeFromString(
@@ -259,6 +262,13 @@ pub fn collectImports(
     // Clear previous from-imports
     self.from_imports.clearRetainingCapacity();
 
+    // Track import aliases: alias -> module_name
+    var import_aliases = FnvStringMap.init(self.allocator);
+    defer {
+        freeMapKeys(self.allocator, &import_aliases);
+        import_aliases.deinit();
+    }
+
     for (module.body) |stmt| {
         // Handle both "import X" and "from X import Y"
         switch (stmt) {
@@ -268,6 +278,11 @@ pub fn collectImports(
                 // Also add root module for dotted imports (e.g., "test.support" -> "test")
                 if (std.mem.indexOfScalar(u8, module_name, '.')) |dot_idx| {
                     try module_names.put(module_name[0..dot_idx], {});
+                }
+                // Track alias: import numpy as np -> np -> numpy
+                if (imp.asname) |alias| {
+                    const alias_copy = try self.allocator.dupe(u8, alias);
+                    try import_aliases.put(alias_copy, module_name);
                 }
             },
             .import_from => |imp| {
@@ -385,6 +400,21 @@ pub fn collectImports(
                 continue;
             }
 
+            // Check if it's a C extension first - C extensions should NOT be compiled from Python
+            const is_c_ext = import_resolver.isCExtension(python_module, self.allocator);
+            if (is_c_ext) {
+                std.debug.print("Warning: C extension module '{s}' detected but not supported (requires ctypes/cffi)\n", .{python_module});
+                // Mark as skipped - we can't compile C extensions without ctypes/cffi
+                try self.markSkippedModule(python_module);
+                // Also mark any alias as skipped (e.g., np for numpy)
+                for (import_aliases.keys()) |alias| {
+                    if (std.mem.eql(u8, import_aliases.get(alias).?, python_module)) {
+                        try self.markSkippedModule(alias);
+                    }
+                }
+                continue;
+            }
+
             // Check if it's a local .py file
             const is_local = try import_resolver.isLocalModule(
                 python_module,
@@ -408,15 +438,14 @@ pub fn collectImports(
                     // Module was compiled by import_scanner - add to imports
                     try imports.append(self.allocator, python_module);
                 } else {
-                    // Check if it's a C extension installed in site-packages
-                    const is_c_ext = import_resolver.isCExtension(python_module, self.allocator);
-                    if (is_c_ext) {
-                        std.debug.print("[C Extension] Detected {s} in site-packages (no mapping yet)\n", .{python_module});
-                    } else {
-                        // External package not in registry - skip with warning
-                        std.debug.print("Warning: External module '{s}' not found, skipping import\n", .{python_module});
-                        // Track this module as skipped so we can skip code that references it
-                        try self.markSkippedModule(python_module);
+                    // External package not in registry and not a C extension - skip with warning
+                    std.debug.print("Warning: External module '{s}' not found, skipping import\n", .{python_module});
+                    try self.markSkippedModule(python_module);
+                    // Also mark any alias as skipped
+                    for (import_aliases.keys()) |alias| {
+                        if (std.mem.eql(u8, import_aliases.get(alias).?, python_module)) {
+                            try self.markSkippedModule(alias);
+                        }
                     }
                 }
             }
