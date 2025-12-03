@@ -87,6 +87,12 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
     try subscript_mod.genSubscript(self, subscript);
 }
 
+/// Generate subscript LHS without block wrapping - for assignment targets
+/// Needed for chained subscript assignments like arr[0][1][2] = value
+pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) CodegenError!void {
+    try subscript_mod.genSubscriptLHS(self, subscript);
+}
+
 /// Generate attribute access (obj.attr)
 pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError!void {
     const genExpr = expressions_mod.genExpr;

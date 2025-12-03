@@ -1237,6 +1237,12 @@ pub const NativeCodegen = struct {
         try generator.genExpr(self, node);
     }
 
+    // Forward declaration for genSubscriptLHS - generates subscript LHS without block wrapping
+    pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) CodegenError!void {
+        const expressions = @import("../expressions.zig");
+        try expressions.genSubscriptLHS(self, subscript);
+    }
+
     // Forward declaration for generate (implemented in generator.zig)
     pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         const gen = @import("generator.zig");
