@@ -210,32 +210,317 @@ pub fn printValue(value: anytype) void {
     }
 }
 
+/// Python format spec: [[fill]align][sign][#][0][width][,][.precision][type]
+const FormatSpec = struct {
+    fill: u8 = ' ',
+    alignment: enum { left, right, center, sign_aware } = .right,
+    sign: enum { minus_only, always, space } = .minus_only,
+    alternate: bool = false,
+    zero_pad: bool = false,
+    width: ?usize = null,
+    grouping: bool = false,
+    precision: ?usize = null,
+    fmt_type: u8 = 0, // 0 = default, 's', 'd', 'b', 'o', 'x', 'X', 'e', 'E', 'f', 'F', 'g', 'G', '%', 'c', 'n'
+};
+
+fn parseFormatSpec(spec: []const u8) FormatSpec {
+    var result = FormatSpec{};
+    if (spec.len == 0) return result;
+
+    var i: usize = 0;
+
+    // Check for fill and align: if second char is align, first is fill
+    if (spec.len >= 2) {
+        const maybe_align = spec[1];
+        if (maybe_align == '<' or maybe_align == '>' or maybe_align == '^' or maybe_align == '=') {
+            result.fill = spec[0];
+            result.alignment = switch (maybe_align) {
+                '<' => .left,
+                '>' => .right,
+                '^' => .center,
+                '=' => .sign_aware,
+                else => .right,
+            };
+            i = 2;
+        }
+    }
+    // Check for align only
+    if (i == 0 and spec.len >= 1) {
+        const maybe_align = spec[0];
+        if (maybe_align == '<' or maybe_align == '>' or maybe_align == '^' or maybe_align == '=') {
+            result.alignment = switch (maybe_align) {
+                '<' => .left,
+                '>' => .right,
+                '^' => .center,
+                '=' => .sign_aware,
+                else => .right,
+            };
+            i = 1;
+        }
+    }
+
+    // Sign: +, -, or space
+    if (i < spec.len) {
+        if (spec[i] == '+') {
+            result.sign = .always;
+            i += 1;
+        } else if (spec[i] == '-') {
+            result.sign = .minus_only;
+            i += 1;
+        } else if (spec[i] == ' ') {
+            result.sign = .space;
+            i += 1;
+        }
+    }
+
+    // Alternate form: #
+    if (i < spec.len and spec[i] == '#') {
+        result.alternate = true;
+        i += 1;
+    }
+
+    // Zero padding: 0
+    if (i < spec.len and spec[i] == '0') {
+        result.zero_pad = true;
+        result.fill = '0';
+        result.alignment = .sign_aware;
+        i += 1;
+    }
+
+    // Width: digits
+    const width_start = i;
+    while (i < spec.len and spec[i] >= '0' and spec[i] <= '9') : (i += 1) {}
+    if (i > width_start) {
+        result.width = std.fmt.parseInt(usize, spec[width_start..i], 10) catch null;
+    }
+
+    // Grouping: comma
+    if (i < spec.len and spec[i] == ',') {
+        result.grouping = true;
+        i += 1;
+    }
+
+    // Precision: .digits
+    if (i < spec.len and spec[i] == '.') {
+        i += 1;
+        const prec_start = i;
+        while (i < spec.len and spec[i] >= '0' and spec[i] <= '9') : (i += 1) {}
+        if (i > prec_start) {
+            result.precision = std.fmt.parseInt(usize, spec[prec_start..i], 10) catch null;
+        }
+    }
+
+    // Type: single character at end
+    if (i < spec.len) {
+        result.fmt_type = spec[i];
+    }
+
+    return result;
+}
+
+fn applyPadding(allocator: std.mem.Allocator, content: []const u8, spec: FormatSpec) ![]const u8 {
+    const width = spec.width orelse return allocator.dupe(u8, content);
+    if (content.len >= width) return allocator.dupe(u8, content);
+
+    const padding = width - content.len;
+    var result = std.ArrayList(u8){};
+
+    switch (spec.alignment) {
+        .left => {
+            try result.appendSlice(allocator, content);
+            try result.appendNTimes(allocator, spec.fill, padding);
+        },
+        .right, .sign_aware => {
+            try result.appendNTimes(allocator, spec.fill, padding);
+            try result.appendSlice(allocator, content);
+        },
+        .center => {
+            const left_pad = padding / 2;
+            const right_pad = padding - left_pad;
+            try result.appendNTimes(allocator, spec.fill, left_pad);
+            try result.appendSlice(allocator, content);
+            try result.appendNTimes(allocator, spec.fill, right_pad);
+        },
+    }
+
+    return result.toOwnedSlice(allocator);
+}
+
 /// Python format(value, format_spec) builtin
 /// Applies format_spec to value and returns formatted string
-/// For now, this is a basic implementation that ignores most format specs
-/// and just returns a string representation of the value
 pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anytype) ![]const u8 {
-    // Ensure format_spec is used to avoid unused variable warnings
-    _ = format_spec;
+    const spec_str: []const u8 = if (@TypeOf(format_spec) == []const u8) format_spec else @as([]const u8, format_spec);
+    const spec = parseFormatSpec(spec_str);
 
-    // Basic formatting - convert value to string
     const T = @TypeOf(value);
+    var buf = std.ArrayList(u8){};
+
+    // Format the value based on type
     if (T == []const u8 or T == [:0]const u8) {
-        return allocator.dupe(u8, value);
-    } else if (T == f64 or T == f32) {
-        return formatFloat(value, allocator);
+        // String formatting
+        var str = value;
+        if (spec.precision) |p| {
+            if (p < str.len) str = str[0..p];
+        }
+        try buf.appendSlice(allocator, str);
     } else if (T == bool) {
-        return if (value) "True" else "False";
+        try buf.appendSlice(allocator, if (value) "True" else "False");
     } else if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
-        var buf = std.ArrayList(u8){};
-        try buf.writer(allocator).print("{d}", .{value});
-        return buf.toOwnedSlice(allocator);
+        // Integer formatting
+        const int_val: i64 = @intCast(value);
+        const abs_val: u64 = if (int_val < 0) @intCast(-int_val) else @intCast(int_val);
+        const is_neg = int_val < 0;
+
+        // Determine base and prefix
+        var base: u8 = 10;
+        var prefix: []const u8 = "";
+        var uppercase = false;
+
+        switch (spec.fmt_type) {
+            'b' => base = 2,
+            'o' => {
+                base = 8;
+                if (spec.alternate and abs_val != 0) prefix = "0o";
+            },
+            'x' => {
+                base = 16;
+                if (spec.alternate and abs_val != 0) prefix = "0x";
+            },
+            'X' => {
+                base = 16;
+                uppercase = true;
+                if (spec.alternate and abs_val != 0) prefix = "0X";
+            },
+            'c' => {
+                // Character
+                if (abs_val < 128) {
+                    try buf.append(allocator, @as(u8, @intCast(abs_val)));
+                }
+                return applyPadding(allocator, buf.items, spec);
+            },
+            else => {},
+        }
+
+        // Convert number to string (in reverse order)
+        var temp: [66]u8 = undefined;
+        var temp_len: usize = 0;
+        var n = abs_val;
+        if (n == 0) {
+            temp[0] = '0';
+            temp_len = 1;
+        } else {
+            while (n > 0) {
+                const digit = @as(u8, @intCast(n % base));
+                const c = if (digit < 10) '0' + digit else if (uppercase) 'A' + digit - 10 else 'a' + digit - 10;
+                temp[temp_len] = c;
+                temp_len += 1;
+                n /= base;
+            }
+        }
+
+        // For zero-padding with sign-aware alignment, we need special handling
+        // The sign and prefix come first, then zero padding, then digits
+        if (spec.zero_pad and spec.width != null) {
+            var num_buf: [68]u8 = undefined;
+            var num_len: usize = 0;
+
+            // Add sign first
+            if (is_neg) {
+                num_buf[num_len] = '-';
+                num_len += 1;
+            } else if (spec.sign == .always) {
+                num_buf[num_len] = '+';
+                num_len += 1;
+            } else if (spec.sign == .space) {
+                num_buf[num_len] = ' ';
+                num_len += 1;
+            }
+
+            // Add prefix
+            for (prefix) |c| {
+                num_buf[num_len] = c;
+                num_len += 1;
+            }
+
+            // Calculate how many zeros we need
+            const width = spec.width.?;
+            const digits_and_prefix_len = num_len + temp_len;
+            const zeros_needed = if (width > digits_and_prefix_len) width - digits_and_prefix_len else 0;
+
+            // Add zeros
+            var z: usize = 0;
+            while (z < zeros_needed) : (z += 1) {
+                num_buf[num_len] = '0';
+                num_len += 1;
+            }
+
+            // Reverse and add digits
+            var j: usize = 0;
+            while (j < temp_len) : (j += 1) {
+                num_buf[num_len + j] = temp[temp_len - 1 - j];
+            }
+            num_len += temp_len;
+
+            try buf.appendSlice(allocator, num_buf[0..num_len]);
+            // Return directly - no additional padding needed
+            return allocator.dupe(u8, buf.items);
+        }
+
+        // Normal case: build number string then pad
+        var num_buf: [68]u8 = undefined;
+        var num_len: usize = 0;
+
+        // Add sign
+        if (is_neg) {
+            num_buf[num_len] = '-';
+            num_len += 1;
+        } else if (spec.sign == .always) {
+            num_buf[num_len] = '+';
+            num_len += 1;
+        } else if (spec.sign == .space) {
+            num_buf[num_len] = ' ';
+            num_len += 1;
+        }
+
+        // Add prefix
+        for (prefix) |c| {
+            num_buf[num_len] = c;
+            num_len += 1;
+        }
+
+        // Reverse and add digits
+        var j: usize = 0;
+        while (j < temp_len) : (j += 1) {
+            num_buf[num_len + j] = temp[temp_len - 1 - j];
+        }
+        num_len += temp_len;
+
+        try buf.appendSlice(allocator, num_buf[0..num_len]);
+    } else if (T == f64 or T == f32) {
+        // Float formatting
+        const float_val: f64 = @floatCast(value);
+        const prec = spec.precision orelse 6;
+
+        switch (spec.fmt_type) {
+            'e', 'E' => try buf.writer(allocator).print("{e}", .{float_val}),
+            '%' => {
+                try buf.writer(allocator).print("{d:.[1]}", .{ float_val * 100.0, prec });
+                try buf.append(allocator, '%');
+            },
+            else => {
+                if (@mod(float_val, 1.0) == 0.0 and spec.fmt_type != 'f' and spec.fmt_type != 'F') {
+                    try buf.writer(allocator).print("{d:.1}", .{float_val});
+                } else {
+                    try buf.writer(allocator).print("{d:.[1]}", .{ float_val, prec });
+                }
+            },
+        }
     } else {
         // Default: use {any} format
-        var buf = std.ArrayList(u8){};
         try buf.writer(allocator).print("{any}", .{value});
-        return buf.toOwnedSlice(allocator);
     }
+
+    return applyPadding(allocator, buf.items, spec);
 }
 
 /// Python % operator - runtime dispatch for string formatting vs numeric modulo
