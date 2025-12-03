@@ -154,10 +154,10 @@ metal0 compiles Python's `asyncio` to optimized native code:
 
 | Implementation | Time | vs metal0 |
 |---------------|------|----------|
-| **metal0 (Zig)** | **8.7ms** | **1.00x** |
-| tiktoken (Rust) | 105ms | 12x slower |
-| rs-bpe (Rust) | TBC | TBC |
-| HuggingFace (Python) | TBC | TBC |
+| **metal0 (Zig)** | **9.1ms** | **1.00x** |
+| rs-bpe (Rust) | 33.9ms | 3.7x slower |
+| tiktoken (Rust) | 97.3ms | 10.7x slower |
+| HuggingFace (Python) | 609.7ms | 67x slower |
 
 *Tested on Apple M2. 100% correctness verified (12/12 round-trip tests pass).*
 
