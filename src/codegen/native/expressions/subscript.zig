@@ -216,9 +216,15 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             };
 
             if (is_feature_macros) {
-                // FeatureMacros struct access: feature_macros.index("key")
+                // FeatureMacros struct access
+                // Use .index() for comptime keys, .get() for runtime keys
+                const is_comptime_key = subscript.slice.index.* == .constant;
                 try genExpr(self, subscript.value.*);
-                try self.emit(".index(");
+                if (is_comptime_key) {
+                    try self.emit(".index(");
+                } else {
+                    try self.emit(".get(");
+                }
                 try genExpr(self, subscript.slice.index.*);
                 try self.emit(")");
             } else if (is_likely_dict) {
