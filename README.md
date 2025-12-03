@@ -156,23 +156,34 @@ metal0 compiles Python's `asyncio` to optimized native code:
 |---------------|------|----------|
 | **metal0 (Zig)** | **8.7ms** | **1.00x** |
 | tiktoken (Rust) | 105ms | 12x slower |
+| rs-bpe (Rust) | TBC | TBC |
+| HuggingFace (Python) | TBC | TBC |
 
-*Tested on Apple M2. metal0 achieves 12x faster encoding than tiktoken with 100% correctness (12/12 round-trip tests pass).*
+*Tested on Apple M2. 100% correctness verified (12/12 round-trip tests pass).*
 
-**Web/WASM Encoding:**
+**Web/WASM Encoding (583 texts × 200 iterations):**
 
-| Library | vs metal0 | Size |
-|---------|----------|------|
-| **metal0 (WASM)** | **1.00x** | **46KB** |
-| tiktoken (WASM) | TBC | 1.0MB |
+| Library | Time | vs metal0 | Size |
+|---------|------|----------|------|
+| **metal0 (WASM)** | **TBC** | **1.00x** | **46KB** |
+| gpt-tokenizer (JS) | TBC | TBC | 1.1MB |
+| @anthropic-ai/tokenizer (JS) | TBC | TBC | 8.6MB |
+| tiktoken (WASM) | TBC | TBC | 1.0MB |
 
 **BPE Training (vocab_size=32000):**
 
 | Library | Time | vs metal0 |
 |---------|------|----------|
-| **metal0 (Zig)** | TBC | **1.00x** |
+| **metal0 (Zig)** | **TBC** | **1.00x** |
 | SentencePiece (C++) | 8.514s | TBC |
 | HuggingFace (Rust) | 26.690s | TBC |
+
+**Unigram Training (vocab_size=751):**
+
+| Library | Time | vs HuggingFace |
+|---------|------|----------------|
+| **metal0 (Zig)** | **TBC** | **TBC** |
+| HuggingFace (Rust) | 263ms | 1.00x |
 
 ### Regex Benchmark
 
