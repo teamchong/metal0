@@ -161,20 +161,28 @@ pub fn isZigKeyword(name: []const u8) bool {
     return zig_keywords.has(name);
 }
 
-/// Escape identifier if it's a Zig keyword
-/// Returns @"name" for keywords or bare underscore, name otherwise
+/// Escape identifier if it's a Zig keyword or contains Unicode
+/// Returns @"name" for keywords, Unicode, or bare underscore, name otherwise
 /// Caller must free returned slice if it was allocated
 pub fn escapeIfKeyword(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
     // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
     if (name.len == 1 and name[0] == '_') {
         return "@\"_\"";
     }
-    if (!isZigKeyword(name)) {
+    if (!isZigKeyword(name) and !containsNonAscii(name)) {
         return name;
     }
     // Escape as @"name"
     const escaped = try std.fmt.allocPrint(allocator, "@\"{s}\"", .{name});
     return escaped;
+}
+
+/// Check if name contains non-ASCII characters (Unicode)
+fn containsNonAscii(name: []const u8) bool {
+    for (name) |c| {
+        if (c > 127) return true;
+    }
+    return false;
 }
 
 /// Write escaped identifier to writer
@@ -183,7 +191,8 @@ pub fn writeEscapedIdent(writer: anytype, name: []const u8) !void {
     // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
     if (name.len == 1 and name[0] == '_') {
         try writer.writeAll("@\"_\"");
-    } else if (isZigKeyword(name)) {
+    } else if (isZigKeyword(name) or containsNonAscii(name)) {
+        // Unicode identifiers and keywords need @"name" syntax
         try writer.print("@\"{s}\"", .{name});
     } else {
         try writer.writeAll(name);
@@ -196,7 +205,8 @@ pub fn writeLocalVarName(writer: anytype, name: []const u8) !void {
     // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
     if (name.len == 1 and name[0] == '_') {
         try writer.writeAll("@\"_\"");
-    } else if (isZigKeyword(name)) {
+    } else if (isZigKeyword(name) or containsNonAscii(name)) {
+        // Unicode identifiers and keywords need @"name" syntax
         try writer.print("@\"{s}\"", .{name});
     } else if (wouldShadowMethod(name)) {
         // Rename to avoid shadowing method names in struct scope
