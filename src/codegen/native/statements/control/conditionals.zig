@@ -11,6 +11,7 @@ const HoistedVar = struct {
     node: ast.Node,
 };
 
+
 /// Check if a condition is a comptime constant and return its boolean value
 /// Returns null if not comptime constant, true/false otherwise
 /// anytype_params: set of parameter names that are anytype (cannot be comptime evaluated)
@@ -219,6 +220,7 @@ fn collectAssignedVars(self: *NativeCodegen, stmts: []const ast.Node, vars: *std
     }
 }
 
+
 /// Generate if statement
 pub fn genIf(self: *NativeCodegen, if_stmt: ast.Node.If) CodegenError!void {
     return genIfImpl(self, if_stmt, false, true);
@@ -260,6 +262,9 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
 
     // Pre-scan condition for walrus operators and emit variable declarations
     try emitWalrusDeclarations(self, if_stmt.condition.*);
+
+    // Function definitions inside if blocks are skipped in body generation (below)
+    // The variable is usually already declared (e.g., from an import) so we don't hoist
 
     // For top-level if, hoist variables assigned in any branch
     if (hoist_vars) {
@@ -325,6 +330,16 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
     _ = try builder.beginBlock();
 
     for (if_stmt.body) |stmt| {
+        // Skip function definitions - they can't be generated inside if blocks in Zig
+        // The variable was already hoisted/declared above
+        if (stmt == .function_def) {
+            // Emit a comment and skip
+            try self.emitIndent();
+            try self.emit("// Function '");
+            try self.emit(stmt.function_def.name);
+            try self.emit("' hoisted - conditional function not yet supported\n");
+            continue;
+        }
         try self.generateStmt(stmt);
     }
 
@@ -345,6 +360,14 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             _ = try builder.elseClause();
             _ = try builder.beginBlock();
             for (if_stmt.else_body) |stmt| {
+                // Skip function definitions - they can't be generated inside if blocks in Zig
+                if (stmt == .function_def) {
+                    try self.emitIndent();
+                    try self.emit("// Function '");
+                    try self.emit(stmt.function_def.name);
+                    try self.emit("' hoisted - conditional function not yet supported\n");
+                    continue;
+                }
                 try self.generateStmt(stmt);
             }
             _ = try builder.endBlock();
