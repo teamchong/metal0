@@ -309,6 +309,10 @@ fn isNameUsedInExpr(expr: ast.Node, name: []const u8) bool {
             for (call.args) |arg| {
                 if (isNameUsedInExpr(arg, name)) return true;
             }
+            // Also check keyword arguments
+            for (call.keyword_args) |kwarg| {
+                if (isNameUsedInExpr(kwarg.value, name)) return true;
+            }
             return false;
         },
         .binop => |binop| {

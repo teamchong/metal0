@@ -261,6 +261,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             if (std.mem.indexOf(u8, generated, "idx_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
             if (std.mem.indexOf(u8, generated, "str_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
             if (std.mem.indexOf(u8, generated, "arr_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "discard_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
             // Generic check: look for pattern like "word_N: {" at the start
             if (generated.len >= 6) {
                 // Check if starts with a label pattern (letters/underscore followed by digits, then ": {")

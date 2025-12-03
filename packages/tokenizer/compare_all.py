@@ -112,8 +112,8 @@ try:
         timeout=30
     )
     
-    # Parse output
-    for line in result.stdout.split('\n'):
+    # Parse output (Zig outputs to stderr via std.debug.print)
+    for line in result.stderr.split('\n'):
         if 'iterations:' in line and 'ms total' in line:
             # Extract time: "60000 iterations: 827ms total"
             time_str = line.split('iterations:')[1].split('ms')[0].strip()

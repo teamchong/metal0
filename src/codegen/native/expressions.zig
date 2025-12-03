@@ -77,7 +77,9 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
     switch (node) {
         .constant => |c| try constants.genConstant(self, c),
         .name => |n| {
-            // Check if variable has been renamed (for exception handling)
+            // Check if variable has been renamed (for local shadows, exception handling, etc.)
+            // If var_renames has an entry, USE IT - this means a local variable was declared
+            // that shadows a module-level function (e.g., local `rslices = [0]*ndim` inside a function)
             const name_to_use = self.var_renames.get(n.id) orelse n.id;
 
             // Handle 'self' -> '__self' in nested class methods to avoid shadowing
@@ -89,6 +91,13 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             // Handle 'self' in methods - emit as-is, NOT as runtime.builtins.self
             if (std.mem.eql(u8, name_to_use, "self") and self.inside_method_with_self) {
                 try self.emit("self");
+                return;
+            }
+
+            // Handle Python builtin constants
+            if (std.mem.eql(u8, name_to_use, "Ellipsis")) {
+                // Python Ellipsis constant - emit void value (like ellipsis_literal)
+                try self.emit("@as(void, {})");
                 return;
             }
 

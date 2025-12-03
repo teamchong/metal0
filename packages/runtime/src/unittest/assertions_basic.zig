@@ -862,6 +862,54 @@ pub fn assertTypeIs(comptime actual_type: type, comptime expected_type: type) vo
     }
 }
 
+/// Assertion: assertTypeIsStr(value, type_name_str) - runtime type check using string
+/// Used for assertIs(type(x), dict) style assertions where dict is a collection type
+pub fn assertTypeIsStr(value: anytype, comptime expected_type_str: []const u8) void {
+    const T = @TypeOf(value);
+    const type_name = @typeName(T);
+
+    // Check if actual type matches expected
+    const matches = comptime blk: {
+        // dict -> StringHashMap or PyDict
+        if (std.mem.eql(u8, expected_type_str, "dict")) {
+            if (std.mem.indexOf(u8, type_name, "StringHashMap") != null) break :blk true;
+            if (std.mem.indexOf(u8, type_name, "PyDict") != null) break :blk true;
+            if (std.mem.indexOf(u8, type_name, "HashMap") != null) break :blk true;
+        }
+        // list -> ArrayList or PyList
+        if (std.mem.eql(u8, expected_type_str, "list")) {
+            if (std.mem.indexOf(u8, type_name, "ArrayList") != null) break :blk true;
+            if (std.mem.indexOf(u8, type_name, "PyList") != null) break :blk true;
+        }
+        // set -> AutoHashMap or PySet
+        if (std.mem.eql(u8, expected_type_str, "set")) {
+            if (std.mem.indexOf(u8, type_name, "AutoHashMap") != null) break :blk true;
+            if (std.mem.indexOf(u8, type_name, "PySet") != null) break :blk true;
+        }
+        // tuple -> struct with indexed fields
+        if (std.mem.eql(u8, expected_type_str, "tuple")) {
+            if (std.mem.indexOf(u8, type_name, "struct") != null) break :blk true;
+        }
+        // bytes -> []const u8
+        if (std.mem.eql(u8, expected_type_str, "bytes")) {
+            if (T == []const u8 or T == []u8) break :blk true;
+        }
+        break :blk false;
+    };
+
+    if (matches) {
+        if (runner.global_result) |result| {
+            result.addPass();
+        }
+    } else {
+        std.debug.print("AssertionError: type mismatch (expected {s}, got {s})\n", .{ expected_type_str, type_name });
+        if (runner.global_result) |result| {
+            result.addFail("assertTypeIsStr failed") catch {};
+        }
+        @panic("assertTypeIsStr failed");
+    }
+}
+
 /// Assertion: assertIsNot(a, b) - pointer identity check (a is not b)
 pub fn assertIsNot(a: anytype, b: anytype) void {
     const A = @TypeOf(a);

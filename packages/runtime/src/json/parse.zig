@@ -12,7 +12,7 @@ const array = @import("parse/array.zig");
 const object = @import("parse/object.zig");
 
 /// Main entry point: parse JSON string into JsonValue
-pub fn parse(data: []const u8, allocator: std.mem.Allocator) JsonError!JsonValue {
+pub fn parse(allocator: std.mem.Allocator, data: []const u8) JsonError!JsonValue {
     // Set up circular dependencies
     array.setParseValueFn(&parseValue);
     object.setParseValueFn(&parseValue);

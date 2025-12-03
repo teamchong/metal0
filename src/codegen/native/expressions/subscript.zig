@@ -7,6 +7,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
 const producesBlockExpression = expressions.producesBlockExpression;
+const zig_keywords = @import("zig_keywords");
 
 /// Check if a node is a negative constant
 pub fn isNegativeConstant(node: ast.Node) bool {
@@ -86,13 +87,13 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 if (index == .constant and index.constant.value == .string) {
                     const key_str = index.constant.value.string;
                     // Strip quotes from string literal: "field" -> field
-                    if (key_str.len >= 2 and (key_str[0] == '"' or key_str[0] == '\'')) {
-                        try self.emit("__base.");
-                        try self.emit(key_str[1 .. key_str.len - 1]);
-                    } else {
-                        try self.emit("__base.");
-                        try self.emit(key_str);
-                    }
+                    const field_name = if (key_str.len >= 2 and (key_str[0] == '"' or key_str[0] == '\''))
+                        key_str[1 .. key_str.len - 1]
+                    else
+                        key_str;
+                    try self.emit("__base.");
+                    // Escape field name if it's a Zig keyword (e.g., 'const', 'type', etc.)
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                 } else {
                     // Check if the base is a tuple type - use .@"N" instead of [N]
                     const base_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;

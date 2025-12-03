@@ -118,6 +118,10 @@ pub const NativeCodegen = struct {
     // Counter for unique __TryHelper struct names (avoids shadowing in nested try blocks)
     try_helper_counter: usize,
 
+    // When inside a try helper that contains break/continue, stores the helper ID for special handling
+    // null = not in try helper with break/continue, non-null = emit return error.BreakRequested
+    try_break_helper_id: ?usize,
+
     // Lambda support - counter for unique names, storage for lambda function definitions
     lambda_counter: usize,
     lambda_functions: std.ArrayList([]const u8),
@@ -352,6 +356,9 @@ pub const NativeCodegen = struct {
     // Set during class method generation, null otherwise
     current_class_name: ?[]const u8,
 
+    // Current class body (list of statements) - for checking if params shadow sibling methods
+    current_class_body: ?[]ast.Node,
+
     // Current assignment target name (for type-aware empty list generation)
     // Set during assignment generation, null otherwise
     current_assign_target: ?[]const u8,
@@ -398,6 +405,11 @@ pub const NativeCodegen = struct {
     // True when generating code inside a defer block
     // In defer blocks, 'try' is not allowed, so we use 'catch {}' instead
     inside_defer: bool,
+
+    // True when generating code inside a nested function/closure body
+    // When true, isDeclared() only checks current scope, not parent function scopes
+    // This ensures variables from outer function that weren't captured are treated as undeclared
+    inside_nested_function: bool,
 
     // Current function being generated (for tail-call optimization)
     // Set during function generation, null otherwise
@@ -492,6 +504,7 @@ pub const NativeCodegen = struct {
             .class_registry = cls_registry,
             .unpack_counter = 0,
             .try_helper_counter = 0,
+            .try_break_helper_id = null,
             .lambda_counter = 0,
             .lambda_functions = std.ArrayList([]const u8){},
             .block_label_counter = 0,
@@ -556,6 +569,7 @@ pub const NativeCodegen = struct {
             .nested_class_zig_refs = FnvVoidMap.init(allocator),
             .class_type_attrs = FnvStringMap.init(allocator),
             .current_class_name = null,
+            .current_class_body = null,
             .current_assign_target = null,
             .current_class_captures = null,
             .inside_init_method = false,
@@ -567,6 +581,7 @@ pub const NativeCodegen = struct {
             .inside_method_with_self = false,
             .current_scope_id = 0,
             .inside_defer = false,
+            .inside_nested_function = false,
             .current_function_name = null,
             .skipped_modules = FnvVoidMap.init(allocator),
             .skipped_functions = FnvVoidMap.init(allocator),
@@ -732,7 +747,16 @@ pub const NativeCodegen = struct {
     }
 
     /// Check if variable declared in any scope (innermost to outermost)
+    /// When inside_nested_function is true, only checks current scope + var_renames
+    /// (nested functions have fresh scope - outer vars only visible if captured)
     pub fn isDeclared(self: *NativeCodegen, name: []const u8) bool {
+        if (self.inside_nested_function) {
+            // Inside nested function: check current scope OR var_renames (for captured vars)
+            // Variables from outer scope that weren't captured should be treated as undeclared
+            if (self.symbol_table.isDeclaredInCurrentScope(name)) return true;
+            // Captured variables are in var_renames, they should count as "declared"
+            return self.var_renames.contains(name);
+        }
         return self.symbol_table.lookup(name) != null;
     }
 
@@ -980,6 +1004,9 @@ pub const NativeCodegen = struct {
     /// Clear local variable types (call when entering a new function/method)
     pub fn clearLocalVarTypes(self: *NativeCodegen) void {
         self.local_var_types.clearRetainingCapacity();
+        // Also clear var_renames - these are function-local shadow renames
+        // (e.g., rslices -> __local_rslices_1 inside a function that has local `rslices = [0]*ndim`)
+        self.var_renames.clearRetainingCapacity();
     }
 
     /// Check if a variable is mutated (reassigned after first assignment)

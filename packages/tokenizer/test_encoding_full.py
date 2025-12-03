@@ -47,7 +47,7 @@ def test_single(args):
             ['./zig-out/bin/test_correctness'],
             input=text.encode('utf-8'),
             capture_output=True,
-            timeout=5
+            timeout=30  # Increased for ~7s load time with cache
         )
         got = json.loads(result.stderr.strip())
 

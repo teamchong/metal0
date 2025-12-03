@@ -5,8 +5,9 @@ const parse_direct = @import("json/parse_direct.zig");
 const parse_arena = @import("json/parse_arena.zig");
 
 // Export for internal use (e.g. notebook parsing)
-pub const parse = @import("json/parse.zig");
-pub const JsonValue = @import("json/value.zig").JsonValue;
+pub const parse = @import("json/parse.zig").parse;
+pub const Value = @import("json/value.zig").JsonValue;
+pub const JsonValue = Value;
 
 /// Deserialize JSON string to PyObject (arena-allocated for speed!)
 /// Python: json.loads(json_str) -> obj

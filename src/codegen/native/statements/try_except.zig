@@ -278,6 +278,23 @@ fn findReferencedVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap, allocator: st
     }
 }
 
+/// Check if statements contain break or continue (for try block control flow handling)
+fn containsBreakOrContinue(stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .break_stmt => return true,
+            .continue_stmt => return true,
+            .if_stmt => |if_stmt| {
+                if (containsBreakOrContinue(if_stmt.body)) return true;
+                if (containsBreakOrContinue(if_stmt.else_body)) return true;
+            },
+            // Don't recurse into nested loops/functions - their break/continue is local
+            else => {},
+        }
+    }
+    return false;
+}
+
 pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     // Detect optional import pattern: try: import X except: X = None
     // If module X is unavailable, mark it as skipped so functions using it are skipped
@@ -319,32 +336,42 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         }
     }.add;
 
-    // Collect from try body
-    for (try_node.body) |stmt| {
-        if (stmt == .assign) {
-            if (stmt.assign.targets.len > 0) {
-                const target = stmt.assign.targets[0];
-                if (target == .name) {
-                    try addVarIfNeeded(&declared_vars, self, target.name.id, stmt.assign.value.*);
+    // Recursively collect assigned variables from try body (including nested if/for/while)
+    const collectAssignedVarsRecursive = struct {
+        fn collect(stmts: []ast.Node, list: *std.ArrayList(HoistedVar), codegen: *NativeCodegen, addFn: anytype) !void {
+            for (stmts) |stmt| {
+                switch (stmt) {
+                    .assign => |assign| {
+                        for (assign.targets) |target| {
+                            if (target == .name) {
+                                try addFn(list, codegen, target.name.id, assign.value.*);
+                            }
+                        }
+                    },
+                    .if_stmt => |if_stmt| {
+                        try collect(if_stmt.body, list, codegen, addFn);
+                        try collect(if_stmt.else_body, list, codegen, addFn);
+                    },
+                    .for_stmt => |for_stmt| {
+                        try collect(for_stmt.body, list, codegen, addFn);
+                    },
+                    .while_stmt => |while_stmt| {
+                        try collect(while_stmt.body, list, codegen, addFn);
+                    },
+                    else => {},
                 }
             }
         }
-    }
+    }.collect;
+
+    // Collect from try body recursively
+    try collectAssignedVarsRecursive(try_node.body, &declared_vars, self, addVarIfNeeded);
 
     // CRITICAL: Also collect from except handlers!
     // Pattern: try: import X except: X = None
     // The X = None is in the except handler, needs hoisting too
     for (try_node.handlers) |handler| {
-        for (handler.body) |stmt| {
-            if (stmt == .assign) {
-                if (stmt.assign.targets.len > 0) {
-                    const target = stmt.assign.targets[0];
-                    if (target == .name) {
-                        try addVarIfNeeded(&declared_vars, self, target.name.id, stmt.assign.value.*);
-                    }
-                }
-            }
-        }
+        try collectAssignedVarsRecursive(handler.body, &declared_vars, self, addVarIfNeeded);
     }
 
     // Hoist variable declarations BEFORE the block (so they're accessible after try)
@@ -370,10 +397,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
         }
 
-        // Check if var_name would shadow a module-level import
+        // Check if var_name would shadow a module-level import or function
         // If so, use a prefixed name to avoid Zig's "shadows declaration" error
         var actual_var_name = var_name;
-        if (self.imported_modules.contains(var_name) and !self.var_renames.contains(var_name)) {
+        const shadows_module_level = self.imported_modules.contains(var_name) or self.module_level_funcs.contains(var_name);
+        if (shadows_module_level and !self.var_renames.contains(var_name)) {
             const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
             self.lambda_counter += 1;
             try self.var_renames.put(var_name, prefixed_name);
@@ -673,6 +701,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.var_renames.put(hoisted.name, renamed);
         }
 
+        // Check if try body contains break/continue for special handling
+        const has_break_continue = containsBreakOrContinue(try_node.body);
+        const saved_break_helper_id = self.try_break_helper_id;
+        if (has_break_continue) {
+            self.try_break_helper_id = helper_id;
+        }
+        defer self.try_break_helper_id = saved_break_helper_id;
+
         // Generate try block body with renamed variables
         for (try_node.body) |stmt| {
             try self.generateStmt(stmt);
@@ -758,8 +794,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             call_param_count += 1;
         }
 
-        // Check if we need to capture err (if there are specific exception handlers OR exception var names)
+        // Check if we need to capture err (if there are specific exception handlers OR exception var names OR break/continue)
         const needs_err_capture = blk: {
+            if (has_break_continue) break :blk true;
             for (try_node.handlers) |handler| {
                 if (handler.type != null or handler.name != null) break :blk true;
             }
@@ -776,6 +813,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.emit(") catch {\n");
         }
         self.indent();
+
+        // Handle break/continue from try body - must come first before exception handlers
+        if (has_break_continue) {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("if ({s} == error.BreakRequested) break;\n", .{err_var});
+        }
 
         // Generate exception handlers
         var generated_handler = false;

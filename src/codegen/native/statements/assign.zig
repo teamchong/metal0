@@ -229,6 +229,26 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             var var_name = target.name.id;
             const original_var_name = var_name; // Keep for usage checks (before any renaming)
 
+            // Skip function-aliasing assignments: genslices = rslices
+            // When BOTH target and value are module-level functions, skip the assignment
+            // In Python this aliases one function to another name, but in Zig functions
+            // can't be reassigned - they're compile-time constants
+            if (self.module_level_funcs.contains(var_name)) {
+                if (assign.value.* == .name) {
+                    const rhs_name = assign.value.name.id;
+                    if (self.module_level_funcs.contains(rhs_name)) {
+                        // Both are functions - emit comment and skip
+                        try self.emitIndent();
+                        try self.emit("// function alias: ");
+                        try self.emit(var_name);
+                        try self.emit(" = ");
+                        try self.emit(rhs_name);
+                        try self.emit(" (skipped - functions are compile-time constants)\n");
+                        continue;
+                    }
+                }
+            }
+
             // Rename 'self' to '__self' inside nested class methods to avoid
             // shadowing the outer function's 'self' parameter
             // e.g., inside StrWithStr.__new__: self = str.__new__(cls, "") -> __self = ...
@@ -399,6 +419,22 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             const is_global = self.isGlobalVar(var_name);
             const is_first_assignment = !self.isDeclared(var_name) and !is_hoisted and !is_global;
 
+            // When inside a nested function, check if this new local would shadow an outer scope variable
+            // that's not captured. Zig doesn't allow shadowing across nested struct boundaries.
+            // e.g., outer has `var rep`, closure creates `const rep` -> rename to avoid shadow
+            if (self.inside_nested_function and is_first_assignment) {
+                // Check if name exists in outer scope (not just current scope)
+                const exists_in_outer = self.symbol_table.lookup(var_name) != null;
+                // Check if it's a captured variable (via var_renames)
+                const is_captured = self.var_renames.contains(var_name);
+                if (exists_in_outer and !is_captured) {
+                    // Rename to avoid shadowing: rep -> __shadow_rep_N
+                    const shadow_name = try std.fmt.allocPrint(self.allocator, "__shadow_{s}_{d}", .{ var_name, self.lambda_counter });
+                    try self.var_renames.put(var_name, shadow_name);
+                    var_name = shadow_name;
+                }
+            }
+
             // Try compile-time evaluation FIRST
             // Skip comptime eval for variables typed as bigint (need runtime BigInt.fromInt)
             if (value_type != .bigint) {
@@ -446,7 +482,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             // For unused variables, either skip the statement or discard with _ = expr;
             // Use original_var_name since usage analysis uses the original Python variable name
-            if (is_first_assignment and self.isVarUnused(original_var_name)) {
+            // EXCEPTION: At module level (current_function_name == null), never skip - module vars
+            // might be used in class methods or functions, which lifetime analysis doesn't scan
+            const at_module_level = self.current_function_name == null;
+            if (is_first_assignment and !at_module_level and self.isVarUnused(original_var_name)) {
                 // Check if value expression has side effects
                 // Simple name/constant references have no side effects - skip entirely
                 // Calls, list/dict literals with calls, etc. have side effects - execute them

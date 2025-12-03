@@ -291,10 +291,17 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
 
             literal_start = self.current;
         } else if (self.peek() == '\\' and !is_raw) {
-            // Only process backslash escapes in non-raw f-strings
+            // Backslash handling in non-raw f-strings:
+            // - \{ and \} - backslash is literal, brace should still be processed
+            // - \n, \t, etc - skip both chars (they'll be processed in codegen)
             _ = self.advance(); // Consume backslash
             if (!self.isAtEnd()) {
-                _ = self.advance(); // Consume escaped character
+                const next = self.peek().?;
+                // Don't skip { or } - they have special meaning and should be processed
+                // { starts expressions, {{ is escaped brace, } closes expressions
+                if (next != '{' and next != '}') {
+                    _ = self.advance(); // Consume escaped character
+                }
             }
         } else {
             _ = self.advance();

@@ -1095,11 +1095,12 @@ pub fn genClassMethods(
             self.method_self_is_mutable = mutates_self;
             defer self.method_self_is_mutable = prev_self_mutable;
 
-            // CRITICAL: Clear var_renames for nested class methods to prevent
-            // enclosing function's shadow renames from leaking. E.g., if enclosing
-            // function has object->object__123, nested class's reference to Python
-            // builtin `object` shouldn't be renamed.
-            self.var_renames.clearRetainingCapacity();
+            // IMPORTANT: We preserve var_renames here rather than clearing them.
+            // Outer closure parameter renames (e.g., meta -> __p_meta_23) need to
+            // remain visible so nested class methods can reference outer scope params.
+            // The concern about builtin shadowing (e.g., object -> object__123) is
+            // handled by the fact that param_renames only contains actual parameters,
+            // not arbitrary shadowed names.
 
             try body.genMethodBodyWithAllocatorInfo(self, method, needs_allocator, actually_uses_allocator);
         }

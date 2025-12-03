@@ -100,6 +100,25 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 // Use tuple field access: __unpack_tmp_N.@"i"
                 try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
             }
+        } else if (target == .subscript) {
+            // Handle subscript targets: rshape[n], lslices[n] = big, small
+            // Generate: target[idx] = __unpack_tmp_N.@"i";
+            try self.emitIndent();
+            try self.genExpr(target);
+            if (is_list_type) {
+                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+            } else {
+                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+            }
+        } else if (target == .attribute) {
+            // Handle attribute targets: obj.x, obj.y = 1, 2
+            try self.emitIndent();
+            try self.genExpr(target);
+            if (is_list_type) {
+                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+            } else {
+                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+            }
         }
     }
 
@@ -210,6 +229,24 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
                 // Use tuple field access: __unpack_tmp_N.@"i"
+                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+            }
+        } else if (target == .subscript) {
+            // Handle subscript targets: rshape[n], lslices[n] = big, small
+            try self.emitIndent();
+            try self.genExpr(target);
+            if (is_list_type) {
+                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+            } else {
+                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+            }
+        } else if (target == .attribute) {
+            // Handle attribute targets: obj.x, obj.y = 1, 2
+            try self.emitIndent();
+            try self.genExpr(target);
+            if (is_list_type) {
+                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+            } else {
                 try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
             }
         }
