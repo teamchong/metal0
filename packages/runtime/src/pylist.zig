@@ -63,9 +63,8 @@ pub const PyList = struct {
         // Need to grow?
         if (size >= allocated) {
             const new_capacity = if (allocated == 0) 4 else allocated * 2;
-            // Get allocator from somewhere - we'll use page_allocator for now
-            // In a real implementation, you'd want to store the allocator
-            const allocator = std.heap.page_allocator;
+            // Use c_allocator for consistency with rest of runtime
+            const allocator = std.heap.c_allocator;
             const new_items = try allocator.alloc(*PyObject, new_capacity);
 
             // Copy existing items
@@ -73,7 +72,7 @@ pub const PyList = struct {
                 @memcpy(new_items[0..size], list_obj.ob_item[0..size]);
             }
 
-            // Free old array if it exists
+            // Free old array if it exists (also use c_allocator)
             if (allocated > 0) {
                 allocator.free(list_obj.ob_item[0..allocated]);
             }
