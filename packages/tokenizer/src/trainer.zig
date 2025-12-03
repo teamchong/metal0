@@ -42,15 +42,12 @@ pub fn TrainerFor(comptime algorithm: Algorithm) type {
 /// Default trainer (BPE)
 pub const Trainer = TrainerFor(.BPE);
 
-/// Runtime trainer selection - includes only opted-in algorithms
-/// Binary size depends on which algorithms are included
+/// Runtime trainer selection - all algorithms included
 pub const RuntimeTrainer = struct {
-    const build_options = @import("build_options");
-
     algorithm: Algorithm,
-    bpe_trainer: if (build_options.include_bpe) ?BpeTrainer else void = if (build_options.include_bpe) null else {},
-    wordpiece_trainer: if (build_options.include_wordpiece) ?WordPieceTrainer else void = if (build_options.include_wordpiece) null else {},
-    unigram_trainer: if (build_options.include_unigram) ?UnigramTrainer else void = if (build_options.include_unigram) null else {},
+    bpe_trainer: ?BpeTrainer = null,
+    wordpiece_trainer: ?WordPieceTrainer = null,
+    unigram_trainer: ?UnigramTrainer = null,
     allocator: std.mem.Allocator,
 
     pub fn init(vocab_size: usize, allocator: std.mem.Allocator, algorithm: Algorithm) !RuntimeTrainer {
@@ -60,27 +57,9 @@ pub const RuntimeTrainer = struct {
         };
 
         switch (algorithm) {
-            .BPE => {
-                if (build_options.include_bpe) {
-                    trainer.bpe_trainer = try BpeTrainer.init(vocab_size, allocator);
-                } else {
-                    return error.AlgorithmNotIncluded;
-                }
-            },
-            .WordPiece => {
-                if (build_options.include_wordpiece) {
-                    trainer.wordpiece_trainer = try WordPieceTrainer.init(vocab_size, allocator);
-                } else {
-                    return error.AlgorithmNotIncluded;
-                }
-            },
-            .Unigram => {
-                if (build_options.include_unigram) {
-                    trainer.unigram_trainer = try UnigramTrainer.init(vocab_size, allocator);
-                } else {
-                    return error.AlgorithmNotIncluded;
-                }
-            },
+            .BPE => trainer.bpe_trainer = try BpeTrainer.init(vocab_size, allocator),
+            .WordPiece => trainer.wordpiece_trainer = try WordPieceTrainer.init(vocab_size, allocator),
+            .Unigram => trainer.unigram_trainer = try UnigramTrainer.init(vocab_size, allocator),
         }
 
         return trainer;
@@ -93,27 +72,9 @@ pub const RuntimeTrainer = struct {
         };
 
         switch (algorithm) {
-            .BPE => {
-                if (build_options.include_bpe) {
-                    trainer.bpe_trainer = try BpeTrainer.init(vocab_size, allocator);
-                } else {
-                    return error.AlgorithmNotIncluded;
-                }
-            },
-            .WordPiece => {
-                if (build_options.include_wordpiece) {
-                    trainer.wordpiece_trainer = try WordPieceTrainer.init(vocab_size, allocator);
-                } else {
-                    return error.AlgorithmNotIncluded;
-                }
-            },
-            .Unigram => {
-                if (build_options.include_unigram) {
-                    trainer.unigram_trainer = try UnigramTrainer.initWithThreadPool(vocab_size, allocator, {});
-                } else {
-                    return error.AlgorithmNotIncluded;
-                }
-            },
+            .BPE => trainer.bpe_trainer = try BpeTrainer.init(vocab_size, allocator),
+            .WordPiece => trainer.wordpiece_trainer = try WordPieceTrainer.init(vocab_size, allocator),
+            .Unigram => trainer.unigram_trainer = try UnigramTrainer.initWithThreadPool(vocab_size, allocator, {}),
         }
 
         return trainer;
@@ -121,32 +82,17 @@ pub const RuntimeTrainer = struct {
 
     pub fn deinit(self: *RuntimeTrainer) void {
         switch (self.algorithm) {
-            .BPE => if (build_options.include_bpe) {
-                if (self.bpe_trainer) |*t| t.deinit();
-            },
-            .WordPiece => if (build_options.include_wordpiece) {
-                if (self.wordpiece_trainer) |*t| t.deinit();
-            },
-            .Unigram => if (build_options.include_unigram) {
-                if (self.unigram_trainer) |*t| t.deinit();
-            },
+            .BPE => if (self.bpe_trainer) |*t| t.deinit(),
+            .WordPiece => if (self.wordpiece_trainer) |*t| t.deinit(),
+            .Unigram => if (self.unigram_trainer) |*t| t.deinit(),
         }
     }
 
     pub fn trainFromIterator(self: *RuntimeTrainer, texts: []const []const u8) !TokenizerResult {
         return switch (self.algorithm) {
-            .BPE => if (build_options.include_bpe)
-                TokenizerResult{ .BPE = try self.bpe_trainer.?.trainFromIterator(texts) }
-            else
-                error.AlgorithmNotIncluded,
-            .WordPiece => if (build_options.include_wordpiece)
-                TokenizerResult{ .WordPiece = try self.wordpiece_trainer.?.trainFromIterator(texts) }
-            else
-                error.AlgorithmNotIncluded,
-            .Unigram => if (build_options.include_unigram)
-                TokenizerResult{ .Unigram = try self.unigram_trainer.?.trainFromIterator(texts) }
-            else
-                error.AlgorithmNotIncluded,
+            .BPE => TokenizerResult{ .BPE = try self.bpe_trainer.?.trainFromIterator(texts) },
+            .WordPiece => TokenizerResult{ .WordPiece = try self.wordpiece_trainer.?.trainFromIterator(texts) },
+            .Unigram => TokenizerResult{ .Unigram = try self.unigram_trainer.?.trainFromIterator(texts) },
         };
     }
 };

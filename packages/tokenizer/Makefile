@@ -1,4 +1,4 @@
-.PHONY: help benchmark benchmark-train benchmark-encoding benchmark-web test-correctness build build-metal0 build-wasm clean
+.PHONY: help benchmark benchmark-train benchmark-encoding benchmark-web test-correctness test-training build build-metal0 build-wasm clean
 
 # Colors for output
 GREEN := \033[0;32m
@@ -21,7 +21,8 @@ help:
 	@echo ""
 	@echo "$(GREEN)Available targets:$(RESET)"
 	@echo "  make build-metal0       - Compile Python tokenizer with metal0"
-	@echo "  make test-correctness   - Verify metal0 output matches tiktoken"
+	@echo "  make test-correctness   - Verify encoding matches tiktoken"
+	@echo "  make test-training      - Verify training vs HuggingFace"
 	@echo "  make benchmark-encoding - Benchmark encoding (binary)"
 	@echo "  make benchmark-train    - BPE training benchmark"
 	@echo "  make benchmark-web      - Web/WASM benchmark (browser)"
@@ -45,16 +46,22 @@ build-metal0:
 	@echo "$(GREEN)✅ Build complete$(RESET)"
 	@echo ""
 
-# Test correctness: Python → metal0 → binary, compare with tiktoken
-test-correctness: build-metal0
+# Test correctness: Zig-native binary vs tiktoken (Python reference)
+test-correctness: build
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
-	@echo "$(GREEN)🔍 Encoding Correctness Test (metal0 Python flow)$(RESET)"
+	@echo "$(GREEN)🔍 Encoding Correctness Test (601 cases vs tiktoken)$(RESET)"
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo ""
-	@echo "Flow: accuracy_test_metal0.py → metal0 → bin/accuracy_test"
-	@echo "Compare: metal0 output vs tiktoken (Python)"
+	@python3 test_encoding_full.py
 	@echo ""
-	@python3 test_correctness_metal0.py
+
+# Test training correctness vs HuggingFace
+test-training: build
+	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
+	@echo "$(GREEN)🔍 Training Correctness Test (vs HuggingFace)$(RESET)"
+	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
+	@echo ""
+	@python3 test_100_percent_training.py
 	@echo ""
 
 # Encoding benchmark: Python → metal0 → binary
@@ -68,22 +75,20 @@ benchmark-encoding: build-metal0
 	@./$(BIN_DIR)/bench_encoding
 	@echo ""
 
-# Training benchmarks: Python → metal0 → binary
+# Training benchmarks: Zig native (Python flow TBC - needs metal0 import support)
 benchmark-train: build-train
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
-	@echo "$(GREEN)📊 BPE Training Benchmark (metal0 Python flow)$(RESET)"
+	@echo "$(GREEN)📊 BPE Training Benchmark (Zig native)$(RESET)"
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(RESET)"
 	@echo ""
-	@echo "Flow: bench_train_metal0.py → metal0 → bin/bench_train"
-	@echo ""
-	@./$(BIN_DIR)/bench_train
+	@./zig-out/bin/bench_train
 	@echo ""
 
-# Build training benchmark: Python → metal0 → binary
+# Build training benchmark: Zig native
 build-train:
-	@echo "$(YELLOW)Compiling bench_train_metal0.py...$(RESET)"
-	cd $(REPO_ROOT) && $(METAL0) build -b packages/tokenizer/bench_train_metal0.py --force || echo "TODO: Create bench_train_metal0.py"
-	cp $(REPO_ROOT)/build/lib.macosx-11.0-arm64/bench_train_metal0 $(BIN_DIR)/bench_train 2>/dev/null || true
+	@echo "$(YELLOW)Building Zig-native bench_train...$(RESET)"
+	@zig build -Doptimize=ReleaseFast
+	@echo "$(GREEN)✅ Build complete$(RESET)"
 
 # Web/WASM benchmark
 benchmark-web: build-wasm

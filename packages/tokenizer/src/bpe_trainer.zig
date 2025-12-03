@@ -8,6 +8,8 @@ const Word = @import("bpe_word.zig").Word;
 const Pair = @import("bpe_word.zig").Pair;
 const Change = @import("bpe_word.zig").Change;
 const hashmap_helper = @import("hashmap_helper");
+const byte_level = @import("byte_level.zig");
+const gpt2_splitter = @import("gpt2_splitter.zig");
 
 /// Merge result (pair → new_id)
 const MergeResult = struct {
@@ -306,15 +308,24 @@ pub const BpeTrainer = struct {
 
     /// Main training function
     pub fn trainFromIterator(self: *BpeTrainer, texts: []const []const u8) !Tokenizer {
-        // Count words
+        // Count words with pre-tokenization (split + ByteLevel encoding)
+        // This matches HuggingFace's ByteLevel pre-tokenizer behavior
         for (texts) |text| {
-            const gop = try self.word_counts.getOrPut(text);
-            if (gop.found_existing) {
-                gop.value_ptr.* += 1;
-            } else {
-                const owned = try self.allocator.dupe(u8, text);
-                gop.key_ptr.* = owned;
-                gop.value_ptr.* = 1;
+            // Split text using GPT-2 regex pattern (matches HuggingFace ByteLevel.pre_tokenize)
+            var iter = gpt2_splitter.chunks(text);
+            while (iter.next()) |chunk| {
+                // Apply ByteLevel encoding: raw bytes → unicode chars
+                const encoded = try byte_level.encode(self.allocator, chunk);
+                errdefer self.allocator.free(encoded);
+
+                const gop = try self.word_counts.getOrPut(encoded);
+                if (gop.found_existing) {
+                    gop.value_ptr.* += 1;
+                    self.allocator.free(encoded); // Already have this word
+                } else {
+                    gop.key_ptr.* = encoded; // Keep the encoded string
+                    gop.value_ptr.* = 1;
+                }
             }
         }
 
@@ -424,10 +435,10 @@ pub const BpeTrainer = struct {
 
             // Merge in all affected words
             const positions = pair_state.where_to_update.get(top.pair.hash()) orelse continue;
-
             var pos_it = positions.iterator();
             while (pos_it.next()) |pos_entry| {
                 const word_idx = pos_entry.key_ptr.*;
+                const word_count: i32 = @intCast(word_counts_arr[word_idx]);
                 const changes = try words[word_idx].merge(
                     self.allocator,
                     top.pair.left,
@@ -437,17 +448,25 @@ pub const BpeTrainer = struct {
                 );
                 defer self.allocator.free(changes);
 
-                // Update pair counts
+                // Track pairs with positive deltas from this merge
+                var new_pairs = std.AutoHashMap(u64, void).init(self.allocator);
+                defer new_pairs.deinit();
+
+                // Update pair counts (multiply by word occurrence count)
                 for (changes) |change| {
                     const change_hash = change.pair.hash();
+                    const delta = change.delta * word_count;
                     const gop = try pair_state.pair_counts.getOrPut(change_hash);
                     if (gop.found_existing) {
-                        gop.value_ptr.* += change.delta;
+                        gop.value_ptr.* += delta;
                     } else {
-                        gop.value_ptr.* = change.delta;
+                        gop.value_ptr.* = delta;
                     }
 
                     if (change.delta > 0) {
+                        // Track this pair for queue addition
+                        try new_pairs.put(change_hash, {});
+
                         const wtu_gop = try pair_state.where_to_update.getOrPut(change_hash);
                         if (!wtu_gop.found_existing) {
                             wtu_gop.value_ptr.* = std.AutoHashMap(usize, void).init(self.allocator);
@@ -455,31 +474,24 @@ pub const BpeTrainer = struct {
                         try wtu_gop.value_ptr.put(word_idx, {});
                     }
                 }
-            }
 
-            // Add new pairs to queue
-            var new_wtu_it = pair_state.where_to_update.iterator();
-            while (new_wtu_it.next()) |entry| {
-                const pair_hash = entry.key_ptr.*;
-                const count = pair_state.pair_counts.get(pair_hash) orelse 0;
-                if (count > 0) {
-                    const pair = Pair{
-                        .left = @intCast(pair_hash >> 32),
-                        .right = @intCast(pair_hash & 0xFFFFFFFF),
-                    };
-                    try queue.add(MergeCandidate{
-                        .pair = pair,
-                        .count = @intCast(count),
-                    });
+                // Add ONLY new pairs from this merge to queue
+                var new_pairs_it = new_pairs.keyIterator();
+                while (new_pairs_it.next()) |pair_hash_ptr| {
+                    const pair_hash = pair_hash_ptr.*;
+                    const count = pair_state.pair_counts.get(pair_hash) orelse 0;
+                    if (count > 0) {
+                        const pair = Pair{
+                            .left = @intCast(pair_hash >> 32),
+                            .right = @intCast(pair_hash & 0xFFFFFFFF),
+                        };
+                        try queue.add(MergeCandidate{
+                            .pair = pair,
+                            .count = @intCast(count),
+                        });
+                    }
                 }
             }
-
-            // Free inner HashMaps before clearing
-            var clear_it = pair_state.where_to_update.valueIterator();
-            while (clear_it.next()) |inner_map| {
-                inner_map.deinit();
-            }
-            pair_state.where_to_update.clearRetainingCapacity();
         }
 
         // 7. Build Tokenizer from trained vocab and merges

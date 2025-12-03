@@ -95,6 +95,22 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(test_correctness);
 
+    // Test training binary (for training correctness vs HuggingFace)
+    const test_training = b.addExecutable(.{
+        .name = "test_training",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/test_training.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_training.root_module.addImport("json", json_mod);
+    test_training.root_module.addImport("allocator_helper", allocator_helper);
+    test_training.root_module.addImport("hashmap_helper", hashmap_helper);
+    test_training.linkLibC();
+
+    b.installArtifact(test_training);
+
     // Tokenizer benchmark binary (for compare_all.py)
     const tokenizer_bench = b.addExecutable(.{
         .name = "tokenizer_bench",
