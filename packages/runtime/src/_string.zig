@@ -159,16 +159,28 @@ pub const FormatterIterator = struct {
 
 /// Parse a format string and return all results as a slice
 /// This is the main function called by the codegen as _string.formatter_parser
-/// Accepts anytype to handle int->string coercion from type inference
+/// Only accepts string types - raises TypeError for non-strings (like Python)
 pub fn formatterParser(allocator: std.mem.Allocator, format_str: anytype) ![]FormatterResult {
-    // Convert to string if necessary
-    const str: []const u8 = switch (@typeInfo(@TypeOf(format_str))) {
-        .int, .comptime_int => blk: {
-            var buf = std.ArrayList(u8){};
-            try buf.writer(allocator).print("{d}", .{format_str});
-            break :blk try buf.toOwnedSlice(allocator);
+    const T = @TypeOf(format_str);
+    const type_info = @typeInfo(T);
+
+    // Only accept string types - reject int/float/etc. like Python does
+    const str: []const u8 = switch (type_info) {
+        .pointer => |ptr| blk: {
+            if (ptr.child == u8 or @typeInfo(ptr.child) == .array) {
+                break :blk format_str;
+            }
+            // Non-string pointer - raise error
+            return error.TypeError;
         },
-        .pointer => format_str,
+        .array => |arr| blk: {
+            if (arr.child == u8) {
+                break :blk &format_str;
+            }
+            return error.TypeError;
+        },
+        // Int, float, or other types should raise TypeError
+        .int, .comptime_int, .float, .comptime_float => return error.TypeError,
         else => format_str,
     };
     return formatterParserImpl(allocator, str);
