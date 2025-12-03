@@ -913,10 +913,21 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // Use i64 for signed, isize for unsigned (compatible with len operations)
     const loop_type = if (needs_signed) "i64" else "isize";
 
+    // Check if loop variable would shadow an outer scope variable or module-level function
+    // If so, use a unique name to avoid Zig shadowing errors
+    const shadows_outer = self.isDeclared(var_name) or self.module_level_funcs.contains(var_name);
+    var loop_var_name = var_name;
+    if (shadows_outer) {
+        const unique_name = try std.fmt.allocPrint(self.allocator, "__loop_{s}_{d}", .{ var_name, self.lambda_counter });
+        self.lambda_counter += 1;
+        try self.var_renames.put(var_name, unique_name);
+        loop_var_name = unique_name;
+    }
+
     // Generate initialization (always declare as new variable in block scope)
     try self.emitIndent();
     try self.emit("var ");
-    try self.emit(var_name);
+    try self.emit(loop_var_name);
     try self.emit(": ");
     try self.emit(loop_type);
     try self.emit(" = ");
@@ -930,7 +941,7 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // Generate while loop
     try self.emitIndent();
     try self.emit("while (");
-    try self.emit(var_name);
+    try self.emit(loop_var_name);
     try self.emit(" < ");
     try self.genExpr(stop_expr);
     try self.emit(") {\n");
@@ -944,9 +955,10 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
         try self.generateStmt(stmt);
     }
 
-    // Increment
+    // Increment - use renamed var if shadowed
+    const incr_var_name = self.var_renames.get(var_name) orelse var_name;
     try self.emitIndent();
-    try self.emit(var_name);
+    try self.emit(incr_var_name);
     try self.emit(" += ");
     if (step_expr) |step| {
         try self.genExpr(step);
@@ -955,7 +967,10 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     }
     try self.emit(";\n");
 
-    // Pop scope when exiting loop
+    // Pop scope when exiting loop - also remove rename so it doesn't leak
+    if (shadows_outer) {
+        _ = self.var_renames.swapRemove(var_name);
+    }
     self.popScope();
 
     self.dedent();
