@@ -150,16 +150,16 @@ metal0 compiles Python's `asyncio` to optimized native code:
 
 ### Tokenizer Benchmark
 
-**BPE Encoding (30,000 encodes - 3 texts × 10,000 iterations):**
+**BPE Encoding (59,200 encodes - 592 texts × 100 iterations):**
 
 | Implementation | Time | vs metal0 |
 |---------------|------|----------|
-| **metal0 (Zig)** | **9.1ms** | **1.00x** |
-| rs-bpe (Rust) | 33.9ms | 3.7x slower |
-| tiktoken (Rust) | 97.3ms | 10.7x slower |
-| HuggingFace (Python) | 609.7ms | 67x slower |
+| **metal0 (Zig)** | **70ms** | **1.00x** |
+| rs-bpe (Rust) | 421ms | 6.0x slower |
+| tiktoken (Rust) | 1052ms | 15.0x slower |
+| HuggingFace (Python) | 5303ms | 75.8x slower |
 
-*Tested on Apple M2. 100% correctness verified (12/12 round-trip tests pass).*
+*Tested on Apple M2 with `json.load()` data. 100% correctness verified.*
 
 **Web/WASM Encoding (583 texts × 200 iterations):**
 
