@@ -117,11 +117,7 @@ pub const Tokenizer = struct {
         }
         self.vocab.deinit();
 
-        // Free vocab_r values (owned strings)
-        var vocab_r_it = self.vocab_r.valueIterator();
-        while (vocab_r_it.next()) |value| {
-            self.allocator.free(value.*);
-        }
+        // vocab_r values point to same memory as vocab keys - don't double-free
         self.vocab_r.deinit();
 
         self.merges.deinit(self.allocator);
