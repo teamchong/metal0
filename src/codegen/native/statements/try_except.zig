@@ -589,6 +589,19 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.emit(") !void {\n");
         self.indent();
 
+        // Save any existing renames for read_only_vars before overwriting
+        // (e.g., function param `x` -> `__p_x_0` needs to be restored after try block)
+        var saved_read_only_renames = std.ArrayList(struct { name: []const u8, rename: []const u8 }){};
+        defer saved_read_only_renames.deinit(self.allocator);
+        for (read_only_vars.items) |var_name| {
+            if (self.var_renames.get(var_name)) |existing_rename| {
+                try saved_read_only_renames.append(self.allocator, .{
+                    .name = var_name,
+                    .rename = try self.allocator.dupe(u8, existing_rename),
+                });
+            }
+        }
+
         // Create aliases for read-only captured variables (by value)
         for (read_only_vars.items) |var_name| {
             try self.emitIndent();
@@ -687,6 +700,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.var_renames.put(saved.name, saved.rename);
         }
 
+        // Restore saved read_only_vars renames (e.g., function param x -> __p_x_0)
+        // These are needed for the TryHelper call to use the correct parameter name
+        for (saved_read_only_renames.items) |saved| {
+            try self.var_renames.put(saved.name, saved.rename);
+        }
+
         self.dedent();
         try self.emitIndent();
         try self.emit("}\n");
@@ -705,15 +724,6 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (call_param_count > 0) try self.emit(", ");
             // Check if variable has been renamed (e.g., function param x -> __p_x_0)
             const actual_name = self.var_renames.get(var_name) orelse var_name;
-            // DEBUG: log if lookup failed
-            if (self.var_renames.get(var_name) == null) {
-                std.debug.print("DEBUG: var_renames lookup failed for '{s}', using original name\n", .{var_name});
-                std.debug.print("DEBUG: var_renames contents ({d} entries):\n", .{self.var_renames.count()});
-                var iter = self.var_renames.iterator();
-                while (iter.next()) |entry| {
-                    std.debug.print("  '{s}' -> '{s}'\n", .{ entry.key_ptr.*, entry.value_ptr.* });
-                }
-            }
             // Check if this is a captured variable in the current nested class
             if (isCapturedByCurrentClass(self, var_name)) {
                 // Access via __self.__captured_var.* for captured variables
