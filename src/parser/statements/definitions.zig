@@ -719,6 +719,13 @@ pub fn parseFunctionDefInternal(self: *Parser, is_async: bool) ParseError!ast.No
             next_tok.type == .Continue or
             next_tok.type == .Raise or
             next_tok.type == .Yield or // async def _ag(): yield
+            next_tok.type == .Await or // async def D(x): await x
+            next_tok.type == .Assert or
+            next_tok.type == .Global or
+            next_tok.type == .Nonlocal or
+            next_tok.type == .Import or
+            next_tok.type == .From or
+            next_tok.type == .Del or
             next_tok.type == .Ident or // for assignments and expressions like self.x = v
             next_tok.type == .String or // def f(): """docstring"""
             next_tok.type == .Number or // def f(): 1, (yield 1)
@@ -887,6 +894,12 @@ pub fn parseClassDef(self: *Parser) ParseError!ast.Node {
     if (self.peek()) |next_tok| {
         const is_oneliner = next_tok.type == .Pass or
             next_tok.type == .Ellipsis or
+            next_tok.type == .Assert or
+            next_tok.type == .Global or
+            next_tok.type == .Nonlocal or
+            next_tok.type == .Import or
+            next_tok.type == .From or
+            next_tok.type == .Del or
             next_tok.type == .Ident or // for simple statements
             next_tok.type == .String; // for docstrings: class C: """doc"""
 

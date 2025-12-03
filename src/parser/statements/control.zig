@@ -43,6 +43,13 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
             next_tok.type == .Raise or
             next_tok.type == .Class or
             next_tok.type == .Def or
+            next_tok.type == .Assert or
+            next_tok.type == .Global or
+            next_tok.type == .Nonlocal or
+            next_tok.type == .Import or
+            next_tok.type == .From or
+            next_tok.type == .Del or
+            next_tok.type == .Yield or
             next_tok.type == .Ident; // for assignments and expressions
 
         if (is_oneliner) {
@@ -114,6 +121,13 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
                 next_tok.type == .Raise or
                 next_tok.type == .Class or
                 next_tok.type == .Def or
+                next_tok.type == .Assert or
+                next_tok.type == .Global or
+                next_tok.type == .Nonlocal or
+                next_tok.type == .Import or
+                next_tok.type == .From or
+                next_tok.type == .Del or
+                next_tok.type == .Yield or
                 next_tok.type == .Ident;
 
             if (is_oneliner) {
@@ -165,6 +179,13 @@ pub fn parseIf(self: *Parser) ParseError!ast.Node {
                 next_tok.type == .Raise or
                 next_tok.type == .Class or
                 next_tok.type == .Def or
+                next_tok.type == .Assert or
+                next_tok.type == .Global or
+                next_tok.type == .Nonlocal or
+                next_tok.type == .Import or
+                next_tok.type == .From or
+                next_tok.type == .Del or
+                next_tok.type == .Yield or
                 next_tok.type == .Ident;
 
             if (is_oneliner) {
