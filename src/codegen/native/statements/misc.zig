@@ -386,9 +386,20 @@ fn hoistWithBodyVars(self: *NativeCodegen, body: []const ast.Node) CodegenError!
                     if (isUnittestContextManager(stmt.with_stmt.context_expr.*)) {
                         // Unittest context managers need hoisting too - err may be used after with block
                         // Hoist as ContextManager type - use const since it's only assigned once
+                        // Check for module-level function shadowing
+                        const shadows_module_func = self.module_level_funcs.contains(var_name);
+                        var actual_name = var_name;
+                        if (shadows_module_func and !self.var_renames.contains(var_name)) {
+                            const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
+                            self.lambda_counter += 1;
+                            try self.var_renames.put(var_name, prefixed_name);
+                            actual_name = prefixed_name;
+                        } else if (self.var_renames.get(var_name)) |renamed| {
+                            actual_name = renamed;
+                        }
                         try self.emitIndent();
                         try self.emit("const ");
-                        try self.emit(var_name);
+                        try self.emit(actual_name);
                         try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
                         try self.hoisted_vars.put(var_name, {});
                     } else {
@@ -406,9 +417,20 @@ fn hoistWithBodyVars(self: *NativeCodegen, body: []const ast.Node) CodegenError!
                         const cm_expr = named.value.*;
                         if (isUnittestContextManager(cm_expr)) {
                             // Hoist unittest context manager variable - use const since only assigned once
+                            // Check for module-level function shadowing
+                            const shadows_cm = self.module_level_funcs.contains(cm_var_name);
+                            var actual_cm_name = cm_var_name;
+                            if (shadows_cm and !self.var_renames.contains(cm_var_name)) {
+                                const prefixed_cm = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ cm_var_name, self.lambda_counter });
+                                self.lambda_counter += 1;
+                                try self.var_renames.put(cm_var_name, prefixed_cm);
+                                actual_cm_name = prefixed_cm;
+                            } else if (self.var_renames.get(cm_var_name)) |renamed_cm| {
+                                actual_cm_name = renamed_cm;
+                            }
                             try self.emitIndent();
                             try self.emit("const ");
-                            try self.emit(cm_var_name);
+                            try self.emit(actual_cm_name);
                             try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
                             try self.hoisted_vars.put(cm_var_name, {});
                         } else {
@@ -428,9 +450,21 @@ fn hoistWithBodyVars(self: *NativeCodegen, body: []const ast.Node) CodegenError!
 fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *const ast.Node) CodegenError!void {
     // Only hoist if not already declared in scope or previously hoisted
     if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+        // Check if var_name shadows a module-level function
+        const shadows_module_func = self.module_level_funcs.contains(var_name);
+        var actual_name = var_name;
+        if (shadows_module_func and !self.var_renames.contains(var_name)) {
+            const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
+            self.lambda_counter += 1;
+            try self.var_renames.put(var_name, prefixed_name);
+            actual_name = prefixed_name;
+        } else if (self.var_renames.get(var_name)) |renamed| {
+            actual_name = renamed;
+        }
+
         try self.emitIndent();
         try self.emit("var ");
-        try self.emit(var_name);
+        try self.emit(actual_name);
         try self.emit(": @TypeOf(");
         try self.genExpr(init_expr.*);
         try self.emit(") = undefined;\n");

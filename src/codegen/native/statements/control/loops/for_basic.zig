@@ -951,6 +951,18 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // Push new scope for loop body
     try self.pushScope();
 
+    // If we shadowed an outer variable, assign loop value to outer var at the START of each iteration
+    // This implements Python semantics where `for x in range(3): ...` leaves x as the last value assigned
+    if (shadows_outer) {
+        try self.emitIndent();
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try self.emit(" = @as(@TypeOf(");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try self.emit("), @intCast(");
+        try self.emit(loop_var_name);
+        try self.emit("));\n");
+    }
+
     for (body) |stmt| {
         try self.generateStmt(stmt);
     }

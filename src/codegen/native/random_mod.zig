@@ -29,12 +29,19 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 pub fn genRandrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
+    // Use unique label and variable names to avoid shadowing outer scope variables
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
     if (args.len == 1) {
-        try self.emit("blk: { const stop: i64 = @intCast("); try self.genExpr(args[0]);
-        try self.emit("); " ++ prng ++ "break :blk @as(i64, @intCast(_r.int(u64) % @as(u64, @intCast(stop)))); }");
+        try self.output.writer(self.allocator).print("rng_{d}: {{ const __rng_stop_{d}: i64 = @intCast(", .{ label_id, label_id });
+        try self.genExpr(args[0]);
+        try self.output.writer(self.allocator).print("); " ++ prng ++ "break :rng_{d} @as(i64, @intCast(_r.int(u64) % @as(u64, @intCast(__rng_stop_{d})))); }}", .{ label_id, label_id });
     } else {
-        try self.emit("blk: { const start: i64 = @intCast("); try self.genExpr(args[0]); try self.emit("); const stop: i64 = @intCast("); try self.genExpr(args[1]);
-        try self.emit("); " ++ prng ++ "break :blk start + @as(i64, @intCast(_r.int(u64) % @as(u64, @intCast(stop - start)))); }");
+        try self.output.writer(self.allocator).print("rng_{d}: {{ const __rng_start_{d}: i64 = @intCast(", .{ label_id, label_id });
+        try self.genExpr(args[0]);
+        try self.output.writer(self.allocator).print("); const __rng_stop_{d}: i64 = @intCast(", .{label_id});
+        try self.genExpr(args[1]);
+        try self.output.writer(self.allocator).print("); " ++ prng ++ "break :rng_{d} __rng_start_{d} + @as(i64, @intCast(_r.int(u64) % @as(u64, @intCast(__rng_stop_{d} - __rng_start_{d})))); }}", .{ label_id, label_id, label_id, label_id });
     }
 }
 
