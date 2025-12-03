@@ -292,6 +292,11 @@ pub const NativeCodegen = struct {
     // Maps variable name -> void for variables that reference outer (module) scope
     global_vars: FnvVoidMap,
 
+    // Track module-level function names for parameter shadowing detection
+    // When a function parameter has the same name as a module-level function,
+    // we need to rename the parameter to avoid shadowing errors in Zig
+    module_level_funcs: FnvVoidMap,
+
     // Track variables defined in current function scope (for nested class closure detection)
     // Maps variable name -> void (e.g., "calls" -> {})
     // Populated at start of function generation, used to detect outer scope references
@@ -538,6 +543,7 @@ pub const NativeCodegen = struct {
             .func_local_aug_assigns = FnvVoidMap.init(allocator),
             .func_local_uses = FnvVoidMap.init(allocator),
             .global_vars = FnvVoidMap.init(allocator),
+            .module_level_funcs = FnvVoidMap.init(allocator),
             .func_local_vars = FnvVoidMap.init(allocator),
             .nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(allocator),
             .mutated_captures = FnvVoidMap.init(allocator),
