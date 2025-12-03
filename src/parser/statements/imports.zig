@@ -57,7 +57,7 @@ fn parseModuleName(self: *Parser) ParseError![]const u8 {
     return try self.allocator.dupe(u8, module_parts.items);
 }
 
-/// Parse from-import: from numpy import array, zeros
+/// Parse from-import: from os import path, getcwd
 /// Also handles dotted imports: from os.path import join
 /// Also handles relative imports: from .module import X, from ..module import X
 pub fn parseImportFrom(self: *Parser) ParseError!ast.Node {

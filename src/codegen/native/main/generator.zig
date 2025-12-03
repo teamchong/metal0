@@ -514,6 +514,35 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 }
             }
 
+            // Check if this variable is assigned from a generic class instantiation
+            // Generic classes can't be pre-declared because we need the type argument
+            // e.g., Box(42) -> Box(i64), but we don't know that until we see the call
+            var is_generic_class_instance = false;
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            // Check if RHS is a call to a generic class
+                            if (assign.value.* == .call) {
+                                const call = assign.value.call;
+                                if (call.func.* == .name) {
+                                    const class_name = call.func.name.id;
+                                    if (self.generic_classes.contains(class_name)) {
+                                        is_generic_class_instance = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Skip pre-declaring generic class instances - they'll be declared inline
+            if (is_generic_class_instance) {
+                continue;
+            }
+
             const zig_type = if (closure_type_name) |ctn| blk: {
                 break :blk ctn;
             } else if (var_type) |vt| blk: {

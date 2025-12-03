@@ -5,7 +5,7 @@ const std = @import("std");
 
 /// Represents a Python package that wraps C/C++ libraries
 pub const CLibraryMapping = struct {
-    /// Python package name (e.g., "numpy")
+    /// Python package name (e.g., "sqlite3")
     package_name: []const u8,
 
     /// Underlying C/C++ libraries
@@ -17,7 +17,7 @@ pub const CLibraryMapping = struct {
     /// Whether package requires C++ (affects linking/calling)
     requires_cpp: bool,
 
-    /// Import statement detection pattern (e.g., "import numpy")
+    /// Import statement detection pattern (e.g., "import sqlite3")
     import_patterns: []const []const u8,
 };
 
@@ -47,7 +47,7 @@ pub const LibraryInfo = struct {
 
 /// Maps a Python function to its C equivalent
 pub const FunctionMapping = struct {
-    /// Full Python function name (e.g., "numpy.dot")
+    /// Full Python function name (e.g., "sqlite3.connect")
     python_name: []const u8,
 
     /// C/C++ function name (e.g., "cblas_dgemm")
@@ -107,9 +107,6 @@ pub const PythonType = enum {
     dict,
     bool_,
     none,
-    // Complex types
-    numpy_array,
-    numpy_matrix,
     // Generic
     any,
 };
@@ -252,7 +249,7 @@ pub const MappingRegistry = struct {
 
     /// Find function mapping by full Python name
     pub fn findFunction(self: *const MappingRegistry, full_name: []const u8) ?*const FunctionMapping {
-        // Split "numpy.dot" → "numpy" + "dot"
+        // Split "sqlite3.connect" → "sqlite3" + "connect"
         const dot_pos = std.mem.indexOf(u8, full_name, ".") orelse return null;
         const package = full_name[0..dot_pos];
 

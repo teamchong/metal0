@@ -27,13 +27,6 @@ fn getStringContent(s: []const u8) []const u8 {
     return s;
 }
 
-/// NumPy comparison operator to method name mapping
-const NumpyCompOps = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Lt", ".lt" }, .{ "LtEq", ".le" },
-    .{ "Gt", ".gt" }, .{ "GtEq", ".ge" },
-    .{ "Eq", ".eq" }, .{ "NotEq", ".ne" },
-});
-
 /// BigInt comparison operator to enum value mapping
 const BigIntCompOps = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Eq", ", .eq)" }, .{ "NotEq", ", .ne)" },
@@ -62,40 +55,6 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
     // Check if we're comparing strings (need std.mem.eql instead of ==)
     const left_type = try self.inferExprScoped(compare.left.*);
-
-    // NumPy array comparisons return boolean arrays (element-wise)
-    // Only supports single comparison (no chained comparisons for arrays)
-    if (left_type == .numpy_array and compare.ops.len == 1) {
-        const op = compare.ops[0];
-        if (NumpyCompOps.get(@tagName(op))) |op_enum| {
-            // Check if right side is a constant (scalar comparison)
-            const right = compare.comparators[0];
-            const right_type = try self.inferExprScoped(right);
-
-            if (right_type == .int or right_type == .float or
-                (right == .constant and (right.constant.value == .int or right.constant.value == .float)))
-            {
-                // arr > scalar → numpy.compareScalar(arr, scalar, .gt, allocator)
-                try self.emit("try numpy.compareScalar(");
-                try genExpr(self, compare.left.*);
-                try self.emit(", @as(f64, ");
-                try genExpr(self, right);
-                try self.emit("), ");
-                try self.emit(op_enum);
-                try self.emit(", allocator)");
-            } else {
-                // arr1 > arr2 → numpy.compareArrays(arr1, arr2, .gt, allocator)
-                try self.emit("try numpy.compareArrays(");
-                try genExpr(self, compare.left.*);
-                try self.emit(", ");
-                try genExpr(self, right);
-                try self.emit(", ");
-                try self.emit(op_enum);
-                try self.emit(", allocator)");
-            }
-            return;
-        }
-    }
 
     // For chained comparisons (more than 1 op), wrap everything in parens
     const is_chained = compare.ops.len > 1;

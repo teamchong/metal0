@@ -150,12 +150,6 @@ pub fn inferMethodCall(
         }
     }
 
-    // DataFrame Column methods
-    if (obj_type == .dataframe) {
-        if (static_maps.DfColumnMethods.has(method_name)) return .float;
-        if (fnv_hash.hash(method_name) == comptime fnv_hash.hash("describe")) return .unknown;
-    }
-
     // Path methods
     if (obj_type == .path) {
         const method_hash = fnv_hash.hash(method_name);

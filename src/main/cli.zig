@@ -1276,7 +1276,7 @@ fn printUsage() !void {
         \\{s}EXAMPLES:{s}
         \\   metal0 app.py                        # Run Python file (30x faster)
         \\   metal0 -c "print('hi')"              # Execute code string
-        \\   metal0 -m pip install numpy          # Use pip through metal0
+        \\   metal0 -m pip install requests       # Use pip through metal0
         \\   metal0 install requests              # Install packages
         \\   metal0 build -b app.py               # Compile to binary
         \\   metal0 build --target wasm-edge app.py  # Compile to WASM for edge

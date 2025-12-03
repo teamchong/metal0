@@ -56,7 +56,7 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
             const module_name = attr.value.name.id;
             const func_name = attr.attr;
 
-            // Build full function name (e.g., "numpy.sum")
+            // Build full function name (e.g., "json.loads")
             var full_name_buf: [256]u8 = undefined;
             const full_name = std.fmt.bufPrint(
                 &full_name_buf,
@@ -64,20 +64,16 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
                 .{ module_name, func_name },
             ) catch return false;
 
-            // Check if this maps to a C library function
-            // Skip numpy - use custom codegen instead (PRIORITY 2 below)
-            const is_numpy = std.mem.eql(u8, module_name, "numpy") or std.mem.eql(u8, module_name, "np");
-            if (!is_numpy) {
-                if (self.import_ctx) |ctx| {
-                    if (ctx.shouldMapFunction(full_name)) |mapping| {
-                        // Generate direct C library call
-                        try generateCLibraryCall(self, call, mapping);
-                        return true;
-                    }
+            // Check if this maps to a C library function (CPython stdlib only)
+            if (self.import_ctx) |ctx| {
+                if (ctx.shouldMapFunction(full_name)) |mapping| {
+                    // Generate direct C library call
+                    try generateCLibraryCall(self, call, mapping);
+                    return true;
                 }
             }
 
-            // PRIORITY 2: Fallback to hardcoded module function handlers
+            // Fallback to module function handlers
             if (try module_functions.tryDispatch(self, module_name, func_name, call)) {
                 return true;
             }

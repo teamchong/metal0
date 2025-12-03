@@ -341,7 +341,7 @@ pub fn pyToInt(value: anytype) PythonError!i64 {
 // CPython-Compatible PyObject Layout
 // =============================================================================
 // These structures use `extern struct` for C ABI compatibility.
-// Field order and sizes MUST match CPython exactly for numpy/pandas to work.
+// Field order and sizes MUST match CPython exactly for C extension compatibility.
 // Reference: https://github.com/python/cpython/blob/main/Include/object.h
 // =============================================================================
 
@@ -440,7 +440,7 @@ pub const PyTypeObject = extern struct {
 
 /// PyLongObject - Python integer (CPython compatible)
 /// CPython uses variable-length digit array; we use fixed i64 for simplicity
-/// Note: For full numpy compat, may need variable-length digits later
+/// Note: For full bigint support, may need variable-length digits later
 pub const PyLongObject = extern struct {
     ob_base: PyVarObject,
     // In CPython this is a variable-length digit array
@@ -532,21 +532,6 @@ pub const PyFileObject = extern struct {
     name: ?[*:0]const u8,
 };
 
-/// PyNumpyArrayObject - metal0 numpy array wrapper
-/// Uses CPython-style header for compatibility, with internal NumpyArray pointer
-pub const PyNumpyArrayObject = extern struct {
-    ob_base: PyObject,
-    // Pointer to internal NumpyArray struct (not CPython compatible, but functional)
-    array_ptr: ?*anyopaque,
-};
-
-/// PyBoolArrayObject - metal0 boolean array wrapper
-pub const PyBoolArrayObject = extern struct {
-    ob_base: PyObject,
-    // Pointer to internal BoolArray struct
-    array_ptr: ?*anyopaque,
-};
-
 // =============================================================================
 // Global Type Objects (singletons)
 // =============================================================================
@@ -628,8 +613,6 @@ pub var PyBytes_Type: PyTypeObject = makeTypeObject("bytes", @sizeOf(PyBytesObje
 pub var PyNone_Type: PyTypeObject = makeTypeObject("NoneType", @sizeOf(PyNoneStruct), 0);
 pub var PyType_Type: PyTypeObject = makeTypeObject("type", @sizeOf(PyTypeObject), 0);
 pub var PyFile_Type: PyTypeObject = makeTypeObject("file", @sizeOf(PyFileObject), 0);
-pub var PyNumpyArray_Type: PyTypeObject = makeTypeObject("numpy.ndarray", @sizeOf(PyNumpyArrayObject), 0);
-pub var PyBoolArray_Type: PyTypeObject = makeTypeObject("numpy.ndarray[bool]", @sizeOf(PyBoolArrayObject), 0);
 pub var PyBigInt_Type: PyTypeObject = makeTypeObject("int", @sizeOf(PyBigIntObject), 0);
 
 // None singleton
@@ -761,8 +744,6 @@ pub const TypeId = enum {
     dict,
     none,
     file,
-    numpy_array,
-    bool_array,
     regex,
     bytes,
     bigint,
@@ -916,7 +897,7 @@ pub fn pyTruthy(obj: *PyObject) bool {
             const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
             return tuple_obj.ob_base.ob_size > 0;
         },
-        else => return true, // All other types (file, numpy_array, etc.) are truthy
+        else => return true, // All other types (file, regex, etc.) are truthy
     }
 }
 
@@ -963,7 +944,7 @@ fn printPyObjectImpl(obj: *PyObject, quote_strings: bool) void {
             printDict(obj);
         },
         else => {
-            // For other types (numpy_array, regex), print the pointer
+            // For other types (file, regex), print the pointer
             std.debug.print("{*}", .{obj});
         },
     }
@@ -1379,10 +1360,6 @@ pub const PyString = pystring.PyString;
 // Import PyDict from separate file
 const dict_module = @import("dict.zig");
 pub const PyDict = dict_module.PyDict;
-
-// Import NumPy array support
-pub const numpy_array = @import("numpy_array.zig");
-pub const NumpyArray = numpy_array.NumpyArray;
 
 // HTTP, async, JSON, regex, sys, and dynamic execution modules
 pub const http = @import("http.zig");

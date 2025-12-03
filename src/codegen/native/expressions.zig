@@ -85,6 +85,12 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 return;
             }
 
+            // Handle 'self' in methods - emit as-is, NOT as runtime.builtins.self
+            if (std.mem.eql(u8, name_to_use, "self") and self.inside_method_with_self) {
+                try self.emit("self");
+                return;
+            }
+
             // Handle Python type names as type values
             if (PyTypeNames.get(name_to_use)) |zig_code| {
                 try self.emit(zig_code);

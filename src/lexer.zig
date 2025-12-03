@@ -232,9 +232,8 @@ pub const Lexer = struct {
                 if (quote == '"' or quote == '\'') {
                     _ = self.advance(); // consume first prefix
                     _ = self.advance(); // consume second prefix
-                    // For raw f-strings, we treat them as regular f-strings
-                    // The raw aspect (no escape processing) is handled in fstring parsing
-                    const token = try self.tokenizeFString(start, start_column);
+                    // Raw f-strings: pass is_raw=true to skip backslash escape processing
+                    const token = try self.tokenizeFString(start, start_column, true);
                     try tokens.append(self.allocator, token);
                     continue;
                 }
@@ -243,7 +242,7 @@ pub const Lexer = struct {
             // F-strings (check before identifiers)
             if (c == 'f' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
                 _ = self.advance(); // consume 'f'
-                const token = try self.tokenizeFString(start, start_column);
+                const token = try self.tokenizeFString(start, start_column, false);
                 try tokens.append(self.allocator, token);
                 continue;
             }
@@ -251,7 +250,7 @@ pub const Lexer = struct {
             // T-strings (Python 3.14 template strings - parse like f-strings for now)
             if (c == 't' and (self.peekAhead(1) == '"' or self.peekAhead(1) == '\'')) {
                 _ = self.advance(); // consume 't'
-                const token = try self.tokenizeFString(start, start_column);
+                const token = try self.tokenizeFString(start, start_column, false);
                 try tokens.append(self.allocator, token);
                 continue;
             }

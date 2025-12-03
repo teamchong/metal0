@@ -16,13 +16,6 @@ const FloatClassMethods = std.StaticStringMap([]const u8).initComptime(.{
     .{ "__getformat__", "runtime.floatGetFormat" },
 });
 
-const NumpyArrayProps = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "shape", ")).shape" },
-    .{ "size", ")).size" },
-    .{ "ndim", ")).shape.len" },
-    .{ "data", ")).data" },
-});
-
 const PathProperties = std.StaticStringMap(void).initComptime(.{
     .{ "parent", {} }, .{ "stem", {} }, .{ "suffix", {} }, .{ "name", {} },
 });
@@ -219,22 +212,6 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             try self.emit("runtime.PyFile.getClosed(");
             try genExpr(self, attr.value.*);
             try self.emit(")");
-            return;
-        }
-    }
-
-    // Check if this is a numpy array property access
-    if (value_type == .numpy_array) {
-        // NumPy array properties: .shape, .size, .T, .ndim, .dtype
-        if (NumpyArrayProps.get(attr.attr)) |suffix| {
-            try self.emit("(try runtime.numpy_array.extractArray(");
-            try genExpr(self, attr.value.*);
-            try self.emit(suffix);
-            return;
-        } else if (std.mem.eql(u8, attr.attr, "T")) {
-            try self.emit("try numpy.transpose(");
-            try genExpr(self, attr.value.*);
-            try self.emit(", allocator)");
             return;
         }
     }

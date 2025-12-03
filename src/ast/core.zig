@@ -153,6 +153,8 @@ pub const Node = union(enum) {
         bases: [][]const u8,
         body: []Node,
         metaclass: ?[]const u8 = null,
+        /// Type parameters for Generic[T, U, ...] classes
+        type_params: [][]const u8 = &[_][]const u8{},
     };
 
     pub const Return = struct {
@@ -238,16 +240,16 @@ pub const Node = union(enum) {
         value: *Node,
     };
 
-    /// Import statement: import numpy as np, import os.path
+    /// Import statement: import json, import os.path
     pub const Import = struct {
-        module: []const u8, // "numpy" or "os.path"
+        module: []const u8, // "json" or "os.path"
         asname: ?[]const u8, // "np" or null
     };
 
-    /// From-import statement: from numpy import array, zeros
+    /// From-import statement: from os import path, getcwd
     pub const ImportFrom = struct {
-        module: []const u8, // "numpy"
-        names: [][]const u8, // ["array", "zeros"]
+        module: []const u8, // "os"
+        names: [][]const u8, // ["path", "getcwd"]
         asnames: []?[]const u8, // [null, null] or ["arr", null]
     };
 

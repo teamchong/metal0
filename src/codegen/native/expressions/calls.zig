@@ -602,6 +602,29 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Class instantiation: Counter(10) -> Counter.init(__global_allocator, 10)
             // User-defined classes return the struct directly, library classes like Path may return error unions
 
+            // Check if this is a generic class (Generic[T, U, ...])
+            // Generic classes: Box(42) -> Box(i64).init(42)
+            if (self.generic_classes.get(raw_func_name)) |_| {
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
+                try self.emit("(");
+                // Infer type from first argument
+                if (call.args.len > 0) {
+                    const zig_type = inferTypeFromExpr(call.args[0]);
+                    try self.emit(zig_type);
+                } else {
+                    // No args - default to i64
+                    try self.emit("i64");
+                }
+                try self.emit(").init(");
+                // Generate arguments
+                for (call.args, 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try genExpr(self, arg);
+                }
+                try self.emit(")");
+                return;
+            }
+
             // Use is_self_class_call computed earlier - calling our own class constructor uses @This()
             // e.g., `return aug_test(self.val + val)` inside aug_test.__add__
 
@@ -1069,4 +1092,39 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     }
 
     try self.emit(")");
+}
+
+/// Infer Zig type from AST expression (for generic class instantiation)
+fn inferTypeFromExpr(expr: ast.Node) []const u8 {
+    return switch (expr) {
+        .constant => |c| switch (c.value) {
+            .int, .bigint => "i64",
+            .float => "f64",
+            .bool => "bool",
+            .string, .bytes => "[]const u8",
+            .none => "void",
+            .complex => "f64",
+        },
+        .fstring => "[]const u8",
+        .list, .listcomp => "std.ArrayList(i64)",
+        .dict, .dictcomp => "std.StringHashMap(i64)",
+        .name => |n| {
+            // Variable reference - could be any type, default to i64
+            // In future: look up variable type from context
+            _ = n;
+            return "i64";
+        },
+        .binop => |b| {
+            // Binary operations - infer from operands
+            const left_type = inferTypeFromExpr(b.left.*);
+            const right_type = inferTypeFromExpr(b.right.*);
+            // If either is float, result is float
+            if (std.mem.eql(u8, left_type, "f64") or std.mem.eql(u8, right_type, "f64")) {
+                return "f64";
+            }
+            return "i64";
+        },
+        .call => "i64", // function call result - default to i64
+        else => "i64", // default fallback
+    };
 }

@@ -183,29 +183,6 @@ pub fn inferExpr(
                         }
                         // If we can't determine constant index, return unknown
                         break :blk .unknown;
-                    } else if (obj_type == .numpy_array) {
-                        // Check if index is a boolean array (boolean indexing)
-                        const idx_type = try inferExpr(allocator, var_types, class_fields, func_return_types, idx.*);
-                        if (idx_type == .bool_array) {
-                            // Boolean indexing returns a numpy array
-                            break :blk .numpy_array;
-                        }
-                        // Check for tuple index with slices: arr[:, 0] or arr[0, :]
-                        if (idx.* == .tuple) {
-                            const indices = idx.tuple.elts;
-                            if (indices.len == 2) {
-                                const first = indices[0];
-                                const second = indices[1];
-                                const first_is_slice = (first == .constant and first.constant.value == .none);
-                                const second_is_slice = (second == .constant and second.constant.value == .none);
-                                if (first_is_slice or second_is_slice) {
-                                    // Row or column slicing returns numpy_array
-                                    break :blk .numpy_array;
-                                }
-                            }
-                        }
-                        // Single index access returns float (f64)
-                        break :blk .float;
                     } else {
                         break :blk .unknown;
                     }
@@ -215,7 +192,6 @@ pub fn inferExpr(
                     // string[1:4] -> string
                     // array[1:4] -> slice (converted to list)
                     // list[1:4] -> list
-                    // numpy_array[1:4] -> numpy_array
                     if (obj_type == .string) {
                         break :blk .{ .string = .slice };
                     } else if (obj_type == .array) {
@@ -223,9 +199,6 @@ pub fn inferExpr(
                         break :blk .{ .list = obj_type.array.element_type };
                     } else if (obj_type == .list) {
                         break :blk obj_type;
-                    } else if (obj_type == .numpy_array) {
-                        // NumPy array slicing returns numpy_array
-                        break :blk .numpy_array;
                     } else {
                         break :blk .unknown;
                     }
@@ -350,29 +323,6 @@ pub fn inferExpr(
                 // name/stem/suffix properties return string
                 if (attr_hash == NAME_HASH or attr_hash == STEM_HASH or attr_hash == SUFFIX_HASH) {
                     break :blk .{ .string = .runtime };
-                }
-            }
-
-            // NumPy array properties
-            if (obj_type == .numpy_array) {
-                if (std.mem.eql(u8, a.attr, "shape") or
-                    std.mem.eql(u8, a.attr, "strides"))
-                {
-                    // shape/strides return []const usize in Zig
-                    break :blk .usize_slice;
-                }
-                if (std.mem.eql(u8, a.attr, "size") or
-                    std.mem.eql(u8, a.attr, "ndim"))
-                {
-                    break :blk .usize;
-                }
-                if (std.mem.eql(u8, a.attr, "T")) {
-                    // Transpose returns numpy_array
-                    break :blk .numpy_array;
-                }
-                if (std.mem.eql(u8, a.attr, "data")) {
-                    // data returns slice, treat as unknown
-                    break :blk .unknown;
                 }
             }
 
@@ -552,14 +502,7 @@ pub fn inferExpr(
             }
             break :blk .{ .tuple = elem_types };
         },
-        .compare => |c| blk: {
-            // NumPy array comparisons return bool_array (element-wise)
-            const cmp_left_type = try inferExpr(allocator, var_types, class_fields, func_return_types, c.left.*);
-            if (cmp_left_type == .numpy_array) {
-                break :blk .bool_array;
-            }
-            break :blk .bool; // Regular comparison returns bool
-        },
+        .compare => .bool, // Comparison returns bool
         .named_expr => |ne| blk: {
             // Named expression (walrus operator): (x := value)
             // The type of the named expression is the type of the value

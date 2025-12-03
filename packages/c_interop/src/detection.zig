@@ -59,12 +59,12 @@ pub const ImportContext = struct {
     ) ?*const mapper.FunctionMapping {
         const reg = registry.getGlobalRegistry() catch return null;
 
-        // Try direct lookup (e.g., "numpy.sum")
+        // Try direct lookup (e.g., "sqlite3.connect")
         if (reg.findFunction(func_name)) |mapping| {
             return mapping;
         }
 
-        // Try with alias replacement (e.g., "np.sum" → "numpy.sum")
+        // Try with alias replacement (e.g., "db.connect" → "sqlite3.connect")
         for (self.imports.items) |import| {
             if (import.alias) |alias| {
                 if (std.mem.startsWith(u8, func_name, alias)) {
@@ -145,24 +145,17 @@ test "ImportContext basic operations" {
     const testing = std.testing;
     const allocator = testing.allocator;
 
-    // Initialize registry
+    // Initialize registry (empty by default)
     try registry.initGlobalRegistry(allocator);
     defer registry.deinitGlobalRegistry(allocator);
 
     var ctx = ImportContext.init(allocator);
     defer ctx.deinit();
 
-    // Register numpy import
-    try ctx.registerImport("numpy", "np");
+    // Register sqlite3 import
+    try ctx.registerImport("sqlite3", "db");
 
-    // Test function mapping with alias
-    const should_map = ctx.shouldMapFunction("np.sum");
-    try testing.expect(should_map != null);
-    if (should_map) |mapping| {
-        try testing.expectEqualStrings("cblas_dasum", mapping.c_name);
-    }
-
-    // Test direct function name
-    const should_map2 = ctx.shouldMapFunction("numpy.sum");
-    try testing.expect(should_map2 != null);
+    // Test function mapping (no mappings registered in empty registry)
+    const should_map = ctx.shouldMapFunction("db.connect");
+    try testing.expect(should_map == null); // Empty registry
 }

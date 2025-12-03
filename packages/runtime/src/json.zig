@@ -319,7 +319,7 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
             defer allocator.free(str);
             try buffer.appendSlice(allocator, str);
         },
-        .numpy_array, .bool_array, .regex, .file, .bytes => {
+        .regex, .file, .bytes => {
             // Not JSON serializable - output null
             try buffer.appendSlice(allocator, JSON_NULL);
         },

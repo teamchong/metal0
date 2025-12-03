@@ -177,76 +177,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 return;
             }
 
-            // Check if this is a dict, list, or dataframe subscript
+            // Check if this is a dict, list subscript
             const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
-
-            // NumPy array indexing
-            if (value_type == .numpy_array) {
-                const index = subscript.slice.index.*;
-
-                // Check for boolean indexing: arr[mask] where mask is a boolean array
-                const index_type = try self.type_inferrer.inferExpr(index);
-                if (index_type == .bool_array) {
-                    // Boolean indexing: arr[mask] → numpy.booleanIndex(arr, mask, allocator)
-                    try self.emit("try numpy.booleanIndex(");
-                    try genExpr(self, subscript.value.*);
-                    try self.emit(", ");
-                    try genExpr(self, index);
-                    try self.emit(", allocator)");
-                    return;
-                }
-
-                // Check for 2D indexing: arr[i, j] or arr[:, j] or arr[i, :] - parsed as arr[tuple(i, j)]
-                if (index == .tuple) {
-                    const indices = index.tuple.elts;
-                    if (indices.len == 2) {
-                        const first = indices[0];
-                        const second = indices[1];
-                        const first_is_slice = (first == .constant and first.constant.value == .none);
-                        const second_is_slice = (second == .constant and second.constant.value == .none);
-
-                        if (first_is_slice and !second_is_slice) {
-                            // Column slice: arr[:, j] → numpy.getColumn(arr, j)
-                            try self.emit("try numpy.getColumn(");
-                            try genExpr(self, subscript.value.*);
-                            try self.emit(", @intCast(");
-                            try genExpr(self, second);
-                            try self.emit("), allocator)");
-                            return;
-                        } else if (!first_is_slice and second_is_slice) {
-                            // Row slice: arr[i, :] → numpy.getRow(arr, i)
-                            try self.emit("try numpy.getRow(");
-                            try genExpr(self, subscript.value.*);
-                            try self.emit(", @intCast(");
-                            try genExpr(self, first);
-                            try self.emit("), allocator)");
-                            return;
-                        } else {
-                            // Regular 2D indexing: arr[i, j] → numpy.getIndex2D(arr, i, j)
-                            try self.emit("try numpy.getIndex2D(");
-                            try genExpr(self, subscript.value.*);
-                            try self.emit(", @intCast(");
-                            try genExpr(self, first);
-                            try self.emit("), @intCast(");
-                            try genExpr(self, second);
-                            try self.emit("))");
-                            return;
-                        }
-                    }
-                }
-
-                // Single index: arr[i] → numpy.getIndex(arr, i)
-                try self.emit("try numpy.getIndex(");
-                try genExpr(self, subscript.value.*);
-                try self.emit(", @intCast(");
-                try genExpr(self, index);
-                try self.emit("))");
-                return;
-            }
 
             const is_dict = (value_type == .dict);
             const is_counter = (value_type == .counter);
-            const is_dataframe = (value_type == .dataframe);
             const is_unknown_pyobject = (value_type == .unknown);
 
             // Check if this variable is tracked as ArrayList (may have .array type but be ArrayList due to mutations)
@@ -272,13 +207,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
             const is_likely_dict = is_unknown_pyobject and (index_type == .string);
 
-            if (is_dataframe) {
-                // DataFrame column access: df['col'] → df.getColumn("col").?
-                try genExpr(self, subscript.value.*);
-                try self.emit(".getColumn(");
-                try genExpr(self, subscript.slice.index.*);
-                try self.emit(").?");
-            } else if (is_likely_dict) {
+            if (is_likely_dict) {
                 // PyObject dict access: runtime.PyDict.get(obj, key).?
                 try self.emit("runtime.PyDict.get(");
                 try genExpr(self, subscript.value.*);
@@ -456,36 +385,6 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
         .slice => |slice_range| {
             // Slicing: a[start:end] or a[start:end:step]
             const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
-
-            // NumPy array slicing: arr[start:end]
-            if (value_type == .numpy_array) {
-                try self.emit("try numpy.slice1D(");
-                try genExpr(self, subscript.value.*);
-                try self.emit(", ");
-
-                // Start index
-                if (slice_range.lower) |lower| {
-                    try self.emit("@as(?usize, @intCast(");
-                    try genExpr(self, lower.*);
-                    try self.emit("))");
-                } else {
-                    try self.emit("null");
-                }
-
-                try self.emit(", ");
-
-                // End index
-                if (slice_range.upper) |upper| {
-                    try self.emit("@as(?usize, @intCast(");
-                    try genExpr(self, upper.*);
-                    try self.emit("))");
-                } else {
-                    try self.emit("null");
-                }
-
-                try self.emit(", allocator)");
-                return;
-            }
 
             const has_step = slice_range.step != null;
             const needs_len = slice_range.upper == null;

@@ -87,22 +87,6 @@ pub fn inferCall(
                     return return_type;
                 }
 
-                // Check for nested numpy modules: np.random.*, np.linalg.*
-                // prefix is "np.random" or "numpy.random", etc.
-                if (std.mem.startsWith(u8, prefix, "np.random") or
-                    std.mem.startsWith(u8, prefix, "numpy.random"))
-                {
-                    if (static_maps.NumpyRandomArrayFuncs.has(attr.attr)) return .numpy_array;
-                    // seed() and shuffle() return void (handled in codegen)
-                }
-                if (std.mem.startsWith(u8, prefix, "np.linalg") or
-                    std.mem.startsWith(u8, prefix, "numpy.linalg"))
-                {
-                    // Most linalg functions return scalars (norm, det)
-                    if (static_maps.NumpyScalarFuncs.has(attr.attr)) return .float;
-                    // inv, solve, eig, svd return arrays
-                    return .numpy_array;
-                }
                 // Check for os.path module
                 if (std.mem.eql(u8, prefix, "os.path") or std.mem.eql(u8, prefix, "path")) {
                     const func_name_os = attr.attr;
@@ -173,21 +157,6 @@ pub fn inferCall(
                 if (class_info.methods.get(attr.attr)) |method_return_type| {
                     return method_return_type;
                 }
-            }
-        }
-
-        // DataFrame Column methods - check if we're calling a method on df[col]
-        if (attr.value.* == .subscript) {
-            const subscript_obj_type = try expressions.inferExpr(
-                allocator,
-                var_types,
-                class_fields,
-                func_return_types,
-                attr.value.subscript.value.*,
-            );
-            if (subscript_obj_type == .dataframe) {
-                if (static_maps.DfColumnMethods.has(attr.attr)) return .float;
-                if (fnv_hash.hash(attr.attr) == comptime fnv_hash.hash("describe")) return .unknown;
             }
         }
 
