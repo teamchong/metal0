@@ -17,12 +17,6 @@ const ValueReturningBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "format", {} }, .{ "input", {} },
 });
 
-const ValueReturningModules = std.StaticStringMap(void).initComptime(.{
-    .{ "secrets", {} }, .{ "base64", {} }, .{ "hashlib", {} }, .{ "json", {} }, .{ "pickle", {} },
-    .{ "zlib", {} }, .{ "gzip", {} }, .{ "binascii", {} }, .{ "struct", {} }, .{ "math", {} },
-    .{ "random", {} }, .{ "re", {} }, .{ "os", {} }, .{ "sys", {} }, .{ "io", {} }, .{ "string", {} },
-});
-
 const VoidFunctions = std.StaticStringMap(void).initComptime(.{
     .{ "main", {} }, .{ "exit", {} }, .{ "seed", {} },
 });
@@ -141,17 +135,32 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         }
     }
 
-    // Discard return values from module function calls (e.g., secrets.token_bytes())
-    // These generate labeled blocks that return values
+    // Discard return values from module function calls (e.g., tokenizer.encode())
+    // Generic: use import_registry to check if module function returns a value
     if (expr == .call and expr.call.func.* == .attribute) {
         const attr = expr.call.func.attribute;
         if (attr.value.* == .name) {
-            const module_name = attr.value.name.id;
+            const module_alias = attr.value.name.id;
             const func_name = attr.attr;
 
-            if (ValueReturningModules.has(module_name) and !VoidFunctions.has(func_name)) {
-                try self.emit("_ = ");
-                added_discard_prefix = true;
+            // Skip known void functions
+            if (VoidFunctions.has(func_name)) {
+                // Fall through - don't add discard prefix
+            } else {
+                // Resolve module alias to full module path (e.g., "tokenizer" -> "metal0.tokenizer")
+                const full_module = self.local_from_imports.get(module_alias) orelse module_alias;
+
+                // Check import_registry for function metadata
+                if (self.import_registry.getFunctionMeta(full_module, func_name)) |meta| {
+                    // If function has metadata, it's a known module function that returns a value
+                    _ = meta;
+                    try self.emit("_ = ");
+                    added_discard_prefix = true;
+                } else if (self.local_from_imports.contains(module_alias)) {
+                    // Module was imported but function not in registry - assume it returns a value
+                    try self.emit("_ = ");
+                    added_discard_prefix = true;
+                }
             }
         }
     }
@@ -196,8 +205,12 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         }
 
         // Pattern 2: Try expressions for runtime module functions that return values
-        if (std.mem.startsWith(u8, generated, "try runtime.tokenizer.")) {
-            break :blk true;
+        // Generic: any "try runtime.xxx.yyy(...)" call returns a value
+        if (std.mem.startsWith(u8, generated, "try runtime.")) {
+            // Find if it's a function call (has parentheses after module.func)
+            if (std.mem.indexOf(u8, generated, "(") != null) {
+                break :blk true;
+            }
         }
 
         // Pattern 3: Expressions ending with .len (count_tokens returns usize)

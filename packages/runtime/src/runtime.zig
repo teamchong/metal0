@@ -1029,6 +1029,32 @@ pub const PyBool = pybool.PyBool;
 pub const Py_True = pybool.Py_True;
 pub const Py_False = pybool.Py_False;
 
+/// Feature macros struct - CPython build configuration with comptime-known values
+/// Supports subscript access: feature_macros["HAVE_FORK"] returns comptime bool
+pub const FeatureMacros = struct {
+    pub fn index(_: FeatureMacros, comptime key: []const u8) bool {
+        if (comptime std.mem.eql(u8, key, "HAVE_FORK")) return true;
+        if (comptime std.mem.eql(u8, key, "MS_WINDOWS")) return false;
+        if (comptime std.mem.eql(u8, key, "PY_HAVE_THREAD_NATIVE_ID")) return true;
+        if (comptime std.mem.eql(u8, key, "Py_REF_DEBUG")) return false;
+        if (comptime std.mem.eql(u8, key, "Py_TRACE_REFS")) return false;
+        if (comptime std.mem.eql(u8, key, "USE_STACKCHECK")) return false;
+        return false;
+    }
+
+    /// Iterator for keys() - returns comptime slice of keys
+    pub fn keys() []const []const u8 {
+        return &[_][]const u8{
+            "HAVE_FORK",
+            "MS_WINDOWS",
+            "PY_HAVE_THREAD_NATIVE_ID",
+            "Py_REF_DEBUG",
+            "Py_TRACE_REFS",
+            "USE_STACKCHECK",
+        };
+    }
+};
+
 /// Python file type - re-exported from pyfile.zig
 pub const PyFile = pyfile.PyFile;
 

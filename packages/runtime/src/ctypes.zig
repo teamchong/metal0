@@ -283,16 +283,17 @@ pub const PythonAPI = struct {
         return @ptrFromInt(1); // Stub: return non-null pointer
     }
 
-    /// Subscript access for pythonapi["symbol_name"]
-    pub fn getSymbol(_: PythonAPI, name: []const u8) ?*anyopaque {
-        _ = name;
+    /// Index operator for subscript access: pythonapi[symbol_name]
+    pub fn index(self: PythonAPI, key: anytype) ?*anyopaque {
+        _ = self;
+        _ = key;
         // Return non-null to indicate symbol is available
         return @ptrFromInt(1);
     }
 };
 
-/// pythonapi - handle to Python library itself (legacy, use PythonAPI instead)
-pub var pythonapi: ?CDLL = null;
+/// pythonapi - module-level constant for ctypes.pythonapi subscript access
+pub const pythonapi: PythonAPI = .{};
 
 /// c_buffer - alias for create_string_buffer
 pub const c_buffer = create_string_buffer;
