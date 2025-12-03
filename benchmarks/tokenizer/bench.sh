@@ -34,30 +34,27 @@ echo ""
 echo "Building..."
 build_metal0_compiler
 
-# Compile metal0 Python benchmark
+# Compile and run metal0 Python benchmark (shown separately due to cache bug)
 cd "$SCRIPT_DIR"
+METAL0_TIME=""
 if [ -f "bench_metal0.py" ]; then
     cp "$SCRIPT_DIR/bench_metal0.py" "$TOKENIZER_PKG/"
     cd "$PROJECT_ROOT"
-    if ./zig-out/bin/metal0 "$TOKENIZER_PKG/bench_metal0.py" --force -o "$TOKENIZER_PKG/bench_metal0_bin" 2>/dev/null; then
-        METAL0_BIN="$TOKENIZER_PKG/bench_metal0_bin"
-        echo -e "  ${GREEN}✓${NC} metal0 tokenizer"
+    # Run metal0 benchmark with --force (cache has argv bug)
+    echo "Running metal0 benchmark (separate from hyperfine due to compilation)..."
+    METAL0_OUTPUT=$(./zig-out/bin/metal0 "$TOKENIZER_PKG/bench_metal0.py" --force 2>/dev/null)
+    if [ $? -eq 0 ]; then
+        METAL0_TIME=$(echo "$METAL0_OUTPUT" | grep -E '^[0-9]+\.[0-9]+ ms$' | head -1)
+        echo -e "  ${GREEN}✓${NC} metal0: $METAL0_TIME"
     else
-        echo -e "  ${YELLOW}⚠${NC} metal0 compile failed (will skip)"
-        METAL0_BIN=""
+        echo -e "  ${YELLOW}⚠${NC} metal0 failed (will skip)"
     fi
 fi
 
 cd "$TOKENIZER_PKG"
 
-# Build benchmark commands
+# Build benchmark commands (metal0 shown separately)
 AVAILABLE=()
-
-# metal0 (compiled Python using native tokenizer)
-if [ -n "$METAL0_BIN" ] && [ -f "$METAL0_BIN" ]; then
-    AVAILABLE+=("metal0:::$METAL0_BIN")
-    echo -e "${GREEN}✓${NC} metal0"
-fi
 
 # rs-bpe
 if python3 -c "from rs_bpe.bpe import openai; openai.cl100k_base()" 2>/dev/null; then

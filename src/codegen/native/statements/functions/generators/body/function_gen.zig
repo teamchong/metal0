@@ -438,6 +438,16 @@ pub fn genFunctionBody(
     // Clear variable renames from previous functions to avoid cross-function pollution
     // (e.g., gcd's a->a__mut rename shouldn't affect test_constructor's local var 'a')
     self.var_renames.clearRetainingCapacity();
+
+    // Register parameter renames for parameters that shadow module-level functions
+    // This must happen AFTER the clear and BEFORE body generation
+    for (func.args) |arg| {
+        if (self.module_level_funcs.contains(arg.name)) {
+            const renamed = try std.fmt.allocPrint(self.allocator, "{s}__local", .{arg.name});
+            try self.var_renames.put(arg.name, renamed);
+        }
+    }
+
     try mutation_analysis.analyzeFunctionLocalMutations(self, func);
 
     // Analyze function body for used variables (prevents false "unused" detection)

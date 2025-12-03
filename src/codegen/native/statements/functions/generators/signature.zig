@@ -470,17 +470,30 @@ pub fn genFunctionSignature(
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
 
+        // Check if parameter name shadows a module-level function
+        // If so, we need to rename it to avoid Zig shadowing errors
+        const shadows_module_func = self.module_level_funcs.contains(arg.name);
+
         // Check if parameter is used in function body - prefix unused with "_"
         // Also check if parameter is captured by any nested class (used via closure)
+        // Note: When parameter shadows module-level function, body uses the renamed
+        // version (e.g., indices__local), so we must check for that usage too
         const is_used_directly = param_analyzer.isNameUsedInBody(func.body, arg.name);
         const is_captured = self.isVarCapturedByAnyNestedClass(arg.name);
-        const is_used = is_used_directly or is_captured;
+        const is_used = is_used_directly or is_captured or shadows_module_func;
         if (!is_used) {
             try self.emit("_");
         }
 
         // Escape Zig reserved keywords (e.g., "fn" -> @"fn", "test" -> @"test")
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+
+        // Add suffix for parameters that shadow module-level functions
+        // Note: var_renames is populated in function_gen.zig AFTER the clear,
+        // so we don't need to put it here (it would be cleared anyway)
+        if (shadows_module_func) {
+            try self.emit("__local");
+        }
 
         // Parameters with defaults become optional (suffix with '_param')
         if (arg.default != null) {

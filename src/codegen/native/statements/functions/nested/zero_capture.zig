@@ -138,9 +138,13 @@ pub fn genZeroCaptureClosure(
                 const var_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ arg.name, saved_counter });
                 try reassigned_param_vars.append(self.allocator, var_name);
                 try self.var_renames.put(arg.name, var_name);
+                std.debug.print("DEBUG zero_capture: put '{s}' -> '{s}' (reassigned)\n", .{ arg.name, var_name });
             } else {
                 try self.var_renames.put(arg.name, renamed);
+                std.debug.print("DEBUG zero_capture: put '{s}' -> '{s}'\n", .{ arg.name, renamed });
             }
+        } else {
+            std.debug.print("DEBUG zero_capture: param_renames.get('{s}') returned null\n", .{arg.name});
         }
     }
 

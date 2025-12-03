@@ -338,8 +338,17 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             // Discard pattern - explicitly discard the value
             try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
         } else {
+            // Check if loop variable shadows a module-level function
+            const shadows_module_func = self.module_level_funcs.contains(var_name);
+            if (shadows_module_func and !self.var_renames.contains(var_name)) {
+                const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
+                self.lambda_counter += 1;
+                try self.var_renames.put(var_name, renamed);
+            }
+            const actual_name = self.var_renames.get(var_name) orelse var_name;
+
             try self.emit("const ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
             try self.output.writer(self.allocator).print(" = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
         }
     }
@@ -572,6 +581,68 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.popScope();
         self.dedent();
 
+        try self.emitIndent();
+        try self.emit("}\n");
+        return;
+    }
+
+    // Handle PyObject iteration (e.g., from json.load() returning PyList)
+    // Use while loop with runtime.PyList.getItem() since we can't use Zig for-each on PyObject
+    if (iter_type == .unknown) {
+        // Generate: var __i: usize = 0; const __len = runtime.PyList.len(iter);
+        //           while (__i < __len) : (__i += 1) { const var = try runtime.PyList.getItem(iter, __i); ... }
+        const label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+
+        try self.emit("{\n");
+        self.indent();
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __pylist_{d} = ", .{label_id});
+        try self.genExpr(for_stmt.iter.*);
+        try self.emit(";\n");
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __pylist_len_{d} = runtime.PyList.len(__pylist_{d});\n", .{ label_id, label_id });
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("var __pylist_i_{d}: usize = 0;\n", .{label_id});
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("while (__pylist_i_{d} < __pylist_len_{d}) : (__pylist_i_{d} += 1) {{\n", .{ label_id, label_id, label_id });
+
+        self.indent();
+        try self.pushScope();
+
+        // Get item and convert to appropriate type
+        try self.emitIndent();
+        if (!tuple_var_used) {
+            try self.output.writer(self.allocator).print("_ = runtime.PyList.getItem(__pylist_{d}, __pylist_i_{d}) catch undefined;\n", .{ label_id, label_id });
+        } else {
+            // Check if loop variable shadows a module-level function
+            const shadows_module_func = self.module_level_funcs.contains(var_name);
+            if (shadows_module_func and !self.var_renames.contains(var_name)) {
+                const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
+                self.lambda_counter += 1;
+                try self.var_renames.put(var_name, renamed);
+            }
+            const actual_name = self.var_renames.get(var_name) orelse var_name;
+
+            try self.emit("const ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+            try self.output.writer(self.allocator).print(" = runtime.PyList.getItem(__pylist_{d}, __pylist_i_{d}) catch undefined;\n", .{ label_id, label_id });
+        }
+
+        // Register loop variable type as unknown (PyObject)
+        try self.type_inferrer.putScopedVar(for_stmt.target.name.id, .unknown);
+
+        for (for_stmt.body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+
+        self.popScope();
+        self.dedent();
+
+        try self.emitIndent();
+        try self.emit("}\n");
+
+        self.dedent();
         try self.emitIndent();
         try self.emit("}\n");
         return;

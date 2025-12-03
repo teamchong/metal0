@@ -703,13 +703,24 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         var call_param_count: usize = 0;
         for (read_only_vars.items) |var_name| {
             if (call_param_count > 0) try self.emit(", ");
+            // Check if variable has been renamed (e.g., function param x -> __p_x_0)
+            const actual_name = self.var_renames.get(var_name) orelse var_name;
+            // DEBUG: log if lookup failed
+            if (self.var_renames.get(var_name) == null) {
+                std.debug.print("DEBUG: var_renames lookup failed for '{s}', using original name\n", .{var_name});
+                std.debug.print("DEBUG: var_renames contents ({d} entries):\n", .{self.var_renames.count()});
+                var iter = self.var_renames.iterator();
+                while (iter.next()) |entry| {
+                    std.debug.print("  '{s}' -> '{s}'\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+                }
+            }
             // Check if this is a captured variable in the current nested class
             if (isCapturedByCurrentClass(self, var_name)) {
                 // Access via __self.__captured_var.* for captured variables
                 const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
                 try self.output.writer(self.allocator).print("{s}.__captured_{s}.*", .{ self_name, var_name });
             } else {
-                try self.emit(var_name);
+                try self.emit(actual_name);
             }
             call_param_count += 1;
         }

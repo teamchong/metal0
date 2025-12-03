@@ -29,9 +29,21 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
 fn handleEncode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Wrap in PyList for Python compatibility
     try self.emit("(blk: { ");
+
+    // Check if argument is a PyObject (unknown type) - needs conversion via PyString.getValue
+    const arg_type = if (args.len > 0) self.type_inferrer.inferExpr(args[0]) catch .unknown else .unknown;
+
     try self.emit("const __enc_tokens = try runtime.tokenizer.encode(__global_allocator, ");
     if (args.len > 0) {
-        try self.genExpr(args[0]);
+        if (arg_type == .unknown) {
+            // PyObject (PyString) - convert to native string
+            try self.emit("runtime.PyString.getValue(");
+            try self.genExpr(args[0]);
+            try self.emit(")");
+        } else {
+            // Native string - use directly
+            try self.genExpr(args[0]);
+        }
     }
     try self.emit("); ");
     try self.emit("const __enc_list = try runtime.PyList.create(__global_allocator); ");

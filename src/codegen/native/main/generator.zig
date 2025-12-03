@@ -99,9 +99,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     }
 
     // PHASE 2.1: Register async functions for comptime optimization analysis
+    // Also collect ALL module-level function names for parameter shadowing detection
     for (module.body) |stmt| {
         if (stmt == .function_def) {
             const func = stmt.function_def;
+            // Register function name to detect parameter shadowing
+            try self.module_level_funcs.put(func.name, {});
             if (func.is_async) {
                 const func_name_copy = try self.allocator.dupe(u8, func.name);
                 try self.async_function_defs.put(func_name_copy, func);
