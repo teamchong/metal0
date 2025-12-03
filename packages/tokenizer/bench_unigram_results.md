@@ -23,7 +23,7 @@ Unigram training uses the EM (Expectation-Maximization) algorithm with:
 2. **A* search / nbest()** for N-best tokenization paths
 3. **Loss-based pruning** to reduce vocabulary size
 
-This is significantly more complex than BPE's greedy merge algorithm (which metal0 wins at 7.78x faster).
+This is significantly more complex than BPE's greedy merge algorithm.
 
 ### Optimization Opportunities
 
@@ -51,8 +51,8 @@ SentencePiece benchmark failed (error during execution). Investigating separatel
 
 | Algorithm | metal0 Performance | Status |
 |-----------|------------------|--------|
-| **BPE** | **7.78x faster** 🏆 | World-class |
+| **BPE** | **1.23x slower** ⚠️ | Needs optimization |
 | **WordPiece** | **1.94x slower** ⚠️ | Needs optimization |
-| **Unigram** | **11.95x slower** ⚠️ | Needs optimization |
+| **Unigram** | **11.95x slower** ⚠️ | Needs major optimization |
 
-**Takeaway:** metal0 excels at simple greedy algorithms (BPE) but needs optimization for complex iterative algorithms (Unigram, WordPiece).
+**Takeaway:** metal0 training needs optimization across all algorithms. Encoding (6x faster) and WASM (17-249x faster) are excellent.
