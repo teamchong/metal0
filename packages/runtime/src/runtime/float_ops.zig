@@ -538,9 +538,7 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
         // BigInt.toFloat takes *const Self, so we need to take address
         if (@hasDecl(FirstType, "toFloat") and @hasField(FirstType, "managed")) {
             // BigInt has toFloat() that returns f64
-            const result = (&first).toFloat();
-            std.debug.print("DEBUG floatBuiltinCall BigInt.toFloat result: {}\n", .{result});
-            return result;
+            return (&first).toFloat();
         }
         // Check for __float__ method FIRST (takes precedence)
         if (@hasDecl(FirstType, "__float__")) {
@@ -969,9 +967,7 @@ pub fn toFloat(value: anytype) f64 {
         // BigInt.toFloat takes *const Self, so we need to take address
         if (@hasDecl(T, "toFloat") and @hasField(T, "managed")) {
             // BigInt has toFloat() that returns f64
-            const result = (&value).toFloat();
-            std.debug.print("DEBUG toFloat BigInt result: {}\n", .{result});
-            return result;
+            return (&value).toFloat();
         }
         // First try __float__ method
         if (@hasDecl(T, "__float__")) {
