@@ -40,6 +40,13 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.pending_closure_types);
     self.pending_closure_types.deinit();
 
+    // Clean up deferred closure instantiations
+    var dci_iter = self.deferred_closure_instantiations.iterator();
+    while (dci_iter.next()) |entry| {
+        entry.value_ptr.deinit(self.allocator);
+    }
+    self.deferred_closure_instantiations.deinit();
+
     freeMapKeys(self.allocator, &self.closure_returning_methods);
     self.closure_returning_methods.deinit();
 
@@ -252,4 +259,14 @@ pub fn clearGlobalVars(self: *NativeCodegen) void {
         self.allocator.free(key);
     }
     self.global_vars.clearRetainingCapacity();
+}
+
+/// Clear deferred closure instantiations (call at function boundaries)
+/// This prevents closures from one function leaking into another function's scope
+pub fn clearDeferredClosureInstantiations(self: *NativeCodegen) void {
+    var iter = self.deferred_closure_instantiations.iterator();
+    while (iter.next()) |entry| {
+        entry.value_ptr.deinit(self.allocator);
+    }
+    self.deferred_closure_instantiations.clearRetainingCapacity();
 }

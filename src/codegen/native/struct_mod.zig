@@ -35,7 +35,11 @@ fn getFmtOff(fmt: []const u8) usize {
 }
 
 pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) return;
+    if (args.len < 1) {
+        // struct.pack() with no args or only keyword args raises TypeError
+        try self.emit("runtime.builtins.structPackNoArgs()");
+        return;
+    }
     const fmt_str = getFormatStr(args[0]);
     const fmt_off: usize = if (fmt_str) |f| getFmtOff(f) else 0;
     try self.emit("struct_pack_blk: { const _fmt = "); try self.genExpr(args[0]);
@@ -43,7 +47,7 @@ pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     for (args[1..], 0..) |arg, i| {
         const fc: u8 = if (fmt_str) |f| (if (i + fmt_off < f.len) f[i + fmt_off] else 'i') else 'i';
         try self.emit("const _val"); try emitNum(self, i); try self.emit(": "); try self.emit(getPackType(fc));
-        try self.emit(if (fc == 'f' or fc == 'd') " = @floatCast(" else " = @intCast("); try self.genExpr(arg);
+        try self.emit(if (fc == 'f' or fc == 'd') " = @floatCast(" else " = runtime.packInt("); try self.genExpr(arg);
         try self.emit("); const _bytes"); try emitNum(self, i); try self.emit(" = std.mem.asBytes(&_val"); try emitNum(self, i);
         try self.emit("); @memcpy(_buf[_pos..][0.._bytes"); try emitNum(self, i); try self.emit(".len], _bytes"); try emitNum(self, i);
         try self.emit("); _pos += _bytes"); try emitNum(self, i); try self.emit(".len; ");
@@ -74,10 +78,15 @@ pub fn genUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     } else try self.emit("const _val = std.mem.bytesToValue(i32, _data[0..4]); break :struct_unpack_blk .{_val}; }");
 }
 
-pub const genCalcsize = h.wrap("struct_calcsize_blk: { const _fmt = ", "; var _size: usize = 0; for (_fmt) |c| { _size += switch (c) { 'b', 'B', 'c', '?', 'x' => 1, 'h', 'H' => 2, 'i', 'I', 'l', 'L', 'f' => 4, 'q', 'Q', 'd' => 8, else => 0 }; } break :struct_calcsize_blk @as(i64, @intCast(_size)); }", "@as(i64, 0)");
+// struct.calcsize: handle both []const u8 and PyValue (from generators)
+pub const genCalcsize = h.wrap("struct_calcsize_blk: { const _raw_fmt = ", "; const _fmt = if (@TypeOf(_raw_fmt) == runtime.PyValue) _raw_fmt.asString() else _raw_fmt; var _size: usize = 0; for (_fmt) |c| { _size += switch (c) { 'b', 'B', 'c', '?', 'x' => 1, 'h', 'H' => 2, 'i', 'I', 'l', 'L', 'f' => 4, 'q', 'Q', 'd' => 8, else => 0 }; } break :struct_calcsize_blk @as(i64, @intCast(_size)); }", "@as(i64, 0)");
 
 fn genPackInto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 3) return;
+    if (args.len < 3) {
+        // struct.pack_into() with insufficient args raises TypeError
+        try self.emit("runtime.builtins.structPackIntoNoArgs()");
+        return;
+    }
     try self.emit("struct_pack_into_blk: { const _fmt = "); try self.genExpr(args[0]);
     try self.emit("; const _buf = "); try self.genExpr(args[1]);
     try self.emit("; var _offset: usize = @intCast("); try self.genExpr(args[2]); try self.emit("); _ = _fmt; ");

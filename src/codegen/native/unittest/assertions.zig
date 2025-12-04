@@ -7,6 +7,26 @@ const parent = @import("../expressions.zig");
 const shared = @import("../shared_maps.zig");
 const PyToZigTypes = shared.PyTypeToZig;
 
+/// Check if a name is a Python builtin type name (not a user variable)
+fn isBuiltinTypeName(name: []const u8) bool {
+    const builtin_types = [_][]const u8{
+        "int", "float", "str", "bool", "list", "dict", "set", "tuple",
+        "type", "object", "bytes", "bytearray", "frozenset", "range",
+        "complex", "memoryview", "slice", "property", "classmethod",
+        "staticmethod", "super", "Exception", "BaseException",
+        "TypeError", "ValueError", "KeyError", "IndexError", "AttributeError",
+        "RuntimeError", "StopIteration", "GeneratorExit", "AssertionError",
+        "ImportError", "ModuleNotFoundError", "LookupError", "OSError",
+        "FileNotFoundError", "PermissionError", "NotImplementedError",
+        "ZeroDivisionError", "OverflowError", "RecursionError",
+        "DeprecationWarning", "UserWarning", "SyntaxWarning", "Warning",
+    };
+    for (builtin_types) |t| {
+        if (std.mem.eql(u8, name, t)) return true;
+    }
+    return false;
+}
+
 const FloatMethodInfo = struct { func: []const u8, needs_alloc: bool };
 const FloatMethods = std.StaticStringMap(FloatMethodInfo).initComptime(.{
     .{ "as_integer_ratio", FloatMethodInfo{ .func = "AsIntegerRatio", .needs_alloc = false } },
@@ -91,7 +111,8 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
         try self.emit("@compileError(\"assertIs requires 2 arguments\")");
         return;
     }
-    // Handle special case: assertIs(type(x), int) / assertIs(type(x), bool) etc.
+    // Handle special case: assertIs(type(x), SomeType)
+    // When first arg is type(x), we need to compare type names
     if (args[0] == .call and args[0].call.func.* == .name) {
         const func_name = args[0].call.func.name.id;
         if (std.mem.eql(u8, func_name, "type") and args[0].call.args.len == 1) {
@@ -108,15 +129,29 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
                         try self.emit(")");
                         return;
                     }
+                    // For collection types (dict, list, set), use runtime string-based type check
+                    try self.emit("runtime.unittest.assertTypeIsStr(");
+                    try parent.genExpr(self, args[0].call.args[0]);
+                    try self.emit(", \"");
+                    try self.emit(type_name);
+                    try self.emit("\")");
+                    return;
                 }
-                // For collection types (dict, list, set) or unknown types,
-                // use runtime string-based type check
-                try self.emit("runtime.unittest.assertTypeIsStr(");
-                try parent.genExpr(self, args[0].call.args[0]);
-                try self.emit(", \"");
-                try self.emit(type_name);
-                try self.emit("\")");
-                return;
+                // For user-defined classes (like subclass), compare __name__ field
+                // type(x) returns @typeName(@TypeOf(x)) which is a string
+                // subclass has __name__ field that matches
+                // Use assertTypeIsStr with the class's __name__
+                if (!isBuiltinTypeName(type_name)) {
+                    // Mark variable as used to avoid "unused local" error
+                    try self.emit("{ _ = &");
+                    try self.emit(type_name);
+                    try self.emit("; runtime.unittest.assertTypeIsStr(");
+                    try parent.genExpr(self, args[0].call.args[0]);
+                    try self.emit(", ");
+                    try self.emit(type_name);
+                    try self.emit(".__name__); }");
+                    return;
+                }
             }
         }
     }
@@ -158,6 +193,22 @@ pub fn genAssertIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
     if (args.len < 2) {
         try self.emit("@compileError(\"assertIsInstance requires 2 arguments\")");
         return;
+    }
+    // If the type arg is a variable name, use the variable to avoid "unused" warnings
+    // then extract the type name from it
+    if (args[1] == .name) {
+        const type_var = args[1].name.id;
+        // Check if this is a user-defined variable (not a builtin type name)
+        if (!isBuiltinTypeName(type_var)) {
+            // For user-defined classes, use the class's __name__ constant
+            // which is a string like "aug_test" that matches the Python class name
+            try self.emit("runtime.unittest.assertIsInstance(");
+            try parent.genExpr(self, args[0]);
+            try self.emit(", ");
+            try self.emit(type_var);
+            try self.emit(".__name__)");
+            return;
+        }
     }
     try self.emit("runtime.unittest.assertIsInstance(");
     try parent.genExpr(self, args[0]);
@@ -231,11 +282,37 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     // Check if callable is 'eval' - special handling needed
     if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "eval")) {
         // Generate: blk: { _ = runtime.eval(...) catch break :blk {}; @panic("assertRaises: expected exception"); }
+        // Note: eval-string-only variable discards are now handled in assign.zig
         try self.emit("blk: { _ = runtime.eval(__global_allocator, ");
         if (args.len > 2) {
             try parent.genExpr(self, args[2]);
         } else {
             try self.emit("\"\"");
+        }
+        try self.emit(") catch break :blk {}; @panic(\"assertRaises: expected exception\"); }");
+        return;
+    }
+
+    // Check if callable is 'compile' - special handling needed
+    if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "compile")) {
+        // Generate: blk: { _ = runtime.compile_builtin(...) catch break :blk {}; @panic("assertRaises: expected exception"); }
+        try self.emit("blk: { _ = runtime.compile_builtin(__global_allocator, ");
+        if (args.len > 2) {
+            try parent.genExpr(self, args[2]); // source
+            try self.emit(", ");
+        } else {
+            try self.emit("\"\", ");
+        }
+        if (args.len > 3) {
+            try parent.genExpr(self, args[3]); // filename
+            try self.emit(", ");
+        } else {
+            try self.emit("\"<string>\", ");
+        }
+        if (args.len > 4) {
+            try parent.genExpr(self, args[4]); // mode
+        } else {
+            try self.emit("\"exec\"");
         }
         try self.emit(") catch break :blk {}; @panic(\"assertRaises: expected exception\"); }");
         return;
@@ -357,18 +434,41 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
                 }
             } else {
                 // Simple variable attribute - local variable's method
-                // Generate: var_name.@"method"(args)
-                try parent.genExpr(self, attr.value.*);
-                try self.emit(".@\"");
-                try self.emit(attr.attr);
-                try self.emit("\"(");
-                if (args.len > 2) {
-                    for (args[2..], 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
+                // Check if this is a dict/list/set method that doesn't take arguments
+                // If extra args passed, should raise TypeError (which we simulate with error)
+                const no_arg_methods = std.StaticStringMap(void).initComptime(.{
+                    .{ "clear", {} },
+                    .{ "copy", {} },
+                    .{ "keys", {} },
+                    .{ "values", {} },
+                    .{ "items", {} },
+                    .{ "popitem", {} },
+                    .{ "reverse", {} },
+                });
+                if (no_arg_methods.has(attr.attr) and args.len > 2) {
+                    // Extra args passed to no-arg method - generate error
+                    // Use block that marks args as used then returns error
+                    try self.emit("__ar_noarg_blk: { ");
+                    for (args[2..]) |arg| {
+                        try self.emit("_ = ");
                         try parent.genExpr(self, arg);
+                        try self.emit("; ");
                     }
+                    try self.emit("break :__ar_noarg_blk error.TypeError; }");
+                } else {
+                    // Generate: var_name.@"method"(args)
+                    try parent.genExpr(self, attr.value.*);
+                    try self.emit(".@\"");
+                    try self.emit(attr.attr);
+                    try self.emit("\"(");
+                    if (args.len > 2) {
+                        for (args[2..], 0..) |arg, i| {
+                            if (i > 0) try self.emit(", ");
+                            try parent.genExpr(self, arg);
+                        }
+                    }
+                    try self.emit(")");
                 }
-                try self.emit(")");
             }
         } else {
             // Complex expression attribute (e.g., {}.update, some_call().method)
@@ -519,6 +619,64 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     }
     // expectError returns true if NO error was raised (test should fail)
     try self.emit(")) @panic(\"assertRaises: expected exception\")");
+}
+
+/// Generate code for self.assertRaises(exception_type, callable, *args, **kwargs)
+/// This variant handles keyword arguments that need to be passed to the callable
+pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node, keyword_args: []const ast.Node.KeywordArg) CodegenError!void {
+    // If no keyword args, use the regular handler
+    if (keyword_args.len == 0) {
+        return genAssertRaises(self, obj, args);
+    }
+
+    if (args.len < 2) {
+        try self.emit("@compileError(\"assertRaises requires at least 2 arguments: exception_type, callable\")");
+        return;
+    }
+
+    // Generate: if (runtime.unittest.expectError(<call_with_kwargs>)) @panic(...)
+    try self.emit("if (runtime.unittest.expectError(");
+
+    // Build a call node with keyword args
+    const call_args: []ast.Node = if (args.len > 2) @constCast(args[2..]) else @constCast(&[_]ast.Node{});
+    const call = ast.Node.Call{
+        .func = @constCast(&args[1]),
+        .args = call_args,
+        .keyword_args = @constCast(keyword_args),
+    };
+    try parent.genCall(self, call);
+
+    try self.emit(")) @panic(\"assertRaises: expected exception\")");
+}
+
+/// Generate code for self.assertRaisesRegex(exception, regex, callable, *args, **kwargs)
+/// This variant handles keyword arguments that need to be passed to the callable
+pub fn genAssertRaisesRegexWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node, keyword_args: []const ast.Node.KeywordArg) CodegenError!void {
+    // If no keyword args, use the regular handler
+    if (keyword_args.len == 0) {
+        return genAssertRaisesRegex(self, obj, args);
+    }
+
+    if (args.len < 3) {
+        try self.emit("{}");
+        return;
+    }
+
+    // Generate: __ar_blk: { _ = <regex>; _ = <call_with_kwargs> catch break :__ar_blk {}; @panic(...); }
+    try self.emit("__ar_blk: { _ = ");
+    try parent.genExpr(self, args[1]); // regex parameter
+    try self.emit("; _ = ");
+
+    // Build a call node with keyword args
+    const call_args: []ast.Node = if (args.len > 3) @constCast(args[3..]) else @constCast(&[_]ast.Node{});
+    const call = ast.Node.Call{
+        .func = @constCast(&args[2]),
+        .args = call_args,
+        .keyword_args = @constCast(keyword_args),
+    };
+    try parent.genCall(self, call);
+
+    try self.emit(" catch break :__ar_blk {}; @panic(\"assertRaisesRegex: expected exception\"); }");
 }
 
 /// Generate code for self.assertRaisesRegex(exception, regex, callable, *args)

@@ -19,10 +19,10 @@ pub fn evalAdd(allocator: std.mem.Allocator, left: ComptimeValue, right: Comptim
             .float => |r| ComptimeValue{ .float = l + r },
             else => null,
         },
-        .string => |l| switch (right) {
-            .string => |r| blk: {
+        .string, .owned_string => |l| switch (right) {
+            .string, .owned_string => |r| blk: {
                 const result = std.mem.concat(allocator, u8, &[_][]const u8{ l, r }) catch return null;
-                break :blk ComptimeValue{ .string = result };
+                break :blk ComptimeValue{ .owned_string = result };
             },
             else => null,
         },
@@ -66,7 +66,7 @@ pub fn evalMul(allocator: std.mem.Allocator, left: ComptimeValue, right: Comptim
             .float => |r| ComptimeValue{ .float = l * r },
             else => null,
         },
-        .string => |l| switch (right) {
+        .string, .owned_string => |l| switch (right) {
             .int => |r| blk: {
                 if (r < 0 or r > 10000) break :blk null;
                 if (r == 0) break :blk ComptimeValue{ .string = "" };
@@ -75,7 +75,7 @@ pub fn evalMul(allocator: std.mem.Allocator, left: ComptimeValue, right: Comptim
                 while (i < r) : (i += 1) {
                     @memcpy(result[i * l.len .. (i + 1) * l.len], l);
                 }
-                break :blk ComptimeValue{ .string = result };
+                break :blk ComptimeValue{ .owned_string = result };
             },
             else => null,
         },

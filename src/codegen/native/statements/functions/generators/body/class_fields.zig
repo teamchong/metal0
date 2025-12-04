@@ -87,47 +87,31 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     // Found field: self.x = y
                     const field_name = attr.attr;
 
-                    // Determine field type by inferring the value's type
-                    var inferred = try self.type_inferrer.inferExpr(assign.value.*);
-
-                    // Check if inferred type is a class instance of a nested class
-                    // Nested classes (defined inside this method) are not visible at struct scope
-                    // So we use *runtime.PyObject for dynamic typing instead
-                    if (inferred == .class_instance) {
-                        const nested_class_name = inferred.class_instance;
-                        // Check if this class is defined inside the current method body
-                        if (isNestedClassInBody(init.body, nested_class_name)) {
-                            inferred = .unknown; // Force dynamic typing
-                        }
-                    }
-
-                    // If unknown and value is a parameter reference, try different methods
-                    if (inferred == .unknown and assign.value.* == .name) {
-                        const param_name = assign.value.name.id;
-
-                        // Find the parameter index and check annotation
+                    // FIRST: Check if value is a parameter name - parameters shadow outer variables
+                    // This must be checked BEFORE inferExpr to avoid picking up outer variables
+                    // with the same name as parameters
+                    var inferred: @import("../../../../../../analysis/native_types/core.zig").NativeType = .unknown;
+                    var is_param_reference = false;
+                    if (assign.value.* == .name) {
+                        const value_name = assign.value.name.id;
                         for (init.args, 0..) |arg, param_idx| {
-                            if (std.mem.eql(u8, arg.name, param_name)) {
-                                // Method 1: Use type annotation if available
+                            if (std.mem.eql(u8, arg.name, value_name)) {
+                                is_param_reference = true;
+                                // Value is a parameter - use parameter's type, not outer variable
+                                // Try annotation first
                                 inferred = signature.pythonTypeToNativeType(arg.type_annotation);
-
-                                // Method 2: Try keyword arg lookup (has proper type widening)
-                                // Stored as "ClassName.param_name" in var_types, widened across all calls
-                                var found_kwarg_type = false;
+                                // Try keyword arg lookup
                                 if (inferred == .unknown) {
                                     var kwarg_key_buf: [256]u8 = undefined;
                                     const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_name, arg.name }) catch null;
                                     if (kwarg_key) |key| {
                                         if (self.type_inferrer.var_types.get(key)) |kwarg_type| {
                                             inferred = kwarg_type;
-                                            found_kwarg_type = true;
                                         }
                                     }
                                 }
-
-                                // Method 3: Fall back to positional constructor arg type
-                                // Only if Method 2 didn't find a type (widened types are authoritative)
-                                if (!found_kwarg_type and inferred == .unknown) {
+                                // Try positional constructor arg
+                                if (inferred == .unknown) {
                                     if (constructor_arg_types) |arg_types| {
                                         const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
                                         if (arg_idx < arg_types.len) {
@@ -135,15 +119,41 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                                         }
                                     }
                                 }
-
+                                // Note: Keep inferred as .unknown if param type couldn't be determined
+                                // This avoids picking up outer variables with the same name
                                 break;
                             }
                         }
                     }
 
+                    // If value wasn't a parameter reference, try general type inference
+                    if (!is_param_reference) {
+                        inferred = try self.type_inferrer.inferExpr(assign.value.*);
+                    }
+
+                    // Check if inferred type is a class instance of a nested class or self-referential
+                    // Nested classes (defined inside this method) are not visible at struct scope
+                    // Self-referential classes need pointer type (*@This()) since struct is incomplete
+                    // So we use *runtime.PyObject for dynamic typing instead
+                    var is_self_referential = false;
+                    if (inferred == .class_instance) {
+                        const nested_class_name = inferred.class_instance;
+                        // Check if this is a self-referential field (same class)
+                        if (std.mem.eql(u8, nested_class_name, class_name)) {
+                            is_self_referential = true;
+                        }
+                        // Check if this class is defined inside the current method body
+                        else if (isNestedClassInBody(init.body, nested_class_name)) {
+                            inferred = .unknown; // Force dynamic typing
+                        }
+                    }
+
                     // Use nativeTypeToZigType for proper type conversion (handles dict, list, etc.)
                     // For unknown types, use runtime.PyValue for dynamic typing
-                    const field_type_str = if (inferred == .unknown)
+                    // For self-referential, use *@This() (pointer to self)
+                    const field_type_str = if (is_self_referential)
+                        try self.allocator.dupe(u8, "*@This()")
+                    else if (inferred == .unknown)
                         try self.allocator.dupe(u8, "runtime.PyValue")
                     else
                         try self.nativeTypeToZigType(inferred);
@@ -155,7 +165,9 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     try zig_keywords.writeEscapedIdent(writer, field_name);
                     if (with_defaults) {
                         // Add default value for fields set at runtime (e.g., setUp)
-                        const default_val = switch (inferred) {
+                        const default_val = if (is_self_referential)
+                            "undefined" // Self-referential pointer is undefined
+                        else switch (inferred) {
                             .int, .usize => "0",
                             .float => "0.0",
                             .bool => "false",

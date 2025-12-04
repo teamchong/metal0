@@ -3,10 +3,15 @@
 const std = @import("std");
 
 /// Binary operator to Zig operator string mapping
+/// NOTE: Pow, Mod, FloorDiv need special handling (std.math.pow, @mod, @divFloor)
+/// and should NOT use this map! Pow has no direct Zig equivalent.
 pub const BinOpStrings = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Add", " + " },  .{ "Sub", " - " },   .{ "Mult", " * " },
     .{ "Div", " / " },  .{ "FloorDiv", " / " }, .{ "Mod", " % " },
-    .{ "Pow", " ** " }, .{ "BitAnd", " & " }, .{ "BitOr", " | " },
+    // NOTE: "Pow" -> " ** " is WRONG - Zig ** is array repeat, not power!
+    // Use std.math.pow(Type, base, exp) instead
+    .{ "Pow", " INVALID_USE_STD_MATH_POW " },
+    .{ "BitAnd", " & " }, .{ "BitOr", " | " },
     .{ "BitXor", " ^ " }, .{ "LShift", " << " }, .{ "RShift", " >> " },
     .{ "MatMul", " @ " },
 });
@@ -83,6 +88,11 @@ pub const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
     .{ "BufferError", {} },     .{ "ConnectionError", {} },   .{ "TimeoutError", {} },
     .{ "ArithmeticError", {} }, .{ "EOFError", {} },          .{ "GeneratorExit", {} },
     .{ "SystemExit", {} },      .{ "KeyboardInterrupt", {} }, .{ "SyntaxError", {} },
+    // Warning types (used in assertWarns contexts)
+    .{ "Warning", {} },         .{ "UserWarning", {} },       .{ "DeprecationWarning", {} },
+    .{ "SyntaxWarning", {} },   .{ "RuntimeWarning", {} },    .{ "FutureWarning", {} },
+    .{ "PendingDeprecationWarning", {} }, .{ "ImportWarning", {} }, .{ "UnicodeWarning", {} },
+    .{ "BytesWarning", {} },    .{ "ResourceWarning", {} },   .{ "EncodingWarning", {} },
 });
 
 /// Python builtin names - constants, types, functions, exceptions, special names
@@ -140,3 +150,108 @@ pub const AllocatingStringMethods = std.StaticStringMap(void).initComptime(.{
     .{ "title", {} }, .{ "swapcase", {} }, .{ "center", {} }, .{ "ljust", {} },
     .{ "rjust", {} }, .{ "join", {} }, .{ "split", {} }, .{ "format", {} }, .{ "zfill", {} },
 });
+
+// ============================================================================
+// AST Node Predicate Helpers
+// Reduce repetitive pattern: `node == .constant and node.constant.value == .int`
+// ============================================================================
+const ast = @import("ast");
+
+/// Check if node is an integer constant
+pub fn isIntConstant(node: ast.Node) bool {
+    return node == .constant and node.constant.value == .int;
+}
+
+/// Check if node is a string constant
+pub fn isStringConstant(node: ast.Node) bool {
+    return node == .constant and node.constant.value == .string;
+}
+
+/// Check if node is a float constant
+pub fn isFloatConstant(node: ast.Node) bool {
+    return node == .constant and node.constant.value == .float;
+}
+
+/// Check if node is a boolean constant (True/False)
+pub fn isBoolConstant(node: ast.Node) bool {
+    return node == .constant and (node.constant.value == .true or node.constant.value == .false);
+}
+
+/// Check if node is None constant
+pub fn isNoneConstant(node: ast.Node) bool {
+    return node == .constant and node.constant.value == .none;
+}
+
+/// Check if node is a negative integer constant
+pub fn isNegativeIntConstant(node: ast.Node) bool {
+    return node == .constant and node.constant.value == .int and node.constant.value.int < 0;
+}
+
+/// Check if node is a positive integer constant
+pub fn isPositiveIntConstant(node: ast.Node) bool {
+    return node == .constant and node.constant.value == .int and node.constant.value.int >= 0;
+}
+
+/// Check if node is an empty tuple literal ()
+pub fn isEmptyTuple(node: ast.Node) bool {
+    return node == .tuple and node.tuple.elts.len == 0;
+}
+
+/// Check if node is an empty list literal []
+pub fn isEmptyList(node: ast.Node) bool {
+    return node == .list and node.list.elts.len == 0;
+}
+
+/// Check if node is an empty dict literal {}
+pub fn isEmptyDict(node: ast.Node) bool {
+    return node == .dict and node.dict.keys.len == 0;
+}
+
+/// Check if node is a name with specific identifier
+pub fn isName(node: ast.Node, name: []const u8) bool {
+    return node == .name and std.mem.eql(u8, node.name.id, name);
+}
+
+/// Check if node is 'self' or '__self'
+pub fn isSelfName(node: ast.Node) bool {
+    return isName(node, "self") or isName(node, "__self");
+}
+
+/// Check if node is True constant or True name
+pub fn isTrueValue(node: ast.Node) bool {
+    return (node == .constant and node.constant.value == .true) or isName(node, "True");
+}
+
+/// Check if node is False constant or False name
+pub fn isFalseValue(node: ast.Node) bool {
+    return (node == .constant and node.constant.value == .false) or isName(node, "False");
+}
+
+/// Check if node is None constant or None name
+pub fn isNoneValue(node: ast.Node) bool {
+    return (node == .constant and node.constant.value == .none) or isName(node, "None");
+}
+
+/// Get integer value from constant node, or null if not an int constant
+pub fn getIntValue(node: ast.Node) ?i64 {
+    if (node == .constant and node.constant.value == .int) {
+        return node.constant.value.int;
+    }
+    return null;
+}
+
+/// Get string value from constant node, or null if not a string constant
+pub fn getStringValue(node: ast.Node) ?[]const u8 {
+    if (node == .constant and node.constant.value == .string) {
+        return node.constant.value.string;
+    }
+    return null;
+}
+
+/// Get name identifier from name node, or null if not a name
+pub fn getNameId(node: ast.Node) ?[]const u8 {
+    if (node == .name) {
+        return node.name.id;
+    }
+    return null;
+}

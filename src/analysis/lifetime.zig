@@ -95,6 +95,37 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
                     }
                 }
             }
+            // Also handle assertRaises(Exception, eval, "string", locals())
+            // Pattern: function(_, eval/exec, string_arg, ...) or obj.method(_, eval/exec, string_arg, ...)
+            if (call.args.len >= 3) {
+                // Check if second arg is eval/exec as a name
+                if (call.args[1] == .name) {
+                    const arg_name = call.args[1].name.id;
+                    if (std.mem.eql(u8, arg_name, "eval") or std.mem.eql(u8, arg_name, "exec")) {
+                        // Third arg should be the eval string
+                        if (call.args[2] == .constant and call.args[2].constant.value == .string) {
+                            const source = call.args[2].constant.value.string;
+                            try extractVarsFromEvalString(info, source, line);
+                        }
+                    }
+                }
+            }
+            // Handle any string argument that might be passed to eval-like functions
+            // This catches patterns like self.assertRaises(_, eval, "str", _)
+            // Scan all consecutive (eval/exec, string) pairs in args
+            var ai: usize = 0;
+            while (ai + 1 < call.args.len) : (ai += 1) {
+                const maybe_eval = call.args[ai];
+                const maybe_string = call.args[ai + 1];
+                // Check for pattern: name(eval/exec), constant(string)
+                if (maybe_eval == .name and maybe_string == .constant and maybe_string.constant.value == .string) {
+                    const fn_name = maybe_eval.name.id;
+                    if (std.mem.eql(u8, fn_name, "eval") or std.mem.eql(u8, fn_name, "exec")) {
+                        const source = maybe_string.constant.value.string;
+                        try extractVarsFromEvalString(info, source, line);
+                    }
+                }
+            }
         },
         .compare => |compare| {
             line = try analyzeLifetimes(info, compare.left.*, line);

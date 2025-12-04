@@ -169,6 +169,54 @@ pub fn usesTypeAttribute(node: ast.Node, class_name: []const u8, class_type_attr
     }
 }
 
+/// Check if an AST node contains ANY reference to `self` (including in unittest assertions)
+/// Used for closure capture detection - if self appears anywhere, it will be captured
+fn containsSelfReference(node: ast.Node) bool {
+    switch (node) {
+        .name => |name| return std.mem.eql(u8, name.id, "self"),
+        .attribute => |attr| return containsSelfReference(attr.value.*),
+        .call => |call| {
+            if (containsSelfReference(call.func.*)) return true;
+            for (call.args) |arg| {
+                if (containsSelfReference(arg)) return true;
+            }
+            return false;
+        },
+        .binop => |binop| {
+            return containsSelfReference(binop.left.*) or containsSelfReference(binop.right.*);
+        },
+        .assign => |assign| {
+            if (containsSelfReference(assign.value.*)) return true;
+            for (assign.targets) |target| {
+                if (containsSelfReference(target)) return true;
+            }
+            return false;
+        },
+        .expr_stmt => |expr| return containsSelfReference(expr.value.*),
+        .if_stmt => |if_stmt| {
+            if (containsSelfReference(if_stmt.condition.*)) return true;
+            for (if_stmt.body) |stmt| {
+                if (containsSelfReference(stmt)) return true;
+            }
+            for (if_stmt.else_body) |stmt| {
+                if (containsSelfReference(stmt)) return true;
+            }
+            return false;
+        },
+        .for_stmt => |for_stmt| {
+            for (for_stmt.body) |stmt| {
+                if (containsSelfReference(stmt)) return true;
+            }
+            return false;
+        },
+        .return_stmt => |ret| {
+            if (ret.value) |val| return containsSelfReference(val.*);
+            return false;
+        },
+        else => return false,
+    }
+}
+
 /// Check if an AST node uses `self` for non-type-attribute access
 /// (e.g., self.check(), self.field where field is NOT a type attribute)
 /// This is used to determine if `_ = self;` is needed
@@ -247,6 +295,18 @@ pub fn usesRegularSelf(node: ast.Node, class_name: []const u8, class_type_attrs:
             }
             return false;
         },
+        .function_def => |func_def| {
+            // Nested function that captures self - if self appears anywhere in the body,
+            // it will be captured by the closure, so self IS used
+            for (func_def.body) |stmt| {
+                if (containsSelfReference(stmt)) return true;
+            }
+            return false;
+        },
+        .lambda => |lambda| {
+            // Lambda that captures self - if self appears in the body, it will be captured
+            return containsSelfReference(lambda.body.*);
+        },
         else => return false,
     }
 }
@@ -287,18 +347,15 @@ pub fn analyzeFunctionLocalMutations(self: *NativeCodegen, func: ast.Node.Functi
 
     // Mark variables with multiple assignments at same scope as mutated
     // Store the full scoped key so codegen can query by scope
+    // IMPORTANT: Do NOT add bare variable name for scoped mutations - only add the scoped key.
+    // Adding the bare name causes isVarMutated() to incorrectly detect aug_assign in OTHER scopes.
+    // Only aug_assign should add bare variable names (done above).
     var scope_iter = scoped_counts.iterator();
     while (scope_iter.next()) |entry| {
         if (entry.value_ptr.* > 1) {
-            // Extract variable name from "varname:scope_id" key
-            const key = entry.key_ptr.*;
-            if (std.mem.lastIndexOf(u8, key, ":")) |colon_idx| {
-                const var_name = key[0..colon_idx];
-                // Mark the base variable name as mutated (for function-scope queries)
-                try self.func_local_mutations.put(var_name, {});
-                // Also store the scoped key for scope-aware queries
-                try self.func_local_mutations.put(try self.allocator.dupe(u8, key), {});
-            }
+            // Only store the scoped key for scope-aware queries
+            // DO NOT add bare var_name - that would wrongly trigger aug_assign detection in other scopes
+            try self.func_local_mutations.put(try self.allocator.dupe(u8, entry.key_ptr.*), {});
         }
     }
 }
@@ -333,18 +390,15 @@ pub fn analyzeModuleLevelMutations(self: *NativeCodegen, module_body: []const as
 
     // Mark variables with multiple assignments at same scope as mutated
     // Store the full scoped key so codegen can query by scope
+    // IMPORTANT: Do NOT add bare variable name for scoped mutations - only add the scoped key.
+    // Adding the bare name causes isVarMutated() to incorrectly detect aug_assign in OTHER scopes.
+    // Only aug_assign should add bare variable names (done above).
     var scope_iter = scoped_counts.iterator();
     while (scope_iter.next()) |entry| {
         if (entry.value_ptr.* > 1) {
-            // Extract variable name from "varname:scope_id" key
-            const key = entry.key_ptr.*;
-            if (std.mem.lastIndexOf(u8, key, ":")) |colon_idx| {
-                const var_name = key[0..colon_idx];
-                // Mark the base variable name as mutated (for module-scope queries)
-                try self.func_local_mutations.put(var_name, {});
-                // Also store the scoped key for scope-aware queries
-                try self.func_local_mutations.put(try self.allocator.dupe(u8, key), {});
-            }
+            // Only store the scoped key for scope-aware queries
+            // DO NOT add bare var_name - that would wrongly trigger aug_assign detection in other scopes
+            try self.func_local_mutations.put(try self.allocator.dupe(u8, entry.key_ptr.*), {});
         }
     }
 }
@@ -381,6 +435,19 @@ pub fn countAssignmentsWithScope(
                     if (subscript.value.* == .name) {
                         const name = subscript.value.name.id;
                         try aug_vars.put(name, {}); // subscript assign is mutation
+                    }
+                } else if (target == .tuple or target == .list) {
+                    // Tuple/list unpacking: a, b = ... or [a, b] = ...
+                    // Each element in the tuple is assigned, count them
+                    const elts = if (target == .tuple) target.tuple.elts else target.list.elts;
+                    for (elts) |elt| {
+                        if (elt == .name) {
+                            const name = elt.name.id;
+                            const scoped_key = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ name, scope_id });
+                            defer allocator.free(scoped_key);
+                            const current = scoped_counts.get(scoped_key) orelse 0;
+                            try scoped_counts.put(try allocator.dupe(u8, scoped_key), current + 1);
+                        }
                     }
                 }
             }

@@ -235,6 +235,10 @@ pub fn parseIntUnicode(str: []const u8, base: u8) !i128 {
                 actual_base = 2;
                 parse_str = trimmed[prefix_start + 2 ..];
                 had_base_prefix = true;
+            } else if (prefix_char == '_' or (prefix_char >= '0' and prefix_char <= '9')) {
+                // Python 3 doesn't allow old-style octal (0123) or leading zero with digits (09_99)
+                // A leading 0 followed by a digit (or underscore then digit) is invalid
+                return error.ValueError;
             } else {
                 actual_base = 10;
                 parse_str = trimmed[prefix_start..];
@@ -369,6 +373,10 @@ pub fn parseIntToBigInt(allocator: std.mem.Allocator, str: []const u8, base: u8)
                 actual_base = 2;
                 parse_str = trimmed[prefix_start + 2 ..];
                 had_base_prefix = true;
+            } else if (prefix_char == '_' or (prefix_char >= '0' and prefix_char <= '9')) {
+                // Python 3 doesn't allow old-style octal (0123) or leading zero with digits (09_99)
+                // A leading 0 followed by a digit (or underscore then digit) is invalid
+                return error.ValueError;
             } else {
                 actual_base = 10;
                 parse_str = trimmed[prefix_start..];

@@ -29,32 +29,33 @@ fn inferCType(native_type: NativeType) []const u8 {
     };
 }
 
-/// Map ctypes type name to Zig type
+/// Map ctypes type name to Zig type (O(1) lookup via StaticStringMap)
+const CtypesMap = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "c_char_p", "[*:0]const u8" },
+    .{ "c_wchar_p", "[*:0]const u32" },
+    .{ "c_void_p", "*anyopaque" },
+    .{ "c_bool", "bool" },
+    .{ "c_char", "u8" },
+    .{ "c_wchar", "u32" },
+    .{ "c_byte", "i8" },
+    .{ "c_ubyte", "u8" },
+    .{ "c_short", "i16" },
+    .{ "c_ushort", "u16" },
+    .{ "c_int", "c_int" },
+    .{ "c_uint", "c_uint" },
+    .{ "c_long", "isize" },
+    .{ "c_ulong", "usize" },
+    .{ "c_longlong", "i64" },
+    .{ "c_ulonglong", "u64" },
+    .{ "c_size_t", "usize" },
+    .{ "c_ssize_t", "isize" },
+    .{ "c_float", "f32" },
+    .{ "c_double", "f64" },
+    .{ "c_longdouble", "f128" },
+});
+
 fn ctypesToZig(ctype_name: []const u8) []const u8 {
-    // Map common ctypes names to Zig types
-    if (std.mem.eql(u8, ctype_name, "c_char_p")) return "[*:0]const u8";
-    if (std.mem.eql(u8, ctype_name, "c_wchar_p")) return "[*:0]const u32";
-    if (std.mem.eql(u8, ctype_name, "c_void_p")) return "*anyopaque";
-    if (std.mem.eql(u8, ctype_name, "c_bool")) return "bool";
-    if (std.mem.eql(u8, ctype_name, "c_char")) return "u8";
-    if (std.mem.eql(u8, ctype_name, "c_wchar")) return "u32";
-    if (std.mem.eql(u8, ctype_name, "c_byte")) return "i8";
-    if (std.mem.eql(u8, ctype_name, "c_ubyte")) return "u8";
-    if (std.mem.eql(u8, ctype_name, "c_short")) return "i16";
-    if (std.mem.eql(u8, ctype_name, "c_ushort")) return "u16";
-    if (std.mem.eql(u8, ctype_name, "c_int")) return "c_int";
-    if (std.mem.eql(u8, ctype_name, "c_uint")) return "c_uint";
-    if (std.mem.eql(u8, ctype_name, "c_long")) return "isize";
-    if (std.mem.eql(u8, ctype_name, "c_ulong")) return "usize";
-    if (std.mem.eql(u8, ctype_name, "c_longlong")) return "i64";
-    if (std.mem.eql(u8, ctype_name, "c_ulonglong")) return "u64";
-    if (std.mem.eql(u8, ctype_name, "c_size_t")) return "usize";
-    if (std.mem.eql(u8, ctype_name, "c_ssize_t")) return "isize";
-    if (std.mem.eql(u8, ctype_name, "c_float")) return "f32";
-    if (std.mem.eql(u8, ctype_name, "c_double")) return "f64";
-    if (std.mem.eql(u8, ctype_name, "c_longdouble")) return "f128";
-    // Default to c_int for unknown types
-    return "c_int";
+    return CtypesMap.get(ctype_name) orelse "c_int";
 }
 
 /// Generate function call - dispatches to specialized handlers or fallback
@@ -613,7 +614,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     if (call.func.* == .name) {
         const raw_func_name = call.func.name.id;
         // Check if variable has been renamed (for try/except captured variables)
-        const func_name = self.var_renames.get(raw_func_name) orelse raw_func_name;
+        // Also check hoisted_local_classes for locally-defined classes that were hoisted
+        const func_name = self.hoisted_local_classes.get(raw_func_name) orelse self.var_renames.get(raw_func_name) orelse raw_func_name;
 
         // Check if this is a simple lambda (function pointer)
         if (self.lambda_vars.contains(raw_func_name)) {
@@ -680,6 +682,33 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             return;
         }
 
+        // Check if this is a captured variable being called (captured function/callable from outer scope)
+        // Must check BEFORE class constructor check to avoid treating captured callables as classes
+        if (self.current_class_captures) |captures| {
+            for (captures) |captured_name| {
+                if (std.mem.eql(u8, captured_name, raw_func_name)) {
+                    // Captured callable: mutate(d) -> __self.__captured_mutate.*(d)
+                    // The captured variable is a pointer to a callable, dereference and call
+                    try self.emit("__self.__captured_");
+                    try self.emit(raw_func_name);
+                    try self.emit(".*(");
+
+                    for (call.args, 0..) |arg, i| {
+                        if (i > 0) try self.emit(", ");
+                        try genExpr(self, arg);
+                    }
+
+                    for (call.keyword_args, 0..) |kwarg, i| {
+                        if (i > 0 or call.args.len > 0) try self.emit(", ");
+                        try genExpr(self, kwarg.value);
+                    }
+
+                    try self.emit(")");
+                    return;
+                }
+            }
+        }
+
         // FIRST: Check if this is a callable class instance (variable holding instance with __call__)
         // e.g., AbstractSuper = AbstractClass(bases=()) then AbstractSuper() should call __call__
         const var_type = self.getVarType(raw_func_name);
@@ -716,7 +745,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             std.mem.eql(u8, cn, raw_func_name)
         else
             false;
-        const is_user_class = in_class_registry or in_nested_names or in_local_scope or is_self_class_call;
+        // Check for external class types from stdlib modules (lowercase but still classes)
+        const is_external_class = std.mem.eql(u8, raw_func_name, "ndarray") or
+            std.mem.eql(u8, raw_func_name, "staticarray");
+        const is_user_class = in_class_registry or in_nested_names or in_local_scope or is_self_class_call or is_external_class;
         const is_class_constructor = is_user_class or (raw_func_name.len > 0 and std.ascii.isUpper(raw_func_name[0]));
 
         // Check if this is a runtime exception type that needs runtime. prefix
@@ -764,6 +796,65 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             const needs_try_for_nested = in_nested_names or (is_self_class_call and current_class_is_nested);
             const has_error_init = self.error_init_classes.contains(raw_func_name);
             const needs_try = needs_try_for_nested or has_error_init;
+
+            // Special handling for external class types (ndarray, staticarray) that take options struct
+            if (is_external_class) {
+                // ndarray(items, shape=shape, strides=strides, ...) ->
+                // ndarray.init(items, .{ .shape = shape, .strides = strides, ... })
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
+                try self.emit(".init(");
+
+                // First positional arg is items
+                if (call.args.len > 0) {
+                    try genExpr(self, call.args[0]);
+                } else {
+                    try self.emit("&[_]i64{}");
+                }
+
+                // Build options struct from keyword args
+                try self.emit(", .{");
+                for (call.keyword_args, 0..) |kwarg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try self.emit(" .");
+                    try self.emit(kwarg.name);
+                    try self.emit(" = ");
+                    // ndarray options expect slices, not arrays - wrap list literals with &
+                    // Constant lists get generated as array literals, need & prefix
+                    if (kwarg.value == .list) {
+                        // Check if all elements are constant (generates [_]T{...} array literal)
+                        const is_constant = blk: {
+                            for (kwarg.value.list.elts) |elem| {
+                                if (elem != .constant) break :blk false;
+                            }
+                            break :blk kwarg.value.list.elts.len > 0;
+                        };
+                        if (is_constant) {
+                            try self.emit("&");
+                        }
+                    }
+                    // Dynamic lists produce ArrayList - need .items to get slice
+                    // Must wrap block expression in parens for valid Zig syntax
+                    if (kwarg.value == .list) {
+                        const is_constant = blk: {
+                            for (kwarg.value.list.elts) |elem| {
+                                if (elem != .constant) break :blk false;
+                            }
+                            break :blk kwarg.value.list.elts.len > 0;
+                        };
+                        if (!is_constant and kwarg.value.list.elts.len > 0) {
+                            try self.emit("(");
+                            try genExpr(self, kwarg.value);
+                            try self.emit(").items");
+                        } else {
+                            try genExpr(self, kwarg.value);
+                        }
+                    } else {
+                        try genExpr(self, kwarg.value);
+                    }
+                }
+                try self.emit(" })");
+                return;
+            }
 
             if (is_user_class) {
                 // User-defined class: nested classes and error init classes need try
@@ -1005,6 +1096,16 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             return;
         }
 
+        // Handle zero-arg calls to constants masquerading as functions
+        // e.g., get_sizeof_void_p() where get_sizeof_void_p is a compile-time constant
+        // These are defined as constants in from_imports but Python calls them like functions
+        if (call.args.len == 0 and call.keyword_args.len == 0) {
+            if (std.mem.eql(u8, raw_func_name, "get_sizeof_void_p")) {
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
+                return; // Emit just the name, no parentheses
+            }
+        }
+
         // Fallback: regular function call
         // Use raw_func_name for registry lookups (original Python name)
         // Check if this is a user-defined function that needs allocator
@@ -1114,6 +1215,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         // Pass class instances by pointer to allow mutations to propagate
                         try self.emit("&");
                     }
+                } else if (arg_type == .pyvalue) {
+                    // PyValue argument - use comptime type dispatch to handle function param type
+                    // This handles cases where we pass a PyValue to a function expecting string/int/etc
+                    try self.emit("pyval_arg_blk: { const __pv = ");
+                    try genExpr(self, arg);
+                    try self.emit("; break :pyval_arg_blk if (@TypeOf(__pv) == runtime.PyValue) __pv.asString() else __pv; }");
+                    continue;
                 }
                 try genExpr(self, arg);
             }
@@ -1134,9 +1242,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     try self.emit(kwarg.name);
                     try self.emit("\", ");
 
-                    // Wrap the value in a PyObject - for now assume int
-                    // TODO: Handle other types
-                    try self.emit("try runtime.PyInt.create(__global_allocator, ");
+                    // Wrap the value in PyValue (handles int, str, float, etc.)
+                    try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
                     try genExpr(self, kwarg.value);
                     try self.emit("));\n");
                 }

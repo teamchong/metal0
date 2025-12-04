@@ -73,6 +73,22 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
                 }
             }
 
+            // Check if module_name is a from-import that maps to a module class
+            // e.g., "from datetime import datetime" -> datetime.now() should dispatch to datetime.datetime.now
+            // e.g., "from datetime import date" -> date.today() should dispatch to datetime.date.today
+            if (self.local_from_imports.get(module_name)) |actual_module| {
+                // Build compound name: actual_module.module_name (e.g., datetime.datetime, datetime.date)
+                var compound_buf2: [256]u8 = undefined;
+                const compound_name = std.fmt.bufPrint(
+                    &compound_buf2,
+                    "{s}.{s}",
+                    .{ actual_module, module_name },
+                ) catch return false;
+                if (try module_functions.tryDispatch(self, compound_name, func_name, call)) {
+                    return true;
+                }
+            }
+
             // Fallback to module function handlers
             if (try module_functions.tryDispatch(self, module_name, func_name, call)) {
                 return true;

@@ -309,6 +309,12 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             // but in Zig the function is already defined so we skip hoisting
             if (self.module_level_funcs.contains(v.name)) continue;
 
+            // Skip function aliases - the assignment value is a module-level function
+            // e.g., `permutations = rpermutation` - rpermutation is already a function
+            if (v.node == .name) {
+                if (self.module_level_funcs.contains(v.node.name.id)) continue;
+            }
+
             const var_type = self.type_inferrer.inferExpr(v.node) catch .unknown;
 
             // Skip hoisting if type refers to a class defined inside the block
@@ -425,11 +431,21 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
     _ = try builder.write(")");
     _ = try builder.beginBlock();
 
+    // Save control_flow_terminated before generating branches
+    // An if-statement only terminates control flow if BOTH branches terminate
+    const saved_control_flow = self.control_flow_terminated;
+    self.control_flow_terminated = false;
+
     for (if_stmt.body) |stmt| {
         try self.generateStmt(stmt);
     }
 
+    const if_body_terminates = self.control_flow_terminated;
+
     if (if_stmt.else_body.len > 0) {
+        // Reset for else body
+        self.control_flow_terminated = false;
+
         // Check if else_body is a single If statement (elif pattern)
         const is_elif = if_stmt.else_body.len == 1 and if_stmt.else_body[0] == .if_stmt;
         if (is_elif) {
@@ -450,8 +466,15 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             }
             _ = try builder.endBlock();
         }
+
+        const else_body_terminates = self.control_flow_terminated;
+
+        // Control flow only terminates after if-statement if BOTH branches terminate
+        self.control_flow_terminated = saved_control_flow or (if_body_terminates and else_body_terminates);
     } else {
         _ = try builder.endBlock();
+        // No else branch means control flow continues (the if-body might not execute)
+        self.control_flow_terminated = saved_control_flow;
     }
 }
 
@@ -576,16 +599,35 @@ fn genPatternCondition(self: *NativeCodegen, pattern: ast.Node.MatchPattern, sub
         },
         .mapping => |entries| {
             // Check each key exists and value matches
-            for (entries, 0..) |entry, i| {
-                if (i > 0) _ = try builder.write(" and ");
-                _ = try builder.write(subject);
-                _ = try builder.write(".contains(");
-                try self.genExpr(entry.key.*);
-                _ = try builder.write(")");
-                // TODO: Also check value pattern
-            }
             if (entries.len == 0) {
                 _ = try builder.write("true");
+            } else {
+                for (entries, 0..) |entry, i| {
+                    if (i > 0) _ = try builder.write(" and ");
+                    // Check key exists
+                    _ = try builder.write(subject);
+                    _ = try builder.write(".contains(");
+                    try self.genExpr(entry.key.*);
+                    _ = try builder.write(")");
+                    // Check value pattern (unless it's a capture/wildcard which always matches)
+                    switch (entry.pattern) {
+                        .wildcard, .capture => {}, // Always match, no condition needed
+                        .literal => |lit| {
+                            // For literal patterns, compare value directly
+                            _ = try builder.write(" and ");
+                            _ = try builder.write(subject);
+                            _ = try builder.write(".get(");
+                            try self.genExpr(entry.key.*);
+                            _ = try builder.write(") == ");
+                            try self.genExpr(lit.*);
+                        },
+                        else => {
+                            // Other patterns need recursive checking with value accessor
+                            // For now, just check that key exists (partial match)
+                            // Full recursive value pattern matching requires buffer allocation
+                        },
+                    }
+                }
             }
         },
         .class_pattern => |cp| {
@@ -594,7 +636,34 @@ fn genPatternCondition(self: *NativeCodegen, pattern: ast.Node.MatchPattern, sub
             _ = try builder.write(subject);
             _ = try builder.write(") == ");
             _ = try builder.write(cp.cls);
-            // TODO: Check positional and keyword patterns
+            // Check positional patterns (match against __match_args__ order)
+            for (cp.positional, 0..) |pos_pattern, i| {
+                switch (pos_pattern) {
+                    .wildcard, .capture => {}, // Always match
+                    .literal => |lit| {
+                        _ = try builder.write(" and ");
+                        _ = try builder.write(subject);
+                        try self.emitFmt(".@\"{d}\" == ", .{i});
+                        try self.genExpr(lit.*);
+                    },
+                    else => {},
+                }
+            }
+            // Check keyword patterns (match named attributes)
+            for (cp.keyword) |kw| {
+                switch (kw.pattern) {
+                    .wildcard, .capture => {}, // Always match
+                    .literal => |lit| {
+                        _ = try builder.write(" and ");
+                        _ = try builder.write(subject);
+                        _ = try builder.write(".");
+                        _ = try builder.write(kw.name);
+                        _ = try builder.write(" == ");
+                        try self.genExpr(lit.*);
+                    },
+                    else => {},
+                }
+            }
         },
         .or_pattern => |patterns| {
             _ = try builder.write("(");

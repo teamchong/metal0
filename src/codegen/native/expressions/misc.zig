@@ -35,10 +35,30 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
     // Always generate anonymous tuple syntax for consistency with type inference
     // Type inference generates struct types: struct { @"0": T, @"1": T, ... }
     // So we must generate struct literals: .{ elem1, elem2, ... }
+    // IMPORTANT: Integer constants must be cast to i64 to avoid comptime_int issues
     try self.emit(".{ ");
     for (tuple.elts, 0..) |elem, i| {
         if (i > 0) try self.emit(", ");
-        try genExpr(self, elem);
+        // Wrap integer constants to avoid comptime_int at runtime
+        if (elem == .constant and elem.constant.value == .int) {
+            try self.emit("@as(i64, ");
+            try genExpr(self, elem);
+            try self.emit(")");
+        } else if (elem == .unaryop and elem.unaryop.op == .USub and
+            elem.unaryop.operand.* == .constant and elem.unaryop.operand.constant.value == .int)
+        {
+            // Negative integer: -1 -> @as(i64, -1)
+            try self.emit("@as(i64, ");
+            try genExpr(self, elem);
+            try self.emit(")");
+        } else if (elem == .constant and elem.constant.value == .float) {
+            // Float constants to avoid comptime_float
+            try self.emit("@as(f64, ");
+            try genExpr(self, elem);
+            try self.emit(")");
+        } else {
+            try genExpr(self, elem);
+        }
     }
     try self.emit(" }");
 }
@@ -76,15 +96,29 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     try self.output.writer(self.allocator).print(".@\"{d}\"", .{index});
                 }
             } else {
-                // Non-constant tuple index - use inline for with runtime comparison
-                // This generates: blk: { const __t = tuple; const __i = index; inline for (std.meta.fields(@TypeOf(__t)), 0..) |f, fi| { if (fi == __i) break :blk @field(__t, f.name); } unreachable; }
-                const label_id = self.block_label_counter;
-                self.block_label_counter += 1;
-                try self.output.writer(self.allocator).print("tup_{d}: {{ const __t = ", .{label_id});
-                try genExpr(self, subscript.value.*);
-                try self.emit("; const __i: usize = @intCast(");
-                try genExpr(self, subscript.slice.index.*);
-                try self.output.writer(self.allocator).print("); inline for (std.meta.fields(@TypeOf(__t)), 0..) |f, fi| {{ if (fi == __i) break :tup_{d} @field(__t, f.name); }} unreachable; }}", .{label_id});
+                // Check if the index is a string - if so, generate runtime TypeError
+                const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
+                const index_is_string = (index_type == .string);
+
+                if (index_is_string) {
+                    // Generate code that raises TypeError at runtime
+                    // In Python: t["a"] raises TypeError: tuple indices must be integers or slices, not str
+                    // Use _ = on the tuple value to mark it as used, then return error
+                    // This allows the error to be caught by assertRaisesRegex context
+                    try self.emit("blk: { _ = &");
+                    try genExpr(self, subscript.value.*);
+                    try self.emit("; break :blk try @as(anyerror!@TypeOf({}), error.TypeError); }");
+                } else {
+                    // Non-constant tuple index - use inline for with runtime comparison
+                    // This generates: blk: { const __t = tuple; const __i = index; inline for (std.meta.fields(@TypeOf(__t)), 0..) |f, fi| { if (fi == __i) break :blk @field(__t, f.name); } unreachable; }
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.output.writer(self.allocator).print("tup_{d}: {{ const __t = ", .{label_id});
+                    try genExpr(self, subscript.value.*);
+                    try self.emit("; const __i: usize = @intCast(");
+                    try genExpr(self, subscript.slice.index.*);
+                    try self.output.writer(self.allocator).print("); inline for (std.meta.fields(@TypeOf(__t)), 0..) |f, fi| {{ if (fi == __i) break :tup_{d} @field(__t, f.name); }} unreachable; }}", .{label_id});
+                }
             }
             return;
         }

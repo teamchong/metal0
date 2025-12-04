@@ -69,6 +69,11 @@ pub fn genRecursiveClosure(
     self.inside_nested_function = true;
     defer self.inside_nested_function = saved_inside_nested;
 
+    // Save and reset control_flow_terminated - nested function has its own control flow
+    const saved_control_flow_terminated = self.control_flow_terminated;
+    self.control_flow_terminated = false;
+    defer self.control_flow_terminated = saved_control_flow_terminated;
+
     // Save and restore func_local_uses
     const saved_func_local_uses = self.func_local_uses;
     self.func_local_uses = hashmap_helper.StringHashMap(void).init(self.allocator);

@@ -1559,8 +1559,32 @@ const AllocConstructors = std.StaticStringMap(void).initComptime(.{
     .{ "OrderedDict", {} }, .{ "StringIO", {} }, .{ "BytesIO", {} },
 });
 
+/// Dunder methods that return primitive values and should NEVER need allocator
+/// The runtime calls these directly without passing allocator, so the generated
+/// code must match the expected signature: self -> primitive_type
+const NoAllocatorDunderMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "__float__", {} }, // Returns f64
+    .{ "__int__", {} }, // Returns i64
+    .{ "__bool__", {} }, // Returns bool (error is allowed, not allocator)
+    .{ "__hash__", {} }, // Returns i64
+    .{ "__index__", {} }, // Returns i64
+    .{ "__sizeof__", {} }, // Returns i64
+    .{ "__len__", {} }, // Returns i64 (error is allowed, not allocator)
+    .{ "__eq__", {} }, // Returns bool
+    .{ "__ne__", {} }, // Returns bool
+    .{ "__lt__", {} }, // Returns bool
+    .{ "__le__", {} }, // Returns bool
+    .{ "__gt__", {} }, // Returns bool
+    .{ "__ge__", {} }, // Returns bool
+    .{ "__contains__", {} }, // Returns bool
+});
+
 /// Analyze function AST to determine if it needs allocator (for error union)
 pub fn analyzeNeedsAllocator(func: ast.Node.FunctionDef, class_name: ?[]const u8) bool {
+    // Dunder methods that return primitive values should NEVER need allocator
+    // The runtime calls these without allocator, so we must match that signature
+    if (NoAllocatorDunderMethods.has(func.name)) return false;
+
     // Check for nested class instantiation
     var nested: [32][]const u8 = undefined;
     var count: usize = 0;

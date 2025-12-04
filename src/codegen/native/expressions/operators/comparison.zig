@@ -545,19 +545,33 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 }
                 try self.emit(")");
             } else {
-                // For primitives (int, bool, None), identity is same as equality
-                try genExpr(self, current_left);
-                if (op == .Is) {
-                    try self.emit(" == ");
+                // Check if either side is a tuple (struct types don't support ==)
+                const left_is_tuple = (@as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .tuple or current_left == .tuple);
+                const right_is_tuple = (@as(std.meta.Tag(@TypeOf(right_type)), right_type) == .tuple or compare.comparators[i] == .tuple);
+
+                if (left_is_tuple or right_is_tuple) {
+                    // Tuples: use std.meta.eql for value comparison
+                    if (op == .IsNot) try self.emit("!");
+                    try self.emit("std.meta.eql(");
+                    try genExpr(self, current_left);
+                    try self.emit(", ");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(")");
                 } else {
-                    try self.emit(" != ");
+                    // For primitives (int, bool, None), identity is same as equality
+                    try genExpr(self, current_left);
+                    if (op == .Is) {
+                        try self.emit(" == ");
+                    } else {
+                        try self.emit(" != ");
+                    }
+                    try genExpr(self, compare.comparators[i]);
                 }
-                try genExpr(self, compare.comparators[i]);
             }
         }
         // Handle tuple comparisons (anonymous structs don't support ==)
-        else if ((current_left_type == .tuple or current_left == .tuple) and
-            (right_type == .tuple or compare.comparators[i] == .tuple))
+        else if ((@as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .tuple or current_left == .tuple) and
+            (@as(std.meta.Tag(@TypeOf(right_type)), right_type) == .tuple or compare.comparators[i] == .tuple))
         {
             // Use std.meta.eql for deep comparison of tuples
             if (op == .NotEq) {
@@ -728,10 +742,17 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try self.emit(", __global_allocator)");
             }
         }
-        // Handle BigInt or unknown type comparisons (anytype parameters)
-        else if (current_left_type == .bigint or right_type == .bigint or
-            current_left_type == .unknown or right_type == .unknown)
-        {
+        // Handle BigInt comparisons
+        else if (current_left_type == .bigint or right_type == .bigint) {
+            // Use runtime.bigIntCompare for safe comparison
+            try self.emit("runtime.bigIntCompare(");
+            try genExpr(self, current_left);
+            try self.emit(", ");
+            try genExpr(self, compare.comparators[i]);
+            try self.emit(BigIntCompOps.get(@tagName(op)) orelse ", .eq)");
+        }
+        // Handle unknown type comparisons (anytype parameters)
+        else if (current_left_type == .unknown or right_type == .unknown) {
             // Use runtime.bigIntCompare for safe comparison
             try self.emit("runtime.bigIntCompare(");
             try genExpr(self, current_left);
@@ -745,6 +766,15 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             const left_is_int = (current_left_type == .int);
             const right_is_usize = (right_type == .usize);
             const right_is_int = (right_type == .int);
+            const left_is_float = (current_left_type == .float);
+            const right_is_float = (right_type == .float);
+            const left_is_bool = (current_left_type == .bool);
+            const right_is_bool = (right_type == .bool);
+
+            // For known primitive types (int, usize, float, bool), use direct comparison
+            // For other types (tuples, structs, etc.), use std.meta.eql to avoid Zig struct comparison error
+            const both_primitive = (left_is_int or left_is_usize or left_is_float or left_is_bool) and
+                (right_is_int or right_is_usize or right_is_float or right_is_bool);
 
             // If mixing usize and i64, cast to i64 for comparison
             const needs_cast = (left_is_usize and right_is_int) or (left_is_int and right_is_usize);
@@ -753,30 +783,44 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             const left_needs_wrap = producesBlockExpression(current_left);
             const right_needs_wrap = producesBlockExpression(compare.comparators[i]);
 
-            // Cast left operand if needed
-            if (left_is_usize and needs_cast) {
-                try self.emit("@as(i64, @intCast(");
-            }
-            // Wrap block expressions in parentheses
-            if (left_needs_wrap) try self.emit("(");
-            try genExpr(self, current_left);
-            if (left_needs_wrap) try self.emit(")");
-            if (left_is_usize and needs_cast) {
-                try self.emit("))");
-            }
+            // Use std.meta.eql for non-primitive types (tuples, unknown types, etc.)
+            if (!both_primitive and (op == .Eq or op == .NotEq)) {
+                if (op == .NotEq) try self.emit("!");
+                try self.emit("std.meta.eql(");
+                if (left_needs_wrap) try self.emit("(");
+                try genExpr(self, current_left);
+                if (left_needs_wrap) try self.emit(")");
+                try self.emit(", ");
+                if (right_needs_wrap) try self.emit("(");
+                try genExpr(self, compare.comparators[i]);
+                if (right_needs_wrap) try self.emit(")");
+                try self.emit(")");
+            } else {
+                // Cast left operand if needed
+                if (left_is_usize and needs_cast) {
+                    try self.emit("@as(i64, @intCast(");
+                }
+                // Wrap block expressions in parentheses
+                if (left_needs_wrap) try self.emit("(");
+                try genExpr(self, current_left);
+                if (left_needs_wrap) try self.emit(")");
+                if (left_is_usize and needs_cast) {
+                    try self.emit("))");
+                }
 
-            try self.emit(CompOpStrings.get(@tagName(op)) orelse " ? ");
+                try self.emit(CompOpStrings.get(@tagName(op)) orelse " ? ");
 
-            // Cast right operand if needed
-            if (right_is_usize and needs_cast) {
-                try self.emit("@as(i64, @intCast(");
-            }
-            // Wrap block expressions in parentheses
-            if (right_needs_wrap) try self.emit("(");
-            try genExpr(self, compare.comparators[i]);
-            if (right_needs_wrap) try self.emit(")");
-            if (right_is_usize and needs_cast) {
-                try self.emit("))");
+                // Cast right operand if needed
+                if (right_is_usize and needs_cast) {
+                    try self.emit("@as(i64, @intCast(");
+                }
+                // Wrap block expressions in parentheses
+                if (right_needs_wrap) try self.emit("(");
+                try genExpr(self, compare.comparators[i]);
+                if (right_needs_wrap) try self.emit(")");
+                if (right_is_usize and needs_cast) {
+                    try self.emit("))");
+                }
             }
         }
 

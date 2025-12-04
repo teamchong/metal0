@@ -6,6 +6,7 @@ const CodegenError = @import("../../../../main.zig").CodegenError;
 const CodeBuilder = @import("../../../../code_builder.zig").CodeBuilder;
 const function_traits = @import("function_traits");
 const zig_keywords = @import("zig_keywords");
+const hashmap_helper = @import("hashmap_helper");
 
 const mutation_analysis = @import("mutation_analysis.zig");
 const usage_analysis = @import("usage_analysis.zig");
@@ -13,6 +14,7 @@ const nested_captures = @import("nested_captures.zig");
 const scope_analyzer = @import("../../scope_analyzer.zig");
 const var_hoisting = @import("../../var_hoisting.zig");
 const self_analyzer = @import("../../self_analyzer.zig");
+const signature = @import("../signature.zig");
 
 /// Info about a type check at the start of a function
 pub const TypeCheckInfo = struct {
@@ -441,6 +443,8 @@ pub fn genFunctionBody(
     // Clear variable renames from previous functions to avoid cross-function pollution
     // (e.g., gcd's a->a__mut rename shouldn't affect test_constructor's local var 'a')
     self.var_renames.clearRetainingCapacity();
+    // Track function start position for scope-limited variable usage detection
+    self.function_start_pos = self.output.items.len;
 
     // Register parameter renames for parameters that shadow module-level functions
     // or sibling class methods
@@ -511,7 +515,6 @@ pub fn genFunctionBody(
     // 1. Are in a generator function (yield body becomes pass)
     // 2. Are NOT actually used in the non-yield parts of the body
     // 3. Don't have defaults (defaults are handled below)
-    const signature = @import("../signature.zig");
     const param_analyzer = @import("../../param_analyzer.zig");
     if (signature.hasYieldStatement(func.body)) {
         for (func.args) |arg| {
@@ -637,12 +640,33 @@ pub fn genFunctionBody(
     var forward_refs = try nested_captures.findForwardReferencedCapturesWithParams(self, func.body, func.args);
     defer forward_refs.deinit(self.allocator);
     for (forward_refs.items) |fwd_var| {
+        // Check if this variable would shadow a module-level declaration
+        // (module-level functions, imports, module-level vars, or global vars declared with 'global' keyword)
+        // If so, rename to avoid Zig's shadowing error
+        var actual_fwd_var = fwd_var;
+        const shadows_module_level = self.module_level_funcs.contains(fwd_var) or
+            self.imported_modules.contains(fwd_var) or
+            self.module_level_vars.contains(fwd_var) or
+            self.isGlobalVar(fwd_var);
+        if (shadows_module_level) {
+            // Rename to avoid shadowing: set2 -> __local_set2
+            const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}", .{fwd_var});
+            try self.var_renames.put(try self.allocator.dupe(u8, fwd_var), renamed);
+            actual_fwd_var = renamed;
+        }
         try self.emitIndent();
         try self.emit("var ");
-        try self.emit(fwd_var);
-        try self.emit(": std.ArrayList(*anyopaque) = undefined;\n");
+        try self.emit(actual_fwd_var);
+        // Use i64 as the default type for forward-declared captured variables
+        // This matches the capture struct type in closure_gen.zig which uses i64 for non-self captures
+        try self.emit(": i64 = undefined;\n");
+        // Suppress unused variable warning (forward-declared but might not be used in all paths)
+        try self.emitIndent();
+        try self.emit("_ = &");
+        try self.emit(actual_fwd_var);
+        try self.emit(";\n");
         // Mark as forward-declared so assignment doesn't re-declare
-        try self.forward_declared_vars.put(fwd_var, {});
+        try self.forward_declared_vars.put(actual_fwd_var, {});
     }
 
     // Detect type-check-raise patterns at the start of the function body for anytype params
@@ -664,9 +688,24 @@ pub fn genFunctionBody(
         try self.emit(") {\n");
         self.indent();
 
+        // For generators, initialize __gen_result ArrayList before body
+        if (self.in_generator_function) {
+            try self.emitIndent();
+            try self.emit("var __gen_result = std.ArrayList(runtime.PyValue){};\n");
+            // Suppress unused warning in case function terminates early (e.g., raise before yield)
+            try self.emitIndent();
+            try self.emit("_ = &__gen_result;\n");
+        }
+
         // Generate the rest of the function body (after the type checks)
         for (func.body[type_checks.start_idx..]) |stmt| {
             try self.generateStmt(stmt);
+        }
+
+        // For generators, return the collected results (if control flow not already terminated)
+        if (self.in_generator_function and !self.control_flow_terminated) {
+            try self.emitIndent();
+            try self.emit("return __gen_result.items;\n");
         }
 
         // Close the comptime if block with else returning error.TypeError
@@ -681,8 +720,21 @@ pub fn genFunctionBody(
         try self.emit("}\n");
     } else {
         // No type-check patterns - generate body normally
+        // For generators, initialize __gen_result ArrayList before body
+        if (self.in_generator_function) {
+            try self.emitIndent();
+            try self.emit("var __gen_result = std.ArrayList(runtime.PyValue){};\n");
+            // Suppress unused warning in case function terminates early (e.g., raise before yield)
+            try self.emitIndent();
+            try self.emit("_ = &__gen_result;\n");
+        }
         for (func.body) |stmt| {
             try self.generateStmt(stmt);
+        }
+        // For generators, return the collected results (if control flow not already terminated)
+        if (self.in_generator_function and !self.control_flow_terminated) {
+            try self.emitIndent();
+            try self.emit("return __gen_result.items;\n");
         }
     }
 
@@ -692,51 +744,84 @@ pub fn genFunctionBody(
     {
         const body_output = self.output.items[body_start_pos..];
         // Check if body ends with a return statement (would make appended code unreachable)
+        // For block-expression returns like "return blk: { ... };", we need to find the last
+        // "return " at the start of a line (after trimming whitespace)
         const ends_with_return = blk: {
-            // Look for "return" followed by optional value and ";\n" at end of body
-            // Trim trailing whitespace and check last meaningful statement
+            // Trim trailing whitespace to find the actual end
             var end_idx = body_output.len;
             while (end_idx > 0 and (body_output[end_idx - 1] == ' ' or body_output[end_idx - 1] == '\n' or body_output[end_idx - 1] == '\t')) {
                 end_idx -= 1;
             }
-            if (end_idx >= 2 and body_output[end_idx - 1] == ';') {
-                // Find start of last statement
-                var stmt_start: usize = end_idx - 1;
-                while (stmt_start > 0 and body_output[stmt_start - 1] != '\n' and body_output[stmt_start - 1] != '{' and body_output[stmt_start - 1] != '}') {
-                    stmt_start -= 1;
+            // Body must end with ; for it to be a complete return statement
+            if (end_idx < 2 or body_output[end_idx - 1] != ';') {
+                break :blk false;
+            }
+            // Find the last newline before the end
+            var search_pos: usize = end_idx;
+            while (search_pos > 0) {
+                if (body_output[search_pos - 1] == '\n') {
+                    // Found newline - check if next (non-whitespace) is "return "
+                    var stmt_start = search_pos;
+                    while (stmt_start < end_idx and (body_output[stmt_start] == ' ' or body_output[stmt_start] == '\t')) {
+                        stmt_start += 1;
+                    }
+                    if (stmt_start + 7 <= end_idx) {
+                        if (std.mem.eql(u8, body_output[stmt_start .. stmt_start + 7], "return ")) {
+                            break :blk true;
+                        }
+                    }
+                    // Not a return - keep searching for previous newline
                 }
-                // Skip indentation
-                while (stmt_start < end_idx and (body_output[stmt_start] == ' ' or body_output[stmt_start] == '\t')) {
-                    stmt_start += 1;
-                }
-                if (end_idx - stmt_start >= 6) {
-                    const last_stmt = body_output[stmt_start..end_idx];
-                    break :blk std.mem.startsWith(u8, last_stmt, "return ");
+                search_pos -= 1;
+            }
+            // Check from the very start (no newline before)
+            var stmt_start: usize = 0;
+            while (stmt_start < end_idx and (body_output[stmt_start] == ' ' or body_output[stmt_start] == '\t')) {
+                stmt_start += 1;
+            }
+            if (stmt_start + 7 <= end_idx) {
+                if (std.mem.eql(u8, body_output[stmt_start .. stmt_start + 7], "return ")) {
+                    break :blk true;
                 }
             }
             break :blk false;
         };
 
         for (func.args) |arg| {
-            // Only check anytype params (they don't get _ prefix in signature)
-            if (self.anytype_params.contains(arg.name)) {
-                // Check if this param appears in the generated body
-                if (std.mem.indexOf(u8, body_output, arg.name) == null) {
-                    // Param not used - emit discard
-                    if (ends_with_return) {
-                        // Body ends with return - insert at body_start_pos
-                        // Build the discard statement
-                        const discard = try std.fmt.allocPrint(self.allocator, "    _ = {s};\n", .{arg.name});
-                        defer self.allocator.free(discard);
-                        // Insert at body_start_pos
-                        try self.output.insertSlice(self.allocator, body_start_pos, discard);
-                    } else {
-                        // Safe to append at end
-                        try self.emitIndent();
-                        try self.emit("_ = ");
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-                        try self.emit(";\n");
+            // Check all params - anytype params don't get _ prefix in signature,
+            // but regular params might be unused if body was partially skipped
+            // Check if this param appears as a complete identifier in the generated body
+            // (not just as a substring - e.g., "t" shouldn't match in "const")
+            const param_is_used = blk: {
+                var pos: usize = 0;
+                while (std.mem.indexOfPos(u8, body_output, pos, arg.name)) |idx| {
+                    const end = idx + arg.name.len;
+                    // Check boundaries for complete identifier match
+                    const valid_start = idx == 0 or (!std.ascii.isAlphanumeric(body_output[idx - 1]) and body_output[idx - 1] != '_');
+                    const valid_end = end >= body_output.len or (!std.ascii.isAlphanumeric(body_output[end]) and body_output[end] != '_');
+                    if (valid_start and valid_end) {
+                        break :blk true;
                     }
+                    pos = end;
+                }
+                break :blk false;
+            };
+
+            if (!param_is_used) {
+                // Param not used - emit discard
+                if (ends_with_return) {
+                    // Body ends with return - insert at body_start_pos
+                    // Build the discard statement
+                    const discard = try std.fmt.allocPrint(self.allocator, "    _ = {s};\n", .{arg.name});
+                    defer self.allocator.free(discard);
+                    // Insert at body_start_pos
+                    try self.output.insertSlice(self.allocator, body_start_pos, discard);
+                } else {
+                    // Safe to append at end
+                    try self.emitIndent();
+                    try self.emit("_ = ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                    try self.emit(";\n");
                 }
             }
         }
@@ -745,6 +830,16 @@ pub fn genFunctionBody(
     // NOTE: Nested class unused suppression (e.g., _ = &ClassName;) is now handled
     // immediately after each class definition in generators.zig genClassDef().
     // This is necessary because classes inside if/for/while blocks are out of scope here.
+
+    // Emit discards for any local variables that were assigned but not used in generated code
+    // This must be done BEFORE popping scope, while output is still complete
+    // BUT only if control flow hasn't terminated (return/raise) - otherwise we'd emit unreachable code
+    if (!self.control_flow_terminated) {
+        try self.emitPendingDiscards();
+    } else {
+        // Just clear without emitting since code after return is unreachable
+        self.pending_discards.clearRetainingCapacity();
+    }
 
     // Pop scope when exiting function
     self.popScope();
@@ -916,6 +1011,25 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     method: ast.Node.FunctionDef,
     extra_class_names: []const []const u8,
 ) CodegenError!void {
+    // Save and restore control_flow_terminated for method body scope.
+    // This is CRITICAL: nested class methods (like Foo.__bool__) may have return statements
+    // that set this flag, but after the class definition, we need to continue generating
+    // statements in the parent scope. Without this, statements after nested class defs get skipped.
+    const saved_control_flow_terminated = self.control_flow_terminated;
+    self.control_flow_terminated = false; // Reset for this method
+    defer self.control_flow_terminated = saved_control_flow_terminated;
+
+    // Save and restore pending_discards for method body scope.
+    // This prevents emitPendingDiscards() (called before return statements) from emitting
+    // discards for outer scope variables inside a nested class method.
+    // e.g., u = ... <outer>; class C: def __new__: return self <--- shouldn't emit _ = &u here
+    const saved_pending_discards = self.pending_discards;
+    self.pending_discards = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
+    defer {
+        self.pending_discards.deinit();
+        self.pending_discards = saved_pending_discards;
+    }
+
     // Track whether we're inside a method with 'self' parameter.
     // This is used by generators.zig to know if a nested class should use __self.
     // The first parameter of a class method is always self (regardless of name like test_self, cls, etc.)
@@ -923,6 +1037,21 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     const was_inside_method = self.inside_method_with_self;
     if (has_self) self.inside_method_with_self = true;
     defer self.inside_method_with_self = was_inside_method;
+
+    // Check if this method is a generator (contains yield statements)
+    // If so, set in_generator_function flag so yield statements work properly
+    const is_generator_method = signature.hasYieldStatement(method.body);
+    const saved_in_generator = self.in_generator_function;
+    if (is_generator_method) {
+        self.in_generator_function = true;
+    }
+    defer self.in_generator_function = saved_in_generator;
+
+    // Set current function body for lookahead-based type inference
+    // (e.g., inferring dict key type from subsequent subscript assignments)
+    const prev_func_body = self.current_function_body;
+    self.current_function_body = method.body;
+    defer self.current_function_body = prev_func_body;
 
     // Analyze method body for mutated variables BEFORE generating code
     // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
@@ -956,6 +1085,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     self.hoisted_vars.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
     self.class_instance_aliases.clearRetainingCapacity();
+    // Track method start position for scope-limited variable usage detection
+    self.function_start_pos = self.output.items.len;
     try mutation_analysis.analyzeFunctionLocalMutations(self, method);
 
     // Analyze method body for used variables (prevents false "unused" detection)
@@ -1007,42 +1138,53 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     const old_type_scope = self.type_inferrer.enterScope(scope_name);
     defer self.type_inferrer.exitScope(old_type_scope);
 
-    // Note: We removed the "_ = self;" emission for super() calls
-    // This was causing "pointless discard of function parameter" errors when
-    // self IS actually used in the method body beyond super() calls.
-    // If self is truly unused, signature.zig should handle it with "_" prefix.
+    // Note: Unused allocator param is handled in signature.zig with "_:" prefix
+    // No need to emit "_ = allocator;" here
 
-    // However, if the method uses type attributes (e.g., self.int_class), the generated
-    // code uses @This().int_class which doesn't reference self, causing "unused parameter" error.
-    // Detect this case and emit _ = self; to suppress the warning.
-    // BUT: only emit _ = self; if the method ONLY uses type attributes and not regular self methods.
-    // If the method uses BOTH type attributes AND regular self (e.g., self.check()), then self IS used.
-    if (self.current_class_name) |class_name| {
-        const uses_type_attrs = blk: {
-            for (method.body) |stmt| {
-                if (mutation_analysis.usesTypeAttribute(stmt, class_name, self.class_type_attrs)) {
-                    break :blk true;
-                }
-            }
-            break :blk false;
-        };
-        const uses_regular_self = blk2: {
-            for (method.body) |stmt| {
-                if (mutation_analysis.usesRegularSelf(stmt, class_name, self.class_type_attrs)) {
-                    break :blk2 true;
-                }
-            }
-            break :blk2 false;
-        };
-        // Only emit _ = self if we use type attrs but DON'T use regular self
-        if (uses_type_attrs and !uses_regular_self) {
+    // Emit self parameter suppression for regular class methods (not @staticmethod or @classmethod)
+    // This handles cases where self_analyzer detects self.attr access but the generated code
+    // uses @This().attr for class attributes, making self appear unused to Zig.
+    // Using _ = &self instead of _ = self avoids "pointless discard" errors when self IS used.
+    const is_new_method = std.mem.eql(u8, method.name, "__new__");
+    const is_staticmethod = signature.hasStaticmethodDecorator(method.decorators);
+    const is_classmethod = signature.hasClassmethodDecorator(method.decorators);
+
+    // Skip self suppression for @staticmethod and @classmethod - they don't have a self parameter
+    if (self.current_class_name != null and method.args.len > 0 and !is_staticmethod and !is_classmethod) {
+        // For __new__: nested uses __cls, top-level uses _ (no suppression needed)
+        // For other methods: nested uses __self, top-level uses self
+        const self_param_name: ?[]const u8 = if (is_new_method)
+            (if (self.method_nesting_depth > 0) "__cls" else null)
+        else if (self.method_nesting_depth > 0)
+            "__self"
+        else
+            "self";
+
+        if (self_param_name) |spn| {
             try self.emitIndent();
-            try self.emit("_ = self;\n");
+            try self.emit("_ = &");
+            try self.emit(spn);
+            try self.emit(";\n");
         }
     }
 
-    // Note: Unused allocator param is handled in signature.zig with "_:" prefix
-    // No need to emit "_ = allocator;" here
+    // For comparison magic methods (__eq__, __ne__, __lt__, __le__, __gt__, __ge__),
+    // emit suppression for second parameter since codegen may not use it in all cases
+    // (e.g., `return SymbolicBool()` doesn't reference `other`)
+    const is_comparison_method = std.mem.eql(u8, method.name, "__eq__") or
+        std.mem.eql(u8, method.name, "__ne__") or
+        std.mem.eql(u8, method.name, "__lt__") or
+        std.mem.eql(u8, method.name, "__le__") or
+        std.mem.eql(u8, method.name, "__gt__") or
+        std.mem.eql(u8, method.name, "__ge__");
+    if (is_comparison_method and method.args.len > 1) {
+        // Second parameter (after self) is the comparison target
+        const other_param_name = method.args[1].name;
+        try self.emitIndent();
+        try self.emit("_ = &");
+        try self.emit(other_param_name);
+        try self.emit(";\n");
+    }
 
     // Emit hoisted variable declarations using shared hoisting module
     // This handles forward reference detection and fallback types
@@ -1119,9 +1261,17 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             try renamed_params.append(self.allocator, arg.name);
         }
         try self.declareVar(arg.name);
+    }
 
+    // Track body start position for unused param detection BEFORE mutable copies are generated
+    // This ensures "var xs__mut = xs;" is included in the usage check so we don't emit pointless "_ = xs;"
+    const method_body_start_pos = self.output.items.len;
+
+    // Check if parameters are reassigned in the method body
+    // Zig function parameters are const, so we need mutable copies
+    // Start from index 1 to skip self parameter
+    for (method.args[@min(1, method.args.len)..]) |arg| {
         // Check if this parameter is reassigned in the method body
-        // Zig function parameters are const, so we need a mutable copy
         if (var_tracking.isParamReassignedInStmts(arg.name, method.body)) {
             // If ALL reassignments are type-changing (e.g., object = Class(object)),
             // we don't need a mutable copy because these become shadow variables
@@ -1152,12 +1302,32 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     var forward_refs_method = try nested_captures.findForwardReferencedCapturesWithParams(self, method.body, method.args);
     defer forward_refs_method.deinit(self.allocator);
     for (forward_refs_method.items) |fwd_var| {
+        // Check if this variable would shadow a module-level declaration
+        // (module-level functions, imports, module-level vars, or global vars declared with 'global' keyword)
+        // If so, rename to avoid Zig's shadowing error
+        var actual_fwd_var = fwd_var;
+        const shadows_module_level = self.module_level_funcs.contains(fwd_var) or
+            self.imported_modules.contains(fwd_var) or
+            self.module_level_vars.contains(fwd_var) or
+            self.isGlobalVar(fwd_var);
+        if (shadows_module_level) {
+            const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}", .{fwd_var});
+            try self.var_renames.put(try self.allocator.dupe(u8, fwd_var), renamed);
+            actual_fwd_var = renamed;
+        }
         try self.emitIndent();
         try self.emit("var ");
-        try self.emit(fwd_var);
-        try self.emit(": std.ArrayList(*anyopaque) = undefined;\n");
+        try self.emit(actual_fwd_var);
+        // Use i64 as the default type for forward-declared captured variables
+        // This matches the capture struct type in closure_gen.zig which uses i64 for non-self captures
+        try self.emit(": i64 = undefined;\n");
+        // Suppress unused variable warning (forward-declared but might not be used in all paths)
+        try self.emitIndent();
+        try self.emit("_ = &");
+        try self.emit(actual_fwd_var);
+        try self.emit(";\n");
         // Mark as forward-declared so assignment doesn't re-declare
-        try self.forward_declared_vars.put(fwd_var, {});
+        try self.forward_declared_vars.put(actual_fwd_var, {});
     }
 
     // Check if we need comptime type dispatch for anytype params with type-changing patterns
@@ -1165,58 +1335,68 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // This pattern requires generating separate code paths for each type to avoid Zig type errors
     const type_dispatch_info = try detectTypeChangingPattern(self, method);
 
-    // Track output position before body generation to check if self was used
-    const body_start_pos = self.output.items.len;
-
     if (type_dispatch_info.needs_dispatch) {
         // Generate comptime type dispatch
         try generateComptimeTypeDispatch(self, method, type_dispatch_info);
     } else {
+        // For generator methods, initialize __gen_result ArrayList before body
+        if (is_generator_method) {
+            try self.emitIndent();
+            try self.emit("var __gen_result = std.ArrayList(runtime.PyValue){};\n");
+            try self.emitIndent();
+            try self.emit("_ = &__gen_result;\n");
+        }
+
         // Generate method body normally
         for (method.body) |method_stmt| {
             try self.generateStmt(method_stmt);
         }
+
+        // For generator methods, return the collected results
+        if (is_generator_method and !self.control_flow_terminated) {
+            try self.emitIndent();
+            try self.emit("return __gen_result.items;\n");
+        }
     }
 
-    // Check if self was actually used in generated body (for methods with self parameter)
-    // This handles cases where self usage was in skipped code paths (e.g., PyValue iteration)
-    // IMPORTANT: Only emit _ = self if signature actually named the parameter 'self' (not '_')
-    // Check ACTUAL generated signature to avoid recomputing complex signature.zig logic
-    if (has_self and self.current_class_name != null) {
-        // Look at what was ACTUALLY emitted in signature before body_start_pos
-        // Find the LAST "pub fn " to locate THIS method's signature (not previous methods)
-        const pre_body = self.output.items[0..body_start_pos];
-        const last_pub_fn = std.mem.lastIndexOf(u8, pre_body, "pub fn ");
-        if (last_pub_fn) |sig_start| {
-            // Find the end of signature (the opening brace { of function body)
-            const sig_end = std.mem.indexOfPos(u8, pre_body, sig_start, "{") orelse body_start_pos;
-            const signature = pre_body[sig_start..sig_end];
-            // Check if THIS method's signature uses (self: or (__self:
-            const uses_self = std.mem.indexOf(u8, signature, "(self:") != null;
-            const uses___self = std.mem.indexOf(u8, signature, "(__self:") != null;
-
-            if (uses_self or uses___self) {
-                const body_output = self.output.items[body_start_pos..];
-                // Check for any use of self identifier in generated body
-                const self_ident = if (uses___self) "__self" else "self";
-                const dot_pattern = if (uses___self) "__self." else "self.";
-                const comma_pattern = if (uses___self) "__self," else "self,";
-                const paren_pattern = if (uses___self) "__self)" else "self)";
-                const amp_pattern = if (uses___self) "&__self" else "&self";
-                const self_used_in_body = std.mem.indexOf(u8, body_output, dot_pattern) != null or
-                    std.mem.indexOf(u8, body_output, comma_pattern) != null or
-                    std.mem.indexOf(u8, body_output, paren_pattern) != null or
-                    std.mem.indexOf(u8, body_output, amp_pattern) != null;
-                if (!self_used_in_body) {
-                    // self parameter exists but wasn't used in generated body - suppress warning
-                    try self.emitIndent();
-                    try self.emit("_ = ");
-                    try self.emit(self_ident);
-                    try self.emit(";\n");
+    // Check if method parameters (beyond self) were actually used in generated body
+    // If not, emit `_ = param;` to suppress unused parameter warning
+    // This is needed when Python functions like gc.is_tracked() are compiled away to constants
+    // BUT: Skip this if control flow is terminated (return/raise) - would cause unreachable code
+    // AND: Skip params that were already made anonymous ("_:") in signature generation
+    if (!self.control_flow_terminated) {
+        const method_body_output = self.output.items[method_body_start_pos..];
+        // Start from 1 to skip self parameter (already handled above)
+        const start_param = if (method.args.len > 0) @as(usize, 1) else @as(usize, 0);
+        for (method.args[start_param..]) |arg| {
+            // Check if this param appears as a complete identifier in the generated body
+            const param_is_used = blk: {
+                var pos: usize = 0;
+                while (std.mem.indexOfPos(u8, method_body_output, pos, arg.name)) |idx| {
+                    const end = idx + arg.name.len;
+                    // Check boundaries for complete identifier match
+                    const valid_start = idx == 0 or (!std.ascii.isAlphanumeric(method_body_output[idx - 1]) and method_body_output[idx - 1] != '_');
+                    const valid_end = end >= method_body_output.len or (!std.ascii.isAlphanumeric(method_body_output[end]) and method_body_output[end] != '_');
+                    if (valid_start and valid_end) {
+                        break :blk true;
+                    }
+                    pos = end;
                 }
+                break :blk false;
+            };
+
+            if (!param_is_used) {
+                // Param not used - emit discard
+                try self.emitIndent();
+                try self.emit("_ = ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                try self.emit(";\n");
             }
         }
     }
+
+    // NOTE: Self parameter suppression is now handled at the beginning of method body
+    // using _ = &self; which doesn't have "pointless discard" issues
 
     // NOTE: Nested class unused suppression (e.g., _ = &ClassName;) is now handled
     // immediately after each class definition in generators.zig genClassDef().
@@ -1230,6 +1410,16 @@ fn genMethodBodyWithAllocatorInfoAndContext(
                 self.allocator.free(entry.value);
             }
         }
+    }
+
+    // Emit discards for any local variables that were assigned but not used in generated code
+    // This must be done BEFORE popping scope, while output is still complete
+    // BUT only if control flow hasn't terminated (return/raise) - otherwise we'd emit unreachable code
+    if (!self.control_flow_terminated) {
+        try self.emitPendingDiscards();
+    } else {
+        // Just clear without emitting since code after return is unreachable
+        self.pending_discards.clearRetainingCapacity();
     }
 
     // Pop scope when exiting method

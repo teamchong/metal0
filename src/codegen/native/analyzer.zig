@@ -142,6 +142,15 @@ pub fn analyzeModule(module: ast.Node.Module, allocator: std.mem.Allocator) !Mod
         if (stmt == .function_def) {
             try collectGlobalVars(stmt.function_def.body, &global_vars, allocator);
         }
+
+        // Collect global statements from class methods
+        if (stmt == .class_def) {
+            for (stmt.class_def.body) |class_stmt| {
+                if (class_stmt == .function_def) {
+                    try collectGlobalVars(class_stmt.function_def.body, &global_vars, allocator);
+                }
+            }
+        }
     }
 
     // Store global vars in analysis

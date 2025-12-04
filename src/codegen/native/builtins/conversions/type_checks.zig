@@ -146,6 +146,38 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("; }");
             return;
         }
+
+        // Check if tname matches the current class - if so, use @This() instead
+        // This handles isinstance(other, ClassName) checks inside the class's own methods
+        // where ClassName isn't accessible yet (Zig doesn't allow self-references by name)
+        // IMPORTANT: This must come BEFORE the type variable check to handle nested classes like Key3
+        if (self.current_class_name) |class_name| {
+            if (std.mem.eql(u8, tname, class_name)) {
+                try self.emit("blk: { const __obj_type = @TypeOf(");
+                try self.genExpr(args[0]);
+                try self.emit("); break :blk __obj_type == @This() or __obj_type == *@This() or __obj_type == *const @This(); }");
+                return;
+            }
+        }
+
+        // Check if this is a type variable (loop variable iterating over types)
+        // e.g., for T in (int, float, complex): isinstance(x, T)
+        // Generate: @TypeOf(x) == T (comptime type comparison)
+        // Type variables are typically single uppercase letters or short names
+        // that aren't known builtins or classes
+        if (tname.len <= 4 and !PythonBuiltinTypes.has(tname)) {
+            try self.emit("blk: { const __obj_type = @TypeOf(");
+            try self.genExpr(args[0]);
+            try self.emit("); break :blk __obj_type == ");
+            try self.emit(tname);
+            // Also check for pointer variants
+            try self.emit(" or __obj_type == *");
+            try self.emit(tname);
+            try self.emit(" or __obj_type == *const ");
+            try self.emit(tname);
+            try self.emit("; }");
+            return;
+        }
     }
 
     // Default: reference argument and return true for compile-time compatibility

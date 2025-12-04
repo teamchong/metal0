@@ -1,6 +1,7 @@
 /// Core NativeCodegen struct and basic operations
 const std = @import("std");
 const ast = @import("ast");
+const zig_keywords = @import("zig_keywords");
 const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
 const TypeInferrer = native_types.TypeInferrer;
@@ -93,6 +94,19 @@ pub const FromImportInfo = struct {
     asnames: []?[]const u8,
 };
 
+/// Info for deferred closure instantiation (when captures include forward-referenced variables)
+pub const DeferredClosureInfo = struct {
+    func_name: []const u8, // Original function name
+    closure_var_name: []const u8, // __closure_name_N
+    capture_type_name: []const u8, // __CaptureType_name_N
+    closure_impl_name: []const u8, // __ClosureImpl_name_N
+    impl_fn_name: []const u8, // call_name_N
+    captured_vars: [][]const u8, // Variable names to capture
+    total_params: usize, // Number of function params (for AnyClosure selection)
+    forward_ref_vars: [][]const u8, // Which captures are forward-referenced (need to wait for)
+    alias_name: []const u8, // The name to alias (e.g., "check")
+};
+
 pub const NativeCodegen = struct {
     allocator: std.mem.Allocator,
     output: std.ArrayList(u8),
@@ -129,6 +143,9 @@ pub const NativeCodegen = struct {
     // Counter for unique block labels (avoids nested blk: redefinition)
     block_label_counter: usize,
 
+    // Counter for unique shadow variable names (tuple += creates new const)
+    shadow_counter: usize,
+
     // Track which variables hold closures (for .call() generation)
     closure_vars: FnvVoidMap,
 
@@ -148,17 +165,33 @@ pub const NativeCodegen = struct {
     // Maps nested function name -> pre-declared closure type name
     pending_closure_types: FnvStringMap,
 
+    // Track closures with forward-referenced captures that need deferred instantiation
+    // Maps forward-ref variable name -> list of closures waiting for that variable
+    deferred_closure_instantiations: hashmap_helper.StringHashMap(std.ArrayList(DeferredClosureInfo)),
+
     // Track which class methods return closures (ClassName.method_name -> void)
     closure_returning_methods: FnvVoidMap,
 
     // Track which variables hold simple lambdas (function pointers)
     lambda_vars: FnvVoidMap,
 
+    // When set, lambda parameters should use this type instead of inference
+    // Used when generating lambdas for PyCallable contexts (e.g., list.append with callable list)
+    callable_context_param_type: ?[]const u8,
+
     // Variable renames for exception handling (maps original name -> renamed name)
     var_renames: FnvStringMap,
 
     // Track variables hoisted from try blocks (to skip declaration in assignment)
     hoisted_vars: FnvVoidMap,
+
+    // Track first assignments that may need discards (var_name -> emitted_name)
+    // Discards are emitted at end of scope after checking if variable was actually used
+    pending_discards: FnvStringMap,
+
+    // Starting position in output buffer for current function
+    // Used to limit variable usage search to current function scope only
+    function_start_pos: usize,
 
     // Track which variables hold constant arrays (vs ArrayLists)
     array_vars: FnvVoidMap,
@@ -268,6 +301,10 @@ pub const NativeCodegen = struct {
     // When true, error-producing operations should use catch instead of try
     in_assert_raises_context: bool,
 
+    // Track when control flow has terminated (return/raise)
+    // When true, skip generating subsequent statements to avoid unreachable code
+    control_flow_terminated: bool,
+
     // Track C libraries needed for linking (from C extension imports)
     c_libraries: std.ArrayList([]const u8),
 
@@ -305,6 +342,10 @@ pub const NativeCodegen = struct {
     // we need to rename the parameter to avoid shadowing errors in Zig
     module_level_funcs: FnvVoidMap,
 
+    // Track module-level variables (assignments at top level of module)
+    // These are available at function-start for hoisted var type derivation
+    module_level_vars: FnvVoidMap,
+
     // Track variables defined in current function scope (for nested class closure detection)
     // Maps variable name -> void (e.g., "calls" -> {})
     // Populated at start of function generation, used to detect outer scope references
@@ -328,6 +369,11 @@ pub const NativeCodegen = struct {
     // Track all nested class names defined in current function/method scope
     // Used to detect class constructor calls for nested classes without captures
     nested_class_names: FnvVoidMap,
+
+    // Track classes that have been hoisted from method bodies to struct level
+    // Maps original class name -> actual generated name (which may be renamed due to collisions)
+    // These classes should be skipped during normal body generation
+    hoisted_local_classes: FnvStringMap,
 
     // Track variables assigned from BigInt expressions
     // Used to detect when a variable's type is BigInt for subsequent operations
@@ -375,6 +421,9 @@ pub const NativeCodegen = struct {
     // True when inside __init__ method - captured vars accessed via __cap_* params, not self
     inside_init_method: bool,
 
+    // True when inside __new__ method - captured vars accessed via __cls, not __self
+    inside_new_method: bool,
+
     // True when current method has mutable self (*@This() vs *const @This())
     // Used to dereference self when returning from methods that mutate and return self
     method_self_is_mutable: bool,
@@ -419,6 +468,14 @@ pub const NativeCodegen = struct {
     // Set during function generation, null otherwise
     current_function_name: ?[]const u8,
 
+    // Current function/method body being generated
+    // Used for lookahead-based type inference (e.g., dict key type from subscript assignments)
+    current_function_body: ?[]const ast.Node,
+
+    // Track if we're inside a generator function
+    // When true, yield statements append to __gen_result ArrayList
+    in_generator_function: bool,
+
     // Track skipped modules (external modules not found in registry)
     // Maps module name -> void (e.g., "pytest" -> {})
     // Used to skip code that references these modules
@@ -462,6 +519,10 @@ pub const NativeCodegen = struct {
     // Track import_module() assigned variables (e.g., ctypes_test = import_module("ctypes"))
     // These are compile-time type references, not runtime variables
     import_module_vars: FnvVoidMap,
+
+    // Track csv module iterator variables (csv.reader, csv.DictReader, etc.)
+    // These need special for-loop handling: while (iter.next()) |row| instead of for (iter) |row|
+    csv_iterators: FnvVoidMap,
 
     // Function traits call graph for unified analysis (built lazily on first generate())
     // Query via function_traits.isPure(), .needsAllocator(), .canUseTCO(), etc.
@@ -512,16 +573,21 @@ pub const NativeCodegen = struct {
             .lambda_counter = 0,
             .lambda_functions = std.ArrayList([]const u8){},
             .block_label_counter = 0,
+            .shadow_counter = 0,
             .closure_vars = FnvVoidMap.init(allocator),
             .void_closure_vars = FnvVoidMap.init(allocator),
             .callable_vars = FnvVoidMap.init(allocator),
             .recursive_closure_vars = hashmap_helper.StringHashMap([][]const u8).init(allocator),
             .closure_factories = FnvVoidMap.init(allocator),
             .pending_closure_types = FnvStringMap.init(allocator),
+            .deferred_closure_instantiations = hashmap_helper.StringHashMap(std.ArrayList(DeferredClosureInfo)).init(allocator),
             .closure_returning_methods = FnvVoidMap.init(allocator),
             .lambda_vars = FnvVoidMap.init(allocator),
+            .callable_context_param_type = null,
             .var_renames = FnvStringMap.init(allocator),
             .hoisted_vars = FnvVoidMap.init(allocator),
+            .pending_discards = FnvStringMap.init(allocator),
+            .function_start_pos = 0,
             .array_vars = FnvVoidMap.init(allocator),
             .array_slice_vars = FnvVoidMap.init(allocator),
             .arraylist_vars = FnvVoidMap.init(allocator),
@@ -552,6 +618,7 @@ pub const NativeCodegen = struct {
             .import_aliases = FnvStringMap.init(allocator),
             .mutation_info = null,
             .in_assert_raises_context = false,
+            .control_flow_terminated = false,
             .c_libraries = std.ArrayList([]const u8){},
             .comptime_evals = FnvVoidMap.init(allocator),
             .interned_strings = hashmap_helper.StringHashMap(usize).init(allocator),
@@ -562,11 +629,13 @@ pub const NativeCodegen = struct {
             .func_local_uses = FnvVoidMap.init(allocator),
             .global_vars = FnvVoidMap.init(allocator),
             .module_level_funcs = FnvVoidMap.init(allocator),
+            .module_level_vars = FnvVoidMap.init(allocator),
             .func_local_vars = FnvVoidMap.init(allocator),
             .nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(allocator),
             .mutated_captures = FnvVoidMap.init(allocator),
             .nested_class_instances = hashmap_helper.StringHashMap([]const u8).init(allocator),
             .nested_class_names = FnvVoidMap.init(allocator),
+            .hoisted_local_classes = FnvStringMap.init(allocator),
             .bigint_vars = FnvVoidMap.init(allocator),
             .nested_class_bases = FnvStringMap.init(allocator),
             .nested_class_defs = FnvClassDefMap.init(allocator),
@@ -578,6 +647,7 @@ pub const NativeCodegen = struct {
             .current_assign_target = null,
             .current_class_captures = null,
             .inside_init_method = false,
+            .inside_new_method = false,
             .method_self_is_mutable = false,
             .current_method_first_param = null,
             .current_class_parent = null,
@@ -588,6 +658,8 @@ pub const NativeCodegen = struct {
             .inside_defer = false,
             .inside_nested_function = false,
             .current_function_name = null,
+            .current_function_body = null,
+            .in_generator_function = false,
             .skipped_modules = FnvVoidMap.init(allocator),
             .skipped_functions = FnvVoidMap.init(allocator),
             .c_extension_modules = FnvStringMap.init(allocator),
@@ -596,6 +668,7 @@ pub const NativeCodegen = struct {
             .loop_capture_vars = FnvVoidMap.init(allocator),
             .callable_global_vars = FnvVoidMap.init(allocator),
             .import_module_vars = FnvVoidMap.init(allocator),
+            .csv_iterators = FnvVoidMap.init(allocator),
             .forward_declared_vars = FnvVoidMap.init(allocator),
             .call_graph = null,
             .generic_type_params = FnvVoidMap.init(allocator),
@@ -803,17 +876,17 @@ pub const NativeCodegen = struct {
             const original_name = node.name.id;
             // Check if variable has been renamed (e.g., loop capture line -> __loop_line)
             const renamed_name = self.var_renames.get(original_name) orelse original_name;
-            // Check if this variable was assigned from a BigInt expression
-            if (self.bigint_vars.contains(renamed_name)) {
-                return .bigint;
-            }
-            // Check if we have a locally-declared type (from current function scope)
-            // This uses the symbol table which tracks declarations per scope
+            // Check symbol table FIRST for locally-declared types (e.g., PyValue loop vars)
+            // This takes precedence over bigint_vars because we may have re-declared the var
             if (self.symbol_table.getType(renamed_name)) |local_type| {
                 // Only use local type if it's not unknown
                 if (local_type != .unknown) {
                     return local_type;
                 }
+            }
+            // Check if this variable was assigned from a BigInt expression
+            if (self.bigint_vars.contains(renamed_name)) {
+                return .bigint;
             }
             // Check type inferrer's scoped map for the current function scope
             // Use ORIGINAL name since that's what was stored during type inference
@@ -1088,6 +1161,114 @@ pub const NativeCodegen = struct {
         return self.semantic_info.isUnused(var_name);
     }
 
+    /// Emit discards for variables declared in current scope only
+    /// Used when exiting loops/blocks where variables go out of scope before function ends
+    /// Unlike emitPendingDiscards, this only processes variables in the current scope
+    pub fn emitScopedDiscards(self: *NativeCodegen) CodegenError!void {
+        const output_str = self.output.items;
+        const search_start = self.function_start_pos;
+
+        // Collect keys to remove (can't modify during iteration)
+        var to_remove: std.ArrayList([]const u8) = .empty;
+        defer to_remove.deinit(self.allocator);
+
+        var it = self.pending_discards.iterator();
+        while (it.next()) |entry| {
+            const var_name = entry.key_ptr.*;
+            const emit_name = entry.value_ptr.*;
+
+            // Only process variables declared in current scope
+            if (!self.symbol_table.isDeclaredInCurrentScope(var_name)) continue;
+
+            // Count occurrences of the variable name as a complete identifier
+            var occurrence_count: usize = 0;
+            var pos: usize = search_start;
+            while (std.mem.indexOfPos(u8, output_str, pos, emit_name)) |idx| {
+                const end = idx + emit_name.len;
+                const valid_start = idx == 0 or (!std.ascii.isAlphanumeric(output_str[idx - 1]) and output_str[idx - 1] != '_');
+                const valid_end = end >= output_str.len or (!std.ascii.isAlphanumeric(output_str[end]) and output_str[end] != '_');
+
+                if (valid_start and valid_end) {
+                    occurrence_count += 1;
+                    if (occurrence_count > 1) break;
+                }
+                pos = end;
+            }
+
+            // If variable only appears once (or not at all), it's unused
+            if (occurrence_count <= 1) {
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), emit_name);
+                try self.emit(";\n");
+            }
+
+            // Mark for removal from pending_discards
+            try to_remove.append(self.allocator, var_name);
+        }
+
+        // Remove processed entries
+        for (to_remove.items) |key| {
+            _ = self.pending_discards.swapRemove(key);
+        }
+    }
+
+    /// Emit discards for variables that were assigned but never used in the generated code
+    /// This checks the actual output buffer to count how many times the variable name appears
+    /// If it only appears once (in the assignment), it's unused and needs a discard
+    /// Should be called at end of function body generation
+    pub fn emitPendingDiscards(self: *NativeCodegen) CodegenError!void {
+        const output_str = self.output.items;
+        // Only search within current function scope (from function_start_pos to end)
+        const search_start = self.function_start_pos;
+        var it = self.pending_discards.iterator();
+        while (it.next()) |entry| {
+            const emit_name = entry.value_ptr.*;
+            // Count occurrences of the variable name as a complete identifier
+            // If count <= 1, variable is only used in its own assignment (unused)
+            var occurrence_count: usize = 0;
+            var pos: usize = search_start;
+            while (std.mem.indexOfPos(u8, output_str, pos, emit_name)) |idx| {
+                const end = idx + emit_name.len;
+                // Check boundaries for complete identifier match
+                const valid_start = idx == 0 or (!std.ascii.isAlphanumeric(output_str[idx - 1]) and output_str[idx - 1] != '_');
+                const valid_end = end >= output_str.len or (!std.ascii.isAlphanumeric(output_str[end]) and output_str[end] != '_');
+
+                if (valid_start and valid_end) {
+                    occurrence_count += 1;
+                    if (occurrence_count > 1) break; // Found more than one use, variable is used
+                }
+                pos = end;
+            }
+
+            // If variable only appears once (or not at all), it's unused
+            if (occurrence_count <= 1) {
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), emit_name);
+                try self.emit(";\n");
+            }
+        }
+        // Clear pending discards after emitting
+        self.pending_discards.clearRetainingCapacity();
+    }
+
+    /// Check if a local variable name would shadow an imported module
+    /// In Python, this is fine (local scopes shadow module scope), but in Zig
+    /// module imports are file-scope constants that can't be shadowed
+    pub fn wouldShadowImport(self: *NativeCodegen, var_name: []const u8) bool {
+        return self.imported_modules.contains(var_name);
+    }
+
+    /// Get a safe local variable name that won't shadow imported modules
+    /// Returns the original name if it doesn't conflict, or name_local if it does
+    pub fn getSafeLocalName(self: *NativeCodegen, var_name: []const u8) ![]const u8 {
+        if (self.wouldShadowImport(var_name)) {
+            return try std.fmt.allocPrint(self.allocator, "{s}_local", .{var_name});
+        }
+        return var_name;
+    }
+
     /// Check if a variable is referenced in an eval/exec string
     pub fn isEvalStringVar(self: *NativeCodegen, var_name: []const u8) bool {
         return self.semantic_info.isEvalStringVar(var_name);
@@ -1107,6 +1288,11 @@ pub const NativeCodegen = struct {
     /// Clear global vars (call when exiting function scope)
     pub fn clearGlobalVars(self: *NativeCodegen) void {
         cleanup.clearGlobalVars(self);
+    }
+
+    /// Clear deferred closure instantiations (call at function boundaries)
+    pub fn clearDeferredClosureInstantiations(self: *NativeCodegen) void {
+        cleanup.clearDeferredClosureInstantiations(self);
     }
 
     /// Check if a module was skipped (external module not found)

@@ -258,6 +258,27 @@ fn exprUsesFirstParamRaw(node: ast.Node, param_name: []const u8) bool {
             break :blk false;
         },
         .lambda => |lambda| exprUsesFirstParamRaw(lambda.body.*, param_name),
+        .listcomp => |lc| blk: {
+            if (exprUsesFirstParamRaw(lc.elt.*, param_name)) break :blk true;
+            for (lc.generators) |gen| {
+                if (exprUsesFirstParamRaw(gen.iter.*, param_name)) break :blk true;
+                for (gen.ifs) |if_cond| {
+                    if (exprUsesFirstParamRaw(if_cond, param_name)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .dictcomp => |dc| blk: {
+            if (exprUsesFirstParamRaw(dc.key.*, param_name)) break :blk true;
+            if (exprUsesFirstParamRaw(dc.value.*, param_name)) break :blk true;
+            for (dc.generators) |gen| {
+                if (exprUsesFirstParamRaw(gen.iter.*, param_name)) break :blk true;
+                for (gen.ifs) |if_cond| {
+                    if (exprUsesFirstParamRaw(if_cond, param_name)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
         else => false,
     };
 }
@@ -381,6 +402,31 @@ fn exprUsesFirstParamWithContext(node: ast.Node, param_name: []const u8, has_par
             // Use raw check (without unittest filtering) because lambda closures
             // need to capture param even when calling unittest assertion methods
             return exprUsesFirstParamRaw(lambda.body.*, param_name);
+        },
+        .listcomp => |lc| {
+            // Check element expression
+            if (exprUsesFirstParamWithContext(lc.elt.*, param_name, has_parent)) return true;
+            // Check all generators (iterator expressions and conditions)
+            for (lc.generators) |gen| {
+                if (exprUsesFirstParamWithContext(gen.iter.*, param_name, has_parent)) return true;
+                for (gen.ifs) |if_cond| {
+                    if (exprUsesFirstParamWithContext(if_cond, param_name, has_parent)) return true;
+                }
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            // Check key and value expressions
+            if (exprUsesFirstParamWithContext(dc.key.*, param_name, has_parent)) return true;
+            if (exprUsesFirstParamWithContext(dc.value.*, param_name, has_parent)) return true;
+            // Check all generators (iterator expressions and conditions)
+            for (dc.generators) |gen| {
+                if (exprUsesFirstParamWithContext(gen.iter.*, param_name, has_parent)) return true;
+                for (gen.ifs) |if_cond| {
+                    if (exprUsesFirstParamWithContext(if_cond, param_name, has_parent)) return true;
+                }
+            }
+            return false;
         },
         else => false,
     };

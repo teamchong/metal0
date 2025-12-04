@@ -464,3 +464,157 @@ pub fn genSplitlines(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     try self.emitFmt("    break :splitlines_{d} _result;\n", .{label_id});
     try self.emit("}");
 }
+
+/// Generate code for text.partition(sep)
+/// Returns 3-tuple: (before, sep, after) or (text, "", "") if sep not found
+pub fn genPartition(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.emitFmt("partition_{d}: {{\n", .{label_id});
+    try self.emit("    const _text = ");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+    try self.emit("    const _sep = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emit("    if (std.mem.indexOf(u8, _text, _sep)) |idx| {\n");
+    try self.emitFmt("        break :partition_{d} .{{ _text[0..idx], _sep, _text[idx + _sep.len..] }};\n", .{label_id});
+    try self.emit("    } else {\n");
+    try self.emitFmt("        break :partition_{d} .{{ _text, \"\", \"\" }};\n", .{label_id});
+    try self.emit("    }\n");
+    try self.emit("}");
+}
+
+/// Generate code for text.rpartition(sep)
+/// Like partition but searches from the right
+pub fn genRpartition(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.emitFmt("rpartition_{d}: {{\n", .{label_id});
+    try self.emit("    const _text = ");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+    try self.emit("    const _sep = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emit("    if (std.mem.lastIndexOf(u8, _text, _sep)) |idx| {\n");
+    try self.emitFmt("        break :rpartition_{d} .{{ _text[0..idx], _sep, _text[idx + _sep.len..] }};\n", .{label_id});
+    try self.emit("    } else {\n");
+    try self.emitFmt("        break :rpartition_{d} .{{ \"\", \"\", _text }};\n", .{label_id});
+    try self.emit("    }\n");
+    try self.emit("}");
+}
+
+/// Generate code for text.removeprefix(prefix)
+/// Returns string with prefix removed if present, otherwise original string
+pub fn genRemoveprefix(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.emitFmt("removeprefix_{d}: {{\n", .{label_id});
+    try self.emit("    const _text = ");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+    try self.emit("    const _prefix = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emit("    if (std.mem.startsWith(u8, _text, _prefix)) {\n");
+    try self.emitFmt("        break :removeprefix_{d} _text[_prefix.len..];\n", .{label_id});
+    try self.emit("    } else {\n");
+    try self.emitFmt("        break :removeprefix_{d} _text;\n", .{label_id});
+    try self.emit("    }\n");
+    try self.emit("}");
+}
+
+/// Generate code for text.removesuffix(suffix)
+/// Returns string with suffix removed if present, otherwise original string
+pub fn genRemovesuffix(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.emitFmt("removesuffix_{d}: {{\n", .{label_id});
+    try self.emit("    const _text = ");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+    try self.emit("    const _suffix = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+    try self.emit("    if (std.mem.endsWith(u8, _text, _suffix)) {\n");
+    try self.emitFmt("        break :removesuffix_{d} _text[0 .. _text.len - _suffix.len];\n", .{label_id});
+    try self.emit("    } else {\n");
+    try self.emitFmt("        break :removesuffix_{d} _text;\n", .{label_id});
+    try self.emit("    }\n");
+    try self.emit("}");
+}
+
+/// Generate code for text.rsplit([sep[, maxsplit]])
+/// Like split but starts from the right
+pub fn genRsplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.emitFmt("rsplit_{d}: {{\n", .{label_id});
+    try self.emit("    const _text = ");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+
+    if (args.len == 0) {
+        // rsplit() with no args - same as split() for now
+        try self.emit("    var _result = try runtime.stringSplitWhitespace(_text, __global_allocator);\n");
+        try self.emit("    std.mem.reverse([]const u8, _result.items);\n");
+        try self.emitFmt("    break :rsplit_{d} _result;\n", .{label_id});
+    } else {
+        try self.emit("    const _sep = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+        try self.emit("    var _result = std.ArrayList([]const u8){};\n");
+
+        if (args.len >= 2) {
+            try self.emit("    const _maxsplit = @as(usize, @intCast(");
+            try self.genExpr(args[1]);
+            try self.emit("));\n");
+            try self.emit("    var _count: usize = 0;\n");
+            try self.emit("    var _end = _text.len;\n");
+            try self.emit("    while (_count < _maxsplit) {\n");
+            try self.emit("        if (std.mem.lastIndexOf(u8, _text[0.._end], _sep)) |idx| {\n");
+            try self.emit("            try _result.insert(__global_allocator, 0, _text[idx + _sep.len .. _end]);\n");
+            try self.emit("            _end = idx;\n");
+            try self.emit("            _count += 1;\n");
+            try self.emit("        } else break;\n");
+            try self.emit("    }\n");
+            try self.emit("    try _result.insert(__global_allocator, 0, _text[0.._end]);\n");
+        } else {
+            try self.emit("    var _iter = std.mem.splitSequence(u8, _text, _sep);\n");
+            try self.emit("    while (_iter.next()) |part| {\n");
+            try self.emit("        try _result.append(__global_allocator, part);\n");
+            try self.emit("    }\n");
+        }
+        try self.emitFmt("    break :rsplit_{d} _result;\n", .{label_id});
+    }
+    try self.emit("}");
+}
+
+/// Generate code for text.casefold()
+/// Returns casefolded string (aggressive lowercase for caseless matching)
+/// Note: For ASCII, casefold() is same as lower()
+pub fn genCasefold(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.emitFmt("casefold_{d}: {{\n", .{label_id});
+    try self.emit("    const _text = ");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+    try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
+    try self.emit("    for (_text, 0..) |c, i| {\n");
+    try self.emit("        _result[i] = std.ascii.toLower(c);\n");
+    try self.emit("    }\n");
+    try self.emitFmt("    break :casefold_{d} _result;\n", .{label_id});
+    try self.emit("}");
+}

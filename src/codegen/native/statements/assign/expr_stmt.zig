@@ -218,6 +218,11 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             break :blk true;
         }
 
+        // Pattern 4: Labeled blocks that return values (struct.pack, struct.unpack, struct.calcsize)
+        if (std.mem.indexOf(u8, generated, "struct_pack_blk:") != null) break :blk true;
+        if (std.mem.indexOf(u8, generated, "struct_unpack_blk:") != null) break :blk true;
+        if (std.mem.indexOf(u8, generated, "struct_calcsize_blk:") != null) break :blk true;
+
         break :blk false;
     };
 

@@ -23,11 +23,11 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
 
-    // Use unique buf name to avoid shadowing in nested format expressions
+    // Use unique buf AND writer names to avoid shadowing in nested format expressions
     // e.g., "%s" % repr(x) where repr(x) generates another format block
     try self.emitFmt("fmt_{d}: {{\n", .{label_id});
     try self.emitFmt("var __fmt_buf_{d} = std.ArrayList(u8){{}};\n", .{label_id});
-    try self.emitFmt("const writer = __fmt_buf_{d}.writer({s});\n", .{ label_id, alloc_name });
+    try self.emitFmt("const __writer_{d} = __fmt_buf_{d}.writer({s});\n", .{ label_id, label_id, alloc_name });
 
     // Check if right side is a tuple (multiple values)
     if (binop.right.* == .tuple) {
@@ -36,7 +36,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
         if (format_str) |fmt| {
             // Parse format string and match with tuple elements
             // Use catch unreachable since we're often inside non-error contexts like panic args
-            try self.emit("writer.print(\"");
+            try self.emitFmt("__writer_{d}.print(\"", .{label_id});
             // Convert Python format to Zig format
             var i: usize = 0;
             while (i < fmt.len) {
@@ -109,7 +109,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             try self.emit("}) catch unreachable;\n");
         } else {
             // Format string is a variable - use runtime formatting
-            try self.emit("writer.print(\"{any}\", .{");
+            try self.emitFmt("__writer_{d}.print(\"{{any}}\", .{{", .{label_id});
             try genExpr(self, binop.right.*);
             try self.emit("}) catch unreachable;\n");
         }
@@ -128,7 +128,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             }
 
             // Parse format string for output
-            try self.emit("writer.print(\"");
+            try self.emitFmt("__writer_{d}.print(\"", .{label_id});
             i = 0;
             while (i < fmt.len) {
                 if (fmt[i] == '%' and i + 1 < fmt.len) {
@@ -193,7 +193,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             try self.emit("}) catch unreachable;\n");
         } else {
             // Format string is a variable
-            try self.emit("writer.print(\"{any}\", .{");
+            try self.emitFmt("__writer_{d}.print(\"{{any}}\", .{{", .{label_id});
             try genExpr(self, binop.right.*);
             try self.emit("}) catch unreachable;\n");
         }

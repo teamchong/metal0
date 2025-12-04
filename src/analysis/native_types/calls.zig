@@ -73,6 +73,21 @@ pub fn inferCallWithInferrer(
             if (ti.ctypes_functions.get(func_name)) |ctypes_info| {
                 return ctypesToNativeType(ctypes_info.restype);
             }
+
+            // Check if this is a from-imported module function (e.g., datetime from "from datetime import datetime")
+            if (ti.from_imports.get(func_name)) |module_name| {
+                const result = try module_calls.inferModuleFunctionCall(
+                    allocator,
+                    var_types,
+                    class_fields,
+                    func_return_types,
+                    module_name,
+                    func_name,
+                );
+                if (@as(std.meta.Tag(NativeType), result) != .unknown) {
+                    return result;
+                }
+            }
         }
 
         return try builtin_calls.inferBuiltinCall(
@@ -160,6 +175,54 @@ pub fn inferCallWithInferrer(
             const module_name = attr.value.name.id;
             const func_name = attr.attr;
 
+            // Check for builtin type class methods (int.from_bytes, float.fromhex, etc.)
+            if (std.mem.eql(u8, module_name, "int") or std.mem.eql(u8, module_name, "bool")) {
+                if (std.mem.eql(u8, func_name, "from_bytes")) {
+                    return .{ .int = .bounded };
+                }
+                if (std.mem.eql(u8, func_name, "bit_length") or std.mem.eql(u8, func_name, "bit_count")) {
+                    return .{ .int = .bounded };
+                }
+            }
+            if (std.mem.eql(u8, module_name, "float")) {
+                if (std.mem.eql(u8, func_name, "fromhex")) {
+                    return .float;
+                }
+                if (std.mem.eql(u8, func_name, "is_integer")) {
+                    return .bool;
+                }
+                if (std.mem.eql(u8, func_name, "hex")) {
+                    return .{ .string = .runtime };
+                }
+            }
+            if (std.mem.eql(u8, module_name, "str")) {
+                if (std.mem.eql(u8, func_name, "maketrans")) {
+                    // Returns dict for translate()
+                    const key_type = try allocator.create(NativeType);
+                    key_type.* = .{ .int = .bounded };
+                    const val_type = try allocator.create(NativeType);
+                    val_type.* = .{ .int = .bounded };
+                    return .{ .dict = .{ .key = key_type, .value = val_type } };
+                }
+            }
+            if (std.mem.eql(u8, module_name, "bytes") or std.mem.eql(u8, module_name, "bytearray")) {
+                if (std.mem.eql(u8, func_name, "fromhex")) {
+                    return .{ .string = .runtime }; // bytes-like
+                }
+                if (std.mem.eql(u8, func_name, "maketrans")) {
+                    return .{ .string = .runtime }; // bytes translation table
+                }
+            }
+            if (std.mem.eql(u8, module_name, "dict")) {
+                if (std.mem.eql(u8, func_name, "fromkeys")) {
+                    const key_type = try allocator.create(NativeType);
+                    key_type.* = .{ .string = .runtime };
+                    const val_type = try allocator.create(NativeType);
+                    val_type.* = .none;
+                    return .{ .dict = .{ .key = key_type, .value = val_type } };
+                }
+            }
+
             // First check if this is a class instance method call
             const var_type = var_types.get(module_name) orelse .unknown;
             if (var_type == .class_instance) {
@@ -167,6 +230,30 @@ pub fn inferCallWithInferrer(
                 if (class_fields.get(class_name)) |class_info| {
                     if (class_info.methods.get(attr.attr)) |method_return_type| {
                         return method_return_type;
+                    }
+                }
+            }
+
+            // Check if module_name is a from-import that maps to a module class
+            // e.g., from datetime import datetime -> datetime.today() should use datetime.datetime.today
+            // e.g., from datetime import date -> date.today() should use datetime.date.today
+            if (type_inferrer) |ti| {
+                if (ti.from_imports.get(module_name)) |actual_module| {
+                    // Build compound name: actual_module.module_name (e.g., datetime.datetime, datetime.date)
+                    var compound_buf: [256]u8 = undefined;
+                    const compound_name = std.fmt.bufPrint(&compound_buf, "{s}.{s}", .{ actual_module, module_name }) catch "";
+                    if (compound_name.len > 0) {
+                        const result = try module_calls.inferModuleFunctionCall(
+                            allocator,
+                            var_types,
+                            class_fields,
+                            func_return_types,
+                            compound_name,
+                            func_name,
+                        );
+                        if (@as(std.meta.Tag(NativeType), result) != .unknown) {
+                            return result;
+                        }
                     }
                 }
             }

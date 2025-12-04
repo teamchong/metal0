@@ -44,6 +44,22 @@ const builtin_bases = std.StaticStringMap(B).initComptime(.{
     .{ "bytearray", B{ .zig_type = "[]const u8", .zig_init = "__value", .init_args = &[_]A{
         .{ .name = "__value", .zig_type = "[]const u8", .default = "\"\"" },
     } } },
+    // dict subclass - stores the dict value as PyValue
+    .{ "dict", B{ .zig_type = "runtime.PyValue", .zig_init = "runtime.PyValue.from(__value)", .init_args = &[_]A{
+        .{ .name = "__value", .zig_type = "anytype", .default = null },
+    } } },
+    // list subclass - stores the list value as PyValue
+    .{ "list", B{ .zig_type = "runtime.PyValue", .zig_init = "runtime.PyValue.from(__value)", .init_args = &[_]A{
+        .{ .name = "__value", .zig_type = "anytype", .default = null },
+    } } },
+    // tuple subclass - stores the tuple value as PyValue
+    .{ "tuple", B{ .zig_type = "runtime.PyValue", .zig_init = "runtime.PyValue.from(__value)", .init_args = &[_]A{
+        .{ .name = "__value", .zig_type = "anytype", .default = null },
+    } } },
+    // set subclass - stores the set value as PyValue
+    .{ "set", B{ .zig_type = "runtime.PyValue", .zig_init = "runtime.PyValue.from(__value)", .init_args = &[_]A{
+        .{ .name = "__value", .zig_type = "anytype", .default = null },
+    } } },
 });
 
 /// Complex parent types with multiple fields (like array.array)

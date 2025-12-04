@@ -20,6 +20,8 @@ const shared = @import("shared_maps.zig");
 const BinOpStrings = shared.BinOpStrings;
 
 /// Emit binary operator string (DRY helper)
+/// NOTE: Only use for operators that have direct Zig equivalents!
+/// Pow, Mod, FloorDiv need special handling (std.math.pow, @mod, @divFloor)
 fn emitBinOp(self: *NativeCodegen, op: ast.Operator) CodegenError!void {
     try self.emit(BinOpStrings.get(@tagName(op)) orelse " ? ");
 }
@@ -584,12 +586,36 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
                 try self.emit(prefix);
                 try self.emit(target_name);
                 try self.emit(" = ");
-                try self.emit(prefix);
-                try self.emit(target_name);
-                try emitBinOp(self, aug.op);
-                try self.emit("(");
-                try genExprInFrame(self, aug.value.*, frame_fields);
-                try self.emit(");\n");
+                // Handle special operators that need function calls
+                if (aug.op == .Pow) {
+                    try self.emit("std.math.pow(i64, ");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
+                    try genExprInFrame(self, aug.value.*, frame_fields);
+                    try self.emit(");\n");
+                } else if (aug.op == .Mod) {
+                    try self.emit("@mod(");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
+                    try genExprInFrame(self, aug.value.*, frame_fields);
+                    try self.emit(");\n");
+                } else if (aug.op == .FloorDiv) {
+                    try self.emit("@divFloor(");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
+                    try genExprInFrame(self, aug.value.*, frame_fields);
+                    try self.emit(");\n");
+                } else {
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try emitBinOp(self, aug.op);
+                    try self.emit("(");
+                    try genExprInFrame(self, aug.value.*, frame_fields);
+                    try self.emit(");\n");
+                }
             }
         },
         else => {
@@ -626,12 +652,36 @@ fn genStatementInFrameWithIndent(self: *NativeCodegen, stmt: ast.Node, frame_fie
                 try self.emit(prefix);
                 try self.emit(target_name);
                 try self.emit(" = ");
-                try self.emit(prefix);
-                try self.emit(target_name);
-                try emitBinOp(self, aug.op);
-                try self.emit("(");
-                try genExprInFrame(self, aug.value.*, frame_fields);
-                try self.emit(");\n");
+                // Handle special operators that need function calls
+                if (aug.op == .Pow) {
+                    try self.emit("std.math.pow(i64, ");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
+                    try genExprInFrame(self, aug.value.*, frame_fields);
+                    try self.emit(");\n");
+                } else if (aug.op == .Mod) {
+                    try self.emit("@mod(");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
+                    try genExprInFrame(self, aug.value.*, frame_fields);
+                    try self.emit(");\n");
+                } else if (aug.op == .FloorDiv) {
+                    try self.emit("@divFloor(");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
+                    try genExprInFrame(self, aug.value.*, frame_fields);
+                    try self.emit(");\n");
+                } else {
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try emitBinOp(self, aug.op);
+                    try self.emit("(");
+                    try genExprInFrame(self, aug.value.*, frame_fields);
+                    try self.emit(");\n");
+                }
             }
         },
         else => {
@@ -693,15 +743,38 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
         },
         .binop => |bin| {
             // Handle binary operations with frame variable references
-            // For division with mixed types, cast to f64
-            const is_div = bin.op == .Div;
-            try self.emit("(");
-            if (is_div) try self.emit("@as(f64, @floatFromInt(");
-            try genExprInFrame(self, bin.left.*, frame_fields);
-            if (is_div) try self.emit("))");
-            try emitBinOp(self, bin.op);
-            try genExprInFrame(self, bin.right.*, frame_fields);
-            try self.emit(")");
+            // Use @mod for modulo to handle signed integers properly
+            if (bin.op == .Mod) {
+                try self.emit("@mod(");
+                try genExprInFrame(self, bin.left.*, frame_fields);
+                try self.emit(", ");
+                try genExprInFrame(self, bin.right.*, frame_fields);
+                try self.emit(")");
+            } else if (bin.op == .Pow) {
+                // Zig doesn't have ** operator, use std.math.pow
+                try self.emit("std.math.pow(i64, ");
+                try genExprInFrame(self, bin.left.*, frame_fields);
+                try self.emit(", ");
+                try genExprInFrame(self, bin.right.*, frame_fields);
+                try self.emit(")");
+            } else if (bin.op == .FloorDiv) {
+                // Floor division uses @divFloor for Python semantics
+                try self.emit("@divFloor(");
+                try genExprInFrame(self, bin.left.*, frame_fields);
+                try self.emit(", ");
+                try genExprInFrame(self, bin.right.*, frame_fields);
+                try self.emit(")");
+            } else {
+                // For division with mixed types, cast to f64
+                const is_div = bin.op == .Div;
+                try self.emit("(");
+                if (is_div) try self.emit("@as(f64, @floatFromInt(");
+                try genExprInFrame(self, bin.left.*, frame_fields);
+                if (is_div) try self.emit("))");
+                try emitBinOp(self, bin.op);
+                try genExprInFrame(self, bin.right.*, frame_fields);
+                try self.emit(")");
+            }
         },
         .call => |call| {
             // Handle function calls with frame variable arguments
@@ -934,11 +1007,34 @@ fn genFrameExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             else => try self.emit("0"),
         },
         .binop => |bin| {
-            try self.emit("(");
-            try genFrameExpr(self, bin.left.*);
-            try emitBinOp(self, bin.op);
-            try genFrameExpr(self, bin.right.*);
-            try self.emit(")");
+            // Use @mod for modulo to handle signed integers properly
+            if (bin.op == .Mod) {
+                try self.emit("@mod(");
+                try genFrameExpr(self, bin.left.*);
+                try self.emit(", ");
+                try genFrameExpr(self, bin.right.*);
+                try self.emit(")");
+            } else if (bin.op == .Pow) {
+                // Zig doesn't have ** operator, use std.math.pow
+                try self.emit("std.math.pow(i64, ");
+                try genFrameExpr(self, bin.left.*);
+                try self.emit(", ");
+                try genFrameExpr(self, bin.right.*);
+                try self.emit(")");
+            } else if (bin.op == .FloorDiv) {
+                // Floor division uses @divFloor for Python semantics
+                try self.emit("@divFloor(");
+                try genFrameExpr(self, bin.left.*);
+                try self.emit(", ");
+                try genFrameExpr(self, bin.right.*);
+                try self.emit(")");
+            } else {
+                try self.emit("(");
+                try genFrameExpr(self, bin.left.*);
+                try emitBinOp(self, bin.op);
+                try genFrameExpr(self, bin.right.*);
+                try self.emit(")");
+            }
         },
         else => try self.emit("0"),
     }
@@ -1186,11 +1282,32 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
                 try self.emit("            ");
                 try self.emit(target_name);
                 try self.emit(" = ");
-                try self.emit(target_name);
-                try emitBinOp(self, aug.op);
-                try self.emit("(");
-                try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
-                try self.emit(");\n");
+                // Handle special operators that need function calls
+                if (aug.op == .Pow) {
+                    try self.emit("std.math.pow(i64, ");
+                    try self.emit(target_name);
+                    try self.emit(", ");
+                    try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
+                    try self.emit(");\n");
+                } else if (aug.op == .Mod) {
+                    try self.emit("@mod(");
+                    try self.emit(target_name);
+                    try self.emit(", ");
+                    try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
+                    try self.emit(");\n");
+                } else if (aug.op == .FloorDiv) {
+                    try self.emit("@divFloor(");
+                    try self.emit(target_name);
+                    try self.emit(", ");
+                    try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
+                    try self.emit(");\n");
+                } else {
+                    try self.emit(target_name);
+                    try emitBinOp(self, aug.op);
+                    try self.emit("(");
+                    try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
+                    try self.emit(");\n");
+                }
             }
         },
         .expr_stmt => |expr| {
@@ -1233,11 +1350,32 @@ fn genSyncExprInFrameWithLoopVar(self: *NativeCodegen, node: ast.Node, args: []a
             else => try self.emit("0"),
         },
         .binop => |bin| {
-            try self.emit("(");
-            try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
-            try emitBinOp(self, bin.op);
-            try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
-            try self.emit(")");
+            // Use @mod for modulo to handle signed integers properly
+            if (bin.op == .Mod) {
+                try self.emit("@mod(");
+                try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
+                try self.emit(", ");
+                try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
+                try self.emit(")");
+            } else if (bin.op == .Pow) {
+                try self.emit("std.math.pow(i64, ");
+                try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
+                try self.emit(", ");
+                try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
+                try self.emit(")");
+            } else if (bin.op == .FloorDiv) {
+                try self.emit("@divFloor(");
+                try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
+                try self.emit(", ");
+                try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
+                try self.emit(")");
+            } else {
+                try self.emit("(");
+                try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
+                try emitBinOp(self, bin.op);
+                try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
+                try self.emit(")");
+            }
         },
         .call => {
             // Delegate to genSyncExprInFrame for function calls
@@ -1266,11 +1404,32 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
             else => try self.emit("0"),
         },
         .binop => |bin| {
-            try self.emit("(");
-            try genSyncExprInFrame(self, bin.left.*, args);
-            try emitBinOp(self, bin.op);
-            try genSyncExprInFrame(self, bin.right.*, args);
-            try self.emit(")");
+            // Use @mod for modulo to handle signed integers properly
+            if (bin.op == .Mod) {
+                try self.emit("@mod(");
+                try genSyncExprInFrame(self, bin.left.*, args);
+                try self.emit(", ");
+                try genSyncExprInFrame(self, bin.right.*, args);
+                try self.emit(")");
+            } else if (bin.op == .Pow) {
+                try self.emit("std.math.pow(i64, ");
+                try genSyncExprInFrame(self, bin.left.*, args);
+                try self.emit(", ");
+                try genSyncExprInFrame(self, bin.right.*, args);
+                try self.emit(")");
+            } else if (bin.op == .FloorDiv) {
+                try self.emit("@divFloor(");
+                try genSyncExprInFrame(self, bin.left.*, args);
+                try self.emit(", ");
+                try genSyncExprInFrame(self, bin.right.*, args);
+                try self.emit(")");
+            } else {
+                try self.emit("(");
+                try genSyncExprInFrame(self, bin.left.*, args);
+                try emitBinOp(self, bin.op);
+                try genSyncExprInFrame(self, bin.right.*, args);
+                try self.emit(")");
+            }
         },
         .call => |call| {
             // Handle function calls with frame-aware argument generation

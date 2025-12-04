@@ -115,11 +115,12 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     };
 
     // If we found a __float__ method, generate method call
-    // __float__ takes no arguments (just self) and returns f64
+    // __float__ returns f64 - signature varies (some take allocator, some don't)
+    // Use runtime.floatBuiltinCall which handles both cases via @hasDecl
     if (has_magic_method and args[0] == .name) {
-        try self.emit("(");
+        try self.emit("(runtime.floatBuiltinCall(");
         try self.genExpr(args[0]);
-        try self.emit(".__float__())");
+        try self.emit(", .{}) catch 0.0)");
         return;
     }
 

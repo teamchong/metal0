@@ -38,8 +38,8 @@ pub fn emitComptimeAssignment(
             .int => try self.emit("i64"),
             .float => try self.emit("f64"),
             .bool => try self.emit("bool"),
-            .string => try self.emit("[]const u8"),
-            .list => |items| {
+            .string, .owned_string => try self.emit("[]const u8"),
+            .list, .owned_list => |items| {
                 if (items.len == 0) {
                     try self.emit("[0]i64"); // Empty list default type
                 } else {
@@ -48,8 +48,8 @@ pub fn emitComptimeAssignment(
                         .int => "i64",
                         .float => "f64",
                         .bool => "bool",
-                        .string => "[]const u8",
-                        .list => "ComptimeValue", // Nested lists not fully supported
+                        .string, .owned_string => "[]const u8",
+                        .list, .owned_list => "ComptimeValue", // Nested lists not fully supported
                     };
                     try self.output.writer(self.allocator).print("[{d}]{s}", .{ items.len, elem_type });
                 }
@@ -74,7 +74,7 @@ pub fn emitComptimeAssignment(
             const bool_str = if (v) "true" else "false";
             try self.emit(bool_str);
         },
-        .string => |v| {
+        .string, .owned_string => |v| {
             // Escape the string properly
             try self.emit("\"");
             for (v) |c| {
@@ -89,7 +89,7 @@ pub fn emitComptimeAssignment(
             }
             try self.emit("\"");
         },
-        .list => |items| {
+        .list, .owned_list => |items| {
             if (items.len == 0) {
                 try self.emit(".{}");
             } else {
@@ -111,8 +111,8 @@ pub fn emitComptimeAssignment(
                             const bool_str = if (v) "true" else "false";
                             try self.emit(bool_str);
                         },
-                        .string => |v| try self.output.writer(self.allocator).print("\"{s}\"", .{v}),
-                        .list => {
+                        .string, .owned_string => |v| try self.output.writer(self.allocator).print("\"{s}\"", .{v}),
+                        .list, .owned_list => {
                             // Nested lists not fully supported yet
                             try self.emit(".{}");
                         },
@@ -129,8 +129,8 @@ pub fn emitComptimeAssignment(
 /// Free memory allocated for comptime value
 pub fn freeComptimeValue(allocator: std.mem.Allocator, value: ComptimeValue) void {
     switch (value) {
-        .string => |s| allocator.free(s),
-        .list => |items| {
+        .string, .owned_string => |s| allocator.free(s),
+        .list, .owned_list => |items| {
             for (items) |item| {
                 freeComptimeValue(allocator, item);
             }

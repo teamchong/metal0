@@ -69,7 +69,8 @@ pub const BuiltinOps = struct {
                 break :blk ComptimeValue{ .string = result };
             },
             .bool => |b| ComptimeValue{ .string = if (b) "True" else "False" },
-            .list => null, // Cannot convert list to string
+            .list, .owned_list => null, // Cannot convert list to string
+            .owned_string => value, // Already owned, return as-is
         };
     }
 
@@ -91,7 +92,11 @@ pub const BuiltinOps = struct {
                 const result = std.fmt.parseInt(i64, s, 10) catch break :blk null;
                 break :blk ComptimeValue{ .int = result };
             },
-            .list => null, // Cannot convert list to int
+            .owned_string => |s| blk: {
+                const result = std.fmt.parseInt(i64, s, 10) catch break :blk null;
+                break :blk ComptimeValue{ .int = result };
+            },
+            .list, .owned_list => null, // Cannot convert list to int
         };
     }
 };

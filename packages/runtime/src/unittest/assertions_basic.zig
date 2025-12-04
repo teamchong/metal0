@@ -36,6 +36,61 @@ fn equalArrayList(a: anytype, b: anytype) bool {
     return true;
 }
 
+/// Helper to compare two HashMap instances by iterating their entries
+fn equalHashMap(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+
+    // Get count - use count() method only if it takes no arguments (hashmap style)
+    // Otherwise use .len field
+    const a_count = blk: {
+        if (@hasDecl(A, "count")) {
+            const fn_info = @typeInfo(@TypeOf(A.count)).@"fn";
+            // If count takes only self parameter (or no params for non-method), use it
+            if (fn_info.params.len <= 1) {
+                break :blk a.count();
+            }
+        }
+        if (@hasField(A, "len")) break :blk a.len;
+        return false;
+    };
+    const b_count = blk: {
+        if (@hasDecl(B, "count")) {
+            const fn_info = @typeInfo(@TypeOf(B.count)).@"fn";
+            if (fn_info.params.len <= 1) {
+                break :blk b.count();
+            }
+        }
+        if (@hasField(B, "len")) break :blk b.len;
+        return false;
+    };
+
+    // Different sizes mean not equal
+    if (a_count != b_count) return false;
+
+    // Empty maps are equal
+    if (a_count == 0) return true;
+
+    // Iterate over a and check each entry exists in b with same value
+    if (@hasDecl(A, "iterator")) {
+        var it = a.iterator();
+        while (it.next()) |entry| {
+            // Check if b has this key with same value
+            if (@hasDecl(B, "get")) {
+                const b_val = b.get(entry.key_ptr.*);
+                if (b_val == null) return false;
+                if (!std.meta.eql(entry.value_ptr.*, b_val.?)) return false;
+            } else {
+                return false; // b doesn't support get
+            }
+        }
+        return true;
+    }
+
+    // Fallback: try std.meta.eql
+    return std.meta.eql(a, b);
+}
+
 /// Compare values where one might be a string and the other a str subclass with __base_value__
 fn equalWithBaseValue(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
@@ -306,7 +361,8 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                 break :blk std.mem.eql(@TypeOf(a[0]), &a, &b);
             }
             if (a_info == .pointer and a_info.pointer.size == .slice) {
-                break :blk std.mem.eql(u8, a, b);
+                // Use actual element type, not hardcoded u8
+                break :blk std.mem.eql(a_info.pointer.child, a, b);
             }
             // Struct with eql method - use it for comparison
             if (a_info == .@"struct" and @hasDecl(A, "eql")) {
@@ -331,6 +387,10 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (a_info == .@"struct") {
                 break :blk std.meta.eql(a, b);
             }
+            // Union comparison (e.g., PyValue) using std.meta.eql
+            if (a_info == .@"union") {
+                break :blk std.meta.eql(a, b);
+            }
             break :blk a == b;
         }
 
@@ -340,6 +400,13 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                 @hasField(B, "items") and @hasField(B, "capacity"))
             {
                 break :blk equalArrayList(a, b);
+            }
+        }
+
+        // Tuple comparison - both structs that are tuples (potentially different types but same structure)
+        if (a_info == .@"struct" and b_info == .@"struct") {
+            if (a_info.@"struct".is_tuple and b_info.@"struct".is_tuple) {
+                break :blk equalTuples(a, b);
             }
         }
 
@@ -621,9 +688,23 @@ pub fn assertEqual(a: anytype, b: anytype) void {
     }
 }
 
-/// Assertion: assertTrue(x) - value must be true
-pub fn assertTrue(value: bool) void {
-    if (!value) {
+/// Assertion: assertTrue(x) - value must be truthy
+/// For tuples/structs: non-empty is truthy
+/// For bool: direct check
+/// For numbers: non-zero is truthy
+pub fn assertTrue(value: anytype) void {
+    const T = @TypeOf(value);
+    const is_truthy = switch (@typeInfo(T)) {
+        .bool => value,
+        .@"struct" => |info| info.fields.len > 0, // Non-empty tuple is truthy
+        .int, .comptime_int => value != 0,
+        .float, .comptime_float => value != 0.0,
+        .pointer => |ptr| if (ptr.size == .Slice) value.len > 0 else value != null,
+        .optional => value != null,
+        else => true, // Default to truthy for other types
+    };
+
+    if (!is_truthy) {
         std.debug.print("AssertionError: expected True, got False\n", .{});
         if (runner.global_result) |result| {
             result.addFail("assertTrue failed") catch {};
@@ -636,9 +717,23 @@ pub fn assertTrue(value: bool) void {
     }
 }
 
-/// Assertion: assertFalse(x) - value must be false
-pub fn assertFalse(value: bool) void {
-    if (value) {
+/// Assertion: assertFalse(x) - value must be falsy
+/// For tuples/structs: empty is falsy
+/// For bool: direct check
+/// For numbers: zero is falsy
+pub fn assertFalse(value: anytype) void {
+    const T = @TypeOf(value);
+    const is_truthy = switch (@typeInfo(T)) {
+        .bool => value,
+        .@"struct" => |info| info.fields.len > 0, // Non-empty tuple is truthy
+        .int, .comptime_int => value != 0,
+        .float, .comptime_float => value != 0.0,
+        .pointer => |ptr| if (ptr.size == .Slice) value.len > 0 else value != null,
+        .optional => value != null,
+        else => true, // Default to truthy for other types
+    };
+
+    if (is_truthy) {
         std.debug.print("AssertionError: expected False, got True\n", .{});
         if (runner.global_result) |result| {
             result.addFail("assertFalse failed") catch {};
@@ -750,7 +845,9 @@ pub fn assertLessEqual(a: anytype, b: anytype) void {
 
 /// Assertion: assertNotEqual(a, b) - values must NOT be equal
 pub fn assertNotEqual(a: anytype, b: anytype) void {
-    const equal = switch (@typeInfo(@TypeOf(a))) {
+    const A = @TypeOf(a);
+    const a_info = @typeInfo(A);
+    const equal = switch (a_info) {
         .int, .comptime_int => a == b,
         .float, .comptime_float => @abs(a - b) < 0.0001,
         .bool => a == b,
@@ -761,7 +858,26 @@ pub fn assertNotEqual(a: anytype, b: anytype) void {
             break :blk a == b;
         },
         .array => std.mem.eql(@TypeOf(a[0]), &a, &b),
-        else => a == b,
+        .@"struct" => blk: {
+            // ArrayList comparison - use items
+            if (@hasField(A, "items") and @hasField(A, "capacity")) {
+                break :blk equalArrayList(a, b);
+            }
+            // HashMap comparison - use count and iterator
+            if (@hasField(A, "entries") or @hasDecl(A, "count")) {
+                break :blk equalHashMap(a, b);
+            }
+            // Struct with eql method
+            if (@hasDecl(A, "eql")) {
+                break :blk a.eql(b);
+            }
+            // Generic struct - use std.meta.eql
+            break :blk std.meta.eql(a, b);
+        },
+        else => blk: {
+            // For types that don't support ==, try std.meta.eql
+            break :blk std.meta.eql(a, b);
+        },
     };
 
     if (equal) {
@@ -923,8 +1039,13 @@ pub fn assertIsNot(a: anytype, b: anytype) void {
             break :blk @intFromPtr(a) == @intFromPtr(b);
         }
 
-        // Same primitive type - compare values
+        // Same primitive type - compare values (only for comparable types)
         if (A == B) {
+            const type_info = @typeInfo(A);
+            // Structs (HashMap, ArrayList, etc.) don't support ==, use address comparison
+            if (type_info == .@"struct") {
+                break :blk @intFromPtr(&a) == @intFromPtr(&b);
+            }
             break :blk a == b;
         }
 
@@ -1028,18 +1149,24 @@ pub fn assertIn(item: anytype, container: anytype) void {
             }
             // HashMap: check keys using contains()
             else if (comptime @hasDecl(ContainerType, "contains")) {
-                // For float key hashmaps (u64 bit representation), convert item to bits
                 // Get the key type from the contains() function signature
                 const contains_info = @typeInfo(@TypeOf(ContainerType.contains));
                 const KeyType = if (contains_info == .@"fn" and contains_info.@"fn".params.len >= 2)
                     contains_info.@"fn".params[1].type orelse void
                 else
                     void;
-                if (comptime @TypeOf(item) == f64 and KeyType == u64) {
+                const ItemT = @TypeOf(item);
+                // Type conversion rules:
+                // - f64 -> u64 (bit representation for float keys)
+                // - matching types -> direct call
+                // - mismatched types -> false (cannot be in container)
+                if (comptime ItemT == f64 and KeyType == u64) {
                     break :elem_blk container.contains(@bitCast(item));
-                } else {
-                    // Try direct contains (may fail at compile time if types don't match)
+                } else if (comptime ItemT == KeyType) {
                     break :elem_blk container.contains(item);
+                } else {
+                    // Type mismatch - item cannot be found in this container
+                    break :elem_blk false;
                 }
             }
             // Tuple: use inline for
@@ -1121,18 +1248,24 @@ pub fn assertNotIn(item: anytype, container: anytype) void {
             }
             // HashMap: check keys using contains()
             else if (comptime @hasDecl(ContainerType, "contains")) {
-                // For float key hashmaps (u64 bit representation), convert item to bits
                 // Get the key type from the contains() function signature
                 const contains_info = @typeInfo(@TypeOf(ContainerType.contains));
                 const KeyType = if (contains_info == .@"fn" and contains_info.@"fn".params.len >= 2)
                     contains_info.@"fn".params[1].type orelse void
                 else
                     void;
-                if (comptime @TypeOf(item) == f64 and KeyType == u64) {
+                const ItemT = @TypeOf(item);
+                // Type conversion rules:
+                // - f64 -> u64 (bit representation for float keys)
+                // - matching types -> direct call
+                // - mismatched types -> false (cannot be in container)
+                if (comptime ItemT == f64 and KeyType == u64) {
                     break :elem_blk container.contains(@bitCast(item));
-                } else {
-                    // Try direct contains (may fail at compile time if types don't match)
+                } else if (comptime ItemT == KeyType) {
                     break :elem_blk container.contains(item);
+                } else {
+                    // Type mismatch - item cannot be found in this container
+                    break :elem_blk false;
                 }
             }
             // Tuple: use inline for

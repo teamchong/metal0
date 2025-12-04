@@ -432,6 +432,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "datetime", datetime_mod.Funcs },
     .{ "datetime.datetime", datetime_mod.DatetimeFuncs },
     .{ "datetime.date", datetime_mod.DateFuncs },
+    .{ "datetime.time", datetime_mod.TimeFuncs },
     .{ "io", io_mod.Funcs },
     .{ "collections", collections_mod.Funcs },
     .{ "functools", functools_mod.Funcs },
@@ -921,6 +922,48 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
                 return true;
             }
         }
+    }
+
+    // Handle datetime.timedelta with keyword arguments (days=, seconds=, microseconds=)
+    if (std.mem.eql(u8, module_name, "datetime") and std.mem.eql(u8, func_name, "timedelta")) {
+        // Initialize defaults
+        var days_expr: ?ast.Node = null;
+        var seconds_expr: ?ast.Node = null;
+        var microseconds_expr: ?ast.Node = null;
+
+        // Parse positional args (days, seconds, microseconds)
+        if (call.args.len >= 1) days_expr = call.args[0];
+        if (call.args.len >= 2) seconds_expr = call.args[1];
+        if (call.args.len >= 3) microseconds_expr = call.args[2];
+
+        // Parse keyword args
+        for (call.keyword_args) |kw| {
+            if (std.mem.eql(u8, kw.name, "days")) days_expr = kw.value;
+            if (std.mem.eql(u8, kw.name, "seconds")) seconds_expr = kw.value;
+            if (std.mem.eql(u8, kw.name, "microseconds")) microseconds_expr = kw.value;
+        }
+
+        // Generate timedelta struct
+        try self.emit("runtime.datetime.Timedelta{ .days = ");
+        if (days_expr) |d| {
+            try self.genExpr(d);
+        } else {
+            try self.emit("0");
+        }
+        try self.emit(", .seconds = ");
+        if (seconds_expr) |s| {
+            try self.genExpr(s);
+        } else {
+            try self.emit("0");
+        }
+        try self.emit(", .microseconds = ");
+        if (microseconds_expr) |ms| {
+            try self.genExpr(ms);
+        } else {
+            try self.emit("0");
+        }
+        try self.emit(" }");
+        return true;
     }
 
     // O(1) module lookup, then O(1) function lookup

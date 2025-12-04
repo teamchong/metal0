@@ -33,6 +33,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
 
     // Generate: const a = __unpack_tmp_N.@"0";  (for tuples)
     // or:       const a = __unpack_tmp_N[0];    (for lists/arrays)
+    // Use comptime type dispatch to handle PyValue from generators
     for (target_tuple.elts, 0..) |target, i| {
         if (target == .name) {
             const var_name = target.name.id;
@@ -46,7 +47,8 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 if (is_list_type) {
                     try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, i });
                 } else {
-                    try self.output.writer(self.allocator).print("_ = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                    // Use comptime type dispatch for PyValue from generators
+                    try self.output.writer(self.allocator).print("_ = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
                 }
                 continue;
             }
@@ -65,11 +67,12 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 try self.type_inferrer.var_types.put(var_name, source_type.array.element_type.*);
             }
 
-            // Check if var_name would shadow a module-level import or function
+            // Check if var_name would shadow a module-level import, function, or global var
             // If so, use a prefixed name to avoid Zig's "shadows declaration" error
             const shadows_import = self.imported_modules.contains(var_name);
             const shadows_module_func = self.module_level_funcs.contains(var_name);
-            if ((shadows_import or shadows_module_func) and !self.var_renames.contains(var_name)) {
+            const shadows_global = self.isGlobalVar(var_name);
+            if ((shadows_import or shadows_module_func or shadows_global) and !self.var_renames.contains(var_name)) {
                 const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
                 self.lambda_counter += 1;
                 try self.var_renames.put(var_name, prefixed_name);
@@ -97,8 +100,8 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 // Use .items[i] for ArrayLists: __unpack_tmp_N.items[i]
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
-                // Use tuple field access: __unpack_tmp_N.@"i"
-                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                // Use comptime type dispatch for PyValue from generators
+                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
             }
         } else if (target == .subscript) {
             // Handle subscript targets: rshape[n], lslices[n] = big, small
@@ -108,16 +111,49 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             if (is_list_type) {
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
-                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                // Use comptime type dispatch for PyValue from generators
+                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
             }
         } else if (target == .attribute) {
-            // Handle attribute targets: obj.x, obj.y = 1, 2
+            // Handle attribute targets: self.x, self.y = 1, 2, 3
+            const attr = target.attribute;
+
+            // Check if this is a dynamic attribute (needs __dict__.put())
+            const is_dynamic = blk: {
+                if (attr.value.* != .name) break :blk false;
+                const obj_type = self.inferExprScoped(attr.value.*) catch break :blk false;
+                if (obj_type != .class_instance) break :blk false;
+                const class_name = obj_type.class_instance;
+                // Check if class has this as a known field
+                if (self.type_inferrer.class_fields.get(class_name)) |info| {
+                    if (info.fields.get(attr.attr)) |_| {
+                        break :blk false; // Known field - static
+                    }
+                }
+                break :blk true; // Unknown field - dynamic
+            };
+
             try self.emitIndent();
-            try self.genExpr(target);
-            if (is_list_type) {
-                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+            if (is_dynamic) {
+                // Dynamic attribute: use __dict__.put()
+                // Generate the base object (e.g., 'a' for a.x, 'self' for self.x)
+                try self.emit("try @constCast(&");
+                try self.genExpr(attr.value.*);
+                try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
+                if (is_list_type) {
+                    try self.output.writer(self.allocator).print(".items[{d}]", .{i});
+                } else {
+                    try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
+                }
+                try self.emit("));\n");
             } else {
-                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                // Static attribute: direct field assignment
+                try self.genExpr(target);
+                if (is_list_type) {
+                    try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+                } else {
+                    try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                }
             }
         }
     }
@@ -175,6 +211,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
 
     // Generate: const a = __unpack_tmp_N.@"0";  (for tuples)
     // or:       const a = __unpack_tmp_N[0];    (for lists/arrays)
+    // Use comptime type dispatch to handle PyValue from generators
     for (target_list.elts, 0..) |target, i| {
         if (target == .name) {
             const var_name = target.name.id;
@@ -188,7 +225,8 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 if (is_list_type) {
                     try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, i });
                 } else {
-                    try self.output.writer(self.allocator).print("_ = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                    // Use comptime type dispatch for PyValue from generators
+                    try self.output.writer(self.allocator).print("_ = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
                 }
                 continue;
             }
@@ -228,8 +266,8 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 // Use .items[i] for ArrayLists: __unpack_tmp_N.items[i]
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
-                // Use tuple field access: __unpack_tmp_N.@"i"
-                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                // Use comptime type dispatch for PyValue from generators
+                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
             }
         } else if (target == .subscript) {
             // Handle subscript targets: rshape[n], lslices[n] = big, small
@@ -238,16 +276,49 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             if (is_list_type) {
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
-                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                // Use comptime type dispatch for PyValue from generators
+                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
             }
         } else if (target == .attribute) {
-            // Handle attribute targets: obj.x, obj.y = 1, 2
+            // Handle attribute targets: self.x, self.y = 1, 2, 3
+            const attr = target.attribute;
+
+            // Check if this is a dynamic attribute (needs __dict__.put())
+            const is_dynamic = blk: {
+                if (attr.value.* != .name) break :blk false;
+                const obj_type = self.inferExprScoped(attr.value.*) catch break :blk false;
+                if (obj_type != .class_instance) break :blk false;
+                const class_name = obj_type.class_instance;
+                // Check if class has this as a known field
+                if (self.type_inferrer.class_fields.get(class_name)) |info| {
+                    if (info.fields.get(attr.attr)) |_| {
+                        break :blk false; // Known field - static
+                    }
+                }
+                break :blk true; // Unknown field - dynamic
+            };
+
             try self.emitIndent();
-            try self.genExpr(target);
-            if (is_list_type) {
-                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+            if (is_dynamic) {
+                // Dynamic attribute: use __dict__.put()
+                // Generate the base object (e.g., 'a' for a.x, 'self' for self.x)
+                try self.emit("try @constCast(&");
+                try self.genExpr(attr.value.*);
+                try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
+                if (is_list_type) {
+                    try self.output.writer(self.allocator).print(".items[{d}]", .{i});
+                } else {
+                    try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
+                }
+                try self.emit("));\n");
             } else {
-                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                // Static attribute: direct field assignment
+                try self.genExpr(target);
+                if (is_list_type) {
+                    try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+                } else {
+                    try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
+                }
             }
         }
     }
@@ -304,11 +375,12 @@ pub fn emitVarDeclaration(
         return;
     }
 
-    // Check if var_name would shadow a module-level import or function
+    // Check if var_name would shadow a module-level import, function, or global var
     // If so, use a prefixed name to avoid Zig's "shadows declaration" error
     const shadows_import = self.imported_modules.contains(var_name);
     const shadows_module_func = self.module_level_funcs.contains(var_name);
-    if ((shadows_import or shadows_module_func) and !self.var_renames.contains(var_name)) {
+    const shadows_global = self.isGlobalVar(var_name);
+    if ((shadows_import or shadows_module_func or shadows_global) and !self.var_renames.contains(var_name)) {
         // Create a unique prefixed name
         const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
         self.lambda_counter += 1;
@@ -631,6 +703,12 @@ pub fn trackVariableMetadata(
 
     // Track dict literal variables (generates HashMap)
     if (is_first_assignment and assign.value.* == .dict) {
+        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        try self.dict_vars.put(var_name_copy, {});
+    }
+
+    // Track dict-like calls: dict(), Counter(), defaultdict(), OrderedDict(), etc.
+    if (is_first_assignment and type_handling.isDictLikeCall(assign.value.*)) {
         const var_name_copy = try self.allocator.dupe(u8, var_name);
         try self.dict_vars.put(var_name_copy, {});
     }

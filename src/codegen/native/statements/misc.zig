@@ -6,6 +6,9 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const shared = @import("../shared_maps.zig");
 const ExceptionTypes = shared.RuntimeExceptions;
+const var_hoisting = @import("functions/var_hoisting.zig");
+const scope_analyzer = @import("functions/scope_analyzer.zig");
+const hashmap_helper = @import("hashmap_helper");
 
 // Re-export print statement generation
 pub const genPrint = @import("print.zig").genPrint;
@@ -63,6 +66,14 @@ const ComparisonMagicMethods = std.StaticStringMap(void).initComptime(.{
 
 /// Generate return statement with tail-call optimization
 pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
+    // Emit pending discards BEFORE the return statement
+    // This handles unused local variables in closures that return early
+    // e.g., def f(): msg = "..."; return self.assertRaisesRegex(...) -> msg unused
+    try self.emitPendingDiscards();
+
+    // Mark control flow as terminated on any exit path
+    defer self.control_flow_terminated = true;
+
     try self.emitIndent();
 
     if (ret.value) |value| {
@@ -255,11 +266,51 @@ pub fn genGlobal(self: *NativeCodegen, global_node: ast.Node.GlobalStmt) Codegen
 }
 
 /// Generate del statement
-/// In Python, del is mostly a memory hint. In AOT compilation, emit as comment.
+/// Handles: del dict[key] -> dict.remove(key)
+///          del list[idx] -> list orderedRemove
+///          del var -> no-op (variable scope, memory hint)
 pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
-    _ = del_node; // del is a no-op in compiled code
-    try self.emitIndent();
-    try self.emit("// del statement (no-op in AOT)\n");
+    for (del_node.targets) |target| {
+        try self.emitIndent();
+        switch (target) {
+            .subscript => |sub| {
+                // del dict[key] or del list[idx]
+                // Generate: _ = dict.fetchSwapRemove(key) or _ = list.orderedRemove(idx)
+                switch (sub.slice) {
+                    .index => |idx| {
+                        try self.emit("_ = ");
+                        try self.genExpr(sub.value.*);
+                        // For dicts, use fetchSwapRemove (returns removed value or null)
+                        try self.emit(".fetchSwapRemove(");
+                        try self.genExpr(idx.*);
+                        try self.emit(");\n");
+                    },
+                    .slice => {
+                        // del list[a:b] - slice deletion not supported in AOT
+                        try self.emit("// del slice (not supported in AOT)\n");
+                    },
+                }
+            },
+            .attribute => |attr| {
+                // del obj.attr - no-op in compiled code (would need dynamic attr deletion)
+                try self.emit("// del ");
+                try self.genExpr(attr.value.*);
+                try self.emit(".");
+                try self.emit(attr.attr);
+                try self.emit(" (no-op in AOT)\n");
+            },
+            .name => {
+                // del var - just a memory hint in Python, no-op in compiled code
+                try self.emit("// del ");
+                try self.emit(target.name.id);
+                try self.emit(" (no-op in AOT)\n");
+            },
+            else => {
+                // Unsupported target type
+                try self.emit("// del statement (no-op in AOT)\n");
+            },
+        }
+    }
 }
 
 /// Generate assert statement
@@ -289,6 +340,155 @@ pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenErro
     try self.emit("}\n");
 }
 
+
+/// Check if a variable name is used in an expression
+fn exprUsesVar(expr: ast.Node, var_name: []const u8) bool {
+    return switch (expr) {
+        .name => |n| std.mem.eql(u8, n.id, var_name),
+        .attribute => |a| exprUsesVar(a.value.*, var_name),
+        .subscript => |s| blk: {
+            if (exprUsesVar(s.value.*, var_name)) break :blk true;
+            switch (s.slice) {
+                .index => |idx| break :blk exprUsesVar(idx.*, var_name),
+                .slice => |sl| {
+                    if (sl.lower) |l| if (exprUsesVar(l.*, var_name)) break :blk true;
+                    if (sl.upper) |u| if (exprUsesVar(u.*, var_name)) break :blk true;
+                    if (sl.step) |st| if (exprUsesVar(st.*, var_name)) break :blk true;
+                    break :blk false;
+                },
+            }
+        },
+        .call => |c| blk: {
+            if (exprUsesVar(c.func.*, var_name)) break :blk true;
+            for (c.args) |arg| {
+                if (exprUsesVar(arg, var_name)) break :blk true;
+            }
+            for (c.keyword_args) |kw| {
+                if (exprUsesVar(kw.value, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .binop => |b| exprUsesVar(b.left.*, var_name) or exprUsesVar(b.right.*, var_name),
+        .unaryop => |u| exprUsesVar(u.operand.*, var_name),
+        .boolop => |b| blk: {
+            for (b.values) |v| {
+                if (exprUsesVar(v, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .compare => |c| blk: {
+            if (exprUsesVar(c.left.*, var_name)) break :blk true;
+            for (c.comparators) |comp| {
+                if (exprUsesVar(comp, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .if_expr => |i| exprUsesVar(i.condition.*, var_name) or exprUsesVar(i.body.*, var_name) or exprUsesVar(i.orelse_value.*, var_name),
+        .list => |l| blk: {
+            for (l.elts) |e| {
+                if (exprUsesVar(e, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |e| {
+                if (exprUsesVar(e, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys) |k| {
+                if (exprUsesVar(k, var_name)) break :blk true;
+            }
+            for (d.values) |v| {
+                if (exprUsesVar(v, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .fstring => |f| blk: {
+            for (f.parts) |p| {
+                switch (p) {
+                    .expr => |e| if (exprUsesVar(e.*, var_name)) break :blk true,
+                    .format_expr => |fe| if (exprUsesVar(fe.expr.*, var_name)) break :blk true,
+                    .conv_expr => |ce| if (exprUsesVar(ce.expr.*, var_name)) break :blk true,
+                    .literal => {},
+                }
+            }
+            break :blk false;
+        },
+        .lambda => |l| exprUsesVar(l.body.*, var_name),
+        .starred => |s| exprUsesVar(s.value.*, var_name),
+        .double_starred => |ds| exprUsesVar(ds.value.*, var_name),
+        else => false,
+    };
+}
+
+/// Check if a variable name is used in a statement
+fn stmtUsesVar(stmt: ast.Node, var_name: []const u8) bool {
+    return switch (stmt) {
+        .expr_stmt => |e| exprUsesVar(e.value.*, var_name),
+        .assign => |a| blk: {
+            if (exprUsesVar(a.value.*, var_name)) break :blk true;
+            for (a.targets) |t| {
+                if (exprUsesVar(t, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .aug_assign => |a| exprUsesVar(a.target.*, var_name) or exprUsesVar(a.value.*, var_name),
+        .if_stmt => |i| blk: {
+            if (exprUsesVar(i.condition.*, var_name)) break :blk true;
+            for (i.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            for (i.else_body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            if (exprUsesVar(f.iter.*, var_name)) break :blk true;
+            for (f.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            if (exprUsesVar(w.condition.*, var_name)) break :blk true;
+            for (w.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .return_stmt => |r| if (r.value) |v| exprUsesVar(v.*, var_name) else false,
+        .with_stmt => |w| blk: {
+            if (exprUsesVar(w.context_expr.*, var_name)) break :blk true;
+            for (w.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            for (t.handlers) |h| {
+                for (h.body) |s| {
+                    if (stmtUsesVar(s, var_name)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+/// Check if a variable is used in a list of statements
+fn varUsedInStatements(body: []const ast.Node, var_name: []const u8) bool {
+    for (body) |stmt| {
+        if (stmtUsesVar(stmt, var_name)) return true;
+    }
+    return false;
+}
 
 /// Check if with expression is a unittest context manager that should be skipped
 /// Check if context manager is assertRaises or assertRaisesRegex (needs error handling)
@@ -368,12 +568,22 @@ fn isUnittestContextManager(expr: ast.Node) bool {
 /// This handles both direct assignments and nested with statements
 /// Uses @TypeOf(init_expr) for comptime type inference instead of guessing
 fn hoistWithBodyVars(self: *NativeCodegen, body: []const ast.Node) CodegenError!void {
+    hoistWithBodyVarsSkipping(self, body, null) catch {};
+}
+
+/// Internal helper that tracks for-loop target to skip hoisting reassignments
+fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_var: ?[]const u8) CodegenError!void {
     for (body) |stmt| {
         if (stmt == .assign) {
             if (stmt.assign.targets.len > 0) {
                 const target = stmt.assign.targets[0];
                 if (target == .name) {
                     const var_name = target.name.id;
+                    // Skip hoisting if this is a reassignment of the for-loop variable
+                    // e.g., `for line in file: line = line.strip()` - don't hoist line
+                    if (skip_var) |skip| {
+                        if (std.mem.eql(u8, var_name, skip)) continue;
+                    }
                     // Use @TypeOf(value_expr) for proper type inference
                     try hoistVarWithExpr(self, var_name, stmt.assign.value);
                 }
@@ -446,8 +656,8 @@ fn hoistWithBodyVars(self: *NativeCodegen, body: []const ast.Node) CodegenError!
             // For loop inside with body - hoist the loop variable if iterating over tuple
             // Tuple iteration uses inline for, which requires the variable to be declared before the loop
             const for_s = stmt.for_stmt;
-            if (for_s.target.* == .name) {
-                const var_name = for_s.target.name.id;
+            const for_target_name: ?[]const u8 = if (for_s.target.* == .name) for_s.target.name.id else null;
+            if (for_target_name) |var_name| {
                 // Check if iterating over tuple literal (definitely needs hoisting)
                 if (for_s.iter.* == .tuple) {
                     // Hoist tuple iteration variable - determine type from tuple elements
@@ -473,18 +683,27 @@ fn hoistWithBodyVars(self: *NativeCodegen, body: []const ast.Node) CodegenError!
                     }
                 }
             }
-            // Also recurse into for loop body to hoist nested variables
-            try hoistWithBodyVars(self, for_s.body);
+            // Recurse into for loop body, skipping assignments to the loop variable
+            // e.g., `for line in file: line = line.strip()` - don't hoist line
+            try hoistWithBodyVarsSkipping(self, for_s.body, for_target_name);
         } else if (stmt == .if_stmt) {
-            // Recurse into if/else bodies
-            try hoistWithBodyVars(self, stmt.if_stmt.body);
-            try hoistWithBodyVars(self, stmt.if_stmt.else_body);
+            // Recurse into if/else bodies (pass through skip_var)
+            try hoistWithBodyVarsSkipping(self, stmt.if_stmt.body, skip_var);
+            try hoistWithBodyVarsSkipping(self, stmt.if_stmt.else_body, skip_var);
         }
     }
 }
 
 /// Hoist a variable with @TypeOf(expr) for comptime type inference
 fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *const ast.Node) CodegenError!void {
+    // Skip hoisting function aliases - the assignment will be skipped too
+    // e.g., `permutations = rpermutation` inside if block - rpermutation is a module-level function
+    if (init_expr.* == .name) {
+        if (self.module_level_funcs.contains(init_expr.name.id)) {
+            return; // Don't hoist - functions are compile-time constants
+        }
+    }
+
     // Only hoist if not already declared in scope or previously hoisted
     if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
         // Check if var_name shadows a module-level function
@@ -499,16 +718,53 @@ fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *cons
             actual_name = renamed;
         }
 
+        // Check for self-reference (e.g., `line = line.strip()`)
+        // This would cause circular reference in @TypeOf - use fallback type instead
+        const has_self_reference = var_hoisting.exprContainsName(init_expr, var_name);
+
+        // Build safe vars from module-level functions (always available)
+        var safe_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+        defer safe_vars.deinit();
+        var mod_iter = self.module_level_funcs.iterator();
+        while (mod_iter.next()) |entry| {
+            try safe_vars.put(entry.key_ptr.*, {});
+        }
+
         try self.emitIndent();
         try self.emit("var ");
         try self.emit(actual_name);
-        try self.emit(": @TypeOf(");
-        try self.genExpr(init_expr.*);
-        try self.emit(") = undefined;\n");
+
+        if (!has_self_reference and var_hoisting.initExprIsSafe(init_expr, &safe_vars)) {
+            // Safe to use @TypeOf - no forward references and no self-references
+            try self.emit(": @TypeOf(");
+            try self.genExpr(init_expr.*);
+            try self.emit(")");
+        } else {
+            // Has forward refs or self-reference - use fallback type
+            const fallback = var_hoisting.inferFallbackType(init_expr, .for_loop);
+            try self.emit(": ");
+            try self.emit(fallback);
+        }
+
+        try self.emit(" = undefined;\n");
 
         // Mark as hoisted so assignment generation skips declaration
         try self.hoisted_vars.put(var_name, {});
     }
+}
+
+/// Hoist a variable with @TypeOf(expr) using the exact name provided (for renamed vars)
+/// Unlike hoistVarWithExpr, this skips isDeclared/hoisted checks (caller already verified)
+fn hoistVarWithExprDirect(self: *NativeCodegen, actual_name: []const u8, init_expr: *const ast.Node) CodegenError!void {
+    try self.emitIndent();
+    try self.emit("var ");
+    try self.emit(actual_name);
+    try self.emit(": @TypeOf(");
+    try self.genExpr(init_expr.*);
+    try self.emit(") = undefined;\n");
+
+    // Mark original name as hoisted (caller should handle the original->renamed mapping)
+    try self.hoisted_vars.put(actual_name, {});
 }
 
 /// Generate with statement (context manager)
@@ -518,19 +774,35 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
     // Skip unittest context managers (assertWarns, assertRaises, etc.)
     // These are test helpers that don't have runtime implementations yet
     if (isUnittestContextManager(with_node.context_expr.*)) {
-        // Consume the arguments to avoid "unused local constant" errors
-        // e.g., with self.assertRaisesRegex(TypeError, msg): -> _ = msg;
-        // But only if the variable is truly unused (checked via semantic analysis)
+        // Since we're skipping this context manager call, we need to consume any
+        // variables used in its arguments that aren't used elsewhere.
+        // e.g., with self.assertRaisesRegex(TypeError, msg): -> _ = msg; (if msg not used in body)
+        // e.g., with self.subTest(range=rng_name): -> _ = rng_name; (if rng_name not used in body)
+        // Only discard if the variable is NOT used in the with body.
         if (with_node.context_expr.* == .call) {
             const call = with_node.context_expr.call;
             for (call.args) |arg| {
-                // Only emit discard for name references (variables) that are unused
+                // Emit discard for name references that aren't used in the body
+                // Skip built-in exception/warning types (e.g., DeprecationWarning)
                 if (arg == .name) {
                     const var_name = arg.name.id;
-                    if (self.isVarUnused(var_name)) {
+                    if (ExceptionTypes.has(var_name)) continue;
+                    if (!varUsedInStatements(with_node.body, var_name)) {
                         try self.emitIndent();
                         try self.emit("_ = ");
                         try self.genExpr(arg);
+                        try self.emit(";\n");
+                    }
+                }
+            }
+            // Also handle keyword arguments (e.g., subTest(range=rng_name))
+            for (call.keyword_args) |kw| {
+                if (kw.value == .name) {
+                    const var_name = kw.value.name.id;
+                    if (!varUsedInStatements(with_node.body, var_name)) {
+                        try self.emitIndent();
+                        try self.emit("_ = ");
+                        try self.genExpr(kw.value);
                         try self.emit(";\n");
                     }
                 }
@@ -653,6 +925,43 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         return;
     }
 
+    // Track shadow rename info for restoration after body
+    var with_shadow_original_name: ?[]const u8 = null;
+    var with_shadow_old_rename: ?[]const u8 = null;
+    var with_shadow_active: bool = false;
+
+    // IMPORTANT: Set up shadow rename BEFORE hoisting when inside a nested function
+    // This ensures the hoisted declaration uses the shadow name too
+    if (with_node.optional_vars) |target| {
+        if (target.* == .name) {
+            const var_name = target.name.id;
+            const is_declared = self.isDeclared(var_name);
+            const is_hoisted = self.hoisted_vars.contains(var_name);
+            const needs_var = !is_declared and !is_hoisted;
+
+            // Set up shadow rename FIRST if inside nested function
+            if (self.inside_nested_function and needs_var) {
+                const shadow_rename = try std.fmt.allocPrint(self.allocator, "__with_{s}_{d}", .{ var_name, self.lambda_counter });
+                self.lambda_counter += 1;
+                with_shadow_original_name = var_name;
+                with_shadow_old_rename = self.var_renames.get(var_name);
+                with_shadow_active = true;
+                try self.var_renames.put(var_name, shadow_rename);
+            }
+
+            // Now hoist with the (possibly renamed) variable
+            // Pass the renamed name if we set one up, so hoistVarWithExpr can check correctly
+            if (needs_var) {
+                const hoist_name = self.var_renames.get(var_name) orelse var_name;
+                try hoistVarWithExprDirect(self, hoist_name, with_node.context_expr);
+            }
+        }
+    }
+
+    // Python semantics: variables assigned inside with blocks are accessible after the block ends
+    // We MUST hoist these variables BEFORE opening the block scope
+    try hoistWithBodyVars(self, with_node.body);
+
     // If there's a target (as f) or (as (a, b)), declare it at current scope
     if (with_node.optional_vars) |target| {
         // Infer the type of the context expression
@@ -660,42 +969,49 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 
         if (target.* == .name) {
             // Simple name target: `with ctx() as f:`
-            const var_name = target.name.id;
-            const is_declared = self.isDeclared(var_name);
-            const is_hoisted = self.hoisted_vars.contains(var_name);
-            const needs_var = !is_declared and !is_hoisted;
+            const original_name = target.name.id;
+            // Use renamed name if we set up a shadow rename earlier
+            const var_name = self.var_renames.get(original_name) orelse original_name;
 
             try self.type_inferrer.var_types.put(var_name, context_type);
 
-            // Declare variable at outer scope so it's accessible after with block
-            try self.emitIndent();
-            if (needs_var) {
-                try self.emit("const ");
-            }
-            try self.emit(var_name);
-            try self.emit(" = ");
-            try self.genExpr(with_node.context_expr.*);
-            try self.emit(";\n");
+            // NOTE: with-target variable was already hoisted BEFORE hoistWithBodyVars
+            // (at the start of genWith) to ensure body variables can reference it
 
-            if (needs_var) {
-                try self.declareVar(var_name);
-            }
-
-            // Open a block for defer scope
+            // Open a block for defer scope - the defer will close the file at end of body
             try self.emitIndent();
             try self.emit("{\n");
             self.indent();
 
-            // Add defer for cleanup
+            // For file types, assign directly and defer close
+            // For other context managers, call __enter__() and defer __exit__()
             try self.emitIndent();
             if (context_type == .file) {
+                // File context manager - assign directly, it returns self from __enter__
+                try self.emit(var_name);
+                try self.emit(" = ");
+                try self.genExpr(with_node.context_expr.*);
+                try self.emit(";\n");
+                try self.emitIndent();
                 try self.emit("defer runtime.PyFile.close(");
                 try self.emit(var_name);
                 try self.emit(");\n");
             } else {
-                try self.emit("defer ");
+                // General context manager - store CM, call __enter__(), defer __exit__()
+                // Use var since __enter__/__exit__ may take *@This() (mutable self)
+                // Use unique name for nested with statements
+                const cm_id = self.lambda_counter;
+                self.lambda_counter += 1;
+                try self.output.writer(self.allocator).print("var __with_cm_{d} = ", .{cm_id});
+                try self.genExpr(with_node.context_expr.*);
+                try self.emit(";\n");
+                // Defer __exit__ before calling __enter__ (Python semantics)
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("defer {{ _ = __with_cm_{d}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{cm_id});
+                // Call __enter__() and assign result to target variable
+                try self.emitIndent();
                 try self.emit(var_name);
-                try self.emit(".close();\n");
+                try self.output.writer(self.allocator).print(" = try __with_cm_{d}.__enter__(__global_allocator);\n", .{cm_id});
             }
         } else if (target.* == .tuple or target.* == .list) {
             // Tuple/list unpacking target: `with ctx() as (a, b):`
@@ -708,23 +1024,35 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             self.indent();
 
             // Store the context manager itself (for cleanup)
+            // Use var since __enter__/__exit__ may take *@This() (mutable self)
+            // Use unique name for nested with statements
+            const cm_id = self.lambda_counter;
+            self.lambda_counter += 1;
             try self.emitIndent();
-            try self.emit("const __with_cm = ");
+            if (context_type == .file) {
+                try self.output.writer(self.allocator).print("const __with_cm_{d} = ", .{cm_id});
+            } else {
+                try self.output.writer(self.allocator).print("var __with_cm_{d} = ", .{cm_id});
+            }
             try self.genExpr(with_node.context_expr.*);
             try self.emit(";\n");
 
             // Add defer for cleanup (calls __exit__ / close on the context manager)
             try self.emitIndent();
             if (context_type == .file) {
-                try self.emit("defer runtime.PyFile.close(__with_cm);\n");
+                try self.output.writer(self.allocator).print("defer runtime.PyFile.close(__with_cm_{d});\n", .{cm_id});
             } else {
-                try self.emit("defer __with_cm.close();\n");
+                try self.output.writer(self.allocator).print("defer {{ _ = __with_cm_{d}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{cm_id});
             }
 
             // Call __enter__() to get the value to unpack
             // For most context managers, __enter__() returns a tuple/value
             try self.emitIndent();
-            try self.emit("const __with_val = __with_cm.__enter__();\n");
+            if (context_type == .file) {
+                try self.output.writer(self.allocator).print("const __with_val_{d} = __with_cm_{d};\n", .{ cm_id, cm_id });
+            } else {
+                try self.output.writer(self.allocator).print("const __with_val_{d} = try __with_cm_{d}.__enter__(__global_allocator);\n", .{ cm_id, cm_id });
+            }
 
             // Unpack tuple elements from __enter__()'s return value
             for (elts, 0..) |elt, i| {
@@ -738,7 +1066,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         try self.emit("const ");
                     }
                     try self.emit(elt_name);
-                    try self.output.writer(self.allocator).print(" = __with_val[{d}];\n", .{i});
+                    try self.output.writer(self.allocator).print(" = __with_val_{d}[{d}];\n", .{ cm_id, i });
 
                     if (!is_declared and !is_hoisted) {
                         try self.declareVar(elt_name);
@@ -747,15 +1075,28 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             }
         } else {
             // Unsupported target type - just open block and generate context
+            // Use unique name for nested with statements
+            const cm_id = self.lambda_counter;
+            self.lambda_counter += 1;
             try self.emitIndent();
             try self.emit("{\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("const __with_ctx = ");
+            if (context_type == .file) {
+                try self.output.writer(self.allocator).print("const __with_ctx_{d} = ", .{cm_id});
+            } else {
+                try self.output.writer(self.allocator).print("var __with_ctx_{d} = ", .{cm_id});
+            }
             try self.genExpr(with_node.context_expr.*);
             try self.emit(";\n");
             try self.emitIndent();
-            try self.emit("defer __with_ctx.close();\n");
+            if (context_type == .file) {
+                try self.output.writer(self.allocator).print("defer runtime.PyFile.close(__with_ctx_{d});\n", .{cm_id});
+            } else {
+                try self.output.writer(self.allocator).print("defer {{ _ = __with_ctx_{d}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{cm_id});
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("_ = try __with_ctx_{d}.__enter__(__global_allocator);\n", .{cm_id});
+            }
         }
     } else {
         // No variable - just execute context expression and defer cleanup
@@ -764,15 +1105,31 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         // to be used after the block ends
         try hoistWithBodyVars(self, with_node.body);
 
+        // Infer type for cleanup strategy
+        const context_type = try self.type_inferrer.inferExpr(with_node.context_expr.*);
+
+        // Use unique name for nested with statements
+        const cm_id = self.lambda_counter;
+        self.lambda_counter += 1;
         try self.emitIndent();
         try self.emit("{\n");
         self.indent();
         try self.emitIndent();
-        try self.emit("const __ctx = ");
+        if (context_type == .file) {
+            try self.output.writer(self.allocator).print("const __ctx_{d} = ", .{cm_id});
+        } else {
+            try self.output.writer(self.allocator).print("var __ctx_{d} = ", .{cm_id});
+        }
         try self.genExpr(with_node.context_expr.*);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.emit("defer __ctx.close();\n");
+        if (context_type == .file) {
+            try self.output.writer(self.allocator).print("defer runtime.PyFile.close(__ctx_{d});\n", .{cm_id});
+        } else {
+            try self.output.writer(self.allocator).print("defer {{ _ = __ctx_{d}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{cm_id});
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("_ = try __ctx_{d}.__enter__(__global_allocator);\n", .{cm_id});
+        }
     }
 
     // Generate body
@@ -790,6 +1147,16 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         }
     }
 
+    // Restore var_renames after with body if we added a shadow rename
+    // This ensures the rename only applies within the with block body
+    if (with_shadow_active) {
+        if (with_shadow_old_rename) |old| {
+            try self.var_renames.put(with_shadow_original_name.?, old);
+        } else {
+            _ = self.var_renames.swapRemove(with_shadow_original_name.?);
+        }
+    }
+
     // Close block for both cases - with variable and without
     // When there's a variable, we opened a block for defer scope
     // When there's no variable, we also opened a block
@@ -804,6 +1171,15 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 /// NOTE: We use Zig errors so try/except can catch them. The error message is lost,
 /// but exception handling works correctly.
 pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!void {
+    // Cannot return from defer in Zig - skip raise inside finally blocks
+    // In Python, raise inside finally replaces the pending exception
+    // In our generated code, the exception will propagate after defer completes
+    if (self.inside_defer) {
+        try self.emitIndent();
+        try self.emit("// raise inside finally - error propagates after defer\n");
+        return;
+    }
+
     try self.emitIndent();
 
     if (raise_node.exc) |exc| {
@@ -818,6 +1194,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                     try self.emit("return error.");
                     try self.emit(exc_name);
                     try self.emit(";\n");
+                    self.control_flow_terminated = true;
                     return;
                 }
             }
@@ -830,6 +1207,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                 try self.emit("return error.");
                 try self.emit(exc_name);
                 try self.emit(";\n");
+                self.control_flow_terminated = true;
                 return;
             }
         }
@@ -839,4 +1217,5 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         // bare raise - use generic error
         try self.emit("return error.Exception;\n");
     }
+    self.control_flow_terminated = true;
 }

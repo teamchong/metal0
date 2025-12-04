@@ -167,12 +167,12 @@ pub const ComptimeEvaluator = struct {
                 .bool => |r| l == r,
                 else => false,
             },
-            .string => |l| switch (right) {
-                .string => |r| std.mem.eql(u8, l, r),
+            .string, .owned_string => |l| switch (right) {
+                .string, .owned_string => |r| std.mem.eql(u8, l, r),
                 else => false,
             },
-            .list => |l| switch (right) {
-                .list => |r| blk: {
+            .list, .owned_list => |l| switch (right) {
+                .list, .owned_list => |r| blk: {
                     if (l.len != r.len) break :blk false;
                     for (l, r) |left_item, right_item| {
                         const item_eq = self.evalEq(left_item, right_item) orelse break :blk false;
@@ -204,8 +204,8 @@ pub const ComptimeEvaluator = struct {
                 .float => |r| ComptimeValue{ .bool = l < r },
                 else => null,
             },
-            .string => |l| switch (right) {
-                .string => |r| ComptimeValue{ .bool = std.mem.lessThan(u8, l, r) },
+            .string, .owned_string => |l| switch (right) {
+                .string, .owned_string => |r| ComptimeValue{ .bool = std.mem.lessThan(u8, l, r) },
                 else => null,
             },
             else => null,
@@ -225,8 +225,8 @@ pub const ComptimeEvaluator = struct {
                 .float => |r| ComptimeValue{ .bool = l <= r },
                 else => null,
             },
-            .string => |l| switch (right) {
-                .string => |r| ComptimeValue{ .bool = !std.mem.lessThan(u8, r, l) },
+            .string, .owned_string => |l| switch (right) {
+                .string, .owned_string => |r| ComptimeValue{ .bool = !std.mem.lessThan(u8, r, l) },
                 else => null,
             },
             else => null,
@@ -246,8 +246,8 @@ pub const ComptimeEvaluator = struct {
                 .float => |r| ComptimeValue{ .bool = l > r },
                 else => null,
             },
-            .string => |l| switch (right) {
-                .string => |r| ComptimeValue{ .bool = std.mem.lessThan(u8, r, l) },
+            .string, .owned_string => |l| switch (right) {
+                .string, .owned_string => |r| ComptimeValue{ .bool = std.mem.lessThan(u8, r, l) },
                 else => null,
             },
             else => null,
@@ -267,8 +267,8 @@ pub const ComptimeEvaluator = struct {
                 .float => |r| ComptimeValue{ .bool = l >= r },
                 else => null,
             },
-            .string => |l| switch (right) {
-                .string => |r| ComptimeValue{ .bool = !std.mem.lessThan(u8, l, r) },
+            .string, .owned_string => |l| switch (right) {
+                .string, .owned_string => |r| ComptimeValue{ .bool = !std.mem.lessThan(u8, l, r) },
                 else => null,
             },
             else => null,
@@ -281,8 +281,8 @@ pub const ComptimeEvaluator = struct {
             .bool => |b| b,
             .int => |i| i != 0,
             .float => |f| f != 0.0,
-            .string => |s| s.len > 0,
-            .list => |l| l.len > 0,
+            .string, .owned_string => |s| s.len > 0,
+            .list, .owned_list => |l| l.len > 0,
         };
     }
 
@@ -310,8 +310,7 @@ pub const ComptimeEvaluator = struct {
     }
 
     fn evalMethod(self: *ComptimeEvaluator, obj: ComptimeValue, method: []const u8, args: []ast.Node) ?ComptimeValue {
-        if (obj != .string) return null;
-        const s = obj.string;
+        const s = obj.getString() orelse return null;
         const str_ops = string_ops.StringOps.init(self.allocator);
         if (std.mem.eql(u8, method, "upper")) {
             return str_ops.evalUpper(s);

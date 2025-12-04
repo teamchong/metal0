@@ -26,6 +26,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     const analysis = try analyzer.analyzeModule(module, self.allocator);
     defer if (analysis.global_vars.len > 0) self.allocator.free(analysis.global_vars);
 
+    // Pre-register global variables so they can be detected during method generation
+    // This prevents local variables with the same name from shadowing module-level vars
+    for (analysis.global_vars) |var_name| {
+        try self.markGlobalVar(var_name);
+    }
+
     // PHASE 1.5: Get source file directory for import resolution
     const source_file_dir = if (self.source_file_path) |path|
         try import_resolver.getFileDirectory(path, self.allocator)
@@ -100,6 +106,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // PHASE 2.1: Register async functions for comptime optimization analysis
     // Also collect ALL module-level function names for parameter shadowing detection
+    // And collect module-level variable names for hoisted var type derivation
     for (module.body) |stmt| {
         if (stmt == .function_def) {
             const func = stmt.function_def;
@@ -108,6 +115,23 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (func.is_async) {
                 const func_name_copy = try self.allocator.dupe(u8, func.name);
                 try self.async_function_defs.put(func_name_copy, func);
+            }
+        } else if (stmt == .class_def) {
+            // Register class names for hoisting type derivation
+            // Class constructors like Rat(10, 15) should be safe to use in @TypeOf
+            try self.module_level_funcs.put(stmt.class_def.name, {});
+        } else if (stmt == .assign) {
+            // Register module-level variable names
+            for (stmt.assign.targets) |target| {
+                if (target == .name) {
+                    try self.module_level_vars.put(target.name.id, {});
+                } else if (target == .tuple) {
+                    for (target.tuple.elts) |elt| {
+                        if (elt == .name) {
+                            try self.module_level_vars.put(elt.name.id, {});
+                        }
+                    }
+                }
             }
         }
     }
@@ -295,6 +319,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // This enables unittest discovery for classes assigned via tuple unpacking
     try analyzeTestFactories(self, module);
 
+    // PHASE 4.7: Pre-populate module_level_vars with global vars from analysis
+    // This must happen BEFORE PHASE 5 (class definitions) so that method body generation
+    // can detect and rename local variables that would shadow module-level globals
+    for (analysis.global_vars) |var_name| {
+        try self.module_level_vars.put(var_name, {});
+    }
+
     // PHASE 5: Generate imports, class and function definitions (before main)
     // In module mode, wrap functions in pub struct
     if (self.mode == .module) {
@@ -465,6 +496,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     if (analysis.global_vars.len > 0) {
         try self.emit("\n// Module-level variables declared with 'global' keyword\n");
         for (analysis.global_vars) |var_name| {
+            // Track in module_level_vars so local variables with same name get renamed
+            // to avoid Zig's module-level shadowing error
+            try self.module_level_vars.put(var_name, {});
             // Get type from type inferrer, default to i64 for integers
             const var_type = self.type_inferrer.var_types.get(var_name);
 
@@ -615,6 +649,104 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 continue;
             }
 
+            // Check if this variable is assigned from csv module functions (reader, writer, DictReader, DictWriter)
+            // These return anonymous structs that can't be pre-declared with a type
+            var is_csv_call = false;
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            if (assign.value.* == .call) {
+                                const call = assign.value.call;
+                                if (call.func.* == .attribute) {
+                                    const attr = call.func.attribute;
+                                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "csv")) {
+                                        // csv.reader, csv.writer, csv.DictReader, csv.DictWriter
+                                        is_csv_call = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Skip pre-declaring csv module results - they're anonymous iterator structs
+            if (is_csv_call) {
+                continue;
+            }
+
+            // Check if this variable is assigned from a known module constant (e.g., support.MAX_Py_ssize_t)
+            // These are compile-time constants that should be emitted as const with correct type
+            var is_module_constant = false;
+            var module_const_type: ?[]const u8 = null;
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            if (assign.value.* == .attribute) {
+                                const attr = assign.value.attribute;
+                                // support.MAX_Py_ssize_t, support._1G, etc.
+                                if (attr.value.* == .name) {
+                                    const module_name = attr.value.name.id;
+                                    if (std.mem.eql(u8, module_name, "support")) {
+                                        const attr_name = attr.attr;
+                                        if (std.mem.eql(u8, attr_name, "MAX_Py_ssize_t") or
+                                            std.mem.eql(u8, attr_name, "_1G") or
+                                            std.mem.eql(u8, attr_name, "_2G") or
+                                            std.mem.eql(u8, attr_name, "_4G"))
+                                        {
+                                            is_module_constant = true;
+                                            module_const_type = "i64";
+                                        } else if (std.mem.eql(u8, attr_name, "verbose") or
+                                            std.mem.eql(u8, attr_name, "MS_WINDOWS") or
+                                            std.mem.eql(u8, attr_name, "is_apple"))
+                                        {
+                                            is_module_constant = true;
+                                            module_const_type = "bool";
+                                        } else if (std.mem.eql(u8, attr_name, "SHORT_TIMEOUT")) {
+                                            is_module_constant = true;
+                                            module_const_type = "f64";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Emit module constants as const with correct type
+            if (is_module_constant) {
+                if (module_const_type) |const_type| {
+                    try self.emit("const ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                    try self.emit(": ");
+                    try self.emit(const_type);
+                    try self.emit(" = support.");
+                    // Find the attribute name from the assignment
+                    for (module.body) |stmt| {
+                        if (stmt == .assign) {
+                            const assign = stmt.assign;
+                            for (assign.targets) |target| {
+                                if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                                    if (assign.value.* == .attribute) {
+                                        try self.emit(assign.value.attribute.attr);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    try self.emit(";\n");
+                    try self.symbol_table.declare(var_name, if (std.mem.eql(u8, const_type, "i64")) .{ .int = .bounded } else if (std.mem.eql(u8, const_type, "f64")) .float else if (std.mem.eql(u8, const_type, "bool")) .bool else .unknown, true);
+                    try self.markGlobalVar(var_name);
+                    continue;
+                }
+            }
+
             // Handle feature_macros related variables with correct types
             // These derive from FeatureMacros struct which returns strings, not PyObjects
             if (std.mem.eql(u8, var_name, "EXPECTED_FEATURE_MACROS")) {
@@ -637,12 +769,95 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 continue;
             }
 
+            // Also skip variables that are assigned a module-level function
+            // e.g., `permutations = rpermutation` - can't pre-declare a function reference
+            // Need to search recursively since assignment might be in if/for/while blocks
+            const is_func_alias = isFunctionAliasRecursive(module.body, var_name, &self.module_level_funcs);
+            if (is_func_alias) continue;
+
+            // For dict types, check mutation analysis to determine correct key/value types
+            // Type inference defaults empty dicts to StringHashMap, but mutation analysis
+            // can tell us the actual key types used (e.g., d[i] = x means int keys)
+
+            // Also check if this variable is assigned from another dict's .copy() method
+            // In that case, inherit the source dict's corrected type
+            var copy_source_dict: ?[]const u8 = null;
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            // Check if RHS is source_dict.copy()
+                            if (assign.value.* == .call) {
+                                const call = assign.value.call;
+                                if (call.func.* == .attribute) {
+                                    const attr = call.func.attribute;
+                                    if (std.mem.eql(u8, attr.attr, "copy") and attr.value.* == .name) {
+                                        copy_source_dict = attr.value.name.id;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            var needs_free = false;
             const zig_type = if (closure_type_name) |ctn| blk: {
                 break :blk ctn;
             } else if (var_type) |vt| blk: {
+                // Check if this is a dict that needs type override based on mutations
+                if (@as(std.meta.Tag(@TypeOf(vt)), vt) == .dict) {
+                    // If this dict is copied from another dict, inherit its corrected type
+                    if (copy_source_dict) |source_name| {
+                        if (self.mutation_info) |mut_info| {
+                            const src_has_int_keys = mutation_analyzer.hasDictIntKeyMutation(mut_info.*, source_name);
+                            const src_has_str_keys = mutation_analyzer.hasDictStrKeyMutation(mut_info.*, source_name);
+
+                            if (src_has_int_keys and src_has_str_keys) {
+                                break :blk "hashmap_helper.StringHashMap(runtime.PyValue)";
+                            } else if (src_has_int_keys) {
+                                // Inherit source dict's corrected type (AutoHashMap with int keys)
+                                break :blk "std.AutoHashMap(i64, i64)";
+                            }
+                        }
+                    }
+
+                    if (self.mutation_info) |mut_info| {
+                        const has_int_keys = mutation_analyzer.hasDictIntKeyMutation(mut_info.*, var_name);
+                        const has_str_keys = mutation_analyzer.hasDictStrKeyMutation(mut_info.*, var_name);
+
+                        if (has_int_keys and has_str_keys) {
+                            // Mixed keys - use runtime.PyValue for heterogeneous access
+                            break :blk "hashmap_helper.StringHashMap(runtime.PyValue)";
+                        } else if (has_int_keys) {
+                            // Int keys only - infer value type from dict
+                            // Empty dicts default to unknown value type, which should be i64
+                            // to match dict.zig codegen (d = {} with d[i] = x typically has int values)
+                            const value_type = vt.dict.value.*;
+                            const value_tag = @as(std.meta.Tag(@TypeOf(value_type)), value_type);
+                            if (value_tag == .int) {
+                                break :blk "std.AutoHashMap(i64, i64)";
+                            } else if (value_tag == .float) {
+                                break :blk "std.AutoHashMap(i64, f64)";
+                            } else if (value_tag == .string) {
+                                break :blk "std.AutoHashMap(i64, []const u8)";
+                            } else if (value_tag == .unknown) {
+                                // Empty dict with int keys defaults to i64 values
+                                // (matches dict.zig:61 behavior)
+                                break :blk "std.AutoHashMap(i64, i64)";
+                            } else {
+                                // Default to PyObject for complex values
+                                break :blk "std.AutoHashMap(i64, *runtime.PyObject)";
+                            }
+                        }
+                        // String keys (default) - fall through to nativeTypeToZigType
+                    }
+                }
+                needs_free = true;
                 break :blk try self.nativeTypeToZigType(vt);
             } else "i64";
-            defer if (closure_type_name == null and var_type != null) self.allocator.free(zig_type);
+            defer if (needs_free) self.allocator.free(zig_type);
 
             try self.emit("var ");
             try self.emit(var_name);
@@ -863,11 +1078,29 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // skipping redundant from-import symbols. We need the module import
             // (e.g., const copy = std;) for other symbols like deepcopy.
 
-            if (self.import_registry.lookup(root_mod_name)) |info| {
+            // First try to lookup the full module path (e.g., test.support.numbers)
+            // This handles submodules that have their own registry entries
+            if (self.import_registry.lookup(mod_name)) |info| {
                 switch (info.strategy) {
                     .zig_runtime, .c_library => {
                         try self.emit("const ");
                         // Use writeEscapedDottedIdent for dotted module names like "test.support"
+                        try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                        try self.emit(" = ");
+                        if (info.zig_import) |zig_import| {
+                            try self.emit(zig_import);
+                        } else {
+                            try self.emit("struct {}");
+                        }
+                        try self.emit(";\n");
+                    },
+                    else => {},
+                }
+            } else if (self.import_registry.lookup(root_mod_name)) |info| {
+                // Fallback to root module for modules without submodule registry entries
+                switch (info.strategy) {
+                    .zig_runtime, .c_library => {
+                        try self.emit("const ");
                         try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                         try self.emit(" = ");
                         if (info.zig_import) |zig_import| {
@@ -959,6 +1192,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 }
 
 pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
+    // Skip generating statements after control flow termination (return/raise)
+    // to avoid unreachable code errors in Zig
+    if (self.control_flow_terminated) return;
+
     switch (node) {
         .assign => |assign| try statements.genAssign(self, assign),
         .ann_assign => |ann_assign| try statements.genAnnAssign(self, ann_assign),
@@ -972,7 +1209,11 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .assert_stmt => |assert_node| try statements.genAssert(self, assert_node),
         .try_stmt => |try_node| try statements.genTry(self, try_node),
         .raise_stmt => |raise_node| try statements.genRaise(self, raise_node),
-        .class_def => |class| try statements.genClassDef(self, class),
+        .class_def => |class| {
+            // Skip if this class was hoisted to struct level (for return type visibility)
+            if (self.hoisted_local_classes.contains(class.name)) return;
+            try statements.genClassDef(self, class);
+        },
         .function_def => |func| {
             // Only use nested function generation for truly nested functions
             if (func.is_nested) {
@@ -991,9 +1232,24 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .global_stmt => |global| try statements.genGlobal(self, global),
         .del_stmt => |del| try statements.genDel(self, del),
         .with_stmt => |with| try statements.genWith(self, with),
-        .yield_stmt => {
-            // Yield is parsed but not compiled - generators use CPython at runtime
-            try statements.genPass(self);
+        .yield_stmt => |yield| {
+            // For generator functions, append yield value to __gen_result ArrayList
+            if (self.in_generator_function) {
+                try self.emitIndent();
+                // Use renamed variable if inside TryHelper (where __gen_result is passed as pointer)
+                const gen_result_name = self.var_renames.get("__gen_result") orelse "__gen_result";
+                try self.emit("try ");
+                try self.emit(gen_result_name);
+                try self.emit(".append(__global_allocator, runtime.PyValue.from(");
+                if (yield.value) |val| {
+                    try expressions.genExpr(self, val.*);
+                } else {
+                    try self.emit("undefined");
+                }
+                try self.emit("));\n");
+            } else {
+                try statements.genPass(self);
+            }
         },
         else => {},
     }
@@ -1032,9 +1288,11 @@ fn genClosureWrapperTypes(self: *NativeCodegen, module: ast.Node.Module) !void {
                 if (nested_func) |nf| {
                     // Check if this is a zero-capture closure
                     // We can only pre-generate zero-capture closures at module level
-                    const captured = var_tracking.findCapturedVars(
+                    // Pass outer function's params so we can detect captured variables
+                    const captured = var_tracking.findCapturedVarsWithOuter(
                         self,
                         nf,
+                        func.args,
                     ) catch continue;
                     defer self.allocator.free(captured);
 
@@ -1185,4 +1443,46 @@ fn analyzeTestFactories(self: *NativeCodegen, module: ast.Node.Module) !void {
             });
         }
     }
+}
+
+/// Check if a variable is assigned a module-level function anywhere in the body
+/// Searches recursively through if/for/while/try blocks
+fn isFunctionAliasRecursive(body: []const ast.Node, var_name: []const u8, module_level_funcs: *const hashmap_helper.StringHashMap(void)) bool {
+    for (body) |stmt| {
+        switch (stmt) {
+            .assign => {
+                const assign = stmt.assign;
+                for (assign.targets) |target| {
+                    if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                        if (assign.value.* == .name) {
+                            if (module_level_funcs.contains(assign.value.name.id)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            },
+            .if_stmt => {
+                const if_s = stmt.if_stmt;
+                if (isFunctionAliasRecursive(if_s.body, var_name, module_level_funcs)) return true;
+                if (isFunctionAliasRecursive(if_s.else_body, var_name, module_level_funcs)) return true;
+            },
+            .for_stmt => {
+                if (isFunctionAliasRecursive(stmt.for_stmt.body, var_name, module_level_funcs)) return true;
+            },
+            .while_stmt => {
+                if (isFunctionAliasRecursive(stmt.while_stmt.body, var_name, module_level_funcs)) return true;
+            },
+            .try_stmt => {
+                const try_s = stmt.try_stmt;
+                if (isFunctionAliasRecursive(try_s.body, var_name, module_level_funcs)) return true;
+                for (try_s.handlers) |handler| {
+                    if (isFunctionAliasRecursive(handler.body, var_name, module_level_funcs)) return true;
+                }
+                if (isFunctionAliasRecursive(try_s.finalbody, var_name, module_level_funcs)) return true;
+            },
+            else => {},
+        }
+    }
+    return false;
 }

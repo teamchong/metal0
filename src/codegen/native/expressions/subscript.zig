@@ -97,11 +97,24 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 } else {
                     // Check if the base is a tuple type - use .@"N" instead of [N]
                     const base_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
-                    const is_tuple = @as(std.meta.Tag(@TypeOf(base_type)), base_type) == .tuple;
+                    const base_tag = @as(std.meta.Tag(@TypeOf(base_type)), base_type);
+                    const is_tuple = base_tag == .tuple;
+                    const is_pyvalue = base_tag == .pyvalue;
+                    const is_unknown = base_tag == .unknown;
+                    const index_tag = @as(std.meta.Tag(@TypeOf(index_type)), index_type);
+                    const is_int_index = (index_tag == .int) or (index_tag == .usize);
 
                     if (is_tuple and index == .constant and index.constant.value == .int) {
                         // Tuple indexing with constant integer: __base.@"0"
                         try self.output.writer(self.allocator).print("__base.@\"{d}\"", .{index.constant.value.int});
+                    } else if ((is_unknown or is_pyvalue) and is_int_index) {
+                        // Unknown type or PyValue with int index - use PyValue.pyAt() method
+                        // This handles PyValue containing tuple/list uniformly
+                        try self.emit("if (@TypeOf(__base) == runtime.PyValue) __base.pyAt(@as(usize, @intCast(");
+                        try genExpr(self, index);
+                        try self.emit("))) else __base[@as(usize, @intCast(");
+                        try genExpr(self, index);
+                        try self.emit("))]");
                     } else {
                         const needs_cast = (index_type == .int);
 
@@ -248,6 +261,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try genExpr(self, subscript.value.*);
                 try self.emit(".get(");
 
+                // Check if index is a PyValue - need to convert to string
+                const key_type = try self.inferExprScoped(subscript.slice.index.*);
+
                 // For Counter created from string, keys are u8 (chars)
                 // If index is single-char string like "a", convert to 'a'
                 const is_single_char_key = is_counter and isSingleCharString(subscript.slice.index.*);
@@ -256,6 +272,18 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // String includes quotes, so "a" -> str[1] is 'a'
                     const str = subscript.slice.index.constant.value.string;
                     try self.output.writer(self.allocator).print("'{c}'", .{str[1]});
+                } else if (key_type == .pyvalue) {
+                    // PyValue key - convert to string
+                    try genExpr(self, subscript.slice.index.*);
+                    try self.emit(".asString()");
+                } else if (key_type == .unknown) {
+                    // Unknown type - use runtime dispatch to handle PyValue
+                    // Generate: pyval_key_blk: { const __k = key; break :pyval_key_blk if (@TypeOf(__k) == runtime.PyValue) __k.asString() else __k; }
+                    const key_label = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.emitFmt("pyval_key_{d}: {{ const __k = ", .{key_label});
+                    try genExpr(self, subscript.slice.index.*);
+                    try self.emitFmt("; break :pyval_key_{d} if (@TypeOf(__k) == runtime.PyValue) __k.asString() else __k; }}", .{key_label});
                 } else {
                     try genExpr(self, subscript.slice.index.*);
                 }
@@ -609,7 +637,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         } else {
                             try self.emit("__s.items.len");
                         }
-                        try self.emitFmt(", __s.items.len); break :slice_{d} if (__start < __end) __s.items[__start..__end] else &[_]i64{{}}; }}", .{label_id});
+                        try self.emitFmt(", __s.items.len); break :slice_{d} if (__start < __end) __s.items[__start..__end] else __s.items[0..0]; }}", .{label_id});
                     } else {
                         try self.emit("; const __start = @min(");
                         if (slice_range.lower) |lower| {
@@ -642,7 +670,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         }
                         try self.emit(", __s.items.len); const __end = @min(");
                         try genExpr(self, slice_range.upper.?.*);
-                        try self.emitFmt(", __s.items.len); break :slice_{d} if (__start < __end) __s.items[__start..__end] else &[_]i64{{}}; }}", .{label_id});
+                        try self.emitFmt(", __s.items.len); break :slice_{d} if (__start < __end) __s.items[__start..__end] else __s.items[0..0]; }}", .{label_id});
                     } else {
                         try self.emit("; const __start = @min(");
                         if (slice_range.lower) |lower| {
@@ -676,14 +704,57 @@ pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) Code
     // Now emit the index access
     switch (subscript.slice) {
         .index => |index| {
-            // Determine if we need .items for list access
+            // Determine container type for appropriate access pattern
             const container_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
-            if (container_type == .list) {
-                try self.emit(".items");
+            const index_type = self.type_inferrer.inferExpr(index.*) catch .unknown;
+
+            // Dict access with string key - use .getPtr() for mutable access
+            if (container_type == .dict) {
+                // Native dict (StringHashMap) - use .getPtr()
+                try self.emit(".getPtr(");
+                try genExpr(self, index.*);
+                try self.emit(").?.*");
+            } else if (container_type == .pyvalue and (index_type == .string or index_type == .pyvalue or index_type == .unknown)) {
+                // PyValue wrapping a dict (ptr to StringHashMap) - use .pyDictGetPtr()
+                // For PyValue keys, we need to convert to string first
+                try self.emit(".pyDictGetPtr(");
+                if (index_type == .pyvalue or index_type == .unknown) {
+                    try genExpr(self, index.*);
+                    try self.emit(".asString()");
+                } else {
+                    try genExpr(self, index.*);
+                }
+                try self.emit(").?.*");
+            } else if (container_type == .unknown and (index_type == .string or index_type == .pyvalue or index_type == .unknown)) {
+                // Unknown container with string/pyvalue key - emit runtime check
+                // Use inline if to handle both native dict and PyValue dict
+                try self.emit(": blk: { const __cont = ");
+                try genExpr(self, subscript.value.*);
+                try self.emit("; break :blk if (@TypeOf(__cont) == runtime.PyValue) __cont.pyDictGetPtr(");
+                if (index_type == .pyvalue or index_type == .unknown) {
+                    try genExpr(self, index.*);
+                    try self.emit(".asString()");
+                } else {
+                    try genExpr(self, index.*);
+                }
+                try self.emit(").?.* else __cont.getPtr(");
+                if (index_type == .pyvalue or index_type == .unknown) {
+                    try genExpr(self, index.*);
+                    try self.emit(".asString()");
+                } else {
+                    try genExpr(self, index.*);
+                }
+                try self.emit(").?.*; }");
+            } else if (container_type == .list) {
+                try self.emit(".items[@as(usize, @intCast(");
+                try genExpr(self, index.*);
+                try self.emit("))]");
+            } else {
+                // Default array-style access for other types
+                try self.emit("[@as(usize, @intCast(");
+                try genExpr(self, index.*);
+                try self.emit("))]");
             }
-            try self.emit("[@as(usize, @intCast(");
-            try genExpr(self, index.*);
-            try self.emit("))]");
         },
         .slice => {
             // Slice access as LHS is complex - for now just generate error

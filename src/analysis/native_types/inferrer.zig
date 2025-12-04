@@ -61,6 +61,7 @@ pub const TypeInferrer = struct {
     func_return_types: FnvHashMap, // function_name -> return type
     class_constructor_args: FnvArgsMap, // class_name -> constructor arg types
     ctypes_functions: hashmap_helper.StringHashMap(CTypesFuncInfo), // ctypes function tracking
+    from_imports: hashmap_helper.StringHashMap([]const u8), // from-import tracking: symbol -> module (e.g., "datetime" -> "datetime")
 
     pub fn init(allocator: std.mem.Allocator) InferError!TypeInferrer {
         // Allocate arena on heap to avoid copy issues
@@ -77,6 +78,7 @@ pub const TypeInferrer = struct {
             .func_return_types = FnvHashMap.init(allocator),
             .class_constructor_args = FnvArgsMap.init(allocator),
             .ctypes_functions = hashmap_helper.StringHashMap(CTypesFuncInfo).init(allocator),
+            .from_imports = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
     }
 
@@ -94,6 +96,7 @@ pub const TypeInferrer = struct {
         self.func_return_types.deinit();
         self.class_constructor_args.deinit();
         self.ctypes_functions.deinit();
+        self.from_imports.deinit();
 
         // Free arena and all type allocations
         const alloc = self.allocator;
@@ -174,11 +177,27 @@ pub const TypeInferrer = struct {
         // Use arena allocator for closure analysis so captured_vars slices get freed with arena
         const arena_alloc = self.arena.allocator();
 
-        // First pass: Analyze closures (detect captured variables)
+        // First pass: Collect from-imports (for type inference of calls like datetime(...))
+        // Maps imported symbol name -> module name (e.g., "datetime" -> "datetime")
+        for (module.body) |stmt| {
+            if (stmt == .import_from) {
+                const from_imp = stmt.import_from;
+                for (from_imp.names, 0..) |name, i| {
+                    // Use asname if provided, otherwise use the original name
+                    const symbol_name = if (from_imp.asnames.len > i and from_imp.asnames[i] != null)
+                        from_imp.asnames[i].?
+                    else
+                        name;
+                    try self.from_imports.put(symbol_name, from_imp.module);
+                }
+            }
+        }
+
+        // Second pass: Analyze closures (detect captured variables)
         const body_mut = module.body;
         try closures.analyzeNestedFunctions(body_mut, null, arena_alloc);
 
-        // Second pass: Register all function return types from annotations
+        // Third pass: Register all function return types from annotations
         for (module.body) |stmt| {
             if (stmt == .function_def) {
                 const func_def = stmt.function_def;
@@ -187,12 +206,12 @@ pub const TypeInferrer = struct {
             }
         }
 
-        // Third pass: Collect constructor call arg types (before processing class definitions)
+        // Fourth pass: Collect constructor call arg types (before processing class definitions)
         for (module.body) |stmt| {
             try self.collectConstructorArgs(stmt, arena_alloc);
         }
 
-        // Fourth pass: Infer return types from return statements (for functions without annotations)
+        // Fifth pass: Infer return types from return statements (for functions without annotations)
         // IMPORTANT: Must run BEFORE statement analysis so variable assignments from function calls
         // can look up the correct return type.
         // NOTE: We process nested functions first so that outer functions can resolve inner function calls.
@@ -202,12 +221,12 @@ pub const TypeInferrer = struct {
             }
         }
 
-        // Fifth pass: Analyze all statements (must run after return type inference)
+        // Sixth pass: Analyze all statements (must run after return type inference)
         for (module.body) |stmt| {
             try self.visitStmt(stmt);
         }
 
-        // Sixth pass: Promote array types to list types for mutated variables
+        // Seventh pass: Promote array types to list types for mutated variables
         // This ensures list literals assigned to variables that later have methods
         // like .sort(), .append(), etc. called on them become ArrayLists
         const mutations = mutation_analyzer.analyzeMutations(module, self.allocator) catch null;

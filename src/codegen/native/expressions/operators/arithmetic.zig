@@ -11,6 +11,32 @@ const NativeType = @import("../../../../analysis/native_types/core.zig").NativeT
 const shared = @import("../../shared_maps.zig");
 const BinaryDunders = shared.BinaryDunders;
 const ReverseDunders = shared.ReverseDunders;
+const collections = @import("../collections.zig");
+
+/// Check if a list will be generated as a fixed array (constant + homogeneous)
+fn willGenerateAsFixedArray(list_node: ast.Node) bool {
+    if (list_node != .list) return false;
+    const list = list_node.list;
+    if (list.elts.len == 0) return false;
+    // Check all elements are constants
+    for (list.elts) |elem| {
+        if (elem != .constant) return false;
+    }
+    // Check all elements are same type
+    return allConstantsSameType(list.elts);
+}
+
+fn allConstantsSameType(elements: []ast.Node) bool {
+    if (elements.len == 0) return true;
+    const first_const = elements[0].constant;
+    const first_type_tag: std.meta.Tag(@TypeOf(first_const.value)) = first_const.value;
+    for (elements[1..]) |elem| {
+        const elem_const = elem.constant;
+        const elem_type_tag: std.meta.Tag(@TypeOf(elem_const.value)) = elem_const.value;
+        if (elem_type_tag != first_type_tag) return false;
+    }
+    return true;
+}
 
 /// BigInt method names for standard binary operations (left.method(&right, allocator))
 const BigIntStdMethods = std.StaticStringMap([]const u8).initComptime(.{
@@ -68,14 +94,14 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
                     try s.emit(aname);
                     try s.emit(", ");
                     try genExpr(s, left.*);
-                    try s.emit(") catch unreachable)");
+                    try s.emit(") catch @panic(\"OOM\"))");
                 } else {
                     // Bounded int - use fromInt (i64)
                     try s.emit("(runtime.BigInt.fromInt(");
                     try s.emit(aname);
                     try s.emit(", ");
                     try genExpr(s, left.*);
-                    try s.emit(") catch unreachable)");
+                    try s.emit(") catch @panic(\"OOM\"))");
                 }
             } else {
                 // Unknown - try to convert as i64
@@ -83,7 +109,7 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
                 try s.emit(aname);
                 try s.emit(", @as(i64, ");
                 try genExpr(s, left.*);
-                try s.emit(")) catch unreachable)");
+                try s.emit(")) catch @panic(\"OOM\"))");
             }
         }
     }.emit;
@@ -103,14 +129,14 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
                     try s.emit(aname);
                     try s.emit(", ");
                     try genExpr(s, right.*);
-                    try s.emit(") catch unreachable)");
+                    try s.emit(") catch @panic(\"OOM\"))");
                 } else {
                     // Bounded int - use fromInt (i64)
                     try s.emit("&(runtime.BigInt.fromInt(");
                     try s.emit(aname);
                     try s.emit(", ");
                     try genExpr(s, right.*);
-                    try s.emit(") catch unreachable)");
+                    try s.emit(") catch @panic(\"OOM\"))");
                 }
             } else {
                 // Unknown - try to convert as i64
@@ -118,7 +144,7 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
                 try s.emit(aname);
                 try s.emit(", @as(i64, ");
                 try genExpr(s, right.*);
-                try s.emit(")) catch unreachable)");
+                try s.emit(")) catch @panic(\"OOM\"))");
             }
         }
     }.emit;
@@ -134,7 +160,7 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
         try emitRightOperand(self, right_type, binop.right, alloc_name);
         try self.emit(", ");
         try self.emit(alloc_name);
-        try self.emit(") catch unreachable)");
+        try self.emit(") catch @panic(\"OOM\"))");
         return;
     }
 
@@ -147,7 +173,7 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
             try genExpr(self, binop.right.*);
             try self.emit(")), ");
             try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
+            try self.emit(") catch @panic(\"OOM\"))");
         },
         .LShift => {
             try self.emit("(");
@@ -156,7 +182,7 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
             try genExpr(self, binop.right.*);
             try self.emit(")), ");
             try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
+            try self.emit(") catch @panic(\"OOM\"))");
         },
         .Pow => {
             // bigint.pow(exp, allocator) - exp must be u32
@@ -166,7 +192,7 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
             try genExpr(self, binop.right.*);
             try self.emit(")), ");
             try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
+            try self.emit(") catch @panic(\"OOM\"))");
         },
         .Div => {
             // BigInt division - use floorDiv for integer result
@@ -176,7 +202,7 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
             try emitRightOperand(self, right_type, binop.right, alloc_name);
             try self.emit(", ");
             try self.emit(alloc_name);
-            try self.emit(") catch unreachable)");
+            try self.emit(") catch @panic(\"OOM\"))");
         },
         else => {
             // Unsupported BigInt op - fall back to error
@@ -195,7 +221,7 @@ fn genBigIntBinOpRightBig(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
     const emitLeftAsBigInt = struct {
         fn emit(s: *NativeCodegen, ltype: NativeType, left: *const ast.Node, aname: []const u8) CodegenError!void {
             if (ltype == .bigint) {
-                // Wrap in parens for proper precedence with catch: (expr catch unreachable).method()
+                // Wrap in parens for proper precedence with catch: (expr catch @panic("OOM")).method()
                 try s.emit("(");
                 try genExpr(s, left.*);
                 try s.emit(")");
@@ -204,14 +230,14 @@ fn genBigIntBinOpRightBig(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
                 try s.emit(aname);
                 try s.emit(", ");
                 try genExpr(s, left.*);
-                try s.emit(") catch unreachable)");
+                try s.emit(") catch @panic(\"OOM\"))");
             } else {
                 // Unknown - try to convert as i64
                 try s.emit("(runtime.BigInt.fromInt(");
                 try s.emit(aname);
                 try s.emit(", @as(i64, ");
                 try genExpr(s, left.*);
-                try s.emit(")) catch unreachable)");
+                try s.emit(")) catch @panic(\"OOM\"))");
             }
         }
     }.emit;
@@ -232,14 +258,14 @@ fn genBigIntBinOpRightBig(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
                     try s.emit(aname);
                     try s.emit(", ");
                     try genExpr(s, right.*);
-                    try s.emit(") catch unreachable)");
+                    try s.emit(") catch @panic(\"OOM\"))");
                 } else {
                     // Bounded int - use fromInt (i64)
                     try s.emit("&(runtime.BigInt.fromInt(");
                     try s.emit(aname);
                     try s.emit(", ");
                     try genExpr(s, right.*);
-                    try s.emit(") catch unreachable)");
+                    try s.emit(") catch @panic(\"OOM\"))");
                 }
             } else {
                 // Unknown - try to convert as i64
@@ -247,7 +273,7 @@ fn genBigIntBinOpRightBig(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
                 try s.emit(aname);
                 try s.emit(", @as(i64, ");
                 try genExpr(s, right.*);
-                try s.emit(")) catch unreachable)");
+                try s.emit(")) catch @panic(\"OOM\"))");
             }
         }
     }.emit;
@@ -261,7 +287,7 @@ fn genBigIntBinOpRightBig(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
         try emitRightAsBigInt(self, right_type, binop.right, alloc_name);
         try self.emit(", ");
         try self.emit(alloc_name);
-        try self.emit(") catch unreachable");
+        try self.emit(") catch @panic(\"OOM\")");
         return;
     }
     // Unsupported - fall back to error
@@ -412,8 +438,8 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
             try collectConcatParts(self, ast.Node{ .binop = binop }, &parts);
 
-            // Get allocator name based on scope
-            const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+            // Always use __global_allocator (TryHelper structs can't access outer allocator)
+            const alloc_name = "__global_allocator";
 
             // Generate single concat call with all parts
             try self.emit("try std.mem.concat(");
@@ -441,6 +467,17 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             return;
         }
 
+        // Check for tuple concatenation: tuple + tuple
+        const left_is_tuple = binop.left.* == .tuple or left_type == .tuple;
+        const right_is_tuple = binop.right.* == .tuple or right_type == .tuple;
+        if (left_is_tuple and right_is_tuple) {
+            // Tuple concatenation: use comptime tuple concat (++)
+            try genExpr(self, binop.left.*);
+            try self.emit(" ++ ");
+            try genExpr(self, binop.right.*);
+            return;
+        }
+
         // Check for complex number addition: int/float + complex -> complex
         if (left_type == .complex or right_type == .complex) {
             try genComplexBinOp(self, binop, left_type, right_type);
@@ -455,7 +492,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
         // str * n -> repeat string n times
         if (left_type == .string and (right_type == .int or right_type == .unknown)) {
-            const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+            const alloc_name = "__global_allocator";
             try self.emit("runtime.strRepeat(");
             try self.emit(alloc_name);
             try self.emit(", ");
@@ -469,7 +506,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         // unknown * int - could be string repeat in inline for context
         // Generate comptime type check with unique label to avoid conflicts
         if (left_type == .unknown and (right_type == .int or right_type == .unknown)) {
-            const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+            const alloc_name = "__global_allocator";
             const label_id = self.block_label_counter;
             self.block_label_counter += 1;
             try self.output.writer(self.allocator).print("mul_{d}: {{ const _lhs = ", .{label_id});
@@ -483,11 +520,92 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         }
         // n * str -> repeat string n times
         if (right_type == .string and (left_type == .int or left_type == .unknown)) {
-            const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+            const alloc_name = "__global_allocator";
             try self.emit("runtime.strRepeat(");
             try self.emit(alloc_name);
             try self.emit(", ");
             try genExpr(self, binop.right.*);
+            try self.emit(", @as(usize, @intCast(");
+            try genExpr(self, binop.left.*);
+            try self.emit(")))");
+            return;
+        }
+
+        // tuple * n -> repeat tuple n times (returns a list/slice)
+        // Check both AST node type (.tuple literal) and inferred type (.tuple)
+        const left_is_tuple = binop.left.* == .tuple or left_type == .tuple;
+        const right_is_tuple = binop.right.* == .tuple or right_type == .tuple;
+        if (left_is_tuple and (right_type == .int or right_type == .unknown)) {
+            const alloc_name = "__global_allocator";
+            try self.emit("runtime.tupleRepeat(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try genExpr(self, binop.left.*);
+            try self.emit(", @as(usize, @intCast(");
+            try genExpr(self, binop.right.*);
+            try self.emit(")))");
+            return;
+        }
+        // n * tuple -> repeat tuple n times
+        if (right_is_tuple and (left_type == .int or left_type == .unknown)) {
+            const alloc_name = "__global_allocator";
+            try self.emit("runtime.tupleRepeat(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(", @as(usize, @intCast(");
+            try genExpr(self, binop.left.*);
+            try self.emit(")))");
+            return;
+        }
+
+        // list * n -> repeat list n times
+        const left_is_list = binop.left.* == .list or left_type == .list;
+        const right_is_list = binop.right.* == .list or right_type == .list;
+        if (left_is_list and (right_type == .int or right_type == .unknown)) {
+            const alloc_name = "__global_allocator";
+            try self.emit("runtime.sliceRepeatDynamic(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            // Constant homogeneous list literals produce fixed arrays - use & to coerce to slice
+            // Complex or dynamic lists produce ArrayList - use .items
+            if (willGenerateAsFixedArray(binop.left.*)) {
+                // Fixed array literal - use & to get slice
+                try self.emit("&");
+                try genExpr(self, binop.left.*);
+            } else if (producesBlockExpression(binop.left.*)) {
+                try self.emit("(");
+                try genExpr(self, binop.left.*);
+                try self.emit(").items");
+            } else {
+                try genExpr(self, binop.left.*);
+                try self.emit(".items");
+            }
+            try self.emit(", @as(usize, @intCast(");
+            try genExpr(self, binop.right.*);
+            try self.emit(")))");
+            return;
+        }
+        // n * list -> repeat list n times
+        if (right_is_list and (left_type == .int or left_type == .unknown)) {
+            const alloc_name = "__global_allocator";
+            try self.emit("runtime.sliceRepeatDynamic(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            // Constant homogeneous list literals produce fixed arrays - use & to coerce to slice
+            // Complex or dynamic lists produce ArrayList - use .items
+            if (willGenerateAsFixedArray(binop.right.*)) {
+                // Fixed array literal - use & to get slice
+                try self.emit("&");
+                try genExpr(self, binop.right.*);
+            } else if (producesBlockExpression(binop.right.*)) {
+                try self.emit("(");
+                try genExpr(self, binop.right.*);
+                try self.emit(").items");
+            } else {
+                try genExpr(self, binop.right.*);
+                try self.emit(".items");
+            }
             try self.emit(", @as(usize, @intCast(");
             try genExpr(self, binop.left.*);
             try self.emit(")))");
@@ -601,16 +719,16 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             const exp = binop.right.constant.value.int;
             if (exp >= 20) {
                 // Use BigInt for large exponents
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                const alloc_name = "__global_allocator";
                 try self.emit("(runtime.BigInt.fromInt(");
                 try self.emit(alloc_name);
                 try self.emit(", ");
                 try emitLeft(self, binop, left_is_bool);
-                try self.emit(") catch unreachable).pow(@as(u32, @intCast(");
+                try self.emit(") catch @panic(\"OOM\")).pow(@as(u32, @intCast(");
                 try emitRight(self, binop, right_is_bool);
                 try self.emit(")), ");
                 try self.emit(alloc_name);
-                try self.emit(") catch unreachable");
+                try self.emit(") catch @panic(\"OOM\")");
                 return;
             }
             // Small constant positive exponent - use i64
@@ -730,16 +848,16 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
         // Use BigInt for large shifts OR when shift amount is not comptime-known
         if (is_large_shift or !is_comptime_shift) {
-            const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+            const alloc_name = "__global_allocator";
             try self.emit("(runtime.BigInt.fromInt(");
             try self.emit(alloc_name);
             try self.emit(", ");
             try genExpr(self, binop.left.*);
-            try self.emit(") catch unreachable).shl(@as(usize, @intCast(");
+            try self.emit(") catch @panic(\"OOM\")).shl(@as(usize, @intCast(");
             try genExpr(self, binop.right.*);
             try self.emit(")), ");
             try self.emit(alloc_name);
-            try self.emit(") catch unreachable");
+            try self.emit(") catch @panic(\"OOM\")");
             return;
         }
     }
@@ -747,6 +865,59 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // Check for type mismatches between usize and i64
     const left_type = try self.inferExprScoped(binop.left.*);
     const right_type = try self.inferExprScoped(binop.right.*);
+
+    // Python 3.9+ dict merge: dict1 | dict2 creates new merged dict
+    // dict1 |= dict2 is handled separately in aug_assign
+    if (binop.op == .BitOr and left_type == .dict and right_type == .dict) {
+        // Generate: blk: { var __merged = dict1.copy(); __merged.update(dict2); break :blk __merged; }
+        const label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.output.writer(self.allocator).print("(dmerge_{d}: {{\n", .{label_id});
+        self.indent_level += 1;
+
+        try self.emitIndent();
+        try self.emit("var __merged = @TypeOf(");
+        try genExprWrapped(self, binop.left.*);
+        try self.emit("){};\n");
+
+        // Copy left dict
+        try self.emitIndent();
+        try self.emit("var __left_iter = ");
+        try genExprWrapped(self, binop.left.*);
+        try self.emit(".iterator();\n");
+        try self.emitIndent();
+        try self.emit("while (__left_iter.next()) |entry| {\n");
+        self.indent_level += 1;
+        try self.emitIndent();
+        // ArrayHashMap.put() doesn't take allocator
+        try self.emit("try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+        self.indent_level -= 1;
+        try self.emitIndent();
+        try self.emit("}\n");
+
+        // Update with right dict
+        try self.emitIndent();
+        try self.emit("var __right_iter = ");
+        try genExprWrapped(self, binop.right.*);
+        try self.emit(".iterator();\n");
+        try self.emitIndent();
+        try self.emit("while (__right_iter.next()) |entry| {\n");
+        self.indent_level += 1;
+        try self.emitIndent();
+        // ArrayHashMap.put() doesn't take allocator
+        try self.emit("try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+        self.indent_level -= 1;
+        try self.emitIndent();
+        try self.emit("}\n");
+
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("break :dmerge_{d} __merged;\n", .{label_id});
+
+        self.indent_level -= 1;
+        try self.emitIndent();
+        try self.emit("})");
+        return;
+    }
 
     const left_is_usize = (left_type == .usize);
     const left_is_int = (left_type == .int);
@@ -868,6 +1039,7 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
             // Python `not x` semantics depend on type:
             // - strings: empty string is falsy -> x.len == 0
             // - lists: empty list is falsy -> x.items.len == 0
+            // - tuples: empty tuple is falsy -> struct fields.len == 0
             // - int/float: 0 is falsy -> x == 0
             // - bool: just negate
             const operand_type = try self.inferExprScoped(unaryop.operand.*);
@@ -881,6 +1053,17 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
                 try self.emit("(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit(").items.len == 0");
+            } else if (@as(std.meta.Tag(@TypeOf(operand_type)), operand_type) == .tuple) {
+                // not tuple -> check if tuple is empty via comptime struct fields
+                try self.emit("(@typeInfo(@TypeOf(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(")).@\"struct\".fields.len == 0)");
+            } else if (shared.isEmptyTuple(unaryop.operand.*)) {
+                // Empty tuple literal () - always true (not () == true)
+                try self.emit("true");
+            } else if (unaryop.operand.* == .tuple) {
+                // Non-empty tuple literal - always false (not (1,2) == false)
+                try self.emit("false");
             } else {
                 try self.emit("!(");
                 try genExpr(self, unaryop.operand.*);
@@ -901,20 +1084,24 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
                 try self.emit(").neg()");
             } else if (operand_type == .bigint) {
                 // BigInt negation: clone and negate
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emit("blk: { var __tmp = (");
+                const alloc_name = "__global_allocator";
+                const id = self.block_label_counter;
+                self.block_label_counter += 1;
+                try self.emitFmt("neg_{d}: {{ var __neg_tmp = (", .{id});
                 try genExpr(self, unaryop.operand.*);
                 try self.emit(").clone(");
                 try self.emit(alloc_name);
-                try self.emit(") catch unreachable; __tmp.negate(); break :blk __tmp; }");
+                try self.emitFmt(") catch @panic(\"OOM\"); __neg_tmp.negate(); break :neg_{d} __neg_tmp; }}", .{id});
             } else if (operand_type == .unknown) {
                 // Unknown type (e.g., anytype parameter) - use comptime type check
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emit("blk: { const __v = ");
+                const alloc_name = "__global_allocator";
+                const id = self.block_label_counter;
+                self.block_label_counter += 1;
+                try self.emitFmt("unk_{d}: {{ const __v = ", .{id});
                 try genExpr(self, unaryop.operand.*);
-                try self.emit("; const __T = @TypeOf(__v); break :blk if (@typeInfo(__T) == .@\"struct\" and @hasDecl(__T, \"negate\")) val: { var __tmp = __v.clone(");
+                try self.emitFmt("; const __T = @TypeOf(__v); break :unk_{d} if (@typeInfo(__T) == .@\"struct\" and @hasDecl(__T, \"negate\")) val_{d}: {{ var __tmp = __v.clone(", .{ id, id });
                 try self.emit(alloc_name);
-                try self.emit(") catch unreachable; __tmp.negate(); break :val __tmp; } else -__v; }");
+                try self.emitFmt(") catch @panic(\"OOM\"); __tmp.negate(); break :val_{d} __tmp; }} else -__v; }}", .{id});
             } else {
                 try self.emit("-(");
                 try genExpr(self, unaryop.operand.*);
@@ -968,14 +1155,16 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
             } else if (operand_type == .bigint) {
                 // BigInt bitwise complement: ~n = -(n+1)
                 // Implemented as: negate (n+1) -> -(n+1) = -n-1 = ~n
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emit("blk: { var __bi_tmp = (");
+                const alloc_name = "__global_allocator";
+                const id = self.block_label_counter;
+                self.block_label_counter += 1;
+                try self.emitFmt("inv_{d}: {{ var __bi_tmp = (", .{id});
                 try genExpr(self, unaryop.operand.*);
                 try self.emit(").add(&(runtime.BigInt.fromInt(");
                 try self.emit(alloc_name);
-                try self.emit(", 1) catch unreachable), ");
+                try self.emit(", 1) catch @panic(\"OOM\")), ");
                 try self.emit(alloc_name);
-                try self.emit(") catch unreachable; __bi_tmp.negate(); break :blk __bi_tmp; }");
+                try self.emitFmt(") catch @panic(\"OOM\"); __bi_tmp.negate(); break :inv_{d} __bi_tmp; }}", .{id});
             } else {
                 try self.emit("~@as(i64, ");
                 try genExpr(self, unaryop.operand.*);

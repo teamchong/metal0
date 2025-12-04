@@ -517,7 +517,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     const iter_type = try self.type_inferrer.inferExpr(for_stmt.iter.*);
 
     // Check if variable is used in body once (used for all patterns below)
-    const tuple_var_used = varUsedInBody(for_stmt.body, for_stmt.target.name.id);
+    // Also check if variable is captured by a deferred closure
+    const tuple_var_used = varUsedInBody(for_stmt.body, for_stmt.target.name.id) or
+        self.deferred_closure_instantiations.contains(for_stmt.target.name.id);
 
     // Special case: tuple iteration requires inline for (comptime)
     // Python for-loop variables persist after the loop, so we declare before
@@ -916,7 +918,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     }
 
     // Check if variable is used in body - if not, use _ to avoid unused capture error
-    const var_used = varUsedInBody(for_stmt.body, for_stmt.target.name.id);
+    // Also check if variable is captured by a deferred closure (closure defined before this for-loop
+    // that captures the loop variable - needs the loop variable to be assigned for instantiation)
+    const var_used = varUsedInBody(for_stmt.body, for_stmt.target.name.id) or
+        self.deferred_closure_instantiations.contains(for_stmt.target.name.id);
 
     // Check if this variable already exists in outer scope (Python allows reusing loop vars)
     // If so, use a unique capture name to avoid Zig "capture shadows local" error

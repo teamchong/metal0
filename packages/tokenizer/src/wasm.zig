@@ -9,6 +9,10 @@ var gpa = std.heap.wasm_allocator;
 // Global tokenizer instance
 var global_tokenizer: ?*Tokenizer = null;
 
+// Reusable output buffer (avoids per-call allocation)
+var output_buffer: [16384]u32 = undefined;
+var last_output_len: usize = 0;
+
 /// Initialize tokenizer from JSON data (called once from JavaScript)
 /// Returns 1 on success, negative for errors
 export fn initFromData(json_ptr: [*]const u8, json_len: usize) i32 {

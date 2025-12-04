@@ -6,6 +6,62 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
+const mutation_analyzer = @import("../../../analysis/native_types/mutation_analyzer.zig");
+
+/// Key type inference result
+const KeyTypeResult = enum { int, string, unknown };
+
+/// Infer key type from statements that assign to a dict variable
+fn inferKeyTypeFromStmts(stmts: []const ast.Node, var_name: []const u8) KeyTypeResult {
+    for (stmts) |stmt| {
+        // Look for assignments like d[key] = value
+        if (stmt == .assign) {
+            for (stmt.assign.targets) |target| {
+                if (target == .subscript) {
+                    const subscript = target.subscript;
+                    // Check if subscript base is our variable
+                    if (subscript.value.* == .name and std.mem.eql(u8, subscript.value.name.id, var_name)) {
+                        // Check key type - slice is a union, check if it's index type
+                        if (subscript.slice == .index) {
+                            const slice = subscript.slice.index;
+                            if (slice.* == .constant) {
+                                switch (slice.constant.value) {
+                                    .int => return .int,
+                                    .string => return .string,
+                                    else => {},
+                                }
+                            } else if (slice.* == .name) {
+                                // Variable - could be from range iterator (int)
+                                return .int;
+                            } else if (slice.* == .binop) {
+                                // Binary op like i+1 - likely int
+                                return .int;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (stmt == .for_stmt) {
+            // Check for-loop body for dict assignments
+            const result = inferKeyTypeFromStmts(stmt.for_stmt.body, var_name);
+            if (result != .unknown) return result;
+        } else if (stmt == .with_stmt) {
+            // Check with-block body
+            const result = inferKeyTypeFromStmts(stmt.with_stmt.body, var_name);
+            if (result != .unknown) return result;
+        }
+    }
+    return .unknown;
+}
+
+/// Look up method body in current class and infer key type
+fn inferKeyTypeFromContext(self: *NativeCodegen, var_name: []const u8) KeyTypeResult {
+    // Use current_function_body directly if available (set by class method generator)
+    if (self.current_function_body) |body| {
+        return inferKeyTypeFromStmts(body, var_name);
+    }
+    return .unknown;
+}
 
 /// Check if a node is a compile-time constant (can use comptime)
 pub fn isComptimeConstant(node: ast.Node) bool {
@@ -38,9 +94,35 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
     // In functions (scope > 0): use '__global_allocator' (module-level)
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
-    // Empty dict - use anyopaque for unknown value type (consistent with type inference)
+    // Empty dict - check if mutations will use int keys, string keys, or mixed
     if (dict.keys.len == 0) {
-        try self.emit("hashmap_helper.StringHashMap(*const anyopaque).init(");
+        // Check mutations for this dict variable
+        var has_int_keys = false;
+        var has_str_keys = false;
+        if (self.current_assign_target) |var_name| {
+            if (self.mutation_info) |mutations| {
+                has_int_keys = mutation_analyzer.hasDictIntKeyMutation(mutations.*, var_name);
+                has_str_keys = mutation_analyzer.hasDictStrKeyMutation(mutations.*, var_name);
+            } else {
+                // No mutation info (in function/method context) - try lookahead
+                const inferred = inferKeyTypeFromContext(self, var_name);
+                has_int_keys = inferred == .int;
+                has_str_keys = inferred == .string;
+            }
+        }
+
+        if (has_int_keys and has_str_keys) {
+            // Mixed key types - use StringHashMap with runtime.PyValue values
+            // Convert all keys to strings at runtime
+            try self.emit("hashmap_helper.StringHashMap(runtime.PyValue).init(");
+        } else if (has_int_keys) {
+            // Use AutoHashMap for int keys
+            // Also use i64 value type since d[i] = i typically has int value too
+            try self.emit("std.AutoHashMap(i64, i64).init(");
+        } else {
+            // Default to StringHashMap for string keys
+            try self.emit("hashmap_helper.StringHashMap(*const anyopaque).init(");
+        }
         try self.emit(alloc_name);
         try self.emit(")");
         return;
@@ -71,18 +153,38 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
 
     // Check if values have compatible types (no mixed types that need runtime conversion)
     // Only int/float widening is allowed for comptime path
+    // Use Zig type strings to catch differences in nested types (e.g., tuple element types)
     if (all_comptime and dict.values.len > 0) {
         const first_type = try self.type_inferrer.inferExpr(dict.values[0]);
+        var first_zig_type_buf = std.ArrayList(u8){};
+        try first_type.toZigType(self.allocator, &first_zig_type_buf);
         for (dict.values[1..]) |value| {
             const this_type = try self.type_inferrer.inferExpr(value);
-            // Check if types are incompatible (e.g., string + int)
-            const tags_match = @as(std.meta.Tag(@TypeOf(first_type)), first_type) == @as(std.meta.Tag(@TypeOf(this_type)), this_type);
-            const is_int_float_mix = (first_type == .int and this_type == .float) or (first_type == .float and this_type == .int);
-            if (!tags_match and !is_int_float_mix) {
-                // Mixed types that need runtime conversion - fall back to runtime path
+            var this_zig_type_buf = std.ArrayList(u8){};
+            try this_type.toZigType(self.allocator, &this_zig_type_buf);
+            // Full type string comparison catches nested type differences (e.g., tuple element types)
+            if (!std.mem.eql(u8, first_zig_type_buf.items, this_zig_type_buf.items)) {
+                // Types differ - fall back to runtime path (can't unify tuples with different element types)
                 all_comptime = false;
                 break;
             }
+        }
+    }
+
+    // Also check for tuples with bigint elements - these can't use comptime path
+    // because BigInt requires runtime allocation
+    if (all_comptime and dict.values.len > 0) {
+        for (dict.values) |value| {
+            const val_type = try self.type_inferrer.inferExpr(value);
+            if (val_type == .tuple) {
+                for (val_type.tuple) |elem_type| {
+                    if (elem_type == .bigint) {
+                        all_comptime = false;
+                        break;
+                    }
+                }
+            }
+            if (!all_comptime) break;
         }
     }
 
@@ -252,24 +354,33 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     if (dict.values.len > 0) {
         val_type = try getEntryValueType(self, dict.keys[0], dict.values[0]);
 
-        // Check if all values have consistent type
+        // Check if all values have consistent type using Zig type string comparison
         var all_same = true;
+        var first_zig_type = std.ArrayList(u8){};
+        try val_type.toZigType(self.allocator, &first_zig_type);
         for (dict.keys[1..], dict.values[1..]) |key, value| {
             const this_type = try getEntryValueType(self, key, value);
-            // Simple type equality check
-            if (@as(std.meta.Tag(@TypeOf(val_type)), val_type) != @as(std.meta.Tag(@TypeOf(this_type)), this_type)) {
+            var this_zig_type = std.ArrayList(u8){};
+            try this_type.toZigType(self.allocator, &this_zig_type);
+            // Compare full Zig type strings to catch nested type differences
+            if (!std.mem.eql(u8, first_zig_type.items, this_zig_type.items)) {
                 all_same = false;
                 break;
             }
         }
 
-        // If mixed types, convert all to strings (Python's str())
+        // If mixed types, use runtime.PyValue to allow heterogeneous values
+        // This handles cases like fmtdict = {'': NATIVE, '<': STANDARD} where
+        // NATIVE is StringHashMap(i64) and STANDARD is StringHashMap(tuple)
         if (!all_same) {
-            val_type = .{ .string = .runtime };
+            val_type = .pyvalue;
         }
     }
 
-    try self.emit("blk: {\n");
+    // Use unique label to avoid conflicts with nested dict literals
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.output.writer(self.allocator).print("dict_blk_{d}: {{\n", .{label_id});
     self.indent();
     try self.emitIndent();
     if (uses_int_keys) {
@@ -354,6 +465,13 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
             } else {
                 try genExpr(self, value);
             }
+        } else if (val_type == .pyvalue) {
+            // PyValue: wrap the value with PyValue.fromAlloc()
+            try self.emit("try runtime.PyValue.fromAlloc(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try genExpr(self, value);
+            try self.emit(")");
         } else {
             try genExpr(self, value);
         }
@@ -362,7 +480,8 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     }
 
     try self.emitIndent();
-    try self.emit("break :blk map;\n");
+    // Use the label_id that was captured at the start of this function
+    try self.output.writer(self.allocator).print("break :dict_blk_{d} map;\n", .{label_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

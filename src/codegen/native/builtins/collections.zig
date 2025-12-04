@@ -343,19 +343,20 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Generate: blk: {
-    //   var copy = try allocator.dupe(i64, items);
-    //   std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));
-    //   break :blk copy;
+    //   var __sorted_copy = try allocator.dupe(i64, items);
+    //   std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));
+    //   break :blk __sorted_copy;
     // }
     // Always use __global_allocator since method allocator param may be discarded as "_"
+    // Use __sorted_copy to avoid shadowing any imported 'copy' module
     const alloc_name = "__global_allocator";
 
     try self.emit("blk: {\n");
-    try self.emitFmt("const copy = try {s}.dupe(i64, ", .{alloc_name});
+    try self.emitFmt("const __sorted_copy = try {s}.dupe(i64, ", .{alloc_name});
     try self.genExpr(args[0]);
     try self.emit(");\n");
-    try self.emit("std.mem.sort(i64, copy, {}, comptime std.sort.asc(i64));\n");
-    try self.emit("break :blk copy;\n");
+    try self.emit("std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));\n");
+    try self.emit("break :blk __sorted_copy;\n");
     try self.emit("}");
 }
 
@@ -389,9 +390,9 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit(";\n");
         try self.emit("const _iterable = if (@typeInfo(@TypeOf(_raw_iterable)) == .error_union) try _raw_iterable else _raw_iterable;\n");
-        try self.emitFmt("const copy = try {s}.dupe([]const u8, _iterable.keys());\n", .{alloc_name});
-        try self.emit("std.mem.reverse([]const u8, copy);\n");
-        try self.emit("break :__rev_dict_blk copy;\n");
+        try self.emitFmt("const __reversed_copy = try {s}.dupe([]const u8, _iterable.keys());\n", .{alloc_name});
+        try self.emit("std.mem.reverse([]const u8, __reversed_copy);\n");
+        try self.emit("break :__rev_dict_blk __reversed_copy;\n");
         try self.emit("}");
         return;
     }
@@ -417,11 +418,11 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // }
 
     try self.emit("blk: {\n");
-    try self.emitFmt("const copy = try {s}.dupe({s}, ", .{ alloc_name, elem_zig_type });
+    try self.emitFmt("const __reversed_copy = try {s}.dupe({s}, ", .{ alloc_name, elem_zig_type });
     try self.genExpr(args[0]);
     try self.emit(");\n");
-    try self.emitFmt("std.mem.reverse({s}, copy);\n", .{elem_zig_type});
-    try self.emit("break :blk copy;\n");
+    try self.emitFmt("std.mem.reverse({s}, __reversed_copy);\n", .{elem_zig_type});
+    try self.emit("break :blk __reversed_copy;\n");
     try self.emit("}");
 }
 

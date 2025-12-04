@@ -74,6 +74,6 @@ pub const Consts = std.StaticStringMap(h.H).initComptime(.{
 });
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    // ndarray constructor handled specially
-    .{ "get_sizeof_void_p", h.c("@as(i64, @sizeOf(*anyopaque))") },
+    // Note: get_sizeof_void_p is a constant (in Consts), not a function
+    // So calls like get_sizeof_void_p() should just use the constant value
 });

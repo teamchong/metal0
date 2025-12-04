@@ -154,6 +154,36 @@ pub fn TupleImpl(comptime Config: type) type {
             return true;
         }
 
+        /// Count occurrences of value in tuple (Python tuple.count)
+        pub fn count(self: *const Self, value: Config.ItemType) usize {
+            var n: usize = 0;
+            for (self.items) |item| {
+                const is_equal = if (@hasDecl(Config, "itemsEqual"))
+                    Config.itemsEqual(item, value)
+                else
+                    item == value;
+                if (is_equal) n += 1;
+            }
+            return n;
+        }
+
+        /// Find first index of value in tuple (Python tuple.index)
+        /// Returns error.NotFound if value not present
+        pub fn index(self: *const Self, value: Config.ItemType, start: usize, end: ?usize) !usize {
+            const stop = end orelse self.size;
+            const actual_start = @min(start, self.size);
+            const actual_stop = @min(stop, self.size);
+
+            for (self.items[actual_start..actual_stop], actual_start..) |item, i| {
+                const is_equal = if (@hasDecl(Config, "itemsEqual"))
+                    Config.itemsEqual(item, value)
+                else
+                    item == value;
+                if (is_equal) return i;
+            }
+            return error.NotFound;
+        }
+
         /// Free all resources
         pub fn deinit(self: *Self) void {
             for (self.items) |item| {
@@ -347,4 +377,31 @@ test "TupleImpl - slice" {
     try std.testing.expectEqual(@as(i64, 2), sliced.get(0).?);
     try std.testing.expectEqual(@as(i64, 3), sliced.get(1).?);
     try std.testing.expectEqual(@as(i64, 4), sliced.get(2).?);
+}
+
+test "TupleImpl - count and index" {
+    const Tuple = TupleImpl(NativeI64TupleConfig);
+
+    const items = [_]i64{ 1, 2, 3, 2, 4, 2, 5 };
+    var tuple = try Tuple.fromSlice(std.testing.allocator, &items);
+    defer tuple.deinit();
+
+    // Test count
+    try std.testing.expectEqual(@as(usize, 3), tuple.count(2));
+    try std.testing.expectEqual(@as(usize, 1), tuple.count(1));
+    try std.testing.expectEqual(@as(usize, 0), tuple.count(99));
+
+    // Test index (basic)
+    try std.testing.expectEqual(@as(usize, 1), try tuple.index(2, 0, null));
+    try std.testing.expectEqual(@as(usize, 0), try tuple.index(1, 0, null));
+
+    // Test index with start
+    try std.testing.expectEqual(@as(usize, 3), try tuple.index(2, 2, null));
+
+    // Test index with start and end
+    try std.testing.expectEqual(@as(usize, 3), try tuple.index(2, 2, 5));
+
+    // Test index not found
+    try std.testing.expectError(error.NotFound, tuple.index(99, 0, null));
+    try std.testing.expectError(error.NotFound, tuple.index(2, 6, null)); // After all 2s
 }

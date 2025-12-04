@@ -14,6 +14,9 @@ pub const genRepr = conversions.genRepr;
 pub const genInt = conversions.genInt;
 pub const genFloat = conversions.genFloat;
 pub const genBool = conversions.genBool;
+pub const genHex = conversions.genHex;
+pub const genOct = conversions.genOct;
+pub const genBin = conversions.genBin;
 pub const genBytes = conversions.genBytes;
 pub const genBytearray = conversions.genBytearray;
 pub const genMemoryview = conversions.genMemoryview;
@@ -73,3 +76,21 @@ pub const genDir = dynamic_attrs.genDir;
 
 // I/O
 pub const genOpen = io.genOpen;
+pub const genInput = io.genInput;
+pub const genBreakpoint = io.genBreakpoint;
+pub const genPrint = io.genPrint;
+pub const genAiter = io.genAiter;
+pub const genAnext = io.genAnext;
+
+// Decorators (pass through in AOT - decoration handled at class/function definition)
+pub const genStaticmethod = io.genStaticmethod;
+pub const genClassmethod = io.genClassmethod;
+pub const genProperty = io.genProperty;
+
+// Interactive/REPL builtins (no-ops in compiled code)
+pub const genHelp = io.genHelp;
+pub const genExit = io.genExit;
+pub const genQuit = io.genQuit;
+pub const genLicense = io.genLicense;
+pub const genCredits = io.genCredits;
+pub const genCopyright = io.genCopyright;

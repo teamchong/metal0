@@ -4,6 +4,7 @@ const ast = @import("ast");
 const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
+const producesBlockExpression = @import("expressions.zig").producesBlockExpression;
 
 fn needsItems(self: *NativeCodegen, arg: ast.Node) bool {
     const t = self.type_inferrer.inferExpr(arg) catch return false;
@@ -13,25 +14,77 @@ fn needsItems(self: *NativeCodegen, arg: ast.Node) bool {
 fn predFilter(self: *NativeCodegen, args: []ast.Node, comptime label: []const u8, comptime body: []const u8) CodegenError!void {
     if (args.len < 2) { try self.emit("std.ArrayList(i64){}"); return; }
     try self.emit(label ++ "_blk: { const _pred = "); try self.genExpr(args[0]);
-    try self.emit("; const _iter = "); try self.genExpr(args[1]);
-    if (needsItems(self, args[1])) try self.emit(".items");
+    try self.emit("; const _iter = ");
+    // Use emitIter to handle block expressions properly
+    try emitIter(self, args[1]);
     try self.emit("; var _result = std.ArrayList(@TypeOf(_iter[0])){}; " ++ body ++ " break :" ++ label ++ "_blk _result; }");
 }
 fn emitIter(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
-    try self.genExpr(arg); if (needsItems(self, arg)) try self.emit(".items");
+    // Check if this is a range() call - generate native Zig range instead of PyObject
+    if (arg == .call) {
+        const call = arg.call;
+        if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "range")) {
+            try emitNativeRange(self, call.args);
+            return;
+        }
+    }
+    const needs_items = needsItems(self, arg);
+    const is_block = producesBlockExpression(arg);
+    // Block expressions (list comprehensions, etc.) need parentheses before .items
+    if (needs_items and is_block) {
+        try self.emit("(");
+        try self.genExpr(arg);
+        try self.emit(").items");
+    } else {
+        try self.genExpr(arg);
+        if (needs_items) try self.emit(".items");
+    }
+}
+
+/// Generate a native Zig slice for range(start, stop, step)
+fn emitNativeRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    // Generate a comptime-friendly range: &[_]i64{start..stop} or runtime ArrayList
+    // For simplicity, generate a block that builds an ArrayList
+    try self.emit("(range_slice_blk: { var __rs = std.ArrayList(i64){}; ");
+    if (args.len == 0) {
+        try self.emit("break :range_slice_blk __rs.items; })");
+        return;
+    }
+
+    // Determine start, stop, step
+    if (args.len == 1) {
+        // range(stop): 0..stop, step=1
+        try self.emit("var __i: i64 = 0; while (__i < ");
+        try self.genExpr(args[0]);
+        try self.emit(") : (__i += 1) { __rs.append(__global_allocator, __i) catch continue; }");
+    } else if (args.len >= 2) {
+        // range(start, stop) or range(start, stop, step)
+        try self.emit("var __i: i64 = ");
+        try self.genExpr(args[0]);
+        try self.emit("; const __stop: i64 = ");
+        try self.genExpr(args[1]);
+        try self.emit("; const __step: i64 = ");
+        if (args.len >= 3) {
+            try self.genExpr(args[2]);
+        } else {
+            try self.emit("1");
+        }
+        try self.emit("; while (if (__step > 0) __i < __stop else __i > __stop) : (__i += __step) { __rs.append(__global_allocator, __i) catch continue; }");
+    }
+    try self.emit(" break :range_slice_blk __rs.items; })");
 }
 
 const pt = h.pass("std.ArrayList(i64){}");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "chain", genChain }, .{ "repeat", genRepeat }, .{ "count", genCount },
-    .{ "cycle", pt }, .{ "islice", genIslice }, .{ "enumerate", pt },
-    .{ "zip_longest", genZipLongest }, .{ "product", pt }, .{ "permutations", pt },
-    .{ "combinations", pt }, .{ "groupby", pt },
+    .{ "cycle", genCycle }, .{ "islice", genIslice }, .{ "enumerate", genEnumerate },
+    .{ "zip_longest", genZipLongest }, .{ "product", genProduct }, .{ "permutations", genPermutations },
+    .{ "combinations", genCombinations }, .{ "groupby", genGroupby },
     .{ "takewhile", genTakewhile }, .{ "dropwhile", genDropwhile }, .{ "filterfalse", genFilterfalse },
     .{ "accumulate", genAccumulate }, .{ "starmap", genStarmap }, .{ "compress", genCompress },
     .{ "tee", genTee }, .{ "pairwise", genPairwise },
-    .{ "batched", h.c(".{ std.ArrayList(i64){} }") },
+    .{ "batched", genBatched }, .{ "combinations_with_replacement", genCombinationsWithReplacement },
 });
 
 fn genTakewhile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -111,4 +164,89 @@ fn genPairwise(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayList(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
     try self.emit("pairwise_blk: { const _iter = "); try emitIter(self, args[0]);
     try self.emit("; var _result = std.ArrayList(struct { @\"0\": @TypeOf(_iter[0]), @\"1\": @TypeOf(_iter[0]) }){}; if (_iter.len > 1) { for (0.._iter.len - 1) |i| { _result.append(__global_allocator, .{ .@\"0\" = _iter[i], .@\"1\" = _iter[i + 1] }) catch continue; } } break :pairwise_blk _result; }");
+}
+
+/// itertools.cycle(iterable) - cycle through iterable indefinitely (returns slice for bounded use)
+fn genCycle(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1) { try self.emit("std.ArrayList(i64){}"); return; }
+    // Return the iterable directly (caller expected to handle cycling in loop)
+    try emitIter(self, args[0]);
+}
+
+/// itertools.enumerate(iterable, start=0) - already handled in for_special.zig, just return iterable here
+fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1) { try self.emit("std.ArrayList(i64){}"); return; }
+    try emitIter(self, args[0]);
+}
+
+/// itertools.product(*iterables, repeat=1) - Cartesian product
+fn genProduct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("std.ArrayList(struct { @\"0\": i64 }){}"); return; }
+    if (args.len == 1) {
+        // Single iterable: wrap each element in a tuple
+        try self.emit("product1_blk: {\n const _a = "); try emitIter(self, args[0]);
+        try self.emit(";\n var _result = std.ArrayList(struct { @\"0\": @TypeOf(_a[0]) }){};\n ");
+        try self.emit("for (_a) |item| { _result.append(__global_allocator, .{ .@\"0\" = item }) catch continue; }\n ");
+        try self.emit("break :product1_blk _result;\n }");
+        return;
+    }
+    // Two iterables: Cartesian product
+    try self.emit("product2_blk: {\n const _a = "); try emitIter(self, args[0]);
+    try self.emit(";\n const _b = "); try emitIter(self, args[1]);
+    try self.emit(";\n var _result = std.ArrayList(struct { @\"0\": @TypeOf(_a[0]), @\"1\": @TypeOf(_b[0]) }){};\n ");
+    try self.emit("for (_a) |a| { for (_b) |b| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } }\n ");
+    try self.emit("break :product2_blk _result;\n }");
+}
+
+/// itertools.permutations(iterable, r=None) - r-length permutations
+fn genPermutations(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1) { try self.emit("std.ArrayList(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
+    // Generate 2-permutations (most common case)
+    try self.emit("perms_blk: { const _iter = "); try emitIter(self, args[0]);
+    try self.emit("; var _result = std.ArrayList(struct { @\"0\": @TypeOf(_iter[0]), @\"1\": @TypeOf(_iter[0]) }){}; ");
+    try self.emit("for (_iter, 0..) |a, i| { for (_iter, 0..) |b, j| { if (i != j) _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } } ");
+    try self.emit("break :perms_blk _result; }");
+}
+
+/// itertools.combinations(iterable, r) - r-length combinations
+fn genCombinations(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1) { try self.emit("std.ArrayList(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
+    // Generate 2-combinations (most common case)
+    try self.emit("combs_blk: { const _iter = "); try emitIter(self, args[0]);
+    try self.emit("; var _result = std.ArrayList(struct { @\"0\": @TypeOf(_iter[0]), @\"1\": @TypeOf(_iter[0]) }){}; ");
+    try self.emit("for (_iter[0.._iter.len -| 1], 0..) |a, i| { for (_iter[i + 1..]) |b| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } } ");
+    try self.emit("break :combs_blk _result; }");
+}
+
+/// itertools.combinations_with_replacement(iterable, r) - r-length combinations with replacement
+fn genCombinationsWithReplacement(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1) { try self.emit("std.ArrayList(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
+    try self.emit("combswr_blk: { const _iter = "); try emitIter(self, args[0]);
+    try self.emit("; var _result = std.ArrayList(struct { @\"0\": @TypeOf(_iter[0]), @\"1\": @TypeOf(_iter[0]) }){}; ");
+    try self.emit("for (_iter, 0..) |a, i| { for (_iter[i..]) |b| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } } ");
+    try self.emit("break :combswr_blk _result; }");
+}
+
+/// itertools.groupby(iterable, key=None) - group consecutive equal elements
+fn genGroupby(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 1) { try self.emit("std.ArrayList(struct { key: i64, group: std.ArrayList(i64) }){}"); return; }
+    try self.emit("groupby_blk: { const _iter = "); try emitIter(self, args[0]);
+    try self.emit("; var _result = std.ArrayList(struct { key: @TypeOf(_iter[0]), group: std.ArrayList(@TypeOf(_iter[0])) }){}; ");
+    try self.emit("if (_iter.len > 0) { var _cur_key = _iter[0]; var _cur_group = std.ArrayList(@TypeOf(_iter[0])){}; ");
+    try self.emit("for (_iter) |item| { if (item == _cur_key) { _cur_group.append(__global_allocator, item) catch continue; } ");
+    try self.emit("else { _result.append(__global_allocator, .{ .key = _cur_key, .group = _cur_group }) catch {}; _cur_key = item; _cur_group = std.ArrayList(@TypeOf(_iter[0])){}; _cur_group.append(__global_allocator, item) catch {}; } } ");
+    try self.emit("_result.append(__global_allocator, .{ .key = _cur_key, .group = _cur_group }) catch {}; } ");
+    try self.emit("break :groupby_blk _result; }");
+}
+
+/// itertools.batched(iterable, n) - batch iterable into tuples of size n
+fn genBatched(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) { try self.emit("std.ArrayList(std.ArrayList(i64)){}"); return; }
+    try self.emit("batched_blk: { const _iter = "); try emitIter(self, args[0]);
+    try self.emit("; const _n = @as(usize, @intCast("); try self.genExpr(args[1]);
+    try self.emit(")); var _result = std.ArrayList(std.ArrayList(@TypeOf(_iter[0]))){}; ");
+    try self.emit("var _i: usize = 0; while (_i < _iter.len) : (_i += _n) { var _batch = std.ArrayList(@TypeOf(_iter[0])){}; ");
+    try self.emit("const _end = @min(_i + _n, _iter.len); for (_iter[_i.._end]) |item| { _batch.append(__global_allocator, item) catch continue; } ");
+    try self.emit("_result.append(__global_allocator, _batch) catch continue; } ");
+    try self.emit("break :batched_blk _result; }");
 }

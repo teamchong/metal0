@@ -51,128 +51,109 @@ pub const ExceptionTypeId = enum(i64) {
     }
 };
 
-/// Python exception type constants for use in assertRaises, etc.
-/// These are marker types that can be passed around and compared
-pub const TypeError = struct {
-    pub const name = "TypeError";
-};
-pub const ValueError = struct {
-    pub const name = "ValueError";
-};
-pub const KeyError = struct {
-    pub const name = "KeyError";
-};
-pub const IndexError = struct {
-    pub const name = "IndexError";
-};
-pub const ZeroDivisionError = struct {
-    pub const name = "ZeroDivisionError";
-};
-pub const AttributeError = struct {
-    pub const name = "AttributeError";
-};
-pub const NameError = struct {
-    pub const name = "NameError";
-};
-pub const FileNotFoundError = struct {
-    pub const name = "FileNotFoundError";
-};
-pub const IOError = struct {
-    pub const name = "IOError";
-};
-pub const RuntimeError = struct {
-    pub const name = "RuntimeError";
-    args: []const PyValue = &[_]PyValue{},
-    allocator: std.mem.Allocator = undefined,
+/// Helper to create an exception struct with proper init methods
+fn ExceptionClass(comptime exception_name: []const u8) type {
+    return struct {
+        pub const name = exception_name;
+        args: []const PyValue = &[_]PyValue{},
+        allocator: std.mem.Allocator = undefined,
 
-    pub fn init(allocator: std.mem.Allocator) !*RuntimeError {
-        const self = try allocator.create(RuntimeError);
-        self.* = .{
-            .args = &[_]PyValue{},
-            .allocator = allocator,
-        };
-        return self;
-    }
+        const Self = @This();
 
-    pub fn initWithArg(allocator: std.mem.Allocator, arg: anytype) !*RuntimeError {
-        const self = try allocator.create(RuntimeError);
-        const args_copy = try allocator.alloc(PyValue, 1);
-        args_copy[0] = try PyValue.fromAlloc(allocator, arg);
-        self.* = .{
-            .args = args_copy,
-            .allocator = allocator,
-        };
-        return self;
-    }
+        pub fn init(allocator: std.mem.Allocator) !*Self {
+            const self = try allocator.create(Self);
+            self.* = .{
+                .args = &[_]PyValue{},
+                .allocator = allocator,
+            };
+            return self;
+        }
 
-    pub fn initWithArgs(allocator: std.mem.Allocator, args: []const PyValue) !*RuntimeError {
-        const self = try allocator.create(RuntimeError);
-        const args_copy = try allocator.alloc(PyValue, args.len);
-        @memcpy(args_copy, args);
-        self.* = .{
-            .args = args_copy,
-            .allocator = allocator,
-        };
-        return self;
-    }
-};
-pub const StopIteration = struct {
-    pub const name = "StopIteration";
-};
-pub const NotImplementedError = struct {
-    pub const name = "NotImplementedError";
-};
-pub const AssertionError = struct {
-    pub const name = "AssertionError";
-};
-pub const OverflowError = struct {
-    pub const name = "OverflowError";
-};
-pub const ImportError = struct {
-    pub const name = "ImportError";
-};
-pub const ModuleNotFoundError = struct {
-    pub const name = "ModuleNotFoundError";
-};
-pub const OSError = struct {
-    pub const name = "OSError";
-};
-pub const PermissionError = struct {
-    pub const name = "PermissionError";
-};
-pub const TimeoutError = struct {
-    pub const name = "TimeoutError";
-};
-pub const ConnectionError = struct {
-    pub const name = "ConnectionError";
-};
-pub const RecursionError = struct {
-    pub const name = "RecursionError";
-};
-pub const MemoryError = struct {
-    pub const name = "MemoryError";
-};
-pub const LookupError = struct {
-    pub const name = "LookupError";
-};
-pub const ArithmeticError = struct {
-    pub const name = "ArithmeticError";
-};
-pub const BufferError = struct {
-    pub const name = "BufferError";
-};
-pub const EOFError = struct {
-    pub const name = "EOFError";
-};
-pub const GeneratorExit = struct {
-    pub const name = "GeneratorExit";
-};
-pub const SystemExit = struct {
-    pub const name = "SystemExit";
-};
-pub const KeyboardInterrupt = struct {
-    pub const name = "KeyboardInterrupt";
-};
+        pub fn initWithArg(allocator: std.mem.Allocator, arg: anytype) !*Self {
+            const self = try allocator.create(Self);
+            const args_copy = try allocator.alloc(PyValue, 1);
+            args_copy[0] = try PyValue.fromAlloc(allocator, arg);
+            self.* = .{
+                .args = args_copy,
+                .allocator = allocator,
+            };
+            return self;
+        }
+
+        pub fn initWithArgs(allocator: std.mem.Allocator, args: []const PyValue) !*Self {
+            const self = try allocator.create(Self);
+            const args_copy = try allocator.alloc(PyValue, args.len);
+            @memcpy(args_copy, args);
+            self.* = .{
+                .args = args_copy,
+                .allocator = allocator,
+            };
+            return self;
+        }
+
+        pub fn __str__(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
+            if (self.args.len == 0) {
+                return "";
+            } else if (self.args.len == 1) {
+                return try self.args[0].toString(allocator);
+            } else {
+                var result = std.ArrayList(u8).init(allocator);
+                try result.appendSlice("(");
+                for (self.args, 0..) |arg, i| {
+                    if (i > 0) try result.appendSlice(", ");
+                    const s = try arg.toRepr(allocator);
+                    try result.appendSlice(s);
+                }
+                try result.appendSlice(")");
+                return result.toOwnedSlice();
+            }
+        }
+
+        pub fn __repr__(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
+            var result = std.ArrayList(u8).init(allocator);
+            try result.appendSlice(name);
+            try result.appendSlice("(");
+            for (self.args, 0..) |arg, i| {
+                if (i > 0) try result.appendSlice(", ");
+                const s = try arg.toRepr(allocator);
+                try result.appendSlice(s);
+            }
+            try result.appendSlice(")");
+            return result.toOwnedSlice();
+        }
+    };
+}
+
+/// Python exception types - all with proper init, __str__, __repr__ methods
+pub const TypeError = ExceptionClass("TypeError");
+pub const ValueError = ExceptionClass("ValueError");
+pub const KeyError = ExceptionClass("KeyError");
+pub const IndexError = ExceptionClass("IndexError");
+pub const ZeroDivisionError = ExceptionClass("ZeroDivisionError");
+pub const AttributeError = ExceptionClass("AttributeError");
+pub const NameError = ExceptionClass("NameError");
+pub const FileNotFoundError = ExceptionClass("FileNotFoundError");
+pub const IOError = ExceptionClass("IOError");
+pub const RuntimeError = ExceptionClass("RuntimeError");
+pub const StopIteration = ExceptionClass("StopIteration");
+pub const NotImplementedError = ExceptionClass("NotImplementedError");
+pub const AssertionError = ExceptionClass("AssertionError");
+pub const OverflowError = ExceptionClass("OverflowError");
+pub const ImportError = ExceptionClass("ImportError");
+pub const ModuleNotFoundError = ExceptionClass("ModuleNotFoundError");
+pub const OSError = ExceptionClass("OSError");
+pub const PermissionError = ExceptionClass("PermissionError");
+pub const TimeoutError = ExceptionClass("TimeoutError");
+pub const ConnectionError = ExceptionClass("ConnectionError");
+pub const RecursionError = ExceptionClass("RecursionError");
+pub const MemoryError = ExceptionClass("MemoryError");
+pub const LookupError = ExceptionClass("LookupError");
+pub const ArithmeticError = ExceptionClass("ArithmeticError");
+pub const BufferError = ExceptionClass("BufferError");
+pub const EOFError = ExceptionClass("EOFError");
+pub const GeneratorExit = ExceptionClass("GeneratorExit");
+pub const SystemExit = ExceptionClass("SystemExit");
+pub const KeyboardInterrupt = ExceptionClass("KeyboardInterrupt");
 /// BaseException - the base class for all built-in exceptions
 pub const BaseException = struct {
     pub const name = "BaseException";

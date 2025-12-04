@@ -17,6 +17,9 @@ const misc = @import("conversions/misc.zig");
 pub const genLen = int_conv.genLen;
 pub const genInt = int_conv.genInt;
 pub const genBool = int_conv.genBool;
+pub const genHex = int_conv.genHex;
+pub const genOct = int_conv.genOct;
+pub const genBin = int_conv.genBin;
 
 // Re-export from float_conv.zig
 pub const genFloat = float_conv.genFloat;

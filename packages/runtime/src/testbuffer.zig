@@ -25,6 +25,24 @@ pub const ndarray = struct {
     readonly: bool = false,
     // Reference to underlying exporter (for nested ndarrays)
     obj: ?*anyopaque = null,
+    // Length (for Python len() compatibility)
+    len: i64 = 0,
+    // Dynamic dict for Python __dict__ attribute - stores PyValue for heterogeneous values
+    __dict__: DictType = undefined,
+
+    const DictType = struct {
+        // Simple wrapper that returns PyValue-like values for attribute access
+        pub fn get(self: @This(), key: []const u8) ?AttrValue {
+            _ = self;
+            _ = key;
+            // Return a stub value - real implementation would look up attributes
+            return AttrValue{};
+        }
+    };
+    const AttrValue = struct {
+        int: i64 = 0,
+        string: []const u8 = "",
+    };
 
     const Self = @This();
 
@@ -79,18 +97,37 @@ pub const ndarray = struct {
         _ = self;
     }
 
-    /// Get item at flat index
+    /// Get item at flat index (Python __getitem__)
     pub fn getitem(self: Self, idx: i64) i64 {
         _ = self;
         _ = idx;
         return 0;
     }
 
-    /// Set item at flat index
+    /// Python-style __getitem__ (alias for getitem)
+    pub fn __getitem__(self: Self, idx: anytype) i64 {
+        // Handle both integer and slice indices
+        const IdxType = @TypeOf(idx);
+        if (IdxType == i64 or IdxType == usize or @typeInfo(IdxType) == .comptime_int) {
+            return self.getitem(@intCast(idx));
+        }
+        // For slices, return 0 (stub)
+        return 0;
+    }
+
+    /// Set item at flat index (Python __setitem__)
     pub fn setitem(self: *Self, idx: i64, value: i64) void {
         _ = self;
         _ = idx;
         _ = value;
+    }
+
+    /// Python-style __setitem__
+    pub fn __setitem__(self: *Self, idx: anytype, value: anytype) void {
+        const IdxType = @TypeOf(idx);
+        if (IdxType == i64 or IdxType == usize or @typeInfo(IdxType) == .comptime_int) {
+            self.setitem(@intCast(idx), @intCast(value));
+        }
     }
 
     /// Convert to list
@@ -106,6 +143,17 @@ pub const ndarray = struct {
 
     /// Get memoryview representation
     pub fn memoryview(self: *Self) *Self {
+        return self;
+    }
+
+    /// Create memoryview from buffer (stub for buffer protocol)
+    pub fn memoryview_from_buffer(self: *Self) *Self {
+        return self;
+    }
+
+    /// Python __buffer__ protocol (return self for buffer access)
+    pub fn __buffer__(self: *Self, flags: anytype) *Self {
+        _ = flags;
         return self;
     }
 

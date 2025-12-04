@@ -351,6 +351,15 @@ pub fn findOuterRefsInNode(
         // Statements
         .assign => |assign| {
             try findOuterRefsInNode(self, assign.value.*, method_params, captured);
+            // Also check targets for subscript/attribute access to outer variables
+            // e.g., pair[:] = [] references outer variable 'pair'
+            for (assign.targets) |target| {
+                if (target == .subscript) {
+                    try findOuterRefsInNode(self, target.subscript.value.*, method_params, captured);
+                } else if (target == .attribute) {
+                    try findOuterRefsInNode(self, target.attribute.value.*, method_params, captured);
+                }
+            }
         },
         .aug_assign => |aug| {
             try findOuterRefsInNode(self, aug.target.*, method_params, captured);
@@ -447,6 +456,26 @@ pub fn findForwardReferencedCapturesWithParams(
                     }
                 }
             },
+            .function_def => |func| {
+                // Check if this nested function captures any variables not yet declared
+                // captured_vars is pre-computed by the closure analyzer
+                for (func.captured_vars) |cap_var| {
+                    if (!declared_vars.contains(cap_var)) {
+                        // This is a forward reference - captured before declared
+                        // Check if we already added it
+                        var already_added = false;
+                        for (forward_refs.items) |existing| {
+                            if (std.mem.eql(u8, existing, cap_var)) {
+                                already_added = true;
+                                break;
+                            }
+                        }
+                        if (!already_added) {
+                            try forward_refs.append(self.allocator, cap_var);
+                        }
+                    }
+                }
+            },
             .assign => |assign| {
                 // Mark variables as declared
                 for (assign.targets) |target| {
@@ -455,9 +484,36 @@ pub fn findForwardReferencedCapturesWithParams(
                     }
                 }
             },
+            .for_stmt => |for_stmt| {
+                // For loop target declares a variable
+                try collectForTargetVars(for_stmt.target.*, &declared_vars);
+            },
             else => {},
         }
     }
 
     return forward_refs;
+}
+
+/// Collect variable names from a for-loop target (handles name, tuple, list)
+fn collectForTargetVars(node: ast.Node, declared_vars: *hashmap_helper.StringHashMap(void)) !void {
+    switch (node) {
+        .name => |n| {
+            try declared_vars.put(n.id, {});
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                try collectForTargetVars(elt, declared_vars);
+            }
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                try collectForTargetVars(elt, declared_vars);
+            }
+        },
+        .starred => |s| {
+            try collectForTargetVars(s.value.*, declared_vars);
+        },
+        else => {},
+    }
 }

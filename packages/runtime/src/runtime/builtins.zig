@@ -24,25 +24,25 @@ pub fn range(allocator: std.mem.Allocator, start: i64, stop: i64, step: i64) !*P
         return PythonError.ValueError;
     }
 
-    const list = try PyList.create(allocator);
+    const result_list = try PyList.create(allocator);
 
     if (step > 0) {
         var i = start;
         while (i < stop) : (i += step) {
             const item = try PyInt.create(allocator, i);
-            try PyList.append(list, item);
+            try PyList.append(result_list, item);
             decref(item, allocator); // List takes ownership
         }
     } else if (step < 0) {
         var i = start;
         while (i > stop) : (i += step) {
             const item = try PyInt.create(allocator, i);
-            try PyList.append(list, item);
+            try PyList.append(result_list, item);
             decref(item, allocator); // List takes ownership
         }
     }
 
-    return list;
+    return result_list;
 }
 
 /// Create a list of (index, item) tuples from an iterable
@@ -55,17 +55,17 @@ pub fn enumerate(allocator: std.mem.Allocator, iterable: *PyObject, start: i64) 
     var index = start;
     for (source_list.items.items) |item| {
         // Create tuple (index, item)
-        const tuple = try PyTuple.create(allocator, 2);
+        const result_tuple = try PyTuple.create(allocator, 2);
         const idx_obj = try PyInt.create(allocator, index);
 
-        PyTuple.setItem(tuple, 0, idx_obj);
+        PyTuple.setItem(result_tuple, 0, idx_obj);
         decref(idx_obj, allocator); // Tuple takes ownership
 
         incref(item); // Tuple needs ownership
-        PyTuple.setItem(tuple, 1, item);
+        PyTuple.setItem(result_tuple, 1, item);
 
-        try PyList.append(result, tuple);
-        decref(tuple, allocator); // List takes ownership
+        try PyList.append(result, result_tuple);
+        decref(result_tuple, allocator); // List takes ownership
 
         index += 1;
     }
@@ -86,16 +86,16 @@ pub fn zip2(allocator: std.mem.Allocator, iter1: *PyObject, iter2: *PyObject) !*
 
     var i: usize = 0;
     while (i < min_len) : (i += 1) {
-        const tuple = try PyTuple.create(allocator, 2);
+        const result_tuple = try PyTuple.create(allocator, 2);
 
         incref(list1.items.items[i]);
-        PyTuple.setItem(tuple, 0, list1.items.items[i]);
+        PyTuple.setItem(result_tuple, 0, list1.items.items[i]);
 
         incref(list2.items.items[i]);
-        PyTuple.setItem(tuple, 1, list2.items.items[i]);
+        PyTuple.setItem(result_tuple, 1, list2.items.items[i]);
 
-        try PyList.append(result, tuple);
-        decref(tuple, allocator); // List takes ownership
+        try PyList.append(result, result_tuple);
+        decref(result_tuple, allocator); // List takes ownership
     }
 
     return result;
@@ -116,19 +116,19 @@ pub fn zip3(allocator: std.mem.Allocator, iter1: *PyObject, iter2: *PyObject, it
 
     var i: usize = 0;
     while (i < min_len) : (i += 1) {
-        const tuple = try PyTuple.create(allocator, 3);
+        const result_tuple = try PyTuple.create(allocator, 3);
 
         incref(list1.items.items[i]);
-        PyTuple.setItem(tuple, 0, list1.items.items[i]);
+        PyTuple.setItem(result_tuple, 0, list1.items.items[i]);
 
         incref(list2.items.items[i]);
-        PyTuple.setItem(tuple, 1, list2.items.items[i]);
+        PyTuple.setItem(result_tuple, 1, list2.items.items[i]);
 
         incref(list3.items.items[i]);
-        PyTuple.setItem(tuple, 2, list3.items.items[i]);
+        PyTuple.setItem(result_tuple, 2, list3.items.items[i]);
 
-        try PyList.append(result, tuple);
-        decref(tuple, allocator); // List takes ownership
+        try PyList.append(result, result_tuple);
+        decref(result_tuple, allocator); // List takes ownership
     }
 
     return result;
@@ -137,9 +137,9 @@ pub fn zip3(allocator: std.mem.Allocator, iter1: *PyObject, iter2: *PyObject, it
 /// Check if all elements in iterable are truthy
 pub fn all(iterable: *PyObject) bool {
     std.debug.assert(iterable.type_id == .list);
-    const list: *PyList = @ptrCast(@alignCast(iterable.data));
+    const src_list: *PyList = @ptrCast(@alignCast(iterable.data));
 
-    for (list.items.items) |item| {
+    for (src_list.items.items) |item| {
         // Check if item is truthy
         if (item.type_id == .int) {
             const int_obj: *PyInt = @ptrCast(@alignCast(item.data));
@@ -161,9 +161,9 @@ pub fn all(iterable: *PyObject) bool {
 /// Check if any element in iterable is truthy
 pub fn any(iterable: *PyObject) bool {
     std.debug.assert(iterable.type_id == .list);
-    const list: *PyList = @ptrCast(@alignCast(iterable.data));
+    const src_list: *PyList = @ptrCast(@alignCast(iterable.data));
 
-    for (list.items.items) |item| {
+    for (src_list.items.items) |item| {
         // Check if item is truthy
         if (item.type_id == .int) {
             const int_obj: *PyInt = @ptrCast(@alignCast(item.data));
@@ -193,11 +193,11 @@ pub fn abs(value: i64) i64 {
 /// Minimum value from a list
 pub fn minList(iterable: *PyObject) i64 {
     std.debug.assert(iterable.type_id == .list);
-    const list: *PyList = @ptrCast(@alignCast(iterable.data));
+    const src_list: *PyList = @ptrCast(@alignCast(iterable.data));
     std.debug.assert(list.items.items.len > 0);
 
     var min_val: i64 = std.math.maxInt(i64);
-    for (list.items.items) |item| {
+    for (src_list.items.items) |item| {
         if (item.type_id == .int) {
             const int_obj: *PyInt = @ptrCast(@alignCast(item.data));
             if (int_obj.value < min_val) {
@@ -223,11 +223,11 @@ pub fn minVarArgs(values: []const i64) i64 {
 /// Maximum value from a list
 pub fn maxList(iterable: *PyObject) i64 {
     std.debug.assert(iterable.type_id == .list);
-    const list: *PyList = @ptrCast(@alignCast(iterable.data));
+    const src_list: *PyList = @ptrCast(@alignCast(iterable.data));
     std.debug.assert(list.items.items.len > 0);
 
     var max_val: i64 = std.math.minInt(i64);
-    for (list.items.items) |item| {
+    for (src_list.items.items) |item| {
         if (item.type_id == .int) {
             const int_obj: *PyInt = @ptrCast(@alignCast(item.data));
             if (int_obj.value > max_val) {
@@ -536,10 +536,10 @@ pub fn pyRound(value: anytype) i64 {
 /// Sum of all numeric values in a list
 pub fn sum(iterable: *PyObject) i64 {
     std.debug.assert(iterable.type_id == .list);
-    const list: *PyList = @ptrCast(@alignCast(iterable.data));
+    const src_list: *PyList = @ptrCast(@alignCast(iterable.data));
 
     var total: i64 = 0;
-    for (list.items.items) |item| {
+    for (src_list.items.items) |item| {
         if (item.type_id == .int) {
             const int_obj: *PyInt = @ptrCast(@alignCast(item.data));
             total += int_obj.value;
@@ -708,6 +708,23 @@ pub fn exec(code: anytype) PythonError!void {
     return PythonError.ValueError;
 }
 
+/// int(base=N) without value argument - always raises TypeError
+/// Python: int(base=10) → TypeError: int() missing required argument 'x' (pos 1)
+pub fn intWithBaseOnly() PythonError!i128 {
+    return PythonError.TypeError;
+}
+
+/// struct.pack() with no format string - raises TypeError
+/// Python: struct.pack() takes no keyword arguments
+pub fn structPackNoArgs() PythonError![]const u8 {
+    return PythonError.TypeError;
+}
+
+/// struct.pack_into() with insufficient args - raises TypeError
+pub fn structPackIntoNoArgs() PythonError!void {
+    return PythonError.TypeError;
+}
+
 /// int(string, base) with runtime base validation
 /// Used in assertRaises context where base might be invalid (negative, > 36, etc.)
 pub fn intWithBase(allocator: std.mem.Allocator, string: anytype, base: anytype) PythonError!i128 {
@@ -853,6 +870,12 @@ pub const PyCallable = struct {
                     if (r_info == .@"struct" and @hasField(R, "__base_value__")) {
                         return value.__base_value__;
                     }
+                    // If return type is a struct with tobytes() method (like array.array), call it
+                    if (r_info == .@"struct" and @hasDecl(R, "tobytes")) {
+                        // tobytes takes *@This(), so we need to make it mutable
+                        var mutable_value = value;
+                        return mutable_value.tobytes();
+                    }
                     // If return type is pointer to struct with __base_value__
                     if (r_info == .pointer and r_info.pointer.size == .one) {
                         const child_info = @typeInfo(r_info.pointer.child);
@@ -891,6 +914,11 @@ pub const PyCallable = struct {
                     }
                     if (r_info == .@"struct" and @hasField(R, "__base_value__")) {
                         return value.__base_value__;
+                    }
+                    // If return type is a struct with tobytes() method (like array.array), call it
+                    if (r_info == .@"struct" and @hasDecl(R, "tobytes")) {
+                        var mutable_value = value;
+                        return mutable_value.tobytes();
                     }
                     if (r_info == .pointer and r_info.pointer.size == .one) {
                         const child_info = @typeInfo(r_info.pointer.child);
@@ -1582,3 +1610,328 @@ pub fn classInstanceNe(a: anytype, b: anytype, allocator: std.mem.Allocator) boo
     // Fallback: use negation of __eq__
     return !classInstanceEq(a, b, allocator);
 }
+
+// ============================================================================
+// Type constructor callables - for use as first-class values in lists
+// These allow patterns like: for constructor in list, tuple, set: ...
+// ============================================================================
+
+/// list() type constructor - creates a new list from an iterable
+/// Used as first-class value in patterns like: constructors = [list, tuple, set]
+pub const list = struct {
+    /// Call as list() or list(iterable)
+    pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
+        const T = @TypeOf(arg);
+        // If no arg (void), return empty list
+        if (T == void) {
+            return try PyList.create(allocator);
+        }
+        // If arg is a PyObject list, clone it
+        if (T == *PyObject) {
+            if (arg.type_id == .list) {
+                const source: *PyList = @ptrCast(@alignCast(arg.data));
+                const result = try PyList.create(allocator);
+                for (source.items.items) |item| {
+                    incref(item);
+                    try PyList.append(result, item);
+                }
+                return result;
+            }
+        }
+        // Return empty list for unsupported types
+        return try PyList.create(allocator);
+    }
+}{};
+
+/// tuple() type constructor - creates a new tuple from an iterable
+pub const tuple = struct {
+    pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
+        const T = @TypeOf(arg);
+        if (T == void) {
+            return try PyTuple.create(allocator, 0);
+        }
+        if (T == *PyObject) {
+            if (arg.type_id == .list) {
+                const source: *PyList = @ptrCast(@alignCast(arg.data));
+                const result = try PyTuple.create(allocator, source.items.items.len);
+                for (source.items.items, 0..) |item, i| {
+                    incref(item);
+                    PyTuple.setItem(result, i, item);
+                }
+                return result;
+            }
+        }
+        return try PyTuple.create(allocator, 0);
+    }
+}{};
+
+/// set() type constructor - creates a new set from an iterable
+pub const set = struct {
+    pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
+        _ = arg;
+        // For now, return an empty list as placeholder (set not fully implemented)
+        return try PyList.create(allocator);
+    }
+}{};
+
+/// frozenset() type constructor - creates an immutable set
+pub const frozenset = struct {
+    pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
+        _ = arg;
+        // For now, return an empty list as placeholder
+        return try PyList.create(allocator);
+    }
+}{};
+
+/// deque() type constructor - creates a double-ended queue
+pub const deque = struct {
+    pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
+        _ = arg;
+        // For now, use a list as deque (same underlying structure)
+        return try PyList.create(allocator);
+    }
+}{};
+
+// ============================================================================
+// Basic I/O builtins - hex, oct, bin, input, breakpoint, print
+// ============================================================================
+
+/// hex(x) - convert integer to hexadecimal string with "0x" prefix
+/// For negative numbers, produces "-0x..." format
+pub fn hex(allocator: std.mem.Allocator, value: anytype) []const u8 {
+    const T = @TypeOf(value);
+    const int_val: i64 = blk: {
+        if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+            break :blk @as(i64, @intCast(value));
+        } else if (@typeInfo(T) == .@"struct" and @hasDecl(T, "toInt64")) {
+            // BigInt
+            break :blk value.toInt64() orelse 0;
+        }
+        break :blk 0;
+    };
+
+    if (int_val >= 0) {
+        return std.fmt.allocPrint(allocator, "0x{x}", .{@as(u64, @intCast(int_val))}) catch "0x0";
+    } else {
+        return std.fmt.allocPrint(allocator, "-0x{x}", .{@as(u64, @intCast(-int_val))}) catch "-0x0";
+    }
+}
+
+/// oct(x) - convert integer to octal string with "0o" prefix
+pub fn oct(allocator: std.mem.Allocator, value: anytype) []const u8 {
+    const T = @TypeOf(value);
+    const int_val: i64 = blk: {
+        if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+            break :blk @as(i64, @intCast(value));
+        } else if (@typeInfo(T) == .@"struct" and @hasDecl(T, "toInt64")) {
+            break :blk value.toInt64() orelse 0;
+        }
+        break :blk 0;
+    };
+
+    if (int_val >= 0) {
+        return std.fmt.allocPrint(allocator, "0o{o}", .{@as(u64, @intCast(int_val))}) catch "0o0";
+    } else {
+        return std.fmt.allocPrint(allocator, "-0o{o}", .{@as(u64, @intCast(-int_val))}) catch "-0o0";
+    }
+}
+
+/// bin(x) - convert integer to binary string with "0b" prefix
+pub fn bin(allocator: std.mem.Allocator, value: anytype) []const u8 {
+    const T = @TypeOf(value);
+    const int_val: i64 = blk: {
+        if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+            break :blk @as(i64, @intCast(value));
+        } else if (@typeInfo(T) == .@"struct" and @hasDecl(T, "toInt64")) {
+            break :blk value.toInt64() orelse 0;
+        }
+        break :blk 0;
+    };
+
+    if (int_val >= 0) {
+        return std.fmt.allocPrint(allocator, "0b{b}", .{@as(u64, @intCast(int_val))}) catch "0b0";
+    } else {
+        return std.fmt.allocPrint(allocator, "-0b{b}", .{@as(u64, @intCast(-int_val))}) catch "-0b0";
+    }
+}
+
+/// input([prompt]) - read line from stdin
+/// Returns the line without trailing newline
+pub fn input(allocator: std.mem.Allocator, prompt: []const u8) []const u8 {
+    // Print prompt to stdout
+    if (prompt.len > 0) {
+        _ = std.posix.write(std.posix.STDOUT_FILENO, prompt) catch {};
+    }
+
+    // Read line from stdin
+    const stdin_file = std.fs.File{ .handle = std.posix.STDIN_FILENO };
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = stdin_file.reader(&stdin_buf);
+    const line = stdin.readUntilDelimiterAlloc(allocator, '\n', 4096) catch |err| {
+        if (err == error.EndOfStream) {
+            return "";
+        }
+        return "";
+    };
+
+    // Strip trailing \r if present (Windows line endings)
+    if (line.len > 0 and line[line.len - 1] == '\r') {
+        return line[0 .. line.len - 1];
+    }
+    return line;
+}
+
+/// breakpoint() - drop into debugger
+/// In release builds, this is a no-op. In debug builds, triggers @breakpoint
+pub fn breakpoint() void {
+    if (@import("builtin").mode == .Debug) {
+        @breakpoint();
+    }
+}
+
+/// print(*args) - print values to stdout with space separator and newline
+pub fn print(allocator: std.mem.Allocator, args: anytype) void {
+    // Build the output string first, then write to stdout
+    var output = std.ArrayList(u8){};
+    defer output.deinit(allocator);
+
+    const ArgsType = @TypeOf(args);
+    const args_info = @typeInfo(ArgsType);
+
+    // Handle tuple/array of args
+    if (args_info == .pointer and args_info.pointer.size == .slice) {
+        for (args, 0..) |arg, i| {
+            if (i > 0) output.append(allocator, ' ') catch {};
+            printValueToList(&output, arg, allocator);
+        }
+    } else if (args_info == .@"struct" and args_info.@"struct".is_tuple) {
+        inline for (args_info.@"struct".fields, 0..) |field, i| {
+            if (i > 0) output.append(allocator, ' ') catch {};
+            printValueToList(&output, @field(args, field.name), allocator);
+        }
+    }
+    output.append(allocator, '\n') catch {};
+    _ = std.posix.write(std.posix.STDOUT_FILENO, output.items) catch {};
+}
+
+fn printValueToList(output: *std.ArrayList(u8), value: anytype, allocator: std.mem.Allocator) void {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    if (T == []const u8 or T == []u8) {
+        output.appendSlice(allocator, value) catch {};
+    } else if (info == .int or info == .comptime_int) {
+        var buf: [32]u8 = undefined;
+        const int_len = std.fmt.formatIntBuf(&buf, value, 10, .lower, .{});
+        output.appendSlice(allocator, buf[0..int_len]) catch {};
+    } else if (info == .float or info == .comptime_float) {
+        var buf: [64]u8 = undefined;
+        const formatted = std.fmt.bufPrint(&buf, "{d}", .{value}) catch return;
+        output.appendSlice(allocator, formatted) catch {};
+    } else if (info == .bool) {
+        output.appendSlice(allocator, if (value) "True" else "False") catch {};
+    } else if (T == *PyObject) {
+        // Use PyObject string representation
+        if (value.type_id == .string) {
+            const str_obj: *PyString = @ptrCast(@alignCast(value.data));
+            output.appendSlice(allocator, str_obj.data) catch {};
+        } else if (value.type_id == .int) {
+            const int_obj: *PyInt = @ptrCast(@alignCast(value.data));
+            var buf: [32]u8 = undefined;
+            const pyint_len = std.fmt.formatIntBuf(&buf, int_obj.value, 10, .lower, .{});
+            output.appendSlice(allocator, buf[0..pyint_len]) catch {};
+        } else {
+            output.appendSlice(allocator, "<object>") catch {};
+        }
+    } else {
+        var buf: [256]u8 = undefined;
+        const formatted = std.fmt.bufPrint(&buf, "{any}", .{value}) catch return;
+        output.appendSlice(allocator, formatted) catch {};
+    }
+}
+
+// Legacy function kept for compatibility
+fn printValue(writer: anytype, value: anytype, allocator: std.mem.Allocator) void {
+    _ = allocator;
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    if (T == []const u8 or T == []u8) {
+        writer.print("{s}", .{value}) catch {};
+    } else if (info == .int or info == .comptime_int) {
+        writer.print("{d}", .{value}) catch {};
+    } else if (info == .float or info == .comptime_float) {
+        writer.print("{d}", .{value}) catch {};
+    } else if (info == .bool) {
+        writer.print("{s}", .{if (value) "True" else "False"}) catch {};
+    } else if (T == *PyObject) {
+        // Use PyObject string representation
+        if (value.type_id == .string) {
+            const str_obj: *PyString = @ptrCast(@alignCast(value.data));
+            writer.print("{s}", .{str_obj.data}) catch {};
+        } else if (value.type_id == .int) {
+            const int_obj: *PyInt = @ptrCast(@alignCast(value.data));
+            writer.print("{d}", .{int_obj.value}) catch {};
+        } else {
+            writer.print("<object>", .{}) catch {};
+        }
+    } else {
+        writer.print("{any}", .{value}) catch {};
+    }
+}
+
+/// dict namespace - for dict.fromkeys and other class methods
+/// Note: dict is a namespace struct (type), not an instance, so dict.fromkeys works
+/// For dict() constructor calls, codegen should emit PyDict.create() directly
+pub const dict = struct {
+    /// dict.fromkeys(keys, value=None) - create dict with keys from iterable
+    pub const fromkeys = struct {
+        /// Create a None PyObject
+        fn makeNone(allocator: std.mem.Allocator) !*PyObject {
+            const obj = try allocator.create(PyObject);
+            obj.* = .{
+                .ref_count = 1,
+                .type_id = .none,
+                .data = undefined,
+            };
+            return obj;
+        }
+
+        pub fn call(_: @This(), allocator: std.mem.Allocator, keys: anytype, value: anytype) !*PyObject {
+            const result = try PyDict.create(allocator);
+            const KeysType = @TypeOf(keys);
+
+            // Handle different key sources
+            if (KeysType == *PyObject) {
+                if (keys.type_id == .list) {
+                    const src_list: *PyList = @ptrCast(@alignCast(keys.data));
+                    for (src_list.items.items) |key| {
+                        // Use value if provided, otherwise None
+                        const val = blk: {
+                            const ValType = @TypeOf(value);
+                            if (ValType == void or ValType == @TypeOf(null)) {
+                                break :blk try makeNone(allocator);
+                            }
+                            break :blk value;
+                        };
+                        try PyDict.setItem(result, key, val);
+                    }
+                } else if (keys.type_id == .tuple) {
+                    const src_tuple: *PyTuple = @ptrCast(@alignCast(keys.data));
+                    for (src_tuple.items) |key| {
+                        const val = blk: {
+                            const ValType = @TypeOf(value);
+                            if (ValType == void or ValType == @TypeOf(null)) {
+                                break :blk try makeNone(allocator);
+                            }
+                            break :blk value;
+                        };
+                        try PyDict.setItem(result, key, val);
+                    }
+                }
+            }
+
+            return result;
+        }
+    }{};
+};

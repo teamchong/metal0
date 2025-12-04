@@ -522,7 +522,7 @@ pub const hashlib_helper = struct {
     }
 };
 
-/// numbers submodule - numeric literal test data
+/// numbers submodule - numeric literal test data (PEP 515)
 pub const numbers = struct {
     /// Valid underscore literals (PEP 515)
     pub const VALID_UNDERSCORE_LITERALS: []const []const u8 = &.{
@@ -551,28 +551,57 @@ pub const numbers = struct {
 
     /// Invalid underscore literals (should raise ValueError/SyntaxError)
     pub const INVALID_UNDERSCORE_LITERALS: []const []const u8 = &.{
-        // Trailing underscores
+        // Trailing underscores:
         "0_",
         "42_",
         "1.4j_",
-        // Underscores in wrong positions
+        "0x_",
+        "0b1_",
+        "0xf_",
+        "0o5_",
+        "0 if 1_Else 1",
+        // Underscores in the base selector:
         "0_b0",
         "0_xf",
         "0_o5",
-        // Multiple consecutive underscores
+        // Old-style octal, still disallowed:
+        "0_7",
+        "09_99",
+        // Multiple consecutive underscores:
         "4_______2",
         "0.1__4",
-        // Around decimal point
-        "1_.4",
-        "1._4",
-        "._5",
-        // Around exponent
-        "1_e1",
-        "1e_1",
-        "1.0e+_1",
-        // Before j
-        "1.4_j",
+        "0.1__4j",
+        "0b1001__0100",
+        "0xffff__ffff",
+        "0x___",
+        "0o5__77",
+        "1e1__0",
         "1e1__0j",
+        // Underscore right before a dot:
+        "1_.4",
+        "1_.4j",
+        // Underscore right after a dot:
+        "1._4",
+        "1._4j",
+        "._5",
+        "._5j",
+        // Underscore right after a sign:
+        "1.0e+_1",
+        "1.0e+_1j",
+        // Underscore right before j:
+        "1.4_j",
+        "1.4e5_j",
+        // Underscore right before e:
+        "1_e1",
+        "1.4_e1",
+        "1.4_e1j",
+        // Underscore right after e:
+        "1e_1",
+        "1.4e_1",
+        "1.4e_1j",
+        // Complex cases with parens:
+        "(1+1.5_j_)",
+        "(1+1.5_j)",
     };
 };
 

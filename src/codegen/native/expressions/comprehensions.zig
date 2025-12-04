@@ -18,7 +18,7 @@ const IntReturningBuiltins = std.StaticStringMap(void).initComptime(.{
 /// For-loop targets create new local bindings, not references to captured variables
 fn emitForLoopTarget(self: *NativeCodegen, target: ast.Node) CodegenError!void {
     switch (target) {
-        .name => |n| try self.emit(n.id),
+        .name => |n| try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), n.id),
         else => {
             // Fallback for complex targets - shouldn't happen in practice
             // since tuple targets are handled separately
@@ -32,6 +32,89 @@ fn emitForLoopTarget(self: *NativeCodegen, target: ast.Node) CodegenError!void {
 const BoolReturningBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "isinstance", {} }, .{ "callable", {} }, .{ "hasattr", {} }, .{ "bool", {} },
 });
+
+/// Generate a truthiness-wrapped condition for comprehension `if` clauses
+/// Python truthiness: 0, "", [], {}, None are False; everything else is True
+fn genComprehensionCondition(
+    self: *NativeCodegen,
+    if_cond: ast.Node,
+    subs: *const hashmap_helper.StringHashMap([]const u8),
+) CodegenError!void {
+    // Check condition type to determine if we need truthiness conversion
+    const cond_type = self.type_inferrer.inferExpr(if_cond) catch .unknown;
+
+    // For comparisons and boolean expressions, no conversion needed
+    const is_already_bool = switch (if_cond) {
+        .compare => true,
+        .boolop => true,
+        .unaryop => |u| u.op == .Not,
+        .call => |c| blk: {
+            if (c.func.* == .name) {
+                break :blk BoolReturningBuiltins.has(c.func.name.id);
+            }
+            break :blk false;
+        },
+        else => cond_type == .bool,
+    };
+
+    if (is_already_bool) {
+        // Boolean expression - use directly
+        try genExprWithSubs(self, if_cond, subs);
+    } else if (cond_type == .unknown) {
+        // Unknown type (PyObject) - use runtime truthiness check
+        try self.emit("runtime.pyTruthy(");
+        try genExprWithSubs(self, if_cond, subs);
+        try self.emit(")");
+    } else {
+        // Other types (int, float, string, list, etc.) - use runtime.toBool
+        // This handles Python truthiness semantics (0 is false, "" is false, [] is false, etc.)
+        try self.emit("runtime.toBool(");
+        try genExprWithSubs(self, if_cond, subs);
+        try self.emit(")");
+    }
+}
+
+/// Generate a truthiness-wrapped condition without substitutions
+/// For dictcomp and genexp which don't use variable substitutions
+fn genComprehensionConditionNoSubs(
+    self: *NativeCodegen,
+    if_cond: ast.Node,
+) CodegenError!void {
+    const genExpr = @import("../expressions.zig").genExpr;
+
+    // Check condition type to determine if we need truthiness conversion
+    const cond_type = self.type_inferrer.inferExpr(if_cond) catch .unknown;
+
+    // For comparisons and boolean expressions, no conversion needed
+    const is_already_bool = switch (if_cond) {
+        .compare => true,
+        .boolop => true,
+        .unaryop => |u| u.op == .Not,
+        .call => |c| blk: {
+            if (c.func.* == .name) {
+                break :blk BoolReturningBuiltins.has(c.func.name.id);
+            }
+            break :blk false;
+        },
+        else => cond_type == .bool,
+    };
+
+    if (is_already_bool) {
+        // Boolean expression - use directly
+        try genExpr(self, if_cond);
+    } else if (cond_type == .unknown) {
+        // Unknown type (PyObject) - use runtime truthiness check
+        try self.emit("runtime.pyTruthy(");
+        try genExpr(self, if_cond);
+        try self.emit(")");
+    } else {
+        // Other types (int, float, string, list, etc.) - use runtime.toBool
+        // This handles Python truthiness semantics (0 is false, "" is false, [] is false, etc.)
+        try self.emit("runtime.toBool(");
+        try genExpr(self, if_cond);
+        try self.emit(")");
+    }
+}
 
 /// Generate expression with variable substitutions for comprehensions
 fn genExprWithSubs(
@@ -49,11 +132,34 @@ fn genExprWithSubs(
             }
         },
         .binop => |b| {
-            try self.emit("(");
-            try genExprWithSubs(self, b.left.*, subs);
-            try self.emit(BinOpStrings.get(@tagName(b.op)) orelse " ? ");
-            try genExprWithSubs(self, b.right.*, subs);
-            try self.emit(")");
+            // Use @mod for modulo to handle signed integers properly
+            if (b.op == .Mod) {
+                try self.emit("@mod(");
+                try genExprWithSubs(self, b.left.*, subs);
+                try self.emit(", ");
+                try genExprWithSubs(self, b.right.*, subs);
+                try self.emit(")");
+            } else if (b.op == .Pow) {
+                // Zig doesn't have ** operator, use std.math.pow
+                try self.emit("std.math.pow(i64, ");
+                try genExprWithSubs(self, b.left.*, subs);
+                try self.emit(", ");
+                try genExprWithSubs(self, b.right.*, subs);
+                try self.emit(")");
+            } else if (b.op == .FloorDiv) {
+                // Floor division uses @divFloor for Python semantics
+                try self.emit("@divFloor(");
+                try genExprWithSubs(self, b.left.*, subs);
+                try self.emit(", ");
+                try genExprWithSubs(self, b.right.*, subs);
+                try self.emit(")");
+            } else {
+                try self.emit("(");
+                try genExprWithSubs(self, b.left.*, subs);
+                try self.emit(BinOpStrings.get(@tagName(b.op)) orelse " ? ");
+                try genExprWithSubs(self, b.right.*, subs);
+                try self.emit(")");
+            }
         },
         .constant => |c| {
             // Use proper constant generation to handle string escaping correctly
@@ -84,16 +190,32 @@ fn genExprWithSubs(
             } else false;
 
             if (is_simple_call) {
-                // Simple local function - generate with substituted arguments
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), c.func.name.id);
-                try self.emit("(__global_allocator, ");
-                var first = true;
-                for (c.args) |arg| {
-                    if (!first) try self.emit(", ");
-                    first = false;
-                    try genExprWithSubs(self, arg, subs);
+                const func_name = c.func.name.id;
+                // Check if this is a closure that needs .call() syntax
+                if (self.closure_vars.contains(func_name)) {
+                    // Use renamed name if available (for closures that shadow imports)
+                    const output_name = self.var_renames.get(func_name) orelse func_name;
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), output_name);
+                    try self.emit(".call(");
+                    var first = true;
+                    for (c.args) |arg| {
+                        if (!first) try self.emit(", ");
+                        first = false;
+                        try genExprWithSubs(self, arg, subs);
+                    }
+                    try self.emit(")");
+                } else {
+                    // Simple local function - generate with substituted arguments
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
+                    try self.emit("(__global_allocator, ");
+                    var first = true;
+                    for (c.args) |arg| {
+                        if (!first) try self.emit(", ");
+                        first = false;
+                        try genExprWithSubs(self, arg, subs);
+                    }
+                    try self.emit(")");
                 }
-                try self.emit(")");
             } else if (c.func.* == .attribute) {
                 // Attribute call (e.g., random.sample, struct.unpack_from)
                 // We need to substitute comprehension variables in the arguments
@@ -106,6 +228,31 @@ fn genExprWithSubs(
                     first_arg = false;
                     try genExprWithSubs(self, arg, subs);
                 }
+                try self.emit(")");
+            } else if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "bool") and c.args.len == 1) {
+                // bool(x) in comprehension - use runtime.toBool with substitution
+                try self.emit("runtime.toBool(");
+                try genExprWithSubs(self, c.args[0], subs);
+                try self.emit(")");
+            } else if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "int") and c.args.len >= 1) {
+                // int(x) or int(x, base) in comprehension - cast with substitution
+                try self.emit("@as(i64, @intCast(");
+                try genExprWithSubs(self, c.args[0], subs);
+                try self.emit("))");
+            } else if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "str") and c.args.len == 1) {
+                // str(x) in comprehension - use runtime.format with substitution
+                try self.emit("runtime.format(\"{}\", .{");
+                try genExprWithSubs(self, c.args[0], subs);
+                try self.emit("})");
+            } else if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "len") and c.args.len == 1) {
+                // len(x) in comprehension - use .len with substitution
+                try self.emit("@as(i64, @intCast((");
+                try genExprWithSubs(self, c.args[0], subs);
+                try self.emit(").len))");
+            } else if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "abs") and c.args.len == 1) {
+                // abs(x) in comprehension - use @abs with substitution
+                try self.emit("@abs(");
+                try genExprWithSubs(self, c.args[0], subs);
                 try self.emit(")");
             } else if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "bytes") and c.args.len > 0) {
                 // Special case: bytes([x]) in comprehension needs substitution for list elements
@@ -132,6 +279,43 @@ fn genExprWithSubs(
                     }
                     try self.emit("break :blk _bytes_list.items; }");
                 }
+            } else if (c.func.* == .name and (std.mem.eql(u8, c.func.name.id, "set") or std.mem.eql(u8, c.func.name.id, "frozenset")) and c.args.len == 1) {
+                // set([x]) or frozenset([x]) in comprehension - needs argument substitution
+                // Generate: set_blk: { var _set = std.AutoHashMap(i64, void).init(__global_allocator); for (<arg>) |_item| { try _set.put(_item, {}); } break :set_blk _set; }
+                const set_label = self.block_label_counter;
+                self.block_label_counter += 1;
+                try self.output.writer(self.allocator).print("set_{d}: {{\n", .{set_label});
+                self.indent();
+                try self.emitIndent();
+                try self.emit("var _set = std.AutoHashMap(i64, void).init(__global_allocator);\n");
+
+                // Check if arg is a list literal - iterate over elements
+                if (c.args[0] == .list) {
+                    const list_elts = c.args[0].list.elts;
+                    for (list_elts) |elt| {
+                        try self.emitIndent();
+                        try self.emit("try _set.put(");
+                        try genExprWithSubs(self, elt, subs);
+                        try self.emit(", {});\n");
+                    }
+                } else {
+                    // General case - iterate over the expression
+                    try self.emitIndent();
+                    try self.emit("for (");
+                    try genExprWithSubs(self, c.args[0], subs);
+                    try self.emit(") |_item| {\n");
+                    self.indent();
+                    try self.emitIndent();
+                    try self.emit("try _set.put(_item, {});\n");
+                    self.dedent();
+                    try self.emitIndent();
+                    try self.emit("}\n");
+                }
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("break :set_{d} _set;\n", .{set_label});
+                self.dedent();
+                try self.emitIndent();
+                try self.emit("}");
             } else {
                 // Complex call - fall through to regular handler
                 // Note: this loses substitutions for args, but builtins handle their own args
@@ -235,8 +419,23 @@ fn genExprWithSubs(
         },
         .if_expr => |ie| {
             // Handle ternary: x if cond else y
+            // Check condition type - need to convert non-bool to bool
+            const cond_type = self.type_inferrer.inferExpr(ie.condition.*) catch .unknown;
+
             try self.emit("(if (");
-            try genExprWithSubs(self, ie.condition.*, subs);
+            if (cond_type == .int or cond_type == .float) {
+                // Integer/float condition - check != 0
+                try genExprWithSubs(self, ie.condition.*, subs);
+                try self.emit(" != 0");
+            } else if (cond_type == .unknown) {
+                // Unknown type (PyObject) - use runtime truthiness check
+                try self.emit("runtime.pyTruthy(");
+                try genExprWithSubs(self, ie.condition.*, subs);
+                try self.emit(")");
+            } else {
+                // Boolean or other type - use directly
+                try genExprWithSubs(self, ie.condition.*, subs);
+            }
             try self.emit(") ");
             try genExprWithSubs(self, ie.body.*, subs);
             try self.emit(" else ");
@@ -494,6 +693,20 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     var subs = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
     defer subs.deinit();
 
+    // Check if any generator iterates over PyValue - if so, skip the entire comprehension
+    for (listcomp.generators) |gen| {
+        const is_range = gen.iter.* == .call and gen.iter.call.func.* == .name and
+            std.mem.eql(u8, gen.iter.call.func.name.id, "range");
+        if (!is_range) {
+            const iter_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
+            if (iter_type == .pyvalue) {
+                // PyValue iteration - emit empty PyValue list directly
+                try self.emit("std.ArrayList(runtime.PyValue){}\n");
+                return;
+            }
+        }
+    }
+
     // Generate: (comp_N: { ... })
     // Wrap in parentheses to prevent "label:" from being parsed as named argument
     try self.emit(try std.fmt.allocPrint(self.allocator, "(comp_{d}: {{\n", .{label_id}));
@@ -522,6 +735,26 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                 .bool => break :blk "bool",
                 .float => break :blk "f64",
                 else => {},
+            }
+        } else if (listcomp.elt.* == .if_expr) {
+            // Ternary expression - check body and orelse types
+            const if_expr = listcomp.elt.if_expr;
+            // Check if both body and orelse are bool literals
+            if (if_expr.body.* == .constant and if_expr.orelse_value.* == .constant) {
+                const body_const = if_expr.body.constant.value;
+                const orelse_const = if_expr.orelse_value.constant.value;
+                if (body_const == .bool and orelse_const == .bool) {
+                    break :blk "bool";
+                }
+            }
+            // Use type inference for the body expression
+            const body_type = self.type_inferrer.inferExpr(if_expr.body.*) catch .unknown;
+            if (body_type == .bool) {
+                break :blk "bool";
+            } else if (body_type == .string) {
+                break :blk "[]const u8";
+            } else if (body_type == .float) {
+                break :blk "f64";
             }
         }
         break :blk "i64";
@@ -576,6 +809,7 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
             try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ mangled_name, step_val });
         } else {
             // Regular iteration - check if source is constant array, ArrayList, or anytype param
+            // (PyValue iteration is already handled upfront before the comprehension block is opened)
             const is_direct_iterable = blk: {
                 // String literals are directly iterable (they're Zig arrays)
                 if (gen.iter.* == .constant) {
@@ -650,10 +884,11 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         }
 
         // Generate if conditions for this generator
+        // Use truthiness conversion for Python semantics (0, "", [], etc. are False)
         for (gen.ifs) |if_cond| {
             try self.emitIndent();
             try self.emit("if (");
-            try genExprWithSubs(self, if_cond, &subs);
+            try genComprehensionCondition(self, if_cond, &subs);
             try self.emit(") {\n");
             self.indent();
         }
@@ -723,7 +958,9 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
 
         if (is_range) {
             // Generate range loop as while loop
-            const var_name = gen.target.name.id;
+            const orig_var_name = gen.target.name.id;
+            // Sanitize: "_" -> "_unused" for Zig compatibility
+            const var_name = if (std.mem.eql(u8, orig_var_name, "_")) "_unused" else orig_var_name;
             const args = gen.iter.call.args;
 
             // Parse range arguments
@@ -834,10 +1071,11 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
         }
 
         // Generate if conditions for this generator
+        // Use truthiness conversion for Python semantics (0, "", [], etc. are False)
         for (gen.ifs) |if_cond| {
             try self.emitIndent();
             try self.emit("if (");
-            try genExpr(self, if_cond);
+            try genComprehensionConditionNoSubs(self, if_cond);
             try self.emit(") {\n");
             self.indent();
         }
@@ -907,41 +1145,54 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
 
         if (is_range) {
             // Generate range loop as while loop
-            const var_name = gen.target.name.id;
+            const orig_var_name = gen.target.name.id;
+            // Sanitize: "_" -> "_unused" for Zig compatibility
+            const var_name = if (std.mem.eql(u8, orig_var_name, "_")) "_unused" else orig_var_name;
             const args = gen.iter.call.args;
 
-            // Parse range arguments
-            var start_val: i64 = 0;
-            var stop_val: i64 = 0;
-            const step_val: i64 = 1;
+            // Check if all range args are constants
+            const start_is_const = if (args.len >= 2) args[0] == .constant and args[0].constant.value == .int else true;
+            const stop_is_const = if (args.len >= 1) args[if (args.len == 1) 0 else 1] == .constant and args[if (args.len == 1) 0 else 1].constant.value == .int else true;
 
-            if (args.len == 1) {
-                // range(stop)
-                if (args[0] == .constant and args[0].constant.value == .int) {
+            if (start_is_const and stop_is_const) {
+                // All constants - use static values
+                var start_val: i64 = 0;
+                var stop_val: i64 = 0;
+                const step_val: i64 = 1;
+
+                if (args.len == 1) {
                     stop_val = args[0].constant.value.int;
-                }
-            } else if (args.len == 2) {
-                // range(start, stop)
-                if (args[0] == .constant and args[0].constant.value == .int) {
+                } else if (args.len == 2) {
                     start_val = args[0].constant.value.int;
-                }
-                if (args[1] == .constant and args[1].constant.value == .int) {
                     stop_val = args[1].constant.value.int;
                 }
+
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("var {s}: i64 = {d};\n", .{ var_name, start_val });
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("while ({s} < {d}) {{\n", .{ var_name, stop_val });
+                self.indent();
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ var_name, step_val });
+            } else {
+                // Dynamic range - generate expressions
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("var {s}: i64 = ", .{var_name});
+                if (args.len >= 2) {
+                    try genExpr(self, args[0]);
+                } else {
+                    try self.emit("0");
+                }
+                try self.emit(";\n");
+
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("while ({s} < ", .{var_name});
+                try genExpr(self, args[if (args.len == 1) 0 else 1]);
+                try self.emit(") {\n");
+                self.indent();
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("defer {s} += 1;\n", .{var_name});
             }
-
-            // Generate: var <var_name>: i64 = <start>;
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print("var {s}: i64 = {d};\n", .{ var_name, start_val });
-
-            // Generate: while (<var_name> < <stop>) {
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print("while ({s} < {d}) {{\n", .{ var_name, stop_val });
-            self.indent();
-
-            // Defer increment: defer <var_name> += <step>;
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ var_name, step_val });
         } else {
             // Regular iteration - check if source is constant array, ArrayList, or anytype param
             const is_direct_iterable = blk: {
@@ -1017,10 +1268,11 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
         }
 
         // Generate if conditions for this generator
+        // Use truthiness conversion for Python semantics (0, "", [], etc. are False)
         for (gen.ifs) |if_cond| {
             try self.emitIndent();
             try self.emit("if (");
-            try genExpr(self, if_cond);
+            try genComprehensionConditionNoSubs(self, if_cond);
             try self.emit(") {\n");
             self.indent();
         }

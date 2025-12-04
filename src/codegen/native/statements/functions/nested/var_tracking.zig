@@ -29,9 +29,19 @@ fn collectTargetVarsToList(allocator: std.mem.Allocator, node: ast.Node, list: *
 }
 
 /// Find variables captured from outer scope by nested function
+/// outer_func_params: optional parameters of the outer function (when called during pre-scan)
 pub fn findCapturedVars(
     self: *NativeCodegen,
     func: ast.Node.FunctionDef,
+) CodegenError![][]const u8 {
+    return findCapturedVarsWithOuter(self, func, null);
+}
+
+/// Find variables captured from outer scope by nested function, with explicit outer params
+pub fn findCapturedVarsWithOuter(
+    self: *NativeCodegen,
+    func: ast.Node.FunctionDef,
+    outer_func_params: ?[]ast.Arg,
 ) CodegenError![][]const u8 {
     var captured = std.ArrayList([]const u8){};
 
@@ -69,8 +79,18 @@ pub fn findCapturedVars(
         }
         if (is_local) continue;
 
-        // Check if variable is in outer scope
-        if (self.symbol_table.lookup(var_name) != null) {
+        // Check if variable is in outer scope (symbol table OR outer function's params)
+        const in_symbol_table = self.symbol_table.lookup(var_name) != null;
+        const in_outer_params = if (outer_func_params) |params| blk: {
+            for (params) |param| {
+                if (std.mem.eql(u8, param.name, var_name)) {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        } else false;
+
+        if (in_symbol_table or in_outer_params) {
             // Add to captured list (avoid duplicates)
             var already_captured = false;
             for (captured.items) |captured_var| {
@@ -516,7 +536,14 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
         .call => |c| blk: {
             if (isParamUsedInNode(param_name, c.func.*)) break :blk true;
             for (c.args) |arg| {
-                if (isParamUsedInNode(param_name, arg)) break :blk true;
+                // Handle starred (*args) and double_starred (**kwargs) unpacking
+                if (arg == .starred) {
+                    if (isParamUsedInNode(param_name, arg.starred.value.*)) break :blk true;
+                } else if (arg == .double_starred) {
+                    if (isParamUsedInNode(param_name, arg.double_starred.value.*)) break :blk true;
+                } else if (isParamUsedInNode(param_name, arg)) {
+                    break :blk true;
+                }
             }
             for (c.keyword_args) |kw| {
                 if (isParamUsedInNode(param_name, kw.value)) break :blk true;
@@ -524,7 +551,19 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
             break :blk false;
         },
         .return_stmt => |ret| if (ret.value) |val| isParamUsedInNode(param_name, val.*) else false,
-        .assign => |assign| isParamUsedInNode(param_name, assign.value.*),
+        .assign => |assign| blk: {
+            // Check the value
+            if (isParamUsedInNode(param_name, assign.value.*)) break :blk true;
+            // Also check targets for subscript/attribute assignments (e.g., d['b'] = 5 uses d)
+            for (assign.targets) |target| {
+                if (target == .subscript) {
+                    if (isParamUsedInNode(param_name, target.subscript.value.*)) break :blk true;
+                } else if (target == .attribute) {
+                    if (isParamUsedInNode(param_name, target.attribute.value.*)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
         .compare => |cmp| blk: {
             if (isParamUsedInNode(param_name, cmp.left.*)) break :blk true;
             for (cmp.comparators) |comp| {
@@ -663,6 +702,16 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
                 if (isParamUsedInNode(param_name, gen.iter.*)) break :blk true;
                 for (gen.ifs) |if_node| {
                     if (isParamUsedInNode(param_name, if_node)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        // f-string support: f"{tag}..." uses the variable 'tag'
+        .fstring => |fstr| blk: {
+            for (fstr.parts) |part| {
+                // .expr parts contain the variable references
+                if (part == .expr) {
+                    if (isParamUsedInNode(param_name, part.expr.*)) break :blk true;
                 }
             }
             break :blk false;

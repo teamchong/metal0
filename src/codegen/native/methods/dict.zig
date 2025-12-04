@@ -1,4 +1,5 @@
-/// Dict methods - .get(), .keys(), .values(), .items()
+/// Dict methods - .get(), .keys(), .values(), .items(), .pop(), .update(), .clear(), .copy(),
+/// .setdefault(), .popitem(), .fromkeys()
 const std = @import("std");
 const ast = @import("ast");
 const CodegenError = @import("../main.zig").CodegenError;
@@ -158,20 +159,17 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     try self.emit("){};\n");
 
     try self.emitIndent();
-    try self.emit("var _iter = ");
+    try self.emit("for (");
     if (needs_temp) {
         try self.emit("__dict_temp");
     } else {
         try self.genExpr(obj);
     }
-    try self.emit(".valueIterator();\n");
-
-    try self.emitIndent();
-    try self.emit("while (_iter.next()) |val_ptr| {\n");
+    try self.emit(".values()) |val| {\n");
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("try _values_list.append(__global_allocator, val_ptr.*);\n");
+    try self.emit("try _values_list.append(__global_allocator, val);\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -245,6 +243,236 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :ditems_{d} _items_list;\n", .{label_id});
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.emit("})");
+}
+
+/// Helper to emit object expression, wrapping in parens if it's a block expression
+fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    if (producesBlockExpression(obj)) {
+        try self.emit("(");
+        try self.genExpr(obj);
+        try self.emit(")");
+    } else {
+        try self.genExpr(obj);
+    }
+}
+
+/// Generate code for dict.pop(key, default?)
+/// Removes key and returns value, or returns default if key not present
+/// Raises KeyError if key not present and no default given
+pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) return;
+
+    const default_val = if (args.len >= 2) args[1] else null;
+
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    // Generate block: { const val = dict.fetchSwapRemove(key); if (val) |v| v.value else default/error }
+    try self.output.writer(self.allocator).print("(dpop_{d}: {{\n", .{label_id});
+    self.indent_level += 1;
+
+    try self.emitIndent();
+    try self.emit("const __kv = ");
+    try emitObjExpr(self, obj);
+    try self.emit(".fetchSwapRemove(");
+    try self.genExpr(args[0]);
+    try self.emit(");\n");
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("break :dpop_{d} if (__kv) |kv| kv.value else ", .{label_id});
+    if (default_val) |def| {
+        try self.genExpr(def);
+    } else {
+        try self.emit("return error.KeyError");
+    }
+    try self.emit(";\n");
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.emit("})");
+}
+
+/// Generate code for dict.update(other)
+/// Updates dict with key/value pairs from other dict or iterable of pairs
+pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return;
+
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    // Generate block that iterates and updates
+    try self.output.writer(self.allocator).print("(dupdate_{d}: {{\n", .{label_id});
+    self.indent_level += 1;
+
+    // Assign to temp variable first to avoid block expression syntax issues
+    try self.emitIndent();
+    try self.emit("const __other_dict = ");
+    try self.genExpr(args[0]);
+    try self.emit(";\n");
+
+    try self.emitIndent();
+    try self.emit("var __other_iter = __other_dict.iterator();\n");
+
+    try self.emitIndent();
+    try self.emit("while (__other_iter.next()) |entry| {\n");
+    self.indent_level += 1;
+
+    try self.emitIndent();
+    try self.emit("try ");
+    try emitObjExpr(self, obj);
+    // ArrayHashMap.put() doesn't take allocator - it uses the one stored internally
+    try self.emit(".put(entry.key_ptr.*, entry.value_ptr.*);\n");
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.emit("}\n");
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("break :dupdate_{d} {{}};\n", .{label_id});
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.emit("})");
+}
+
+/// Generate code for dict.clear()
+/// Removes all items from dict
+pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try emitObjExpr(self, obj);
+    try self.emit(".clearRetainingCapacity()");
+}
+
+/// Generate code for dict.copy()
+/// Returns shallow copy of dict
+pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    // Generate block that clones the dict
+    try self.output.writer(self.allocator).print("(dcopy_{d}: {{\n", .{label_id});
+    self.indent_level += 1;
+
+    // Store source dict in temp var to avoid block expression issues
+    try self.emitIndent();
+    try self.emit("const __src_dict = ");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+
+    try self.emitIndent();
+    try self.emit("var __copy = @TypeOf(__src_dict){};\n");
+
+    try self.emitIndent();
+    try self.emit("var __iter = __src_dict.iterator();\n");
+
+    try self.emitIndent();
+    try self.emit("while (__iter.next()) |entry| {\n");
+    self.indent_level += 1;
+
+    try self.emitIndent();
+    // ArrayHashMap.put() doesn't take allocator - it uses the one stored internally
+    try self.emit("try __copy.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.emit("}\n");
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("break :dcopy_{d} __copy;\n", .{label_id});
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.emit("})");
+}
+
+/// Generate code for dict.setdefault(key, default?)
+/// Returns value for key if present, otherwise sets key to default and returns it
+pub fn genSetdefault(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) return;
+
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    // Generate block: if dict.get(key) return it, else put default and return
+    try self.output.writer(self.allocator).print("(dsetdef_{d}: {{\n", .{label_id});
+    self.indent_level += 1;
+
+    try self.emitIndent();
+    try self.emit("const __existing = ");
+    try emitObjExpr(self, obj);
+    try self.emit(".get(");
+    try self.genExpr(args[0]);
+    try self.emit(");\n");
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("if (__existing) |v| break :dsetdef_{d} v;\n", .{label_id});
+
+    try self.emitIndent();
+    try self.emit("const __default = ");
+    if (args.len >= 2) {
+        try self.genExpr(args[1]);
+    } else {
+        try self.emit("null");
+    }
+    try self.emit(";\n");
+
+    try self.emitIndent();
+    try self.emit("try ");
+    try emitObjExpr(self, obj);
+    // ArrayHashMap.put() doesn't take allocator
+    try self.emit(".put(");
+    try self.genExpr(args[0]);
+    try self.emit(", __default);\n");
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("break :dsetdef_{d} __default;\n", .{label_id});
+
+    self.indent_level -= 1;
+    try self.emitIndent();
+    try self.emit("})");
+}
+
+/// Generate code for dict.popitem()
+/// Removes and returns arbitrary (key, value) pair. Raises KeyError if empty.
+pub fn genPopitem(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    // Generate block that pops arbitrary item
+    try self.output.writer(self.allocator).print("(dpopitem_{d}: {{\n", .{label_id});
+    self.indent_level += 1;
+
+    // Store dict in temp var to avoid block expression issues
+    try self.emitIndent();
+    try self.emit("const __dict_ptr = &");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+
+    try self.emitIndent();
+    try self.emit("var __iter = __dict_ptr.iterator();\n");
+
+    try self.emitIndent();
+    try self.emit("const __entry = __iter.next() orelse return error.KeyError;\n");
+
+    try self.emitIndent();
+    try self.emit("const __key = __entry.key_ptr.*;\n");
+
+    try self.emitIndent();
+    try self.emit("const __val = __entry.value_ptr.*;\n");
+
+    try self.emitIndent();
+    try self.emit("_ = __dict_ptr.fetchSwapRemove(__key);\n");
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("break :dpopitem_{d} .{{ __key, __val }};\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();

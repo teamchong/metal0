@@ -114,6 +114,28 @@ pub const NativeType = union(enum) {
     }, // ctypes function pointer from CDLL attribute access
     pyobject: []const u8, // PyObject from C extension module (stores module name)
 
+    // subprocess types
+    subprocess_result: void, // subprocess.run() returns CompletedProcess-like struct
+    subprocess_status_output: void, // subprocess.getstatusoutput() returns (int, str) tuple
+    subprocess_popen: void, // subprocess.Popen object
+
+    // csv types - iterator objects that yield rows
+    csv_reader: void, // csv.reader() - yields [][]const u8 rows
+    csv_writer: void, // csv.writer() - has writerow/writerows methods
+    csv_dict_reader: void, // csv.DictReader() - yields StringHashMap rows
+    csv_dict_writer: void, // csv.DictWriter() - has writerow/writeheader methods
+    csv_row: void, // Single row from csv.reader - [][]const u8
+
+    // datetime types
+    datetime_datetime: void, // datetime.datetime - runtime.datetime.Datetime struct
+    datetime_date: void, // datetime.date - runtime.datetime.Date struct
+    datetime_time: void, // datetime.time - runtime.datetime.Time struct
+    datetime_timedelta: void, // datetime.timedelta - runtime.datetime.Timedelta struct
+
+    // re module types
+    re_match: void, // re.Match - result of re.search/re.match
+    re_pattern: void, // re.Pattern - compiled regex pattern
+
     /// Check if this is a simple type (int, bigint, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
     /// (workaround for semantic analyzer false positives)
@@ -296,6 +318,21 @@ pub const NativeType = union(enum) {
             .cdll => try buf.appendSlice(allocator, "runtime.ctypes.CDLL"),
             .c_func => try buf.appendSlice(allocator, "*const fn() callconv(.c) anyopaque"),
             .pyobject => try buf.appendSlice(allocator, "*runtime.PyObject"),
+            // subprocess types
+            .subprocess_result => try buf.appendSlice(allocator, "struct { returncode: i64, stdout: []const u8, stderr: []const u8 }"),
+            .subprocess_status_output => try buf.appendSlice(allocator, "struct { @\"0\": i64, @\"1\": []const u8 }"),
+            .subprocess_popen => try buf.appendSlice(allocator, "std.process.Child"),
+            // csv types
+            .csv_reader, .csv_writer, .csv_dict_reader, .csv_dict_writer => try buf.appendSlice(allocator, "*anyopaque"),
+            .csv_row => try buf.appendSlice(allocator, "[][]const u8"),
+            // datetime types
+            .datetime_datetime => try buf.appendSlice(allocator, "runtime.datetime.Datetime"),
+            .datetime_date => try buf.appendSlice(allocator, "runtime.datetime.Date"),
+            .datetime_time => try buf.appendSlice(allocator, "runtime.datetime.Time"),
+            .datetime_timedelta => try buf.appendSlice(allocator, "runtime.datetime.Timedelta"),
+            // re module types
+            .re_match => try buf.appendSlice(allocator, "*runtime.re.PyMatch"),
+            .re_pattern => try buf.appendSlice(allocator, "*runtime.PyObject"),
         }
     }
 

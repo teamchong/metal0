@@ -60,7 +60,7 @@ pub const genSubscriptLHS = misc.genSubscriptLHS;
 pub const genAttribute = misc.genAttribute;
 
 /// Check if a variable is captured by the current class from outer scope
-fn isCapturedByCurrentClass(self: *NativeCodegen, var_name: []const u8) bool {
+pub fn isCapturedByCurrentClass(self: *NativeCodegen, var_name: []const u8) bool {
     // Check if we have captured variables for the current class
     // This is set by genClassMethods when entering a class with captures
     const captured_vars = self.current_class_captures orelse return false;
@@ -78,9 +78,9 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .constant => |c| try constants.genConstant(self, c),
         .name => |n| {
             // Check if variable has been renamed (for local shadows, exception handling, etc.)
-            // If var_renames has an entry, USE IT - this means a local variable was declared
-            // that shadows a module-level function (e.g., local `rslices = [0]*ndim` inside a function)
-            const name_to_use = self.var_renames.get(n.id) orelse n.id;
+            // Check hoisted_local_classes first (survives method body generation), then var_renames
+            // hoisted_local_classes is used for locally-defined classes that were hoisted to struct level
+            const name_to_use = self.hoisted_local_classes.get(n.id) orelse self.var_renames.get(n.id) orelse n.id;
 
             // Handle 'self' -> '__self' in nested class methods to avoid shadowing
             if (std.mem.eql(u8, name_to_use, "self") and self.method_nesting_depth > 0) {
@@ -127,8 +127,11 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     try self.output.writer(self.allocator).print("__cap_{s}.*", .{name_to_use});
                 } else {
                     // In regular method, access via self.__captured_* field (pointer dereference)
-                    // Use __self when in nested class methods (method_nesting_depth > 0)
-                    const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
+                    // Use __self for regular nested methods, __cls for __new__ methods
+                    const self_name = if (self.method_nesting_depth > 0)
+                        (if (self.inside_new_method) "__cls" else "__self")
+                    else
+                        "self";
                     try self.output.writer(self.allocator).print("{s}.__captured_{s}.*", .{ self_name, name_to_use });
                 }
             } else if (self.current_class_name) |class_name| {
@@ -263,10 +266,27 @@ fn genNamedExpr(self: *NativeCodegen, ne: ast.Node.NamedExpr) CodegenError!void 
 fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
     // In Zig: if (condition) body else orelse_value
     // Check condition type - need to handle PyObject truthiness
-    const cond_type = self.type_inferrer.inferExpr(ie.condition.*) catch .unknown;
+    // Use inferExprScoped which checks local symbol table (includes function parameters)
+    const cond_type = self.inferExprScoped(ie.condition.*) catch .unknown;
+
+    // Check if condition is comptime-evaluable (determines if we need to cast branches)
+    // If condition involves runtime values (function calls, runtime vars), branches must be concrete types
+    const is_runtime_condition = isRuntimeCondition(ie.condition.*);
+
+    // Check if both branches are integer constants - need to cast to i64 for runtime conditions
+    const body_is_int = ie.body.* == .constant and ie.body.constant.value == .int;
+    const orelse_is_int = ie.orelse_value.* == .constant and ie.orelse_value.constant.value == .int;
+    const needs_int_cast = is_runtime_condition and body_is_int and orelse_is_int;
+
+    // Check if condition is a boolop or compare - these always generate bool result
+    const cond_is_boolop = ie.condition.* == .boolop;
+    const cond_is_compare = ie.condition.* == .compare;
 
     try self.emit("(if (");
-    if (cond_type == .unknown) {
+    if (cond_is_boolop or cond_is_compare) {
+        // Boolean operations and comparisons generate bool directly, use as-is
+        try genExpr(self, ie.condition.*);
+    } else if (cond_type == .unknown) {
         // Unknown type (PyObject) - use runtime truthiness check
         try self.emit("runtime.pyTruthy(");
         try genExpr(self, ie.condition.*);
@@ -275,15 +295,72 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
         // Optional type - check for non-null
         try genExpr(self, ie.condition.*);
         try self.emit(" != null");
+    } else if (cond_type == .int or cond_type == .usize) {
+        // Integer type - Python truthiness: non-zero is true
+        try self.emit("(");
+        try genExpr(self, ie.condition.*);
+        try self.emit(") != 0");
+    } else if (cond_type == .float) {
+        // Float type - Python truthiness: non-zero is true
+        try self.emit("(");
+        try genExpr(self, ie.condition.*);
+        try self.emit(") != 0.0");
+    } else if (cond_type == .string) {
+        // String type - Python truthiness: non-empty is true
+        try self.emit("(");
+        try genExpr(self, ie.condition.*);
+        try self.emit(").len != 0");
+    } else if (cond_type == .list) {
+        // List type - Python truthiness: non-empty is true
+        try self.emit("(");
+        try genExpr(self, ie.condition.*);
+        try self.emit(").items.len != 0");
     } else {
         // Boolean or other type - use directly
         try genExpr(self, ie.condition.*);
     }
     try self.emit(") ");
+    if (needs_int_cast) try self.emit("@as(i64, ");
     try genExpr(self, ie.body.*);
+    if (needs_int_cast) try self.emit(")");
     try self.emit(" else ");
+    if (needs_int_cast) try self.emit("@as(i64, ");
     try genExpr(self, ie.orelse_value.*);
+    if (needs_int_cast) try self.emit(")");
     try self.emit(")");
+}
+
+/// Check if an expression involves runtime values (not comptime-evaluable)
+fn isRuntimeCondition(expr: ast.Node) bool {
+    return switch (expr) {
+        // Constants are comptime
+        .constant => false,
+        // Names could be either - assume runtime for safety
+        .name => true,
+        // Calls are runtime (function calls, method calls)
+        .call => true,
+        // Binary ops with any runtime operand are runtime
+        .binop => |b| isRuntimeCondition(b.left.*) or isRuntimeCondition(b.right.*),
+        // Unary ops inherit from operand
+        .unaryop => |u| isRuntimeCondition(u.operand.*),
+        // Comparisons with any runtime operand are runtime
+        .compare => |c| blk: {
+            if (isRuntimeCondition(c.left.*)) break :blk true;
+            for (c.comparators) |cmp| {
+                if (isRuntimeCondition(cmp)) break :blk true;
+            }
+            break :blk false;
+        },
+        // Boolean ops (and/or) are runtime if any operand is
+        .boolop => |b| blk: {
+            for (b.values) |v| {
+                if (isRuntimeCondition(v)) break :blk true;
+            }
+            break :blk false;
+        },
+        // Everything else: assume runtime for safety
+        else => true,
+    };
 }
 
 /// Generate await expression

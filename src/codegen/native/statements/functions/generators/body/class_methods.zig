@@ -15,6 +15,12 @@ const native_types = @import("../../../../../../analysis/native_types/core.zig")
 const body = @import("../body.zig");
 const usage_analysis = @import("usage_analysis.zig");
 const function_gen = @import("function_gen.zig");
+const param_analyzer = @import("../../param_analyzer.zig");
+const local_class_hoisting = @import("local_class_hoisting.zig");
+
+// Re-export from local_class_hoisting for backward compatibility
+pub const hoistAllLocalClassesFromMethods = local_class_hoisting.hoistAllLocalClassesFromMethods;
+pub const hasSelfAttrAssign = local_class_hoisting.hasSelfAttrAssign;
 
 // Type alias for builtin base info
 const BuiltinBaseInfo = generators.BuiltinBaseInfo;
@@ -298,7 +304,6 @@ pub fn genInitMethod(
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
 
     // Parameters (skip 'self')
-    const param_analyzer = @import("../../param_analyzer.zig");
     for (init_def.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
 
@@ -374,6 +379,54 @@ pub fn genInitMethod(
         if (!is_field_assign) {
             try self.generateStmt(stmt);
         }
+    }
+
+    // Check if init body has an unconditional raise/return at top level
+    // This makes subsequent code unreachable
+    const has_terminating_stmt = blk: {
+        for (init_def.body[body_start_idx..]) |stmt| {
+            // Check for unconditional raise or return at top level (not in field assignments)
+            const is_field_assign = if (stmt == .assign) fa: {
+                const assign = stmt.assign;
+                if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                    const attr = assign.targets[0].attribute;
+                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                        break :fa true;
+                    }
+                }
+                break :fa false;
+            } else false;
+
+            if (!is_field_assign) {
+                if (stmt == .raise_stmt or stmt == .return_stmt) {
+                    break :blk true;
+                }
+            }
+        }
+        break :blk false;
+    };
+
+    // If __init__ has unconditional raise/return, skip struct creation (unreachable code)
+    if (has_terminating_stmt) {
+        // Suppress unused allocator parameter warning
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("_ = {s};\n", .{alloc_name});
+        // Close comptime type guard if we opened one
+        if (has_type_checks) {
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("} else {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("return error.TypeError;\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+        }
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        return;
     }
 
     // Generate return statement with field initializers
@@ -486,7 +539,10 @@ pub fn genInitMethodWithBuiltinBase(
     // Otherwise, use the __init__ parameters
     const has_user_params = init.args.len > 1; // More than just 'self'
 
-    if (builtin_base != null and !has_user_params) {
+    // Don't add builtin base params if the __init__ body just raises (no actual usage)
+    const init_only_raises = param_analyzer.isInitBodyOnlyRaises(init.body);
+
+    if (builtin_base != null and !has_user_params and !init_only_raises) {
         // Class inherits from builtin but has no custom __init__ params
         // Use the builtin's constructor args
         if (builtin_base) |base_info| {
@@ -497,7 +553,6 @@ pub fn genInitMethodWithBuiltinBase(
         }
     } else {
         // Use user-defined __init__ parameters (skip 'self')
-        const param_analyzer = @import("../../param_analyzer.zig");
         var is_first_param = true;
         for (init.args) |arg| {
             if (std.mem.eql(u8, arg.name, "self")) continue;
@@ -569,6 +624,22 @@ pub fn genInitMethodWithBuiltinBase(
     }
     self.indent();
 
+    // Save and restore control_flow_terminated for init method scope.
+    // This is CRITICAL: hoisted local classes or prior method bodies may have set this flag.
+    // Without this reset, the First pass loop would skip all statements.
+    const saved_control_flow_terminated = self.control_flow_terminated;
+    self.control_flow_terminated = false;
+    defer self.control_flow_terminated = saved_control_flow_terminated;
+
+    // Save and restore pending_discards for init method scope.
+    // This prevents variables declared in __init__ from leaking discards into sibling functions.
+    const saved_pending_discards = self.pending_discards;
+    self.pending_discards = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
+    defer {
+        self.pending_discards.deinit();
+        self.pending_discards = saved_pending_discards;
+    }
+
     // Set captured vars context for expression generation
     // In init, captured vars are accessed via __cap_* params, not self.__captured_*
     self.current_class_captures = captured_vars;
@@ -583,8 +654,86 @@ pub fn genInitMethodWithBuiltinBase(
 
     if (has_type_checks) try emitComptimeTypeGuard(self, type_checks.checks);
 
+    // Check if init body has an unconditional raise/return at top level
+    // This makes subsequent code unreachable
+    const has_terminating_stmt = blk: {
+        for (init.body[body_start_idx..]) |stmt| {
+            // Check for unconditional raise or return at top level (not in field assignments)
+            const is_field_assign_check = if (stmt == .assign) fa: {
+                const assign = stmt.assign;
+                if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                    const attr = assign.targets[0].attribute;
+                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                        break :fa true;
+                    }
+                }
+                break :fa false;
+            } else false;
+
+            if (!is_field_assign_check) {
+                if (stmt == .raise_stmt or stmt == .return_stmt) {
+                    break :blk true;
+                }
+            }
+        }
+        break :blk false;
+    };
+
+    // If __init__ has unconditional raise/return, emit suppression BEFORE generating statements
+    if (has_terminating_stmt) {
+        // Suppress unused allocator parameter warning
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("_ = {s};\n", .{alloc_name});
+        // Also suppress captured var params
+        if (captured_vars) |vars| {
+            for (vars) |var_name| {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("_ = __cap_{s};\n", .{var_name});
+            }
+        }
+    }
+
+    // Check if nested class has control flow with self.attr assignments inside
+    // If so, we need to create __ptr and __self BEFORE processing body statements
+    const needs_early_ptr = if (is_nested) blk: {
+        for (init.body[body_start_idx..]) |stmt| {
+            if (stmt == .if_stmt or stmt == .for_stmt or stmt == .while_stmt or stmt == .try_stmt) {
+                // Control flow may contain self.attr assignments that need __self
+                if (hasSelfAttrAssign(stmt)) {
+                    break :blk true;
+                }
+            }
+        }
+        break :blk false;
+    } else false;
+
+    if (needs_early_ptr) {
+        // Create __ptr and __self early so body statements can use them
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
+        try self.emitIndent();
+        try self.emit("__ptr.* = @This(){\n");
+        self.indent();
+        // Initialize captured variable pointers
+        if (captured_vars) |vars| {
+            for (vars) |var_name| {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print(".__captured_{s} = __cap_{s},\n", .{ var_name, var_name });
+            }
+        }
+        try self.emitIndent();
+        try self.emit(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init(");
+        try self.emit(alloc_name);
+        try self.emit("),\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("};\n");
+        try self.emitIndent();
+        try self.emit("const __self = __ptr;\n");
+    }
+
     // First pass: generate non-field assignments (local variables, control flow, etc.)
-    // These need to be executed BEFORE the struct is created
+    // These need to be executed BEFORE the struct is created (unless we did early __ptr)
     // Skip type-check statements if we're using comptime branching
     for (init.body[body_start_idx..]) |stmt| {
         const is_field_assign = blk: {
@@ -606,29 +755,83 @@ pub fn genInitMethodWithBuiltinBase(
         }
     }
 
+    // If __init__ has unconditional raise/return, skip struct creation (unreachable code)
+    if (has_terminating_stmt) {
+        // Close comptime type guard if we opened one
+        if (has_type_checks) {
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("} else {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("return error.TypeError;\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+        }
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        return;
+    }
+
     // Generate return statement with field initializers
-    if (is_nested) {
+    // Skip if we already created __ptr early (needs_early_ptr)
+    if (is_nested and !needs_early_ptr) {
         // Nested classes: heap-allocate for Python reference semantics
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
         try self.emitIndent();
         try self.emit("__ptr.* = @This(){\n");
-    } else {
+        self.indent();
+        // Initialize captured variable pointers first
+        if (captured_vars) |vars| {
+            for (vars) |var_name| {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print(".__captured_{s} = __cap_{s},\n", .{ var_name, var_name });
+            }
+        }
+    } else if (!is_nested) {
         try self.emitIndent();
         try self.emit("return @This(){\n");
-    }
-    self.indent();
-
-    // Initialize captured variable pointers first
-    if (captured_vars) |vars| {
-        for (vars) |var_name| {
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print(".__captured_{s} = __cap_{s},\n", .{ var_name, var_name });
+        self.indent();
+        // Initialize captured variable pointers first
+        if (captured_vars) |vars| {
+            for (vars) |var_name| {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print(".__captured_{s} = __cap_{s},\n", .{ var_name, var_name });
+            }
         }
     }
 
+    // Skip struct field initialization when we used early __ptr (already initialized)
+    if (needs_early_ptr) {
+        // Just return the already-initialized __ptr
+        try self.emitIndent();
+        try self.emit("return __ptr;\n");
+
+        // Close comptime type guard if we opened one
+        if (has_type_checks) {
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("} else {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("return error.TypeError;\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+        }
+
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        return;
+    }
+
     // Initialize builtin base value first if present
-    if (builtin_base) |_| {
+    // Skip if __init__ only raises - no actual initialization happens
+    if (builtin_base != null and !init_only_raises) {
         try self.emitIndent();
         // For user-defined __init__, use the first non-self parameter as the base value
         // (e.g., class MyFloat(float): def __init__(self, arg): ... -> use arg as base value)
@@ -771,7 +974,6 @@ pub fn genInitMethodFromNew(
     // Use __new__ parameters (skip 'cls' - first param)
     // __new__ signature: def __new__(cls, arg, newarg=None): ...
     // init signature should be: init(allocator, arg, newarg)
-    const param_analyzer = @import("../../param_analyzer.zig");
     var is_first_non_cls = true;
     for (new_method.args) |arg| {
         // Skip 'cls' (first param of __new__)
@@ -1027,6 +1229,9 @@ pub fn genClassMethods(
         }
     }
 
+    // Note: hoisting of local classes is now done in genClassDef via hoistAllLocalClassesFromMethods
+    // This ensures hoisted classes appear before ALL methods (including init)
+
     // Second pass: only generate methods at their last occurrence index
     for (class.body, 0..) |stmt, idx| {
         if (stmt == .function_def) {
@@ -1049,6 +1254,8 @@ pub fn genClassMethods(
                 const method_key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, method.name });
                 try self.nested_class_method_needs_alloc.put(method_key, {});
             }
+
+            // Note: hoisting of local classes is done in the pre-hoist pass above
 
             // Generate method signature
             // Note: method_nesting_depth tracks whether we're inside a NESTED class inside a method
@@ -1089,11 +1296,23 @@ pub fn genClassMethods(
             self.current_function_name = method.name;
             defer self.current_function_name = prev_func_name;
 
+            // Set current function body for lookahead-based type inference
+            // (e.g., inferring dict key type from subsequent subscript assignments)
+            const prev_func_body = self.current_function_body;
+            self.current_function_body = method.body;
+            defer self.current_function_body = prev_func_body;
+
             // Track whether self is mutable for return dereference handling
             // When method mutates self and returns self, we need: return __self.*;
             const prev_self_mutable = self.method_self_is_mutable;
             self.method_self_is_mutable = mutates_self;
             defer self.method_self_is_mutable = prev_self_mutable;
+
+            // Track whether we're inside __new__ method (uses __cls, not __self)
+            const is_new_method = std.mem.eql(u8, method.name, "__new__");
+            const prev_inside_new = self.inside_new_method;
+            if (is_new_method) self.inside_new_method = true;
+            defer self.inside_new_method = prev_inside_new;
 
             // IMPORTANT: We preserve var_renames here rather than clearing them.
             // Outer closure parameter renames (e.g., meta -> __p_meta_23) need to

@@ -383,6 +383,94 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         }
     }
 
+    // Special handling for tuple concatenation: x += (1, 2)
+    // Tuples in Zig are fixed-size types, so we need to use const shadowing
+    // to create a new tuple with different size. Generate:
+    //   const __x_shadow_N = runtime.tupleConcat(x, (4, 5));
+    // Then update var_renames to redirect all 'x' references to '__x_shadow_N'
+    if (aug.op == .Add and aug.value.* == .tuple) {
+        const target_type = try self.inferExprScoped(aug.target.*);
+        const target_tag = @as(std.meta.Tag(@TypeOf(target_type)), target_type);
+        if (target_tag == .tuple or aug.target.* == .tuple) {
+            if (aug.target.* == .name) {
+                const var_name = aug.target.name.id;
+                // Generate unique shadow variable name
+                const shadow_name = try std.fmt.allocPrint(self.allocator, "__{s}_concat_{d}", .{ var_name, self.shadow_counter });
+                self.shadow_counter += 1;
+
+                // Generate: const __x_shadow_N = runtime.tupleConcat(original_x, (new_elements));
+                try self.emitIndent();
+                try self.emit("const ");
+                try self.emit(shadow_name);
+                try self.emit(" = runtime.tupleConcat(");
+                // Use current (potentially renamed) variable
+                const current_name = self.var_renames.get(var_name) orelse var_name;
+                try self.emit(current_name);
+                try self.emit(", ");
+                try self.genExpr(aug.value.*);
+                try self.emit(");\n");
+
+                // Suppress unused warning if variable isn't used again
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try self.emit(shadow_name);
+                try self.emit(";\n");
+
+                // Update var_renames so future uses of 'x' use the shadow variable
+                try self.var_renames.put(var_name, shadow_name);
+                return;
+            }
+        }
+    }
+
+    // Special handling for tuple multiplication: x *= n (where n is comptime known)
+    // Similar to concatenation, use const shadowing for type change
+    if (aug.op == .Mult) {
+        const target_type = try self.inferExprScoped(aug.target.*);
+        const target_tag = @as(std.meta.Tag(@TypeOf(target_type)), target_type);
+        if (target_tag == .tuple or aug.target.* == .tuple) {
+            if (aug.target.* == .name) {
+                const var_name = aug.target.name.id;
+                // Generate unique shadow variable name
+                const shadow_name = try std.fmt.allocPrint(self.allocator, "__{s}_mult_{d}", .{ var_name, self.shadow_counter });
+                self.shadow_counter += 1;
+
+                // Check if multiplier is a comptime integer constant
+                if (aug.value.* == .constant and aug.value.constant.value == .int) {
+                    const n = aug.value.constant.value.int;
+                    try self.emitIndent();
+                    try self.emit("const ");
+                    try self.emit(shadow_name);
+                    try self.output.writer(self.allocator).print(" = runtime.tupleMultiply({d}, ", .{n});
+                    const current_name = self.var_renames.get(var_name) orelse var_name;
+                    try self.emit(current_name);
+                    try self.emit(");\n");
+                } else {
+                    // Runtime n - use tupleRepeat (returns slice)
+                    try self.emitIndent();
+                    try self.emit("const ");
+                    try self.emit(shadow_name);
+                    try self.emit(" = runtime.tupleRepeat(__global_allocator, ");
+                    const current_name = self.var_renames.get(var_name) orelse var_name;
+                    try self.emit(current_name);
+                    try self.emit(", @as(usize, @intCast(");
+                    try self.genExpr(aug.value.*);
+                    try self.emit(")));\n");
+                }
+
+                // Suppress unused warning if variable isn't used again
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try self.emit(shadow_name);
+                try self.emit(";\n");
+
+                // Update var_renames for future uses
+                try self.var_renames.put(var_name, shadow_name);
+                return;
+            }
+        }
+    }
+
     // Special handling for list/array concatenation: x += [1, 2]
     // Check if RHS is a list literal
     // IMPORTANT: Must be before "Emit target" to avoid generating "x = try x.appendSlice"
@@ -534,6 +622,64 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 }
             }
         }
+    }
+
+    // Python 3.9+ dict merge assignment: dict1 |= dict2/iterable (updates dict1 in-place)
+    // Supports both dict |= dict and dict |= iterable_of_pairs
+    if (aug.op == .BitOr and target_type == .dict) {
+        const value_type = self.type_inferrer.inferExpr(aug.value.*) catch .unknown;
+
+        // If RHS is a dict, iterate directly over dict entries
+        if (value_type == .dict) {
+            // Generate: { const __other = dict2; var __iter = __other.iterator(); while (__iter.next()) |e| try dict1.put(e.key_ptr.*, e.value_ptr.*); }
+            try self.emit("{\n");
+            self.indent();
+            // Store dict in temp var to avoid block expression issues
+            try self.emitIndent();
+            try self.emit("const __other_dict = ");
+            try self.genExpr(aug.value.*);
+            try self.emit(";\n");
+            try self.emitIndent();
+            try self.emit("var __merge_iter = __other_dict.iterator();\n");
+            try self.emitIndent();
+            try self.emit("while (__merge_iter.next()) |entry| {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("try ");
+            try self.genExpr(aug.target.*);
+            // ArrayHashMap.put() doesn't take allocator
+            try self.emit(".put(entry.key_ptr.*, entry.value_ptr.*);\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+        } else {
+            // RHS is a list/iterable of tuples - iterate and unpack pairs
+            // Generate: { const __pairs = list; for (__pairs.items) |pair| try dict1.put(pair[0], pair[1]); }
+            try self.emit("{\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("const __pairs = ");
+            try self.genExpr(aug.value.*);
+            try self.emit(";\n");
+            try self.emitIndent();
+            try self.emit("for (__pairs.items) |__pair| {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("try ");
+            try self.genExpr(aug.target.*);
+            // ArrayHashMap.put() doesn't take allocator
+            try self.emit(".put(__pair[0], __pair[1]);\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+        }
+        return;
     }
 
     // Emit target (variable name)

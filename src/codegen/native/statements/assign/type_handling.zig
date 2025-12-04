@@ -172,3 +172,34 @@ pub fn isListBuiltinCall(value: ast.Node) bool {
     const func_name = value.call.func.name.id;
     return std.mem.eql(u8, func_name, "list");
 }
+
+/// Check if value is a dict-like call - generates HashMap
+/// Includes: dict(), Counter(), defaultdict(), OrderedDict(), etc.
+pub fn isDictLikeCall(value: ast.Node) bool {
+    if (value != .call) return false;
+    const func = value.call.func.*;
+
+    // Simple name call: dict(), Counter()
+    if (func == .name) {
+        const func_name = func.name.id;
+        return std.mem.eql(u8, func_name, "dict") or
+            std.mem.eql(u8, func_name, "Counter") or
+            std.mem.eql(u8, func_name, "defaultdict") or
+            std.mem.eql(u8, func_name, "OrderedDict") or
+            std.mem.eql(u8, func_name, "ChainMap");
+    }
+
+    // Attribute call: collections.defaultdict(), collections.Counter()
+    if (func == .attribute) {
+        const attr = func.attribute;
+        if (attr.value.* == .name) {
+            if (std.mem.eql(u8, attr.value.name.id, "collections")) {
+                return std.mem.eql(u8, attr.attr, "defaultdict") or
+                    std.mem.eql(u8, attr.attr, "Counter") or
+                    std.mem.eql(u8, attr.attr, "OrderedDict") or
+                    std.mem.eql(u8, attr.attr, "ChainMap");
+            }
+        }
+    }
+    return false;
+}

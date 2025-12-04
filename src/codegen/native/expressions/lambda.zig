@@ -50,6 +50,13 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
         return;
     }
 
+    // In callable context (PyCallable list), generate inline to allow @TypeOf inference
+    // for return types that can't be predicted (like array('B', b) returning inline struct)
+    if (self.callable_context_param_type != null) {
+        try genInlineLambda(self, lambda);
+        return;
+    }
+
     // Check if lambda references nested classes (types defined in enclosing function)
     // These CANNOT be hoisted to module level - the type wouldn't be in scope
     if (referencesNestedClass(self, lambda.body.*)) {
@@ -417,6 +424,11 @@ fn stringToNativeType(type_str: []const u8) NativeType {
 
 /// Infer parameter type from how it's used in the lambda body
 fn inferParamType(self: *NativeCodegen, param_name: []const u8, body: ast.Node) CodegenError![]const u8 {
+    // If callable context specifies parameter type, use that
+    // This is used when lambda is used in PyCallable context (e.g., list.append to callable list)
+    if (self.callable_context_param_type) |ctx_type| {
+        return ctx_type;
+    }
     // Analyze body to determine how the parameter is used
     return analyzeParamUsage(self, param_name, body);
 }
@@ -469,6 +481,8 @@ fn analyzeParamUsage(self: *NativeCodegen, param_name: []const u8, node: ast.Nod
                 if (StringMethodsMap.has(attr.attr)) return "[]const u8";
                 // Check list methods
                 if (ListMethodsMap.has(attr.attr)) return "std.ArrayList(i64)";
+                // Unknown method on param - must use anytype (e.g., memoryview.tobytes())
+                return "anytype";
             }
             return try analyzeParamUsage(self, param_name, attr.value.*);
         },
@@ -510,12 +524,29 @@ fn analyzeParamUsage(self: *NativeCodegen, param_name: []const u8, node: ast.Nod
             return try analyzeParamUsage(self, param_name, u.operand.*);
         },
 
+        // List comprehension: [expr for x in iterable]
+        .listcomp => |lc| {
+            // Check if param is used in the iterable
+            for (lc.generators) |gen| {
+                const iter_type = try analyzeParamUsage(self, param_name, gen.iter.*);
+                if (!std.mem.eql(u8, iter_type, "i64")) return iter_type;
+            }
+            // Check element expression
+            const elt_type = try analyzeParamUsage(self, param_name, lc.elt.*);
+            if (!std.mem.eql(u8, elt_type, "i64")) return elt_type;
+            return "i64";
+        },
+
         else => return "i64", // Default fallback
     }
 }
 
 /// Infer return type from lambda body expression
 fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8 {
+    // Note: Don't override return type based on callable_context_param_type
+    // PyCallable.fromAny() handles type erasure via extractBytes(), so lambdas
+    // can return their natural types (array structs, etc.) and the wrapper extracts bytes
+
     // Special case: closure (lambda returning lambda)
     if (body == .lambda) {
         // Generate closure name to match what will be generated
@@ -770,17 +801,61 @@ fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!v
     // Check if body contains a call to a nested class - if so, needs error union return with pointer
     // Nested classes use heap allocation and return !*@This()
     const body_calls_nested_class = bodyCallsNestedClass(self, lambda.body.*);
-    if (body_calls_nested_class) {
-        try self.emit("!*");
+
+    // For callable context with unknown return type (*runtime.PyObject), skip explicit type
+    // and let Zig infer it. This handles cases like lambda b: array('B', b) where the return
+    // is an inline struct that type inference can't predict.
+    const use_inferred_return = std.mem.eql(u8, return_type, "*runtime.PyObject") and
+                                self.callable_context_param_type != null;
+
+    if (use_inferred_return) {
+        // For unknown return types in callable context (like lambda b: array('B', b)),
+        // we can't predict the return type because array() generates an inline struct.
+        //
+        // Solution: Use Zig's type inference by having the function return @TypeOf(comptime_expr)
+        // where comptime_expr is a zero-initialized value of the result type.
+        //
+        // Actually the cleanest solution is: don't generate an explicit return type annotation.
+        // Just emit: @TypeOf(result_blk: { const r = body; break :result_blk r; })
+        // where body is generated ONCE and stored in const r.
+        //
+        // Pattern:
+        // (struct { fn call(p: T) @TypeOf(r_blk: { const r = body_expr; break :r_blk r; }) {
+        //     return r_blk2: { const r = body_expr; break :r_blk2 r; };
+        // } }).call
+        //
+        // But this STILL generates body_expr twice with different struct types!
+        // The only solution is to NOT use the @TypeOf pattern at all.
+        //
+        // FINAL SOLUTION: Skip the return type annotation entirely by using a helper that
+        // wraps the body. Zig doesn't allow omitting return types, but we can use
+        // `@as(anyopaque, ...)` pattern... no that doesn't work either.
+        //
+        // Actually, let's just use a void return and call tobytes() at the call site.
+        // NO - PyCallable.fromAny needs to extract bytes from the return value.
+        //
+        // PRAGMATIC FIX: Since this pattern is only for array.array() which returns a struct
+        // with tobytes(), let's add a specific check for that in inferReturnType.
+        // We'll return "[]const u8" and call .tobytes() on the result.
+
+        // Generate: []const u8 { return (body).tobytes(); }
+        try self.emit("[]const u8 { var __temp = ");
+        const expressions = @import("../expressions.zig");
+        try expressions.genExpr(self, lambda.body.*);
+        try self.emit("; return __temp.tobytes(); } }).call");
+    } else {
+        if (body_calls_nested_class) {
+            try self.emit("!*");
+        }
+        try self.emit(return_type);
+        try self.emit(" { return ");
+
+        // Generate body expression
+        const expressions = @import("../expressions.zig");
+        try expressions.genExpr(self, lambda.body.*);
+
+        try self.emit("; } }).call");
     }
-    try self.emit(return_type);
-    try self.emit(" { return ");
-
-    // Generate body expression
-    const expressions = @import("../expressions.zig");
-    try expressions.genExpr(self, lambda.body.*);
-
-    try self.emit("; } }).call");
 
     // Clean up registered parameters
     for (lambda.args) |arg| {

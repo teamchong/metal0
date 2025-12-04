@@ -103,6 +103,38 @@ fn isExceptionTypeName(name: []const u8) bool {
     return ExceptionTypeNames.has(name);
 }
 
+/// Deep equality check for NativeType, including nested types
+fn typesEqual(a: NativeType, b: NativeType) bool {
+    const tag_a = @as(std.meta.Tag(NativeType), a);
+    const tag_b = @as(std.meta.Tag(NativeType), b);
+    if (tag_a != tag_b) return false;
+
+    return switch (a) {
+        .array => |arr_a| blk: {
+            const arr_b = b.array;
+            if (arr_a.length != arr_b.length) break :blk false;
+            break :blk typesEqual(arr_a.element_type.*, arr_b.element_type.*);
+        },
+        .list => |elem_a| typesEqual(elem_a.*, b.list.*),
+        .dict => |dict_a| blk: {
+            const dict_b = b.dict;
+            if (!typesEqual(dict_a.key.*, dict_b.key.*)) break :blk false;
+            break :blk typesEqual(dict_a.value.*, dict_b.value.*);
+        },
+        .tuple => |tuple_a| blk: {
+            const tuple_b = b.tuple;
+            if (tuple_a.len != tuple_b.len) break :blk false;
+            for (tuple_a, tuple_b) |t1, t2| {
+                if (!typesEqual(t1, t2)) break :blk false;
+            }
+            break :blk true;
+        },
+        .optional => |inner_a| typesEqual(inner_a.*, b.optional.*),
+        // Primitives and other simple types - tag equality is sufficient
+        else => true,
+    };
+}
+
 /// Type names that represent callable type constructors (bytes, str, etc.)
 /// When used as values (not called), these are PyCallable instances
 const CallableTypeNames = std.StaticStringMap(void).initComptime(.{
@@ -424,11 +456,53 @@ pub fn inferExprWithInferrer(
                         has_mixed_types = true;
                         break;
                     }
+                    // For dict values, also compare nested dict types fully
+                    // e.g., StringHashMap(i64) vs StringHashMap(PyValue) are different
+                    if (tag1 == .dict and tag2 == .dict) {
+                        const v1_tag = @as(std.meta.Tag(NativeType), val_type.dict.value.*);
+                        const v2_tag = @as(std.meta.Tag(NativeType), this_type.dict.value.*);
+                        if (v1_tag != v2_tag) {
+                            has_mixed_types = true;
+                            break;
+                        }
+                    }
+                    // For tuple values, compare lengths and element types deeply
+                    // e.g., (list_of_6, list_of_4) vs (list_of_1, list_of_1) are different
+                    if (tag1 == .tuple and tag2 == .tuple) {
+                        if (val_type.tuple.len != this_type.tuple.len) {
+                            has_mixed_types = true;
+                            break;
+                        }
+                        // Check if any element types differ (including nested array lengths)
+                        for (val_type.tuple, this_type.tuple) |t1, t2| {
+                            if (!typesEqual(t1, t2)) {
+                                has_mixed_types = true;
+                                break;
+                            }
+                        }
+                    }
                 }
 
-                // If mixed types, codegen will convert all to strings
+                // If mixed types, use PyValue for heterogeneous values
+                // (Note: codegen may further refine this if all values are actually string-convertible)
                 if (has_mixed_types) {
-                    val_type = .{ .string = .runtime };
+                    val_type = .pyvalue;
+                }
+
+                // Also check for tuples with BigInt elements - these need PyValue at runtime
+                if (val_type == .tuple) {
+                    for (d.values) |value| {
+                        const vt = try inferExpr(allocator, var_types, class_fields, func_return_types, value);
+                        if (vt == .tuple) {
+                            for (vt.tuple) |elem_type| {
+                                if (elem_type == .bigint) {
+                                    val_type = .pyvalue;
+                                    break;
+                                }
+                            }
+                        }
+                        if (val_type == .pyvalue) break;
+                    }
                 }
             }
 

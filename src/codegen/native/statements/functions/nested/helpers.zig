@@ -81,11 +81,34 @@ pub fn genExprWithCaptureStruct(
             try self.emit(n.id);
         },
         .binop => |b| {
-            try self.emit("(");
-            try genExprWithCaptureStruct(self, b.left.*, captured_vars, capture_param_name);
-            try self.emit(BinOpStrings.get(@tagName(b.op)) orelse " ? ");
-            try genExprWithCaptureStruct(self, b.right.*, captured_vars, capture_param_name);
-            try self.emit(")");
+            // Use @mod for modulo to handle signed integers properly
+            if (b.op == .Mod) {
+                try self.emit("@mod(");
+                try genExprWithCaptureStruct(self, b.left.*, captured_vars, capture_param_name);
+                try self.emit(", ");
+                try genExprWithCaptureStruct(self, b.right.*, captured_vars, capture_param_name);
+                try self.emit(")");
+            } else if (b.op == .Pow) {
+                // Zig doesn't have ** operator, use std.math.pow
+                try self.emit("std.math.pow(i64, ");
+                try genExprWithCaptureStruct(self, b.left.*, captured_vars, capture_param_name);
+                try self.emit(", ");
+                try genExprWithCaptureStruct(self, b.right.*, captured_vars, capture_param_name);
+                try self.emit(")");
+            } else if (b.op == .FloorDiv) {
+                // Floor division uses @divFloor for Python semantics
+                try self.emit("@divFloor(");
+                try genExprWithCaptureStruct(self, b.left.*, captured_vars, capture_param_name);
+                try self.emit(", ");
+                try genExprWithCaptureStruct(self, b.right.*, captured_vars, capture_param_name);
+                try self.emit(")");
+            } else {
+                try self.emit("(");
+                try genExprWithCaptureStruct(self, b.left.*, captured_vars, capture_param_name);
+                try self.emit(BinOpStrings.get(@tagName(b.op)) orelse " ? ");
+                try genExprWithCaptureStruct(self, b.right.*, captured_vars, capture_param_name);
+                try self.emit(")");
+            }
         },
         .constant => |c| {
             const expressions = @import("../../../expressions.zig");

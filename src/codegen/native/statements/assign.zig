@@ -52,6 +52,20 @@ fn isBigIntExpression(expr: ast.Node) bool {
     return false;
 }
 
+/// Check for deferred closure instantiations waiting on this variable
+/// These are closures that captured the variable before it was declared
+fn triggerDeferredClosureInstantiations(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
+    if (self.deferred_closure_instantiations.getPtr(var_name)) |deferred_list| {
+        const closure_gen = @import("functions/nested/closure_gen.zig");
+        for (deferred_list.items) |info| {
+            try closure_gen.emitClosureInstantiation(self, info);
+        }
+        // Clear deferred list for this variable (instantiation done)
+        deferred_list.deinit(self.allocator);
+        _ = self.deferred_closure_instantiations.swapRemove(var_name);
+    }
+}
+
 /// Generate annotated assignment statement (x: int = 5)
 pub fn genAnnAssign(self: *NativeCodegen, ann_assign: ast.Node.AnnAssign) CodegenError!void {
     // If no value, just a declaration (x: int), skip for now
@@ -224,28 +238,144 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
         return;
     }
 
+    // Handle chained assignment with tuple unpacking: ka, va = ta = a.popitem()
+    // This has multiple targets where one is a tuple/list
+    if (assign.targets.len > 1) {
+        // Check if any target is a tuple/list that needs unpacking
+        var has_tuple_target = false;
+        for (assign.targets) |target| {
+            if (target == .tuple or target == .list) {
+                has_tuple_target = true;
+                break;
+            }
+        }
+
+        if (has_tuple_target) {
+            // Generate temp variable for the value
+            const tmp_name = try std.fmt.allocPrint(self.allocator, "__chained_tmp_{d}", .{self.unpack_counter});
+            defer self.allocator.free(tmp_name);
+            self.unpack_counter += 1;
+
+            // Infer source type
+            const source_type = try self.type_inferrer.inferExpr(assign.value.*);
+            const source_tag = @as(std.meta.Tag(@TypeOf(source_type)), source_type);
+            const is_list_type = source_tag == .list or source_tag == .array;
+
+            // Generate: const __chained_tmp_N = value_expr;
+            try self.emitIndent();
+            try self.emit("const ");
+            try self.emit(tmp_name);
+            try self.emit(" = ");
+            try self.genExpr(assign.value.*);
+            try self.emit(";\n");
+
+            // Now assign to each target (in reverse order for Python semantics)
+            // Python evaluates right-to-left: ka, va = ta = x means ta = x, then ka, va = ta
+            var i: usize = assign.targets.len;
+            while (i > 0) {
+                i -= 1;
+                const target = assign.targets[i];
+                if (target == .name) {
+                    const var_name = target.name.id;
+                    const is_first_assignment = !self.isDeclared(var_name);
+
+                    try self.emitIndent();
+                    if (is_first_assignment) {
+                        try self.emit("const ");
+                        try self.declareVar(var_name);
+                    }
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                    try self.emit(" = ");
+                    try self.emit(tmp_name);
+                    try self.emit(";\n");
+                } else if (target == .tuple) {
+                    // Unpack tuple elements
+                    for (target.tuple.elts, 0..) |elem, j| {
+                        if (elem == .name) {
+                            const var_name = elem.name.id;
+                            const is_unused = std.mem.eql(u8, var_name, "_") or self.isVarUnused(var_name);
+                            if (is_unused) {
+                                try self.emitIndent();
+                                if (is_list_type) {
+                                    try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, j });
+                                } else {
+                                    try self.output.writer(self.allocator).print("_ = {s}.@\"{d}\";\n", .{ tmp_name, j });
+                                }
+                                continue;
+                            }
+
+                            const is_first_assignment = !self.isDeclared(var_name);
+
+                            try self.emitIndent();
+                            if (is_first_assignment) {
+                                try self.emit("const ");
+                                try self.declareVar(var_name);
+                            }
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                            if (is_list_type) {
+                                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, j });
+                            } else {
+                                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, j });
+                            }
+                        }
+                    }
+                } else if (target == .list) {
+                    // Unpack list elements
+                    for (target.list.elts, 0..) |elem, j| {
+                        if (elem == .name) {
+                            const var_name = elem.name.id;
+                            const is_unused = std.mem.eql(u8, var_name, "_") or self.isVarUnused(var_name);
+                            if (is_unused) {
+                                try self.emitIndent();
+                                if (is_list_type) {
+                                    try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, j });
+                                } else {
+                                    try self.output.writer(self.allocator).print("_ = {s}.@\"{d}\";\n", .{ tmp_name, j });
+                                }
+                                continue;
+                            }
+
+                            const is_first_assignment = !self.isDeclared(var_name);
+
+                            try self.emitIndent();
+                            if (is_first_assignment) {
+                                try self.emit("const ");
+                                try self.declareVar(var_name);
+                            }
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                            if (is_list_type) {
+                                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, j });
+                            } else {
+                                try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, j });
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
+    }
+
     for (assign.targets) |target| {
         if (target == .name) {
             var var_name = target.name.id;
             const original_var_name = var_name; // Keep for usage checks (before any renaming)
 
-            // Skip function-aliasing assignments: genslices = rslices
-            // When BOTH target and value are module-level functions, skip the assignment
+            // Skip function-aliasing assignments: genslices = rslices, permutations = rpermutation
+            // When value is a module-level function, skip the assignment
             // In Python this aliases one function to another name, but in Zig functions
             // can't be reassigned - they're compile-time constants
-            if (self.module_level_funcs.contains(var_name)) {
-                if (assign.value.* == .name) {
-                    const rhs_name = assign.value.name.id;
-                    if (self.module_level_funcs.contains(rhs_name)) {
-                        // Both are functions - emit comment and skip
-                        try self.emitIndent();
-                        try self.emit("// function alias: ");
-                        try self.emit(var_name);
-                        try self.emit(" = ");
-                        try self.emit(rhs_name);
-                        try self.emit(" (skipped - functions are compile-time constants)\n");
-                        continue;
-                    }
+            if (assign.value.* == .name) {
+                const rhs_name = assign.value.name.id;
+                if (self.module_level_funcs.contains(rhs_name)) {
+                    // RHS is a function - emit comment and skip
+                    try self.emitIndent();
+                    try self.emit("// function alias: ");
+                    try self.emit(var_name);
+                    try self.emit(" = ");
+                    try self.emit(rhs_name);
+                    try self.emit(" (skipped - functions are compile-time constants)\n");
+                    continue;
                 }
             }
 
@@ -326,6 +456,28 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 return;
             }
 
+            // Skip module constant assignments (e.g., maxsize = support.MAX_Py_ssize_t)
+            // These are already emitted at module level as const with correct type
+            if (assign.value.* == .attribute) {
+                const attr = assign.value.attribute;
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "support")) {
+                    // Check if it's a known support module constant
+                    const attr_name = attr.attr;
+                    if (std.mem.eql(u8, attr_name, "MAX_Py_ssize_t") or
+                        std.mem.eql(u8, attr_name, "_1G") or
+                        std.mem.eql(u8, attr_name, "_2G") or
+                        std.mem.eql(u8, attr_name, "_4G") or
+                        std.mem.eql(u8, attr_name, "verbose") or
+                        std.mem.eql(u8, attr_name, "MS_WINDOWS") or
+                        std.mem.eql(u8, attr_name, "is_apple") or
+                        std.mem.eql(u8, attr_name, "SHORT_TIMEOUT"))
+                    {
+                        // Already emitted at module level, skip assignment
+                        return;
+                    }
+                }
+            }
+
             // Also check for get_feature_macros call specifically
             if (assign.value.* == .call) {
                 const call_val = assign.value.call;
@@ -334,6 +486,36 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         if (self.isDeclared(var_name)) {
                             return;
                         }
+                    }
+                }
+            }
+
+            // Handle csv module function calls (csv.reader, csv.writer, csv.DictReader, csv.DictWriter)
+            // These return anonymous structs that can't be pre-declared, so we declare inline
+            // csv.reader/DictReader need 'var' since their internal state changes on .next()
+            // csv.writer/DictWriter need 'var' since they accumulate buffer data
+            if (assign.value.* == .call) {
+                const call_val = assign.value.call;
+                if (call_val.func.* == .attribute) {
+                    const attr = call_val.func.attribute;
+                    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "csv")) {
+                        // csv module call - declare variable inline since not pre-declared
+                        const is_declared = self.isDeclared(var_name);
+                        try self.emitIndent();
+                        if (!is_declared) {
+                            // csv iterators/writers are mutated internally, need 'var'
+                            try self.emit("var ");
+                        }
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                        try self.emit(" = ");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(";\n");
+                        if (!is_declared) {
+                            try self.declareVar(var_name);
+                            // Mark as csv iterator for proper for-loop handling
+                            try self.csv_iterators.put(try self.allocator.dupe(u8, var_name), {});
+                        }
+                        return;
                     }
                 }
             }
@@ -414,10 +596,22 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             // Check if this is first assignment or reassignment
             // Hoisted variables should skip declaration (already declared before try block)
+            // Forward-declared variables (captured by nested classes before assignment) also skip
             // Global variables should also skip declaration (they're declared in outer scope)
             const is_hoisted = self.hoisted_vars.contains(var_name);
+            // Check both original and renamed names for forward-declared vars
+            // (forward_declared_vars may contain renamed version like "__local_set2" for "set2")
+            const renamed_var = self.var_renames.get(var_name);
+            const is_forward_declared = self.forward_declared_vars.contains(var_name) or
+                (if (renamed_var) |rv| self.forward_declared_vars.contains(rv) else false);
             const is_global = self.isGlobalVar(var_name);
-            const is_first_assignment = !self.isDeclared(var_name) and !is_hoisted and !is_global;
+            const is_first_assignment = !self.isDeclared(var_name) and !is_hoisted and !is_forward_declared and !is_global;
+
+            // If forward-declared and we have a rename, use the renamed version
+            // This ensures "set2 = ..." assigns to "__local_set2" which was forward-declared
+            if (is_forward_declared and renamed_var != null) {
+                var_name = renamed_var.?;
+            }
 
             // When inside a nested function, check if this new local would shadow an outer scope variable
             // that's not captured. Zig doesn't allow shadowing across nested struct boundaries.
@@ -435,6 +629,18 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
             }
 
+            // Also check if local variable would shadow a module-level pre-declared global
+            // Python allows this (locals shadow globals) but Zig doesn't allow shadowing module-level vars
+            // e.g., global `var set2` at module level, local `var set2` in method -> rename local
+            if (is_first_assignment and !is_global) {
+                // Check if this var name exists as a module-level var (pre-declared global)
+                if (self.module_level_vars.contains(var_name)) {
+                    const shadow_name = try std.fmt.allocPrint(self.allocator, "{s}_local", .{var_name});
+                    try self.var_renames.put(try self.allocator.dupe(u8, var_name), shadow_name);
+                    var_name = shadow_name;
+                }
+            }
+
             // Try compile-time evaluation FIRST
             // Skip comptime eval for variables typed as bigint (need runtime BigInt.fromInt)
             if (value_type != .bigint) {
@@ -443,7 +649,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // TODO: Strings and lists need proper arena allocation to avoid memory leaks
                     const is_simple_type = switch (comptime_val) {
                         .int, .float, .bool => true,
-                        .string, .list => false,
+                        .string, .list, .owned_string, .owned_list => false,
                     };
 
                     if (is_simple_type) {
@@ -459,6 +665,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         if (is_first_assignment) {
                             // Declare with proper type for scope-aware type lookup
                             try self.declareVarWithType(var_name, value_type);
+                            // Trigger any deferred closures waiting on this variable
+                            try triggerDeferredClosureInstantiations(self, var_name);
                         }
 
                         // If variable is used in eval string but nowhere else in actual code,
@@ -469,6 +677,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             try self.emit("_ = ");
                             try self.emit(var_name);
                             try self.emit(";\n");
+                        }
+
+                        // Track first assignments for potential discard emission
+                        // Even comptime-evaluated variables need discard tracking for unused var suppression
+                        if (is_first_assignment) {
+                            const suppress_name = self.var_renames.get(var_name) orelse var_name;
+                            try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, suppress_name));
                         }
 
                         return;
@@ -484,8 +699,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Use original_var_name since usage analysis uses the original Python variable name
             // EXCEPTION: At module level (current_function_name == null), never skip - module vars
             // might be used in class methods or functions, which lifetime analysis doesn't scan
+            // Also don't skip if var is used in eval/exec strings (dynamic usage)
             const at_module_level = self.current_function_name == null;
-            if (is_first_assignment and !at_module_level and self.isVarUnused(original_var_name)) {
+            const is_eval_var = self.isEvalStringVar(original_var_name);
+            if (is_first_assignment and !at_module_level and !is_eval_var and self.isVarUnused(original_var_name)) {
                 // Check if value expression has side effects
                 // Simple name/constant references have no side effects - skip entirely
                 // Calls, list/dict literals with calls, etc. have side effects - execute them
@@ -540,6 +757,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                         // Mark as declared
                         try self.declareVarWithType(var_name, value_type);
+                        // Trigger any deferred closures waiting on this variable
+                        try triggerDeferredClosureInstantiations(self, var_name);
                         return;
                     }
 
@@ -679,6 +898,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             try self.var_renames.put(var_name, unique_name);
                             try self.declareVarWithType(var_name, new_type);
                             try self.declareVarWithType(unique_name, new_type);
+                            // Trigger any deferred closures waiting on this variable
+                            try triggerDeferredClosureInstantiations(self, var_name);
                             return;
                         }
                     }
@@ -924,6 +1145,28 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emit(";\n");
             }
 
+            // For variables declared with `var` (because isVarMutated returned true),
+            // emit suppression to avoid "local variable is never mutated" when the mutation
+            // is in a branch that doesn't execute at runtime (e.g., try/except else: block)
+            if (is_first_assignment and !is_iterator) {
+                const is_mutated = self.isVarMutated(var_name);
+                if (is_mutated) {
+                    try self.emitIndent();
+                    try self.emit("_ = &");
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                    try self.emit(";\n");
+                }
+            }
+
+            // Track first assignments for potential discard emission
+            // We defer discard emission to check if the variable is actually used in generated code
+            // This avoids "pointless discard" errors when the variable IS used
+            if (is_first_assignment) {
+                const suppress_name = self.var_renames.get(var_name) orelse var_name;
+                // Record both the original name and the emitted name for later discard check
+                try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, suppress_name));
+            }
+
             // Track variable metadata (ArrayList vars, closures, etc.)
             try valueGen.trackVariableMetadata(
                 self,
@@ -954,6 +1197,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // e.g., when checking `not __loop_line` we need to know it's a string
                 try self.type_inferrer.var_types.put(loop_renamed_name, value_type);
             }
+
+            // Trigger any deferred closures waiting on this variable
+            // This must happen AFTER the entire assignment is complete (value generated)
+            try triggerDeferredClosureInstantiations(self, var_name);
         } else if (target == .attribute) {
             // Handle attribute assignment (self.x = value or obj.y = value)
             const attr = target.attribute;
@@ -1074,23 +1321,15 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             }
 
             if (is_dynamic) {
-                // Dynamic attribute: use __dict__.put() with type wrapping
+                // Dynamic attribute: use __dict__.put() with runtime.PyValue.from()
+                // This handles all types correctly including class instances (stored as .ptr)
                 // Use @constCast since the object may be declared as const (HashMap stores data via pointers,
                 // so @constCast works correctly - the internal data is heap-allocated)
-                const dyn_value_type = try self.inferExprScoped(assign.value.*);
-                const py_value_tag = switch (dyn_value_type) {
-                    .int => "int",
-                    .float => "float",
-                    .bool => "bool",
-                    .string => "string",
-                    else => "int", // Default fallback
-                };
-
                 try self.emit("try @constCast(&");
                 try self.genExpr(attr.value.*);
-                try self.emitFmt(".__dict__).put(\"{s}\", runtime.PyValue{{ .{s} = ", .{ attr.attr, py_value_tag });
+                try self.emitFmt(".__dict__).put(\"{s}\", runtime.PyValue.from(", .{attr.attr});
                 try self.genExpr(assign.value.*);
-                try self.emit(" })");
+                try self.emit("))");
             } else {
                 // Known attribute: direct assignment
                 try self.genExpr(target);
@@ -1115,6 +1354,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                 if (container_type == .dict) {
                     // Dict assignment: dict.put(key, value)
+                    // Check if dict has PyValue values - if so, wrap the value
+                    const dict_value_type = container_type.dict.value.*;
+                    const needs_pyvalue_wrap = dict_value_type == .pyvalue;
+
                     try self.emit("try ");
                     if (is_nested) {
                         try self.genSubscriptLHS(subscript.value.subscript);
@@ -1124,7 +1367,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit(".put(");
                     try self.genExpr(subscript.slice.index.*);
                     try self.emit(", ");
-                    try self.genExpr(assign.value.*);
+                    if (needs_pyvalue_wrap) {
+                        try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(")");
+                    } else {
+                        try self.genExpr(assign.value.*);
+                    }
                     try self.emit(");\n");
                 } else if (container_type == .list) {
                     // List assignment: list.items[idx] = value
@@ -1138,18 +1387,118 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit("))] = ");
                     try self.genExpr(assign.value.*);
                     try self.emit(";\n");
+                } else if (container_type == .pyvalue) {
+                    // PyValue dict assignment: pyval.pyDictPut(allocator, key, value)
+                    // PyValue can contain a dict (wrapped as ptr to StringHashMap)
+                    const index_type = try self.inferExprScoped(subscript.slice.index.*);
+                    std.debug.print("DEBUG pyvalue branch: index_type={}\n", .{index_type});
+                    if (index_type == .string or index_type == .pyvalue or index_type == .unknown) {
+                        // String key (or PyValue containing string, or unknown) - treat as dict assignment
+                        // For PyValue/unknown key, we need to unwrap it to string with .asString()
+                        try self.emit("try ");
+                        if (is_nested) {
+                            try self.genSubscriptLHS(subscript.value.subscript);
+                        } else {
+                            try self.genExpr(subscript.value.*);
+                        }
+                        try self.emit(".pyDictPut(__global_allocator, ");
+                        if (index_type == .pyvalue or index_type == .unknown) {
+                            try self.genExpr(subscript.slice.index.*);
+                            try self.emit(".asString()");
+                        } else {
+                            try self.genExpr(subscript.slice.index.*);
+                        }
+                        try self.emit(", try runtime.PyValue.fromAlloc(__global_allocator, ");
+                        try self.genExpr(assign.value.*);
+                        try self.emit("));\n");
+                    } else {
+                        // Int key - treat as list/tuple access (use pyAt for now, but assignment needs different approach)
+                        // For now, fall through to generic handling
+                        if (is_nested) {
+                            try self.genSubscriptLHS(subscript.value.subscript);
+                        } else {
+                            try self.genExpr(subscript.value.*);
+                        }
+                        try self.emit("[@as(usize, @intCast(");
+                        try self.genExpr(subscript.slice.index.*);
+                        try self.emit("))] = ");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(";\n");
+                    }
                 } else {
                     // Generic array/slice assignment: arr[idx] = value
-                    if (is_nested) {
-                        try self.genSubscriptLHS(subscript.value.subscript);
+                    // Also handles unknown type with string/pyvalue key (could be dict)
+                    const index_type = try self.inferExprScoped(subscript.slice.index.*);
+                    // For nested subscripts with PyValue-style iteration variable (string key from dict iteration)
+                    // or unknown containers with string/pyvalue keys, use runtime dict handling
+                    // Check if this is a nested subscript where the index comes from PyValue iteration
+                    const is_pyvalue_key = (index_type == .string or index_type == .pyvalue or index_type == .unknown);
+                    if (is_nested and is_pyvalue_key) {
+                        // Unknown container with string/pyvalue key - likely dict access
+                        // Use runtime type check
+                        try self.emit("blk: {\n");
+                        self.indent_level += 1;
+                        try self.emitIndent();
+                        try self.emit("const __cont = ");
+                        if (is_nested) {
+                            try self.genSubscriptLHS(subscript.value.subscript);
+                        } else {
+                            try self.genExpr(subscript.value.*);
+                        }
+                        try self.emit(";\n");
+                        // For PyValue keys, extract the string
+                        if (index_type == .pyvalue) {
+                            try self.emitIndent();
+                            try self.emit("const __key = ");
+                            try self.genExpr(subscript.slice.index.*);
+                            try self.emit(".asString();\n");
+                        }
+                        try self.emitIndent();
+                        try self.emit("if (@TypeOf(__cont) == runtime.PyValue) {\n");
+                        self.indent_level += 1;
+                        try self.emitIndent();
+                        try self.emit("try __cont.pyDictPut(__global_allocator, ");
+                        if (index_type == .pyvalue) {
+                            try self.emit("__key");
+                        } else {
+                            try self.genExpr(subscript.slice.index.*);
+                        }
+                        try self.emit(", try runtime.PyValue.fromAlloc(__global_allocator, ");
+                        try self.genExpr(assign.value.*);
+                        try self.emit("));\n");
+                        self.indent_level -= 1;
+                        try self.emitIndent();
+                        try self.emit("} else {\n");
+                        self.indent_level += 1;
+                        try self.emitIndent();
+                        // ArrayHashMap.put() doesn't take allocator
+                        try self.emit("try __cont.put(");
+                        if (index_type == .pyvalue) {
+                            try self.emit("__key");
+                        } else {
+                            try self.genExpr(subscript.slice.index.*);
+                        }
+                        try self.emit(", ");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(");\n");
+                        self.indent_level -= 1;
+                        try self.emitIndent();
+                        try self.emit("}\n");
+                        self.indent_level -= 1;
+                        try self.emitIndent();
+                        try self.emit("}\n");
                     } else {
-                        try self.genExpr(subscript.value.*);
+                        if (is_nested) {
+                            try self.genSubscriptLHS(subscript.value.subscript);
+                        } else {
+                            try self.genExpr(subscript.value.*);
+                        }
+                        try self.emit("[@as(usize, @intCast(");
+                        try self.genExpr(subscript.slice.index.*);
+                        try self.emit("))] = ");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(";\n");
                     }
-                    try self.emit("[@as(usize, @intCast(");
-                    try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))] = ");
-                    try self.genExpr(assign.value.*);
-                    try self.emit(";\n");
                 }
             } else if (subscript.slice == .slice) {
                 // Slice assignment: a[:] = data, a[1:3] = [x, y]

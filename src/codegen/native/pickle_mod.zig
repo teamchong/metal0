@@ -54,5 +54,6 @@ fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("; _ = _file.write(_json_str) catch 0; break :pickle_dump_blk; }");
 }
 
-const loadBody = "; const _content = _file.reader().readAllAlloc(__global_allocator, 10 * 1024 * 1024) catch break :pickle_load_blk @as(*runtime.PyObject, undefined); const _json_str_obj = try runtime.PyString.create(__global_allocator, _content); defer runtime.decref(_json_str_obj, __global_allocator); break :pickle_load_blk try runtime.json.loads(_json_str_obj, __global_allocator); }";
+// Zig 0.15: use File.readToEndAlloc directly instead of reader().readAllAlloc()
+const loadBody = "; const _content = _file.readToEndAlloc(__global_allocator, 10 * 1024 * 1024) catch break :pickle_load_blk @as(*runtime.PyObject, undefined); const _json_str_obj = try runtime.PyString.create(__global_allocator, _content); defer runtime.decref(_json_str_obj, __global_allocator); break :pickle_load_blk try runtime.json.loads(_json_str_obj, __global_allocator); }";
 const genLoad = h.wrap("pickle_load_blk: { const _file = ", loadBody, "@as(*runtime.PyObject, undefined)");

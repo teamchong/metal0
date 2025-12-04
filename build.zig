@@ -358,6 +358,42 @@ pub fn build(b: *std.Build) void {
     const bench_goroutine_step = b.step("bench-goroutine", "Build and run goroutine fan-out benchmark");
     bench_goroutine_step.dependOn(&run_bench_goroutine.step);
 
+    // Tokenizer encoding benchmark
+    const tokenizer_bench = b.addExecutable(.{
+        .name = "tokenizer_bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("packages/tokenizer/src/bench_simple.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    tokenizer_bench.root_module.addImport("json", json_mod);
+    tokenizer_bench.linkLibC();
+    b.installArtifact(tokenizer_bench);
+
+    const run_tokenizer_bench = b.addRunArtifact(tokenizer_bench);
+    const tokenizer_bench_step = b.step("bench-tokenizer", "Build and run tokenizer encoding benchmark");
+    tokenizer_bench_step.dependOn(&run_tokenizer_bench.step);
+
+    // BPE Training benchmark
+    const bench_train = b.addExecutable(.{
+        .name = "bench_train",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("packages/tokenizer/src/bench_train.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    bench_train.root_module.addImport("json", json_mod);
+    bench_train.root_module.addImport("allocator_helper", allocator_helper);
+    bench_train.root_module.addImport("hashmap_helper", hashmap_helper);
+    bench_train.linkLibC();
+    b.installArtifact(bench_train);
+
+    const run_bench_train = b.addRunArtifact(bench_train);
+    const bench_train_step = b.step("bench-train", "Build and run BPE training benchmark");
+    bench_train_step.dependOn(&run_bench_train.step);
+
     // Token optimizer proxy - build from packages/token_optimizer/ directory
     // It has its own build.zig with zigimg dependency
     // Run: cd packages/token_optimizer && zig build

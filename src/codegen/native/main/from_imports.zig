@@ -325,9 +325,24 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             const same_as_module = std.mem.eql(u8, symbol_name, from_imp.module);
 
             if (same_as_module) {
-                // Skip - module already declared with same name, code like `copy(x)` will call copy.copy
-                // which is the correct behavior. No need for redundant const copy = std.copy;
+                // Skip const declaration - module already declared with same name.
+                // But still register for dispatch routing so calls like datetime(...)
+                // get routed to the datetime module's datetime constructor.
+                try self.local_from_imports.put(symbol_name, from_imp.module);
                 continue;
+            }
+
+            // Special case: datetime module classes (date, time, timedelta)
+            // These are handled via dispatch to datetime.date.today(), etc.
+            // Don't generate const aliases since they would be functions, not types
+            if (std.mem.eql(u8, from_imp.module, "datetime")) {
+                if (std.mem.eql(u8, name, "date") or
+                    std.mem.eql(u8, name, "time") or
+                    std.mem.eql(u8, name, "timedelta"))
+                {
+                    try self.local_from_imports.put(symbol_name, from_imp.module);
+                    continue;
+                }
             }
 
             // Skip 'main' - conflicts with Zig's auto-generated entry point `pub fn main()`

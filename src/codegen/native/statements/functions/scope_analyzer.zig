@@ -24,6 +24,10 @@ pub const EscapedVar = struct {
     init_expr: ?*const ast.Node,
     /// Source: what kind of block declared this var
     source: EscapedSource,
+    /// For for-loop tuple unpacking: the iteration expression (for type derivation)
+    for_iter_expr: ?*const ast.Node = null,
+    /// For for-loop tuple unpacking: the index in the tuple (0, 1, 2, ...)
+    tuple_index: ?usize = null,
 };
 
 /// Result of scope analysis
@@ -324,6 +328,29 @@ fn collectVarRefsExcluding(
                 try collectVarRefsExcluding(uses, comp, exclude, allocator);
             }
         },
+        .list => |list| {
+            for (list.elts) |elem| {
+                try collectVarRefsExcluding(uses, elem, exclude, allocator);
+            }
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |elem| {
+                try collectVarRefsExcluding(uses, elem, exclude, allocator);
+            }
+        },
+        .dict => |dict| {
+            for (dict.keys) |key| {
+                try collectVarRefsExcluding(uses, key, exclude, allocator);
+            }
+            for (dict.values) |val| {
+                try collectVarRefsExcluding(uses, val, exclude, allocator);
+            }
+        },
+        .if_expr => |if_e| {
+            try collectVarRefsExcluding(uses, if_e.condition.*, exclude, allocator);
+            try collectVarRefsExcluding(uses, if_e.body.*, exclude, allocator);
+            try collectVarRefsExcluding(uses, if_e.orelse_value.*, exclude, allocator);
+        },
         else => {},
     }
 }
@@ -419,14 +446,42 @@ fn collectInnerScopeDecls(
             }
         },
         .for_stmt => |for_s| {
-            // Loop variable
+            // Loop variable - handle both simple names and tuple unpacking
             if (for_s.target.* == .name) {
                 const var_name = for_s.target.name.id;
                 try decls.put(var_name, .{
                     .name = var_name,
                     .init_expr = null, // Iterator element, complex type
                     .source = .for_loop,
+                    .for_iter_expr = for_s.iter,
+                    .tuple_index = null, // Not tuple unpacking
                 });
+            } else if (for_s.target.* == .tuple) {
+                // Tuple unpacking: for k, v in items
+                for (for_s.target.tuple.elts, 0..) |elt, idx| {
+                    if (elt == .name) {
+                        try decls.put(elt.name.id, .{
+                            .name = elt.name.id,
+                            .init_expr = null,
+                            .source = .for_loop,
+                            .for_iter_expr = for_s.iter,
+                            .tuple_index = idx,
+                        });
+                    }
+                }
+            } else if (for_s.target.* == .list) {
+                // List unpacking: for [k, v] in items
+                for (for_s.target.list.elts, 0..) |elt, idx| {
+                    if (elt == .name) {
+                        try decls.put(elt.name.id, .{
+                            .name = elt.name.id,
+                            .init_expr = null,
+                            .source = .for_loop,
+                            .for_iter_expr = for_s.iter,
+                            .tuple_index = idx,
+                        });
+                    }
+                }
             }
             for (for_s.body) |stmt| {
                 try collectAssignments(decls, stmt, .for_loop, allocator);
@@ -457,6 +512,9 @@ fn collectAssignments(
             if (target == .name) {
                 const var_name = target.name.id;
                 // Only add if not already declared
+                // IMPORTANT: Don't update existing entries - for-loop targets are added first
+                // with init_expr = null, and we should NOT overwrite with the reassignment expr
+                // which could create circular references (e.g., `line = line.strip()`)
                 if (!decls.contains(var_name)) {
                     try decls.put(var_name, .{
                         .name = var_name,
@@ -485,6 +543,20 @@ fn collectOuterUses(
         .assign => |assign| {
             // The value side uses variables
             try collectVarRefs(uses, assign.value.*, allocator);
+            // Also check target subscripts - for `x[k] = v`, k is used
+            for (assign.targets) |target| {
+                if (target == .subscript) {
+                    try collectVarRefs(uses, target.subscript.value.*, allocator);
+                    switch (target.subscript.slice) {
+                        .index => |idx| try collectVarRefs(uses, idx.*, allocator),
+                        .slice => |sl| {
+                            if (sl.lower) |l| try collectVarRefs(uses, l.*, allocator);
+                            if (sl.upper) |u| try collectVarRefs(uses, u.*, allocator);
+                            if (sl.step) |s| try collectVarRefs(uses, s.*, allocator);
+                        },
+                    }
+                }
+            }
         },
         .expr_stmt => |expr| {
             try collectVarRefs(uses, expr.value.*, allocator);

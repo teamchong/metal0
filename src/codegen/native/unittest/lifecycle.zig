@@ -257,10 +257,7 @@ pub fn genUnittestFinalize(self: *NativeCodegen, args: []ast.Node) CodegenError!
 }
 
 /// Generate code for self.addCleanup(func, *args)
-pub fn genAddCleanup(cg: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    _ = args;
-    if (obj == .name) {
-        try cg.emit("_ = ");
-        try cg.emit(obj.name.id);
-    }
+pub fn genAddCleanup(_: *NativeCodegen, _: ast.Node, _: []ast.Node) CodegenError!void {
+    // addCleanup is a no-op in AOT compilation - cleanup happens automatically via defer/RAII
+    // Don't emit anything - the unused self parameter is already suppressed by the method signature
 }

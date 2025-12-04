@@ -80,7 +80,12 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("const _IterType = @TypeOf(_iterable);\n");
     // Check if input is already a PyValue (from heterogeneous list element access)
     try self.emit("const _is_pyvalue = _IterType == runtime.PyValue;\n");
-    try self.emit("if (_is_pyvalue) {\n");
+    // Check if input is a *runtime.PyObject (pointer to CPython object)
+    try self.emit("const _is_pyobject_ptr = _IterType == *runtime.PyObject or _IterType == *const runtime.PyObject;\n");
+    try self.emit("if (_is_pyobject_ptr) {\n");
+    // For PyObject pointer, convert via runtime
+    try self.emit("break :list_blk runtime.pyObjectToList(_iterable);\n");
+    try self.emit("} else if (_is_pyvalue) {\n");
     // For PyValue input, extract contents and wrap result back as PyValue
     try self.emit("const _result_list: runtime.PyValue = switch (_iterable) {\n");
     try self.emit(".list => |_pv_items| .{ .list = _pv_items },\n"); // Already a list, keep as PyValue

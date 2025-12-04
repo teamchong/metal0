@@ -127,13 +127,13 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Unknown type - check if it's an ArrayList (has .items) at compile time
         // Must check .@"struct" first since @hasField only works on struct types
         if (needs_wrap) {
-            try self.emit("if (@typeInfo(@TypeOf(__obj)) == .@\"struct\" and @hasField(@TypeOf(__obj), \"items\")) __obj.items.len else runtime.pyLen(__obj)");
+            try self.emit("if (@typeInfo(@TypeOf(__obj)) == .@\"struct\" and @hasField(@TypeOf(__obj), \"items\")) __obj.items.len else if (@TypeOf(__obj) == runtime.PyValue) __obj.pyLen() else runtime.pyLen(__obj)");
         } else {
             const pyobj_label_id = self.block_label_counter;
             self.block_label_counter += 1;
             try self.emitFmt("len_{d}: {{ const __tmp = ", .{pyobj_label_id});
             try self.genExpr(args[0]);
-            try self.emitFmt("; break :len_{d} if (@typeInfo(@TypeOf(__tmp)) == .@\"struct\" and @hasField(@TypeOf(__tmp), \"items\")) __tmp.items.len else runtime.pyLen(__tmp); }}", .{pyobj_label_id});
+            try self.emitFmt("; break :len_{d} if (@typeInfo(@TypeOf(__tmp)) == .@\"struct\" and @hasField(@TypeOf(__tmp), \"items\")) __tmp.items.len else if (@TypeOf(__tmp) == runtime.PyValue) __tmp.pyLen() else runtime.pyLen(__tmp); }}", .{pyobj_label_id});
         }
     } else if (is_kwarg_param) {
         // **kwargs is a *runtime.PyObject (PyDict), use runtime.PyDict.len()
@@ -419,6 +419,39 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("try ");
     }
     try self.emit("runtime.toInt(");
+    try self.genExpr(args[0]);
+    try self.emit(")");
+}
+
+/// Generate code for hex(x) - convert int to hex string prefixed with "0x"
+pub fn genHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        try self.emit("@compileError(\"hex() takes exactly one argument\")");
+        return;
+    }
+    try self.emit("runtime.builtins.hex(__global_allocator, ");
+    try self.genExpr(args[0]);
+    try self.emit(")");
+}
+
+/// Generate code for oct(x) - convert int to octal string prefixed with "0o"
+pub fn genOct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        try self.emit("@compileError(\"oct() takes exactly one argument\")");
+        return;
+    }
+    try self.emit("runtime.builtins.oct(__global_allocator, ");
+    try self.genExpr(args[0]);
+    try self.emit(")");
+}
+
+/// Generate code for bin(x) - convert int to binary string prefixed with "0b"
+pub fn genBin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) {
+        try self.emit("@compileError(\"bin() takes exactly one argument\")");
+        return;
+    }
+    try self.emit("runtime.builtins.bin(__global_allocator, ");
     try self.genExpr(args[0]);
     try self.emit(")");
 }

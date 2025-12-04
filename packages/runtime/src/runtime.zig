@@ -720,6 +720,29 @@ pub inline fn Py_SET_SIZE(op: *PyObject, size: Py_ssize_t) void {
     var_obj.ob_size = size;
 }
 
+/// Convert PyObject pointer to a list (for list() builtin on PyObject)
+/// Returns PyValue.list containing the elements
+pub fn pyObjectToList(obj: *PyObject) PyValue {
+    // Check if it's a list
+    if (PyList_Check(obj)) {
+        const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
+        const size = list_obj.ob_base.ob_size;
+        if (size <= 0) return .{ .list = &[_]PyValue{} };
+        // For now, return an empty list as full conversion requires allocation
+        // TODO: properly convert list elements
+        return .{ .list = &[_]PyValue{} };
+    }
+    // Check if it's a tuple
+    if (PyTuple_Check(obj)) {
+        const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
+        const size = tuple_obj.ob_base.ob_size;
+        if (size <= 0) return .{ .list = &[_]PyValue{} };
+        return .{ .list = &[_]PyValue{} };
+    }
+    // Default: return empty list
+    return .{ .list = &[_]PyValue{} };
+}
+
 /// Extract value from PyObject for comparisons
 /// Returns f64 for numeric types (allows uniform comparison)
 pub fn pyObjectToValue(obj: *PyObject) f64 {
@@ -1129,7 +1152,125 @@ pub fn strRepeat(allocator: std.mem.Allocator, s: []const u8, n: usize) []const 
     return result;
 }
 
-/// Repeat tuple n times (Python tuple * n)
+/// Concatenate two tuples (Python tuple + tuple)
+/// Returns a new tuple struct with all elements from both tuples
+/// Uses comptime to create the correct result type
+pub fn tupleConcat(a: anytype, b: anytype) TupleConcatResult(@TypeOf(a), @TypeOf(b)) {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    const a_fields = @typeInfo(A).@"struct".fields;
+    const b_fields = @typeInfo(B).@"struct".fields;
+    const Result = TupleConcatResult(A, B);
+
+    // Build result tuple using comptime field initialization
+    var result: Result = undefined;
+    inline for (a_fields, 0..) |field, i| {
+        @field(result, std.fmt.comptimePrint("{d}", .{i})) = @field(a, field.name);
+    }
+    inline for (b_fields, 0..) |field, i| {
+        @field(result, std.fmt.comptimePrint("{d}", .{a_fields.len + i})) = @field(b, field.name);
+    }
+
+    return result;
+}
+
+/// Helper type for tuple concatenation result
+/// Returns an anonymous struct (tuple) type with fields named "0", "1", etc.
+fn TupleConcatResult(comptime A: type, comptime B: type) type {
+    const a_info = @typeInfo(A);
+    const b_info = @typeInfo(B);
+    if (a_info != .@"struct" or b_info != .@"struct") {
+        @compileError("tupleConcat expects two tuple/struct types");
+    }
+
+    const a_fields = a_info.@"struct".fields;
+    const b_fields = b_info.@"struct".fields;
+    const total_len = a_fields.len + b_fields.len;
+
+    // Build struct field definitions
+    var fields: [total_len]std.builtin.Type.StructField = undefined;
+    inline for (a_fields, 0..) |afield, i| {
+        fields[i] = .{
+            .name = std.fmt.comptimePrint("{d}", .{i}),
+            .type = afield.type,
+            .default_value_ptr = null,
+            .is_comptime = false,
+            .alignment = @alignOf(afield.type),
+        };
+    }
+    inline for (b_fields, 0..) |bfield, i| {
+        fields[a_fields.len + i] = .{
+            .name = std.fmt.comptimePrint("{d}", .{a_fields.len + i}),
+            .type = bfield.type,
+            .default_value_ptr = null,
+            .is_comptime = false,
+            .alignment = @alignOf(bfield.type),
+        };
+    }
+
+    return @Type(.{
+        .@"struct" = .{
+            .layout = .auto,
+            .fields = &fields,
+            .decls = &.{},
+            .is_tuple = true,
+        },
+    });
+}
+
+/// Repeat tuple n times at comptime (Python tuple * n where n is known at compile time)
+/// Returns a new tuple struct with elements repeated n times
+pub fn tupleMultiply(comptime n: usize, tuple: anytype) TupleMultiplyResult(@TypeOf(tuple), n) {
+    const T = @TypeOf(tuple);
+    const info = @typeInfo(T);
+    if (info != .@"struct") @compileError("tupleMultiply expects a tuple/struct");
+
+    const src_fields = info.@"struct".fields;
+    const tuple_len = src_fields.len;
+    const Result = TupleMultiplyResult(T, n);
+
+    var result: Result = undefined;
+    inline for (0..n) |rep| {
+        inline for (src_fields, 0..) |field, i| {
+            @field(result, std.fmt.comptimePrint("{d}", .{rep * tuple_len + i})) = @field(tuple, field.name);
+        }
+    }
+    return result;
+}
+
+/// Helper type for tuple multiplication result
+/// Returns an anonymous struct (tuple) type with fields named "0", "1", etc.
+fn TupleMultiplyResult(comptime T: type, comptime n: usize) type {
+    const info = @typeInfo(T);
+    if (info != .@"struct") @compileError("TupleMultiplyResult expects a tuple/struct type");
+    const src_fields = info.@"struct".fields;
+    const total_len = src_fields.len * n;
+
+    // Build struct field definitions
+    var fields: [total_len]std.builtin.Type.StructField = undefined;
+    inline for (0..n) |rep| {
+        inline for (src_fields, 0..) |sfield, i| {
+            fields[rep * src_fields.len + i] = .{
+                .name = std.fmt.comptimePrint("{d}", .{rep * src_fields.len + i}),
+                .type = sfield.type,
+                .default_value_ptr = null,
+                .is_comptime = false,
+                .alignment = @alignOf(sfield.type),
+            };
+        }
+    }
+
+    return @Type(.{
+        .@"struct" = .{
+            .layout = .auto,
+            .fields = &fields,
+            .decls = &.{},
+            .is_tuple = true,
+        },
+    });
+}
+
+/// Repeat tuple n times (Python tuple * n) - dynamic version
 /// Takes a Zig tuple (anonymous struct) and returns a slice with elements repeated
 pub fn tupleRepeat(allocator: std.mem.Allocator, tuple: anytype, n: usize) []const @typeInfo(@TypeOf(tuple)).@"struct".fields[0].type {
     const T = @TypeOf(tuple);
@@ -1959,6 +2100,104 @@ pub fn pickleLoads(data: []const u8) bool {
         return data[2] == 0x88;
     }
     return false;
+}
+
+/// Match a glob pattern against a filename (Python glob semantics)
+/// Supports: * (any chars), ? (single char), [abc] (char class), [!abc] (negated)
+pub fn globMatch(pattern: []const u8, name: []const u8) bool {
+    var pi: usize = 0;
+    var ni: usize = 0;
+    var star_p: ?usize = null;
+    var star_n: ?usize = null;
+
+    while (ni < name.len or pi < pattern.len) {
+        if (pi < pattern.len) {
+            const pc = pattern[pi];
+            if (pc == '*') {
+                // * matches any sequence
+                star_p = pi;
+                star_n = ni;
+                pi += 1;
+                continue;
+            } else if (pc == '?') {
+                // ? matches any single char
+                if (ni < name.len) {
+                    pi += 1;
+                    ni += 1;
+                    continue;
+                }
+            } else if (pc == '[') {
+                // Character class
+                if (ni < name.len) {
+                    if (matchCharClass(pattern[pi..], name[ni])) |skip| {
+                        pi += skip;
+                        ni += 1;
+                        continue;
+                    }
+                }
+            } else {
+                // Literal match
+                if (ni < name.len and pc == name[ni]) {
+                    pi += 1;
+                    ni += 1;
+                    continue;
+                }
+            }
+        }
+        // No match - backtrack to last * if possible
+        if (star_p) |sp| {
+            pi = sp + 1;
+            star_n.? += 1;
+            ni = star_n.?;
+            if (ni > name.len) return false;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Match character class [abc] or [!abc], returns chars to skip in pattern or null
+fn matchCharClass(pattern: []const u8, c: u8) ?usize {
+    if (pattern.len < 2 or pattern[0] != '[') return null;
+    var i: usize = 1;
+    const negate = if (i < pattern.len and (pattern[i] == '!' or pattern[i] == '^')) blk: {
+        i += 1;
+        break :blk true;
+    } else false;
+
+    var matched = false;
+    while (i < pattern.len and pattern[i] != ']') : (i += 1) {
+        // Check for range [a-z]
+        if (i + 2 < pattern.len and pattern[i + 1] == '-' and pattern[i + 2] != ']') {
+            if (c >= pattern[i] and c <= pattern[i + 2]) matched = true;
+            i += 2;
+        } else {
+            if (c == pattern[i]) matched = true;
+        }
+    }
+    if (i >= pattern.len) return null; // No closing ]
+    return if ((matched and !negate) or (!matched and negate)) i + 1 else null;
+}
+
+/// Recursively collect files matching glob pattern
+pub fn rglobCollect(allocator: std.mem.Allocator, base_path: []const u8, pattern: []const u8, entries: *std.ArrayList([]const u8)) void {
+    var dir = std.fs.cwd().openDir(base_path, .{ .iterate = true }) catch return;
+    defer dir.close();
+
+    var it = dir.iterate();
+    while (it.next() catch null) |entry| {
+        const full_path = std.fs.path.join(allocator, &.{ base_path, entry.name }) catch continue;
+
+        if (globMatch(pattern, entry.name)) {
+            entries.append(allocator, full_path) catch continue;
+        }
+
+        // Recurse into directories
+        if (entry.kind == .directory) {
+            rglobCollect(allocator, full_path, pattern, entries);
+        }
+    }
 }
 
 test "reference counting" {

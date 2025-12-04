@@ -10,6 +10,7 @@ const semantic_types = @import("../analysis/types.zig");
 const lifetime_analysis = @import("../analysis/lifetime.zig");
 const native_codegen = @import("../codegen/native/main.zig");
 const bytecode_codegen = @import("../codegen/bytecode.zig");
+const js_glue = @import("../codegen/js_glue.zig");
 const c_interop = @import("c_interop");
 const notebook = @import("../notebook.zig");
 const CompileOptions = @import("../main.zig").CompileOptions;
@@ -534,6 +535,18 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         const wasm_path = try output.getWasmOutputPath(aa, opts.input_file, opts.output_file);
         try compiler.compileWasm(aa, zig_code, wasm_path);
         std.debug.print("✓ Compiled successfully to: {s}\n", .{wasm_path});
+
+        // Generate TypeScript definitions (module-specific)
+        const module_name = std.fs.path.stem(opts.input_file);
+        const base_path = wasm_path[0 .. wasm_path.len - 5]; // remove .wasm
+        const type_defs = try js_glue.generateTypeDefs(aa, tree.module, module_name);
+        const dts_path = try std.fmt.allocPrint(aa, "{s}.d.ts", .{base_path});
+        const dts_file = try std.fs.cwd().createFile(dts_path, .{});
+        defer dts_file.close();
+        try dts_file.writeAll(type_defs);
+        std.debug.print("✓ Generated TypeScript defs: {s}\n", .{dts_path});
+        std.debug.print("  Use with: import {{ load }} from '@metal0/wasm-runtime'\n", .{});
+
         // WASM cannot be run directly, skip cache and run
         return;
     } else if (!opts.binary and std.mem.eql(u8, opts.mode, "build")) {

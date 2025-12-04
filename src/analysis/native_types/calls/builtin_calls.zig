@@ -37,6 +37,14 @@ pub fn inferBuiltinCall(
         return .{ .class_instance = func_name };
     }
 
+    // Check for external class types from stdlib modules (like ndarray, staticarray)
+    // Note: memoryview is a Python builtin, handled separately
+    if (std.mem.eql(u8, func_name, "ndarray") or
+        std.mem.eql(u8, func_name, "staticarray"))
+    {
+        return .{ .class_instance = func_name };
+    }
+
     // Check for registered function return types (lambdas, etc.)
     if (func_return_types.get(func_name)) |return_type| {
         return return_type;
@@ -139,6 +147,9 @@ pub fn inferBuiltinCall(
             }
             if (@as(std.meta.Tag(NativeType), arg_type) == .list) {
                 elem_type.* = arg_type.list.*;
+            } else if (@as(std.meta.Tag(NativeType), arg_type) == .array) {
+                // Array literals like ['a', 'b'] get array type - extract element type
+                elem_type.* = arg_type.array.element_type.*;
             } else if (@as(std.meta.Tag(NativeType), arg_type) == .string) {
                 elem_type.* = .{ .string = .runtime }; // set("abc") -> set of chars
             } else {
@@ -154,7 +165,25 @@ pub fn inferBuiltinCall(
     const FROZENSET_BUILTIN_HASH = comptime fnv_hash.hash("frozenset");
     if (fnv_hash.hash(func_name) == FROZENSET_BUILTIN_HASH) {
         const elem_type = try allocator.create(NativeType);
-        elem_type.* = .unknown;
+        if (call.args.len > 0) {
+            // Infer from iterable argument
+            const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+            if (@as(std.meta.Tag(NativeType), arg_type) == .set) {
+                return arg_type;
+            }
+            if (@as(std.meta.Tag(NativeType), arg_type) == .list) {
+                elem_type.* = arg_type.list.*;
+            } else if (@as(std.meta.Tag(NativeType), arg_type) == .array) {
+                // Array literals like ['a', 'b'] get array type - extract element type
+                elem_type.* = arg_type.array.element_type.*;
+            } else if (@as(std.meta.Tag(NativeType), arg_type) == .string) {
+                elem_type.* = .{ .string = .runtime }; // frozenset("abc") -> set of chars
+            } else {
+                elem_type.* = .unknown;
+            }
+        } else {
+            elem_type.* = .unknown;
+        }
         return .{ .set = elem_type };
     }
 

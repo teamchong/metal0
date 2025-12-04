@@ -40,13 +40,31 @@ pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_
             // Patch imports for standalone compilation
             // Files at different depths need different patterns patched
             if (std.mem.endsWith(u8, entry.name, ".zig")) {
+                // Determine directory depth for proper relative imports
+                // Count slashes in dir_name to know how deep we are
+                const depth = blk: {
+                    var count: usize = 0;
+                    for (dir_name) |c| {
+                        if (c == '/') count += 1;
+                    }
+                    break :blk count;
+                };
+
                 // Patch relative utils imports to use local utils/ directory
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"../../../../src/utils/", "@import(\"../utils/");
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"../../../src/utils/", "@import(\"utils/");
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"../../src/utils/", "@import(\"utils/");
+
                 // Patch module imports to file imports (for modules defined in build.zig)
-                content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
-                content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
+                // Adjust path based on depth: runtime/ needs ../utils/, top-level needs utils/
+                if (depth > 0) {
+                    // Files in subdirectories need ../ prefix
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"hashmap_helper\")", "@import(\"../utils/hashmap_helper.zig\")");
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"allocator_helper\")", "@import(\"../utils/allocator_helper.zig\")");
+                } else {
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
+                }
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"runtime.zig\")", "@import(\"../runtime.zig\")");
                 // Patch bigint module import for files in runtime/ subdirectory
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"bigint\")", "@import(\"../bigint.zig\")");

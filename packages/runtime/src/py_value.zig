@@ -81,6 +81,82 @@ pub const PyValue = union(enum) {
         };
     }
 
+    /// Get length for list/tuple/string PyValues
+    pub fn pyLen(self: PyValue) usize {
+        return switch (self) {
+            .list => |v| v.len,
+            .tuple => |v| v.len,
+            .string => |v| v.len,
+            else => 0,
+        };
+    }
+
+    /// Index into list/tuple PyValue
+    pub fn pyAt(self: PyValue, idx: usize) PyValue {
+        return switch (self) {
+            .list => |v| v[idx],
+            .tuple => |v| v[idx],
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Get from dict-wrapped PyValue (ptr to StringHashMap)
+    /// For fmtdict['@'][fmt] where fmtdict['@'] is a PyValue wrapping a dict
+    pub fn pyDictGet(self: PyValue, key: []const u8) ?PyValue {
+        if (self != .ptr) return null;
+        const hashmap_helper = @import("hashmap_helper");
+        const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(self.ptr));
+        return map_ptr.get(key);
+    }
+
+    /// Get mutable ptr from dict-wrapped PyValue (ptr to StringHashMap)
+    /// For assigning to fmtdict['@'][fmt]
+    pub fn pyDictGetPtr(self: PyValue, key: []const u8) ?*PyValue {
+        if (self != .ptr) return null;
+        const hashmap_helper = @import("hashmap_helper");
+        const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(self.ptr));
+        return map_ptr.getPtr(key);
+    }
+
+    /// Put into dict-wrapped PyValue (ptr to StringHashMap)
+    pub fn pyDictPut(self: PyValue, allocator: std.mem.Allocator, key: []const u8, value: PyValue) !void {
+        _ = allocator; // Allocator kept for API compatibility but not used for in-place put
+        if (self != .ptr) return;
+        const hashmap_helper = @import("hashmap_helper");
+        const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(self.ptr));
+        try map_ptr.put(key, value);
+    }
+
+    /// Unwrap to string (for code that expects []const u8)
+    pub fn asString(self: PyValue) []const u8 {
+        return switch (self) {
+            .string => |v| v,
+            else => "",
+        };
+    }
+
+    /// Unwrap to int (for code that expects i64)
+    pub fn asInt(self: PyValue) i64 {
+        return switch (self) {
+            .int => |v| v,
+            else => 0,
+        };
+    }
+
+    /// Unwrap to float (for code that expects f64)
+    pub fn asFloat(self: PyValue) f64 {
+        return switch (self) {
+            .float => |v| v,
+            .int => |v| @floatFromInt(v),
+            else => 0.0,
+        };
+    }
+
+    /// Unwrap to bool (for code that expects bool)
+    pub fn asBool(self: PyValue) bool {
+        return self.isTruthy();
+    }
+
     /// Create PyValue from any type (runtime version)
     /// Only supports simple types that don't need allocation for tuples/structs
     /// For tuples/structs, use fromAlloc() which properly allocates

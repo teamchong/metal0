@@ -29,6 +29,8 @@ pub const MutationType = enum {
     list_concat_aug, // x += [...] - list concatenation augmented assignment
     list_repeat_aug, // x *= n - list repeat augmented assignment
     dict_setitem,
+    dict_setitem_int_key, // d[int] = value - subscript assign with int key
+    dict_setitem_str_key, // d[str] = value - subscript assign with string key
     reassignment,
     attr_setattr, // setattr(obj, name, value)
     attr_delattr, // delattr(obj, name)
@@ -74,11 +76,30 @@ fn collectMutations(
                     // Check if RHS has mutations
                     try checkExprForMutation(a.value.*, mutations, allocator);
                 }
-                // Also check for subscript assignment: list[0] = value
+                // Also check for subscript assignment: list[0] = value or d[key] = value
                 if (target == .subscript) {
                     if (target.subscript.value.* == .name) {
                         const obj_name = target.subscript.value.name.id;
-                        try recordMutation(obj_name, .dict_setitem, mutations, allocator);
+                        // Detect key type for dict subscript assignments
+                        const mutation_type: MutationType = switch (target.subscript.slice) {
+                            .index => |idx| blk: {
+                                // Check key type
+                                if (idx.* == .constant) {
+                                    switch (idx.constant.value) {
+                                        .int => break :blk .dict_setitem_int_key,
+                                        .string => break :blk .dict_setitem_str_key,
+                                        else => break :blk .dict_setitem,
+                                    }
+                                } else if (idx.* == .name) {
+                                    // Variable - could be int from for-loop
+                                    // Check if it's a range iterator var (common pattern)
+                                    break :blk .dict_setitem_int_key;
+                                }
+                                break :blk .dict_setitem;
+                            },
+                            else => .dict_setitem,
+                        };
+                        try recordMutation(obj_name, mutation_type, mutations, allocator);
                     }
                 }
                 // Note: We intentionally do NOT track direct attribute assignment (o.attr = value) here.
@@ -167,6 +188,12 @@ fn collectMutations(
             }
             // Check finally body
             for (t.finalbody) |s| {
+                try collectMutations(s, mutations, allocator);
+            }
+        },
+        .with_stmt => |w| {
+            // Check with body for mutations
+            for (w.body) |s| {
                 try collectMutations(s, mutations, allocator);
             }
         },
@@ -316,9 +343,49 @@ pub fn hasDictMutation(mutations: hashmap_helper.StringHashMap(MutationInfo), va
     if (!info.is_mutated) return false;
 
     for (info.mutation_types.items) |mut_type| {
-        if (mut_type == .dict_setitem) return true;
+        switch (mut_type) {
+            .dict_setitem, .dict_setitem_int_key, .dict_setitem_str_key => return true,
+            else => {},
+        }
     }
     return false;
+}
+
+/// Check if dict has int key mutations (d[int] = value pattern)
+pub fn hasDictIntKeyMutation(mutations: hashmap_helper.StringHashMap(MutationInfo), var_name: []const u8) bool {
+    const info = mutations.get(var_name) orelse return false;
+    if (!info.is_mutated) return false;
+
+    for (info.mutation_types.items) |mut_type| {
+        if (mut_type == .dict_setitem_int_key) return true;
+    }
+    return false;
+}
+
+/// Check if dict has string key mutations (d[str] = value pattern)
+pub fn hasDictStrKeyMutation(mutations: hashmap_helper.StringHashMap(MutationInfo), var_name: []const u8) bool {
+    const info = mutations.get(var_name) orelse return false;
+    if (!info.is_mutated) return false;
+
+    for (info.mutation_types.items) |mut_type| {
+        if (mut_type == .dict_setitem_str_key) return true;
+    }
+    return false;
+}
+
+/// Check if dict has mixed key types (both int and string keys)
+/// This indicates the dict needs PyValue key type for heterogeneous access
+pub fn hasMixedDictKeys(mutations: hashmap_helper.StringHashMap(MutationInfo), var_name: []const u8) bool {
+    const info = mutations.get(var_name) orelse return false;
+    if (!info.is_mutated) return false;
+
+    var has_int_key = false;
+    var has_str_key = false;
+    for (info.mutation_types.items) |mut_type| {
+        if (mut_type == .dict_setitem_int_key) has_int_key = true;
+        if (mut_type == .dict_setitem_str_key) has_str_key = true;
+    }
+    return has_int_key and has_str_key;
 }
 
 /// Check if a variable has any attribute mutations (setattr, delattr, or direct assignment)

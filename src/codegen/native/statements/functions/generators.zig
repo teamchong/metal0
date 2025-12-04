@@ -51,11 +51,19 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     // Check if this is a generator function (contains yield)
     // Use function_traits unified analysis
-    if (self.funcIsGenerator(func.name)) {
-        // TODO: Generate generator state machine when implemented
-        // For now, generators fall through to normal function generation
-        // with yield statements becoming pass (handled in main/generator.zig)
+    const is_generator = self.funcIsGenerator(func.name);
+    // Set flag for generator functions - must be set before signature generation
+    // and persist through body generation
+    if (is_generator) {
+        // Generators are transformed to eager evaluation:
+        // - Collect all yield values into an ArrayList
+        // - Return the list at the end
+        // This is not true lazy evaluation but works for most test cases
+        self.in_generator_function = true;
     }
+    defer if (is_generator) {
+        self.in_generator_function = false;
+    };
 
     // Track functions with varargs (for call site generation)
     if (func.vararg) |vararg_name| {
@@ -91,6 +99,9 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     // The nested_class_captures map is populated here and read in signature.zig
     self.func_local_vars.clearRetainingCapacity();
     self.nested_class_captures.clearRetainingCapacity();
+    // Clear deferred closure instantiations from previous function
+    // This prevents closures from one function leaking into another function's scope
+    self.clearDeferredClosureInstantiations();
     try body.analyzeNestedClassCaptures(self, func);
 
     // Generate function signature
@@ -98,6 +109,9 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     // Set current function name for tail-call optimization detection
     self.current_function_name = func.name;
+
+    // Reset control flow termination flag for new function
+    self.control_flow_terminated = false;
 
     // Clear local variable types (new function scope)
     self.clearLocalVarTypes();
@@ -122,7 +136,52 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 }
 
 /// Generate class definition with __init__ constructor
+/// Types that cannot be subclassed in Python (final types)
+const non_subclassable_types = std.StaticStringMap(void).initComptime(.{
+    .{ "bool", {} },
+    .{ "NoneType", {} },
+    .{ "NotImplementedType", {} },
+    .{ "ellipsis", {} },
+    .{ "type", {} },
+    .{ "range", {} },
+    .{ "slice", {} },
+});
+
 pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!void {
+    // Check for non-subclassable types (bool, NoneType, etc.)
+    // These must raise TypeError at runtime, not compile time, because the class
+    // definition might be inside a try/except block that catches the error
+    if (class.bases.len > 0) {
+        for (class.bases) |base| {
+            if (non_subclassable_types.has(base)) {
+                // When inside a nested function (zero-capture or closure), we need to
+                // emit discards for any parameters that were expected to be used in the
+                // class body. The analysis phase thought params were used, but since we're
+                // short-circuiting with an error, they remain unused.
+                if (self.inside_nested_function) {
+                    // Emit discards for any __p_* parameters that might exist
+                    // Iterate through var_renames looking for __p_* entries
+                    var iter = self.var_renames.iterator();
+                    while (iter.next()) |entry| {
+                        const renamed = entry.value_ptr.*;
+                        if (std.mem.startsWith(u8, renamed, "__p_")) {
+                            try self.emitIndent();
+                            try self.output.writer(self.allocator).print("_ = {s};\n", .{renamed});
+                        }
+                    }
+                }
+                // Generate code that raises TypeError
+                try self.emitIndent();
+                try self.emit("return error.TypeError; // type '");
+                try self.emit(base);
+                try self.emit("' is not an acceptable base type\n");
+                // Mark control flow as terminated so subsequent code isn't generated
+                self.control_flow_terminated = true;
+                return;
+            }
+        }
+    }
+
     // Handle Generic[T, U, ...] classes - generate comptime generic function
     if (class.type_params.len > 0) {
         return genGenericClassDef(self, class);
@@ -209,7 +268,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
         // Also register 'self' as a class_instance of this class
         // This is needed for type inference during method body generation
-        try self.type_inferrer.var_types.put("self", .{ .class_instance = class.name });
+        // NOTE: For nested classes inside methods, we need to save/restore the outer 'self' type
+        // to avoid the nested class's 'self' leaking into the enclosing class's methods
+        if (self.current_function_name == null) {
+            // Module-level class - just set self directly
+            try self.type_inferrer.var_types.put("self", .{ .class_instance = class.name });
+        }
+        // For nested classes (inside methods), don't override 'self' in type_inferrer
+        // because 'self' should refer to the enclosing class's instance, not the nested class
     }
 
     // Check for base classes - we support single inheritance
@@ -383,6 +449,11 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     var saved_nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(self.allocator);
     defer saved_nested_class_captures.deinit();
 
+    // Also save hoisted_vars - nested class methods clear it but we need parent's hoisted vars
+    // to be restored after the class is generated so assignments use var/const correctly
+    var saved_hoisted_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer saved_hoisted_vars.deinit();
+
     // Save state when inside a function scope (func_local_uses has entries)
     // OR when inside a nested class (class_nesting_depth > 1)
     // This handles: 1) classes inside functions, 2) classes inside classes
@@ -428,6 +499,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         var ncc_it = self.nested_class_captures.iterator();
         while (ncc_it.next()) |entry| {
             try saved_nested_class_captures.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+
+        // Copy current hoisted_vars - critical for nested class methods that clear it
+        var hv_it = self.hoisted_vars.iterator();
+        while (hv_it.next()) |entry| {
+            try saved_hoisted_vars.put(entry.key_ptr.*, {});
         }
     }
 
@@ -487,13 +564,21 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // class S(str): def __add__(self, o): return "3"
     // class S(str): def __iadd__(self, o): return "3"  # redefines S
     // We also need to update var_renames so references to S use the new name
+    // ALSO: In Zig, local constants can't shadow module-level constants. So if we're
+    // inside a function and there's a module-level class with the same name, rename local.
     var effective_class_name: []const u8 = class.name;
-    if (self.isDeclared(class.name)) {
+    const shadows_module_class = self.current_function_name != null and self.class_registry.getClass(class.name) != null;
+    if (self.isDeclared(class.name) or shadows_module_class) {
         // Generate a unique name based on pointer address
         const unique_name = try std.fmt.allocPrint(self.allocator, "{s}_{d}", .{ class.name, @intFromPtr(class.name.ptr) });
         effective_class_name = unique_name;
         // Store the rename so references to this class name use the new name
         try self.var_renames.put(class.name, unique_name);
+        // Also update hoisted_local_classes if this class was hoisted (for return type generation)
+        // hoisted_local_classes survives method body generation, unlike var_renames
+        if (self.hoisted_local_classes.contains(class.name)) {
+            try self.hoisted_local_classes.put(class.name, unique_name);
+        }
     }
 
     // Generate: const ClassName = struct {
@@ -560,6 +645,21 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     self.current_class_body = class.body;
     defer self.current_class_name = prev_class_name;
     defer self.current_class_body = prev_class_body;
+
+    // Clear hoisted_local_classes from previous class (each class has its own hoisted locals)
+    // This is needed because sibling classes (e.g., multiple FailingUserDict definitions)
+    // each have their own local classes that need to be hoisted independently
+    // BUT: Don't clear if we're generating a hoisted class (recursive call from hoisting pass)
+    // because that would remove the class from the map before we check is_hoisted at the end
+    const is_hoisted_class = self.hoisted_local_classes.contains(class.name);
+    if (!is_hoisted_class) {
+        self.hoisted_local_classes.clearRetainingCapacity();
+    }
+
+    // Pre-hoist pass: Hoist locally-defined classes from ALL method bodies to struct level
+    // This MUST happen BEFORE generating any fields or methods, because Zig requires
+    // all const declarations to appear before any pub fn declarations in a struct
+    try body.hoistAllLocalClassesFromMethods(self, class);
 
     // Add pointer fields for captured outer variables
     if (captured_vars) |vars| {
@@ -834,7 +934,17 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                             try self.emit("(value: anytype, base: ?i64) i64 {\n");
                             self.indent();
                             try self.emitIndent();
-                            try self.emit("_ = base; // TODO: support base conversion\n");
+                            try self.emit("if (base) |b| {\n");
+                            self.indent();
+                            try self.emitIndent();
+                            try self.emit("// Parse string with specified base\n");
+                            try self.emitIndent();
+                            try self.emit("const str = runtime.pyStrFromAny(value);\n");
+                            try self.emitIndent();
+                            try self.emit("return std.fmt.parseInt(i64, str, @intCast(b)) catch 0;\n");
+                            self.dedent();
+                            try self.emitIndent();
+                            try self.emit("}\n");
                             try self.emitIndent();
                             try self.emit("return runtime.pyIntFromAny(value);\n");
                         } else {
@@ -962,6 +1072,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         while (restore_ncc_it.next()) |entry| {
             try self.nested_class_captures.put(entry.key_ptr.*, entry.value_ptr.*);
         }
+
+        // Also restore hoisted_vars so parent method's hoisted variable tracking works correctly
+        // (e.g., `resizing` hoisted in test_resize2, used after nested class X is generated)
+        self.hoisted_vars.clearRetainingCapacity();
+        var restore_hv_it = saved_hoisted_vars.iterator();
+        while (restore_hv_it.next()) |entry| {
+            try self.hoisted_vars.put(entry.key_ptr.*, {});
+        }
     }
 
     self.dedent();
@@ -973,7 +1091,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // "pointless discard" errors when the class IS actually used elsewhere.
     // This must be done here (not at end of function) because classes inside
     // if/for/while blocks are out of scope at function end.
-    if (needs_save_restore and self.indent_level > 0) {
+    // NOTE: Skip if this class is being hoisted to struct level - _ = &X; is only valid
+    // inside function bodies, not at struct level. The is_hoisted check handles this:
+    // - Hoisted classes are generated at struct level (before methods)
+    // - Non-hoisted classes inside functions need the _ = & line
+    const is_hoisted = self.hoisted_local_classes.contains(class.name);
+    if (needs_save_restore and self.indent_level > 0 and !is_hoisted) {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("_ = &{s};\n", .{effective_class_name});
     }
@@ -1036,9 +1159,15 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
     // For nested generic classes inside functions, emit a simple struct instead.
     const inside_function = self.current_function_name != null or self.indent_level > 0;
     if (inside_function) {
+        // Check for name collision with module-level classes
+        var effective_name: []const u8 = class.name;
+        if (self.class_registry.getClass(class.name) != null or self.isDeclared(class.name)) {
+            effective_name = try std.fmt.allocPrint(self.allocator, "{s}_{d}", .{ class.name, @intFromPtr(class.name.ptr) });
+            try self.var_renames.put(class.name, effective_name);
+        }
         // Nested generic class - just emit as a simple struct
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{class.name});
+        try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{effective_name});
         self.indent();
 
         // Add Python class metadata
@@ -1382,6 +1511,104 @@ fn checkSelfUsedInNode(node: ast.Node) bool {
         .with_stmt => |w| {
             if (checkSelfUsedInNode(w.context_expr.*)) return true;
             return checkSelfUsedInBody(w.body);
+        },
+        .listcomp => |lc| {
+            // Check element expression
+            if (checkSelfUsedInNode(lc.elt.*)) return true;
+            // Check all generators (iter and conditions)
+            for (lc.generators) |gen| {
+                if (checkSelfUsedInNode(gen.iter.*)) return true;
+                for (gen.ifs) |if_cond| {
+                    if (checkSelfUsedInNode(if_cond)) return true;
+                }
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (checkSelfUsedInNode(dc.key.*)) return true;
+            if (checkSelfUsedInNode(dc.value.*)) return true;
+            for (dc.generators) |gen| {
+                if (checkSelfUsedInNode(gen.iter.*)) return true;
+                for (gen.ifs) |if_cond| {
+                    if (checkSelfUsedInNode(if_cond)) return true;
+                }
+            }
+            return false;
+        },
+        .lambda => |lam| {
+            // Lambda parameters don't shadow outer self
+            return checkSelfUsedInNode(lam.body.*);
+        },
+        .compare => |cmp| {
+            if (checkSelfUsedInNode(cmp.left.*)) return true;
+            for (cmp.comparators) |comp| {
+                if (checkSelfUsedInNode(comp)) return true;
+            }
+            return false;
+        },
+        .subscript => |sub| {
+            if (checkSelfUsedInNode(sub.value.*)) return true;
+            if (sub.slice == .index) {
+                if (checkSelfUsedInNode(sub.slice.index.*)) return true;
+            }
+            return false;
+        },
+        .unaryop => |u| return checkSelfUsedInNode(u.operand.*),
+        .boolop => |bo| {
+            for (bo.values) |v| {
+                if (checkSelfUsedInNode(v)) return true;
+            }
+            return false;
+        },
+        .if_expr => |ie| {
+            return checkSelfUsedInNode(ie.condition.*) or
+                checkSelfUsedInNode(ie.body.*) or
+                checkSelfUsedInNode(ie.orelse_value.*);
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                if (checkSelfUsedInNode(elt)) return true;
+            }
+            return false;
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                if (checkSelfUsedInNode(elt)) return true;
+            }
+            return false;
+        },
+        .dict => |d| {
+            for (d.keys) |key| {
+                if (checkSelfUsedInNode(key)) return true;
+            }
+            for (d.values) |val| {
+                if (checkSelfUsedInNode(val)) return true;
+            }
+            return false;
+        },
+        .assign => |a| {
+            if (checkSelfUsedInNode(a.value.*)) return true;
+            // Check targets for subscript/attribute assignments
+            for (a.targets) |target| {
+                if (target == .subscript) {
+                    if (checkSelfUsedInNode(target.subscript.value.*)) return true;
+                } else if (target == .attribute) {
+                    if (checkSelfUsedInNode(target.attribute.value.*)) return true;
+                }
+            }
+            return false;
+        },
+        .aug_assign => |a| {
+            if (checkSelfUsedInNode(a.target.*)) return true;
+            return checkSelfUsedInNode(a.value.*);
+        },
+        .try_stmt => |t| {
+            if (checkSelfUsedInBody(t.body)) return true;
+            for (t.handlers) |h| {
+                if (checkSelfUsedInBody(h.body)) return true;
+            }
+            if (checkSelfUsedInBody(t.else_body)) return true;
+            return checkSelfUsedInBody(t.finalbody);
         },
         else => return false,
     }

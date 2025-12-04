@@ -2,6 +2,8 @@
 const std = @import("std");
 const h = @import("mod_helper.zig");
 
+// Note: The result is often unused (Python idiom for preventing GC)
+// The discard is added at assignment site in expr_stmt.zig
 const genRef = h.wrap("@as(?*anyopaque, @ptrCast(&", "))", "@as(?*anyopaque, null)");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{

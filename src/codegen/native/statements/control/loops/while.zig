@@ -55,6 +55,8 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
         try self.generateStmt(stmt);
     }
 
+    // Emit discards for loop-scoped variables before they go out of scope
+    try self.emitScopedDiscards();
     // Pop scope when exiting loop
     self.popScope();
 

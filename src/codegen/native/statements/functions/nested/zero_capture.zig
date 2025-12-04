@@ -117,6 +117,13 @@ pub fn genZeroCaptureClosure(
     self.inside_nested_function = true;
     defer self.inside_nested_function = saved_inside_nested;
 
+    // Save and reset control_flow_terminated - nested function has its own control flow
+    // Without this, a return statement in nested function prevents subsequent statements
+    // in the outer function from being generated
+    const saved_control_flow_terminated = self.control_flow_terminated;
+    self.control_flow_terminated = false;
+    defer self.control_flow_terminated = saved_control_flow_terminated;
+
     // Save and populate func_local_uses for this nested function
     const saved_func_local_uses = self.func_local_uses;
     self.func_local_uses = hashmap_helper.StringHashMap(void).init(self.allocator);
@@ -226,10 +233,11 @@ pub fn genZeroCaptureClosure(
         self.allocator.free(var_name);
     }
 
-    // If function has non-void return type but no explicit return, add default return
+    // If function has non-void return type but no explicit return/raise, add default return
+    // Both return_stmt and raise_stmt are terminating statements - don't add return after them
     const has_explicit_return = blk: {
         for (func.body) |stmt| {
-            if (stmt == .return_stmt) break :blk true;
+            if (stmt == .return_stmt or stmt == .raise_stmt) break :blk true;
         }
         break :blk false;
     };
@@ -394,8 +402,12 @@ pub fn genZeroCaptureClosure(
     // Check if func.name would shadow a module-level import
     const shadows_import = self.imported_modules.contains(func.name);
 
-    // If shadowing an import, use a prefixed name to avoid Zig's "shadows declaration" error
-    const alias_name = if (shadows_import)
+    // Check if func.name is already declared in current scope (redefinition)
+    // Python allows redefining function names: def f(): ... def f(): ... (second shadows first)
+    const is_redefinition = self.isDeclared(func.name);
+
+    // If shadowing an import or redefinition, use a prefixed name to avoid Zig's "shadows declaration" error
+    const alias_name = if (shadows_import or is_redefinition)
         try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ func.name, saved_counter })
     else
         try self.allocator.dupe(u8, func.name);
@@ -407,10 +419,13 @@ pub fn genZeroCaptureClosure(
     try self.output.writer(self.allocator).print(" = {s};\n", .{wrapper_name});
 
     // If we renamed the function, also add a var_rename so calls use the prefixed name
-    if (shadows_import) {
+    if (shadows_import or is_redefinition) {
         const alias_copy = try self.allocator.dupe(u8, alias_name);
         try self.var_renames.put(func.name, alias_copy);
     }
+
+    // Declare the alias name (using unique name if redefinition)
+    try self.declareVar(alias_name);
 
     // Suppress unused local constant warning for the alias
     try self.emitIndent();

@@ -48,6 +48,35 @@ pub const ComptimeValue = union(enum) {
     bool: bool,
     string: []const u8,
     list: []const ComptimeValue,
+    // Owned variants - these need to be freed
+    owned_string: []const u8,
+    owned_list: []const ComptimeValue,
+
+    /// Free any owned memory
+    pub fn deinit(self: ComptimeValue, allocator: std.mem.Allocator) void {
+        switch (self) {
+            .owned_string => |s| allocator.free(s),
+            .owned_list => |l| {
+                for (l) |item| item.deinit(allocator);
+                allocator.free(l);
+            },
+            else => {}, // Non-owned values don't need cleanup
+        }
+    }
+
+    /// Get the string value regardless of ownership
+    pub fn getString(self: ComptimeValue) ?[]const u8 {
+        return switch (self) {
+            .string => |s| s,
+            .owned_string => |s| s,
+            else => null,
+        };
+    }
+
+    /// Check if this is a string (owned or borrowed)
+    pub fn isString(self: ComptimeValue) bool {
+        return self == .string or self == .owned_string;
+    }
 
     /// Format the value as a string for debugging
     pub fn format(
@@ -62,8 +91,8 @@ pub const ComptimeValue = union(enum) {
             .int => |i| try writer.print("{d}", .{i}),
             .float => |f| try writer.print("{d}", .{f}),
             .bool => |b| try writer.print("{}", .{b}),
-            .string => |s| try writer.print("\"{s}\"", .{s}),
-            .list => |l| {
+            .string, .owned_string => |s| try writer.print("\"{s}\"", .{s}),
+            .list, .owned_list => |l| {
                 try writer.writeAll("[");
                 for (l, 0..) |item, idx| {
                     if (idx > 0) try writer.writeAll(", ");

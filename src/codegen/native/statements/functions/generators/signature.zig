@@ -13,6 +13,26 @@ const state_machine = @import("../../../async_state_machine.zig");
 const shared = @import("../../../shared_maps.zig");
 const TypeHints = shared.PyTypeToZig;
 
+/// Check if method has @staticmethod decorator
+pub fn hasStaticmethodDecorator(decorators: []const ast.Node) bool {
+    for (decorators) |decorator| {
+        if (decorator == .name and std.mem.eql(u8, decorator.name.id, "staticmethod")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Check if method has @classmethod decorator
+pub fn hasClassmethodDecorator(decorators: []const ast.Node) bool {
+    for (decorators) |decorator| {
+        if (decorator == .name and std.mem.eql(u8, decorator.name.id, "classmethod")) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// Known Zig primitive types for return type validation (O(1) lookup)
 const KnownZigTypes = std.StaticStringMap(void).initComptime(.{
     .{ "i64", {} }, .{ "i32", {} }, .{ "i8", {} }, .{ "u8", {} }, .{ "u16", {} },
@@ -34,9 +54,9 @@ const MagicMethodReturnTypes = std.StaticStringMap([]const u8).initComptime(.{
     .{ "__str__", "[]const u8" },
     .{ "__bytes__", "[]const u8" },
     .{ "__format__", "[]const u8" },
-    .{ "__int__", "i64" },
-    .{ "__float__", "f64" },
-    .{ "__index__", "i64" },
+    .{ "__int__", "runtime.PythonError!i64" },  // Can error (ValueError, OverflowError)
+    .{ "__float__", "runtime.PythonError!f64" },  // Can error (ZeroDivisionError, ValueError)
+    .{ "__index__", "runtime.PythonError!i64" },  // Can error
     .{ "__sizeof__", "i64" },
     .{ "__contains__", "bool" },
     .{ "__eq__", "bool" },
@@ -590,6 +610,21 @@ pub fn genFunctionSignature(
                 try self.emit("?");
             }
             try self.emit(zig_type);
+        } else if (arg.default) |default_expr| blk: {
+            // No annotation but has default - infer type from default value FIRST
+            const default_type = self.type_inferrer.inferExpr(default_expr.*) catch break :blk;
+            const default_tag = @as(std.meta.Tag(@TypeOf(default_type)), default_type);
+            // Skip .unknown and .none (None) - let other inference methods handle
+            if (default_tag == .unknown) break :blk;
+            // For None defaults, use ?i64 (most common case)
+            if (default_tag == .none) {
+                try self.emit("?i64");
+            } else {
+                try self.emit("?");
+                const zig_type = try self.nativeTypeToZigType(default_type);
+                defer self.allocator.free(zig_type);
+                try self.emit(zig_type);
+            }
         } else if (param_analyzer.isParameterComparedToString(func.body, arg.name)) {
             // Parameter compared to string constant - infer as string type
             // e.g., def foo(encoding): if encoding == "utf-8": ...
@@ -613,18 +648,36 @@ pub fn genFunctionSignature(
                     try self.emit("?");
                 }
                 try self.emit(zig_type);
+            } else if (arg.default) |default_expr| {
+                // .unknown but has default value - infer from default
+                const default_type = self.type_inferrer.inferExpr(default_expr.*) catch .unknown;
+                const default_tag = @as(std.meta.Tag(@TypeOf(default_type)), default_type);
+                if (default_tag != .unknown and default_tag != .none) {
+                    try self.emit("?");
+                    const zig_type = try self.nativeTypeToZigType(default_type);
+                    defer self.allocator.free(zig_type);
+                    try self.emit(zig_type);
+                } else {
+                    try self.emit("?i64");
+                }
             } else {
                 // .unknown means we don't know - default to i64
-                if (arg.default != null) {
-                    try self.emit("?");
-                }
                 try self.emit("i64");
             }
-        } else {
-            // No type hint and no inference - default to i64
-            if (arg.default != null) {
+        } else if (arg.default) |default_expr| {
+            // Infer type from default value
+            const default_type = self.type_inferrer.inferExpr(default_expr.*) catch .unknown;
+            const default_tag = @as(std.meta.Tag(@TypeOf(default_type)), default_type);
+            if (default_tag != .unknown and default_tag != .none) {
                 try self.emit("?");
+                const zig_type = try self.nativeTypeToZigType(default_type);
+                defer self.allocator.free(zig_type);
+                try self.emit(zig_type);
+            } else {
+                try self.emit("?i64");
             }
+        } else {
+            // No type hint, no inference, no default - default to i64
             try self.emit("i64");
         }
     }
@@ -632,15 +685,27 @@ pub fn genFunctionSignature(
     // Add *args parameter as a slice if present
     if (func.vararg) |vararg_name| {
         if (func.args.len > 0 or needs_allocator) try self.emit(", ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
-        try self.emit(": []const i64"); // For now, assume varargs are integers
+        // Check if vararg is used in function body - use "_:" for unused params
+        const vararg_is_used = param_analyzer.isNameUsedInBody(func.body, vararg_name);
+        if (!vararg_is_used) {
+            try self.emit("_: []const i64"); // Unused vararg
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
+            try self.emit(": []const i64"); // For now, assume varargs are integers
+        }
     }
 
     // Add **kwargs parameter as a HashMap if present
     if (func.kwarg) |kwarg_name| {
         if (func.args.len > 0 or func.vararg != null or needs_allocator) try self.emit(", ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
-        try self.emit(": *runtime.PyObject"); // PyDict wrapped in PyObject
+        // Check if kwargs is used in function body - use "_:" for unused params
+        const kwarg_is_used = param_analyzer.isNameUsedInBody(func.body, kwarg_name);
+        if (!kwarg_is_used) {
+            try self.emit("_: *runtime.PyObject"); // Unused kwarg
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
+            try self.emit(": *runtime.PyObject"); // PyDict wrapped in PyObject
+        }
     }
 
     try self.emit(") ");
@@ -777,6 +842,13 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
     // This detects: raise, assert, try/except, int/float conversion, etc.
     const needs_error = needs_allocator or self.funcNeedsErrorUnion(func.name);
 
+    // For generator functions, return []runtime.PyValue (eager evaluation)
+    if (self.in_generator_function) {
+        if (needs_error) try self.emit("!");
+        try self.emit("[]runtime.PyValue {\n");
+        return;
+    }
+
     if (func.return_type) |type_hint| {
         // Use explicit return type annotation if provided
         // First try simple type mapping
@@ -877,48 +949,48 @@ pub fn genMethodSignatureWithSkip(
     try self.emit("\n");
     try self.emitIndent();
 
-    // Check if self is actually used in the method body
-    // If method is skipped, self is never used since body is replaced with empty stub
-    // Also, if this class has captured variables and the method actually uses them, self is needed
-    // Check if class has a known parent - if not, super() calls compile to no-ops and don't use self
-    const has_known_parent = self.getParentClassName(class_name) != null;
-    // Check if method body uses any captured variables (they're accessed via self.__captured_*)
-    const method_uses_captures = if (self.current_class_captures) |captures| blk: {
-        for (captures) |var_name| {
-            if (param_analyzer.isNameUsedInBody(method.body, var_name)) {
-                break :blk true;
-            }
-        }
-        break :blk false;
-    } else false;
-    // Check if the first parameter is used in the method body
-    // This handles methods like def foo(test_self): test_self.assertEqual(...)
-    // where Python allows any name for the first parameter (not just "self")
-    // Use usesFirstParamWithContext to properly detect usage of non-"self" names
-    const first_param_name = if (method.args.len > 0) method.args[0].name else "self";
-    const uses_self = if (is_skipped) false else (method_uses_captures or self_analyzer.usesFirstParamWithContext(method.body, first_param_name, has_known_parent));
-
-    // For __new__ methods, the first Python parameter is 'cls' not 'self', and the body often
-    // does 'self = super().__new__(cls)' which would shadow a 'self' parameter.
-    // Use '_' to avoid shadowing.
+    // For __new__ methods, the first Python parameter is 'cls' not 'self'
     const is_new_method = std.mem.eql(u8, method.name, "__new__");
 
-    // Use *const for methods that don't mutate self (read-only methods)
-    // Use _ for self param if it's not actually used in the body, or if it's __new__
-    // Use __self for nested classes inside methods to avoid shadowing outer self parameter
-    // IMPORTANT: Check uses_self BEFORE checking nesting depth - unused self should be _
-    const self_param_name = if (is_new_method or !uses_self) "_" else if (self.method_nesting_depth > 0) "__self" else "self";
+    // Check for @staticmethod and @classmethod decorators
+    const is_staticmethod = hasStaticmethodDecorator(method.decorators);
+    const is_classmethod = hasClassmethodDecorator(method.decorators);
 
-    // Generate "pub fn methodname(self_param: *[const] @This()"
-    // Use @This() instead of class name to handle nested classes and forward references
+    // Check if class has a known parent - for parameter usage detection
+    const has_known_parent = self.getParentClassName(class_name) != null;
+
+    // Generate "pub fn methodname(...)"
     // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
     try self.emit("pub fn ");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method.name);
-    try self.output.writer(self.allocator).print("({s}: ", .{self_param_name});
-    if (mutates_self) {
-        try self.emit("*@This()");
-    } else {
-        try self.emit("*const @This()");
+    try self.emit("(");
+
+    // For @staticmethod: no self/cls parameter at all
+    // For @classmethod: no self parameter (cls is skipped from Python params)
+    // For regular methods: add self parameter
+    var has_first_param = false;
+    if (!is_staticmethod and !is_classmethod) {
+        // Use *const for methods that don't mutate self (read-only methods)
+        // Use __self for nested classes inside methods to avoid shadowing outer self parameter
+        // NOTE: We always use "self" or "__self" (never "_") because:
+        // 1. self_analyzer can't detect class attribute access (self.attr -> @This().attr)
+        // 2. Instead, we emit "_ = &self;" in the body to suppress unused warnings
+        // EXCEPTION: For __new__ methods, use __cls (or _) because the method body often creates
+        // a local 'self' variable (self = super().__new__(cls)) which would shadow __self
+        const self_param_name = if (is_new_method)
+            (if (self.method_nesting_depth > 0) "__cls" else "_")
+        else if (self.method_nesting_depth > 0)
+            "__self"
+        else
+            "self";
+
+        try self.output.writer(self.allocator).print("{s}: ", .{self_param_name});
+        if (mutates_self) {
+            try self.emit("*@This()");
+        } else {
+            try self.emit("*const @This()");
+        }
+        has_first_param = true;
     }
 
     // Add allocator parameter if method needs it (for error union return type)
@@ -927,34 +999,44 @@ pub fn genMethodSignatureWithSkip(
     // Note: Check if "allocator" name is literally used in Python source - the allocator param
     // is added by codegen, so if Python code doesn't use it, we should use "_"
     if (needs_allocator) {
+        if (has_first_param) try self.emit(", ");
         // Check if any code in the method body actually references "allocator" by name
         // (This handles cases where Python code explicitly uses allocator, though rare)
         const allocator_literally_used = param_analyzer.isNameUsedInBody(method.body, "allocator");
         if (actually_uses_allocator and allocator_literally_used) {
             const is_nested = self.nested_class_names.contains(class_name);
             const alloc_name = if (is_nested) "__alloc" else "allocator";
-            try self.output.writer(self.allocator).print(", {s}: std.mem.Allocator", .{alloc_name});
+            try self.output.writer(self.allocator).print("{s}: std.mem.Allocator", .{alloc_name});
         } else {
-            try self.emit(", _: std.mem.Allocator");
+            try self.emit("_: std.mem.Allocator");
         }
+        has_first_param = true;
     }
 
-    // Add other parameters (skip 'self')
+    // Add other parameters (skip 'self' for regular methods, skip 'cls' for classmethod)
     // For skipped methods or unused parameters, use "_:" to suppress unused warnings
     // Get class body for BigInt call site checking
     const class_body: ?[]const ast.Node = if (self.class_registry.getClass(class_name)) |cd| cd.body else null;
 
     var param_index: usize = 0;
-    var is_first_param = true;
+    var is_first_python_param = true;
     for (method.args) |arg| {
-        // Skip the first parameter (self/cls/etc.) - in Python methods, first param is always the instance
-        if (is_first_param) {
-            is_first_param = false;
-            continue;
+        // For @staticmethod: include ALL parameters (no self/cls to skip)
+        // For @classmethod: skip the first parameter (cls)
+        // For regular methods: skip the first parameter (self)
+        if (is_first_python_param) {
+            is_first_python_param = false;
+            if (!is_staticmethod) {
+                // Skip self/cls for regular methods and classmethods
+                continue;
+            }
         }
         defer param_index += 1;
 
-        try self.emit(", ");
+        // Add comma separator before this parameter (if not the first parameter overall)
+        if (has_first_param or param_index > 0) {
+            try self.emit(", ");
+        }
         // Check if parameter is used in method body
         // For __init__ and __new__ methods, exclude parent calls (they're skipped in codegen)
         const is_init_or_new = std.mem.eql(u8, method.name, "__init__") or std.mem.eql(u8, method.name, "__new__");
@@ -963,10 +1045,29 @@ pub fn genMethodSignatureWithSkip(
         // The generated code returns the value directly, not cls()
         const is_cls_in_new = is_new_method and std.mem.eql(u8, arg.name, "cls");
 
+        // Check if this is a comparison magic method's second parameter (comparison target)
+        // The second param (after self) in comparison methods is always used for comparison
+        // even if analysis doesn't detect it (e.g., `return self is other` codegen incomplete)
+        const is_comparison_method = std.mem.eql(u8, method.name, "__eq__") or
+            std.mem.eql(u8, method.name, "__ne__") or
+            std.mem.eql(u8, method.name, "__lt__") or
+            std.mem.eql(u8, method.name, "__le__") or
+            std.mem.eql(u8, method.name, "__gt__") or
+            std.mem.eql(u8, method.name, "__ge__");
+        // param_index is 0-based AFTER self, so param_index==0 is the second Python param
+        const is_comparison_second_param = is_comparison_method and param_index == 0;
+
+        // For classes without known parents, super() calls are stripped during codegen.
+        // Use isNameUsedInBodyExcludingSuperCalls to avoid marking params as "used" when
+        // they only appear in stripped super() calls.
         const is_param_used = if (is_cls_in_new)
             false // cls is never used in __new__ - we return value directly
+        else if (is_comparison_second_param)
+            true // Always consider comparison target used in comparison methods
         else if (is_init_or_new)
             param_analyzer.isNameUsedInInitBody(method.body, arg.name)
+        else if (!has_known_parent)
+            param_analyzer.isNameUsedInBodyExcludingSuperCalls(method.body, arg.name)
         else
             param_analyzer.isNameUsedInBody(method.body, arg.name);
         // Check if parameter name shadows a sibling method in the same class
@@ -1117,13 +1218,20 @@ pub fn genMethodSignatureWithSkip(
         }
     }
 
-    // Determine return type (add error union if allocator needed or function can error)
-    // Note: funcNeedsErrorUnion uses simple name lookup, which works for most methods
-    const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
-    if (needs_error) {
-        try self.emit("!");
-    }
-    if (method.return_type) |type_hint| {
+    // Check for magic method return types FIRST
+    // Some dunder methods have fixed return types that already include error union or not
+    if (getMagicMethodReturnType(method.name)) |magic_return_type| {
+        // Magic method return types already include error union if needed
+        // e.g., "__bool__" -> "runtime.PythonError!bool", "__float__" -> "f64"
+        try self.emit(magic_return_type);
+    } else if (method.return_type != null) {
+        // Determine return type (add error union if allocator needed or function can error)
+        // Note: funcNeedsErrorUnion uses simple name lookup, which works for most methods
+        const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
+        if (needs_error) {
+            try self.emit("!");
+        }
+        const type_hint = method.return_type.?;
         // Use explicit return type annotation if provided
         // If return type is class name, use @This() instead for self-reference
         if (std.mem.eql(u8, type_hint, class_name)) {
@@ -1132,10 +1240,12 @@ pub fn genMethodSignatureWithSkip(
             const zig_return_type = pythonTypeToZig(method.return_type);
             try self.emit(zig_return_type);
         }
-    } else if (getMagicMethodReturnType(method.name)) |magic_return_type| {
-        // Special dunder methods have fixed return types regardless of inference
-        try self.emit(magic_return_type);
     } else if (hasReturnStatement(method.body)) {
+        // Determine if error union is needed for methods without explicit return type
+        const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
+        if (needs_error) {
+            try self.emit("!");
+        }
         // Check if method returns a lambda that captures self (closure)
         if (getReturnedLambda(method.body)) |lambda| {
             if (lambdaCapturesSelf(lambda.body.*)) {
@@ -1222,7 +1332,10 @@ pub fn genMethodSignatureWithSkip(
                 if (std.mem.eql(u8, rc, class_name)) {
                     try self.emit("@This()");
                 } else {
-                    try self.emit(rc);
+                    // Check if the class was hoisted and renamed (e.g., name collision)
+                    // hoisted_local_classes stores original_name -> actual_generated_name
+                    const actual_name = self.hoisted_local_classes.get(rc) orelse self.var_renames.get(rc) orelse rc;
+                    try self.emit(actual_name);
                 }
                 try self.emit(" {\n");
                 return;
@@ -1261,7 +1374,19 @@ pub fn genMethodSignatureWithSkip(
             }
         }
     } else {
-        try self.emit("void");
+        // Methods without return statements - check if it's a generator method
+        // Generator methods (with yield) return []runtime.PyValue
+        if (hasYieldStatement(method.body)) {
+            try self.emit("[]runtime.PyValue");
+        } else {
+            // Non-generator methods - check if body needs error union
+            const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
+            if (needs_error) {
+                try self.emit("!void");
+            } else {
+                try self.emit("void");
+            }
+        }
     }
 
     try self.emit(" {\n");
@@ -1272,6 +1397,11 @@ pub fn genMethodSignatureWithSkip(
 /// Returns the class name if found, null otherwise
 /// Recursively searches inside if/elif/else blocks
 fn getReturnedNestedClassConstructor(body: []const ast.Node, self: *NativeCodegen) ?[]const u8 {
+    // First, collect all class definitions in this body (locally-defined classes)
+    var local_class_names: [32][]const u8 = undefined;
+    var local_class_count: usize = 0;
+    collectLocalClassDefinitions(body, &local_class_names, &local_class_count);
+
     for (body) |stmt| {
         if (stmt == .return_stmt) {
             if (stmt.return_stmt.value) |val| {
@@ -1279,6 +1409,12 @@ fn getReturnedNestedClassConstructor(body: []const ast.Node, self: *NativeCodege
                     const call = val.call;
                     if (call.func.* == .name) {
                         const func_name = call.func.name.id;
+                        // Check if this is a locally-defined class in this body
+                        for (local_class_names[0..local_class_count]) |local_name| {
+                            if (std.mem.eql(u8, func_name, local_name)) {
+                                return func_name;
+                            }
+                        }
                         // Check if this is a nested class constructor
                         if (self.nested_class_names.contains(func_name)) {
                             return func_name;
@@ -1308,4 +1444,37 @@ fn getReturnedNestedClassConstructor(body: []const ast.Node, self: *NativeCodege
         }
     }
     return null;
+}
+
+/// Collect class definition names from a body (including nested control flow)
+fn collectLocalClassDefinitions(body: []const ast.Node, names: *[32][]const u8, count: *usize) void {
+    for (body) |stmt| {
+        switch (stmt) {
+            .class_def => |cd| {
+                if (count.* < 32) {
+                    names[count.*] = cd.name;
+                    count.* += 1;
+                }
+            },
+            .if_stmt => |if_stmt| {
+                collectLocalClassDefinitions(if_stmt.body, names, count);
+                collectLocalClassDefinitions(if_stmt.else_body, names, count);
+            },
+            .for_stmt => |for_stmt| {
+                collectLocalClassDefinitions(for_stmt.body, names, count);
+            },
+            .while_stmt => |while_stmt| {
+                collectLocalClassDefinitions(while_stmt.body, names, count);
+            },
+            .try_stmt => |try_stmt| {
+                collectLocalClassDefinitions(try_stmt.body, names, count);
+                for (try_stmt.handlers) |handler| {
+                    collectLocalClassDefinitions(handler.body, names, count);
+                }
+                collectLocalClassDefinitions(try_stmt.else_body, names, count);
+                collectLocalClassDefinitions(try_stmt.finalbody, names, count);
+            },
+            else => {},
+        }
+    }
 }

@@ -23,9 +23,11 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         return;
     }
 
-    // Check if list expects PyValue elements
+    // Check if list expects PyValue or PyObject elements
     const list_type = self.type_inferrer.inferExpr(obj) catch .unknown;
-    const needs_pyvalue_wrap = blk: {
+
+    // Check element type of list
+    const elem_is_pyvalue = blk: {
         if (list_type == .list) {
             const elem_type = list_type.list.*;
             break :blk (@as(std.meta.Tag(@TypeOf(elem_type)), elem_type) == .pyvalue);
@@ -33,17 +35,42 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         break :blk false;
     };
 
+    // Check if list expects PyCallable elements (for callable lists like [bytes, str, lambda: ...])
+    const elem_is_callable = blk: {
+        if (list_type == .list) {
+            const elem_type = list_type.list.*;
+            break :blk (@as(std.meta.Tag(@TypeOf(elem_type)), elem_type) == .callable);
+        }
+        break :blk false;
+    };
+
+    // Check if the item being appended is a lambda expression or a lambda variable
+    const item_is_lambda = (args[0] == .lambda) or
+        (args[0] == .name and self.lambda_vars.contains(args[0].name.id));
+
     // Generate: try list.append(__global_allocator, item)
     try self.emit("try ");
     try emitObjExpr(self, obj);
     try self.emit(".append(__global_allocator, ");
 
-    if (needs_pyvalue_wrap) {
+    if (elem_is_pyvalue) {
         // Wrap element in PyValue for heterogeneous lists
         try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
         try self.genExpr(args[0]);
         try self.emit(")");
+    } else if (elem_is_callable and item_is_lambda) {
+        // Wrap lambda in PyCallable for callable lists
+        // Set callable context so lambda generates with []const u8 param and return type
+        self.callable_context_param_type = "[]const u8";
+        defer self.callable_context_param_type = null;
+        // Use a block to store lambda in const, then reference it for both @TypeOf and value
+        // This avoids generating two different anonymous struct types
+        try self.emit("callable_blk: { const __callable_temp = ");
+        try self.genExpr(args[0]);
+        try self.emit("; break :callable_blk runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }");
     } else {
+        // For string lists or unknown lists, just append the raw value
+        // Zig will catch type mismatches at compile time
         try self.genExpr(args[0]);
     }
 
@@ -138,10 +165,25 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 pub fn genReverse(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    // Generate: std.mem.reverse(T, list.items)
-    try self.emit("std.mem.reverse(i64, ");
-    try self.genExpr(obj);
-    try self.emit(".items)");
+    // Check if obj is a complex expression that might generate a block
+    const needs_temp = switch (obj) {
+        .name => false,
+        .attribute => false,
+        .subscript => false,
+        else => true, // List literals, comprehensions, etc.
+    };
+
+    if (needs_temp) {
+        // Generate: { var __list_temp = expr; std.mem.reverse(i64, __list_temp.items); }
+        try self.emit("{ var __list_temp = ");
+        try self.genExpr(obj);
+        try self.emit("; std.mem.reverse(i64, __list_temp.items); }");
+    } else {
+        // Generate: std.mem.reverse(T, list.items)
+        try self.emit("std.mem.reverse(i64, ");
+        try self.genExpr(obj);
+        try self.emit(".items)");
+    }
 }
 
 /// Generate code for list.sort()
@@ -149,10 +191,25 @@ pub fn genReverse(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 pub fn genSort(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    // Generate: std.mem.sort(i64, list.items, {}, comptime std.sort.asc(i64))
-    try self.emit("std.mem.sort(i64, ");
-    try self.genExpr(obj);
-    try self.emit(".items, {}, comptime std.sort.asc(i64))");
+    // Check if obj is a complex expression that might generate a block
+    const needs_temp = switch (obj) {
+        .name => false,
+        .attribute => false,
+        .subscript => false,
+        else => true, // List literals, comprehensions, etc.
+    };
+
+    if (needs_temp) {
+        // Generate: { var __list_temp = expr; std.mem.sort(i64, __list_temp.items, {}, comptime std.sort.asc(i64)); }
+        try self.emit("{ var __list_temp = ");
+        try self.genExpr(obj);
+        try self.emit("; std.mem.sort(i64, __list_temp.items, {}, comptime std.sort.asc(i64)); }");
+    } else {
+        // Generate: std.mem.sort(i64, list.items, {}, comptime std.sort.asc(i64))
+        try self.emit("std.mem.sort(i64, ");
+        try self.genExpr(obj);
+        try self.emit(".items, {}, comptime std.sort.asc(i64))");
+    }
 }
 
 /// Generate code for list.clear()
@@ -165,15 +222,29 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit(".clearRetainingCapacity()");
 }
 
-/// Generate code for list.copy()
+/// Generate code for list.copy() / dict.copy()
 /// Returns a shallow copy
 pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    // Generate: try list.clone(__global_allocator)
-    try self.emit("try ");
-    try emitObjExpr(self, obj);
-    try self.emit(".clone(__global_allocator)");
+    // Check object type to determine clone signature
+    const obj_type = self.type_inferrer.inferExpr(obj) catch .unknown;
+
+    // Also check if this is a dict variable (from our dict_vars tracking)
+    const is_dict_var = if (obj == .name) self.dict_vars.contains(obj.name.id) else false;
+
+    if (obj_type == .dict or is_dict_var) {
+        // std.AutoHashMap.clone() and std.HashMap.clone() take no arguments
+        // (they use the allocator stored internally)
+        try self.emit("try ");
+        try emitObjExpr(self, obj);
+        try self.emit(".clone()");
+    } else {
+        // ArrayList.clone() requires allocator argument
+        try self.emit("try ");
+        try emitObjExpr(self, obj);
+        try self.emit(".clone(__global_allocator)");
+    }
 }
 
 /// Generate code for list.index(item)

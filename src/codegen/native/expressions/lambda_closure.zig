@@ -84,15 +84,25 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     const captured_vars = try findCapturedVars(self, outer_lambda.args, inner_lambda);
     defer self.allocator.free(captured_vars);
 
-    // Save current output
+    // Check if we're inside a function - if so, use inline struct pattern
+    const inside_function = self.current_function_name != null or self.indent_level > 0;
+    if (inside_function) {
+        // Generate inline struct: struct { x: i64, pub fn call(self: @This(), y: i64) i64 { ... } }.call
+        try genInlineClosureLambda(self, outer_lambda, captured_vars);
+        self.allocator.free(closure_name);
+        return;
+    }
+
+    // Module-level hoisting - save current output
     const current_output = try self.output.toOwnedSlice(self.allocator);
     defer self.allocator.free(current_output);
 
-    // Generate closure struct
+    // Generate closure struct to separate buffer
     var closure_code = std.ArrayList(u8){};
+    const writer = closure_code.writer(self.allocator);
 
     // Struct definition
-    try closure_code.writer(self.allocator).print("const {s} = struct {{\n", .{closure_name});
+    try writer.print("const {s} = struct {{\n", .{closure_name});
 
     // Captured fields - use concrete types from type inference
     for (captured_vars) |var_name| {
@@ -101,22 +111,22 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
         const zig_type = try self.nativeTypeToZigType(var_type);
         defer self.allocator.free(zig_type);
 
-        try closure_code.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
+        try writer.print("    {s}: {s},\n", .{ var_name, zig_type });
     }
-    try closure_code.writer(self.allocator).writeAll("\n");
+    try writer.writeAll("\n");
 
     // Call method (inner lambda)
-    try closure_code.writer(self.allocator).writeAll("    pub fn call(self: @This()");
+    try writer.writeAll("    pub fn call(self: @This()");
     for (inner_lambda.args) |arg| {
-        try closure_code.writer(self.allocator).writeAll(", ");
-        try zig_keywords.writeEscapedIdent(closure_code.writer(self.allocator), arg.name);
-        try closure_code.writer(self.allocator).writeAll(": anytype");
+        try writer.writeAll(", ");
+        try zig_keywords.writeEscapedIdent(writer, arg.name);
+        try writer.writeAll(": anytype");
     }
 
     // Infer return type from inner lambda body
     const return_type = try inferReturnType(self, inner_lambda.body.*);
-    try closure_code.writer(self.allocator).print(") {s} {{\n", .{return_type});
-    try closure_code.writer(self.allocator).writeAll("        return ");
+    try writer.print(") {s} {{\n", .{return_type});
+    try writer.writeAll("        return ");
 
     // Generate inner lambda body with captured variable references
     const saved_output = self.output;
@@ -128,10 +138,10 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     const body_code = try self.output.toOwnedSlice(self.allocator);
     self.output = saved_output;
 
-    try closure_code.writer(self.allocator).writeAll(body_code);
+    try writer.writeAll(body_code);
     self.allocator.free(body_code);
 
-    try closure_code.writer(self.allocator).writeAll(";\n    }\n};\n\n");
+    try writer.writeAll(";\n    }\n};\n");
 
     // Generate factory function (outer lambda)
     const factory_name = try std.fmt.allocPrint(
@@ -142,23 +152,23 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     defer self.allocator.free(factory_name);
     self.lambda_counter += 1;
 
-    try closure_code.writer(self.allocator).print("fn {s}(", .{factory_name});
+    try writer.print("fn {s}(", .{factory_name});
     for (outer_lambda.args, 0..) |arg, i| {
-        if (i > 0) try closure_code.writer(self.allocator).writeAll(", ");
-        try zig_keywords.writeEscapedIdent(closure_code.writer(self.allocator), arg.name);
-        try closure_code.writer(self.allocator).writeAll(": anytype");
+        if (i > 0) try writer.writeAll(", ");
+        try zig_keywords.writeEscapedIdent(writer, arg.name);
+        try writer.writeAll(": anytype");
     }
-    try closure_code.writer(self.allocator).print(") {s} {{\n", .{closure_name});
-    try closure_code.writer(self.allocator).writeAll("    return .{\n");
+    try writer.print(") {s} {{\n", .{closure_name});
+    try writer.writeAll("    return .{\n");
 
     // Initialize captured fields
     for (captured_vars) |var_name| {
-        try closure_code.writer(self.allocator).print("        .{s} = {s},\n", .{ var_name, var_name });
+        try writer.print("        .{s} = {s},\n", .{ var_name, var_name });
     }
 
-    try closure_code.writer(self.allocator).writeAll("    };\n}\n\n");
+    try writer.writeAll("    };\n}\n");
 
-    // Store closure code
+    // Store closure code at module level
     try self.lambda_functions.append(self.allocator, try closure_code.toOwnedSlice(self.allocator));
 
     // Restore output
@@ -169,6 +179,54 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     try self.emit(factory_name);
 
     self.allocator.free(closure_name);
+}
+
+/// Generate inline closure lambda for use inside functions
+/// Generates: (struct { x: i64, fn init(x: i64) @This() { return .{ .x = x }; } pub fn call(self: @This(), y: i64) i64 { ... } }).init(x)
+fn genInlineClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda, captured_vars: [][]const u8) ClosureError!void {
+    const inner_lambda = outer_lambda.body.lambda;
+
+    // Start inline struct with call being the inner lambda
+    try self.emit("(struct {\n");
+
+    // Fields for captured vars
+    for (captured_vars) |var_name| {
+        const var_type = self.getVarType(var_name) orelse .unknown;
+        const zig_type = try self.nativeTypeToZigType(var_type);
+        defer self.allocator.free(zig_type);
+        try self.output.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
+    }
+    try self.emit("\n");
+
+    // Init function to create closure from outer lambda args
+    try self.emit("    fn init(");
+    for (outer_lambda.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+        try self.emit(": anytype");
+    }
+    try self.emit(") @This() {\n        return .{\n");
+    for (captured_vars) |var_name| {
+        try self.output.writer(self.allocator).print("            .{s} = {s},\n", .{ var_name, var_name });
+    }
+    try self.emit("        };\n    }\n\n");
+
+    // Call method (inner lambda)
+    try self.emit("    pub fn call(self: @This()");
+    for (inner_lambda.args) |arg| {
+        try self.emit(", ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+        try self.emit(": anytype");
+    }
+
+    // Return type
+    const return_type = try inferReturnType(self, inner_lambda.body.*);
+    try self.output.writer(self.allocator).print(") {s} {{\n        return ", .{return_type});
+
+    // Generate inner body with captured vars prefixed with self.
+    try genExprWithCapture(self, inner_lambda.body.*, captured_vars);
+
+    try self.emit(";\n    }\n}).init");
 }
 
 /// Mark a variable as holding a closure (so we generate .call())
@@ -214,15 +272,24 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     );
     self.lambda_counter += 1;
 
-    // Save current output
+    // Check if we're inside a function - if so, generate inline instead of hoisting
+    const inside_function = self.current_function_name != null or self.indent_level > 0;
+    if (inside_function) {
+        try genInlineSimpleClosureLambda(self, lambda, captured_vars);
+        self.allocator.free(closure_name);
+        return;
+    }
+
+    // Module-level: save current output
     const current_output = try self.output.toOwnedSlice(self.allocator);
     defer self.allocator.free(current_output);
 
-    // Generate closure struct
+    // Generate closure struct to separate buffer
     var closure_code = std.ArrayList(u8){};
+    const writer = closure_code.writer(self.allocator);
 
     // Generate closure struct with concrete types
-    try closure_code.writer(self.allocator).print("const {s} = struct {{\n", .{closure_name});
+    try writer.print("const {s} = struct {{\n", .{closure_name});
 
     // Captured fields with concrete types from type inference
     for (captured_vars) |var_name| {
@@ -231,36 +298,37 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
         const zig_type = try self.nativeTypeToZigType(var_type);
         defer self.allocator.free(zig_type);
 
-        try closure_code.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
+        try writer.print("    {s}: {s},\n", .{ var_name, zig_type });
     }
-    try closure_code.writer(self.allocator).writeAll("\n");
+    try writer.writeAll("\n");
 
     // Check if self is only used for unittest methods (in which case we don't need the captured self)
     const self_only_for_unittest = isSelfOnlyForUnittest(lambda.body.*, captured_vars);
 
-    // Call method - use _ or __closure as parameter name depending on usage
+    // Call method - use _ or self as parameter name depending on usage
     if (self_only_for_unittest) {
-        try closure_code.writer(self.allocator).writeAll("    pub fn call(_: @This()");
+        try writer.writeAll("    pub fn call(_: @This()");
     } else {
-        try closure_code.writer(self.allocator).writeAll("    pub fn call(__closure: @This()");
+        try writer.writeAll("    pub fn call(self: @This()");
     }
     for (lambda.args) |arg| {
-        try closure_code.writer(self.allocator).writeAll(", ");
-        try zig_keywords.writeEscapedIdent(closure_code.writer(self.allocator), arg.name);
-        try closure_code.writer(self.allocator).writeAll(": anytype");
+        try writer.writeAll(", ");
+        try zig_keywords.writeEscapedIdent(writer, arg.name);
+        try writer.writeAll(": anytype");
     }
 
     // Infer return type
     const return_type = try inferReturnType(self, lambda.body.*);
-    try closure_code.writer(self.allocator).print(") {s} {{\n", .{return_type});
+    try writer.print(") {s} {{\n", .{return_type});
     // Don't use return for void functions
     if (std.mem.eql(u8, return_type, "void")) {
-        try closure_code.writer(self.allocator).writeAll("        ");
+        try writer.writeAll("        ");
     } else {
-        try closure_code.writer(self.allocator).writeAll("        return ");
+        try writer.writeAll("        return ");
     }
 
     // Generate body with captured vars prefixed with "self."
+    // For inline mode, we need a temp buffer; for module level we use closure_code
     const saved_output = self.output;
     self.output = std.ArrayList(u8){};
 
@@ -269,19 +337,19 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     const body_code = try self.output.toOwnedSlice(self.allocator);
     self.output = saved_output;
 
-    try closure_code.writer(self.allocator).writeAll(body_code);
+    try writer.writeAll(body_code);
 
     // Don't add semicolon if body already ends with } (block expressions like assertRaises)
     const needs_semicolon = body_code.len == 0 or body_code[body_code.len - 1] != '}';
     self.allocator.free(body_code);
 
     if (needs_semicolon) {
-        try closure_code.writer(self.allocator).writeAll(";\n    }\n};\n\n");
+        try writer.writeAll(";\n    }\n};\n");
     } else {
-        try closure_code.writer(self.allocator).writeAll("\n    }\n};\n\n");
+        try writer.writeAll("\n    }\n};\n");
     }
 
-    // Store closure struct
+    // Store closure struct at module level
     try self.lambda_functions.append(self.allocator, try closure_code.toOwnedSlice(self.allocator));
 
     // Restore output
@@ -307,8 +375,77 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     // Return success - caller should mark this variable as a closure
 }
 
-/// Generate expression with captured variable references prefixed with "__closure."
+/// Generate inline simple closure for use inside functions
+/// Generates: (struct { x: i64, pub fn call(self: @This(), y: anytype) type { ... } }){ .x = x }
+fn genInlineSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, captured_vars: [][]const u8) ClosureError!void {
+    // Start inline struct
+    try self.emit("(struct {\n");
+
+    // Fields for captured vars
+    for (captured_vars) |var_name| {
+        // For 'self' in a class method, use current class name (not type inferrer which may have nested class)
+        const zig_type = if (std.mem.eql(u8, var_name, "self") and self.current_class_name != null)
+            self.current_class_name.?
+        else blk: {
+            const var_type = self.getVarType(var_name) orelse .unknown;
+            break :blk try self.nativeTypeToZigType(var_type);
+        };
+        const should_free = !std.mem.eql(u8, var_name, "self") or self.current_class_name == null;
+        defer if (should_free) self.allocator.free(zig_type);
+        try self.output.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
+    }
+    try self.emit("\n");
+
+    // Check if self is only used for unittest methods
+    const self_only_for_unittest = isSelfOnlyForUnittest(lambda.body.*, captured_vars);
+
+    // Call method - use __cl to avoid shadowing outer 'self' parameter
+    if (self_only_for_unittest) {
+        try self.emit("    pub fn call(_: @This()");
+    } else {
+        try self.emit("    pub fn call(__cl: @This()");
+    }
+    for (lambda.args) |arg| {
+        try self.emit(", ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+        try self.emit(": anytype");
+    }
+
+    // Return type
+    const return_type = try inferReturnType(self, lambda.body.*);
+    try self.output.writer(self.allocator).print(") {s} {{\n", .{return_type});
+
+    // Body - don't use return for void functions
+    if (std.mem.eql(u8, return_type, "void")) {
+        try self.emit("        ");
+    } else {
+        try self.emit("        return ");
+    }
+
+    // Generate body with captured vars prefixed with __cl. (inline closure param name)
+    try genExprWithCapturePrefix(self, lambda.body.*, captured_vars, "__cl");
+
+    try self.emit(";\n    }\n}){ ");
+
+    // Initialize captured fields
+    for (captured_vars, 0..) |var_name, i| {
+        if (i > 0) try self.emit(", ");
+        if (std.mem.eql(u8, var_name, "self")) {
+            try self.output.writer(self.allocator).print(".{s} = {s}.*", .{ var_name, var_name });
+        } else {
+            try self.output.writer(self.allocator).print(".{s} = {s}", .{ var_name, var_name });
+        }
+    }
+    try self.emit(" }");
+}
+
+/// Wrapper for backwards compatibility - uses "self" as default prefix
 fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]const u8) CodegenError!void {
+    return genExprWithCapturePrefix(self, node, captured_vars, "self");
+}
+
+/// Generate expression with captured variable references prefixed with specified name
+fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars: [][]const u8, prefix: []const u8) CodegenError!void {
     const expressions = @import("../expressions.zig");
 
     switch (node) {
@@ -316,8 +453,9 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
             // Check if this variable is captured
             for (captured_vars) |captured| {
                 if (std.mem.eql(u8, n.id, captured)) {
-                    // Prefix with __closure. (the closure struct parameter)
-                    try self.emit("__closure.");
+                    // Prefix with closure struct parameter name
+                    try self.emit(prefix);
+                    try self.emit(".");
                     try self.emit(n.id);
                     return;
                 }
@@ -338,11 +476,34 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
             try self.emit(n.id);
         },
         .binop => |b| {
-            try self.emit("(");
-            try genExprWithCapture(self, b.left.*, captured_vars);
-            try self.emit(BinOpStrings.get(@tagName(b.op)) orelse " ? ");
-            try genExprWithCapture(self, b.right.*, captured_vars);
-            try self.emit(")");
+            // Use @mod for modulo to handle signed integers properly
+            if (b.op == .Mod) {
+                try self.emit("@mod(");
+                try genExprWithCapturePrefix(self, b.left.*, captured_vars, prefix);
+                try self.emit(", ");
+                try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
+                try self.emit(")");
+            } else if (b.op == .Pow) {
+                // Zig doesn't have ** operator, use std.math.pow
+                try self.emit("std.math.pow(i64, ");
+                try genExprWithCapturePrefix(self, b.left.*, captured_vars, prefix);
+                try self.emit(", ");
+                try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
+                try self.emit(")");
+            } else if (b.op == .FloorDiv) {
+                // Floor division uses @divFloor for Python semantics
+                try self.emit("@divFloor(");
+                try genExprWithCapturePrefix(self, b.left.*, captured_vars, prefix);
+                try self.emit(", ");
+                try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
+                try self.emit(")");
+            } else {
+                try self.emit("(");
+                try genExprWithCapturePrefix(self, b.left.*, captured_vars, prefix);
+                try self.emit(BinOpStrings.get(@tagName(b.op)) orelse " ? ");
+                try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
+                try self.emit(")");
+            }
         },
         .constant => |c| {
             // Constants don't need capture handling
@@ -373,7 +534,7 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                                     // Generate arg to temp buffer
                                     const saved = self.output;
                                     self.output = std.ArrayList(u8){};
-                                    try genExprWithCapture(self, arg, captured_vars);
+                                    try genExprWithCapturePrefix(self, arg, captured_vars, prefix);
                                     const arg_code = try self.output.toOwnedSlice(self.allocator);
                                     self.output = saved;
                                     try temp_args.writer(self.allocator).writeAll(arg_code);
@@ -384,11 +545,11 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                                     try handler(self, func_attr.value.*, c.args);
                                 } else {
                                     // Unknown unittest method - generate as-is
-                                    try genExprWithCapture(self, c.func.*, captured_vars);
+                                    try genExprWithCapturePrefix(self, c.func.*, captured_vars, prefix);
                                     try self.emit("(");
                                     for (c.args, 0..) |arg, i| {
                                         if (i > 0) try self.emit(", ");
-                                        try genExprWithCapture(self, arg, captured_vars);
+                                        try genExprWithCapturePrefix(self, arg, captured_vars, prefix);
                                     }
                                     try self.emit(")");
                                 }
@@ -399,19 +560,19 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                     }
                 }
             }
-            try genExprWithCapture(self, c.func.*, captured_vars);
+            try genExprWithCapturePrefix(self, c.func.*, captured_vars, prefix);
             try self.emit("(");
             for (c.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
-                try genExprWithCapture(self, arg, captured_vars);
+                try genExprWithCapturePrefix(self, arg, captured_vars, prefix);
             }
             try self.emit(")");
         },
         .compare => |cmp| {
-            try genExprWithCapture(self, cmp.left.*, captured_vars);
+            try genExprWithCapturePrefix(self, cmp.left.*, captured_vars, prefix);
             for (cmp.ops, 0..) |op, i| {
                 try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
-                try genExprWithCapture(self, cmp.comparators[i], captured_vars);
+                try genExprWithCapturePrefix(self, cmp.comparators[i], captured_vars, prefix);
             }
         },
         .attribute => |attr| {
@@ -421,8 +582,9 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                 // Check if this is a captured variable
                 for (captured_vars) |captured| {
                     if (std.mem.eql(u8, base_name, captured)) {
-                        // It's a captured variable - use __closure prefix
-                        try self.emit("__closure.");
+                        // It's a captured variable - use the provided prefix
+                        try self.emit(prefix);
+                        try self.emit(".");
                         try self.emit(base_name);
                         try self.emit(".");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
@@ -438,15 +600,15 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
                 return;
             }
             // Handle regular attribute access (e.g., obj.foo) - recurse into value with capture
-            try genExprWithCapture(self, attr.value.*, captured_vars);
+            try genExprWithCapturePrefix(self, attr.value.*, captured_vars, prefix);
             try self.emit(".");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
         },
         .subscript => |sub| {
-            try genExprWithCapture(self, sub.value.*, captured_vars);
+            try genExprWithCapturePrefix(self, sub.value.*, captured_vars, prefix);
             try self.emit("[");
             if (sub.slice == .index) {
-                try genExprWithCapture(self, sub.slice.index.*, captured_vars);
+                try genExprWithCapturePrefix(self, sub.slice.index.*, captured_vars, prefix);
             }
             try self.emit("]");
         },
