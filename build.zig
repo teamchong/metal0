@@ -109,12 +109,14 @@ pub fn build(b: *std.Build) void {
     runtime.addImport("tokenizer", tokenizer_mod);
     collections.addImport("runtime", runtime);
 
-    // C interop module
+    // C interop module - with runtime access for eval/exec support
     const c_interop_mod = b.createModule(.{
         .root_source_file = b.path("packages/c_interop/src/registry.zig"),
         .target = target,
         .optimize = optimize,
     });
+    c_interop_mod.addImport("runtime", runtime);
+    c_interop_mod.addImport("collections", collections);
 
     // Main metal0 compiler executable
     const exe = b.addExecutable(.{

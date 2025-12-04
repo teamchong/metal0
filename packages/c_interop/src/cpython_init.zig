@@ -1,6 +1,24 @@
 /// CPython Initialization Interface
 ///
-/// Implements Python runtime initialization and finalization.
+/// Implements Python runtime initialization and finalization for C extension compatibility.
+///
+/// ## Implementation Status
+///
+/// IMPLEMENTED (functional):
+/// - Py_Initialize/Py_InitializeEx: Sets initialized flag (no actual init needed for AOT)
+/// - Py_Finalize/Py_FinalizeEx: Clears initialized flag
+/// - Py_IsInitialized: Returns initialized status
+/// - Py_GetVersion/Platform/Copyright/etc: Return version info strings
+/// - Py_Exit/Py_FatalError: Process exit functions
+///
+/// STUB (returns defaults):
+/// - Py_SetPythonHome/GetPythonHome: Path configuration (not used in AOT)
+/// - Py_SetProgramName/GetProgramName: Returns "python"
+/// - Py_SetPath/GetPath: Module search path (not used - compiled statically)
+/// - Py_AtExit: Callback registration (not implemented)
+///
+/// Note: metal0 compiles Python to native code, so most "initialization" is done
+/// at compile time. These functions exist for C extension compatibility.
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
 
@@ -15,20 +33,16 @@ export fn Py_Initialize() callconv(.c) void {
 
 /// Initialize Python with optional signal handling
 /// initsigs: 1 to install signal handlers, 0 to skip
+/// STATUS: IMPLEMENTED - sets initialized flag (actual init done at compile time)
 export fn Py_InitializeEx(initsigs: c_int) callconv(.c) void {
     if (python_initialized) return;
 
-    // TODO: Initialize interpreter subsystems:
-    // - Thread state and GIL
-    // - Built-in types (int, str, list, dict, etc.)
-    // - Built-in modules (sys, builtins, _io, etc.)
-    // - Import system
-    // - Signal handlers (if initsigs != 0)
-    // - Standard I/O streams (sys.stdin, stdout, stderr)
+    // metal0 AOT compiler: all types and modules are compiled statically
+    // No runtime initialization needed - just set flag for C extension compat
 
     if (initsigs != 0) {
-        // Initialize signal handlers
-        // TODO: Set up SIGINT, SIGTERM handlers
+        // Signal handlers could be set up here if needed
+        // Currently no-op - Zig uses its own signal handling
     }
 
     python_initialized = true;
@@ -42,19 +56,12 @@ export fn Py_Finalize() callconv(.c) void {
 
 /// Finalize with return code
 /// Returns 0 on success, -1 if errors occurred during finalization
+/// STATUS: IMPLEMENTED - clears initialized flag
 export fn Py_FinalizeEx() callconv(.c) c_int {
     if (!python_initialized) return 0;
 
-    // TODO: Clean up interpreter subsystems:
-    // - Run pending calls
-    // - Call sys.exitfunc if set
-    // - Call atexit callbacks
-    // - Flush I/O buffers
-    // - Clean up thread state
-    // - Free all allocated objects
-    // - Free type objects
-    // - Free modules
-    // - Release GIL
+    // metal0 AOT: cleanup is handled by Zig's arena/GPA allocators
+    // No special finalization needed for compiled code
 
     python_initialized = false;
     return 0; // Success
@@ -68,46 +75,47 @@ export fn Py_IsInitialized() callconv(.c) c_int {
 
 /// Set the Python home directory
 /// Should be called before Py_Initialize()
+/// STATUS: STUB - path configuration not used in AOT compilation
 export fn Py_SetPythonHome(home: [*:0]const u8) callconv(.c) void {
     _ = home;
-    // TODO: Store Python home path for module/library discovery
-    // This affects sys.prefix, sys.exec_prefix
+    // Not used in metal0 - modules are compiled statically
 }
 
 /// Get the Python home directory
 /// Returns borrowed reference to home path string
+/// STATUS: STUB - returns default path
 export fn Py_GetPythonHome() callconv(.c) [*:0]const u8 {
-    // TODO: Return stored Python home path
-    return "/usr/local"; // Default
+    return "/usr/local"; // Default for compatibility
 }
 
 /// Set the program name (argv[0])
 /// Should be called before Py_Initialize()
+/// STATUS: STUB - not stored
 export fn Py_SetProgramName(name: [*:0]const u8) callconv(.c) void {
     _ = name;
-    // TODO: Store program name for sys.executable, error messages
+    // Not used in metal0 - executable info available via std
 }
 
 /// Get the program name
 /// Returns borrowed reference to program name string
+/// STATUS: STUB - returns "python"
 export fn Py_GetProgramName() callconv(.c) [*:0]const u8 {
-    // TODO: Return stored program name
-    return "python"; // Default
+    return "python"; // Default for compatibility
 }
 
 /// Set standard module search path
 /// Should be called before Py_Initialize()
+/// STATUS: STUB - path not used (modules compiled statically)
 export fn Py_SetPath(path: [*:0]const u8) callconv(.c) void {
     _ = path;
-    // TODO: Override default sys.path with given path
-    // Path should be colon-separated on Unix, semicolon on Windows
+    // Not used in metal0 - imports resolved at compile time
 }
 
 /// Get the default module search path
 /// Returns borrowed reference to path string
+/// STATUS: STUB - returns default path
 export fn Py_GetPath() callconv(.c) [*:0]const u8 {
-    // TODO: Return module search path (sys.path as colon/semicolon string)
-    return ".:/usr/local/lib/python3.11"; // Default
+    return ".:/usr/local/lib/python3.11"; // Default for compatibility
 }
 
 /// Get Python version string
@@ -154,19 +162,21 @@ export fn Py_GetExecPrefix() callconv(.c) [*:0]const u8 {
 
 /// Get full path to Python executable
 /// Returns borrowed reference to executable path
+/// STATUS: STUB - returns default path
 export fn Py_GetProgramFullPath() callconv(.c) [*:0]const u8 {
-    // TODO: Return full path to current executable
-    return "/usr/local/bin/python"; // Default
+    // Could use std.fs.selfExePath but requires allocation
+    return "/usr/local/bin/python"; // Default for compatibility
 }
 
 // PyEval_InitThreads is in cpython_eval.zig
 
 /// At exit handler registration
 /// Registers a function to be called during finalization
+/// STATUS: STUB - accepts but doesn't call (no finalization hooks)
 export fn Py_AtExit(func: *const fn () callconv(.c) void) callconv(.c) c_int {
     _ = func;
-    // TODO: Add function to atexit callback list
-    return 0; // Success
+    // Atexit callbacks not implemented - Zig handles cleanup
+    return 0; // Success (accepts silently)
 }
 
 /// Exit Python with given status code

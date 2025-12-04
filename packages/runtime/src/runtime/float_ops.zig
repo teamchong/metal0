@@ -137,10 +137,113 @@ pub fn floatIsInteger(value: anytype) bool {
     return f == @trunc(f);
 }
 
-/// float.as_integer_ratio() - Returns (numerator, denominator) tuple
+/// Result type for as_integer_ratio with BigInt support
+pub const IntegerRatioResult = struct {
+    numerator: BigInt,
+    denominator: BigInt,
+
+    pub fn deinit(self: *IntegerRatioResult) void {
+        self.numerator.deinit();
+        self.denominator.deinit();
+    }
+};
+
+/// float.as_integer_ratio() - Returns (numerator, denominator) tuple with BigInt
+/// Python: (0.5).as_integer_ratio() -> (1, 2)
+/// Returns a tuple of two integers whose ratio equals the float exactly
+/// Uses BigInt to handle extreme exponents (e.g., 10^-100 requires 2^152 denominator)
+/// Raises ValueError for NaN, OverflowError for Inf
+pub fn floatAsIntegerRatioBigInt(allocator: std.mem.Allocator, value: anytype) !IntegerRatioResult {
+    const T = @TypeOf(value);
+    const type_info = @typeInfo(T);
+
+    // Handle float values
+    const f: f64 = if (type_info == .float or type_info == .comptime_float)
+        @as(f64, value)
+    else if (type_info == .int or type_info == .comptime_int)
+        @as(f64, @floatFromInt(value))
+    else if (type_info == .@"struct" and @hasField(T, "__base_value__"))
+        @as(f64, value.__base_value__)
+    else
+        0.0;
+
+    // Handle special cases - Python raises for these
+    if (std.math.isNan(f)) {
+        return PythonError.ValueError;
+    }
+    if (std.math.isInf(f)) {
+        return PythonError.OverflowError;
+    }
+
+    // Zero case
+    if (f == 0.0) {
+        var num = try BigInt.fromInt(allocator, 0);
+        errdefer num.deinit();
+        const den = try BigInt.fromInt(allocator, 1);
+        return IntegerRatioResult{ .numerator = num, .denominator = den };
+    }
+
+    // Use IEEE 754 representation to get exact fraction
+    const bits: u64 = @bitCast(f);
+    const is_negative = (bits >> 63) != 0;
+    const raw_exponent: i64 = @as(i64, @intCast((bits >> 52) & 0x7FF)) - 1023;
+    var mantissa: u64 = bits & 0xFFFFFFFFFFFFF;
+
+    // Handle normalized numbers (add implicit leading 1)
+    if (raw_exponent > -1023) {
+        mantissa |= (@as(u64, 1) << 52);
+    }
+
+    // Calculate numerator and denominator
+    // Float value = mantissa * 2^(exponent - 52) for normalized numbers
+    // So: value = mantissa / 2^(52 - exponent)
+
+    // First, find how many trailing zeros are in mantissa (can divide both by 2^k)
+    var trailing_zeros: usize = 0;
+    var temp_mantissa = mantissa;
+    while (temp_mantissa != 0 and (temp_mantissa & 1) == 0) {
+        temp_mantissa >>= 1;
+        trailing_zeros += 1;
+    }
+
+    // Create numerator from reduced mantissa
+    var numerator = try BigInt.fromInt(allocator, @as(i64, @intCast(temp_mantissa)));
+    errdefer numerator.deinit();
+    if (is_negative) numerator.negate();
+
+    // The effective power of 2 in the denominator is (52 - exponent) - trailing_zeros
+    const effective_exponent = raw_exponent - 52 + @as(i64, @intCast(trailing_zeros));
+
+    var denominator: BigInt = undefined;
+    if (effective_exponent >= 0) {
+        // Value = reduced_mantissa * 2^effective_exponent (large number)
+        // numerator = mantissa << effective_exponent, denominator = 1
+        const shifted = try numerator.shl(@intCast(effective_exponent), allocator);
+        numerator.deinit();
+        numerator = shifted;
+        denominator = try BigInt.fromInt(allocator, 1);
+    } else {
+        // Value = reduced_mantissa / 2^(-effective_exponent)
+        // numerator stays as is, denominator = 2^(-effective_exponent)
+        const shift_amount: usize = @intCast(-effective_exponent);
+        var one = try BigInt.fromInt(allocator, 1);
+        errdefer one.deinit();
+        denominator = try one.shl(shift_amount, allocator);
+        one.deinit();
+    }
+    errdefer denominator.deinit();
+
+    // The fraction is already in lowest terms since we removed all common powers of 2
+    // (trailing zeros from mantissa match the reduction in denominator power)
+
+    return IntegerRatioResult{ .numerator = numerator, .denominator = denominator };
+}
+
+/// float.as_integer_ratio() - Legacy i64 version for small values
 /// Python: (0.5).as_integer_ratio() -> (1, 2)
 /// Returns a tuple of two integers whose ratio equals the float
 /// Raises ValueError for NaN, OverflowError for Inf
+/// NOTE: Use floatAsIntegerRatioBigInt for proper handling of extreme exponents
 pub fn floatAsIntegerRatio(value: anytype) PythonError!struct { i64, i64 } {
     const T = @TypeOf(value);
     const type_info = @typeInfo(T);
@@ -179,9 +282,6 @@ pub fn floatAsIntegerRatio(value: anytype) PythonError!struct { i64, i64 } {
     if (exponent > -1023) {
         mantissa |= (1 << 52);
     }
-
-    // DEBUG: Print input value (commented out)
-    // std.debug.print("floatAsIntegerRatio: f={}, bits=0x{x}, sign={}, exp={}\n", .{f, bits, sign, exponent});
 
     // Calculate numerator and denominator
     // Float value = mantissa * 2^(exponent - 52) for normalized numbers
@@ -434,6 +534,14 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
     // Handle custom classes - check dunder methods FIRST, then fall back to base value
     // In Python, __float__() takes precedence over inherited float value
     if (first_info == .@"struct") {
+        // Check for BigInt's toFloat() method (returns f64 directly)
+        // BigInt.toFloat takes *const Self, so we need to take address
+        if (@hasDecl(FirstType, "toFloat") and @hasField(FirstType, "managed")) {
+            // BigInt has toFloat() that returns f64
+            const result = (&first).toFloat();
+            std.debug.print("DEBUG floatBuiltinCall BigInt.toFloat result: {}\n", .{result});
+            return result;
+        }
         // Check for __float__ method FIRST (takes precedence)
         if (@hasDecl(FirstType, "__float__")) {
             const result = first.__float__();
@@ -855,8 +963,16 @@ pub fn toFloat(value: anytype) f64 {
         return @as(f64, @floatFromInt(value));
     }
 
-    // Struct - check for __float__ method or value field
+    // Struct - check for toFloat, __float__ method or value field
     if (type_info == .@"struct") {
+        // Check for BigInt's toFloat() method (returns f64 directly)
+        // BigInt.toFloat takes *const Self, so we need to take address
+        if (@hasDecl(T, "toFloat") and @hasField(T, "managed")) {
+            // BigInt has toFloat() that returns f64
+            const result = (&value).toFloat();
+            std.debug.print("DEBUG toFloat BigInt result: {}\n", .{result});
+            return result;
+        }
         // First try __float__ method
         if (@hasDecl(T, "__float__")) {
             const float_result = value.__float__();

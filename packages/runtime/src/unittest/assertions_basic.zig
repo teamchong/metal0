@@ -439,6 +439,28 @@ fn equalValues(a: anytype, b: anytype) bool {
         return diff < 0.0001;
     }
 
+    // BigInt vs i64 comparison - convert BigInt to i64 if possible
+    if (comptime a_info == .@"struct" and @hasField(A, "managed") and @hasDecl(A, "toInt64")) {
+        // a is BigInt
+        if (comptime b_info == .int or b_info == .comptime_int) {
+            // b is an integer - convert BigInt to i64 and compare
+            if (a.toInt64()) |a_i64| {
+                return a_i64 == @as(i64, @intCast(b));
+            }
+            return false; // BigInt doesn't fit in i64, can't be equal
+        }
+    }
+    if (comptime b_info == .@"struct" and @hasField(B, "managed") and @hasDecl(B, "toInt64")) {
+        // b is BigInt
+        if (comptime a_info == .int or a_info == .comptime_int) {
+            // a is an integer - convert BigInt to i64 and compare
+            if (b.toInt64()) |b_i64| {
+                return @as(i64, @intCast(a)) == b_i64;
+            }
+            return false; // BigInt doesn't fit in i64, can't be equal
+        }
+    }
+
     return false;
 }
 

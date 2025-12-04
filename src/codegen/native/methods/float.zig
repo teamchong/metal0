@@ -14,15 +14,22 @@ pub fn genIsInteger(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
     try self.emit(")");
 }
 
-/// Generate float.as_integer_ratio() - returns (numerator, denominator) tuple
+/// Generate float.as_integer_ratio() - returns (numerator, denominator) tuple as BigInt
 /// Python: (0.5).as_integer_ratio() -> (1, 2)
-/// Zig: try runtime.floatAsIntegerRatio(f)
+/// Zig: try runtime.floatAsIntegerRatioBigInt(allocator, f)
+/// Returns IntegerRatioResult with .numerator and .denominator BigInt fields
+/// For tuple unpacking n, d = f.as_integer_ratio(), codegen converts to .{n, d} tuple
 /// Raises ValueError for NaN, OverflowError for Inf
 pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // as_integer_ratio takes no arguments
-    try self.emit("(try runtime.floatAsIntegerRatio(");
+    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    // Return a struct that can be unpacked: { BigInt, BigInt }
+    // The IntegerRatioResult has .numerator and .denominator, we convert to anonymous tuple
+    try self.emit("blk: { const __ratio = try runtime.floatAsIntegerRatioBigInt(");
+    try self.emit(alloc_name);
+    try self.emit(", ");
     try self.genExpr(obj);
-    try self.emit("))");
+    try self.emit("); break :blk .{ __ratio.numerator, __ratio.denominator }; }");
 }
 
 /// Generate float.hex() - returns hexadecimal string representation
@@ -109,17 +116,18 @@ pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
 /// Generate float.__truediv__(other) - true division
 /// Python: (10.0).__truediv__(3) -> 3.333...
+/// Handles both int and BigInt divisors
 pub fn genTruediv(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    // obj / args[0]
+    // obj / args[0], with runtime type dispatch for BigInt
     try self.emit("((");
     try self.genExpr(obj);
-    try self.emit(") / @as(f64, @floatFromInt(");
+    try self.emit(") / runtime.toFloat(");
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
         try self.emit("1");
     }
-    try self.emit(")))");
+    try self.emit("))");
 }
 
 /// Generate float.__rtruediv__(other) - reverse true division
