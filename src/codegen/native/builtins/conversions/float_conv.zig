@@ -29,8 +29,8 @@ fn getSpecialFloatLiteral(str: []const u8) ?[]const u8 {
         return if (is_negative) "-std.math.inf(f64)" else "std.math.inf(f64)";
     }
     if (std.ascii.eqlIgnoreCase(rest, "nan")) {
-        // Note: -nan is still nan in IEEE 754 (sign bit doesn't matter for NaN)
-        return "std.math.nan(f64)";
+        // IEEE 754 NaN has a sign bit - Python's copysign() can detect it
+        return if (is_negative) "-std.math.nan(f64)" else "std.math.nan(f64)";
     }
 
     return null;

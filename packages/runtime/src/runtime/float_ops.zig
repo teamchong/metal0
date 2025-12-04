@@ -140,7 +140,8 @@ pub fn floatIsInteger(value: anytype) bool {
 /// float.as_integer_ratio() - Returns (numerator, denominator) tuple
 /// Python: (0.5).as_integer_ratio() -> (1, 2)
 /// Returns a tuple of two integers whose ratio equals the float
-pub fn floatAsIntegerRatio(value: anytype) struct { i64, i64 } {
+/// Raises ValueError for NaN, OverflowError for Inf
+pub fn floatAsIntegerRatio(value: anytype) PythonError!struct { i64, i64 } {
     const T = @TypeOf(value);
     const type_info = @typeInfo(T);
 
@@ -154,14 +155,12 @@ pub fn floatAsIntegerRatio(value: anytype) struct { i64, i64 } {
     else
         0.0;
 
-    // Handle special cases
+    // Handle special cases - Python raises for these
     if (std.math.isNan(f)) {
-        // Python raises ValueError for NaN
-        return .{ 0, 1 };
+        return PythonError.ValueError;
     }
     if (std.math.isInf(f)) {
-        // Python raises OverflowError for Inf
-        return .{ if (f > 0) std.math.maxInt(i64) else std.math.minInt(i64), 1 };
+        return PythonError.OverflowError;
     }
 
     // Zero case

@@ -805,16 +805,37 @@ fn pythonFloatRepr(allocator: std.mem.Allocator, value: f64) ![]const u8 {
     const use_scientific = value != 0 and (abs_value >= 1e16 or abs_value < 1e-4);
 
     if (use_scientific) {
-        // Use scientific notation - Python format includes explicit + sign for positive exponents
+        // Use scientific notation - Python format:
+        // 1. Explicit + sign for positive exponents
+        // 2. At least 2 digits in exponent (e.g., e-05 not e-5)
         const formatted = try std.fmt.allocPrint(allocator, "{e}", .{value});
-        // Convert "1e16" to "1e+16" (add explicit + sign for positive exponents)
         var result = std.ArrayList(u8){};
         var i: usize = 0;
         while (i < formatted.len) : (i += 1) {
             try result.append(allocator, formatted[i]);
-            // After 'e', if next char is a digit (not '-'), insert '+'
-            if (formatted[i] == 'e' and i + 1 < formatted.len and formatted[i + 1] != '-') {
-                try result.append(allocator, '+');
+            if (formatted[i] == 'e' and i + 1 < formatted.len) {
+                // After 'e', handle sign and padding
+                const next_char = formatted[i + 1];
+                if (next_char == '-') {
+                    // Has minus sign - check if exponent needs padding
+                    try result.append(allocator, '-');
+                    i += 1;
+                    // Check remaining chars to see if it's single digit
+                    const exp_start = i + 1;
+                    const exp_len = formatted.len - exp_start;
+                    if (exp_len == 1) {
+                        // Single digit exponent - pad with 0
+                        try result.append(allocator, '0');
+                    }
+                } else if (std.ascii.isDigit(next_char)) {
+                    // Positive exponent without sign - add +
+                    try result.append(allocator, '+');
+                    // Check if single digit
+                    const exp_len = formatted.len - (i + 1);
+                    if (exp_len == 1) {
+                        try result.append(allocator, '0');
+                    }
+                }
             }
         }
         allocator.free(formatted);
@@ -1772,8 +1793,17 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
         } else {
             // Negative ndigits - round to tens, hundreds, etc.
             const multiplier = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(-digits)));
+            // Check for overflow - if multiplier is inf, result will overflow
+            if (std.math.isInf(multiplier)) {
+                return PythonError.OverflowError;
+            }
             const scaled = value / multiplier;
-            return bankersRound(scaled) * multiplier;
+            const result = bankersRound(scaled) * multiplier;
+            // Check if result overflows
+            if (std.math.isInf(result) and !std.math.isInf(value)) {
+                return PythonError.OverflowError;
+            }
+            return result;
         }
     } else if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
         return @as(f64, @floatFromInt(value));

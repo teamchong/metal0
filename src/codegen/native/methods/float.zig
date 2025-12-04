@@ -16,12 +16,13 @@ pub fn genIsInteger(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 
 /// Generate float.as_integer_ratio() - returns (numerator, denominator) tuple
 /// Python: (0.5).as_integer_ratio() -> (1, 2)
-/// Zig: runtime.floatAsIntegerRatio(f)
+/// Zig: try runtime.floatAsIntegerRatio(f)
+/// Raises ValueError for NaN, OverflowError for Inf
 pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // as_integer_ratio takes no arguments
-    try self.emit("runtime.floatAsIntegerRatio(");
+    try self.emit("(try runtime.floatAsIntegerRatio(");
     try self.genExpr(obj);
-    try self.emit(")");
+    try self.emit("))");
 }
 
 /// Generate float.hex() - returns hexadecimal string representation
