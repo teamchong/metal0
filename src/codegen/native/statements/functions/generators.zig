@@ -133,6 +133,11 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     // Clear global vars after function exits (they're function-scoped)
     self.clearGlobalVars();
+
+    // Reset control flow termination flag after function exits
+    // This is critical: a raise/return inside the function body should not
+    // prevent subsequent module-level statements from being generated
+    self.control_flow_terminated = false;
 }
 
 /// Generate class definition with __init__ constructor
@@ -947,7 +952,40 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                             try self.emit("}\n");
                             try self.emitIndent();
                             try self.emit("return runtime.pyIntFromAny(value);\n");
+                        } else if (std.mem.eql(u8, type_name, "tuple") or std.mem.eql(u8, type_name, "list")) {
+                            // tuple/list: return the input as-is (already a slice/tuple)
+                            try self.emit("pub fn ");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                            try self.emit("(value: anytype) @TypeOf(value) {\n");
+                            self.indent();
+                            try self.emitIndent();
+                            try self.emit("return value;\n");
+                        } else if (std.mem.eql(u8, type_name, "str")) {
+                            // str: convert to string
+                            try self.emit("pub fn ");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                            try self.emit("(value: anytype) []const u8 {\n");
+                            self.indent();
+                            try self.emitIndent();
+                            try self.emit("return runtime.pyStrFromAny(value);\n");
+                        } else if (std.mem.eql(u8, type_name, "float")) {
+                            // float: convert to f64
+                            try self.emit("pub fn ");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                            try self.emit("(value: anytype) f64 {\n");
+                            self.indent();
+                            try self.emitIndent();
+                            try self.emit("return runtime.pyFloatFromAny(value);\n");
+                        } else if (std.mem.eql(u8, type_name, "bool")) {
+                            // bool: convert to bool
+                            try self.emit("pub fn ");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                            try self.emit("(value: anytype) bool {\n");
+                            self.indent();
+                            try self.emitIndent();
+                            try self.emit("return runtime.pyTruthy(value);\n");
                         } else {
+                            // Default fallback: convert to i64
                             try self.emit("pub fn ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
                             try self.emit("(value: anytype) i64 {\n");

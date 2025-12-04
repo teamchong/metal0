@@ -156,7 +156,9 @@ pub fn inferBuiltinCall(
                 elem_type.* = .unknown;
             }
         } else {
-            elem_type.* = .unknown;
+            // Empty set() - default to i64 element type to match codegen
+            // The codegen uses std.AutoHashMap(i64, void) for empty sets
+            elem_type.* = .{ .int = .bounded };
         }
         return .{ .set = elem_type };
     }
@@ -182,7 +184,8 @@ pub fn inferBuiltinCall(
                 elem_type.* = .unknown;
             }
         } else {
-            elem_type.* = .unknown;
+            // Empty frozenset() - default to i64 element type to match codegen
+            elem_type.* = .{ .int = .bounded };
         }
         return .{ .set = elem_type };
     }
@@ -195,6 +198,40 @@ pub fn inferBuiltinCall(
             const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
             if (@as(std.meta.Tag(NativeType), arg_type) == .tuple) {
                 return arg_type;
+            }
+            // If arg is a literal string, create tuple type with that many string elements
+            if (call.args[0] == .constant and call.args[0].constant.value == .string) {
+                const str = call.args[0].constant.value.string;
+                // Count UTF-8 characters
+                var char_count: usize = 0;
+                var i: usize = 0;
+                while (i < str.len) {
+                    const byte = str[i];
+                    const char_len: usize = if (byte < 0x80) 1 else if (byte < 0xE0) 2 else if (byte < 0xF0) 3 else 4;
+                    i += char_len;
+                    char_count += 1;
+                }
+                // Create tuple type with char_count string elements
+                if (char_count == 0) {
+                    return .{ .tuple = &[_]NativeType{} };
+                }
+                const elem_types = try allocator.alloc(NativeType, char_count);
+                for (elem_types) |*et| {
+                    et.* = .{ .string = .runtime };
+                }
+                return .{ .tuple = elem_types };
+            }
+            // If arg is a literal list, create tuple type with those element types
+            if (call.args[0] == .list) {
+                const list = call.args[0].list;
+                if (list.elts.len == 0) {
+                    return .{ .tuple = &[_]NativeType{} };
+                }
+                const elem_types = try allocator.alloc(NativeType, list.elts.len);
+                for (list.elts, 0..) |elt, idx| {
+                    elem_types[idx] = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, elt);
+                }
+                return .{ .tuple = elem_types };
             }
         }
         // Empty tuple or unknown element types
