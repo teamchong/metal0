@@ -2,6 +2,24 @@
 const std = @import("std");
 const runner = @import("runner.zig");
 
+/// Python-compatible value equality check (handles NaN identity)
+/// In Python: nan == nan is False, but nan in [nan] is True (identity check first)
+fn pythonEql(a: anytype, b: anytype) bool {
+    const T = @TypeOf(a);
+    // For floats, also check bit equality (handles NaN identity)
+    if (T == f64 or T == f32) {
+        // First try regular equality
+        if (a == b) return true;
+        // If that fails (e.g., NaN), check bit identity
+        if (T == f64) {
+            return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
+        } else {
+            return @as(u32, @bitCast(a)) == @as(u32, @bitCast(b));
+        }
+    }
+    return std.meta.eql(a, b);
+}
+
 /// Helper to compare two ArrayList instances element by element
 fn equalArrayList(a: anytype, b: anytype) bool {
     // Check length first
@@ -1361,7 +1379,7 @@ pub fn assertIn(item: anytype, container: anytype) void {
             // ArrayList: use .items slice
             if (comptime @hasField(ContainerType, "items")) {
                 for (container.items) |elem| {
-                    if (std.meta.eql(elem, item)) break :elem_blk true;
+                    if (pythonEql(elem, item)) break :elem_blk true;
                 }
                 break :elem_blk false;
             }
@@ -1390,7 +1408,7 @@ pub fn assertIn(item: anytype, container: anytype) void {
             // Tuple: use inline for
             else if (comptime container_info.@"struct".is_tuple) {
                 inline for (container) |elem| {
-                    if (std.meta.eql(elem, item)) break :elem_blk true;
+                    if (pythonEql(elem, item)) break :elem_blk true;
                 }
                 break :elem_blk false;
             }
@@ -1412,7 +1430,7 @@ pub fn assertIn(item: anytype, container: anytype) void {
         // Arrays and slices - iterate directly
         else {
             for (container) |elem| {
-                if (std.meta.eql(elem, item)) break :elem_blk true;
+                if (pythonEql(elem, item)) break :elem_blk true;
             }
             break :elem_blk false;
         }
@@ -1460,7 +1478,7 @@ pub fn assertNotIn(item: anytype, container: anytype) void {
             // ArrayList: use .items slice
             if (comptime @hasField(ContainerType, "items")) {
                 for (container.items) |elem| {
-                    if (std.meta.eql(elem, item)) break :elem_blk true;
+                    if (pythonEql(elem, item)) break :elem_blk true;
                 }
                 break :elem_blk false;
             }
@@ -1489,7 +1507,7 @@ pub fn assertNotIn(item: anytype, container: anytype) void {
             // Tuple: use inline for
             else if (comptime container_info.@"struct".is_tuple) {
                 inline for (container) |elem| {
-                    if (std.meta.eql(elem, item)) break :elem_blk true;
+                    if (pythonEql(elem, item)) break :elem_blk true;
                 }
                 break :elem_blk false;
             }
@@ -1511,7 +1529,7 @@ pub fn assertNotIn(item: anytype, container: anytype) void {
         // Arrays and slices - iterate directly
         else {
             for (container) |elem| {
-                if (std.meta.eql(elem, item)) break :elem_blk true;
+                if (pythonEql(elem, item)) break :elem_blk true;
             }
             break :elem_blk false;
         }

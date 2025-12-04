@@ -70,12 +70,10 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("}) catch unreachable;\n}");
         return;
     } else if (arg_type == .float and !is_float_error_union) {
-        // FAST PATH: Use stack buffer for float->str conversion
-        try self.emitFmt("str_{d}: {{\n", .{str_label_id});
-        try self.emitFmt("var __str_stack_{d}: [64]u8 = undefined;\n", .{str_label_id});
-        try self.emitFmt("break :str_{d} std.fmt.bufPrint(&__str_stack_{d}, \"{{d}}\", .{{", .{ str_label_id, str_label_id });
+        // Use runtime formatFloat which handles NaN/Inf properly (Python: str(nan) == "nan" not "-nan")
+        try self.emit("(try runtime.formatFloat(");
         try self.genExpr(args[0]);
-        try self.emit("}) catch unreachable;\n}");
+        try self.emitFmt(", {s}))", .{alloc_name});
         return;
     } else if (arg_type == .bool) {
         // Python bool to string: True/False - no allocation needed!
