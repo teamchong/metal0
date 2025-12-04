@@ -95,6 +95,20 @@ pub const FunctionTraits = struct {
     /// Return type hint (if determinable)
     return_type_hint: ?TypeHint = null,
 
+    // ========== PARAMETER USAGE ANALYSIS ==========
+    /// Which parameters are actually used in the function body (indexed by param position)
+    /// Used to determine if a parameter should be anonymous (_: type) in Zig signature
+    params_used_in_body: []bool = &.{},
+
+    // ========== BLOCK-SCOPED VARIABLE ANALYSIS ==========
+    /// Variables declared inside block scopes (for/if/try/with) that are NOT used outside
+    /// These variables should NOT get function-level discards (they're truly block-scoped in Zig)
+    block_scoped_vars: []const []const u8 = &.{},
+
+    /// Variables declared inside block scopes that ARE used outside (need hoisting)
+    /// These need to be hoisted to function level with var declaration
+    escaping_block_vars: []const []const u8 = &.{},
+
     // ========== ESCAPE ANALYSIS ==========
     /// Which parameters escape this function (returned, stored globally, passed to escaping call)
     escaping_params: []bool = &.{},
@@ -108,12 +122,77 @@ pub const FunctionTraits = struct {
     /// Use getErrorSet() to query, toZigErrorSet() to generate code
     error_types: ErrorSet = .{},
 
+    // ========== HETEROGENEOUS CONTAINER ANALYSIS ==========
+    /// Variables that need PyValue type (assigned different types, heterogeneous lists)
+    /// These should be declared as ArrayList(PyValue) instead of ArrayList(T)
+    heterogeneous_vars: []const []const u8 = &.{},
+
+    /// Variables that are list aliases (T = A where A is a list)
+    /// Maps alias name -> original list name
+    list_aliases: []const ListAlias = &.{},
+
     pub fn deinit(self: *FunctionTraits, allocator: std.mem.Allocator) void {
         if (self.mutates_params.len > 0) allocator.free(self.mutates_params);
         if (self.captured_vars.len > 0) allocator.free(self.captured_vars);
         if (self.calls.len > 0) allocator.free(self.calls);
         if (self.escaping_params.len > 0) allocator.free(self.escaping_params);
         if (self.escaping_locals.len > 0) allocator.free(self.escaping_locals);
+        if (self.params_used_in_body.len > 0) allocator.free(self.params_used_in_body);
+        if (self.block_scoped_vars.len > 0) allocator.free(self.block_scoped_vars);
+        if (self.escaping_block_vars.len > 0) allocator.free(self.escaping_block_vars);
+    }
+
+    // ========== QUERY METHODS ==========
+
+    /// Check if a parameter at the given index is used in the function body
+    pub fn isParamUsed(self: *const FunctionTraits, param_index: usize) bool {
+        if (param_index >= self.params_used_in_body.len) return true; // Assume used if not analyzed
+        return self.params_used_in_body[param_index];
+    }
+
+    /// Check if a variable is block-scoped (declared in for/if/try, not used outside)
+    pub fn isBlockScoped(self: *const FunctionTraits, var_name: []const u8) bool {
+        for (self.block_scoped_vars) |v| {
+            if (std.mem.eql(u8, v, var_name)) return true;
+        }
+        return false;
+    }
+
+    /// Check if a variable needs hoisting (declared in block, used outside)
+    pub fn needsHoisting(self: *const FunctionTraits, var_name: []const u8) bool {
+        for (self.escaping_block_vars) |v| {
+            if (std.mem.eql(u8, v, var_name)) return true;
+        }
+        return false;
+    }
+
+    /// Check if a variable needs PyValue type (heterogeneous assignments)
+    pub fn needsPyValueType(self: *const FunctionTraits, var_name: []const u8) bool {
+        for (self.heterogeneous_vars) |v| {
+            if (std.mem.eql(u8, v, var_name)) return true;
+        }
+        return false;
+    }
+
+    /// Check if a variable is an alias to another list
+    pub fn getListAliasTarget(self: *const FunctionTraits, var_name: []const u8) ?[]const u8 {
+        for (self.list_aliases) |alias| {
+            if (std.mem.eql(u8, alias.alias_name, var_name)) return alias.original_name;
+        }
+        return null;
+    }
+
+    /// Check if the original list variable needs PyValue (because alias adds heterogeneous types)
+    pub fn listNeedsPyValue(self: *const FunctionTraits, var_name: []const u8) bool {
+        // Check if this variable is in heterogeneous_vars
+        if (self.needsPyValueType(var_name)) return true;
+        // Check if any alias of this variable is in heterogeneous_vars
+        for (self.list_aliases) |alias| {
+            if (std.mem.eql(u8, alias.original_name, var_name)) {
+                if (self.needsPyValueType(alias.alias_name)) return true;
+            }
+        }
+        return false;
     }
 };
 
@@ -122,6 +201,12 @@ pub const AsyncComplexity = enum {
     simple, // Few operations, no loops - prefer inline
     moderate, // Has loops or multiple awaits - generate both
     complex, // Recursive or many awaits - spawn only
+};
+
+/// Tracks list variable aliases (T = A where A is a list)
+pub const ListAlias = struct {
+    alias_name: []const u8,
+    original_name: []const u8,
 };
 
 pub const TypeHint = enum {
@@ -137,6 +222,675 @@ pub const TypeHint = enum {
     object,
     any,
 };
+
+// ============================================================================
+// Runtime Type Categories - For generating comptime type checks
+// ============================================================================
+// These categories help codegen emit proper comptime checks when the exact
+// type isn't known (e.g., closure parameters with anytype).
+
+/// Categories of runtime types that need special handling in codegen
+pub const RuntimeTypeCategory = enum {
+    /// Standard slice/array - use direct indexing and .len
+    slice,
+    /// ArrayList - use .items for indexing and .items.len for length
+    array_list,
+    /// BigInt - needs .toInt() conversion
+    big_int,
+    /// PyValue union - needs accessor methods or switch
+    py_value,
+    /// HashMap/AutoHashMap - use .get()/.put()/.count()
+    hash_map,
+    /// Iterator - has .next() method
+    iterator,
+    /// Standard integer - direct arithmetic
+    integer,
+    /// Unknown - need full comptime dispatch
+    unknown,
+};
+
+/// Helper to generate comptime type check code for a given category
+/// Returns Zig code that evaluates to true if the type matches
+pub fn comptimeTypeCheck(category: RuntimeTypeCategory) []const u8 {
+    return switch (category) {
+        .slice => "@typeInfo(@TypeOf(__val)) == .pointer and @typeInfo(@TypeOf(__val)).pointer.size == .slice",
+        .array_list => "@typeInfo(@TypeOf(__val)) == .@\"struct\" and @hasField(@TypeOf(__val), \"items\") and @hasField(@TypeOf(__val), \"capacity\")",
+        .big_int => "@TypeOf(__val) == bigint.BigInt",
+        .py_value => "@TypeOf(__val) == runtime.PyValue",
+        .hash_map => "@typeInfo(@TypeOf(__val)) == .@\"struct\" and @hasDecl(@TypeOf(__val), \"count\")",
+        .iterator => "@typeInfo(@TypeOf(__val)) == .@\"struct\" and @hasDecl(@TypeOf(__val), \"next\")",
+        .integer => "@typeInfo(@TypeOf(__val)) == .int or @typeInfo(@TypeOf(__val)) == .comptime_int",
+        .unknown => "true",
+    };
+}
+
+/// Generate a comptime dispatch expression that handles multiple type categories
+/// Usage: genComptimeDispatch("my_var", &.{.array_list, .slice}, &.{".items[idx]", "[idx]"})
+/// Returns code like: if (comptime is_arraylist) __val.items[idx] else __val[idx]
+pub fn genComptimeDispatch(
+    allocator: std.mem.Allocator,
+    var_name: []const u8,
+    categories: []const RuntimeTypeCategory,
+    expressions: []const []const u8,
+) ![]const u8 {
+    if (categories.len != expressions.len) return error.InvalidArgument;
+    if (categories.len == 0) return "";
+    if (categories.len == 1) {
+        return std.fmt.allocPrint(allocator, "{s}{s}", .{ var_name, expressions[0] });
+    }
+
+    var result = std.ArrayList(u8).init(allocator);
+    const writer = result.writer();
+
+    // Generate nested if-else chain
+    try writer.print("blk: {{ const __val = {s}; break :blk ", .{var_name});
+
+    for (categories[0 .. categories.len - 1], expressions[0 .. expressions.len - 1], 0..) |cat, expr, i| {
+        if (i > 0) try writer.writeAll(" else ");
+        try writer.print("if ({s}) __val{s}", .{ comptimeTypeCheck(cat), expr });
+    }
+
+    // Final else case
+    try writer.print(" else __val{s}; }}", .{expressions[expressions.len - 1]});
+
+    return result.toOwnedSlice();
+}
+
+/// Standard comptime patterns for common operations
+pub const ComptimePatterns = struct {
+    /// Get length of a value (handles slice, ArrayList, HashMap, PyValue)
+    pub const length =
+        \\blk: { const __t = @TypeOf(__val); break :blk if (@typeInfo(__t) == .@"struct" and @hasField(__t, "items")) __val.items.len else if (@typeInfo(__t) == .@"struct" and @hasDecl(__t, "count")) __val.count() else if (__t == runtime.PyValue) __val.pyLen() else __val.len; }
+    ;
+
+    /// Index into a value (handles slice, ArrayList, PyValue)
+    pub const index =
+        \\blk: { const __t = @TypeOf(__val); break :blk if (@typeInfo(__t) == .@"struct" and @hasField(__t, "items")) __val.items[__idx] else if (__t == runtime.PyValue) __val.pyAt(__idx) else __val[__idx]; }
+    ;
+
+    /// Convert to i64 (handles int, BigInt, PyValue)
+    pub const to_int =
+        \\blk: { const __t = @TypeOf(__val); break :blk if (__t == bigint.BigInt) __val.toInt() else if (__t == runtime.PyValue) __val.asInt() else @as(i64, @intCast(__val)); }
+    ;
+
+    /// Convert to f64 (handles float, int, BigInt, PyValue)
+    pub const to_float =
+        \\blk: { const __t = @TypeOf(__val); break :blk if (__t == bigint.BigInt) __val.toFloat() else if (__t == runtime.PyValue) __val.asFloat() else if (@typeInfo(__t) == .int) @as(f64, @floatFromInt(__val)) else @as(f64, @floatCast(__val)); }
+    ;
+
+    /// Safe shift amount (converts i64 to u6 for bit shifts)
+    pub const shift_amount =
+        \\@as(u6, @intCast(@mod(__val, 64)))
+    ;
+
+    /// Iterator slice (handles ArrayList vs slice)
+    pub const iter_slice =
+        \\blk: { const __t = @TypeOf(__val); break :blk if (@typeInfo(__t) == .@"struct" and @hasField(__t, "items")) __val.items else __val; }
+    ;
+};
+
+// ============================================================================
+// Primitive Type Method Dispatch - Python methods on Zig primitives
+// ============================================================================
+// Python has methods on primitive types (int, float, str) that don't exist
+// on Zig's native types. This maps them to runtime helper functions.
+
+/// Methods available on Python float that need runtime dispatch
+pub const FloatMethods = std.StaticStringMap([]const u8).initComptime(.{
+    // Float representation methods
+    .{ "as_integer_ratio", "runtime.float_ops.asIntegerRatio" },
+    .{ "is_integer", "runtime.float_ops.isInteger" },
+    .{ "hex", "runtime.float_ops.toHex" },
+    .{ "fromhex", "runtime.float_ops.fromHex" },
+
+    // Magic methods for math module
+    .{ "__floor__", "runtime.float_ops.floor" },
+    .{ "__ceil__", "runtime.float_ops.ceil" },
+    .{ "__trunc__", "runtime.float_ops.trunc" },
+    .{ "__round__", "runtime.float_ops.round" },
+    .{ "__abs__", "runtime.float_ops.abs" },
+    .{ "__neg__", "runtime.float_ops.neg" },
+    .{ "__pos__", "runtime.float_ops.pos" },
+
+    // Comparison magic methods
+    .{ "__eq__", "runtime.float_ops.eq" },
+    .{ "__ne__", "runtime.float_ops.ne" },
+    .{ "__lt__", "runtime.float_ops.lt" },
+    .{ "__le__", "runtime.float_ops.le" },
+    .{ "__gt__", "runtime.float_ops.gt" },
+    .{ "__ge__", "runtime.float_ops.ge" },
+
+    // String conversion
+    .{ "__repr__", "runtime.float_ops.repr" },
+    .{ "__str__", "runtime.float_ops.str" },
+    .{ "__format__", "runtime.float_ops.format" },
+
+    // Hash and bool
+    .{ "__hash__", "runtime.float_ops.hash" },
+    .{ "__bool__", "runtime.float_ops.toBool" },
+
+    // Type conversion
+    .{ "__int__", "runtime.float_ops.toInt" },
+    .{ "__float__", "runtime.float_ops.toFloat" },
+
+    // Conjugate (for complex compat)
+    .{ "conjugate", "runtime.float_ops.conjugate" },
+    .{ "real", "runtime.float_ops.real" },
+    .{ "imag", "runtime.float_ops.imag" },
+});
+
+/// Methods available on Python int that need runtime dispatch
+pub const IntMethods = std.StaticStringMap([]const u8).initComptime(.{
+    // Bit operations
+    .{ "bit_length", "runtime.int_ops.bitLength" },
+    .{ "bit_count", "runtime.int_ops.bitCount" },
+    .{ "to_bytes", "runtime.int_ops.toBytes" },
+    .{ "from_bytes", "runtime.int_ops.fromBytes" },
+
+    // Type conversion
+    .{ "as_integer_ratio", "runtime.int_ops.asIntegerRatio" },
+    .{ "__index__", "runtime.int_ops.index" },
+    .{ "__int__", "runtime.int_ops.toInt" },
+    .{ "__float__", "runtime.int_ops.toFloat" },
+
+    // Math magic methods
+    .{ "__floor__", "runtime.int_ops.floor" },
+    .{ "__ceil__", "runtime.int_ops.ceil" },
+    .{ "__trunc__", "runtime.int_ops.trunc" },
+    .{ "__round__", "runtime.int_ops.round" },
+    .{ "__abs__", "runtime.int_ops.abs" },
+
+    // String conversion
+    .{ "__repr__", "runtime.int_ops.repr" },
+    .{ "__str__", "runtime.int_ops.str" },
+    .{ "__format__", "runtime.int_ops.format" },
+
+    // Hash and bool
+    .{ "__hash__", "runtime.int_ops.hash" },
+    .{ "__bool__", "runtime.int_ops.toBool" },
+
+    // Conjugate (for complex compat)
+    .{ "conjugate", "runtime.int_ops.conjugate" },
+    .{ "real", "runtime.int_ops.real" },
+    .{ "imag", "runtime.int_ops.imag" },
+
+    // Numerator/denominator (for rational compat)
+    .{ "numerator", "runtime.int_ops.numerator" },
+    .{ "denominator", "runtime.int_ops.denominator" },
+});
+
+/// Methods available on Python dict that need runtime dispatch
+/// Dict in Zig uses ArrayHashMap which has different method names
+pub const DictMethods = std.StaticStringMap([]const u8).initComptime(.{
+    // Mutating methods
+    .{ "update", "runtime.dict_ops.update" },
+    .{ "clear", "runtime.dict_ops.clear" },
+    .{ "pop", "runtime.dict_ops.pop" },
+    .{ "popitem", "runtime.dict_ops.popitem" },
+    .{ "setdefault", "runtime.dict_ops.setdefault" },
+
+    // Non-mutating methods
+    .{ "get", "runtime.dict_ops.get" },
+    .{ "keys", "runtime.dict_ops.keys" },
+    .{ "values", "runtime.dict_ops.values" },
+    .{ "items", "runtime.dict_ops.items" },
+    .{ "copy", "runtime.dict_ops.copy" },
+
+    // Comparison/membership
+    .{ "__contains__", "runtime.dict_ops.contains" },
+    .{ "__eq__", "runtime.dict_ops.eq" },
+    .{ "__ne__", "runtime.dict_ops.ne" },
+
+    // OrderedDict methods
+    .{ "move_to_end", "runtime.dict_ops.moveToEnd" },
+
+    // String conversion
+    .{ "__repr__", "runtime.dict_ops.repr" },
+    .{ "__str__", "runtime.dict_ops.str" },
+
+    // Length
+    .{ "__len__", "runtime.dict_ops.len" },
+});
+
+/// Methods available on Python list that need runtime dispatch
+pub const ListMethods = std.StaticStringMap([]const u8).initComptime(.{
+    // Mutating methods
+    .{ "append", "runtime.list_ops.append" },
+    .{ "extend", "runtime.list_ops.extend" },
+    .{ "insert", "runtime.list_ops.insert" },
+    .{ "remove", "runtime.list_ops.remove" },
+    .{ "pop", "runtime.list_ops.pop" },
+    .{ "clear", "runtime.list_ops.clear" },
+    .{ "reverse", "runtime.list_ops.reverse" },
+    .{ "sort", "runtime.list_ops.sort" },
+
+    // Non-mutating methods
+    .{ "index", "runtime.list_ops.index" },
+    .{ "count", "runtime.list_ops.count" },
+    .{ "copy", "runtime.list_ops.copy" },
+
+    // String conversion
+    .{ "__repr__", "runtime.list_ops.repr" },
+    .{ "__str__", "runtime.list_ops.str" },
+
+    // Length/comparison
+    .{ "__len__", "runtime.list_ops.len" },
+    .{ "__eq__", "runtime.list_ops.eq" },
+    .{ "__contains__", "runtime.list_ops.contains" },
+});
+
+/// Check if a method name is a Python primitive method that needs dispatch
+pub fn isPrimitiveMethod(method_name: []const u8) bool {
+    return FloatMethods.has(method_name) or IntMethods.has(method_name);
+}
+
+/// Check if a method name is a Python dict method that needs dispatch
+pub fn isDictMethod(method_name: []const u8) bool {
+    return DictMethods.has(method_name);
+}
+
+/// Check if a method name is a Python list method that needs dispatch
+pub fn isListMethod(method_name: []const u8) bool {
+    return ListMethods.has(method_name);
+}
+
+/// Get the runtime function for a float method
+pub fn getFloatMethod(method_name: []const u8) ?[]const u8 {
+    return FloatMethods.get(method_name);
+}
+
+/// Get the runtime function for an int method
+pub fn getIntMethod(method_name: []const u8) ?[]const u8 {
+    return IntMethods.get(method_name);
+}
+
+/// Get the runtime function for a dict method
+pub fn getDictMethod(method_name: []const u8) ?[]const u8 {
+    return DictMethods.get(method_name);
+}
+
+/// Get the runtime function for a list method
+pub fn getListMethod(method_name: []const u8) ?[]const u8 {
+    return ListMethods.get(method_name);
+}
+
+// ============================================================================
+// Closure Return Type Analysis - Infer proper return types for nested functions
+// ============================================================================
+// Closures/nested functions need proper return type inference. Common patterns:
+// - Returns context manager (assertRaises, open, etc.) -> ContextManager type
+// - Returns self method call -> method's return type
+// - Returns literal -> literal type
+// - Returns nothing -> void
+
+/// Known methods that return context managers (for `with` statement usage)
+pub const ContextManagerMethods = std.StaticStringMap([]const u8).initComptime(.{
+    // unittest assertion context managers
+    .{ "assertRaises", "runtime.unittest.AssertRaisesContext" },
+    .{ "assertRaisesRegex", "runtime.unittest.AssertRaisesContext" },
+    .{ "assertWarns", "runtime.unittest.AssertWarnsContext" },
+    .{ "assertWarnsRegex", "runtime.unittest.AssertWarnsContext" },
+    .{ "assertLogs", "runtime.unittest.AssertLogsContext" },
+    .{ "assertNoLogs", "runtime.unittest.AssertLogsContext" },
+
+    // File/IO context managers
+    .{ "open", "runtime.io.File" },
+
+    // Threading context managers
+    .{ "Lock", "runtime.threading.Lock" },
+    .{ "RLock", "runtime.threading.RLock" },
+
+    // Contextlib
+    .{ "contextmanager", "runtime.contextlib.ContextManager" },
+    .{ "nullcontext", "runtime.contextlib.NullContext" },
+    .{ "suppress", "runtime.contextlib.SuppressContext" },
+    .{ "redirect_stdout", "runtime.contextlib.RedirectContext" },
+    .{ "redirect_stderr", "runtime.contextlib.RedirectContext" },
+
+    // Decimal context
+    .{ "localcontext", "runtime.decimal.LocalContext" },
+
+    // Warnings
+    .{ "catch_warnings", "runtime.warnings.CatchWarningsContext" },
+});
+
+/// Closure return type categories
+pub const ClosureReturnType = enum {
+    void, // No return or return without value
+    context_manager, // Returns a context manager (for with statements)
+    integer, // Returns int literal or int expression
+    float, // Returns float
+    string, // Returns string
+    boolean, // Returns bool
+    list, // Returns list
+    dict, // Returns dict
+    tuple, // Returns tuple
+    callable, // Returns another function/lambda
+    self_type, // Returns self (for method chaining)
+    unknown, // Can't determine - use anytype or PyValue
+};
+
+/// Analyze a nested function's return type from its AST
+/// Returns the inferred return type category
+pub fn analyzeClosureReturnType(func_body: []const ast.Node) ClosureReturnType {
+    // First pass: collect variable types from assignments
+    var var_types: [32]VarTypeEntry = undefined;
+    var var_count: usize = 0;
+    collectVarTypes(func_body, &var_types, &var_count);
+
+    // Second pass: find return statements and infer type
+    for (func_body) |stmt| {
+        if (stmt == .return_stmt) {
+            const ret = stmt.return_stmt;
+            if (ret.value) |val_ptr| {
+                return inferExprReturnTypeWithVars(val_ptr.*, var_types[0..var_count]);
+            } else {
+                return .void;
+            }
+        }
+    }
+    // No explicit return found
+    return .void;
+}
+
+/// Entry for tracking variable types
+const VarTypeEntry = struct {
+    name: []const u8,
+    var_type: ClosureReturnType,
+};
+
+/// Collect variable types from assignments in function body
+fn collectVarTypes(body: []const ast.Node, var_types: *[32]VarTypeEntry, count: *usize) void {
+    for (body) |stmt| {
+        switch (stmt) {
+            .assign => |assign| {
+                // Get the assigned value type
+                const value_type = inferExprReturnType(assign.value.*);
+                // Track all target variables
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        const name = target.name.id;
+                        if (count.* < 32) {
+                            var_types[count.*] = .{ .name = name, .var_type = value_type };
+                            count.* += 1;
+                        }
+                    }
+                }
+            },
+            .aug_assign => |aug| {
+                // Augmented assignment (+=, -= etc) preserves or promotes type
+                // For now, assume it keeps the type based on the operand
+                const value_type = inferExprReturnType(aug.value.*);
+                if (aug.target.* == .name) {
+                    const name = aug.target.name.id;
+                    // Update existing or add new
+                    for (var_types[0..count.*]) |*entry| {
+                        if (std.mem.eql(u8, entry.name, name)) {
+                            // Keep existing type or promote to unknown if different
+                            if (entry.var_type != value_type and value_type != .unknown) {
+                                entry.var_type = .unknown;
+                            }
+                            return;
+                        }
+                    }
+                    // Add new entry
+                    if (count.* < 32) {
+                        var_types[count.*] = .{ .name = name, .var_type = value_type };
+                        count.* += 1;
+                    }
+                }
+            },
+            .for_stmt => |for_stmt| {
+                // Recurse into for body
+                collectVarTypes(for_stmt.body, var_types, count);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    collectVarTypes(orelse_body, var_types, count);
+                }
+            },
+            .while_stmt => |while_stmt| {
+                collectVarTypes(while_stmt.body, var_types, count);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    collectVarTypes(orelse_body, var_types, count);
+                }
+            },
+            .if_stmt => |if_stmt| {
+                collectVarTypes(if_stmt.body, var_types, count);
+                collectVarTypes(if_stmt.else_body, var_types, count);
+            },
+            .try_stmt => |try_stmt| {
+                collectVarTypes(try_stmt.body, var_types, count);
+                collectVarTypes(try_stmt.else_body, var_types, count);
+                collectVarTypes(try_stmt.finalbody, var_types, count);
+            },
+            .with_stmt => |with_stmt| {
+                collectVarTypes(with_stmt.body, var_types, count);
+            },
+            else => {},
+        }
+    }
+}
+
+/// Infer return type with variable type lookup
+fn inferExprReturnTypeWithVars(expr: ast.Node, var_types: []const VarTypeEntry) ClosureReturnType {
+    return switch (expr) {
+        .name => |n| {
+            if (std.mem.eql(u8, n.id, "self")) return .self_type;
+            if (std.mem.eql(u8, n.id, "True") or std.mem.eql(u8, n.id, "False")) return .boolean;
+            if (std.mem.eql(u8, n.id, "None")) return .void;
+            // Look up variable type
+            for (var_types) |entry| {
+                if (std.mem.eql(u8, entry.name, n.id)) {
+                    return entry.var_type;
+                }
+            }
+            return .unknown;
+        },
+        else => inferExprReturnType(expr),
+    };
+}
+
+/// Infer return type from an expression
+fn inferExprReturnType(expr: ast.Node) ClosureReturnType {
+    return switch (expr) {
+        .constant => |c| switch (c.value) {
+            .int => .integer,
+            .float => .float,
+            .string => .string,
+            .bool => .boolean,
+            .none => .void,
+            else => .unknown,
+        },
+        .list => .list,
+        .dict => .dict,
+        .tuple => .tuple,
+        .set => .unknown, // Set type
+        .name => |n| {
+            if (std.mem.eql(u8, n.id, "self")) return .self_type;
+            if (std.mem.eql(u8, n.id, "True") or std.mem.eql(u8, n.id, "False")) return .boolean;
+            if (std.mem.eql(u8, n.id, "None")) return .void;
+            return .unknown;
+        },
+        .call => |call| {
+            // Check if calling a known context manager method
+            if (call.func.* == .attribute) {
+                const attr = call.func.attribute;
+                if (ContextManagerMethods.has(attr.attr)) {
+                    return .context_manager;
+                }
+            }
+            // Check if calling a known context manager function
+            if (call.func.* == .name) {
+                if (ContextManagerMethods.has(call.func.name.id)) {
+                    return .context_manager;
+                }
+            }
+            return .unknown;
+        },
+        .lambda => .callable,
+        .binop => |op| {
+            // Arithmetic ops typically return numeric
+            return switch (op.op) {
+                .Add, .Sub, .Mult, .Div, .FloorDiv, .Mod, .Pow => .unknown, // Could be int or float
+                .BitOr, .BitXor, .BitAnd, .LShift, .RShift => .integer,
+                else => .unknown,
+            };
+        },
+        .compare => .boolean,
+        .boolop => .boolean,
+        .unaryop => |op| {
+            if (op.op == .Not) return .boolean;
+            return .unknown;
+        },
+        else => .unknown,
+    };
+}
+
+/// Get the Zig type string for a closure return type
+/// NOTE: anytype cannot be used as return type in Zig - use concrete types or PyValue
+pub fn closureReturnTypeToZig(ret_type: ClosureReturnType) []const u8 {
+    return switch (ret_type) {
+        .void => "void",
+        .context_manager => "runtime.PyValue", // Context managers resolved separately
+        .integer => "i64",
+        .float => "f64",
+        .string => "[]const u8",
+        .boolean => "bool",
+        .list => "runtime.PyValue", // List element type varies
+        .dict => "runtime.PyValue", // Dict key/value types vary
+        .tuple => "runtime.PyValue", // Tuple field types vary
+        .callable => "runtime.PyValue", // Function types vary
+        .self_type => "runtime.PyValue", // Self type varies by class
+        .unknown => "runtime.PyValue", // Fallback to dynamic type
+    };
+}
+
+/// Check if a method name returns a context manager
+pub fn isContextManagerMethod(method_name: []const u8) bool {
+    return ContextManagerMethods.has(method_name);
+}
+
+/// Get the Zig type for a context manager method
+pub fn getContextManagerType(method_name: []const u8) ?[]const u8 {
+    return ContextManagerMethods.get(method_name);
+}
+
+// ============================================================================
+// Variable Mutation Analysis - Determine var vs const for local variables
+// ============================================================================
+// Zig 0.15 requires `const` for variables that are never mutated.
+// A variable needs `var` if:
+// 1. It's reassigned after initial declaration (multiple assignments)
+// 2. It's used in augmented assignment (+=, -=, etc.)
+// 3. It's an iterator (mutated by .next() calls)
+//
+// Note: Dict/list method calls (.put(), .append()) don't require `var` -
+// these methods take *Self and mutate through the pointer.
+
+/// Analyze a function body for variable mutations
+/// Returns a set of variable names that are mutated (need `var`)
+pub fn analyzeMutatedVars(body: []const ast.Node) MutatedVarSet {
+    var result = MutatedVarSet{};
+    collectMutatedVars(body, &result, null);
+    return result;
+}
+
+/// Set of mutated variable names (up to 64 variables)
+pub const MutatedVarSet = struct {
+    names: [64][]const u8 = undefined,
+    count: usize = 0,
+
+    pub fn add(self: *MutatedVarSet, name: []const u8) void {
+        // Don't add duplicates
+        for (self.names[0..self.count]) |existing| {
+            if (std.mem.eql(u8, existing, name)) return;
+        }
+        if (self.count < 64) {
+            self.names[self.count] = name;
+            self.count += 1;
+        }
+    }
+
+    pub fn contains(self: *const MutatedVarSet, name: []const u8) bool {
+        for (self.names[0..self.count]) |existing| {
+            if (std.mem.eql(u8, existing, name)) return true;
+        }
+        return false;
+    }
+};
+
+/// Collect mutated variables from function body
+/// first_assign tracks which variables have been seen (for detecting reassignment)
+fn collectMutatedVars(body: []const ast.Node, result: *MutatedVarSet, first_assign: ?*MutatedVarSet) void {
+    var seen = if (first_assign) |fa| fa.* else MutatedVarSet{};
+
+    for (body) |stmt| {
+        switch (stmt) {
+            .assign => |assign| {
+                // Check for reassignment (variable assigned more than once)
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        const name = target.name.id;
+                        if (seen.contains(name)) {
+                            // Reassigned - needs var
+                            result.add(name);
+                        } else {
+                            seen.add(name);
+                        }
+                    }
+                }
+            },
+            .aug_assign => |aug| {
+                // Augmented assignment always needs var
+                if (aug.target.* == .name) {
+                    result.add(aug.target.name.id);
+                }
+            },
+            .for_stmt => |for_stmt| {
+                // Loop variable is reassigned each iteration
+                if (for_stmt.target.* == .name) {
+                    result.add(for_stmt.target.name.id);
+                }
+                // Recurse into body with current seen state
+                collectMutatedVars(for_stmt.body, result, &seen);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    collectMutatedVars(orelse_body, result, &seen);
+                }
+            },
+            .while_stmt => |while_stmt| {
+                collectMutatedVars(while_stmt.body, result, &seen);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    collectMutatedVars(orelse_body, result, &seen);
+                }
+            },
+            .if_stmt => |if_stmt| {
+                collectMutatedVars(if_stmt.body, result, &seen);
+                collectMutatedVars(if_stmt.else_body, result, &seen);
+            },
+            .try_stmt => |try_stmt| {
+                collectMutatedVars(try_stmt.body, result, &seen);
+                collectMutatedVars(try_stmt.else_body, result, &seen);
+                collectMutatedVars(try_stmt.finalbody, result, &seen);
+            },
+            .with_stmt => |with_stmt| {
+                collectMutatedVars(with_stmt.body, result, &seen);
+            },
+            .function_def => {
+                // Don't recurse into nested function definitions -
+                // they have their own scope
+            },
+            .class_def => {
+                // Don't recurse into class definitions
+            },
+            else => {},
+        }
+    }
+}
+
+/// Check if a variable is mutated in a function body
+pub fn isVarMutatedInBody(body: []const ast.Node, var_name: []const u8) bool {
+    const mutated = analyzeMutatedVars(body);
+    return mutated.contains(var_name);
+}
 
 // ============================================================================
 // Precise Error Types - Generate error{KeyError,IndexError}!T not anyerror!T
@@ -663,6 +1417,20 @@ const AnalyzerContext = struct {
     // Precise error types
     error_types: ErrorSet = .{},
 
+    // ========== PARAMETER USAGE ANALYSIS ==========
+    /// Track which parameters are actually used in the body
+    params_used: std.ArrayList(bool),
+
+    // ========== BLOCK-SCOPED VARIABLE ANALYSIS ==========
+    /// Current block scope depth (0 = function level, >0 = inside for/if/try/with)
+    block_scope_depth: usize = 0,
+    /// Variables declared at each scope depth (for tracking block-scoped vars)
+    vars_at_depth: hashmap_helper.StringHashMap(usize),
+    /// Variables declared in blocks that are used outside their declaring block
+    escaping_block_vars: std.ArrayList([]const u8),
+    /// Variables declared in blocks that are NOT used outside (truly block-scoped)
+    block_scoped_vars: std.ArrayList([]const u8),
+
     pub fn init(allocator: std.mem.Allocator) AnalyzerContext {
         return .{
             .allocator = allocator,
@@ -673,6 +1441,10 @@ const AnalyzerContext = struct {
             .escaping_params = std.ArrayList(bool){},
             .escaping_locals = std.ArrayList([]const u8){},
             .local_vars = hashmap_helper.StringHashMap(void).init(allocator),
+            .params_used = std.ArrayList(bool){},
+            .vars_at_depth = hashmap_helper.StringHashMap(usize).init(allocator),
+            .escaping_block_vars = std.ArrayList([]const u8){},
+            .block_scoped_vars = std.ArrayList([]const u8){},
         };
     }
 
@@ -684,6 +1456,10 @@ const AnalyzerContext = struct {
         self.escaping_params.deinit(self.allocator);
         self.escaping_locals.deinit(self.allocator);
         self.local_vars.deinit();
+        self.params_used.deinit(self.allocator);
+        self.vars_at_depth.deinit();
+        self.escaping_block_vars.deinit(self.allocator);
+        self.block_scoped_vars.deinit(self.allocator);
     }
 
     pub fn reset(self: *AnalyzerContext) void {
@@ -694,6 +1470,10 @@ const AnalyzerContext = struct {
         self.escaping_params.clearRetainingCapacity();
         self.escaping_locals.clearRetainingCapacity();
         self.local_vars.clearRetainingCapacity();
+        self.params_used.clearRetainingCapacity();
+        self.vars_at_depth.clearRetainingCapacity();
+        self.escaping_block_vars.clearRetainingCapacity();
+        self.block_scoped_vars.clearRetainingCapacity();
         self.has_await = false;
         self.has_io = false;
         self.can_error = false;
@@ -708,6 +1488,53 @@ const AnalyzerContext = struct {
         self.has_loops = false;
         self.return_aliases_param = null;
         self.error_types = .{};
+        self.block_scope_depth = 0;
+    }
+
+    /// Mark a parameter as used
+    pub fn markParamUsed(self: *AnalyzerContext, param_name: []const u8) !void {
+        for (self.param_names, 0..) |name, i| {
+            if (std.mem.eql(u8, name, param_name)) {
+                // Ensure params_used array is large enough
+                while (self.params_used.items.len <= i) {
+                    try self.params_used.append(self.allocator, false);
+                }
+                self.params_used.items[i] = true;
+                return;
+            }
+        }
+    }
+
+    /// Declare a variable at current block depth
+    pub fn declareVarAtDepth(self: *AnalyzerContext, var_name: []const u8) !void {
+        try self.vars_at_depth.put(var_name, self.block_scope_depth);
+    }
+
+    /// Check if a variable use escapes its declaring block
+    pub fn checkVarEscape(self: *AnalyzerContext, var_name: []const u8) !void {
+        if (self.vars_at_depth.get(var_name)) |decl_depth| {
+            // Variable was declared in a block
+            if (decl_depth > 0 and self.block_scope_depth < decl_depth) {
+                // Used at a shallower depth than declared = escape
+                // Add to escaping_block_vars if not already there
+                for (self.escaping_block_vars.items) |v| {
+                    if (std.mem.eql(u8, v, var_name)) return;
+                }
+                try self.escaping_block_vars.append(self.allocator, var_name);
+            }
+        }
+    }
+
+    /// Enter a block scope (for/if/try/with)
+    pub fn enterBlockScope(self: *AnalyzerContext) void {
+        self.block_scope_depth += 1;
+    }
+
+    /// Exit a block scope
+    pub fn exitBlockScope(self: *AnalyzerContext) void {
+        if (self.block_scope_depth > 0) {
+            self.block_scope_depth -= 1;
+        }
     }
 };
 
@@ -924,6 +1751,24 @@ fn analyzeStatement(stmt: ast.Node, graph: *CallGraph, ctx: *AnalyzerContext) !v
             // Copy precise error types
             traits.error_types = ctx.error_types;
 
+            // Copy parameter usage analysis
+            if (ctx.params_used.items.len > 0) {
+                traits.params_used_in_body = try ctx.allocator.dupe(bool, ctx.params_used.items);
+            }
+
+            // Copy block-scoped variable analysis
+            if (ctx.escaping_block_vars.items.len > 0) {
+                traits.escaping_block_vars = try ctx.allocator.dupe([]const u8, ctx.escaping_block_vars.items);
+            }
+            if (ctx.block_scoped_vars.items.len > 0) {
+                traits.block_scoped_vars = try ctx.allocator.dupe([]const u8, ctx.block_scoped_vars.items);
+            }
+
+            // Analyze heterogeneous list patterns
+            const het_analysis = analyzeHeterogeneousLists(ctx.allocator, func.body);
+            traits.heterogeneous_vars = het_analysis.heterogeneous_vars;
+            traits.list_aliases = het_analysis.list_aliases;
+
             try graph.functions.put(func.name, traits);
         },
         .class_def => |class| {
@@ -959,9 +1804,10 @@ fn analyzeStmtForTraits(stmt: ast.Node, ctx: *AnalyzerContext) !void {
             // Check for parameter mutation via attribute/subscript assignment
             for (assign.targets) |target| {
                 try checkMutation(target, ctx);
-                // Track local variable definitions
+                // Track local variable definitions with block scope depth
                 if (target == .name) {
                     try ctx.local_vars.put(target.name.id, {});
+                    try ctx.declareVarAtDepth(target.name.id);
                 }
                 // Check if storing param into global (escape)
                 if (target == .name and !ctx.scope_vars.contains(target.name.id)) {
@@ -1001,34 +1847,56 @@ fn analyzeStmtForTraits(stmt: ast.Node, ctx: *AnalyzerContext) !void {
         },
         .if_stmt => |if_stmt| {
             try analyzeExprForTraits(if_stmt.condition.*, ctx);
+            ctx.enterBlockScope();
             for (if_stmt.body) |s| try analyzeStmtForTraits(s, ctx);
+            ctx.exitBlockScope();
+            ctx.enterBlockScope();
             for (if_stmt.else_body) |s| try analyzeStmtForTraits(s, ctx);
+            ctx.exitBlockScope();
             ctx.op_count += 2;
         },
         .while_stmt => |while_stmt| {
             ctx.has_loops = true;
             try analyzeExprForTraits(while_stmt.condition.*, ctx);
+            ctx.enterBlockScope();
             for (while_stmt.body) |s| try analyzeStmtForTraits(s, ctx);
+            ctx.exitBlockScope();
             ctx.op_count += 5;
         },
         .for_stmt => |for_stmt| {
             ctx.has_loops = true;
             try analyzeExprForTraits(for_stmt.iter.*, ctx);
+            ctx.enterBlockScope();
+            // Track loop variable at block scope
+            if (for_stmt.target.* == .name) {
+                try ctx.declareVarAtDepth(for_stmt.target.name.id);
+            }
             for (for_stmt.body) |s| try analyzeStmtForTraits(s, ctx);
+            ctx.exitBlockScope();
             ctx.op_count += 5;
         },
         .try_stmt => |try_stmt| {
             ctx.can_error = true;
+            ctx.enterBlockScope();
             for (try_stmt.body) |s| try analyzeStmtForTraits(s, ctx);
+            ctx.exitBlockScope();
             for (try_stmt.handlers) |h| {
+                ctx.enterBlockScope();
                 for (h.body) |s| try analyzeStmtForTraits(s, ctx);
+                ctx.exitBlockScope();
             }
+            ctx.enterBlockScope();
             for (try_stmt.else_body) |s| try analyzeStmtForTraits(s, ctx);
+            ctx.exitBlockScope();
+            ctx.enterBlockScope();
             for (try_stmt.finalbody) |s| try analyzeStmtForTraits(s, ctx);
+            ctx.exitBlockScope();
         },
         .with_stmt => |with_stmt| {
             try analyzeExprForTraits(with_stmt.context_expr.*, ctx);
+            ctx.enterBlockScope();
             for (with_stmt.body) |s| try analyzeStmtForTraits(s, ctx);
+            ctx.exitBlockScope();
         },
         .function_def => {
             // Nested function - check for captures
@@ -1119,6 +1987,12 @@ fn analyzeExprForTraits(expr: ast.Node, ctx: *AnalyzerContext) error{OutOfMemory
             ctx.op_count += 2;
         },
         .name => |n| {
+            // Track parameter usage
+            try ctx.markParamUsed(n.id);
+
+            // Check if variable escapes its declaring block
+            try ctx.checkVarEscape(n.id);
+
             // Check if accessing variable from outer scope (closure capture)
             if (!ctx.scope_vars.contains(n.id)) {
                 // Could be a captured variable or global
@@ -1775,6 +2649,484 @@ fn callUsesAllocParam(call: ast.Node.Call, func_name: []const u8, nested: []cons
         for (nested) |c| if (std.mem.eql(u8, n, c)) return true;
     }
     return false;
+}
+
+// ============================================================================
+// Comptime Patterns for Runtime Type Handling
+// ============================================================================
+
+// ============================================================================
+// Heterogeneous List Analysis
+// ============================================================================
+// Detects when variables need PyValue type due to:
+// 1. List aliases that get heterogeneous items appended (T = A; T += [(x,)])
+// 2. Variables assigned different types in different branches
+// 3. List comprehensions producing mixed types
+
+/// Analyze a function body for heterogeneous list patterns
+/// Returns lists of variables that need special handling
+pub fn analyzeHeterogeneousLists(
+    allocator: std.mem.Allocator,
+    body: []const ast.Node,
+) struct { heterogeneous_vars: [][]const u8, list_aliases: []ListAlias } {
+    var heterogeneous_vars = std.ArrayList([]const u8){};
+    var list_aliases_list = std.ArrayList(ListAlias){};
+    var list_vars = hashmap_helper.StringHashMap(TypeHint).init(allocator);
+    defer list_vars.deinit();
+
+    // Two-pass analysis:
+    // Pass 1: Find all list variables and aliases
+    // Pass 2: Check augmented assignments for type mismatches
+    for (body) |stmt| {
+        analyzeStmtForLists(stmt, &list_vars, &list_aliases_list, allocator);
+    }
+
+    // Pass 2: Check for heterogeneous augmented assignments
+    for (body) |stmt| {
+        checkHeterogeneousAugAssign(stmt, &list_vars, &heterogeneous_vars, allocator);
+    }
+
+    return .{
+        .heterogeneous_vars = heterogeneous_vars.toOwnedSlice(allocator) catch &.{},
+        .list_aliases = list_aliases_list.toOwnedSlice(allocator) catch &.{},
+    };
+}
+
+fn analyzeStmtForLists(
+    stmt: ast.Node,
+    list_vars: *hashmap_helper.StringHashMap(TypeHint),
+    list_aliases: *std.ArrayList(ListAlias),
+    allocator: std.mem.Allocator,
+) void {
+    switch (stmt) {
+        .assign => |assign| {
+            // Check if this is a list assignment
+            for (assign.targets) |target| {
+                if (target == .name) {
+                    const var_name = target.name.id;
+                    // Check RHS type
+                    const rhs_type = inferSimpleType(assign.value.*);
+                    if (rhs_type == .list) {
+                        list_vars.put(allocator.dupe(u8, var_name) catch var_name, .list) catch {};
+                    } else if (assign.value.* == .name) {
+                        // Potential alias: T = A
+                        const rhs_name = assign.value.name.id;
+                        if (list_vars.contains(rhs_name)) {
+                            list_aliases.append(allocator, .{
+                                .alias_name = allocator.dupe(u8, var_name) catch var_name,
+                                .original_name = allocator.dupe(u8, rhs_name) catch rhs_name,
+                            }) catch {};
+                            list_vars.put(allocator.dupe(u8, var_name) catch var_name, .list) catch {};
+                        }
+                    }
+                }
+            }
+        },
+        .for_stmt => |for_stmt| {
+            for (for_stmt.body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+            if (for_stmt.orelse_body) |else_body| {
+                for (else_body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+            }
+        },
+        .while_stmt => |while_stmt| {
+            for (while_stmt.body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+            if (while_stmt.orelse_body) |else_body| {
+                for (else_body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+            }
+        },
+        .if_stmt => |if_stmt| {
+            for (if_stmt.body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+            for (if_stmt.else_body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+        },
+        else => {},
+    }
+}
+
+fn checkHeterogeneousAugAssign(
+    stmt: ast.Node,
+    list_vars: *hashmap_helper.StringHashMap(TypeHint),
+    heterogeneous_vars: *std.ArrayList([]const u8),
+    allocator: std.mem.Allocator,
+) void {
+    switch (stmt) {
+        .aug_assign => |aug| {
+            if (aug.op == .Add and aug.target.* == .name) {
+                const var_name = aug.target.name.id;
+                if (list_vars.contains(var_name)) {
+                    // Check if RHS produces different type
+                    const rhs_type = inferSimpleType(aug.value.*);
+                    // List + tuple/product = heterogeneous
+                    if (rhs_type == .tuple or rhs_type == .list) {
+                        // Check if it's a comprehension producing tuples
+                        if (aug.value.* == .listcomp) {
+                            const comp = aug.value.listcomp;
+                            const elem_type = inferSimpleType(comp.elt.*);
+                            if (elem_type == .tuple) {
+                                // This list will have heterogeneous elements
+                                heterogeneous_vars.append(allocator, allocator.dupe(u8, var_name) catch var_name) catch {};
+                            }
+                        } else if (aug.value.* == .call) {
+                            // Check if it's a product() call
+                            if (aug.value.call.func.* == .name) {
+                                const fn_name = aug.value.call.func.name.id;
+                                if (std.mem.eql(u8, fn_name, "product")) {
+                                    heterogeneous_vars.append(allocator, allocator.dupe(u8, var_name) catch var_name) catch {};
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        .for_stmt => |for_stmt| {
+            for (for_stmt.body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+            if (for_stmt.orelse_body) |else_body| {
+                for (else_body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+            }
+        },
+        .while_stmt => |while_stmt| {
+            for (while_stmt.body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+            if (while_stmt.orelse_body) |else_body| {
+                for (else_body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+            }
+        },
+        .if_stmt => |if_stmt| {
+            for (if_stmt.body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+            for (if_stmt.else_body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+        },
+        else => {},
+    }
+}
+
+fn inferSimpleType(expr: ast.Node) TypeHint {
+    return switch (expr) {
+        .list => .list,
+        .tuple => .tuple,
+        .listcomp => .list,
+        .dict, .dictcomp => .dict,
+        .constant => |c| switch (c.value) {
+            .int => .int,
+            .float => .float,
+            .bool => .bool,
+            .string, .bytes => .string,
+            .none => .none,
+            else => .any,
+        },
+        .call => .any, // Could be anything
+        else => .any,
+    };
+}
+
+// ============================================================================
+// Bound Method Reference Analysis
+// ============================================================================
+
+/// Check if a function body contains bound method references (self.method used as value)
+/// Returns a list of (target_field, method_name) pairs for field assignments like:
+///   self.callback = self.handler
+/// where handler is a method name
+pub fn findBoundMethodRefs(body: []const ast.Node, class_methods: []const []const u8) BoundMethodRefs {
+    var result = BoundMethodRefs{};
+    for (body) |stmt| {
+        collectBoundMethodRefs(stmt, class_methods, &result);
+    }
+    return result;
+}
+
+pub const BoundMethodRef = struct {
+    field_name: []const u8, // Target field (e.g., "default_factory")
+    method_name: []const u8, // Bound method (e.g., "_factory")
+};
+
+pub const BoundMethodRefs = struct {
+    refs: [16]BoundMethodRef = undefined,
+    count: usize = 0,
+
+    pub fn add(self: *BoundMethodRefs, ref: BoundMethodRef) void {
+        if (self.count < 16) {
+            self.refs[self.count] = ref;
+            self.count += 1;
+        }
+    }
+
+    pub fn contains(self: *const BoundMethodRefs, field_name: []const u8) bool {
+        for (self.refs[0..self.count]) |ref| {
+            if (std.mem.eql(u8, ref.field_name, field_name)) return true;
+        }
+        return false;
+    }
+
+    pub fn getMethod(self: *const BoundMethodRefs, field_name: []const u8) ?[]const u8 {
+        for (self.refs[0..self.count]) |ref| {
+            if (std.mem.eql(u8, ref.field_name, field_name)) return ref.method_name;
+        }
+        return null;
+    }
+};
+
+fn collectBoundMethodRefs(stmt: ast.Node, class_methods: []const []const u8, result: *BoundMethodRefs) void {
+    switch (stmt) {
+        .assign => |assign| {
+            // Look for: self.field = self.method
+            if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                const target_attr = assign.targets[0].attribute;
+                if (target_attr.value.* == .name and std.mem.eql(u8, target_attr.value.name.id, "self")) {
+                    // Target is self.field - check if value is self.method
+                    if (assign.value.* == .attribute) {
+                        const value_attr = assign.value.attribute;
+                        if (value_attr.value.* == .name and std.mem.eql(u8, value_attr.value.name.id, "self")) {
+                            // Check if attr is a method name
+                            for (class_methods) |method| {
+                                if (std.mem.eql(u8, value_attr.attr, method)) {
+                                    result.add(.{
+                                        .field_name = target_attr.attr,
+                                        .method_name = value_attr.attr,
+                                    });
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        .if_stmt => |if_stmt| {
+            for (if_stmt.body) |s| collectBoundMethodRefs(s, class_methods, result);
+            for (if_stmt.else_body) |s| collectBoundMethodRefs(s, class_methods, result);
+        },
+        .for_stmt => |for_stmt| {
+            for (for_stmt.body) |s| collectBoundMethodRefs(s, class_methods, result);
+        },
+        .while_stmt => |while_stmt| {
+            for (while_stmt.body) |s| collectBoundMethodRefs(s, class_methods, result);
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |s| collectBoundMethodRefs(s, class_methods, result);
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |s| collectBoundMethodRefs(s, class_methods, result);
+            }
+        },
+        else => {},
+    }
+}
+
+/// Get all method names from a class definition
+pub fn getClassMethods(class_def: ast.Node.ClassDef) [64][]const u8 {
+    var methods: [64][]const u8 = undefined;
+    var count: usize = 0;
+
+    for (class_def.body) |stmt| {
+        if (stmt == .function_def) {
+            if (count < 64) {
+                methods[count] = stmt.function_def.name;
+                count += 1;
+            }
+        }
+    }
+
+    // Null terminate
+    if (count < 64) {
+        methods[count] = "";
+    }
+
+    return methods;
+}
+
+// ============================================================================
+// Variable Usage Analysis
+// ============================================================================
+
+/// Track which variables are actually used (read) in a function body
+/// This is for determining if `_ = var;` discard is needed
+pub const UsedVarsSet = struct {
+    names: [128][]const u8 = undefined,
+    count: usize = 0,
+
+    pub fn add(self: *UsedVarsSet, name: []const u8) void {
+        if (!self.contains(name) and self.count < 128) {
+            self.names[self.count] = name;
+            self.count += 1;
+        }
+    }
+
+    pub fn contains(self: *const UsedVarsSet, name: []const u8) bool {
+        for (self.names[0..self.count]) |n| {
+            if (std.mem.eql(u8, n, name)) return true;
+        }
+        return false;
+    }
+};
+
+/// Analyze which variables are actually read (used) in a function body
+/// Excludes LHS of assignments (those are writes, not reads)
+pub fn analyzeUsedVars(body: []const ast.Node) UsedVarsSet {
+    var result = UsedVarsSet{};
+    for (body) |stmt| {
+        collectUsedVars(stmt, &result);
+    }
+    return result;
+}
+
+fn collectUsedVars(node: ast.Node, result: *UsedVarsSet) void {
+    switch (node) {
+        .name => |name| result.add(name.id),
+        .attribute => |attr| collectUsedVars(attr.value.*, result),
+        .subscript => |sub| {
+            collectUsedVars(sub.value.*, result);
+            collectUsedVars(sub.slice.*, result);
+        },
+        .call => |call| {
+            collectUsedVars(call.func.*, result);
+            for (call.args) |arg| collectUsedVars(arg, result);
+            for (call.keywords) |kw| {
+                if (kw.value) |v| collectUsedVars(v.*, result);
+            }
+        },
+        .binop => |binop| {
+            collectUsedVars(binop.left.*, result);
+            collectUsedVars(binop.right.*, result);
+        },
+        .unaryop => |unary| collectUsedVars(unary.operand.*, result),
+        .compare => |cmp| {
+            collectUsedVars(cmp.left.*, result);
+            for (cmp.comparators) |c| collectUsedVars(c, result);
+        },
+        .boolop => |boolop| {
+            for (boolop.values) |v| collectUsedVars(v, result);
+        },
+        .ifexp => |ifexp| {
+            collectUsedVars(ifexp.condition.*, result);
+            collectUsedVars(ifexp.body.*, result);
+            collectUsedVars(ifexp.@"orelse".*, result);
+        },
+        .list => |list| {
+            for (list.elts) |e| collectUsedVars(e, result);
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |e| collectUsedVars(e, result);
+        },
+        .dict => |dict| {
+            for (dict.keys) |k| collectUsedVars(k, result);
+            for (dict.values) |v| collectUsedVars(v, result);
+        },
+        .set => |set| {
+            for (set.elts) |e| collectUsedVars(e, result);
+        },
+        .listcomp => |lc| {
+            collectUsedVars(lc.elt.*, result);
+            for (lc.generators) |gen| {
+                collectUsedVars(gen.iter.*, result);
+                for (gen.ifs) |cond| collectUsedVars(cond, result);
+            }
+        },
+        .dictcomp => |dc| {
+            collectUsedVars(dc.key.*, result);
+            collectUsedVars(dc.value.*, result);
+            for (dc.generators) |gen| {
+                collectUsedVars(gen.iter.*, result);
+                for (gen.ifs) |cond| collectUsedVars(cond, result);
+            }
+        },
+        .setcomp => |sc| {
+            collectUsedVars(sc.elt.*, result);
+            for (sc.generators) |gen| {
+                collectUsedVars(gen.iter.*, result);
+                for (gen.ifs) |cond| collectUsedVars(cond, result);
+            }
+        },
+        .genexp => |ge| {
+            collectUsedVars(ge.elt.*, result);
+            for (ge.generators) |gen| {
+                collectUsedVars(gen.iter.*, result);
+                for (gen.ifs) |cond| collectUsedVars(cond, result);
+            }
+        },
+        .lambda => |lambda| collectUsedVars(lambda.body.*, result),
+        .slice => |slice| {
+            if (slice.lower) |l| collectUsedVars(l.*, result);
+            if (slice.upper) |u| collectUsedVars(u.*, result);
+            if (slice.step) |s| collectUsedVars(s.*, result);
+        },
+        .starred => |starred| collectUsedVars(starred.value.*, result),
+        .await_expr => |await_e| collectUsedVars(await_e.value.*, result),
+        .joined_str => |js| {
+            for (js.values) |v| collectUsedVars(v, result);
+        },
+        .formatted_value => |fv| collectUsedVars(fv.value.*, result),
+        // Statements - recurse into their expression parts
+        .assign => |assign| {
+            // Only collect from RHS (value), not LHS (targets)
+            collectUsedVars(assign.value.*, result);
+        },
+        .ann_assign => |ann| {
+            if (ann.value) |v| collectUsedVars(v.*, result);
+        },
+        .aug_assign => |aug| {
+            // Both target and value are used for aug_assign (target is read AND written)
+            collectUsedVars(aug.target.*, result);
+            collectUsedVars(aug.value.*, result);
+        },
+        .expr_stmt => |expr| collectUsedVars(expr.value.*, result),
+        .return_stmt => |ret| {
+            if (ret.value) |v| collectUsedVars(v.*, result);
+        },
+        .delete_stmt => |del| {
+            for (del.targets) |t| collectUsedVars(t, result);
+        },
+        .raise_stmt => |raise| {
+            if (raise.exc) |e| collectUsedVars(e.*, result);
+            if (raise.cause) |c| collectUsedVars(c.*, result);
+        },
+        .assert_stmt => |assert| {
+            collectUsedVars(assert.@"test".*, result);
+            if (assert.msg) |m| collectUsedVars(m.*, result);
+        },
+        .if_stmt => |if_stmt| {
+            collectUsedVars(if_stmt.condition.*, result);
+            for (if_stmt.body) |s| collectUsedVars(s, result);
+            for (if_stmt.else_body) |s| collectUsedVars(s, result);
+        },
+        .while_stmt => |while_stmt| {
+            collectUsedVars(while_stmt.condition.*, result);
+            for (while_stmt.body) |s| collectUsedVars(s, result);
+            if (while_stmt.orelse_body) |else_body| {
+                for (else_body) |s| collectUsedVars(s, result);
+            }
+        },
+        .for_stmt => |for_stmt| {
+            collectUsedVars(for_stmt.iter.*, result);
+            for (for_stmt.body) |s| collectUsedVars(s, result);
+            if (for_stmt.orelse_body) |else_body| {
+                for (else_body) |s| collectUsedVars(s, result);
+            }
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |s| collectUsedVars(s, result);
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |s| collectUsedVars(s, result);
+            }
+            for (try_stmt.else_body) |s| collectUsedVars(s, result);
+            for (try_stmt.finalbody) |s| collectUsedVars(s, result);
+        },
+        .with_stmt => |with_stmt| {
+            collectUsedVars(with_stmt.context_expr.*, result);
+            for (with_stmt.body) |s| collectUsedVars(s, result);
+        },
+        .match_stmt => |match_stmt| {
+            collectUsedVars(match_stmt.subject.*, result);
+            for (match_stmt.cases) |case| {
+                for (case.body) |s| collectUsedVars(s, result);
+            }
+        },
+        else => {},
+    }
+}
+
+/// Check if a variable is actually used (read) in a body after being assigned
+/// This helps avoid "pointless discard" errors
+pub fn isVarActuallyUsed(body: []const ast.Node, var_name: []const u8) bool {
+    const used = analyzeUsedVars(body);
+    return used.contains(var_name);
 }
 
 // ============================================================================

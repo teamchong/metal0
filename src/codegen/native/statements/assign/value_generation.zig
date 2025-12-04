@@ -403,9 +403,11 @@ pub fn emitVarDeclaration(
     // This checks both module-level analysis AND function-local mutations
     const is_mutated = self.isVarMutated(var_name);
 
-    // Check if value type is deque, counter, or hash_object (all are mutable collections)
-    // hash_object needs var because update() mutates it
-    const is_mutable_collection = (value_type == .deque or value_type == .counter or value_type == .hash_object);
+    // Check if value type is deque - deques need var because std.ArrayList methods (append, etc.)
+    // take *Self, not self pointer. Unlike hashmaps which use *Self parameters and can be const.
+    // NOTE: counter/hash_object/defaultdict use hashmaps which take *Self in method signatures,
+    // so they can be const unless reassigned (like dicts). Only deque needs var for ArrayList API.
+    const is_mutable_collection = (value_type == .deque);
 
     // Iterators need var because next() mutates them
     // Note: hash_object types can use const unless explicitly mutated (is_mutated check)
@@ -420,7 +422,9 @@ pub fn emitVarDeclaration(
     // but now closures pass class instances directly (no &), so this flag is no longer needed.
     _ = is_mutable_class_instance; // No longer used for var/const decision
     // List comprehensions return ArrayLists which need `var` for defer deinit() calls
-    const needs_var = is_arraylist or is_dict or is_mutated or is_mutable_collection or is_iterator or is_listcomp;
+    // Note: Dicts don't need `var` just because they're dicts - dict methods take *Self
+    // and can mutate through the pointer. Only use `var` if the variable itself is reassigned.
+    const needs_var = is_arraylist or is_mutated or is_mutable_collection or is_iterator or is_listcomp;
 
     if (needs_var) {
         try self.emit("var ");

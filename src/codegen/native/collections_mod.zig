@@ -6,7 +6,32 @@ const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
 // Public exports for dispatch/builtins.zig
-pub const genDefaultdict = h.discard("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
+pub fn genDefaultdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    // defaultdict(factory) - factory is used for missing key access
+    // We don't fully support this semantic, just create an empty dict
+    // Don't use h.discard() as it causes "pointless discard" errors when
+    // the factory arg is a variable that's used elsewhere in the function
+    //
+    // If we have args, just reference them in a way that doesn't trigger warnings
+    if (args.len > 0) {
+        // For variable arguments that might be used elsewhere, use &var (address-of)
+        // This tells Zig we're intentionally referencing it without consuming
+        const arg = args[0];
+        if (arg == .name) {
+            // Variable - just emit the dict init (variable will be used elsewhere)
+            try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
+        } else {
+            // Non-variable (like int, str, list literals) - wrap in discard block
+            const id = h.emitUniqueBlockStart(self, "discard") catch 0;
+            try self.emit("_ = ");
+            try self.genExpr(arg);
+            h.emitBlockBreak(self, "discard", id) catch {};
+            try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator); }");
+        }
+    } else {
+        try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
+    }
+}
 pub const genOrderedDict = h.discard("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
 
 // Counter method handlers for method dispatch
@@ -79,9 +104,19 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "UserString", h.pass("\"\"") },
 });
 
-pub const genCounter = h.wrap("counter_blk: { const _iterable = ", "; var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator); for (_iterable) |item| { const entry = _counter.getOrPut(item) catch continue; if (entry.found_existing) { entry.value_ptr.* += 1; } else { entry.value_ptr.* = 1; } } break :counter_blk _counter; }", "hashmap_helper.StringHashMap(i64).init(__global_allocator)");
+// Counter and Deque need comptime dispatch to handle ArrayList vs slice
+// Use runtime.iterSlice() to normalize ArrayList to slice first
+pub const genCounter = h.wrap(
+    "counter_blk: { const _iter_raw = ",
+    "; const _iterable = runtime.iterSlice(_iter_raw); var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator); for (_iterable) |item| { const entry = _counter.getOrPut(item) catch continue; if (entry.found_existing) { entry.value_ptr.* += 1; } else { entry.value_ptr.* = 1; } } break :counter_blk _counter; }",
+    "hashmap_helper.StringHashMap(i64).init(__global_allocator)",
+);
 
-pub const genDeque = h.wrap("deque_blk: { const _iterable = ", "; var _deque = std.ArrayList(@TypeOf(_iterable[0])){}; for (_iterable) |item| { _deque.append(__global_allocator, item) catch continue; } break :deque_blk _deque; }", "std.ArrayList(i64){}");
+pub const genDeque = h.wrap(
+    "deque_blk: { const _iter_raw = ",
+    "; const _iterable = runtime.iterSlice(_iter_raw); var _deque = std.ArrayList(@TypeOf(_iterable[0])){}; for (_iterable) |item| { _deque.append(__global_allocator, item) catch continue; } break :deque_blk _deque; }",
+    "std.ArrayList(i64){}",
+);
 
 /// Generate code for collections.namedtuple(typename, field_names)
 /// Returns a struct type that can be instantiated
