@@ -180,6 +180,15 @@ pub inline fn iterSlice(value: anytype) IterSliceType(@TypeOf(value)) {
         return value.items;
     }
 
+    // Handle pointer to ArrayList - dereference and extract .items
+    if (info == .pointer and info.pointer.size == .one) {
+        const Child = info.pointer.child;
+        const child_info = @typeInfo(Child);
+        if (child_info == .@"struct" and @hasField(Child, "items") and @hasField(Child, "capacity")) {
+            return value.items;
+        }
+    }
+
     // Handle PyValue - extract list slice
     if (T == PyValue) {
         return switch (value) {
@@ -206,6 +215,15 @@ fn IterSliceType(comptime T: type) type {
     if (info == .@"struct" and @hasField(T, "items") and @hasField(T, "capacity")) {
         // ArrayList.items is a slice, return that slice type directly
         return @TypeOf(@as(T, undefined).items);
+    }
+
+    // Pointer to ArrayList -> slice of its item type
+    if (info == .pointer and info.pointer.size == .one) {
+        const Child = info.pointer.child;
+        const child_info = @typeInfo(Child);
+        if (child_info == .@"struct" and @hasField(Child, "items") and @hasField(Child, "capacity")) {
+            return @TypeOf(@as(Child, undefined).items);
+        }
     }
 
     // PyValue -> []const PyValue
@@ -2041,14 +2059,113 @@ pub fn pyHash(value: anytype) i64 {
         }
     }
 
-    // Float: hash the bit representation
+    // Float: use Python's float hash algorithm
     if (type_info == .float or type_info == .comptime_float) {
-        const bits: u64 = @bitCast(@as(f64, value));
-        return @bitCast(bits);
+        return floatHashInternal(@as(f64, value));
+    }
+
+    // Struct (tuple): use Python's tuple hash algorithm
+    if (type_info == .@"struct") {
+        return tupleHashInternal(value);
     }
 
     // Default: return 0 for unhashable types
     return 0;
+}
+
+/// Python-compatible float hash (from Objects/object.c _Py_HashDouble)
+/// Uses the same algorithm as CPython to ensure hash(0.5) == hash(Fraction(1,2))
+fn floatHashInternal(v: f64) i64 {
+    // Special cases
+    if (std.math.isNan(v)) {
+        return 0;
+    }
+    if (std.math.isInf(v)) {
+        return if (v > 0) 314159 else -314159;
+    }
+    if (v == 0.0) {
+        return 0;
+    }
+
+    // Python's _PyHASH_MODULUS = (1 << 61) - 1 on 64-bit systems
+    const P: u128 = 2305843009213693951;
+
+    // Get the sign and absolute value
+    const sign: i64 = if (v < 0) -1 else 1;
+    const abs_v = @abs(v);
+
+    // frexp: v = m * 2^e where 0.5 <= |m| < 1
+    const frexp_result = std.math.frexp(abs_v);
+    var m: f64 = frexp_result.significand;
+    var e: i32 = frexp_result.exponent;
+
+    // Reduce the fraction: multiply mantissa by 2 until it's >= 1
+    // to get the integer numerator, tracking the power of 2 divisor
+    while (m != @trunc(m) and m < 9007199254740992.0) { // 2^53
+        m *= 2.0;
+        e -= 1;
+    }
+
+    // m is now effectively the numerator, 2^(-e) is the denominator (if e < 0)
+    // or 2^e is a multiplier (if e >= 0)
+    var x: u128 = @intFromFloat(m);
+
+    // Apply the exponent
+    if (e >= 0) {
+        // Multiply by 2^e mod P
+        while (e > 0) : (e -= 1) {
+            x = (x * 2) % P;
+        }
+    } else {
+        // Divide by 2^|e| mod P = multiply by modular inverse of 2^|e|
+        // inv(2) mod P = (P+1)/2 for Mersenne prime P = 2^61 - 1
+        const INV_2: u128 = 1152921504606846976;
+        while (e < 0) : (e += 1) {
+            x = (x * INV_2) % P;
+        }
+    }
+
+    var result: i64 = @intCast(x);
+    result *= sign;
+    if (result == -1) {
+        result = -2;
+    }
+    return result;
+}
+
+/// Python-compatible tuple hash using xxHash algorithm (CPython 3.8+)
+fn tupleHashInternal(tup: anytype) i64 {
+    const T = @TypeOf(tup);
+    const info = @typeInfo(T);
+    if (info != .@"struct") return 0;
+
+    const fields = info.@"struct".fields;
+    const num_fields = fields.len;
+
+    // Python's xxHash constants
+    const XXPRIME_1: u64 = 11400714785074694791;
+    const XXPRIME_2: u64 = 14029467366897019727;
+    const XXPRIME_5: u64 = 2870177450012600261;
+
+    var acc: u64 = XXPRIME_5;
+
+    // Hash each element
+    inline for (fields) |field| {
+        const elem = @field(tup, field.name);
+        const elem_hash: u64 = @bitCast(pyHash(elem));
+        acc +%= elem_hash *% XXPRIME_2;
+        acc = (acc << 31) | (acc >> 33); // rotate left 31
+        acc *%= XXPRIME_1;
+    }
+
+    // Final mix
+    acc +%= @as(u64, num_fields) ^ (XXPRIME_5 ^ 3527539);
+
+    if (acc == @as(u64, @bitCast(@as(i64, -1)))) {
+        return 1546275796;
+    }
+
+    return @bitCast(acc);
 }
 
 /// Python len() builtin for PyObject* types
