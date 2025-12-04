@@ -12,12 +12,11 @@ const genExpr = expressions.genExpr;
 pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
-    // Get the format string (strip Python quotes)
-    const format_str = if (binop.left.* == .constant and binop.left.constant.value == .string) blk: {
-        const raw = binop.left.constant.value.string;
-        // Strip Python quotes: 'x' or "x" -> x
-        break :blk if (raw.len >= 2) raw[1 .. raw.len - 1] else raw;
-    } else null;
+    // Get the format string (parser already strips quotes)
+    const format_str = if (binop.left.* == .constant and binop.left.constant.value == .string)
+        binop.left.constant.value.string
+    else
+        null;
 
     // For simple cases like "%d" % n where n is potentially BigInt, use comptime-aware formatting
     const label_id = self.block_label_counter;
