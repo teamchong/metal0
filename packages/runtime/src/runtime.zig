@@ -23,6 +23,13 @@ pub const _string = @import("_string.zig");
 /// Export AST executor for eval() support
 pub const ast_executor = @import("ast_executor.zig");
 
+/// Export iterators (TupleIterator, ListIterator, ReversedIterator)
+pub const iterators = @import("iterators.zig");
+pub const TupleIterator = iterators.TupleIterator;
+pub const ListIterator = iterators.ListIterator;
+pub const ReversedIterator = iterators.ReversedIterator;
+pub const SequenceIterator = iterators.SequenceIterator;
+
 /// Export calendar module
 pub const calendar = @import("calendar.zig");
 
@@ -894,6 +901,9 @@ pub fn pyObjToStr(allocator: std.mem.Allocator, obj: *PyObject) ![]const u8 {
     }
     if (PyFloat_Check(obj)) {
         const val = PyFloat.getValue(obj);
+        // Python convention: nan never has sign
+        if (std.math.isNan(val)) return try allocator.dupe(u8, "nan");
+        if (std.math.isInf(val)) return try allocator.dupe(u8, if (val < 0) "-inf" else "inf");
         return std.fmt.allocPrint(allocator, "{d}", .{val});
     }
     if (PyBool_Check(obj)) {
@@ -2383,9 +2393,20 @@ pub fn marshalLoads(data: []const u8) bool {
     return data[0] == 'T';
 }
 
-/// Pickle loads - decode pickle format back to value
-/// Handles pickle protocol 0 format for booleans: "I01\n." = True, "I00\n." = False
-pub fn pickleLoads(data: []const u8) bool {
+/// Pickle loads - decode pickle format back to value using full pickle implementation
+/// Returns a PickleValue which can be any Python type
+pub fn pickleLoads(data: []const u8) pickle.PickleValue {
+    // Use global allocator for pickle deserialization
+    const allocator = if (@import("builtin").is_test)
+        std.testing.allocator
+    else
+        std.heap.page_allocator;
+
+    return pickle.loads(data, allocator) catch .{ .none = {} };
+}
+
+/// Pickle loads returning bool (legacy compatibility for bool-only pickle)
+pub fn pickleLoadsBool(data: []const u8) bool {
     if (data.len < 4) return false;
     // Protocol 0: "I01\n." = True, "I00\n." = False
     if (data[0] == 'I' and data[1] == '0') {

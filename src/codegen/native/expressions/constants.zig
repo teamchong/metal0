@@ -253,6 +253,20 @@ pub fn emitZigStringContent(self: *NativeCodegen, content: []const u8, ctx: Stri
                     i = octal_end - 1;
                 },
 
+                // Line continuation - \<newline> is removed entirely in Python
+                '\n' => {
+                    // Skip both the backslash and the newline
+                    i += 1;
+                },
+                '\r' => {
+                    // Handle \r\n (Windows) or just \r
+                    if (i + 2 < content.len and content[i + 2] == '\n') {
+                        i += 2; // Skip \, \r, and \n
+                    } else {
+                        i += 1; // Skip \ and \r
+                    }
+                },
+
                 // Unknown escape - emit literal backslash + char
                 else => {
                     try self.emit("\\\\");

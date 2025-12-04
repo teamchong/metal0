@@ -787,6 +787,64 @@ pub fn tupleRepr(allocator: std.mem.Allocator, tup: anytype) ![]const u8 {
     return result.toOwnedSlice(allocator);
 }
 
+/// Python-compatible float repr/str
+/// Python's float repr always includes a decimal point (e.g., "0.0", "1.0", not "0", "1")
+/// Also handles special values: inf, -inf, nan
+/// Python uses scientific notation for very large (>=1e16) or very small (<=1e-4) numbers
+fn pythonFloatRepr(allocator: std.mem.Allocator, value: f64) ![]const u8 {
+    // Handle special values
+    if (std.math.isNan(value)) {
+        return "nan";
+    }
+    if (std.math.isInf(value)) {
+        return if (value < 0) "-inf" else "inf";
+    }
+
+    // Python uses scientific notation for very large or very small numbers
+    const abs_value = @abs(value);
+    const use_scientific = value != 0 and (abs_value >= 1e16 or abs_value < 1e-4);
+
+    if (use_scientific) {
+        // Use scientific notation - Python format includes explicit + sign for positive exponents
+        const formatted = try std.fmt.allocPrint(allocator, "{e}", .{value});
+        // Convert "1e16" to "1e+16" (add explicit + sign for positive exponents)
+        var result = std.ArrayList(u8){};
+        var i: usize = 0;
+        while (i < formatted.len) : (i += 1) {
+            try result.append(allocator, formatted[i]);
+            // After 'e', if next char is a digit (not '-'), insert '+'
+            if (formatted[i] == 'e' and i + 1 < formatted.len and formatted[i + 1] != '-') {
+                try result.append(allocator, '+');
+            }
+        }
+        allocator.free(formatted);
+        return result.toOwnedSlice(allocator);
+    }
+
+    // Format the float
+    const formatted = try std.fmt.allocPrint(allocator, "{d}", .{value});
+
+    // Check if it already has a decimal point or exponent
+    var has_decimal = false;
+    var has_exponent = false;
+    for (formatted) |c| {
+        if (c == '.') has_decimal = true;
+        if (c == 'e' or c == 'E') has_exponent = true;
+    }
+
+    // If already has decimal or exponent, return as-is
+    if (has_decimal or has_exponent) {
+        return formatted;
+    }
+
+    // Add ".0" suffix for integer-valued floats
+    var result = std.ArrayList(u8){};
+    try result.appendSlice(allocator, formatted);
+    try result.appendSlice(allocator, ".0");
+    allocator.free(formatted);
+    return result.toOwnedSlice(allocator);
+}
+
 /// Convert a value to its repr string (for tuple elements)
 fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
     const T = @TypeOf(value);
@@ -810,9 +868,9 @@ fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
         return std.fmt.allocPrint(allocator, "{d}", .{value});
     }
 
-    // Float
+    // Float - Python always includes decimal point in repr
     if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
-        return std.fmt.allocPrint(allocator, "{d}", .{value});
+        return pythonFloatRepr(allocator, value);
     }
 
     // Nested tuple/struct - recursive repr
@@ -886,9 +944,9 @@ fn valueStr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
         return std.fmt.allocPrint(allocator, "{d}", .{value});
     }
 
-    // Float
+    // Float - Python always includes decimal point in str
     if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
-        return std.fmt.allocPrint(allocator, "{d}", .{value});
+        return pythonFloatRepr(allocator, value);
     }
 
     // Tuple/struct - same as repr
@@ -1641,12 +1699,24 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
             // Get the first field (ndigits)
             const ndigits = args.@"0";
             const NdigitsT = @TypeOf(ndigits);
+            // TypeError for non-integer ndigits types (float, complex, string, etc.)
             if (@typeInfo(NdigitsT) == .float) {
-                break :blk @as(i64, @intFromFloat(ndigits));
+                return PythonError.TypeError;
             } else if (@typeInfo(NdigitsT) == .int or @typeInfo(NdigitsT) == .comptime_int) {
                 break :blk @as(i64, @intCast(ndigits));
+            } else if (@typeInfo(NdigitsT) == .@"struct") {
+                // Check for PyComplex or other non-integer types
+                if (@hasField(NdigitsT, "real") and @hasField(NdigitsT, "imag")) {
+                    return PythonError.TypeError; // complex
+                }
+                // Check for __int__ method on other struct types
+                if (@hasDecl(NdigitsT, "__int__")) {
+                    const int_result = ndigits.__int__();
+                    break :blk @as(i64, @intCast(int_result));
+                }
+                return PythonError.TypeError;
             } else {
-                break :blk 0;
+                return PythonError.TypeError;
             }
         } else {
             // No ndigits provided
@@ -1658,26 +1728,83 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
     const has_ndigits = @typeInfo(ArgsT) == .@"struct" and @typeInfo(ArgsT).@"struct".fields.len > 0;
 
     if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
-        // Check for special float values
+        // Check for special float values (only for no ndigits case)
         if (std.math.isNan(value)) {
-            return PythonError.ValueError;
+            if (!has_ndigits) {
+                return PythonError.ValueError;
+            }
+            // With ndigits, return NaN
+            return value;
         }
         if (std.math.isInf(value)) {
-            return PythonError.OverflowError;
+            if (!has_ndigits) {
+                return PythonError.OverflowError;
+            }
+            // With ndigits, return inf
+            return value;
         }
 
         if (!has_ndigits or digits == 0) {
-            // Round to nearest integer
-            return @round(value);
-        } else {
-            // Round to ndigits decimal places
+            // Round to nearest integer using banker's rounding (round half to even)
+            return bankersRound(value);
+        } else if (digits > 0) {
+            // Round to ndigits decimal places using banker's rounding
+            // For large numbers, check if they already have fewer decimals
             const multiplier = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(digits)));
-            return @round(value * multiplier) / multiplier;
+            // Check if the value is already at the requested precision
+            // by comparing original with rounded-then-restored value
+            const scaled = value * multiplier;
+            // Check for overflow
+            if (std.math.isInf(scaled)) {
+                return PythonError.OverflowError;
+            }
+            const rounded_scaled = bankersRound(scaled);
+            const result = rounded_scaled / multiplier;
+            // For very large numbers, avoid precision loss by checking if
+            // the original value fits in the precision requested
+            // If the difference is very small (floating point epsilon), use original
+            const diff = @abs(result - value);
+            const epsilon = @abs(value) * 1e-14; // relative tolerance
+            if (diff < epsilon) {
+                return value;
+            }
+            return result;
+        } else {
+            // Negative ndigits - round to tens, hundreds, etc.
+            const multiplier = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(-digits)));
+            const scaled = value / multiplier;
+            return bankersRound(scaled) * multiplier;
         }
     } else if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
         return @as(f64, @floatFromInt(value));
     } else {
         return PythonError.TypeError;
+    }
+}
+
+/// Python's banker's rounding: round half to even
+/// This is different from Zig's @round which rounds away from zero
+fn bankersRound(value: f64) f64 {
+    // Handle edge cases
+    if (std.math.isNan(value) or std.math.isInf(value)) {
+        return value;
+    }
+
+    const floored = @floor(value);
+    const frac = @abs(value - floored);
+
+    if (frac < 0.5) {
+        return floored;
+    } else if (frac > 0.5) {
+        return floored + 1.0;
+    } else {
+        // Exactly 0.5 - round to even
+        const floored_int: i64 = @intFromFloat(floored);
+        if (@mod(floored_int, 2) == 0) {
+            return floored; // floored is even, stay there
+        } else {
+            return floored + 1.0; // floored is odd, go to even
+        }
     }
 }
 
@@ -2047,9 +2174,16 @@ fn printValueToList(output: *std.ArrayList(u8), value: anytype, allocator: std.m
         const int_len = std.fmt.formatIntBuf(&buf, value, 10, .lower, .{});
         output.appendSlice(allocator, buf[0..int_len]) catch {};
     } else if (info == .float or info == .comptime_float) {
-        var buf: [64]u8 = undefined;
-        const formatted = std.fmt.bufPrint(&buf, "{d}", .{value}) catch return;
-        output.appendSlice(allocator, formatted) catch {};
+        // Python convention: nan never has sign
+        if (std.math.isNan(value)) {
+            output.appendSlice(allocator, "nan") catch {};
+        } else if (std.math.isInf(value)) {
+            output.appendSlice(allocator, if (value < 0) "-inf" else "inf") catch {};
+        } else {
+            var buf: [64]u8 = undefined;
+            const formatted = std.fmt.bufPrint(&buf, "{d}", .{value}) catch return;
+            output.appendSlice(allocator, formatted) catch {};
+        }
     } else if (info == .bool) {
         output.appendSlice(allocator, if (value) "True" else "False") catch {};
     } else if (T == *PyObject) {

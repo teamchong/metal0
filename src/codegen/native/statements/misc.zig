@@ -41,14 +41,15 @@ const MagicMethodConversion = struct {
 
 /// Get conversion wrapper for magic method return values
 /// Some dunder methods have fixed return types that require conversion
-/// NOTE: __int__, __index__ don't need wrappers - they return i64 directly
 fn getMagicMethodConversion(method_name: []const u8) ?MagicMethodConversion {
     const converters = std.StaticStringMap(MagicMethodConversion).initComptime(.{
         // Python 3: __bool__ must return exactly bool, not converted from other types
         .{ "__bool__", MagicMethodConversion{ .prefix = "runtime.validateBoolReturn(", .suffix = ")" } },
-        // Use runtime.pyToInt for __len__/__hash__ to handle both int and PyValue
+        // Use runtime.pyToInt for __len__/__hash__/__int__/__index__ to handle both int and PyValue
         .{ "__len__", MagicMethodConversion{ .prefix = "runtime.pyToInt(", .suffix = ")" } },
         .{ "__hash__", MagicMethodConversion{ .prefix = "runtime.pyToInt(", .suffix = ")" } },
+        .{ "__int__", MagicMethodConversion{ .prefix = "runtime.pyToInt(", .suffix = ")" } },
+        .{ "__index__", MagicMethodConversion{ .prefix = "runtime.pyToInt(", .suffix = ")" } },
         .{ "__float__", MagicMethodConversion{ .prefix = "runtime.toFloat(", .suffix = ")" } },
     });
     return converters.get(method_name);

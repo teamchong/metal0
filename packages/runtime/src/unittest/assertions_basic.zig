@@ -91,6 +91,109 @@ fn equalHashMap(a: anytype, b: anytype) bool {
     return std.meta.eql(a, b);
 }
 
+/// Compare PyValue union with another value (tuple, array, int, etc.)
+/// Extracts the inner value from PyValue and compares recursively
+fn equalPyValueWith(pyval: anytype, other: anytype) bool {
+    const PyVal = @TypeOf(pyval);
+    const Other = @TypeOf(other);
+    const other_info = @typeInfo(Other);
+
+    // Get active tag of PyValue union
+    const tag = std.meta.activeTag(pyval);
+
+    // Handle each PyValue variant
+    if (tag == .int) {
+        const val = @field(pyval, "int");
+        if (other_info == .int or other_info == .comptime_int) {
+            return val == other;
+        }
+        return false;
+    }
+    if (tag == .float) {
+        const val = @field(pyval, "float");
+        if (other_info == .float or other_info == .comptime_float) {
+            return @abs(val - other) < 0.0001;
+        }
+        if (other_info == .int or other_info == .comptime_int) {
+            return @abs(val - @as(f64, @floatFromInt(other))) < 0.0001;
+        }
+        return false;
+    }
+    if (tag == .string) {
+        const val = @field(pyval, "string");
+        if (other_info == .pointer and other_info.pointer.size == .slice and other_info.pointer.child == u8) {
+            return std.mem.eql(u8, val, other);
+        }
+        return false;
+    }
+    if (tag == .bool) {
+        const val = @field(pyval, "bool");
+        if (other_info == .bool) {
+            return val == other;
+        }
+        return false;
+    }
+    if (tag == .none) {
+        if (other_info == .optional) {
+            return other == null;
+        }
+        return false;
+    }
+    if (tag == .list or tag == .tuple) {
+        // Handle list field - could be ArrayList (PickleValue) or slice (PyValue)
+        const list_field = @field(pyval, "list");
+        const list_field_type = @TypeOf(list_field);
+        const list_field_info = @typeInfo(list_field_type);
+        const items: []const PyVal = if (tag == .list)
+            (if (list_field_info == .@"struct" and @hasField(list_field_type, "items"))
+                list_field.items
+            else
+                list_field)
+        else
+            @field(pyval, "tuple");
+
+        // Compare with Zig tuple
+        if (other_info == .@"struct" and other_info.@"struct".is_tuple) {
+            const fields = other_info.@"struct".fields;
+            if (items.len != fields.len) return false;
+
+            inline for (fields, 0..) |field, i| {
+                const other_elem = @field(other, field.name);
+                if (!equalPyValueWith(items[i], other_elem)) return false;
+            }
+            return true;
+        }
+        // Compare with Zig array
+        if (other_info == .array) {
+            if (items.len != other.len) return false;
+            for (items, 0..) |item, i| {
+                if (!equalPyValueWith(item, other[i])) return false;
+            }
+            return true;
+        }
+        // Compare with slice
+        if (other_info == .pointer and other_info.pointer.size == .slice) {
+            if (items.len != other.len) return false;
+            for (items, 0..) |item, i| {
+                if (!equalPyValueWith(item, other[i])) return false;
+            }
+            return true;
+        }
+        // Compare with ArrayList
+        if (other_info == .@"struct" and @hasField(Other, "items") and @hasField(Other, "capacity")) {
+            if (items.len != other.items.len) return false;
+            for (items, 0..) |item, i| {
+                if (!equalPyValueWith(item, other.items[i])) return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // Fallback - try direct comparison if same type
+    return false;
+}
+
 /// Compare values where one might be a string and the other a str subclass with __base_value__
 fn equalWithBaseValue(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
@@ -366,6 +469,14 @@ pub fn assertEqual(a: anytype, b: anytype) void {
         // Same type - direct comparison
         if (A == B) {
             if (a_info == .float or a_info == .comptime_float) {
+                // Special handling for infinity: inf == inf, -inf == -inf
+                if (std.math.isInf(a) and std.math.isInf(b)) {
+                    break :blk (a > 0) == (b > 0); // Same sign infinity
+                }
+                // NaN is never equal to anything (including itself) in Python
+                if (std.math.isNan(a) or std.math.isNan(b)) {
+                    break :blk false;
+                }
                 break :blk @abs(a - b) < 0.0001;
             }
             if (a_info == .array) {
@@ -421,6 +532,16 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             }
         }
 
+        // PyValue union vs Zig tuple/array - normalize PyValue to comparable form
+        if (a_info == .@"union" and @hasField(A, "list") and @hasField(A, "tuple") and @hasField(A, "int")) {
+            // a is PyValue - extract and compare
+            break :blk equalPyValueWith(a, b);
+        }
+        if (b_info == .@"union" and @hasField(B, "list") and @hasField(B, "tuple") and @hasField(B, "int")) {
+            // b is PyValue - extract and compare
+            break :blk equalPyValueWith(b, a);
+        }
+
         // ArrayList vs array comparison - compare ArrayList.items with array
         if (a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity") and b_info == .array) {
             if (a.items.len != b.len) break :blk false;
@@ -433,6 +554,26 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (b.items.len != a.len) break :blk false;
             for (b.items, 0..) |b_elem, i| {
                 if (b_elem != a[i]) break :blk false;
+            }
+            break :blk true;
+        }
+
+        // ArrayList vs Zig tuple - compare ArrayList.items with tuple fields
+        if (a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity") and b_info == .@"struct" and b_info.@"struct".is_tuple) {
+            const b_fields = b_info.@"struct".fields;
+            if (a.items.len != b_fields.len) break :blk false;
+            inline for (b_fields, 0..) |field, i| {
+                const b_elem = @field(b, field.name);
+                if (a.items[i] != b_elem) break :blk false;
+            }
+            break :blk true;
+        }
+        if (b_info == .@"struct" and @hasField(B, "items") and @hasField(B, "capacity") and a_info == .@"struct" and a_info.@"struct".is_tuple) {
+            const a_fields = a_info.@"struct".fields;
+            if (b.items.len != a_fields.len) break :blk false;
+            inline for (a_fields, 0..) |field, i| {
+                const a_elem = @field(a, field.name);
+                if (b.items[i] != a_elem) break :blk false;
             }
             break :blk true;
         }
@@ -1042,6 +1183,11 @@ pub fn assertTypeIsStr(value: anytype, comptime expected_type_str: []const u8) v
         if (std.mem.eql(u8, expected_type_str, "bytes")) {
             if (T == []const u8 or T == []u8) break :blk true;
         }
+        // User-defined class: extract class name from full qualified name
+        // Type name looks like: "*metal0_main_xxx.Outer.Inner.ClassName"
+        // We need to extract "ClassName" and compare with expected_type_str
+        const class_name = extractClassName(type_name);
+        if (std.mem.eql(u8, expected_type_str, class_name)) break :blk true;
         break :blk false;
     };
 
@@ -1056,6 +1202,31 @@ pub fn assertTypeIsStr(value: anytype, comptime expected_type_str: []const u8) v
         }
         @panic("assertTypeIsStr failed");
     }
+}
+
+/// Extract the class name from a full qualified Zig type name
+/// "*metal0_main_xxx.Outer.Inner.ClassName" -> "ClassName"
+/// "metal0_main_xxx.Outer.Inner.ClassName" -> "ClassName"
+/// "*const metal0_main_xxx.ClassName" -> "ClassName"
+fn extractClassName(comptime type_name: []const u8) []const u8 {
+    // Skip pointer prefix
+    var name = type_name;
+    if (name.len > 0 and name[0] == '*') {
+        name = name[1..];
+    }
+    // Skip "const " prefix
+    if (name.len >= 6 and std.mem.eql(u8, name[0..6], "const ")) {
+        name = name[6..];
+    }
+    // Find the last '.' and return everything after it
+    var last_dot: usize = 0;
+    for (name, 0..) |c, i| {
+        if (c == '.') last_dot = i + 1;
+    }
+    if (last_dot > 0 and last_dot < name.len) {
+        return name[last_dot..];
+    }
+    return name;
 }
 
 /// Assertion: assertIsNot(a, b) - pointer identity check (a is not b)

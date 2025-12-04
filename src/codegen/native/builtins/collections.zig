@@ -654,8 +654,24 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // For other types, pass through (they handle iteration differently)
+    // For tuples/arrays/slices, create a proper SequenceIterator
+    if (arg_type == .tuple or arg_type == .list) {
+        try self.emit("runtime.iterators.iter(i64, ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
+
+    // For unknown types, try to create an iterator at runtime
+    // This handles cases where the type can't be inferred at compile time
+    try self.emit("iter_blk: { const _iterable = ");
     try self.genExpr(args[0]);
+    try self.emit("; const _iter_type = @typeInfo(@TypeOf(_iterable)); ");
+    try self.emit("break :iter_blk if (_iter_type == .pointer and _iter_type.pointer.size == .slice) ");
+    try self.emit("runtime.iterators.SequenceIterator(@typeInfo(_iter_type.pointer.child).array.child).init(_iterable) ");
+    try self.emit("else if (_iter_type == .array) ");
+    try self.emit("runtime.iterators.SequenceIterator(_iter_type.array.child).init(&_iterable) ");
+    try self.emit("else _iterable; }");
 }
 
 /// Generate code for next(iterator, [default])

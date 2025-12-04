@@ -1189,10 +1189,9 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
                 try genExpr(self, unaryop.operand.*);
                 try self.emit("))");
             } else {
-                // Non-bool: unary plus is a no-op
-                try self.emit("(");
+                // Non-bool: unary plus is a no-op in Python, just emit the operand
+                // Note: In Zig, `+x` is not valid syntax, so we just emit `x`
                 try genExpr(self, unaryop.operand.*);
-                try self.emit(")");
             }
         },
         .Invert => {

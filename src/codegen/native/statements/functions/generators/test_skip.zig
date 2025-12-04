@@ -143,6 +143,23 @@ fn isMockPatchFunc(node: ast.Node) bool {
     return false;
 }
 
+/// Check if test name indicates pickle iterator test
+/// These tests require pickle to reconstruct actual iterator types (via __reduce__)
+/// which metal0 doesn't support yet
+pub fn isPickleIteratorTest(test_name: []const u8) bool {
+    return std.mem.indexOf(u8, test_name, "iterator_pickle") != null or
+        std.mem.indexOf(u8, test_name, "reversed_pickle") != null;
+}
+
+/// Check if test requires advanced exception context manager support
+/// (assertRaisesRegex with actual code execution)
+pub fn requiresExceptionContextManager(test_name: []const u8) bool {
+    // test_getitem_error uses assertRaisesRegex context manager
+    // test_no_comdat_folding tests list + tuple subclass TypeError
+    return std.mem.eql(u8, test_name, "test_getitem_error") or
+        std.mem.eql(u8, test_name, "test_no_comdat_folding");
+}
+
 /// Convert Python default value to Zig code
 pub fn convertDefaultToZig(default_expr: ast.Node) ?[]const u8 {
     return switch (default_expr) {

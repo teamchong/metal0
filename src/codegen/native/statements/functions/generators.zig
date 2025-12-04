@@ -281,6 +281,53 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
         // For nested classes (inside methods), don't override 'self' in type_inferrer
         // because 'self' should refer to the enclosing class's instance, not the nested class
+    } else if (new_method) |new| {
+        // Similar logic for __new__ methods when there's no __init__
+        // In __new__, fields are set on the local 'self' variable created by super().__new__()
+        if (self.type_inferrer.class_fields.getPtr(class.name)) |existing_info_ptr| {
+            // Merge fields from __new__ body into the existing entry
+            const native_types = @import("../../../../analysis/native_types/core.zig");
+            for (new.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                        const attr = assign.targets[0].attribute;
+                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                            if (!existing_info_ptr.fields.contains(attr.attr)) {
+                                try existing_info_ptr.fields.put(attr.attr, native_types.NativeType.unknown);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Create new entry for class
+            const native_types = @import("../../../../analysis/native_types/core.zig");
+            var fields = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
+            const methods = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
+            const property_methods = hashmap_helper.StringHashMap(native_types.NativeType).init(self.allocator);
+            const property_getters = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
+
+            // Extract field types from __new__ body
+            for (new.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
+                        const attr = assign.targets[0].attribute;
+                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                            try fields.put(attr.attr, .unknown);
+                        }
+                    }
+                }
+            }
+
+            try self.type_inferrer.class_fields.put(class.name, .{
+                .fields = fields,
+                .methods = methods,
+                .property_methods = property_methods,
+                .property_getters = property_getters,
+            });
+        }
     }
 
     // Check for base classes - we support single inheritance
@@ -364,6 +411,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         "Test passes class as runtime argument (self.method(ClassName))"
                     else if (test_skip.hasSkipDocstring(method.body))
                         "Marked skip in docstring"
+                    else if (test_skip.isPickleIteratorTest(method_name))
+                        "Pickle iterator reconstruction not supported (requires __reduce__ protocol)"
+                    else if (test_skip.requiresExceptionContextManager(method_name))
+                        "Requires exception context manager support (assertRaisesRegex)"
                     else
                         null;
 

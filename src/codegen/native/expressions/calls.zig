@@ -987,9 +987,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             // Check if class inherits from builtin type and needs default args
             // e.g., BadIndex(int) called as BadIndex() should supply default 0
+            // Also handles subclass(sequence=()) where keyword args are passed but no positional args
             const builtin_base_info: ?generators.BuiltinBaseInfo = blk: {
-                if (call.args.len == 0 and call.keyword_args.len == 0) {
-                    // No args provided - check if class has builtin base with defaults
+                if (call.args.len == 0) {
+                    // No positional args provided - check if class has builtin base with defaults
                     // First check class_registry (for top-level classes)
                     if (self.class_registry.getClass(raw_func_name)) |class_def| {
                         if (class_def.bases.len > 0) {
@@ -1104,9 +1105,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         }
                     } else if (inherits_tuple_or_list and i == 0) {
                         // For tuple/list subclass, first arg is __base_value__ which needs PyValue
-                        try self.emit("runtime.PyValue.from(");
+                        // Use fromAlloc to properly convert arrays/tuples to PyValue tuples
+                        try self.emit("(try runtime.PyValue.fromAlloc(__global_allocator, ");
                         try genExpr(self, arg);
-                        try self.emit(")");
+                        try self.emit("))");
                     } else {
                         // Check if passing 'self' from method context to class constructor
                         // In Zig, 'self' in methods is *const @This(), but constructors expect value type

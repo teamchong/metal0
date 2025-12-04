@@ -32,7 +32,13 @@ pub const PyFloat = struct {
     /// Convert float to string representation
     pub fn toString(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
         const val = getValue(obj);
-        const str = try std.fmt.allocPrint(allocator, "{d}", .{val});
+        // Python convention: nan never has sign
+        const str = if (std.math.isNan(val))
+            try allocator.dupe(u8, "nan")
+        else if (std.math.isInf(val))
+            try allocator.dupe(u8, if (val < 0) "-inf" else "inf")
+        else
+            try std.fmt.allocPrint(allocator, "{d}", .{val});
         return try runtime.PyString.create(allocator, str);
     }
 };
