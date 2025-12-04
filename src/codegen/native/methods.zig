@@ -66,11 +66,37 @@ pub const genGet = dict.genGet;
 pub const genKeys = dict.genKeys;
 pub const genValues = dict.genValues;
 pub const genItems = dict.genItems;
+pub const genDictUpdate = dict.genUpdate;
+pub const genDictClear = dict.genClear;
+pub const genDictCopy = dict.genCopy;
+pub const genDictPop = dict.genPop;
+pub const genDictPopitem = dict.genPopitem;
+pub const genDictSetdefault = dict.genSetdefault;
 
 // File methods
 pub const genFileRead = file.genFileRead;
 pub const genFileWrite = file.genFileWrite;
 pub const genFileClose = file.genFileClose;
+
+// Set methods
+const set = @import("methods/set.zig");
+pub const genSetAdd = set.genAdd;
+pub const genSetRemove = set.genRemove;
+pub const genSetDiscard = set.genDiscard;
+pub const genSetClear = set.genClear;
+pub const genSetPop = set.genPop;
+pub const genSetCopy = set.genCopy;
+pub const genSetUpdate = set.genUpdate;
+pub const genSetUnion = set.genUnion;
+pub const genSetIntersection = set.genIntersection;
+pub const genSetDifference = set.genDifference;
+pub const genSetSymmetricDifference = set.genSymmetricDifference;
+pub const genSetIssubset = set.genIssubset;
+pub const genSetIssuperset = set.genIssuperset;
+pub const genSetIsdisjoint = set.genIsdisjoint;
+pub const genSetIntersectionUpdate = set.genIntersectionUpdate;
+pub const genSetDifferenceUpdate = set.genDifferenceUpdate;
+pub const genSetSymmetricDifferenceUpdate = set.genSymmetricDifferenceUpdate;
 
 // Float methods
 pub const genFloatIsInteger = float.genIsInteger;

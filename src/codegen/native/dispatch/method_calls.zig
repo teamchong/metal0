@@ -85,6 +85,33 @@ const DictMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "keys", methods.genKeys },
     .{ "values", methods.genValues },
     .{ "items", methods.genItems },
+    .{ "update", methods.genDictUpdate },
+    .{ "clear", methods.genDictClear },
+    .{ "copy", methods.genDictCopy },
+    .{ "pop", methods.genDictPop },
+    .{ "popitem", methods.genDictPopitem },
+    .{ "setdefault", methods.genDictSetdefault },
+});
+
+// Set methods - O(1) lookup via StaticStringMap
+const SetMethods = std.StaticStringMap(MethodHandler).initComptime(.{
+    .{ "add", methods.genSetAdd },
+    .{ "remove", methods.genSetRemove },
+    .{ "discard", methods.genSetDiscard },
+    .{ "clear", methods.genSetClear },
+    .{ "pop", methods.genSetPop },
+    .{ "copy", methods.genSetCopy },
+    .{ "update", methods.genSetUpdate },
+    .{ "union", methods.genSetUnion },
+    .{ "intersection", methods.genSetIntersection },
+    .{ "difference", methods.genSetDifference },
+    .{ "symmetric_difference", methods.genSetSymmetricDifference },
+    .{ "issubset", methods.genSetIssubset },
+    .{ "issuperset", methods.genSetIssuperset },
+    .{ "isdisjoint", methods.genSetIsdisjoint },
+    .{ "intersection_update", methods.genSetIntersectionUpdate },
+    .{ "difference_update", methods.genSetDifferenceUpdate },
+    .{ "symmetric_difference_update", methods.genSetSymmetricDifferenceUpdate },
 });
 
 // File methods - O(1) lookup via StaticStringMap
@@ -327,10 +354,26 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         return true;
     }
 
-    // Try dict methods
+    // Try dict methods - but only for dict-like types (not sets)
+    // Dict and set both have 'update', 'clear', 'copy', 'pop' methods
+    // We need to check type to dispatch correctly
     if (DictMethods.get(method_name)) |handler| {
-        try handler(self, obj, call.args);
-        return true;
+        // Only dispatch dict methods for dict-like types
+        if (obj_type == .dict or obj_type == .counter or
+            (obj_type == .unknown and !SetMethods.has(method_name))) {
+            try handler(self, obj, call.args);
+            return true;
+        }
+    }
+
+    // Try set methods (for set types)
+    // Set method names are unique enough (update, discard, intersection_update, etc.)
+    // that we can safely dispatch on unknown and class_instance types too
+    if (SetMethods.get(method_name)) |handler| {
+        if (obj_type == .set or obj_type == .unknown or obj_type == .class_instance) {
+            try handler(self, obj, call.args);
+            return true;
+        }
     }
 
     // Try float methods (is_integer, as_integer_ratio, hex, conjugate)
