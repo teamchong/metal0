@@ -167,10 +167,11 @@ metal0 compiles Python's `asyncio` to optimized native code:
 
 | Library | Time | vs metal0 | Size |
 |---------|------|----------|------|
-| **metal0 (WASM)** | **33.6ms** | **1.00x** | **46KB** |
-| @anthropic-ai/tokenizer (JS) | 33.5ms | 1.00x | 8.6MB |
-| gpt-tokenizer (JS) | 904ms | 27x slower | 1.1MB |
-| tiktoken (Node) | 11965ms | 356x slower | 1.0MB |
+| **metal0 (WASM)** | **93ms** | **1.00x** | **46KB + 773B runtime** |
+| gpt-tokenizer (JS) | 713ms | 7.7x slower | 1.1MB |
+| @anthropic-ai/tokenizer (JS) | 8560ms | 92x slower | 8.6MB |
+
+*Runtime uses Immer-style Proxy pattern - 773 bytes shared across all modules.*
 
 **BPE Training (vocab_size=32000, 300 iterations):**
 
@@ -244,6 +245,62 @@ metal0 build app.py        # compile only
 metal0 build --binary app.py  # standalone executable
 metal0 --force app.py      # ignore cache
 ```
+
+## WASM Compilation
+
+Compile Python to WebAssembly with Immer-style JS runtime and auto-generated TypeScript definitions:
+
+```bash
+metal0 build --target wasm-browser app.py
+# Outputs: app.wasm + app.d.ts
+```
+
+**Usage:**
+```javascript
+import { load } from '@metal0/wasm-runtime';  // 773 bytes, Immer-style runtime
+import type { Tokenizer } from './tokenizer';   // generated .d.ts
+
+const mod = await load<Tokenizer>('./tokenizer.wasm');
+mod.encode("hello");  // fully typed
+```
+
+**Immer-Style Runtime (`@metal0/wasm-runtime` - 773 bytes):**
+
+Like [Immer](https://immerjs.github.io/immer/), our runtime uses a Proxy pattern for minimal code that works with ANY module:
+
+```javascript
+// Generic Proxy-based loader - same for ALL modules
+const E=new TextEncoder();let w,m,p,M=1<<20;
+const g=()=>new Uint8Array(m.buffer,p,M);
+const x=a=>{
+  if(typeof a!=='string')return[a];
+  const b=E.encode(a);
+  if(b.length>M){M=b.length+1024;p=w.alloc(M)}
+  g().set(b);return[p,b.length];
+};
+export async function load(s){
+  const b=typeof s==='string'?await fetch(s).then(r=>r.arrayBuffer()):s;
+  w=(await WebAssembly.instantiate(await WebAssembly.compile(b),{})).exports;
+  m=w.memory;
+  if(w.alloc){p=w.alloc(M)}
+  return new Proxy({},{get:(_,n)=>n==='batch'?batch:typeof w[n]==='function'?(...a)=>w[n](...a.flatMap(x)):w[n]});
+}
+```
+
+**Generated TypeScript definitions (tokenizer.d.ts):**
+```typescript
+// Auto-generated - provides full IntelliSense
+export interface Tokenizer {
+  encode(text: string): number;
+  decode(tokens: number[]): string;
+}
+```
+
+**Why Immer-Style?**
+- **773 bytes** - Tiny, works with ANY WASM module
+- **Proxy pattern** - Zero per-function wrapper code
+- **Auto string marshalling** - Handles JS↔WASM conversion
+- **Module-specific .d.ts** - Full TypeScript support
 
 ## Features
 

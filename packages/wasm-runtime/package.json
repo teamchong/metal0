@@ -1,0 +1,17 @@
+{
+  "name": "@metal0/wasm-runtime",
+  "version": "0.1.0",
+  "description": "Generic WASM runtime for metal0-compiled modules",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./index.js",
+      "types": "./index.d.ts"
+    }
+  },
+  "files": ["index.js", "index.d.ts"],
+  "keywords": ["wasm", "metal0", "python", "compiler"],
+  "license": "Apache-2.0"
+}
