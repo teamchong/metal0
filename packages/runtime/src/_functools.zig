@@ -93,6 +93,7 @@ pub fn partial1(comptime ReturnType: type, comptime Arg1: type, comptime Arg2: t
 
 /// cmp_to_key(func) -> key function
 /// Convert a cmp= function into a key= function for sorting.
+/// The returned key wrapper supports all 6 comparison operators.
 pub fn CmpToKey(comptime T: type) type {
     return struct {
         value: T,
@@ -104,13 +105,45 @@ pub fn CmpToKey(comptime T: type) type {
             return .{ .value = value, .cmp_func = cmp_func };
         }
 
-        pub fn lessThan(self: Self, other: Self) bool {
+        /// Less than: a < b
+        pub fn lt(self: Self, other: Self) bool {
             return self.cmp_func(self.value, other.value) < 0;
         }
 
+        /// Less than or equal: a <= b
+        pub fn le(self: Self, other: Self) bool {
+            return self.cmp_func(self.value, other.value) <= 0;
+        }
+
+        /// Equal: a == b
+        pub fn eq(self: Self, other: Self) bool {
+            return self.cmp_func(self.value, other.value) == 0;
+        }
+
+        /// Not equal: a != b
+        pub fn ne(self: Self, other: Self) bool {
+            return self.cmp_func(self.value, other.value) != 0;
+        }
+
+        /// Greater than: a > b
+        pub fn gt(self: Self, other: Self) bool {
+            return self.cmp_func(self.value, other.value) > 0;
+        }
+
+        /// Greater than or equal: a >= b
+        pub fn ge(self: Self, other: Self) bool {
+            return self.cmp_func(self.value, other.value) >= 0;
+        }
+
+        /// Alias for lt (used by std.sort)
+        pub fn lessThan(self: Self, other: Self) bool {
+            return self.lt(other);
+        }
+
+        /// Order function for std.mem.sort context parameter
         pub fn order(context: *const fn (T, T) i32, a: Self, b: Self) bool {
             _ = context;
-            return a.cmp_func(a.value, b.value) < 0;
+            return a.lt(b);
         }
     };
 }
@@ -134,7 +167,7 @@ pub fn LruCache(comptime KeyType: type, comptime ValueType: type, comptime max_s
         pub fn init(allocator: Allocator) Self {
             return .{
                 .cache = std.AutoHashMap(KeyType, CacheEntry).init(allocator),
-                .order = std.ArrayList(KeyType).init(allocator),
+                .order = .empty,
                 .hits = 0,
                 .misses = 0,
                 .allocator = allocator,
@@ -271,4 +304,34 @@ test "lru cache eviction" {
     try std.testing.expectEqual(@as(?i32, null), cache.get(1)); // Evicted
     try std.testing.expectEqual(@as(?i32, 200), cache.get(2));
     try std.testing.expectEqual(@as(?i32, 300), cache.get(3));
+}
+
+test "cmp_to_key comparisons" {
+    // Standard comparison function: returns -1, 0, or 1
+    const compare = struct {
+        fn f(a: i32, b: i32) i32 {
+            if (a < b) return -1;
+            if (a > b) return 1;
+            return 0;
+        }
+    }.f;
+
+    const K = CmpToKey(i32);
+    const k5 = K.init(5, &compare);
+    const k3 = K.init(3, &compare);
+    const k5b = K.init(5, &compare);
+
+    // All 6 comparison operators
+    try std.testing.expect(!k5.lt(k3)); // 5 < 3 is false
+    try std.testing.expect(k3.lt(k5)); // 3 < 5 is true
+    try std.testing.expect(!k5.le(k3)); // 5 <= 3 is false
+    try std.testing.expect(k5.le(k5b)); // 5 <= 5 is true
+    try std.testing.expect(k5.eq(k5b)); // 5 == 5 is true
+    try std.testing.expect(!k5.eq(k3)); // 5 == 3 is false
+    try std.testing.expect(k5.ne(k3)); // 5 != 3 is true
+    try std.testing.expect(!k5.ne(k5b)); // 5 != 5 is false
+    try std.testing.expect(k5.gt(k3)); // 5 > 3 is true
+    try std.testing.expect(!k3.gt(k5)); // 3 > 5 is false
+    try std.testing.expect(k5.ge(k5b)); // 5 >= 5 is true
+    try std.testing.expect(k5.ge(k3)); // 5 >= 3 is true
 }

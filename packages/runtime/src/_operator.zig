@@ -156,6 +156,40 @@ pub fn pow(comptime T: type) fn (T, T) T {
     }.f;
 }
 
+/// matmul(a, b) -- Same as a @ b (matrix multiplication)
+/// Note: Zig doesn't have a matrix multiplication operator, so we provide a basic 2D implementation
+pub fn matmul(
+    comptime T: type,
+    a: []const []const T,
+    b: []const []const T,
+    allocator: std.mem.Allocator,
+) ![][]T {
+    if (a.len == 0 or b.len == 0) return &[_][]T{};
+    const m = a.len;
+    const n = b[0].len;
+    const k = a[0].len;
+
+    // a is m x k, b is k x n, result is m x n
+    var result = try allocator.alloc([]T, m);
+    for (0..m) |i| {
+        result[i] = try allocator.alloc(T, n);
+        for (0..n) |j| {
+            var sum: T = 0;
+            for (0..k) |ki| {
+                sum += a[i][ki] * b[ki][j];
+            }
+            result[i][j] = sum;
+        }
+    }
+    return result;
+}
+
+/// call(obj, *args, **kwargs) -- Same as obj(*args, **kwargs)
+/// In Zig, we just call the function directly
+pub fn call(comptime Func: type, func: Func, args: anytype) @typeInfo(Func).@"fn".return_type.? {
+    return @call(.auto, func, args);
+}
+
 // ============================================================================
 // Bitwise Operations
 // ============================================================================
@@ -389,6 +423,15 @@ pub const ilshift = lshift;
 
 /// irshift(a, b) -- Same as a >>= b
 pub const irshift = rshift;
+
+/// iconcat(a, b) -- Same as a += b, for sequences (in-place concatenation)
+/// Since Zig slices can't be extended in-place, this creates a new slice
+pub fn iconcat(comptime T: type, a: []const T, b: []const T, allocator: std.mem.Allocator) ![]T {
+    return concat(T, a, b, allocator);
+}
+
+/// imatmul - in-place matrix multiplication (same as matmul since matrices can't be resized in-place)
+pub const imatmul = matmul;
 
 // ============================================================================
 // Special

@@ -613,6 +613,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Both pow and operator.pow are callable structs, need .call() syntax
         if (for_stmt.iter.* == .tuple) {
             const tuple_elts = for_stmt.iter.tuple.elts;
+            var has_pow = false;
             for (tuple_elts) |elt| {
                 // Check for builtin references: pow, operator.pow, etc.
                 if (elt == .name) {
@@ -621,6 +622,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                         // Loop variable iterates over callable structs
                         const owned_name = try self.allocator.dupe(u8, var_name);
                         try self.callable_vars.put(owned_name, {});
+                        has_pow = true;
                         break;
                     }
                 } else if (elt == .attribute) {
@@ -632,11 +634,19 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                                 // Loop variable iterates over callable structs
                                 const owned_name = try self.allocator.dupe(u8, var_name);
                                 try self.callable_vars.put(owned_name, {});
+                                if (std.mem.eql(u8, attr.attr, "pow")) {
+                                    has_pow = true;
+                                }
                                 break;
                             }
                         }
                     }
                 }
+            }
+            // pow returns error union for ZeroDivisionError
+            if (has_pow) {
+                const owned_name2 = try self.allocator.dupe(u8, var_name);
+                try self.error_callable_vars.put(owned_name2, {});
             }
         }
 

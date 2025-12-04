@@ -30,6 +30,10 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.callable_vars);
     self.callable_vars.deinit();
 
+    // Clean up error callable vars tracking
+    freeMapKeys(self.allocator, &self.error_callable_vars);
+    self.error_callable_vars.deinit();
+
     freeMapKeys(self.allocator, &self.recursive_closure_vars);
     self.recursive_closure_vars.deinit();
 

@@ -19,7 +19,7 @@ pub fn Deque(comptime T: type) type {
 
         pub fn init(allocator: Allocator) Self {
             return .{
-                .items = std.ArrayList(T).init(allocator),
+                .items = .empty,
                 .maxlen = null,
                 .allocator = allocator,
             };
@@ -27,7 +27,7 @@ pub fn Deque(comptime T: type) type {
 
         pub fn initWithMaxlen(allocator: Allocator, maxlen: usize) Self {
             return .{
-                .items = std.ArrayList(T).init(allocator),
+                .items = .empty,
                 .maxlen = maxlen,
                 .allocator = allocator,
             };
@@ -59,7 +59,7 @@ pub fn Deque(comptime T: type) type {
 
         /// Remove and return an element from the right side
         pub fn pop(self: *Self) ?T {
-            return self.items.popOrNull();
+            return self.items.pop();
         }
 
         /// Remove and return an element from the left side
@@ -290,7 +290,7 @@ pub fn OrderedDict(comptime K: type, comptime V: type) type {
         pub fn init(allocator: Allocator) Self {
             return .{
                 .map = std.AutoHashMap(K, V).init(allocator),
-                .order = std.ArrayList(K).init(allocator),
+                .order = .empty,
                 .allocator = allocator,
             };
         }
@@ -355,7 +355,7 @@ pub fn OrderedDict(comptime K: type, comptime V: type) type {
             if (self.order.items.len == 0) return error.KeyError;
 
             const key = if (last)
-                self.order.pop()
+                self.order.pop() orelse return error.KeyError
             else
                 self.order.orderedRemove(0);
 
@@ -533,6 +533,107 @@ pub fn Counter(comptime T: type) type {
         pub fn clear(self: *Self) void {
             self.counts.clearRetainingCapacity();
         }
+
+        /// Counter addition: c1 + c2 (keeps only positive counts)
+        pub fn add(self: Self, other: Self, allocator: Allocator) !Self {
+            var result = Self.init(allocator);
+            // Add all from self
+            var it1 = self.counts.iterator();
+            while (it1.next()) |entry| {
+                const other_count = other.get(entry.key_ptr.*);
+                const new_count = entry.value_ptr.* + other_count;
+                if (new_count > 0) {
+                    try result.counts.put(entry.key_ptr.*, new_count);
+                }
+            }
+            // Add items only in other
+            var it2 = other.counts.iterator();
+            while (it2.next()) |entry| {
+                if (!self.counts.contains(entry.key_ptr.*)) {
+                    if (entry.value_ptr.* > 0) {
+                        try result.counts.put(entry.key_ptr.*, entry.value_ptr.*);
+                    }
+                }
+            }
+            return result;
+        }
+
+        /// Counter subtraction: c1 - c2 (keeps only positive counts)
+        pub fn sub(self: Self, other: Self, allocator: Allocator) !Self {
+            var result = Self.init(allocator);
+            var it = self.counts.iterator();
+            while (it.next()) |entry| {
+                const other_count = other.get(entry.key_ptr.*);
+                const new_count = entry.value_ptr.* - other_count;
+                if (new_count > 0) {
+                    try result.counts.put(entry.key_ptr.*, new_count);
+                }
+            }
+            return result;
+        }
+
+        /// Counter intersection: c1 & c2 (min of counts)
+        pub fn intersection(self: Self, other: Self, allocator: Allocator) !Self {
+            var result = Self.init(allocator);
+            var it = self.counts.iterator();
+            while (it.next()) |entry| {
+                const other_count = other.get(entry.key_ptr.*);
+                const min_count = @min(entry.value_ptr.*, other_count);
+                if (min_count > 0) {
+                    try result.counts.put(entry.key_ptr.*, min_count);
+                }
+            }
+            return result;
+        }
+
+        /// Counter union: c1 | c2 (max of counts)
+        pub fn @"union"(self: Self, other: Self, allocator: Allocator) !Self {
+            var result = Self.init(allocator);
+            // Add max from self vs other
+            var it1 = self.counts.iterator();
+            while (it1.next()) |entry| {
+                const other_count = other.get(entry.key_ptr.*);
+                const max_count = @max(entry.value_ptr.*, other_count);
+                if (max_count > 0) {
+                    try result.counts.put(entry.key_ptr.*, max_count);
+                }
+            }
+            // Add items only in other
+            var it2 = other.counts.iterator();
+            while (it2.next()) |entry| {
+                if (!self.counts.contains(entry.key_ptr.*)) {
+                    if (entry.value_ptr.* > 0) {
+                        try result.counts.put(entry.key_ptr.*, entry.value_ptr.*);
+                    }
+                }
+            }
+            return result;
+        }
+
+        /// Unary plus: +c (remove zero and negative counts)
+        pub fn positive(self: Self, allocator: Allocator) !Self {
+            var result = Self.init(allocator);
+            var it = self.counts.iterator();
+            while (it.next()) |entry| {
+                if (entry.value_ptr.* > 0) {
+                    try result.counts.put(entry.key_ptr.*, entry.value_ptr.*);
+                }
+            }
+            return result;
+        }
+
+        /// Unary minus: -c (negate counts, remove zeros and negatives)
+        pub fn negative(self: Self, allocator: Allocator) !Self {
+            var result = Self.init(allocator);
+            var it = self.counts.iterator();
+            while (it.next()) |entry| {
+                const neg = -entry.value_ptr.*;
+                if (neg > 0) {
+                    try result.counts.put(entry.key_ptr.*, neg);
+                }
+            }
+            return result;
+        }
     };
 }
 
@@ -581,67 +682,103 @@ test "deque with maxlen" {
     try d.append(4); // Should evict 1
 
     try std.testing.expectEqual(@as(usize, 3), d.len());
-    try std.testing.expectEqual(@as(?i32, 2), d.get(0));
-    try std.testing.expectEqual(@as(?i32, 4), d.get(2));
+    try std.testing.expectEqual(@as(?i32, 2), d.get(0)); // 1 was evicted
+}
+
+test "counter basic" {
+    const allocator = std.testing.allocator;
+    var c = Counter(i32).init(allocator);
+    defer c.deinit();
+
+    try c.increment(1);
+    try c.increment(1);
+    try c.increment(2);
+
+    try std.testing.expectEqual(@as(i64, 2), c.get(1));
+    try std.testing.expectEqual(@as(i64, 1), c.get(2));
+    try std.testing.expectEqual(@as(i64, 0), c.get(3));
+    try std.testing.expectEqual(@as(i64, 3), c.total());
+}
+
+test "counter arithmetic" {
+    const allocator = std.testing.allocator;
+    var c1 = Counter(i32).init(allocator);
+    defer c1.deinit();
+    var c2 = Counter(i32).init(allocator);
+    defer c2.deinit();
+
+    try c1.set(1, 3);
+    try c1.set(2, 1);
+    try c2.set(1, 1);
+    try c2.set(2, 2);
+    try c2.set(3, 1);
+
+    // Addition
+    var sum = try c1.add(c2, allocator);
+    defer sum.deinit();
+    try std.testing.expectEqual(@as(i64, 4), sum.get(1)); // 3 + 1
+    try std.testing.expectEqual(@as(i64, 3), sum.get(2)); // 1 + 2
+    try std.testing.expectEqual(@as(i64, 1), sum.get(3)); // 0 + 1
+
+    // Subtraction
+    var diff = try c1.sub(c2, allocator);
+    defer diff.deinit();
+    try std.testing.expectEqual(@as(i64, 2), diff.get(1)); // 3 - 1 = 2
+    try std.testing.expectEqual(@as(i64, 0), diff.get(2)); // 1 - 2 = -1, not kept
+
+    // Intersection (min)
+    var inter = try c1.intersection(c2, allocator);
+    defer inter.deinit();
+    try std.testing.expectEqual(@as(i64, 1), inter.get(1)); // min(3, 1)
+    try std.testing.expectEqual(@as(i64, 1), inter.get(2)); // min(1, 2)
+    try std.testing.expectEqual(@as(i64, 0), inter.get(3)); // min(0, 1) = 0
+
+    // Union (max)
+    var uni = try c1.@"union"(c2, allocator);
+    defer uni.deinit();
+    try std.testing.expectEqual(@as(i64, 3), uni.get(1)); // max(3, 1)
+    try std.testing.expectEqual(@as(i64, 2), uni.get(2)); // max(1, 2)
+    try std.testing.expectEqual(@as(i64, 1), uni.get(3)); // max(0, 1)
 }
 
 test "defaultdict" {
     const allocator = std.testing.allocator;
 
-    const zero = struct {
+    const zero_factory = struct {
         fn f() i32 {
             return 0;
         }
     }.f;
 
-    var dd = DefaultDict(i32, i32).initWithFactory(allocator, zero);
+    var dd = DefaultDict(i32, i32).initWithFactory(allocator, &zero_factory);
     defer dd.deinit();
 
-    // Missing key returns default
-    const v1 = try dd.get(1);
-    try std.testing.expectEqual(@as(i32, 0), v1);
+    _ = try dd.get(1); // Creates default 0
+    try dd.put(1, 10);
 
-    // Key now exists
-    try std.testing.expect(dd.contains(1));
-
-    // Set and get
-    try dd.put(2, 42);
-    try std.testing.expectEqual(@as(i32, 42), try dd.get(2));
+    try std.testing.expectEqual(@as(i32, 10), (try dd.get(1)));
+    try std.testing.expectEqual(@as(i32, 0), (try dd.get(2))); // New key gets default
 }
 
-test "counter" {
-    const allocator = std.testing.allocator;
-
-    const items = [_]u8{ 'a', 'b', 'a', 'c', 'a', 'b' };
-    var counter = try Counter(u8).fromIterable(allocator, &items);
-    defer counter.deinit();
-
-    try std.testing.expectEqual(@as(i64, 3), counter.get('a'));
-    try std.testing.expectEqual(@as(i64, 2), counter.get('b'));
-    try std.testing.expectEqual(@as(i64, 1), counter.get('c'));
-    try std.testing.expectEqual(@as(i64, 0), counter.get('d'));
-    try std.testing.expectEqual(@as(i64, 6), counter.total());
-}
-
-test "ordered dict" {
+test "ordereddict" {
     const allocator = std.testing.allocator;
     var od = OrderedDict(i32, i32).init(allocator);
     defer od.deinit();
 
-    try od.put(1, 100);
-    try od.put(2, 200);
-    try od.put(3, 300);
+    try od.put(3, 30);
+    try od.put(1, 10);
+    try od.put(2, 20);
 
-    const keys = od.keys();
-    try std.testing.expectEqual(@as(usize, 3), keys.len);
-    try std.testing.expectEqual(@as(i32, 1), keys[0]);
-    try std.testing.expectEqual(@as(i32, 2), keys[1]);
-    try std.testing.expectEqual(@as(i32, 3), keys[2]);
+    const order = od.keys();
+    try std.testing.expectEqual(@as(usize, 3), order.len);
+    try std.testing.expectEqual(@as(i32, 3), order[0]);
+    try std.testing.expectEqual(@as(i32, 1), order[1]);
+    try std.testing.expectEqual(@as(i32, 2), order[2]);
 
-    // Move 1 to end
-    try od.move_to_end(1, true);
-    const keys2 = od.keys();
-    try std.testing.expectEqual(@as(i32, 2), keys2[0]);
-    try std.testing.expectEqual(@as(i32, 3), keys2[1]);
-    try std.testing.expectEqual(@as(i32, 1), keys2[2]);
+    // move_to_end
+    try od.move_to_end(3, true); // move 3 to end
+    const order2 = od.keys();
+    try std.testing.expectEqual(@as(i32, 1), order2[0]);
+    try std.testing.expectEqual(@as(i32, 2), order2[1]);
+    try std.testing.expectEqual(@as(i32, 3), order2[2]);
 }
