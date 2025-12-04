@@ -146,7 +146,7 @@ test "bisect_right" {
 
 test "insort" {
     const allocator = std.testing.allocator;
-    var arr = std.ArrayList(i32).init(allocator);
+    var arr: std.ArrayList(i32) = .empty;
     defer arr.deinit(allocator);
 
     try insort(i32, &arr, 5, 0, null, allocator);

@@ -127,6 +127,7 @@ pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for pow(base, exp) or pow(base, exp, mod)
 /// Returns base^exp or base^exp % mod (modular exponentiation)
+/// Uses runtime.builtins.pow which raises ZeroDivisionError for 0 ** negative
 pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
         try self.emit("(error.TypeError)");
@@ -145,12 +146,13 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(")");
     } else {
         // pow(base, exp) - standard power
-        // Generate: std.math.pow(f64, base, exp)
-        try self.emit("std.math.pow(f64, ");
+        // Use runtime.builtins.pow which raises ZeroDivisionError for 0 ** negative
+        // Generate: (try runtime.builtins.pow.call(base, exp))
+        try self.emit("(try runtime.builtins.pow.call(");
         try self.genExpr(args[0]);
         try self.emit(", ");
         try self.genExpr(args[1]);
-        try self.emit(")");
+        try self.emit("))");
     }
 }
 

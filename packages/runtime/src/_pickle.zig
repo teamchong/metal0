@@ -93,7 +93,7 @@ pub fn Pickler(comptime protocol: u8) type {
 
         pub fn init(allocator: Allocator) Self {
             return .{
-                .buffer = std.ArrayList(u8).init(allocator),
+                .buffer = .empty,
                 .allocator = allocator,
                 .memo = std.AutoHashMap(usize, u32).init(allocator),
                 .memo_count = 0,
@@ -498,4 +498,59 @@ test "pickle bool" {
     try std.testing.expect(bytes.len > 0);
     // Should contain NEWTRUE opcode
     try std.testing.expect(std.mem.indexOf(u8, bytes, &[_]u8{@intFromEnum(Opcode.NEWTRUE)}) != null);
+}
+
+test "pickle list" {
+    const allocator = std.testing.allocator;
+
+    var pickler = Pickler(4).init(allocator);
+    defer pickler.deinit();
+
+    try pickler.writeHeader();
+    try pickler.startList();
+    try pickler.dumpInt(1);
+    try pickler.dumpInt(2);
+    try pickler.dumpInt(3);
+    try pickler.endList();
+    try pickler.stop();
+
+    const bytes = pickler.getBytes();
+    try std.testing.expect(bytes.len > 0);
+    // Should contain EMPTY_LIST opcode
+    try std.testing.expect(std.mem.indexOf(u8, bytes, &[_]u8{@intFromEnum(Opcode.EMPTY_LIST)}) != null);
+}
+
+test "pickle dict" {
+    const allocator = std.testing.allocator;
+
+    var pickler = Pickler(4).init(allocator);
+    defer pickler.deinit();
+
+    try pickler.writeHeader();
+    try pickler.startDict();
+    try pickler.dumpString("key");
+    try pickler.dumpInt(42);
+    try pickler.endDict();
+    try pickler.stop();
+
+    const bytes = pickler.getBytes();
+    try std.testing.expect(bytes.len > 0);
+    // Should contain EMPTY_DICT opcode
+    try std.testing.expect(std.mem.indexOf(u8, bytes, &[_]u8{@intFromEnum(Opcode.EMPTY_DICT)}) != null);
+}
+
+test "pickle tuple" {
+    const allocator = std.testing.allocator;
+
+    var pickler = Pickler(4).init(allocator);
+    defer pickler.deinit();
+
+    try pickler.writeHeader();
+    try pickler.dumpEmptyTuple();
+    try pickler.stop();
+
+    const bytes = pickler.getBytes();
+    try std.testing.expect(bytes.len > 0);
+    // Should contain EMPTY_TUPLE opcode
+    try std.testing.expect(std.mem.indexOf(u8, bytes, &[_]u8{@intFromEnum(Opcode.EMPTY_TUPLE)}) != null);
 }

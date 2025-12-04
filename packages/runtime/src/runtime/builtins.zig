@@ -848,22 +848,40 @@ fn pythonFloatRepr(allocator: std.mem.Allocator, value: f64) ![]const u8 {
     // Check if it already has a decimal point or exponent
     var has_decimal = false;
     var has_exponent = false;
-    for (formatted) |c| {
-        if (c == '.') has_decimal = true;
+    var decimal_pos: usize = 0;
+    for (formatted, 0..) |c, i| {
+        if (c == '.') {
+            has_decimal = true;
+            decimal_pos = i;
+        }
         if (c == 'e' or c == 'E') has_exponent = true;
     }
 
-    // If already has decimal or exponent, return as-is
-    if (has_decimal or has_exponent) {
-        return formatted;
+    // If no decimal, add ".0" suffix for integer-valued floats
+    if (!has_decimal and !has_exponent) {
+        var result = std.ArrayList(u8){};
+        try result.appendSlice(allocator, formatted);
+        try result.appendSlice(allocator, ".0");
+        allocator.free(formatted);
+        return result.toOwnedSlice(allocator);
     }
 
-    // Add ".0" suffix for integer-valued floats
-    var result = std.ArrayList(u8){};
-    try result.appendSlice(allocator, formatted);
-    try result.appendSlice(allocator, ".0");
-    allocator.free(formatted);
-    return result.toOwnedSlice(allocator);
+    // Has decimal - trim trailing zeros (but keep at least one digit after decimal)
+    if (has_decimal and !has_exponent) {
+        var end = formatted.len;
+        // Find trailing zeros
+        while (end > decimal_pos + 2 and formatted[end - 1] == '0') {
+            end -= 1;
+        }
+        // Return trimmed string
+        if (end < formatted.len) {
+            const trimmed = try allocator.dupe(u8, formatted[0..end]);
+            allocator.free(formatted);
+            return trimmed;
+        }
+    }
+
+    return formatted;
 }
 
 /// Convert a value to its repr string (for tuple elements)
@@ -1474,8 +1492,9 @@ pub const OperatorMod = struct {
 /// operator.pow callable - Python power operation
 /// Called as: OperatorPow{}.call(a, b) where self is ignored
 /// Named 'call' to match callable_vars system
+/// Python: 0.0 ** negative raises ZeroDivisionError
 pub const OperatorPow = struct {
-    pub fn call(_: @This(), a: anytype, b: anytype) f64 {
+    pub fn call(_: @This(), a: anytype, b: anytype) PythonError!f64 {
         const af: f64 = switch (@typeInfo(@TypeOf(a))) {
             .float, .comptime_float => @as(f64, a),
             .int, .comptime_int => @as(f64, @floatFromInt(a)),
@@ -1486,6 +1505,10 @@ pub const OperatorPow = struct {
             .int, .comptime_int => @as(f64, @floatFromInt(b)),
             else => 0.0,
         };
+        // Python: 0.0 ** negative raises ZeroDivisionError
+        if (af == 0.0 and bf < 0.0) {
+            return PythonError.ZeroDivisionError;
+        }
         return std.math.pow(f64, af, bf);
     }
 };

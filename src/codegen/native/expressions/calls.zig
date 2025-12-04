@@ -722,7 +722,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Check if this is a callable variable (PyCallable - from iterating over callable list)
         if (self.callable_vars.contains(raw_func_name)) {
-            // Callable call: f("100") -> f.call("100")
+            // Check if this callable returns an error union (like OperatorPow)
+            const returns_error = self.error_callable_vars.contains(raw_func_name);
+            // Callable call: f("100") -> (try f.call("100")) for error callables
+            //                f("100") -> f.call("100") for regular callables
+            if (returns_error) {
+                try self.emit("(try ");
+            }
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
             try self.emit(".call(");
 
@@ -736,7 +742,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, kwarg.value);
             }
 
-            try self.emit(")");
+            if (returns_error) {
+                try self.emit("))");
+            } else {
+                try self.emit(")");
+            }
             return;
         }
 

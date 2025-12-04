@@ -13,7 +13,7 @@ pub fn heappush(comptime T: type, heap: *std.ArrayList(T), item: T, allocator: A
 pub fn heappop(comptime T: type, heap: *std.ArrayList(T)) !T {
     if (heap.items.len == 0) return error.IndexError;
 
-    const last = heap.pop();
+    const last = heap.pop() orelse return error.IndexError;
     if (heap.items.len > 0) {
         const result = heap.items[0];
         heap.items[0] = last;
@@ -76,7 +76,7 @@ pub fn nlargest(comptime T: type, n: usize, iterable: []const T, allocator: Allo
     }
 
     // Use a min-heap of size n
-    var heap = std.ArrayList(T).init(allocator);
+    var heap: std.ArrayList(T) = .empty;
     defer heap.deinit(allocator);
 
     // Add first n items
@@ -92,16 +92,15 @@ pub fn nlargest(comptime T: type, n: usize, iterable: []const T, allocator: Allo
         }
     }
 
-    // Extract all items in descending order
+    // Extract all items - heappop gives smallest first (ascending)
+    // We fill backwards so result has descending order
     var result = try allocator.alloc(T, heap.items.len);
     var i: usize = heap.items.len;
     while (heap.items.len > 0) {
         i -= 1;
         result[i] = try heappop(T, &heap);
     }
-
-    // Reverse to get descending order
-    std.mem.reverse(T, result);
+    // result is now in descending order (largest first)
     return result;
 }
 
@@ -116,7 +115,7 @@ pub fn nsmallest(comptime T: type, n: usize, iterable: []const T, allocator: All
     }
 
     // Use a max-heap of size n (negate values for min behavior)
-    var heap = std.ArrayList(T).init(allocator);
+    var heap: std.ArrayList(T) = .empty;
     defer heap.deinit(allocator);
 
     // Simple approach: heapify all, pop n times
@@ -226,7 +225,7 @@ pub fn merge(comptime T: type, iterables: []const []const T, allocator: Allocato
 
 test "heappush and heappop" {
     const allocator = std.testing.allocator;
-    var heap = std.ArrayList(i32).init(allocator);
+    var heap: std.ArrayList(i32) = .empty;
     defer heap.deinit(allocator);
 
     try heappush(i32, &heap, 5, allocator);

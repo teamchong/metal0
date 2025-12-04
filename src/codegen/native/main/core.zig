@@ -155,6 +155,10 @@ pub const NativeCodegen = struct {
     // Track which variables hold callables (PyCallable - for .call() generation)
     callable_vars: FnvVoidMap,
 
+    // Track which callable vars return error unions (like OperatorPow)
+    // These need (try ...) wrapper when called outside assertRaises
+    error_callable_vars: FnvVoidMap,
+
     // Track recursive closures and their captured variables (for passing captures in calls)
     recursive_closure_vars: hashmap_helper.StringHashMap([][]const u8),
 
@@ -577,6 +581,7 @@ pub const NativeCodegen = struct {
             .closure_vars = FnvVoidMap.init(allocator),
             .void_closure_vars = FnvVoidMap.init(allocator),
             .callable_vars = FnvVoidMap.init(allocator),
+            .error_callable_vars = FnvVoidMap.init(allocator),
             .recursive_closure_vars = hashmap_helper.StringHashMap([][]const u8).init(allocator),
             .closure_factories = FnvVoidMap.init(allocator),
             .pending_closure_types = FnvStringMap.init(allocator),

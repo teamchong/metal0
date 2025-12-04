@@ -218,21 +218,36 @@ pub fn unpack(comptime format: []const u8, buffer: []const u8) UnpackResult(form
 }
 
 /// Calculate the size of the struct for a format string
+/// Supports repeat counts like "3i" (3 integers = 12 bytes)
 pub fn calcsize(comptime format: []const u8) usize {
     comptime var size: usize = 0;
     comptime var i: usize = if (format.len > 0 and ByteOrder.fromChar(format[0]) != null) 1 else 0;
 
     inline while (i < format.len) {
+        // Parse optional repeat count
+        comptime var repeat: usize = 0;
+        comptime var has_repeat = false;
+        inline while (i < format.len and format[i] >= '0' and format[i] <= '9') {
+            repeat = repeat * 10 + (format[i] - '0');
+            has_repeat = true;
+            i += 1;
+        }
+        if (!has_repeat) repeat = 1;
+
+        if (i >= format.len) break;
+
         const c = format[i];
         i += 1;
-        size += switch (c) {
-            'x', 'c', 'b', 'B', '?' => 1,
+        const item_size: usize = switch (c) {
+            'x', 'c', 'b', 'B', '?', 's', 'p' => 1, // s and p are 1 byte per char
             'h', 'H' => 2,
             'i', 'I', 'l', 'L', 'f' => 4,
             'q', 'Q', 'd' => 8,
+            'n', 'N', 'P' => @sizeOf(usize), // native size_t, pointer
             ' ' => 0,
             else => 0,
         };
+        size += item_size * repeat;
     }
 
     return size;
@@ -370,8 +385,12 @@ test "calcsize" {
     try std.testing.expectEqual(@as(usize, 8), calcsize("q"));
     try std.testing.expectEqual(@as(usize, 4), calcsize("f"));
     try std.testing.expectEqual(@as(usize, 8), calcsize("d"));
-    try std.testing.expectEqual(@as(usize, 6), calcsize("bhi"));
-    try std.testing.expectEqual(@as(usize, 6), calcsize("<bhi"));
+    try std.testing.expectEqual(@as(usize, 7), calcsize("bhi")); // b(1) + h(2) + i(4) = 7
+    try std.testing.expectEqual(@as(usize, 7), calcsize("<bhi"));
+    // Repeat counts
+    try std.testing.expectEqual(@as(usize, 12), calcsize("3i")); // 3 * 4 = 12
+    try std.testing.expectEqual(@as(usize, 4), calcsize("4s")); // 4 * 1 = 4
+    try std.testing.expectEqual(@as(usize, 16), calcsize("2h3i")); // 2*2 + 3*4 = 16
 }
 
 test "pack and unpack integers" {

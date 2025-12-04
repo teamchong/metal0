@@ -531,6 +531,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             // Register as callable variable so calls use .call() syntax
                             const owned_name = try self.allocator.dupe(u8, var_name);
                             try self.callable_vars.put(owned_name, {});
+                            // operator.pow returns error union for ZeroDivisionError
+                            if (std.mem.eql(u8, attr_val.attr, "pow")) {
+                                const owned_name2 = try self.allocator.dupe(u8, var_name);
+                                try self.error_callable_vars.put(owned_name2, {});
+                            }
                         }
                     }
                 }
