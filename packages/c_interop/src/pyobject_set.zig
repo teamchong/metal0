@@ -216,8 +216,13 @@ pub export fn PySet_New(iterable: ?*cpython.PyObject) callconv(.c) ?*cpython.PyO
     const set = createSet(&PySet_Type);
     if (set == null) return null;
 
-    // TODO: Add items from iterable
-    _ = iterable;
+    // Add items from iterable if provided
+    if (iterable) |it| {
+        if (addFromIterable(set.?, it) < 0) {
+            set_dealloc(set.?);
+            return null;
+        }
+    }
 
     return set;
 }
@@ -227,8 +232,16 @@ pub export fn PyFrozenSet_New(iterable: ?*cpython.PyObject) callconv(.c) ?*cpyth
     const set = createSet(&PyFrozenSet_Type);
     if (set == null) return null;
 
-    // TODO: Add items from iterable
-    _ = iterable;
+    // Add items from iterable if provided
+    if (iterable) |it| {
+        // Temporarily allow mutations during construction
+        const set_obj: *PySetObject = @ptrCast(@alignCast(set.?));
+        _ = set_obj;
+        if (addFromIterableInternal(set.?, it) < 0) {
+            set_dealloc(set.?);
+            return null;
+        }
+    }
 
     return set;
 }
@@ -269,7 +282,14 @@ pub export fn PySet_Add(obj: *cpython.PyObject, key: *cpython.PyObject) callconv
         return 0; // Already in set
     }
 
-    // TODO: Check if we need to resize
+    // Check if we need to resize (when fill > 2/3 of capacity)
+    const capacity: isize = set.mask + 1;
+    if (set.fill * 3 >= capacity * 2) {
+        // Resize to double the size (minus one for mask)
+        if (set_resize(set, capacity * 2) < 0) {
+            return -1;
+        }
+    }
 
     // Find empty slot and insert
     const entry = findEmptySlot(set, hash);
@@ -413,6 +433,123 @@ pub export fn PyAnySet_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 // Internal Functions
 // ============================================================================
 
+/// Resize the hash table
+fn set_resize(set: *PySetObject, minused: isize) c_int {
+    // Calculate new size (power of 2)
+    var newsize: isize = PySet_MINSIZE;
+    while (newsize <= minused) {
+        newsize *= 2;
+        if (newsize <= 0) return -1; // overflow
+    }
+
+    const old_mask: usize = @intCast(set.mask);
+    const old_table: [*]setentry = @ptrCast(set.table.?);
+    const smalltable_ptr: *setentry = @ptrCast(&set.smalltable);
+    const is_small = (set.table == smalltable_ptr);
+
+    // Allocate new table
+    const new_table = allocator.alloc(setentry, @intCast(newsize)) catch return -1;
+    @memset(new_table, setentry{ .key = null, .hash = 0 });
+
+    // Set new table
+    set.table = new_table.ptr;
+    set.mask = newsize - 1;
+    set.fill = set.used;
+
+    // Rehash all entries from old table
+    var i: usize = 0;
+    while (i <= old_mask) : (i += 1) {
+        if (old_table[i].key) |key| {
+            const entry = findEmptySlot(set, old_table[i].hash);
+            entry.key = key;
+            entry.hash = old_table[i].hash;
+        }
+    }
+
+    // Free old table if it wasn't smalltable
+    if (!is_small) {
+        allocator.free(old_table[0 .. old_mask + 1]);
+    }
+
+    return 0;
+}
+
+/// Add items from an iterable to a set (for PySet_New)
+fn addFromIterable(obj: *cpython.PyObject, iterable: *cpython.PyObject) c_int {
+    return addFromIterableInternal(obj, iterable);
+}
+
+/// Internal add from iterable (works even on frozensets during construction)
+fn addFromIterableInternal(obj: *cpython.PyObject, iterable: *cpython.PyObject) c_int {
+    const set: *PySetObject = @ptrCast(@alignCast(obj));
+
+    // Handle list iterable
+    const list = @import("pyobject_list.zig");
+    if (list.PyList_Check(iterable) != 0) {
+        const size = list.PyList_Size(iterable);
+        var i: isize = 0;
+        while (i < size) : (i += 1) {
+            if (list.PyList_GetItem(iterable, i)) |item| {
+                const hash = computeHash(item);
+                if (lookupEntry(set, item, hash) == null) {
+                    const entry = findEmptySlot(set, hash);
+                    item.ob_refcnt += 1;
+                    entry.key = item;
+                    entry.hash = hash;
+                    set.fill += 1;
+                    set.used += 1;
+                }
+            }
+        }
+        return 0;
+    }
+
+    // Handle tuple iterable
+    const tuple = @import("pyobject_tuple.zig");
+    if (tuple.PyTuple_Check(iterable) != 0) {
+        const size = tuple.PyTuple_Size(iterable);
+        var i: isize = 0;
+        while (i < size) : (i += 1) {
+            if (tuple.PyTuple_GetItem(iterable, i)) |item| {
+                const hash = computeHash(item);
+                if (lookupEntry(set, item, hash) == null) {
+                    const entry = findEmptySlot(set, hash);
+                    item.ob_refcnt += 1;
+                    entry.key = item;
+                    entry.hash = hash;
+                    set.fill += 1;
+                    set.used += 1;
+                }
+            }
+        }
+        return 0;
+    }
+
+    // Handle another set
+    if (PyAnySet_Check(iterable) != 0) {
+        const other: *PySetObject = @ptrCast(@alignCast(iterable));
+        const mask: usize = @intCast(other.mask);
+        const other_table: [*]setentry = @ptrCast(other.table.?);
+        var i: usize = 0;
+        while (i <= mask) : (i += 1) {
+            if (other_table[i].key) |item| {
+                const hash = other_table[i].hash;
+                if (lookupEntry(set, item, hash) == null) {
+                    const entry = findEmptySlot(set, hash);
+                    item.ob_refcnt += 1;
+                    entry.key = item;
+                    entry.hash = hash;
+                    set.fill += 1;
+                    set.used += 1;
+                }
+            }
+        }
+        return 0;
+    }
+
+    return 0; // Unknown iterable type - ignore
+}
+
 fn set_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     const set: *PySetObject = @ptrCast(@alignCast(obj));
 
@@ -423,13 +560,24 @@ fn set_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     while (i <= mask) : (i += 1) {
         if (table[i].key) |key| {
             key.ob_refcnt -= 1;
+            // Deallocate if refcnt reaches 0
+            if (key.ob_refcnt == 0) {
+                if (key.ob_type) |tp| {
+                    if (tp.tp_dealloc) |dealloc| {
+                        dealloc(key);
+                    }
+                }
+            }
         }
     }
 
     // Free external table if not using smalltable
     const smalltable_ptr: *setentry = @ptrCast(&set.smalltable);
     if (set.table != smalltable_ptr) {
-        // TODO: Free external table
+        if (set.table) |tbl| {
+            const tbl_slice: [*]setentry = @ptrCast(tbl);
+            allocator.free(tbl_slice[0 .. mask + 1]);
+        }
     }
 
     allocator.destroy(set);

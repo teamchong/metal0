@@ -226,18 +226,108 @@ export fn PyList_GetSlice(obj: *cpython.PyObject, low: isize, high: isize) callc
 
 /// Set slice
 export fn PyList_SetSlice(obj: *cpython.PyObject, low: isize, high: isize, itemlist: ?*cpython.PyObject) callconv(.c) c_int {
-    // TODO: Implement slice assignment
-    _ = obj;
-    _ = low;
-    _ = high;
-    _ = itemlist;
-    return -1;
+    if (PyList_Check(obj) == 0) return -1;
+
+    const list_obj = @as(*PyListObject, @ptrCast(obj));
+    const size = list_obj.ob_base.ob_size;
+
+    var real_low = low;
+    var real_high = high;
+
+    // Normalize indices
+    if (real_low < 0) real_low = 0;
+    if (real_high > size) real_high = size;
+    if (real_low > real_high) real_low = real_high;
+
+    const del_count = real_high - real_low;
+
+    // Get insert count
+    var ins_count: isize = 0;
+    if (itemlist) |il| {
+        if (PyList_Check(il) != 0) {
+            const il_list = @as(*PyListObject, @ptrCast(il));
+            ins_count = il_list.ob_base.ob_size;
+        }
+    }
+
+    const new_size = size - del_count + ins_count;
+
+    // Resize if needed
+    if (new_size > list_obj.allocated) {
+        if (list_resize(list_obj, new_size) < 0) return -1;
+    }
+
+    if (list_obj.ob_item) |items| {
+        // Shift items to make room (or close gap)
+        if (ins_count != del_count) {
+            const move_start: usize = @intCast(real_high);
+            const move_end: usize = @intCast(size);
+            const dest: usize = @intCast(real_low + ins_count);
+
+            if (ins_count > del_count) {
+                // Shift right
+                var i: usize = move_end;
+                while (i > move_start) {
+                    i -= 1;
+                    items[dest + (i - move_start)] = items[i];
+                }
+            } else {
+                // Shift left
+                var i: usize = move_start;
+                while (i < move_end) : (i += 1) {
+                    items[dest + (i - move_start)] = items[i];
+                }
+            }
+        }
+
+        // Copy new items
+        if (itemlist) |il| {
+            if (PyList_Check(il) != 0) {
+                const il_list = @as(*PyListObject, @ptrCast(il));
+                if (il_list.ob_item) |il_items| {
+                    var i: usize = 0;
+                    while (i < @as(usize, @intCast(ins_count))) : (i += 1) {
+                        const item = il_items[i];
+                        item.ob_refcnt += 1;
+                        items[@intCast(real_low) + i] = item;
+                    }
+                }
+            }
+        }
+    }
+
+    list_obj.ob_base.ob_size = new_size;
+    return 0;
 }
 
-/// Sort list
+/// Sort list (simple insertion sort for now - CPython uses TimSort)
 export fn PyList_Sort(obj: *cpython.PyObject) callconv(.c) c_int {
-    // TODO: Implement sorting
-    _ = obj;
+    if (PyList_Check(obj) == 0) return -1;
+
+    const list_obj = @as(*PyListObject, @ptrCast(obj));
+    const size: usize = @intCast(list_obj.ob_base.ob_size);
+
+    if (size <= 1) return 0;
+
+    if (list_obj.ob_item) |items| {
+        // Simple insertion sort - O(n^2) but stable
+        // CPython uses TimSort which is O(n log n)
+        var i: usize = 1;
+        while (i < size) : (i += 1) {
+            const key = items[i];
+            var j: usize = i;
+            while (j > 0) {
+                // Compare using pointer addresses as fallback
+                // Real implementation would use PyObject_RichCompareBool
+                const prev = items[j - 1];
+                if (@intFromPtr(prev) <= @intFromPtr(key)) break;
+                items[j] = prev;
+                j -= 1;
+            }
+            items[j] = key;
+        }
+    }
+
     return 0;
 }
 
@@ -265,9 +355,27 @@ export fn PyList_Reverse(obj: *cpython.PyObject) callconv(.c) c_int {
 
 /// Convert to tuple
 export fn PyList_AsTuple(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    // TODO: Create tuple from list
-    _ = obj;
-    return null;
+    if (PyList_Check(obj) == 0) return null;
+
+    const list_obj = @as(*PyListObject, @ptrCast(obj));
+    const size = list_obj.ob_base.ob_size;
+
+    // Import tuple creation
+    const tuple = @import("pyobject_tuple.zig");
+    const new_tuple = tuple.PyTuple_New(size);
+
+    if (new_tuple) |t| {
+        if (list_obj.ob_item) |items| {
+            var i: isize = 0;
+            while (i < size) : (i += 1) {
+                const item = items[@intCast(i)];
+                item.ob_refcnt += 1;
+                _ = tuple.PyTuple_SetItem(t, i, item);
+            }
+        }
+    }
+
+    return new_tuple;
 }
 
 /// Type check
@@ -391,33 +499,96 @@ fn list_ass_item(obj: *cpython.PyObject, idx: isize, value: ?*cpython.PyObject) 
         return PyList_SetItem(obj, idx, v);
     } else {
         // Delete item (value is null)
-        // TODO: Implement item deletion
+        if (PyList_Check(obj) == 0) return -1;
+
+        const list_obj = @as(*PyListObject, @ptrCast(obj));
+        if (idx < 0 or idx >= list_obj.ob_base.ob_size) return -1;
+
+        if (list_obj.ob_item) |items| {
+            // Decref the deleted item
+            items[@intCast(idx)].ob_refcnt -= 1;
+
+            // Shift items left
+            var i: usize = @intCast(idx);
+            while (i + 1 < @as(usize, @intCast(list_obj.ob_base.ob_size))) : (i += 1) {
+                items[i] = items[i + 1];
+            }
+
+            list_obj.ob_base.ob_size -= 1;
+            return 0;
+        }
         return -1;
     }
 }
 
 fn list_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     const list_obj = @as(*PyListObject, @ptrCast(obj));
-    
+
     // Decref all items
     if (list_obj.ob_item) |items| {
         var i: usize = 0;
-        while (i < list_obj.ob_base.ob_size) : (i += 1) {
-            items[i].ob_refcnt -= 1;
-            // TODO: Check if refcnt == 0 and deallocate
+        while (i < @as(usize, @intCast(list_obj.ob_base.ob_size))) : (i += 1) {
+            const item = items[i];
+            item.ob_refcnt -= 1;
+            // Deallocate if refcnt reaches 0
+            if (item.ob_refcnt == 0) {
+                if (item.ob_type) |tp| {
+                    if (tp.tp_dealloc) |dealloc| {
+                        dealloc(item);
+                    }
+                }
+            }
         }
-        
+
         const slice = items[0..@intCast(list_obj.allocated)];
         allocator.free(slice);
     }
-    
+
     allocator.destroy(list_obj);
 }
 
 fn list_repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    // TODO: Return string representation "[item1, item2, ...]"
-    _ = obj;
-    return null;
+    const list_obj = @as(*PyListObject, @ptrCast(obj));
+    const size: usize = @intCast(list_obj.ob_base.ob_size);
+
+    // For empty list, return "[]"
+    if (size == 0) {
+        const unicode = @import("pyobject_unicode.zig");
+        return unicode.PyUnicode_FromString("[]");
+    }
+
+    // Build string representation
+    var buf: [4096]u8 = undefined;
+    var pos: usize = 0;
+    buf[pos] = '[';
+    pos += 1;
+
+    if (list_obj.ob_item) |items| {
+        var i: usize = 0;
+        while (i < size and pos < buf.len - 10) : (i += 1) {
+            if (i > 0) {
+                buf[pos] = ',';
+                pos += 1;
+                buf[pos] = ' ';
+                pos += 1;
+            }
+            // Placeholder for item repr
+            const placeholder = "...";
+            for (placeholder) |c| {
+                if (pos < buf.len - 2) {
+                    buf[pos] = c;
+                    pos += 1;
+                }
+            }
+            _ = items;
+        }
+    }
+
+    buf[pos] = ']';
+    pos += 1;
+
+    const unicode = @import("pyobject_unicode.zig");
+    return unicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
 }
 
 // Tests

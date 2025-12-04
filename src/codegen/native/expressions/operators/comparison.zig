@@ -550,13 +550,44 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 const right_is_tuple = (@as(std.meta.Tag(@TypeOf(right_type)), right_type) == .tuple or compare.comparators[i] == .tuple);
 
                 if (left_is_tuple or right_is_tuple) {
-                    // Tuples: use std.meta.eql for value comparison
-                    if (op == .IsNot) try self.emit("!");
-                    try self.emit("std.meta.eql(");
+                    // Tuples: for identity comparison ('is'/'is not')
+                    // After operations like u += (2,3), variable becomes a slice (from runtime.tupleConcat)
+                    // For slices, compare .ptr; for actual tuples, compare &
+                    // Use runtime type checking to handle both cases
+                    try self.emit("blk: {\n");
+                    try self.emit("const __left = ");
                     try genExpr(self, current_left);
-                    try self.emit(", ");
+                    try self.emit(";\n");
+                    try self.emit("const __right = ");
                     try genExpr(self, compare.comparators[i]);
-                    try self.emit(")");
+                    try self.emit(";\n");
+                    try self.emit("const __left_ti = @typeInfo(@TypeOf(__left));\n");
+                    try self.emit("_ = @typeInfo(@TypeOf(__right));\n");
+                    try self.emit("// Different types = different identity for 'is'\n");
+                    try self.emit("if (@TypeOf(__left) != @TypeOf(__right)) {\n");
+                    if (op == .Is) {
+                        try self.emit("break :blk false;\n");
+                    } else {
+                        try self.emit("break :blk true;\n");
+                    }
+                    try self.emit("}\n");
+                    try self.emit("// Same type - compare addresses\n");
+                    try self.emit("if (__left_ti == .pointer and __left_ti.pointer.size == .slice) {\n");
+                    // Slices - compare .ptr
+                    if (op == .Is) {
+                        try self.emit("break :blk __left.ptr == __right.ptr;\n");
+                    } else {
+                        try self.emit("break :blk __left.ptr != __right.ptr;\n");
+                    }
+                    try self.emit("} else {\n");
+                    // Tuples/structs - compare addresses
+                    if (op == .Is) {
+                        try self.emit("break :blk &__left == &__right;\n");
+                    } else {
+                        try self.emit("break :blk &__left != &__right;\n");
+                    }
+                    try self.emit("}\n");
+                    try self.emit("}");
                 } else {
                     // For primitives (int, bool, None), identity is same as equality
                     try genExpr(self, current_left);

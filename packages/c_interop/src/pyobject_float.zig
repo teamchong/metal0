@@ -21,8 +21,16 @@ fn float_dealloc(obj: *cpython.PyObject) callconv(.c) void {
 }
 
 fn float_repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = obj;
-    return null; // TODO: Implement string conversion
+    const float_obj: *PyFloatObject = @ptrCast(@alignCast(obj));
+    const value = float_obj.ob_fval;
+
+    // Format float to string
+    var buf: [64]u8 = undefined;
+    const result = std.fmt.bufPrint(&buf, "{d}", .{value}) catch return null;
+
+    // Create unicode string
+    const unicode = @import("cpython_unicode.zig");
+    return unicode.PyUnicode_FromStringAndSize(result.ptr, @intCast(result.len));
 }
 
 fn float_hash(obj: *cpython.PyObject) callconv(.c) isize {
@@ -194,9 +202,24 @@ fn float_remainder(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cp
 }
 
 fn float_divmod(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = a;
-    _ = b;
-    return null; // TODO: Need tuple support
+    const a_val = getFloatValue(@ptrCast(@alignCast(a)));
+    const b_val = getFloatValue(@ptrCast(@alignCast(b)));
+    if (b_val == 0.0) return null;
+
+    const quotient = @floor(a_val / b_val);
+    const remainder = a_val - quotient * b_val;
+
+    // Create tuple (quotient, remainder)
+    const tuple = @import("pyobject_tuple.zig");
+    const result = tuple.PyTuple_New(2) orelse return null;
+
+    const q_obj = createFloat(quotient) orelse return null;
+    const r_obj = createFloat(remainder) orelse return null;
+
+    _ = tuple.PyTuple_SetItem(result, 0, q_obj);
+    _ = tuple.PyTuple_SetItem(result, 1, r_obj);
+
+    return result;
 }
 
 fn float_power(a: *cpython.PyObject, b: *cpython.PyObject, c: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
@@ -227,8 +250,9 @@ fn float_bool(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 fn float_int(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = obj;
-    return null; // TODO: Return PyLong
+    const val = getFloatValue(@ptrCast(@alignCast(obj)));
+    const long = @import("pyobject_long.zig");
+    return long.PyLong_FromDouble(val);
 }
 
 fn float_float(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
@@ -246,8 +270,19 @@ pub export fn PyFloat_FromDouble(value: f64) callconv(.c) ?*cpython.PyObject {
 }
 
 export fn PyFloat_FromString(str: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = str;
-    return null; // TODO: Parse string to float
+    const unicode = @import("cpython_unicode.zig");
+
+    // Get string content
+    const c_str = unicode.PyUnicode_AsUTF8(str) orelse return null;
+    const slice = std.mem.span(c_str);
+
+    // Trim whitespace
+    const trimmed = std.mem.trim(u8, slice, " \t\n\r");
+    if (trimmed.len == 0) return null;
+
+    // Parse float
+    const value = std.fmt.parseFloat(f64, trimmed) catch return null;
+    return createFloat(value);
 }
 
 // ============================================================================
@@ -260,7 +295,25 @@ pub export fn PyFloat_AsDouble(obj: *cpython.PyObject) callconv(.c) f64 {
 }
 
 export fn PyFloat_GetInfo() callconv(.c) ?*cpython.PyObject {
-    return null; // TODO: Return sys.float_info
+    // Return a tuple with float info (simplified version)
+    // CPython returns a named tuple, we return a regular tuple with key values
+    const tuple = @import("pyobject_tuple.zig");
+    const result = tuple.PyTuple_New(11) orelse return null;
+
+    // max, max_exp, max_10_exp, min, min_exp, min_10_exp, dig, mant_dig, epsilon, radix, rounds
+    _ = tuple.PyTuple_SetItem(result, 0, createFloat(std.math.floatMax(f64)));
+    _ = tuple.PyTuple_SetItem(result, 1, @import("pyobject_long.zig").PyLong_FromLong(1024)); // max_exp
+    _ = tuple.PyTuple_SetItem(result, 2, @import("pyobject_long.zig").PyLong_FromLong(308)); // max_10_exp
+    _ = tuple.PyTuple_SetItem(result, 3, createFloat(std.math.floatMin(f64)));
+    _ = tuple.PyTuple_SetItem(result, 4, @import("pyobject_long.zig").PyLong_FromLong(-1021)); // min_exp
+    _ = tuple.PyTuple_SetItem(result, 5, @import("pyobject_long.zig").PyLong_FromLong(-307)); // min_10_exp
+    _ = tuple.PyTuple_SetItem(result, 6, @import("pyobject_long.zig").PyLong_FromLong(15)); // dig
+    _ = tuple.PyTuple_SetItem(result, 7, @import("pyobject_long.zig").PyLong_FromLong(53)); // mant_dig
+    _ = tuple.PyTuple_SetItem(result, 8, createFloat(std.math.floatEps(f64)));
+    _ = tuple.PyTuple_SetItem(result, 9, @import("pyobject_long.zig").PyLong_FromLong(2)); // radix
+    _ = tuple.PyTuple_SetItem(result, 10, @import("pyobject_long.zig").PyLong_FromLong(1)); // rounds
+
+    return result;
 }
 
 export fn PyFloat_GetMax() callconv(.c) f64 {

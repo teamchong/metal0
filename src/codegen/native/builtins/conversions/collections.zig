@@ -95,9 +95,23 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("break :list_blk _result_list;\n");
     try self.emit("} else {\n");
     try self.emit("const _type_info = @typeInfo(_IterType);\n");
+    // Check if this is a pointer to a builtin subclass (has __base_value__ field)
+    // Python subclasses of tuple/list store their elements in __base_value__
+    try self.emit("const _is_ptr = _type_info == .pointer;\n");
+    try self.emit("const _pointed_type_info = if (_is_ptr) @typeInfo(_type_info.pointer.child) else _type_info;\n");
+    try self.emit("const _is_builtin_subclass = _is_ptr and _pointed_type_info == .@\"struct\" and @hasField(_type_info.pointer.child, \"__base_value__\");\n");
+    try self.emit("if (_is_builtin_subclass) {\n");
+    // For builtin subclasses, convert __base_value__ (PyValue) to list
+    try self.emit("const _result_list: runtime.PyValue = switch (_iterable.__base_value__) {\n");
+    try self.emit(".list => |_pv_items| .{ .list = _pv_items },\n");
+    try self.emit(".tuple => |_pv_items| .{ .list = _pv_items },\n");
+    try self.emit("else => .{ .list = &[_]runtime.PyValue{} },\n");
+    try self.emit("};\n");
+    try self.emit("break :list_blk _result_list;\n");
+    try self.emit("} else {\n");
     // Check for dict types (ArrayHashMap) - they have keys() method
-    try self.emit("const _is_dict = _type_info == .@\"struct\" and @hasDecl(_IterType, \"keys\");\n");
-    try self.emit("const _is_tuple = _type_info == .@\"struct\" and _type_info.@\"struct\".is_tuple;\n");
+    try self.emit("const _is_dict = _pointed_type_info == .@\"struct\" and @hasDecl(if (_is_ptr) _type_info.pointer.child else _IterType, \"keys\");\n");
+    try self.emit("const _is_tuple = _pointed_type_info == .@\"struct\" and _pointed_type_info.@\"struct\".is_tuple;\n");
     // Handle dict by iterating keys
     try self.emit("if (_is_dict) {\n");
     try self.emit("var _list = std.ArrayList([]const u8){};\n");
@@ -107,19 +121,20 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("break :list_blk _list;\n");
     try self.emit("} else {\n");
     // Tuples use PyValue for heterogeneous elements; others infer from first element
-    try self.emit("const _ElemType = if (_is_tuple) runtime.PyValue else if (_type_info == .@\"struct\" and @hasField(_IterType, \"items\")) @TypeOf(_iterable.items[0]) else @TypeOf(_iterable[0]);\n");
+    try self.emit("const _ElemType = if (_is_tuple) runtime.PyValue else if (_pointed_type_info == .@\"struct\" and @hasField(if (_is_ptr) _type_info.pointer.child else _IterType, \"items\")) @TypeOf(_iterable.items[0]) else @TypeOf(_iterable[0]);\n");
     try self.emit("var _list = std.ArrayList(_ElemType){};\n");
     try self.emit("if (_is_tuple) {\n");
-    try self.emit("inline for (0.._type_info.@\"struct\".fields.len) |_i| {\n");
+    try self.emit("inline for (0.._pointed_type_info.@\"struct\".fields.len) |_i| {\n");
     try self.emitFmt("try _list.append({s}, try runtime.PyValue.fromAlloc({s}, _iterable[_i]));\n", .{ alloc_name, alloc_name });
     try self.emit("}\n");
     try self.emit("} else {\n");
-    try self.emit("const _slice = if (_type_info == .@\"struct\" and @hasField(_IterType, \"items\")) _iterable.items else _iterable;\n");
+    try self.emit("const _slice = if (_pointed_type_info == .@\"struct\" and @hasField(if (_is_ptr) _type_info.pointer.child else _IterType, \"items\")) _iterable.items else _iterable;\n");
     try self.emit("for (_slice) |_item| {\n");
     try self.emitFmt("try _list.append({s}, _item);\n", .{alloc_name});
     try self.emit("}\n");
     try self.emit("}\n");
     try self.emit("break :list_blk _list;\n");
+    try self.emit("}\n");
     try self.emit("}\n");
     try self.emit("}\n");
     try self.emit("}");

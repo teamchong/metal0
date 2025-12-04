@@ -667,6 +667,9 @@ pub fn genFunctionBody(
         try self.emit(";\n");
         // Mark as forward-declared so assignment doesn't re-declare
         try self.forward_declared_vars.put(actual_fwd_var, {});
+        // Also mark as hoisted so for-loop capture doesn't shadow
+        // (for-loop checks hoisted_vars to detect capture shadowing)
+        try self.hoisted_vars.put(fwd_var, {});
     }
 
     // Detect type-check-raise patterns at the start of the function body for anytype params
@@ -1085,6 +1088,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     self.hoisted_vars.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
     self.class_instance_aliases.clearRetainingCapacity();
+    // Clear deferred closure instantiations from previous method
+    // This prevents closures from one method leaking into another method's scope
+    self.clearDeferredClosureInstantiations();
     // Track method start position for scope-limited variable usage detection
     self.function_start_pos = self.output.items.len;
     try mutation_analysis.analyzeFunctionLocalMutations(self, method);
@@ -1328,6 +1334,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         try self.emit(";\n");
         // Mark as forward-declared so assignment doesn't re-declare
         try self.forward_declared_vars.put(actual_fwd_var, {});
+        // Also mark as hoisted so for-loop capture doesn't shadow
+        // (for-loop checks hoisted_vars to detect capture shadowing)
+        try self.hoisted_vars.put(fwd_var, {});
     }
 
     // Check if we need comptime type dispatch for anytype params with type-changing patterns

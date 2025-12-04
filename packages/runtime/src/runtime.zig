@@ -55,6 +55,10 @@ pub const AnyClosure0 = closure_impl.AnyClosure0;
 pub const AnyClosure1 = closure_impl.AnyClosure1;
 pub const AnyClosure2 = closure_impl.AnyClosure2;
 pub const AnyClosure3 = closure_impl.AnyClosure3;
+pub const AnyClosure4 = closure_impl.AnyClosure4;
+pub const AnyClosure5 = closure_impl.AnyClosure5;
+pub const AnyClosure6 = closure_impl.AnyClosure6;
+pub const AnyClosure7 = closure_impl.AnyClosure7;
 
 /// Export TypeFactory for first-class types (classes as values)
 pub const type_factory = @import("type_factory.zig");

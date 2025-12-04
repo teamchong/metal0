@@ -54,7 +54,7 @@ fn isBigIntExpression(expr: ast.Node) bool {
 
 /// Check for deferred closure instantiations waiting on this variable
 /// These are closures that captured the variable before it was declared
-fn triggerDeferredClosureInstantiations(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
+pub fn triggerDeferredClosureInstantiations(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
     if (self.deferred_closure_instantiations.getPtr(var_name)) |deferred_list| {
         const closure_gen = @import("functions/nested/closure_gen.zig");
         for (deferred_list.items) |info| {
@@ -606,6 +606,15 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 (if (renamed_var) |rv| self.forward_declared_vars.contains(rv) else false);
             const is_global = self.isGlobalVar(var_name);
             const is_first_assignment = !self.isDeclared(var_name) and !is_hoisted and !is_forward_declared and !is_global;
+
+            // When a forward-declared variable is assigned, remove it from forward_declared_vars
+            // This allows closures defined AFTER this assignment to know the variable is now available
+            if (is_forward_declared) {
+                _ = self.forward_declared_vars.fetchSwapRemove(var_name);
+                if (renamed_var) |rv| {
+                    _ = self.forward_declared_vars.fetchSwapRemove(rv);
+                }
+            }
 
             // If forward-declared and we have a rename, use the renamed version
             // This ensures "set2 = ..." assigns to "__local_set2" which was forward-declared

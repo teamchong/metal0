@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const helpers = @import("optimization_helpers.zig");
 
 // Bool is just a PyLongObject with value 0 or 1
 pub const PyBoolObject = cpython.PyLongObject;
@@ -38,62 +39,12 @@ pub export var _Py_TrueStruct: cpython.PyLongObject = .{
 // TYPE OBJECT
 // ============================================================================
 
-pub var PyBool_Type: cpython.PyTypeObject = .{
-    .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
-        .ob_size = 0,
-    },
-    .tp_name = "bool",
-    .tp_basicsize = @sizeOf(cpython.PyLongObject),
-    .tp_itemsize = 0,
-    .tp_dealloc = null,
-    .tp_vectorcall_offset = 0,
-    .tp_getattr = null,
-    .tp_setattr = null,
-    .tp_as_async = null,
-    .tp_repr = null,
-    .tp_as_number = null,
-    .tp_as_sequence = null,
-    .tp_as_mapping = null,
-    .tp_hash = null,
-    .tp_call = null,
-    .tp_str = null,
-    .tp_getattro = null,
-    .tp_setattro = null,
-    .tp_as_buffer = null,
-    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_LONG_SUBCLASS,
-    .tp_doc = "bool(x) -> bool",
-    .tp_traverse = null,
-    .tp_clear = null,
-    .tp_richcompare = null,
-    .tp_weaklistoffset = 0,
-    .tp_iter = null,
-    .tp_iternext = null,
-    .tp_methods = null,
-    .tp_members = null,
-    .tp_getset = null,
-    .tp_base = null, // Should be &PyLong_Type
-    .tp_dict = null,
-    .tp_descr_get = null,
-    .tp_descr_set = null,
-    .tp_dictoffset = 0,
-    .tp_init = null,
-    .tp_alloc = null,
-    .tp_new = null,
-    .tp_free = null,
-    .tp_is_gc = null,
-    .tp_bases = null,
-    .tp_mro = null,
-    .tp_cache = null,
-    .tp_subclasses = null,
-    .tp_weaklist = null,
-    .tp_del = null,
-    .tp_version_tag = 0,
-    .tp_finalize = null,
-    .tp_vectorcall = null,
-    .tp_watched = 0,
-    .tp_versions_used = 0,
-};
+pub var PyBool_Type: cpython.PyTypeObject = helpers.makeTypeObject(.{
+    .name = "bool",
+    .basicsize = @sizeOf(cpython.PyLongObject),
+    .flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_LONG_SUBCLASS,
+    .doc = "bool(x) -> bool",
+});
 
 // ============================================================================
 // API FUNCTIONS

@@ -154,3 +154,51 @@ pub fn AnyClosure3(comptime CaptureT: type, comptime func: anytype) type {
         }
     };
 }
+
+/// Universal 4-arg closure with anytype
+pub fn AnyClosure4(comptime CaptureT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: anytype, arg2: anytype, arg3: anytype, arg4: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4 })) {
+            return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4 });
+        }
+    };
+}
+
+/// Universal 5-arg closure with anytype
+pub fn AnyClosure5(comptime CaptureT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: anytype, arg2: anytype, arg3: anytype, arg4: anytype, arg5: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5 })) {
+            return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5 });
+        }
+    };
+}
+
+/// Universal 6-arg closure with anytype
+pub fn AnyClosure6(comptime CaptureT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: anytype, arg2: anytype, arg3: anytype, arg4: anytype, arg5: anytype, arg6: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6 })) {
+            return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6 });
+        }
+    };
+}
+
+/// Universal 7-arg closure with anytype
+pub fn AnyClosure7(comptime CaptureT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: anytype, arg2: anytype, arg3: anytype, arg4: anytype, arg5: anytype, arg6: anytype, arg7: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6, arg7 })) {
+            return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6, arg7 });
+        }
+    };
+}

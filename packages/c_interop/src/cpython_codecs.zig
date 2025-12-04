@@ -31,24 +31,85 @@ export fn PyCodec_Unregister(search_function: *cpython.PyObject) callconv(.c) c_
 /// Encode an object using the specified encoding
 /// Returns encoded bytes object or null on error
 export fn PyCodec_Encode(obj: *cpython.PyObject, encoding: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    _ = obj;
-    _ = encoding;
     _ = errors;
-    // TODO: Look up encoder for encoding and encode obj
-    // Common encodings: "utf-8", "ascii", "latin-1", "utf-16"
-    // errors: "strict", "ignore", "replace", "backslashreplace"
-    PyErr_SetString(@ptrFromInt(0), "PyCodec_Encode not implemented");
+    const unicode = @import("cpython_unicode.zig");
+    const bytes = @import("pyobject_bytes.zig");
+
+    // Get string data
+    var size: isize = 0;
+    const str = unicode.PyUnicode_AsUTF8AndSize(obj, &size) orelse return null;
+
+    const enc_name = std.mem.span(encoding);
+
+    // Handle different encodings
+    if (std.mem.eql(u8, enc_name, "utf-8") or std.mem.eql(u8, enc_name, "utf8")) {
+        // UTF-8: Direct copy (already UTF-8)
+        return bytes.PyBytes_FromStringAndSize(str, size);
+    }
+
+    if (std.mem.eql(u8, enc_name, "ascii")) {
+        // ASCII: Check all bytes are < 128
+        const data = str[0..@intCast(size)];
+        for (data) |c| {
+            if (c > 127) {
+                PyErr_SetString(@ptrFromInt(0), "'ascii' codec can't encode character");
+                return null;
+            }
+        }
+        return bytes.PyBytes_FromStringAndSize(str, size);
+    }
+
+    if (std.mem.eql(u8, enc_name, "latin-1") or std.mem.eql(u8, enc_name, "latin1") or std.mem.eql(u8, enc_name, "iso-8859-1")) {
+        // Latin-1: Check all bytes are < 256 (always true for valid UTF-8 single bytes)
+        return bytes.PyBytes_FromStringAndSize(str, size);
+    }
+
+    PyErr_SetString(@ptrFromInt(0), "unknown encoding");
     return null;
 }
 
 /// Decode an object using the specified encoding
 /// Returns decoded string object or null on error
 export fn PyCodec_Decode(obj: *cpython.PyObject, encoding: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    _ = obj;
-    _ = encoding;
     _ = errors;
-    // TODO: Look up decoder for encoding and decode obj
-    PyErr_SetString(@ptrFromInt(0), "PyCodec_Decode not implemented");
+    const unicode = @import("cpython_unicode.zig");
+    const bytes = @import("pyobject_bytes.zig");
+
+    // Get bytes data
+    if (bytes.PyBytes_Check(obj) == 0) {
+        PyErr_SetString(@ptrFromInt(0), "expected bytes object");
+        return null;
+    }
+
+    const data = bytes.PyBytes_AsString(obj);
+    const size = bytes.PyBytes_Size(obj);
+
+    const enc_name = std.mem.span(encoding);
+
+    // Handle different encodings
+    if (std.mem.eql(u8, enc_name, "utf-8") or std.mem.eql(u8, enc_name, "utf8")) {
+        // UTF-8: Direct use
+        return unicode.PyUnicode_FromStringAndSize(data, size);
+    }
+
+    if (std.mem.eql(u8, enc_name, "ascii")) {
+        // ASCII: Check all bytes are < 128
+        const slice = data[0..@intCast(size)];
+        for (slice) |c| {
+            if (c > 127) {
+                PyErr_SetString(@ptrFromInt(0), "'ascii' codec can't decode byte");
+                return null;
+            }
+        }
+        return unicode.PyUnicode_FromStringAndSize(data, size);
+    }
+
+    if (std.mem.eql(u8, enc_name, "latin-1") or std.mem.eql(u8, enc_name, "latin1") or std.mem.eql(u8, enc_name, "iso-8859-1")) {
+        // Latin-1: Always valid, bytes 0-255 map to Unicode 0-255
+        return unicode.PyUnicode_FromStringAndSize(data, size);
+    }
+
+    PyErr_SetString(@ptrFromInt(0), "unknown encoding");
     return null;
 }
 
@@ -131,9 +192,22 @@ export fn PyCodec_Lookup(encoding: [*:0]const u8) callconv(.c) ?*cpython.PyObjec
 /// Check if a codec is known
 /// Returns 1 if known, 0 if unknown, -1 on error
 export fn PyCodec_KnownEncoding(encoding: [*:0]const u8) callconv(.c) c_int {
-    _ = encoding;
-    // TODO: Try to look up encoding, return 1 if found
-    // Common encodings: utf-8, ascii, latin-1, utf-16, utf-32
+    const enc_name = std.mem.span(encoding);
+
+    // Known encodings
+    const known = [_][]const u8{
+        "utf-8",
+        "utf8",
+        "ascii",
+        "latin-1",
+        "latin1",
+        "iso-8859-1",
+    };
+
+    for (known) |k| {
+        if (std.mem.eql(u8, enc_name, k)) return 1;
+    }
+
     return 0; // Unknown
 }
 
@@ -158,33 +232,37 @@ export fn PyUnicode_AsLatin1String(unicode: *cpython.PyObject) callconv(.c) ?*cp
 }
 
 /// Decode UTF-8 bytes to Unicode object
-export fn PyUnicode_DecodeUTF8(data: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    _ = data;
-    _ = size;
+export fn PyUnicode_DecodeUTF8Codec(data: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = errors;
-    // TODO: Decode UTF-8 bytes to Unicode string
-    PyErr_SetString(@ptrFromInt(0), "PyUnicode_DecodeUTF8 not implemented");
-    return null;
+    const unicode = @import("cpython_unicode.zig");
+    return unicode.PyUnicode_FromStringAndSize(data, size);
 }
 
 /// Decode ASCII bytes to Unicode object
 export fn PyUnicode_DecodeASCII(data: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    _ = data;
-    _ = size;
     _ = errors;
-    // TODO: Decode ASCII bytes to Unicode string
-    PyErr_SetString(@ptrFromInt(0), "PyUnicode_DecodeASCII not implemented");
-    return null;
+    const unicode = @import("cpython_unicode.zig");
+
+    // Validate ASCII (all bytes < 128)
+    const slice = data[0..@intCast(size)];
+    for (slice) |c| {
+        if (c > 127) {
+            PyErr_SetString(@ptrFromInt(0), "'ascii' codec can't decode byte");
+            return null;
+        }
+    }
+
+    return unicode.PyUnicode_FromStringAndSize(data, size);
 }
 
 /// Decode Latin-1 bytes to Unicode object
 export fn PyUnicode_DecodeLatin1(data: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    _ = data;
-    _ = size;
     _ = errors;
-    // TODO: Decode Latin-1 bytes to Unicode string
-    PyErr_SetString(@ptrFromInt(0), "PyUnicode_DecodeLatin1 not implemented");
-    return null;
+    const unicode = @import("cpython_unicode.zig");
+
+    // Latin-1 is a direct mapping of bytes 0-255 to Unicode codepoints 0-255
+    // For ASCII subset (0-127), it's the same as UTF-8
+    return unicode.PyUnicode_FromStringAndSize(data, size);
 }
 
 /// Register error handler for codec errors

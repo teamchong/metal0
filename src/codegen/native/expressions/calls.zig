@@ -17,6 +17,21 @@ fn isRuntimeExceptionType(name: []const u8) bool {
     return RuntimeExceptions.has(name);
 }
 
+/// Check if an AST node is an integer constant literal
+/// Used to wrap integer literals with @as(i64, ...) when calling closures
+/// to prevent comptime_int being used with runtime control flow
+fn isIntegerConstant(node: ast.Node) bool {
+    return switch (node) {
+        .constant => |c| switch (c.value) {
+            .int => true,
+            else => false,
+        },
+        // Unary minus on integer is also an integer constant: -123
+        .unaryop => |un| un.op == .USub and isIntegerConstant(un.operand.*),
+        else => false,
+    };
+}
+
 /// Map Python/inferred type to C ABI type for ctypes FFI
 fn inferCType(native_type: NativeType) []const u8 {
     return switch (native_type) {
@@ -646,16 +661,31 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
             try self.emit(".call(");
 
-            // Pass args directly - closure fn params are anytype
+            // Pass args to closure - wrap integer literals with @as(i64, ...) to force
+            // runtime types. Without this, integer literals become comptime_int which
+            // can't be used with runtime control flow inside the closure body.
             // Class instances are already pointers (*Self from init()), never add &
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
-                try genExpr(self, arg);
+                // Check if arg is an integer constant that needs wrapping
+                if (isIntegerConstant(arg)) {
+                    try self.emit("@as(i64, ");
+                    try genExpr(self, arg);
+                    try self.emit(")");
+                } else {
+                    try genExpr(self, arg);
+                }
             }
 
             for (call.keyword_args, 0..) |kwarg, i| {
                 if (i > 0 or call.args.len > 0) try self.emit(", ");
-                try genExpr(self, kwarg.value);
+                if (isIntegerConstant(kwarg.value)) {
+                    try self.emit("@as(i64, ");
+                    try genExpr(self, kwarg.value);
+                    try self.emit(")");
+                } else {
+                    try genExpr(self, kwarg.value);
+                }
             }
 
             try self.emit(")");
@@ -965,8 +995,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     try self.emit(", ");
                 }
 
-                // Check if class inherits from builtin type (int, float, etc.)
-                // If so, we need to convert class instance args to primitive type
+                // Check if class inherits from builtin type (int, float, tuple, list, etc.)
+                // If so, we need to convert class instance args appropriately
                 const inherits_float = blk: {
                     if (self.class_registry.getClass(raw_func_name)) |class_def| {
                         if (class_def.bases.len > 0) {
@@ -977,6 +1007,24 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     }
                     if (self.nested_class_bases.get(raw_func_name)) |base_name| {
                         if (std.mem.eql(u8, base_name, "float")) {
+                            break :blk true;
+                        }
+                    }
+                    break :blk false;
+                };
+
+                // Check if class inherits from tuple/list (first arg needs PyValue conversion)
+                const inherits_tuple_or_list = blk: {
+                    if (self.class_registry.getClass(raw_func_name)) |class_def| {
+                        if (class_def.bases.len > 0) {
+                            const base = class_def.bases[0];
+                            if (std.mem.eql(u8, base, "tuple") or std.mem.eql(u8, base, "list")) {
+                                break :blk true;
+                            }
+                        }
+                    }
+                    if (self.nested_class_bases.get(raw_func_name)) |base_name| {
+                        if (std.mem.eql(u8, base_name, "tuple") or std.mem.eql(u8, base_name, "list")) {
                             break :blk true;
                         }
                     }
@@ -1026,6 +1074,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             try genExpr(self, arg);
                             try self.emit(")");
                         }
+                    } else if (inherits_tuple_or_list and i == 0) {
+                        // For tuple/list subclass, first arg is __base_value__ which needs PyValue
+                        try self.emit("runtime.PyValue.from(");
+                        try genExpr(self, arg);
+                        try self.emit(")");
                     } else {
                         // Check if passing 'self' from method context to class constructor
                         // In Zig, 'self' in methods is *const @This(), but constructors expect value type

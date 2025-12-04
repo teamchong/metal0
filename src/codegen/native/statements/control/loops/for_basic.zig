@@ -8,6 +8,7 @@ const genEnumerateLoop = for_special.genEnumerateLoop;
 const genZipLoop = for_special.genZipLoop;
 const zig_keywords = @import("zig_keywords");
 const producesBlockExpression = @import("../../../expressions.zig").producesBlockExpression;
+const triggerDeferredClosureInstantiations = @import("../../assign.zig").triggerDeferredClosureInstantiations;
 
 /// Sanitize Python variable name for Zig (e.g., "_" -> "_unused")
 fn sanitizeVarName(name: []const u8) []const u8 {
@@ -955,6 +956,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.emitIndent();
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
         try self.output.writer(self.allocator).print(" = __loop_{s}_{d}__;\n", .{ var_name, unique_capture_id });
+        // Trigger any deferred closures waiting on this variable
+        // This handles closures defined before the for-loop that capture the loop variable
+        try triggerDeferredClosureInstantiations(self, for_stmt.target.name.id);
     }
 
     // If the loop variable is captured by a nested class but not directly used,

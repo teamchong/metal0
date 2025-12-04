@@ -8,6 +8,40 @@ const zig_keywords = @import("zig_keywords");
 const hashmap_helper = @import("hashmap_helper");
 const var_tracking = @import("var_tracking.zig");
 
+/// Emit the type annotation for a captured variable in a closure struct.
+/// This centralizes type inference logic for captured variables:
+/// - 'self' in class context -> *const ClassName
+/// - Known closures -> @TypeOf(closure_var_name) (closures have complex parameterized types)
+/// - Inferred types -> use type inference
+/// - Unknown -> *runtime.PyObject as fallback
+fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
+    // Case 1: 'self' in a class context
+    if (std.mem.eql(u8, var_name, "self") and self.current_class_name != null) {
+        try self.output.writer(self.allocator).print(": *const {s}", .{self.current_class_name.?});
+        return;
+    }
+
+    // Case 2: Captured variable is itself a closure
+    // Closures have complex parameterized types (AnyClosure1, AnyClosure2, etc.)
+    // that can't be expressed statically. Use @TypeOf() to infer from the actual value.
+    // Note: anytype can only be used in function params, not struct fields.
+    if (self.closure_vars.contains(var_name)) {
+        try self.emit(": @TypeOf(");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try self.emit(")");
+        return;
+    }
+
+    // Case 3: Try to infer the type from type analysis
+    const var_type = self.getLocalVarType(var_name) orelse
+        self.getVarType(var_name) orelse
+        self.type_inferrer.getScopedVar(var_name) orelse
+        .unknown;
+    const type_str = try self.nativeTypeToZigType(var_type);
+    defer self.allocator.free(type_str);
+    try self.output.writer(self.allocator).print(": {s}", .{type_str});
+}
+
 /// Generate standard closure with captured variables
 pub fn genStandardClosure(
     self: *NativeCodegen,
@@ -40,12 +74,8 @@ pub fn genStandardClosure(
         if (i > 0) try self.emit(", ");
         try self.emit(" ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        // If capturing 'self' in a class context, use correct type
-        if (std.mem.eql(u8, var_name, "self") and self.current_class_name != null) {
-            try self.output.writer(self.allocator).print(": *const {s}", .{self.current_class_name.?});
-        } else {
-            try self.emit(": i64");
-        }
+        // Emit the type for this captured variable
+        try emitCapturedVarType(self, var_name);
     }
     try self.emit(" };\n");
 
@@ -430,9 +460,31 @@ pub fn genStandardClosure(
                 "const {s} = runtime.AnyClosure3({s}, ",
                 .{ closure_var_name, capture_type_name },
             );
-        } else {
+        } else if (total_params == 4) {
             try self.output.writer(self.allocator).print(
-                "const {s} = runtime.AnyClosure1({s}, ",
+                "const {s} = runtime.AnyClosure4({s}, ",
+                .{ closure_var_name, capture_type_name },
+            );
+        } else if (total_params == 5) {
+            try self.output.writer(self.allocator).print(
+                "const {s} = runtime.AnyClosure5({s}, ",
+                .{ closure_var_name, capture_type_name },
+            );
+        } else if (total_params == 6) {
+            try self.output.writer(self.allocator).print(
+                "const {s} = runtime.AnyClosure6({s}, ",
+                .{ closure_var_name, capture_type_name },
+            );
+        } else if (total_params == 7) {
+            try self.output.writer(self.allocator).print(
+                "const {s} = runtime.AnyClosure7({s}, ",
+                .{ closure_var_name, capture_type_name },
+            );
+        } else {
+            // For functions with more than 7 params, fall back to AnyClosure7
+            // This is rare in practice; most closures have few parameters
+            try self.output.writer(self.allocator).print(
+                "const {s} = runtime.AnyClosure7({s}, ",
                 .{ closure_var_name, capture_type_name },
             );
         }
@@ -502,9 +554,25 @@ pub fn emitClosureInstantiation(
             "const {s} = runtime.AnyClosure3({s}, ",
             .{ info.closure_var_name, info.capture_type_name },
         );
-    } else {
+    } else if (info.total_params == 4) {
         try self.output.writer(self.allocator).print(
-            "const {s} = runtime.AnyClosure1({s}, ",
+            "const {s} = runtime.AnyClosure4({s}, ",
+            .{ info.closure_var_name, info.capture_type_name },
+        );
+    } else if (info.total_params == 5) {
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.AnyClosure5({s}, ",
+            .{ info.closure_var_name, info.capture_type_name },
+        );
+    } else if (info.total_params == 6) {
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.AnyClosure6({s}, ",
+            .{ info.closure_var_name, info.capture_type_name },
+        );
+    } else {
+        // For 7+ params, use AnyClosure7
+        try self.output.writer(self.allocator).print(
+            "const {s} = runtime.AnyClosure7({s}, ",
             .{ info.closure_var_name, info.capture_type_name },
         );
     }
@@ -582,12 +650,8 @@ pub fn genNestedFunctionWithOuterCapture(
         if (i > 0) try self.emit(", ");
         try self.emit(" ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        // If capturing 'self' in a class context, use correct type
-        if (std.mem.eql(u8, var_name, "self") and self.current_class_name != null) {
-            try self.output.writer(self.allocator).print(": *const {s}", .{self.current_class_name.?});
-        } else {
-            try self.emit(": i64");
-        }
+        // Emit the type for this captured variable
+        try emitCapturedVarType(self, var_name);
     }
     try self.emit(" };\n");
 

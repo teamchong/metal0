@@ -10,16 +10,12 @@ const PyToZigTypes = shared.PyTypeToZig;
 /// Check if a name is a Python builtin type name (not a user variable)
 fn isBuiltinTypeName(name: []const u8) bool {
     const builtin_types = [_][]const u8{
-        "int", "float", "str", "bool", "list", "dict", "set", "tuple",
-        "type", "object", "bytes", "bytearray", "frozenset", "range",
-        "complex", "memoryview", "slice", "property", "classmethod",
-        "staticmethod", "super", "Exception", "BaseException",
-        "TypeError", "ValueError", "KeyError", "IndexError", "AttributeError",
-        "RuntimeError", "StopIteration", "GeneratorExit", "AssertionError",
-        "ImportError", "ModuleNotFoundError", "LookupError", "OSError",
-        "FileNotFoundError", "PermissionError", "NotImplementedError",
-        "ZeroDivisionError", "OverflowError", "RecursionError",
-        "DeprecationWarning", "UserWarning", "SyntaxWarning", "Warning",
+        "int",           "float",               "str",                "bool",           "list",              "dict",            "set",                 "tuple",
+        "type",          "object",              "bytes",              "bytearray",      "frozenset",         "range",           "complex",             "memoryview",
+        "slice",         "property",            "classmethod",        "staticmethod",   "super",             "Exception",       "BaseException",       "TypeError",
+        "ValueError",    "KeyError",            "IndexError",         "AttributeError", "RuntimeError",      "StopIteration",   "GeneratorExit",       "AssertionError",
+        "ImportError",   "ModuleNotFoundError", "LookupError",        "OSError",        "FileNotFoundError", "PermissionError", "NotImplementedError", "ZeroDivisionError",
+        "OverflowError", "RecursionError",      "DeprecationWarning", "UserWarning",    "SyntaxWarning",     "Warning",
     };
     for (builtin_types) |t| {
         if (std.mem.eql(u8, name, t)) return true;
@@ -80,6 +76,293 @@ fn gen2ArgAssert(comptime func_name: []const u8) AssertHandler {
             try self.emit(")");
         }
     }.handler;
+}
+
+/// Emit a callable invocation with shared special-case handling.
+/// This centralizes the logic used by assertRaises/assertRaisesRegex/assertWarns
+/// so we don't need to patch every variant individually when adding support
+/// for tricky callables (builtins, module attrs, lambda wrappers, etc.).
+fn emitCallableInvocation(
+    self: *NativeCodegen,
+    callable: ast.Node,
+    call_args: []const ast.Node,
+    keyword_args: []const ast.Node.KeywordArg,
+) CodegenError!void {
+    var callable_copy = callable;
+    const mut_args: []ast.Node = @constCast(call_args);
+    const mut_kwargs: []ast.Node.KeywordArg = @constCast(keyword_args);
+
+    // If keyword args are present, delegate to the general call generator which
+    // already knows how to route module/builtin dispatch.
+    if (keyword_args.len > 0) {
+        const call = ast.Node.Call{
+            .func = &callable_copy,
+            .args = mut_args,
+            .keyword_args = mut_kwargs,
+        };
+        try parent.genCall(self, call);
+        return;
+    }
+
+    if (callable == .attribute) {
+        const attr = callable.attribute;
+
+        if (attr.value.* == .name) {
+            const base_name = attr.value.name.id;
+            // Attribute on imported module vs local variable
+            const is_module_func = !self.isDeclared(base_name) and
+                (self.import_registry.lookup(base_name) != null);
+
+            if (is_module_func) {
+                const call = ast.Node.Call{
+                    .func = &callable_copy,
+                    .args = mut_args,
+                    .keyword_args = &.{},
+                };
+                try parent.genCall(self, call);
+                return;
+            } else if (std.mem.eql(u8, base_name, "self")) {
+                try self.emit("self.@\"");
+                try self.emit(attr.attr);
+                try self.emit("\"(");
+                for (call_args, 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+                try self.emit(")");
+                return;
+            } else if (attr.value.* == .call) {
+                if (FloatMethods.get(attr.attr)) |info| {
+                    try self.emit("__ar_obj_blk: { const __ar_obj = ");
+                    try parent.genExpr(self, attr.value.*);
+                    try self.emit("; break :__ar_obj_blk runtime.float");
+                    try self.emit(info.func);
+                    try self.emit(if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
+                    try self.emit("; }");
+                } else {
+                    try self.emit("__ar_obj_blk: { const __ar_obj = ");
+                    try parent.genExpr(self, attr.value.*);
+                    try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
+                    try self.emit(attr.attr);
+                    try self.emit("\"(");
+                    for (call_args, 0..) |arg, i| {
+                        if (i > 0) try self.emit(", ");
+                        try parent.genExpr(self, arg);
+                    }
+                    try self.emit("); }");
+                }
+                return;
+            } else if (PyToZigTypes.has(base_name)) {
+                // Builtin type methods
+                if (std.mem.eql(u8, base_name, "float")) {
+                    if (FloatClassMethods.get(attr.attr)) |func_name| {
+                        try self.emit(func_name);
+                        try self.emit("(");
+                        for (call_args, 0..) |arg, i| {
+                            if (i > 0) try self.emit(", ");
+                            try parent.genExpr(self, arg);
+                        }
+                        try self.emit(")");
+                        return;
+                    }
+                }
+                try self.emit("runtime.");
+                try self.emit(base_name);
+                try self.emit(attr.attr);
+                try self.emit("(");
+                for (call_args, 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+                try self.emit(")");
+                return;
+            }
+
+            // Simple variable attribute - local variable's method
+            const no_arg_methods = std.StaticStringMap(void).initComptime(.{
+                .{ "clear", {} },
+                .{ "copy", {} },
+                .{ "keys", {} },
+                .{ "values", {} },
+                .{ "items", {} },
+                .{ "popitem", {} },
+                .{ "reverse", {} },
+            });
+            if (no_arg_methods.has(attr.attr) and call_args.len > 0) {
+                try self.emit("__ar_noarg_blk: { ");
+                for (call_args) |arg| {
+                    try self.emit("_ = ");
+                    try parent.genExpr(self, arg);
+                    try self.emit("; ");
+                }
+                try self.emit("break :__ar_noarg_blk error.TypeError; }");
+            } else {
+                try parent.genExpr(self, attr.value.*);
+                try self.emit(".@\"");
+                try self.emit(attr.attr);
+                try self.emit("\"(");
+                for (call_args, 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+                try self.emit(")");
+            }
+            return;
+        }
+
+        // Complex expression attribute (e.g., {}.update, some_call().method)
+        try self.emit("__ar_obj_blk: { const __ar_obj = ");
+        try parent.genExpr(self, attr.value.*);
+        try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
+        try self.emit(attr.attr);
+        try self.emit("\"(");
+        for (call_args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try parent.genExpr(self, arg);
+        }
+        try self.emit("); }");
+        return;
+    }
+
+    if (callable == .lambda) {
+        try self.emit("ar_closure_blk: { const __ar_closure = ");
+        try parent.genExpr(self, callable);
+        try self.emit("; break :ar_closure_blk __ar_closure.call(");
+        for (call_args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try parent.genExpr(self, arg);
+        }
+        try self.emit("); }");
+        return;
+    }
+
+    if (callable == .name and std.mem.eql(u8, callable.name.id, "int")) {
+        try self.emit("runtime.intBuiltinCall(__global_allocator, ");
+        if (call_args.len > 0) {
+            try parent.genExpr(self, call_args[0]);
+            try self.emit(", .{");
+            if (call_args.len > 1) {
+                for (call_args[1..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("}");
+        } else {
+            try self.emit("{}, .{}");
+        }
+        try self.emit(")");
+        return;
+    }
+
+    if (callable == .name and std.mem.eql(u8, callable.name.id, "float")) {
+        try self.emit("runtime.floatBuiltinCall(");
+        if (call_args.len > 0) {
+            try parent.genExpr(self, call_args[0]);
+            try self.emit(", .{");
+            if (call_args.len > 1) {
+                for (call_args[1..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("}");
+        } else {
+            try self.emit("{}, .{}");
+        }
+        try self.emit(")");
+        return;
+    }
+
+    if (callable == .name and std.mem.eql(u8, callable.name.id, "bool")) {
+        try self.emit("runtime.boolBuiltinCall(");
+        if (call_args.len > 0) {
+            try parent.genExpr(self, call_args[0]);
+            try self.emit(", .{");
+            if (call_args.len > 1) {
+                for (call_args[1..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("}");
+        } else {
+            try self.emit("{}, .{}");
+        }
+        try self.emit(")");
+        return;
+    }
+
+    if (callable == .name and std.mem.eql(u8, callable.name.id, "next")) {
+        try self.emit("runtime.builtins.next(");
+        if (call_args.len > 0) {
+            try self.emit("&");
+            try parent.genExpr(self, call_args[0]);
+        } else {
+            try self.emit("&.{}");
+        }
+        try self.emit(")");
+        return;
+    }
+
+    if (callable == .name and self.callable_vars.contains(callable.name.id)) {
+        try parent.genExpr(self, callable);
+        try self.emit(".call(");
+        for (call_args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try parent.genExpr(self, arg);
+        }
+        try self.emit(")");
+        return;
+    }
+
+    if (callable == .name and std.mem.eql(u8, callable.name.id, "format")) {
+        try self.emit("runtime.builtins.format.call(__global_allocator, ");
+        for (call_args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try parent.genExpr(self, arg);
+        }
+        try self.emit(")");
+        return;
+    }
+
+    if (callable == .name and std.mem.eql(u8, callable.name.id, "round")) {
+        try self.emit("runtime.builtins.round(");
+        if (call_args.len > 0) {
+            try parent.genExpr(self, call_args[0]);
+            try self.emit(", .{");
+            if (call_args.len > 1) {
+                for (call_args[1..], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try parent.genExpr(self, arg);
+                }
+            }
+            try self.emit("}");
+        } else {
+            try self.emit("0, .{}");
+        }
+        try self.emit(")");
+        return;
+    }
+
+    if (callable == .name) {
+        const call = ast.Node.Call{
+            .func = &callable_copy,
+            .args = mut_args,
+            .keyword_args = &.{},
+        };
+        try parent.genCall(self, call);
+        return;
+    }
+
+    // Fallback: simple callable expression
+    try parent.genExpr(self, callable);
+    try self.emit("(");
+    for (call_args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try parent.genExpr(self, arg);
+    }
+    try self.emit(")");
 }
 
 // Simple assertions via comptime generators
@@ -320,303 +603,9 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 
     // For assertRaises, we need to check if the callable raises an error
     // Use unittest.expectError helper which handles both error and non-error types
+    const call_args: []const ast.Node = if (args.len > 2) args[2..] else &.{};
     try self.emit("if (runtime.unittest.expectError(");
-
-    // Check if callable is an attribute on an IMPORTED module (e.g., copy.replace)
-    // vs a local variable attribute (e.g., operator.lt where operator = self.module)
-    if (args[1] == .attribute) {
-        const attr = args[1].attribute;
-        // Check if base is an imported module (not a local variable)
-        // Local variables shadow module imports, so check if declared first
-        const is_module_func = if (attr.value.* == .name) blk: {
-            const base_name = attr.value.name.id;
-            // If it's a declared local variable, it's NOT a module function
-            if (self.isDeclared(base_name)) {
-                break :blk false;
-            }
-            // Check if this is a known module
-            if (self.import_registry.lookup(base_name)) |_| {
-                break :blk true;
-            }
-            break :blk false;
-        } else false;
-
-        if (is_module_func) {
-            // Build a call node to dispatch properly to module function handler
-            const call_args: []ast.Node = if (args.len > 2) @constCast(args[2..]) else @constCast(&[_]ast.Node{});
-            const call = ast.Node.Call{
-                .func = @constCast(&args[1]),
-                .args = call_args,
-                .keyword_args = @constCast(&[_]ast.Node.KeywordArg{}),
-            };
-            try parent.genCall(self, call);
-        } else if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
-            // self.method pattern - generate method call on self
-            try self.emit("self.@\"");
-            try self.emit(attr.attr);
-            try self.emit("\"(");
-            if (args.len > 2) {
-                for (args[2..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
-            }
-            try self.emit(")");
-        } else if (attr.value.* == .call) {
-            // Attribute on a call result (e.g., zlib.decompressobj().flush)
-            // Need to store the call result first, then access the method
-            // Check if this is a float method that needs special dispatch
-            if (FloatMethods.get(attr.attr)) |info| {
-                try self.emit("__ar_obj_blk: { const __ar_obj = ");
-                try parent.genExpr(self, attr.value.*);
-                try self.emit("; break :__ar_obj_blk runtime.float");
-                try self.emit(info.func);
-                try self.emit(if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
-                try self.emit("; }");
-            } else {
-                // Generate: __ar_obj_blk: { const __ar_obj = <call>; break :__ar_obj_blk __ar_obj.<method>(<args>); }
-                try self.emit("__ar_obj_blk: { const __ar_obj = ");
-                try parent.genExpr(self, attr.value.*);
-                try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
-                try self.emit(attr.attr);
-                try self.emit("\"(");
-                if (args.len > 2) {
-                    for (args[2..], 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
-                        try parent.genExpr(self, arg);
-                    }
-                }
-                try self.emit("); }");
-            }
-        } else if (attr.value.* == .name) {
-            const base_name = attr.value.name.id;
-            // Check if base is a builtin type (int, float, bool, str) - these need runtime dispatch
-            if (PyToZigTypes.has(base_name)) {
-                // Check for special float class methods with explicit mappings
-                if (std.mem.eql(u8, base_name, "float")) {
-                    if (FloatClassMethods.get(attr.attr)) |func_name| {
-                        try self.emit(func_name);
-                        try self.emit("(");
-                        if (args.len > 2) {
-                            for (args[2..], 0..) |arg, i| {
-                                if (i > 0) try self.emit(", ");
-                                try parent.genExpr(self, arg);
-                            }
-                        }
-                        try self.emit(")");
-                    } else {
-                        // Fallback for other float class methods
-                        try self.emit("runtime.float");
-                        try self.emit(attr.attr);
-                        try self.emit("(");
-                        if (args.len > 2) {
-                            for (args[2..], 0..) |arg, i| {
-                                if (i > 0) try self.emit(", ");
-                                try parent.genExpr(self, arg);
-                            }
-                        }
-                        try self.emit(")");
-                    }
-                } else {
-                    // Builtin type method: int.__new__ -> runtime.int__new__(args)
-                    // Note: attr starts with __ so we get int__new__, not int___new__
-                    try self.emit("runtime.");
-                    try self.emit(base_name);
-                    try self.emit(attr.attr);
-                    try self.emit("(");
-                    if (args.len > 2) {
-                        for (args[2..], 0..) |arg, i| {
-                            if (i > 0) try self.emit(", ");
-                            try parent.genExpr(self, arg);
-                        }
-                    }
-                    try self.emit(")");
-                }
-            } else {
-                // Simple variable attribute - local variable's method
-                // Check if this is a dict/list/set method that doesn't take arguments
-                // If extra args passed, should raise TypeError (which we simulate with error)
-                const no_arg_methods = std.StaticStringMap(void).initComptime(.{
-                    .{ "clear", {} },
-                    .{ "copy", {} },
-                    .{ "keys", {} },
-                    .{ "values", {} },
-                    .{ "items", {} },
-                    .{ "popitem", {} },
-                    .{ "reverse", {} },
-                });
-                if (no_arg_methods.has(attr.attr) and args.len > 2) {
-                    // Extra args passed to no-arg method - generate error
-                    // Use block that marks args as used then returns error
-                    try self.emit("__ar_noarg_blk: { ");
-                    for (args[2..]) |arg| {
-                        try self.emit("_ = ");
-                        try parent.genExpr(self, arg);
-                        try self.emit("; ");
-                    }
-                    try self.emit("break :__ar_noarg_blk error.TypeError; }");
-                } else {
-                    // Generate: var_name.@"method"(args)
-                    try parent.genExpr(self, attr.value.*);
-                    try self.emit(".@\"");
-                    try self.emit(attr.attr);
-                    try self.emit("\"(");
-                    if (args.len > 2) {
-                        for (args[2..], 0..) |arg, i| {
-                            if (i > 0) try self.emit(", ");
-                            try parent.genExpr(self, arg);
-                        }
-                    }
-                    try self.emit(")");
-                }
-            }
-        } else {
-            // Complex expression attribute (e.g., {}.update, some_call().method)
-            // Store the object first, then call the method
-            try self.emit("__ar_obj_blk: { const __ar_obj = ");
-            try parent.genExpr(self, attr.value.*);
-            try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
-            try self.emit(attr.attr);
-            try self.emit("\"(");
-            if (args.len > 2) {
-                for (args[2..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
-            }
-            try self.emit("); }");
-        }
-    } else if (args[1] == .lambda) {
-        // Lambda expression - generates a closure struct that needs .call() method
-        // Need to assign to temp var first since can't call method on struct literal
-        try self.emit("ar_closure_blk: { const __ar_closure = ");
-        try parent.genExpr(self, args[1]);
-        try self.emit("; break :ar_closure_blk __ar_closure.call(); }");
-    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "int")) {
-        // Handle int() builtin specially - it needs to validate args and raise TypeError
-        // intBuiltinCall(allocator, first_arg, .{ rest_args... })
-        try self.emit("runtime.intBuiltinCall(__global_allocator, ");
-        if (args.len > 2) {
-            try parent.genExpr(self, args[2]); // first arg
-            try self.emit(", .{");
-            // Remaining args as tuple
-            if (args.len > 3) {
-                for (args[3..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
-            }
-            try self.emit("}");
-        } else {
-            // No args to int() - pass void for both
-            try self.emit("{}, .{}");
-        }
-        try self.emit(")");
-    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "float")) {
-        // Handle float() builtin specially
-        try self.emit("runtime.floatBuiltinCall(");
-        if (args.len > 2) {
-            try parent.genExpr(self, args[2]); // first arg
-            try self.emit(", .{");
-            // Remaining args as tuple
-            if (args.len > 3) {
-                for (args[3..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
-            }
-            try self.emit("}");
-        } else {
-            try self.emit("{}, .{}");
-        }
-        try self.emit(")");
-    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "bool")) {
-        // Handle bool() builtin specially - it validates arg count
-        try self.emit("runtime.boolBuiltinCall(");
-        if (args.len > 2) {
-            try parent.genExpr(self, args[2]); // first arg
-            try self.emit(", .{");
-            // Remaining args as tuple - bool() should raise TypeError for extra args
-            if (args.len > 3) {
-                for (args[3..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
-            }
-            try self.emit("}");
-        } else {
-            try self.emit("{}, .{}");
-        }
-        try self.emit(")");
-    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "next")) {
-        // Handle next() builtin specially - iterators need to be passed by pointer
-        try self.emit("runtime.builtins.next(&");
-        if (args.len > 2) {
-            try parent.genExpr(self, args[2]);
-        }
-        try self.emit(")");
-    } else if (args[1] == .name and self.callable_vars.contains(args[1].name.id)) {
-        // Callable variable (e.g., pow_op from iterating over operator structs)
-        // Needs .call() syntax: pow_op.call(args...)
-        try parent.genExpr(self, args[1]);
-        try self.emit(".call(");
-        if (args.len > 2) {
-            for (args[2..], 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try parent.genExpr(self, arg);
-            }
-        }
-        try self.emit(")");
-    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "format")) {
-        // format builtin is a callable struct - needs .call() and allocator
-        try self.emit("runtime.builtins.format.call(__global_allocator, ");
-        if (args.len > 2) {
-            for (args[2..], 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try parent.genExpr(self, arg);
-            }
-        }
-        try self.emit(")");
-    } else if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "round")) {
-        // Handle round() builtin specially - it takes (value, .{ndigits...})
-        try self.emit("runtime.builtins.round(");
-        if (args.len > 2) {
-            try parent.genExpr(self, args[2]); // first arg (value)
-            try self.emit(", .{");
-            // Remaining args as tuple (ndigits)
-            if (args.len > 3) {
-                for (args[3..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
-            }
-            try self.emit("}");
-        } else {
-            // No args to round() - this is an error but pass empty values
-            try self.emit("0, .{}");
-        }
-        try self.emit(")");
-    } else if (args[1] == .name) {
-        // Name-based callable - use proper call dispatch for builtins like isinstance
-        const call_args: []ast.Node = if (args.len > 2) @constCast(args[2..]) else @constCast(&[_]ast.Node{});
-        const call = ast.Node.Call{
-            .func = @constCast(&args[1]),
-            .args = call_args,
-            .keyword_args = @constCast(&[_]ast.Node.KeywordArg{}),
-        };
-        try parent.genCall(self, call);
-    } else {
-        // Simple name or other callable
-        try parent.genExpr(self, args[1]);
-        try self.emit("(");
-        if (args.len > 2) {
-            for (args[2..], 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try parent.genExpr(self, arg);
-            }
-        }
-        try self.emit(")");
-    }
+    try emitCallableInvocation(self, args[1], call_args, &.{});
     // expectError returns true if NO error was raised (test should fail)
     try self.emit(")) @panic(\"assertRaises: expected exception\")");
 }
@@ -634,18 +623,10 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
         return;
     }
 
+    const call_args: []const ast.Node = if (args.len > 2) args[2..] else &.{};
     // Generate: if (runtime.unittest.expectError(<call_with_kwargs>)) @panic(...)
     try self.emit("if (runtime.unittest.expectError(");
-
-    // Build a call node with keyword args
-    const call_args: []ast.Node = if (args.len > 2) @constCast(args[2..]) else @constCast(&[_]ast.Node{});
-    const call = ast.Node.Call{
-        .func = @constCast(&args[1]),
-        .args = call_args,
-        .keyword_args = @constCast(keyword_args),
-    };
-    try parent.genCall(self, call);
-
+    try emitCallableInvocation(self, args[1], call_args, keyword_args);
     try self.emit(")) @panic(\"assertRaises: expected exception\")");
 }
 
@@ -662,20 +643,12 @@ pub fn genAssertRaisesRegexWithKwargs(self: *NativeCodegen, obj: ast.Node, args:
         return;
     }
 
+    const call_args: []const ast.Node = if (args.len > 3) args[3..] else &.{};
     // Generate: __ar_blk: { _ = <regex>; _ = <call_with_kwargs> catch break :__ar_blk {}; @panic(...); }
     try self.emit("__ar_blk: { _ = ");
     try parent.genExpr(self, args[1]); // regex parameter
     try self.emit("; _ = ");
-
-    // Build a call node with keyword args
-    const call_args: []ast.Node = if (args.len > 3) @constCast(args[3..]) else @constCast(&[_]ast.Node{});
-    const call = ast.Node.Call{
-        .func = @constCast(&args[2]),
-        .args = call_args,
-        .keyword_args = @constCast(keyword_args),
-    };
-    try parent.genCall(self, call);
-
+    try emitCallableInvocation(self, args[2], call_args, keyword_args);
     try self.emit(" catch break :__ar_blk {}; @panic(\"assertRaisesRegex: expected exception\"); }");
 }
 
@@ -686,6 +659,7 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
         try self.emit("{}");
         return;
     }
+    const call_args: []const ast.Node = if (args.len > 3) args[3..] else &.{};
     // Similar to assertRaises but with regex check on error message
     // For AOT, we just check that an error is raised
     // Reference the regex parameter to avoid unused variable warning
@@ -694,107 +668,7 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
     try parent.genExpr(self, args[1]); // regex parameter
     try self.emit("; _ = ");
 
-    // Handle special callables that need runtime wrappers
-    if (args[2] == .name and std.mem.eql(u8, args[2].name.id, "int")) {
-        // Handle int() builtin specially
-        try self.emit("runtime.intBuiltinCall(");
-        if (args.len > 3) {
-            try parent.genExpr(self, args[3]); // first arg
-            try self.emit(", .{");
-            // Remaining args as tuple
-            if (args.len > 4) {
-                for (args[4..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
-            }
-            try self.emit("}");
-        } else {
-            try self.emit("{}, .{}");
-        }
-        try self.emit(")");
-    } else if (args[2] == .name and std.mem.eql(u8, args[2].name.id, "float")) {
-        // Handle float() builtin specially
-        try self.emit("runtime.floatBuiltinCall(");
-        if (args.len > 3) {
-            try parent.genExpr(self, args[3]); // first arg
-            try self.emit(", .{");
-            // Remaining args as tuple
-            if (args.len > 4) {
-                for (args[4..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
-            }
-            try self.emit("}");
-        } else {
-            try self.emit("{}, .{}");
-        }
-        try self.emit(")");
-    } else if (args[2] == .name and std.mem.eql(u8, args[2].name.id, "round")) {
-        // Handle round() builtin specially - it takes (value, .{ndigits...})
-        try self.emit("runtime.builtins.round(");
-        if (args.len > 3) {
-            try parent.genExpr(self, args[3]); // first arg (value)
-            try self.emit(", .{");
-            // Remaining args as tuple (ndigits)
-            if (args.len > 4) {
-                for (args[4..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
-            }
-            try self.emit("}");
-        } else {
-            // No args to round() - this is an error but pass empty values
-            try self.emit("0, .{}");
-        }
-        try self.emit(")");
-    } else if (args[2] == .attribute and args[2].attribute.value.* == .name and std.mem.eql(u8, args[2].attribute.value.name.id, "operator")) {
-        // operator.* callables need .call() method
-        try parent.genExpr(self, args[2]);
-        try self.emit(".call(");
-        if (args.len > 3) {
-            for (args[3..], 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try parent.genExpr(self, arg);
-            }
-        }
-        try self.emit(")");
-    } else if (args[2] == .attribute) {
-        // Attribute expression callable (e.g., {}.__contains__, [].count)
-        // Need to generate: obj.@"method"(args)
-        const attr = args[2].attribute;
-        try self.emit("(__ar_obj_blk: { const __ar_obj = ");
-        try parent.genExpr(self, attr.value.*);
-        try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
-        try self.emit(attr.attr);
-        try self.emit("\"(");
-        if (args.len > 3) {
-            for (args[3..], 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try parent.genExpr(self, arg);
-            }
-        }
-        try self.emit("); })");
-    } else if (args[2] == .lambda) {
-        // Lambda expression - generates a closure struct that needs .call() method
-        // Need to assign to temp var first since can't call method on struct literal
-        try self.emit("(ar_closure_blk: { const __ar_closure = ");
-        try parent.genExpr(self, args[2]);
-        try self.emit("; break :ar_closure_blk __ar_closure.call(); })");
-    } else {
-        // Generic callable
-        try parent.genExpr(self, args[2]);
-        try self.emit("(");
-        if (args.len > 3) {
-            for (args[3..], 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try parent.genExpr(self, arg);
-            }
-        }
-        try self.emit(")");
-    }
+    try emitCallableInvocation(self, args[2], call_args, &.{});
     // Catch error directly on call - can't store first since error propagates immediately
     try self.emit(" catch break :__ar_blk {}; @panic(\"assertRaisesRegex: expected exception\"); }");
 }
@@ -802,39 +676,25 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
 /// Generate code for self.assertWarns(warning, callable, *args)
 pub fn genAssertWarns(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
-    // For AOT, warnings are not tracked - just call the function
-    if (args.len >= 2) {
-        try parent.genExpr(self, args[1]);
-        try self.emit("(");
-        if (args.len > 2) {
-            for (args[2..], 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try parent.genExpr(self, arg);
-            }
-        }
-        try self.emit(")");
-    } else {
+    if (args.len < 2) {
         try self.emit("{}");
+        return;
     }
+    const call_args: []const ast.Node = if (args.len > 2) args[2..] else &.{};
+    // For AOT, warnings are not tracked - just call the function
+    try emitCallableInvocation(self, args[1], call_args, &.{});
 }
 
 /// Generate code for self.assertWarnsRegex(warning, regex, callable, *args)
 pub fn genAssertWarnsRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
-    // For AOT, warnings are not tracked - just call the function
-    if (args.len >= 3) {
-        try parent.genExpr(self, args[2]);
-        try self.emit("(");
-        if (args.len > 3) {
-            for (args[3..], 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try parent.genExpr(self, arg);
-            }
-        }
-        try self.emit(")");
-    } else {
+    if (args.len < 3) {
         try self.emit("{}");
+        return;
     }
+    const call_args: []const ast.Node = if (args.len > 3) args[3..] else &.{};
+    // For AOT, warnings are not tracked - just call the function
+    try emitCallableInvocation(self, args[2], call_args, &.{});
 }
 
 /// Generate code for self.assertNotIsSubclass(cls, parent_cls)

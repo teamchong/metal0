@@ -432,6 +432,43 @@ pub fn hasReturnStatement(body: []ast.Node) bool {
     return false;
 }
 
+/// Check if function body contains a return statement WITH a value (not bare `return`)
+/// This is important for return type inference: functions with only bare `return` are void,
+/// while functions with `return value` need a non-void return type.
+pub fn hasReturnWithValue(body: []ast.Node) bool {
+    for (body) |stmt| {
+        if (stmt == .return_stmt) {
+            // Only count returns that have a value
+            if (stmt.return_stmt.value != null) return true;
+        }
+        // Check nested statements
+        if (stmt == .if_stmt) {
+            if (hasReturnWithValue(stmt.if_stmt.body)) return true;
+            if (hasReturnWithValue(stmt.if_stmt.else_body)) return true;
+        }
+        if (stmt == .while_stmt) {
+            if (hasReturnWithValue(stmt.while_stmt.body)) return true;
+        }
+        if (stmt == .for_stmt) {
+            if (hasReturnWithValue(stmt.for_stmt.body)) return true;
+        }
+        if (stmt == .match_stmt) {
+            for (stmt.match_stmt.cases) |case| {
+                if (hasReturnWithValue(case.body)) return true;
+            }
+        }
+        if (stmt == .try_stmt) {
+            if (hasReturnWithValue(stmt.try_stmt.body)) return true;
+            for (stmt.try_stmt.handlers) |handler| {
+                if (hasReturnWithValue(handler.body)) return true;
+            }
+            if (hasReturnWithValue(stmt.try_stmt.else_body)) return true;
+            if (hasReturnWithValue(stmt.try_stmt.finalbody)) return true;
+        }
+    }
+    return false;
+}
+
 /// Check if function body contains any yield statements (is a generator)
 pub fn hasYieldStatement(body: []ast.Node) bool {
     for (body) |stmt| {
@@ -1240,8 +1277,11 @@ pub fn genMethodSignatureWithSkip(
             const zig_return_type = pythonTypeToZig(method.return_type);
             try self.emit(zig_return_type);
         }
-    } else if (hasReturnStatement(method.body)) {
+    } else if (hasReturnWithValue(method.body)) {
         // Determine if error union is needed for methods without explicit return type
+        // IMPORTANT: Use hasReturnWithValue() not hasReturnStatement() because functions
+        // that only have bare `return` (no value) should return void, not i64.
+        // e.g., `def test_foo(self): if cond: return; ... # rest of code`
         const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
         if (needs_error) {
             try self.emit("!");

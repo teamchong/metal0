@@ -767,7 +767,6 @@ fn cmdRunFile(allocator: std.mem.Allocator, args: []const []const u8) !void {
     try compile.compileFile(allocator, opts);
 }
 
-
 /// Setup runtime files in .metal0/cache/ (Phase 0 for batch compilation)
 fn cmdSetupRuntime(allocator: std.mem.Allocator) !void {
     const compiler_mod = @import("../compiler.zig");
@@ -990,6 +989,8 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const build_dirs = @import("../build_dirs.zig");
     const compiler_mod = @import("../compiler.zig");
 
+    const run_timeout_ns = 10 * std.time.ns_per_min; // per-test timeout (10 minutes)
+
     // Parse test directory from args or default to tests/cpython
     const test_dir = if (args.len > 0) args[0] else "tests/cpython";
     const ncpu = std.Thread.getCpuCount() catch 8;
@@ -1132,23 +1133,57 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     // Phase 3: Run binaries
     std.debug.print("Phase 3: Run...\n", .{});
     var run_ok: usize = 0;
+    var run_timeout: usize = 0;
 
     for (bin_paths.items) |bin_path| {
-        const result = std.process.Child.run(.{
-            .allocator = allocator,
-            .argv = &[_][]const u8{bin_path},
-            .max_output_bytes = 1024 * 1024,
-        }) catch continue;
-        allocator.free(result.stdout); // Free immediately to avoid accumulation
-        allocator.free(result.stderr);
-
-        if (result.term == .Exited and result.term.Exited == 0) {
-            run_ok += 1;
+        switch (runBinaryWithTimeout(allocator, bin_path, run_timeout_ns)) {
+            .ok => run_ok += 1,
+            .timeout => run_timeout += 1,
+            .failed => {},
         }
     }
 
     std.debug.print("\n", .{});
-    std.debug.print("Results: {d}/{d} passed\n", .{ run_ok, total });
+    std.debug.print("Results: {d}/{d} passed (timeout: {d})\n", .{ run_ok, total, run_timeout });
+}
+
+const RunResult = enum { ok, timeout, failed };
+
+fn runBinaryWithTimeout(allocator: std.mem.Allocator, bin_path: []const u8, timeout_ns: u64) RunResult {
+    var child = std.process.Child.init(&[_][]const u8{bin_path}, allocator);
+    child.stdin_behavior = .Inherit;
+    child.stdout_behavior = .Inherit;
+    child.stderr_behavior = .Inherit;
+
+    // Track completion across the killer thread
+    var done = std.atomic.Value(bool).init(false);
+
+    child.spawn() catch return .failed;
+
+    var killer = std.Thread.spawn(.{}, killAfterTimeout, .{ &child, timeout_ns, &done }) catch {
+        // If we can't start the killer thread, fall back to blocking wait
+        const term = child.wait() catch return .failed;
+        done.store(true, .seq_cst);
+        return switch (term) {
+            .Exited => |code| if (code == 0) .ok else .failed,
+            else => .failed,
+        };
+    };
+    defer killer.join();
+
+    const term = child.wait() catch return .failed;
+    done.store(true, .seq_cst);
+
+    return switch (term) {
+        .Exited => |code| if (code == 0) .ok else .failed,
+        else => .failed,
+    };
+}
+
+fn killAfterTimeout(child: *std.process.Child, timeout_ns: u64, done: *std.atomic.Value(bool)) void {
+    std.Thread.sleep(timeout_ns);
+    if (done.load(.seq_cst)) return;
+    _ = child.kill() catch {};
 }
 
 // Python-compatible commands (drop-in replacement for python3)

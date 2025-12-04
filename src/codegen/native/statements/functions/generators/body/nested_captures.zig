@@ -475,6 +475,11 @@ pub fn findForwardReferencedCapturesWithParams(
                         }
                     }
                 }
+                // IMPORTANT: Mark this function name as declared so sibling functions
+                // that reference it don't get it forward-declared as a variable
+                // (e.g., tryone_inner and tryone are both nested functions,
+                // tryone calls tryone_inner - tryone_inner is NOT a forward-referenced capture)
+                try declared_vars.put(func.name, {});
             },
             .assign => |assign| {
                 // Mark variables as declared
