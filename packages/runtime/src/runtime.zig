@@ -20,6 +20,16 @@ pub const string_utils = @import("string_utils.zig");
 /// Export _string module (formatter_parser, etc.)
 pub const _string = @import("_string.zig");
 
+/// Export C accelerator modules
+pub const _functools = @import("_functools.zig");
+pub const _operator = @import("_operator.zig");
+pub const _collections = @import("_collections.zig");
+pub const _bisect = @import("_bisect.zig");
+pub const _heapq = @import("_heapq.zig");
+pub const _struct = @import("_struct.zig");
+pub const _random = @import("_random.zig");
+pub const _pickle = @import("_pickle.zig");
+
 /// Export AST executor for eval() support
 pub const ast_executor = @import("ast_executor.zig");
 
