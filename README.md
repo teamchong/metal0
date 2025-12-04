@@ -156,10 +156,10 @@ metal0 compiles Python's `asyncio` to optimized native code:
 
 | Implementation | Time | vs metal0 | Correctness |
 |---------------|------|----------|-------------|
-| **metal0 (Zig)** | **70ms** | **1.00x** | **100%** |
-| rs-bpe (Rust) | 421ms | 6.0x slower | 100% |
-| tiktoken (Rust) | 1052ms | 15.0x slower | 100% |
-| HuggingFace (Python) | 5303ms | 75.8x slower | 100% |
+| **metal0 (Zig)** | **81ms** | **1.00x** | **100%** |
+| rs-bpe (Rust) | 420ms | 5.2x slower | 100% |
+| tiktoken (Rust) | 1110ms | 13.7x slower | 100% |
+| HuggingFace (Python) | 5439ms | 67x slower | 100% |
 
 *Tested on Apple M2 with `json.load()` data.*
 
@@ -174,10 +174,12 @@ metal0 compiles Python's `asyncio` to optimized native code:
 
 **BPE Training (vocab_size=32000, 300 iterations):**
 
-| Library | Time | vs metal0 |
-|---------|------|----------|
-| **metal0 (Zig)** | **1.21s** | **1.00x** |
-| HuggingFace (Rust) | 26.59s | 22x slower |
+| Library | Time | vs metal0 | Correctness |
+|---------|------|----------|-------------|
+| **metal0 (Zig)** | **68.7ms** | **1.00x** | **100%** |
+| HuggingFace (Rust) | 1707.9ms | 25x slower | 100% |
+
+*Training produces identical vocabularies - verified with comparison test.*
 
 **Unigram Training (vocab_size=32000, 100 iterations):**
 
@@ -220,6 +222,9 @@ make benchmark-regex       # Regex patterns
 make benchmark-asyncio     # CPU-bound async
 make benchmark-asyncio-io  # I/O-bound async
 make benchmark-numpy       # NumPy BLAS
+
+# Tokenizer benchmarks (run from packages/tokenizer/)
+cd packages/tokenizer && zig build -Doptimize=ReleaseFast && ./zig-out/bin/bench_train
 ```
 
 ## Install
