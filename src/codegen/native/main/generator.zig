@@ -333,7 +333,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         // This is needed because modules are compiled separately and don't have main() setup
         if (analysis.needs_allocator) {
             try self.emit("\n// Module-level allocator for f-strings and dynamic allocations\n");
-            try self.emit("var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};\n");
+            try self.emit("var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true, .thread_safe = true }){};\n");
             try self.emit("var __global_allocator: std.mem.Allocator = __gpa.allocator();\n\n");
         }
 
@@ -485,7 +485,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     if (analysis.needs_allocator) {
         try self.emit("\n// Module-level allocator for async functions and f-strings\n");
         try self.emit("// Debug/WASM: GPA instance (release uses c_allocator, no instance needed)\n");
-        try self.emit("var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};\n");
+        try self.emit("var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true, .thread_safe = true }){};\n");
         try self.emit("var __global_allocator: std.mem.Allocator = undefined;\n");
         try self.emit("var __allocator_initialized: bool = false;\n");
         // sys.argv mutable global - can be assigned by Python code
@@ -968,17 +968,27 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("__global_allocator = allocator;\n");
         try self.emitIndent();
         try self.emit("__allocator_initialized = true;\n");
-        // Initialize sys.argv from OS args
+        // Initialize sys.argv from OS args (skip in shared lib mode where argv is invalid)
         try self.emitIndent();
         try self.emit("__sys_argv = blk: {\n");
         try self.emitIndent();
-        try self.emit("    const os_args = std.os.argv;\n");
+        try self.emit("    // In shared library mode, std.os.argv may be invalid\n");
         try self.emitIndent();
-        try self.emit("    var argv_list = std.ArrayList([]const u8){};\n");
+        try self.emit("    if (comptime @import(\"builtin\").output_mode == .Exe) {\n");
         try self.emitIndent();
-        try self.emit("    for (os_args) |arg| argv_list.append(allocator, std.mem.span(arg)) catch continue;\n");
+        try self.emit("        const os_args = std.os.argv;\n");
         try self.emitIndent();
-        try self.emit("    break :blk argv_list.items;\n");
+        try self.emit("        var argv_list = std.ArrayList([]const u8){};\n");
+        try self.emitIndent();
+        try self.emit("        for (os_args) |arg| argv_list.append(allocator, std.mem.span(arg)) catch continue;\n");
+        try self.emitIndent();
+        try self.emit("        break :blk argv_list.items;\n");
+        try self.emitIndent();
+        try self.emit("    } else {\n");
+        try self.emitIndent();
+        try self.emit("        break :blk &[_][]const u8{};\n");
+        try self.emitIndent();
+        try self.emit("    }\n");
         try self.emitIndent();
         try self.emit("};\n");
         try self.emit("\n");

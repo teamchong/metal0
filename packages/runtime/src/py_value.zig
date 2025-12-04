@@ -248,6 +248,14 @@ pub const PyValue = union(enum) {
                 return .{ .list = result };
             }
             return .{ .ptr = @ptrCast(@constCast(value)) };
+        } else if (@typeInfo(T) == .array) {
+            // Handle fixed-size arrays - convert to tuple
+            const arr_info = @typeInfo(T).array;
+            const result = try allocator.alloc(PyValue, arr_info.len);
+            for (0..arr_info.len) |i| {
+                result[i] = try fromAlloc(allocator, value[i]);
+            }
+            return .{ .tuple = result };
         } else if (@typeInfo(T) == .@"struct") {
             const info = @typeInfo(T).@"struct";
             // Handle StringHashMap/AutoHashMap - store as pointer
@@ -291,7 +299,12 @@ pub const PyValue = union(enum) {
     pub fn toString(self: PyValue, allocator: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .int => |v| try std.fmt.allocPrint(allocator, "{d}", .{v}),
-            .float => |v| try std.fmt.allocPrint(allocator, "{d}", .{v}),
+            .float => |v| blk: {
+                // Python convention: nan never has sign, inf shows sign
+                if (std.math.isNan(v)) break :blk try allocator.dupe(u8, "nan");
+                if (std.math.isInf(v)) break :blk try allocator.dupe(u8, if (v < 0) "-inf" else "inf");
+                break :blk try std.fmt.allocPrint(allocator, "{d}", .{v});
+            },
             .string => |v| v,
             .bool => |v| if (v) "True" else "False",
             .none => "None",
@@ -303,7 +316,12 @@ pub const PyValue = union(enum) {
     pub fn toRepr(self: PyValue, allocator: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .int => |v| try std.fmt.allocPrint(allocator, "{d}", .{v}),
-            .float => |v| try std.fmt.allocPrint(allocator, "{d}", .{v}),
+            .float => |v| blk: {
+                // Python convention: nan never has sign, inf shows sign
+                if (std.math.isNan(v)) break :blk try allocator.dupe(u8, "nan");
+                if (std.math.isInf(v)) break :blk try allocator.dupe(u8, if (v < 0) "-inf" else "inf");
+                break :blk try std.fmt.allocPrint(allocator, "{d}", .{v});
+            },
             .string => |v| try std.fmt.allocPrint(allocator, "'{s}'", .{v}),
             .bool => |v| if (v) "True" else "False",
             .none => "None",

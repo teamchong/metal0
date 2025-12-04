@@ -36,9 +36,33 @@ pub inline fn subtractNum(a: anytype, b: anytype) f64 {
     return numToFloat(a) - numToFloat(b);
 }
 
-/// Add two numbers, handling mixed int/float types (returns f64)
-pub inline fn addNum(a: anytype, b: anytype) f64 {
+/// Add two numbers, handling mixed int/float types
+/// If both are integers, returns i64. Otherwise returns f64.
+pub inline fn addNum(a: anytype, b: anytype) AddResultType(@TypeOf(a), @TypeOf(b)) {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    const a_info = @typeInfo(A);
+    const b_info = @typeInfo(B);
+
+    // Both integers -> integer result
+    if ((a_info == .int or a_info == .comptime_int) and (b_info == .int or b_info == .comptime_int)) {
+        // Cast to i64 for consistent result
+        const a_i64: i64 = if (a_info == .comptime_int) a else @intCast(a);
+        const b_i64: i64 = if (b_info == .comptime_int) b else @intCast(b);
+        return a_i64 + b_i64;
+    }
+    // Otherwise float result
     return numToFloat(a) + numToFloat(b);
+}
+
+/// Computes result type for addNum: i64 if both int, f64 otherwise
+fn AddResultType(comptime A: type, comptime B: type) type {
+    const a_info = @typeInfo(A);
+    const b_info = @typeInfo(B);
+    if ((a_info == .int or a_info == .comptime_int) and (b_info == .int or b_info == .comptime_int)) {
+        return i64;
+    }
+    return f64;
 }
 
 /// Multiply two numbers, handling mixed int/float types (returns f64)
@@ -157,20 +181,44 @@ pub fn floatAsIntegerRatio(value: anytype) struct { i64, i64 } {
         mantissa |= (1 << 52);
     }
 
-    // Calculate numerator and denominator
-    var numerator: i64 = sign * @as(i64, @intCast(mantissa));
-    var denominator: i64 = 1 << 52;
+    // DEBUG: Print input value (commented out)
+    // std.debug.print("floatAsIntegerRatio: f={}, bits=0x{x}, sign={}, exp={}\n", .{f, bits, sign, exponent});
 
-    // Adjust for exponent
-    if (exponent > 0) {
-        // Shift numerator left
-        const shift: u6 = @intCast(@min(exponent, 63));
+    // Calculate numerator and denominator
+    // Float value = mantissa * 2^(exponent - 52) for normalized numbers
+    // So: value = mantissa / 2^(52 - exponent)
+    var numerator: i64 = sign * @as(i64, @intCast(mantissa));
+    var denominator: i64 = undefined;
+
+    // The effective power of 2 in the denominator is (52 - exponent)
+    const power = 52 - exponent;
+    if (power >= 0) {
+        // Value = mantissa / 2^power
+        // We need to reduce the fraction before setting denominator to avoid overflow
+        // First, find how many trailing zeros are in mantissa (can divide both by 2^k)
+        var trailing_zeros: i64 = 0;
+        var temp_mantissa = mantissa;
+        while (temp_mantissa != 0 and (temp_mantissa & 1) == 0 and trailing_zeros < power) {
+            temp_mantissa >>= 1;
+            trailing_zeros += 1;
+        }
+        // Reduce: numerator = mantissa >> trailing_zeros, denominator = 2^(power - trailing_zeros)
+        const reduced_power = power - trailing_zeros;
+        if (reduced_power <= 62) {
+            numerator = sign * @as(i64, @intCast(temp_mantissa));
+            const shift: u6 = @intCast(reduced_power);
+            denominator = @as(i64, 1) << shift;
+        } else {
+            // Still overflows - return approximate result
+            numerator = sign * @as(i64, @intCast(temp_mantissa));
+            denominator = @as(i64, 1) << 62;
+        }
+    } else {
+        // Exponent >= 52: large float, denominator = 1
+        // Value = mantissa * 2^(-power)
+        const shift: u6 = @intCast(@min(-power, 52));
         numerator = numerator << shift;
-        denominator = denominator >> @min(52 - shift, 52);
-    } else if (exponent < 0) {
-        // Shift denominator left
-        const shift: u6 = @intCast(@min(-exponent, 63));
-        denominator = denominator << shift;
+        denominator = 1;
     }
 
     // Reduce the fraction by GCD
@@ -232,46 +280,88 @@ pub fn floatToHex(allocator: std.mem.Allocator, value: f64) ![]u8 {
     return buf.toOwnedSlice(allocator);
 }
 
-/// float.__floor__() - Returns largest integer <= value as BigInt
+/// float.__floor__() - Returns largest integer <= value
 /// Python: (1.7).__floor__() -> 1, (1e200).__floor__() -> BigInt
-/// Raises ValueError for NaN, OverflowError for Inf
-pub fn floatFloor(allocator: std.mem.Allocator, value: f64) PythonError!BigInt {
+/// Returns i64 for small values, raises error for NaN/Inf
+pub fn floatFloor(_: std.mem.Allocator, value: f64) PythonError!i64 {
     // Python raises ValueError for NaN, OverflowError for Inf
     if (std.math.isNan(value)) return PythonError.ValueError;
     if (std.math.isInf(value)) return PythonError.OverflowError;
-    // Apply floor then convert
+    // Apply floor then convert to i64
     const floored = @floor(value);
-    return BigInt.fromFloat(allocator, floored) catch BigInt.fromInt(allocator, 0) catch unreachable;
+    // Check if it fits in i64
+    if (floored >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+        floored <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+    {
+        return @intFromFloat(floored);
+    }
+    // Too large for i64 - for now return error (BigInt support can be added later)
+    return PythonError.OverflowError;
 }
 
-/// float.__ceil__() - Returns smallest integer >= value as BigInt
+/// float.__ceil__() - Returns smallest integer >= value
 /// Python: (1.3).__ceil__() -> 2
-/// Raises ValueError for NaN, OverflowError for Inf
-pub fn floatCeil(allocator: std.mem.Allocator, value: f64) PythonError!BigInt {
+/// Returns i64 for small values, raises error for NaN/Inf
+pub fn floatCeil(_: std.mem.Allocator, value: f64) PythonError!i64 {
     if (std.math.isNan(value)) return PythonError.ValueError;
     if (std.math.isInf(value)) return PythonError.OverflowError;
     const ceiled = @ceil(value);
-    return BigInt.fromFloat(allocator, ceiled) catch BigInt.fromInt(allocator, 0) catch unreachable;
+    if (ceiled >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+        ceiled <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+    {
+        return @intFromFloat(ceiled);
+    }
+    return PythonError.OverflowError;
 }
 
-/// float.__trunc__() - Truncate towards zero, return BigInt
+/// float.__trunc__() - Truncate towards zero
 /// Python: (-1.7).__trunc__() -> -1
-/// Raises ValueError for NaN, OverflowError for Inf
-pub fn floatTrunc(allocator: std.mem.Allocator, value: f64) PythonError!BigInt {
+/// Returns i64 for small values, raises error for NaN/Inf
+pub fn floatTrunc(_: std.mem.Allocator, value: f64) PythonError!i64 {
     if (std.math.isNan(value)) return PythonError.ValueError;
     if (std.math.isInf(value)) return PythonError.OverflowError;
-    // fromFloat already truncates
-    return BigInt.fromFloat(allocator, value) catch BigInt.fromInt(allocator, 0) catch unreachable;
+    const truncated = @trunc(value);
+    if (truncated >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+        truncated <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+    {
+        return @intFromFloat(truncated);
+    }
+    return PythonError.OverflowError;
 }
 
-/// float.__round__() - Round to nearest, return BigInt
-/// Python: (1.5).__round__() -> 2
-/// Raises ValueError for NaN, OverflowError for Inf
-pub fn floatRound(allocator: std.mem.Allocator, value: f64) PythonError!BigInt {
+/// float.__round__() - Round to nearest using Python's banker's rounding
+/// Python: (0.5).__round__() -> 0, (1.5).__round__() -> 2 (round half to even)
+/// Returns i64 for small values, raises error for NaN/Inf
+pub fn floatRound(_: std.mem.Allocator, value: f64) PythonError!i64 {
     if (std.math.isNan(value)) return PythonError.ValueError;
     if (std.math.isInf(value)) return PythonError.OverflowError;
-    const rounded = @round(value);
-    return BigInt.fromFloat(allocator, rounded) catch BigInt.fromInt(allocator, 0) catch unreachable;
+
+    // Python uses banker's rounding: round half to even
+    // This is different from Zig's @round which rounds away from zero
+    const floored = @floor(value);
+    const frac = value - floored;
+
+    var rounded: f64 = undefined;
+    if (frac < 0.5) {
+        rounded = floored;
+    } else if (frac > 0.5) {
+        rounded = floored + 1.0;
+    } else {
+        // Exactly 0.5 - round to even
+        const floored_int: i64 = @intFromFloat(floored);
+        if (@mod(floored_int, 2) == 0) {
+            rounded = floored; // floored is even, stay there
+        } else {
+            rounded = floored + 1.0; // floored is odd, go to even
+        }
+    }
+
+    if (rounded >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+        rounded <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+    {
+        return @intFromFloat(rounded);
+    }
+    return PythonError.OverflowError;
 }
 
 /// float() builtin call wrapper for assertRaises testing
@@ -325,12 +415,55 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
                 }
                 return @as(f64, @floatFromInt(result));
             }
+            // Check for __index__ method on pointed-to struct (returns int, convert to float)
+            if (@hasDecl(child_type, "__index__")) {
+                const result = first.__index__();
+                const ResultType = @TypeOf(result);
+                const result_info = @typeInfo(ResultType);
+                if (result_info == .error_union) {
+                    const unwrapped = result catch return PythonError.ValueError;
+                    return @as(f64, @floatFromInt(unwrapped));
+                }
+                if (result_info == .int or result_info == .comptime_int) {
+                    return @as(f64, @floatFromInt(result));
+                }
+            }
         }
         // Otherwise treat as string
         return parseFloatWithUnicode(first) catch return PythonError.ValueError;
     }
-    // Handle custom classes that inherit from str/bytes/float (have __base_value__ field)
+    // Handle custom classes - check dunder methods FIRST, then fall back to base value
+    // In Python, __float__() takes precedence over inherited float value
     if (first_info == .@"struct") {
+        // Check for __float__ method FIRST (takes precedence)
+        if (@hasDecl(FirstType, "__float__")) {
+            const result = first.__float__();
+            // __float__ might return error union or plain value
+            const ResultType = @TypeOf(result);
+            const result_info = @typeInfo(ResultType);
+            if (result_info == .error_union) {
+                return result catch return PythonError.ValueError;
+            }
+            // __float__ should return f64, but handle legacy code that returns int
+            if (result_info == .float or result_info == .comptime_float) {
+                return result;
+            }
+            return @as(f64, @floatFromInt(result));
+        }
+        // Check for __index__ method (returns int, convert to float)
+        if (@hasDecl(FirstType, "__index__")) {
+            const result = first.__index__();
+            const ResultType = @TypeOf(result);
+            const result_info = @typeInfo(ResultType);
+            if (result_info == .error_union) {
+                const unwrapped = result catch return PythonError.ValueError;
+                return @as(f64, @floatFromInt(unwrapped));
+            }
+            if (result_info == .int or result_info == .comptime_int) {
+                return @as(f64, @floatFromInt(result));
+            }
+        }
+        // Fall back to __base_value__ for classes that inherit from float/str/int
         if (@hasField(FirstType, "__base_value__")) {
             const base_value = first.__base_value__;
             const BaseType = @TypeOf(base_value);
@@ -347,21 +480,6 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
             if (base_info == .pointer or base_info == .array) {
                 return parseFloatWithUnicode(base_value) catch return PythonError.ValueError;
             }
-        }
-        // Check for __float__ method
-        if (@hasDecl(FirstType, "__float__")) {
-            const result = first.__float__();
-            // __float__ might return error union or plain value
-            const ResultType = @TypeOf(result);
-            const result_info = @typeInfo(ResultType);
-            if (result_info == .error_union) {
-                return result catch return PythonError.ValueError;
-            }
-            // __float__ should return f64, but handle legacy code that returns int
-            if (result_info == .float or result_info == .comptime_float) {
-                return result;
-            }
-            return @as(f64, @floatFromInt(result));
         }
     }
 
@@ -783,6 +901,14 @@ pub fn toFloat(value: anytype) f64 {
         // String pointer - try to parse as float
         if (type_info.pointer.child == u8) {
             return std.fmt.parseFloat(f64, value) catch 0.0;
+        }
+    }
+
+    // Tagged union (like PyValue)
+    if (type_info == .@"union") {
+        // Check for toFloat method (PyValue has this)
+        if (@hasDecl(T, "toFloat")) {
+            if (value.toFloat()) |f| return f;
         }
     }
 

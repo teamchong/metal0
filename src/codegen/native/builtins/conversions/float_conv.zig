@@ -4,15 +4,37 @@ const ast = @import("ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 
-/// Special float string literals to Zig constants (O(1) lookup)
-const SpecialFloatLiterals = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "nan", "std.math.nan(f64)" },
-    .{ "-nan", "-std.math.nan(f64)" },
-    .{ "inf", "std.math.inf(f64)" },
-    .{ "infinity", "std.math.inf(f64)" },
-    .{ "-inf", "-std.math.inf(f64)" },
-    .{ "-infinity", "-std.math.inf(f64)" },
-});
+/// Check if a string is a special float literal (case-insensitive)
+/// Returns the corresponding Zig constant or null if not a special literal
+fn getSpecialFloatLiteral(str: []const u8) ?[]const u8 {
+    // Handle empty string
+    if (str.len == 0) return null;
+
+    // Check for leading sign
+    var idx: usize = 0;
+    var is_negative = false;
+    if (str[0] == '+') {
+        idx = 1;
+    } else if (str[0] == '-') {
+        idx = 1;
+        is_negative = true;
+    }
+
+    // Get the rest of the string (after sign)
+    const rest = str[idx..];
+    if (rest.len == 0) return null;
+
+    // Case-insensitive check for inf/infinity/nan
+    if (std.ascii.eqlIgnoreCase(rest, "inf") or std.ascii.eqlIgnoreCase(rest, "infinity")) {
+        return if (is_negative) "-std.math.inf(f64)" else "std.math.inf(f64)";
+    }
+    if (std.ascii.eqlIgnoreCase(rest, "nan")) {
+        // Note: -nan is still nan in IEEE 754 (sign bit doesn't matter for NaN)
+        return "std.math.nan(f64)";
+    }
+
+    return null;
+}
 
 /// Generate code for float(obj)
 /// Converts to f64
@@ -52,15 +74,17 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Check for special float literals that can be used at module level without try
         if (args[0] == .constant and args[0].constant.value == .string) {
             const str_val = args[0].constant.value.string;
-            // Handle special float values via StaticStringMap (O(1) lookup)
-            if (SpecialFloatLiterals.get(str_val)) |zig_const| {
+            // Handle special float values (inf, nan, etc.) case-insensitively
+            if (getSpecialFloatLiteral(str_val)) |zig_const| {
                 try self.emit(zig_const);
                 return;
             }
             // Try to parse as a numeric literal at comptime
-            if (std.fmt.parseFloat(f64, str_val)) |_| {
+            // Strip leading + for Zig compatibility (Zig doesn't accept "+123")
+            const parse_str = if (str_val.len > 0 and str_val[0] == '+') str_val[1..] else str_val;
+            if (std.fmt.parseFloat(f64, parse_str)) |_| {
                 try self.emit("@as(f64, ");
-                try self.emit(str_val);
+                try self.emit(parse_str);
                 try self.emit(")");
                 return;
             } else |_| {}

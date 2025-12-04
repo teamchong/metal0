@@ -34,15 +34,18 @@ fn widenTuplePosition(comptime T1: type, comptime T2: type) type {
     // Same types - no change needed
     if (T1 == T2) return T1;
 
+    const t1_info = @typeInfo(T1);
+    const t2_info = @typeInfo(T2);
+
     // Handle null (@TypeOf(null)) and void types - make optional
     if (T2 == @TypeOf(null) or T2 == void or T2 == ?void) {
         // T1 + null = ?T1
-        if (@typeInfo(T1) == .optional) return T1; // Already optional
+        if (t1_info == .optional) return T1; // Already optional
         return ?T1;
     }
     if (T1 == @TypeOf(null) or T1 == void or T1 == ?void) {
         // null + T2 = ?T2
-        if (@typeInfo(T2) == .optional) return T2; // Already optional
+        if (t2_info == .optional) return T2; // Already optional
         return ?T2;
     }
 
@@ -50,6 +53,45 @@ fn widenTuplePosition(comptime T1: type, comptime T2: type) type {
     if (isStringLiteral(T1) and T2 == []const u8) return []const u8;
     if (isStringLiteral(T2) and T1 == []const u8) return []const u8;
     if (isStringLiteral(T1) and isStringLiteral(T2)) return []const u8;
+
+    // Comptime int -> i64, comptime float -> f64
+    if (t1_info == .comptime_int or t2_info == .comptime_int) return i64;
+    if (t1_info == .comptime_float or t2_info == .comptime_float) return f64;
+
+    // Both are int types - widen to i64
+    if (t1_info == .int and t2_info == .int) return i64;
+
+    // Both are float types - widen to f64
+    if (t1_info == .float and t2_info == .float) return f64;
+
+    // Nested tuples - recursively widen each position
+    if (t1_info == .@"struct" and t2_info == .@"struct") {
+        if (t1_info.@"struct".is_tuple and t2_info.@"struct".is_tuple) {
+            const f1 = t1_info.@"struct".fields;
+            const f2 = t2_info.@"struct".fields;
+            if (f1.len == f2.len) {
+                comptime var widened_fields: [f1.len]std.builtin.Type.StructField = undefined;
+                inline for (0..f1.len) |i| {
+                    const widened_type = widenTuplePosition(f1[i].type, f2[i].type);
+                    widened_fields[i] = .{
+                        .name = f1[i].name,
+                        .type = widened_type,
+                        .default_value_ptr = null,
+                        .is_comptime = false,
+                        .alignment = 0,
+                    };
+                }
+                return @Type(.{
+                    .@"struct" = .{
+                        .layout = .auto,
+                        .fields = &widened_fields,
+                        .decls = &.{},
+                        .is_tuple = true,
+                    },
+                });
+            }
+        }
+    }
 
     // Default: keep first type
     return T1;

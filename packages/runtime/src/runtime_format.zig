@@ -43,6 +43,14 @@ pub inline fn formatUnknown(value: anytype) @TypeOf(value) {
 /// Format float value for printing (Python-style: always show .0 for whole numbers)
 /// Examples: 25.0 -> "25.0", 3.14159 -> "3.14159"
 pub fn formatFloat(value: f64, allocator: std.mem.Allocator) ![]const u8 {
+    // Handle special values first (Python convention: nan never has sign)
+    if (std.math.isNan(value)) {
+        return try allocator.dupe(u8, "nan");
+    }
+    if (std.math.isInf(value)) {
+        return try allocator.dupe(u8, if (value < 0) "-inf" else "inf");
+    }
+
     var buf = std.ArrayList(u8){};
     if (@mod(value, 1.0) == 0.0) {
         // Whole number: force .0 to match Python behavior
@@ -496,24 +504,36 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
         num_len += temp_len;
 
         try buf.appendSlice(allocator, num_buf[0..num_len]);
-    } else if (T == f64 or T == f32) {
+    } else if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
         // Float formatting
         const float_val: f64 = @floatCast(value);
         const prec = spec.precision orelse 6;
 
-        switch (spec.fmt_type) {
-            'e', 'E' => try buf.writer(allocator).print("{e}", .{float_val}),
-            '%' => {
-                try buf.writer(allocator).print("{d:.[1]}", .{ float_val * 100.0, prec });
-                try buf.append(allocator, '%');
-            },
-            else => {
-                if (@mod(float_val, 1.0) == 0.0 and spec.fmt_type != 'f' and spec.fmt_type != 'F') {
-                    try buf.writer(allocator).print("{d:.1}", .{float_val});
-                } else {
-                    try buf.writer(allocator).print("{d:.[1]}", .{ float_val, prec });
-                }
-            },
+        // Handle special values: nan, inf, -inf (Python convention: nan has no sign)
+        if (std.math.isNan(float_val)) {
+            const nan_str = if (spec.fmt_type == 'F' or spec.fmt_type == 'E') "NAN" else "nan";
+            try buf.appendSlice(allocator, nan_str);
+        } else if (std.math.isInf(float_val)) {
+            const inf_str = if (spec.fmt_type == 'F' or spec.fmt_type == 'E')
+                (if (float_val < 0) "-INF" else "INF")
+            else
+                (if (float_val < 0) "-inf" else "inf");
+            try buf.appendSlice(allocator, inf_str);
+        } else {
+            switch (spec.fmt_type) {
+                'e', 'E' => try buf.writer(allocator).print("{e}", .{float_val}),
+                '%' => {
+                    try buf.writer(allocator).print("{d:.[1]}", .{ float_val * 100.0, prec });
+                    try buf.append(allocator, '%');
+                },
+                else => {
+                    if (@mod(float_val, 1.0) == 0.0 and spec.fmt_type != 'f' and spec.fmt_type != 'F') {
+                        try buf.writer(allocator).print("{d:.1}", .{float_val});
+                    } else {
+                        try buf.writer(allocator).print("{d:.[1]}", .{ float_val, prec });
+                    }
+                },
+            }
         }
     } else {
         // Default: use {any} format

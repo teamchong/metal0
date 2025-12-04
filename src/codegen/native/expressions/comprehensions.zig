@@ -68,9 +68,18 @@ fn genComprehensionCondition(
     } else {
         // Other types (int, float, string, list, etc.) - use runtime.toBool
         // This handles Python truthiness semantics (0 is false, "" is false, [] is false, etc.)
-        try self.emit("runtime.toBool(");
-        try genExprWithSubs(self, if_cond, subs);
-        try self.emit(")");
+        // Special case: modulo should use @mod to return int (not pyMod which returns string)
+        if (if_cond == .binop and if_cond.binop.op == .Mod) {
+            try self.emit("runtime.toBool(@mod(");
+            try genExprWithSubs(self, if_cond.binop.left.*, subs);
+            try self.emit(", ");
+            try genExprWithSubs(self, if_cond.binop.right.*, subs);
+            try self.emit("))");
+        } else {
+            try self.emit("runtime.toBool(");
+            try genExprWithSubs(self, if_cond, subs);
+            try self.emit(")");
+        }
     }
 }
 
@@ -110,9 +119,18 @@ fn genComprehensionConditionNoSubs(
     } else {
         // Other types (int, float, string, list, etc.) - use runtime.toBool
         // This handles Python truthiness semantics (0 is false, "" is false, [] is false, etc.)
-        try self.emit("runtime.toBool(");
-        try genExpr(self, if_cond);
-        try self.emit(")");
+        // Special case: modulo should use @mod to return int (not pyMod which returns string)
+        if (if_cond == .binop and if_cond.binop.op == .Mod) {
+            try self.emit("runtime.toBool(@mod(");
+            try genExpr(self, if_cond.binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, if_cond.binop.right.*);
+            try self.emit("))");
+        } else {
+            try self.emit("runtime.toBool(");
+            try genExpr(self, if_cond);
+            try self.emit(")");
+        }
     }
 }
 

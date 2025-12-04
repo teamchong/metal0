@@ -1143,6 +1143,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // This ensures: object = Class(object) uses OLD object on RHS
             if (pending_shadow_rename) |rename| {
                 try self.var_renames.put(rename.old_name, rename.new_name);
+                // Also update nested_class_instances if this variable was a nested class instance
+                // The old name was registered during assignment detection, but attribute access
+                // uses the new (renamed) name, so we need to map both
+                if (self.nested_class_instances.get(rename.old_name)) |class_name| {
+                    try self.nested_class_instances.put(rename.new_name, class_name);
+                }
             }
 
             // For iterators, add pointer discard to suppress "never mutated" warnings

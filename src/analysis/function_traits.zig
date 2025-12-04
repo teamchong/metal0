@@ -131,6 +131,12 @@ pub const FunctionTraits = struct {
     /// Maps alias name -> original list name
     list_aliases: []const ListAlias = &.{},
 
+    // ========== BUILTIN SUBCLASS TRACKING ==========
+    /// Variables that are instances of classes inheriting from builtin types (tuple, list, dict, etc.)
+    /// Maps var_name -> builtin base type name (e.g., "u" -> "tuple" for `u = TupleSubclass([1,2])`)
+    /// Used for codegen to know when to use PyValue.fromAlloc vs PyValue.from
+    builtin_subclass_instances: []const BuiltinSubclassInstance = &.{},
+
     pub fn deinit(self: *FunctionTraits, allocator: std.mem.Allocator) void {
         if (self.mutates_params.len > 0) allocator.free(self.mutates_params);
         if (self.captured_vars.len > 0) allocator.free(self.captured_vars);
@@ -194,6 +200,27 @@ pub const FunctionTraits = struct {
         }
         return false;
     }
+
+    /// Get the builtin base type for a variable (e.g., "tuple" for a tuple subclass instance)
+    /// Returns null if variable is not an instance of a builtin subclass
+    pub fn getBuiltinBase(self: *const FunctionTraits, var_name: []const u8) ?[]const u8 {
+        for (self.builtin_subclass_instances) |instance| {
+            if (std.mem.eql(u8, instance.var_name, var_name)) return instance.builtin_base;
+        }
+        return null;
+    }
+
+    /// Check if a variable needs allocator for PyValue conversion (builtin subclass with collection base)
+    pub fn needsAllocForPyValue(self: *const FunctionTraits, var_name: []const u8) bool {
+        if (self.getBuiltinBase(var_name)) |base| {
+            // tuple, list, dict, set need fromAlloc to properly convert elements
+            return std.mem.eql(u8, base, "tuple") or
+                std.mem.eql(u8, base, "list") or
+                std.mem.eql(u8, base, "dict") or
+                std.mem.eql(u8, base, "set");
+        }
+        return false;
+    }
 };
 
 pub const AsyncComplexity = enum {
@@ -207,6 +234,14 @@ pub const AsyncComplexity = enum {
 pub const ListAlias = struct {
     alias_name: []const u8,
     original_name: []const u8,
+};
+
+/// Tracks variables that are instances of builtin subclasses
+/// e.g., `u = TupleSubclass([1,2])` where TupleSubclass inherits from tuple
+pub const BuiltinSubclassInstance = struct {
+    var_name: []const u8, // The variable name (e.g., "u")
+    class_name: []const u8, // The class name (e.g., "TupleSubclass")
+    builtin_base: []const u8, // The builtin base type (e.g., "tuple")
 };
 
 pub const TypeHint = enum {
