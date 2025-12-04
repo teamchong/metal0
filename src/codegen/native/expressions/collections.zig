@@ -171,8 +171,14 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     // Empty lists - use type from context if available
     if (list.elts.len == 0) {
         // Check if we have a target variable name from assignment context
-        // and its inferred type indicates string elements
         if (self.current_assign_target) |target_name| {
+            // Check if function_traits analysis determined this list needs PyValue type
+            // (will be assigned heterogeneous types later via += or append)
+            if (self.varNeedsPyValue(target_name)) {
+                try self.emit("std.ArrayList(runtime.PyValue){}");
+                return;
+            }
+
             // Look up the inferred type for this variable
             var type_buf = std.ArrayList(u8){};
             defer type_buf.deinit(self.allocator);

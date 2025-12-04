@@ -4,12 +4,13 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
-// External dependencies
-extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
+// Use centralized extern declarations
+const Py_INCREF = traits.externs.Py_INCREF;
+const Py_DECREF = traits.externs.Py_DECREF;
 
 /// Slice object structure
 pub const PySliceObject = extern struct {
@@ -21,22 +22,9 @@ pub const PySliceObject = extern struct {
 
 /// Create new slice object
 export fn PySlice_New(start: ?*cpython.PyObject, stop: ?*cpython.PyObject, step: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const slice = allocator.create(PySliceObject) catch return null;
-    
-    slice.ob_base = .{
-        .ob_refcnt = 1,
-        .ob_type = undefined, // TODO: &PySlice_Type
-    };
-    
-    slice.start = start;
-    slice.stop = stop;
-    slice.step = step;
-    
-    if (start) |s| Py_INCREF(s);
-    if (stop) |s| Py_INCREF(s);
-    if (step) |s| Py_INCREF(s);
-    
-    return @ptrCast(&slice.ob_base);
+    // Use proper implementation from pyobject_slice.zig
+    const pyslice = @import("pyobject_slice.zig");
+    return pyslice.PySlice_New(start, stop, step);
 }
 
 /// Get slice indices
@@ -100,9 +88,8 @@ export fn PySlice_AdjustIndices(length: isize, start: *isize, stop: *isize, step
 
 /// Check if object is a slice
 export fn PySlice_Check(obj: *cpython.PyObject) callconv(.c) c_int {
-    _ = obj;
-    // TODO: Check if type is PySlice_Type
-    return 0;
+    const pyslice = @import("pyobject_slice.zig");
+    return pyslice.PySlice_Check(obj);
 }
 
 // Tests

@@ -5,6 +5,7 @@ const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const zig_keywords = @import("zig_keywords");
 const param_analyzer = @import("../../functions/param_analyzer.zig");
+const for_basic = @import("for_basic.zig");
 
 /// Generate enumerate loop
 pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []ast.Node) CodegenError!void {
@@ -283,6 +284,10 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
 
     // Generate: const var1 = __zip_iter_0[__zip_idx]; const var2 = __zip_iter_1[__zip_idx]; ...
     // Use .items for lists, direct indexing for arrays
+    // Also track which variables are unused to suppress warnings
+    var unused_vars = std.ArrayList([]const u8){};
+    defer unused_vars.deinit(self.allocator);
+
     for (target_elts, 0..) |elt, i| {
         const var_name = if (elt == .name) elt.name.id else "_";
         try self.emitIndent();
@@ -291,6 +296,22 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
         try self.output.writer(self.allocator).print(" = __zip_iter_{d}", .{i});
         if (iter_is_list[i]) try self.emit(".items");
         try self.emit("[__zip_idx];\n");
+
+        // Check if variable is used in body - if not, track for warning suppression
+        if (elt == .name and !std.mem.eql(u8, var_name, "_")) {
+            const is_used = for_basic.varUsedInBody(body, var_name);
+            if (!is_used) {
+                try unused_vars.append(self.allocator, var_name);
+            }
+        }
+    }
+
+    // Emit _ = &var; for any unused variables to suppress Zig warnings
+    for (unused_vars.items) |var_name| {
+        try self.emitIndent();
+        try self.emit("_ = &");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try self.emit(";\n");
     }
 
     // Generate body statements

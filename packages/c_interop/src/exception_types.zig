@@ -8,13 +8,105 @@
 /// Key insight: All exceptions share the same base pattern, we just
 /// configure which extra fields each type needs at comptime.
 const std = @import("std");
-const exception_impl = @import("collections/exception_impl.zig");
 const cpython = @import("cpython_object.zig");
 
-// Re-export from exception_impl for convenience
-const PyObject = exception_impl.PyObject;
-const PyUnicodeObject = exception_impl.PyUnicodeObject;
-const PyTracebackObject = exception_impl.PyTracebackObject;
+// Type aliases
+const PyObject = cpython.PyObject;
+const PyUnicodeObject = cpython.PyUnicodeObject;
+const PyTracebackObject = cpython.PyTracebackObject;
+
+// Local ExceptionImpl - generates exception structs with comptime-conditional fields
+pub const exception_impl = struct {
+    /// Generic exception implementation with comptime-conditional fields
+    pub fn ExceptionImpl(comptime Config: type) type {
+        return struct {
+            const Self = @This();
+
+            // Base PyObject fields
+            ob_base: PyObject,
+
+            // Core exception fields
+            message: ?*PyUnicodeObject,
+            traceback: ?*PyTracebackObject,
+
+            // Exception chaining (comptime conditional)
+            cause: if (@hasDecl(Config, "has_cause") and Config.has_cause) ?*PyObject else void,
+            context: if (@hasDecl(Config, "has_context") and Config.has_context) ?*PyObject else void,
+
+            // OSError fields
+            errno_val: if (@hasDecl(Config, "has_errno") and Config.has_errno) i32 else void,
+            filename: if (@hasDecl(Config, "has_filename") and Config.has_filename) ?*PyUnicodeObject else void,
+            filename2: if (@hasDecl(Config, "has_filename2") and Config.has_filename2) ?*PyUnicodeObject else void,
+
+            // SyntaxError fields
+            lineno: if (@hasDecl(Config, "has_lineno") and Config.has_lineno) isize else void,
+            offset: if (@hasDecl(Config, "has_offset") and Config.has_offset) isize else void,
+            text: if (@hasDecl(Config, "has_text") and Config.has_text) ?*PyUnicodeObject else void,
+
+            // UnicodeError fields
+            encoding: if (@hasDecl(Config, "has_encoding") and Config.has_encoding) ?*PyUnicodeObject else void,
+            object: if (@hasDecl(Config, "has_object") and Config.has_object) ?*PyObject else void,
+            start: if (@hasDecl(Config, "has_start") and Config.has_start) isize else void,
+            end: if (@hasDecl(Config, "has_end") and Config.has_end) isize else void,
+            reason: if (@hasDecl(Config, "has_reason") and Config.has_reason) ?*PyUnicodeObject else void,
+
+            // ImportError fields
+            name_field: if (@hasDecl(Config, "has_name") and Config.has_name) ?*PyUnicodeObject else void,
+            path: if (@hasDecl(Config, "has_path") and Config.has_path) ?*PyUnicodeObject else void,
+
+            /// Initialize exception
+            pub fn init(alloc: std.mem.Allocator, message_obj: ?*PyUnicodeObject) !*Self {
+                const exc = try alloc.create(Self);
+                exc.* = Self{
+                    .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
+                    .message = message_obj,
+                    .traceback = null,
+                    .cause = if (@hasDecl(Config, "has_cause") and Config.has_cause) null else {},
+                    .context = if (@hasDecl(Config, "has_context") and Config.has_context) null else {},
+                    .errno_val = if (@hasDecl(Config, "has_errno") and Config.has_errno) 0 else {},
+                    .filename = if (@hasDecl(Config, "has_filename") and Config.has_filename) null else {},
+                    .filename2 = if (@hasDecl(Config, "has_filename2") and Config.has_filename2) null else {},
+                    .lineno = if (@hasDecl(Config, "has_lineno") and Config.has_lineno) 0 else {},
+                    .offset = if (@hasDecl(Config, "has_offset") and Config.has_offset) 0 else {},
+                    .text = if (@hasDecl(Config, "has_text") and Config.has_text) null else {},
+                    .encoding = if (@hasDecl(Config, "has_encoding") and Config.has_encoding) null else {},
+                    .object = if (@hasDecl(Config, "has_object") and Config.has_object) null else {},
+                    .start = if (@hasDecl(Config, "has_start") and Config.has_start) 0 else {},
+                    .end = if (@hasDecl(Config, "has_end") and Config.has_end) 0 else {},
+                    .reason = if (@hasDecl(Config, "has_reason") and Config.has_reason) null else {},
+                    .name_field = if (@hasDecl(Config, "has_name") and Config.has_name) null else {},
+                    .path = if (@hasDecl(Config, "has_path") and Config.has_path) null else {},
+                };
+                return exc;
+            }
+
+            /// Set errno (only for exceptions with has_errno)
+            pub fn setErrno(self: *Self, errno: i32) void {
+                comptime {
+                    if (!(@hasDecl(Config, "has_errno") and Config.has_errno)) {
+                        @compileError(Config.name ++ " doesn't have errno field");
+                    }
+                }
+                self.errno_val = errno;
+            }
+
+            /// Set lineno (only for exceptions with has_lineno)
+            pub fn setLineno(self: *Self, line: isize) void {
+                comptime {
+                    if (!(@hasDecl(Config, "has_lineno") and Config.has_lineno)) {
+                        @compileError(Config.name ++ " doesn't have lineno field");
+                    }
+                }
+                self.lineno = line;
+            }
+
+            /// Free exception
+            pub fn deinit(self: *Self, alloc: std.mem.Allocator) void {
+                alloc.destroy(self);
+            }
+        };
+    }
+};
 
 /// Global allocator for C API
 const allocator = std.heap.c_allocator;

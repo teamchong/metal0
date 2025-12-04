@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -293,7 +294,7 @@ pub export fn PySet_Add(obj: *cpython.PyObject, key: *cpython.PyObject) callconv
 
     // Find empty slot and insert
     const entry = findEmptySlot(set, hash);
-    key.ob_refcnt += 1;
+    _ = traits.incref(key);
     entry.key = key;
     entry.hash = hash;
     set.fill += 1;
@@ -313,7 +314,7 @@ pub export fn PySet_Discard(obj: *cpython.PyObject, key: *cpython.PyObject) call
 
     if (lookupEntry(set, key, hash)) |entry| {
         if (entry.key) |k| {
-            k.ob_refcnt -= 1;
+            traits.decref(k);
         }
         entry.key = null; // Mark as deleted (dummy)
         entry.hash = 0;
@@ -383,7 +384,7 @@ pub export fn PySet_Clear(obj: *cpython.PyObject) callconv(.c) c_int {
     while (i <= mask) : (i += 1) {
         const entry = &table[i];
         if (entry.key) |key| {
-            key.ob_refcnt -= 1;
+            traits.decref(key);
             entry.key = null;
             entry.hash = 0;
         }
@@ -493,7 +494,7 @@ fn addFromIterableInternal(obj: *cpython.PyObject, iterable: *cpython.PyObject) 
                 const hash = computeHash(item);
                 if (lookupEntry(set, item, hash) == null) {
                     const entry = findEmptySlot(set, hash);
-                    item.ob_refcnt += 1;
+                    _ = traits.incref(item);
                     entry.key = item;
                     entry.hash = hash;
                     set.fill += 1;
@@ -514,7 +515,7 @@ fn addFromIterableInternal(obj: *cpython.PyObject, iterable: *cpython.PyObject) 
                 const hash = computeHash(item);
                 if (lookupEntry(set, item, hash) == null) {
                     const entry = findEmptySlot(set, hash);
-                    item.ob_refcnt += 1;
+                    _ = traits.incref(item);
                     entry.key = item;
                     entry.hash = hash;
                     set.fill += 1;
@@ -536,7 +537,7 @@ fn addFromIterableInternal(obj: *cpython.PyObject, iterable: *cpython.PyObject) 
                 const hash = other_table[i].hash;
                 if (lookupEntry(set, item, hash) == null) {
                     const entry = findEmptySlot(set, hash);
-                    item.ob_refcnt += 1;
+                    _ = traits.incref(item);
                     entry.key = item;
                     entry.hash = hash;
                     set.fill += 1;
@@ -559,15 +560,7 @@ fn set_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     var i: usize = 0;
     while (i <= mask) : (i += 1) {
         if (table[i].key) |key| {
-            key.ob_refcnt -= 1;
-            // Deallocate if refcnt reaches 0
-            if (key.ob_refcnt == 0) {
-                if (key.ob_type) |tp| {
-                    if (tp.tp_dealloc) |dealloc| {
-                        dealloc(key);
-                    }
-                }
-            }
+            traits.decref(key);
         }
     }
 

@@ -192,6 +192,18 @@ pub export fn PyByteArray_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int 
     return if (cpython.Py_TYPE(obj) == &PyByteArray_Type) 1 else 0;
 }
 
+/// PyByteArray_AS_STRING - macro form, no type checking
+pub export fn PyByteArray_AS_STRING(obj: *cpython.PyObject) callconv(.c) ?[*]u8 {
+    const ba: *PyByteArrayObject = @ptrCast(@alignCast(obj));
+    return ba.ob_start;
+}
+
+/// PyByteArray_GET_SIZE - macro form, no type checking
+pub export fn PyByteArray_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
+    const ba: *PyByteArrayObject = @ptrCast(@alignCast(obj));
+    return ba.ob_base.ob_size;
+}
+
 // ============================================================================
 // INTERNAL FUNCTIONS
 // ============================================================================

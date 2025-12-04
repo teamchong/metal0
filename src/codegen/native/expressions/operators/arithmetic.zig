@@ -399,20 +399,24 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     }
 
     // If right operand is a known class instance (not anytype) and left is not class, call __radd__ etc.
+    // Only call if the class actually implements the reverse dunder method
     if (bigint_right_type == .class_instance and !right_is_anytype and bigint_left_type != .class_instance) {
         if (ReverseDunders.get(@tagName(binop.op))) |rdunder_method| {
-            try self.emit("try ");
+            // Generate comptime check for method existence
+            // If method exists, call it; otherwise raise TypeError at runtime
+            // For builtin subclasses (e.g. class T(tuple)), the method may not exist
+            try self.emit("radd_blk: { const _rhs = ");
             try genExpr(self, binop.right.*);
-            try self.emit(".");
-            try self.emit(rdunder_method);
-            try self.emit("(__global_allocator, ");
+            try self.emit("; const _RhsType = @TypeOf(_rhs); const _PtrInfo = @typeInfo(_RhsType); ");
+            try self.emit("if (_PtrInfo != .pointer) { return error.TypeError; } ");
+            try self.output.writer(self.allocator).print("if (@hasDecl(_PtrInfo.pointer.child, \"{s}\")) {{ break :radd_blk try _rhs.{s}(__global_allocator, ", .{ rdunder_method, rdunder_method });
             try genExpr(self, binop.left.*);
-            try self.emit(")");
+            try self.emit("); } else { return error.TypeError; } }");
             return;
         }
     }
 
-    // Check for complex number operations
+    // Check for complex number operations and mixed int/float arithmetic
     // Must check BOTH Add and Sub for complex operand type coercion
     if (binop.op == .Add or binop.op == .Sub) {
         const left_type = try self.inferExprScoped(binop.left.*);
@@ -421,6 +425,41 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         // Handle complex arithmetic: int/float +/- complex -> complex
         if (left_type == .complex or right_type == .complex) {
             try genComplexBinOp(self, binop, left_type, right_type);
+            return;
+        }
+
+        // Handle mixed int/float arithmetic using runtime helper
+        // This is needed because Zig doesn't allow direct arithmetic between int and float
+        // Use runtime helper when:
+        // 1. One operand is definitively int and the other is definitively float
+        // 2. One operand is int and other is unknown (unknown could be any type from tuple unpack, closure param, etc.)
+        // 3. One operand is float and other is unknown
+        const left_is_int = left_type == .int;
+        const right_is_int = right_type == .int;
+        const left_is_float = left_type == .float;
+        const right_is_float = right_type == .float;
+        const left_is_unknown = left_type == .unknown;
+        const right_is_unknown = right_type == .unknown;
+
+        // Use runtime helpers when types could be mixed (any combination involving unknown or explicit int+float)
+        const needs_runtime_helper = (left_is_int and right_is_float) or
+            (left_is_float and right_is_int) or
+            (left_is_int and right_is_unknown) or
+            (left_is_unknown and right_is_int) or
+            (left_is_float and right_is_unknown) or
+            (left_is_unknown and right_is_float);
+
+        if (needs_runtime_helper) {
+            // Use runtime helper for potentially mixed type arithmetic
+            if (binop.op == .Add) {
+                try self.emit("runtime.addNum(");
+            } else {
+                try self.emit("runtime.subtractNum(");
+            }
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
             return;
         }
     }
@@ -458,12 +497,38 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         if (left_type == .list or right_type == .list or
             binop.left.* == .list or binop.right.* == .list)
         {
-            // List/array concatenation: use runtime.concat which handles both
-            try self.emit("runtime.concat(");
-            try genExpr(self, binop.left.*);
-            try self.emit(", ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
+            // Check if either operand might produce a runtime value (ArrayList, PyValue)
+            // This includes: call expressions, nested binops, and unknown types
+            const left_is_call = binop.left.* == .call;
+            const right_is_call = binop.right.* == .call;
+            const left_is_binop = binop.left.* == .binop;
+            const right_is_binop = binop.right.* == .binop;
+            const left_is_name = binop.left.* == .name;
+            const right_is_name = binop.right.* == .name;
+
+            // Use runtime concatenation for any potentially runtime values
+            // This is safer and handles all edge cases (ArrayList, PyValue, etc.)
+            const needs_runtime = left_is_call or right_is_call or
+                left_is_binop or right_is_binop or
+                left_is_name or right_is_name or
+                left_type == .unknown or right_type == .unknown or
+                left_type == .pyvalue or right_type == .pyvalue;
+
+            if (needs_runtime) {
+                // Use runtime concatenation for non-comptime values
+                try self.emit("try runtime.concatRuntime(__global_allocator, ");
+                try genExpr(self, binop.left.*);
+                try self.emit(", ");
+                try genExpr(self, binop.right.*);
+                try self.emit(")");
+            } else {
+                // List/array concatenation: use runtime.concat which handles both
+                try self.emit("runtime.concat(");
+                try genExpr(self, binop.left.*);
+                try self.emit(", ");
+                try genExpr(self, binop.right.*);
+                try self.emit(")");
+            }
             return;
         }
 
@@ -1015,18 +1080,26 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     };
     try self.emit(op_str);
 
-    // Cast right operand if needed - bool or usize to i64
-    if (right_is_bool) {
+    // For shift operations, the RHS must be u6 for i64 (Zig requirement)
+    const is_shift_op = binop.op == .LShift or binop.op == .RShift;
+    if (is_shift_op) {
+        // Cast shift amount to u6, handling both comptime and runtime values
+        // Use @intCast with @mod to ensure value fits in u6 (0-63)
+        try self.emit("@as(u6, @intCast(@mod(");
+        try genExprWrapped(self, binop.right.*);
+        try self.emit(", 64)))");
+    } else if (right_is_bool) {
+        // Cast right operand if needed - bool or usize to i64
         try self.emit("@as(i64, @intFromBool(");
+        try genExprWrapped(self, binop.right.*);
+        try self.emit("))");
     } else if (right_is_usize and needs_cast) {
         try self.emit("@as(i64, @intCast(");
-    }
-    // Use genExprWrapped to add parens around comparisons, etc.
-    try genExprWrapped(self, binop.right.*);
-    if (right_is_bool) {
+        try genExprWrapped(self, binop.right.*);
         try self.emit("))");
-    } else if (right_is_usize and needs_cast) {
-        try self.emit("))");
+    } else {
+        // Use genExprWrapped to add parens around comparisons, etc.
+        try genExprWrapped(self, binop.right.*);
     }
 
     try self.emit(")");

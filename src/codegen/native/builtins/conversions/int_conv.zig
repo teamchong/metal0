@@ -178,12 +178,14 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit(".__len__())");
         }
     } else {
-        // For arrays, slices, strings - just use .len
+        // For arrays, slices, strings - use builtins.len which handles all types
+        // including ArrayLists and pointers to ArrayLists
         if (needs_wrap) {
-            try self.emit("__obj.len");
+            try self.emit("runtime.builtinLen(__obj)");
         } else {
+            try self.emit("runtime.builtinLen(");
             try self.genExpr(args[0]);
-            try self.emit(".len");
+            try self.emit(")");
         }
     }
 

@@ -297,29 +297,39 @@ pub fn next(iterator: anytype) IteratorItem(@TypeOf(iterator)) {
     // Handle pointer to iterator struct
     if (info == .pointer) {
         const Child = info.pointer.child;
-        if (@hasDecl(Child, "next")) {
+        const child_info = @typeInfo(Child);
+        // Only check for decls on struct/enum/union/opaque types
+        if (child_info == .@"struct" or child_info == .@"enum" or child_info == .@"union" or child_info == .@"opaque") {
+            if (@hasDecl(Child, "next")) {
+                if (iterator.next()) |item| {
+                    return item;
+                }
+                return error.StopIteration;
+            }
+            if (@hasDecl(Child, "__next__")) {
+                return iterator.__next__();
+            }
+        }
+        // Non-iterator pointer type (e.g., *bool) - return TypeError
+        return error.TypeError;
+    }
+
+    const type_info = @typeInfo(T);
+    if (type_info == .@"struct" or type_info == .@"enum" or type_info == .@"union" or type_info == .@"opaque") {
+        // Handle iterator struct directly (legacy)
+        if (@hasDecl(T, "__next__")) {
+            return iterator.__next__();
+        }
+        if (@hasDecl(T, "next")) {
             if (iterator.next()) |item| {
                 return item;
             }
             return error.StopIteration;
         }
-        if (@hasDecl(Child, "__next__")) {
-            return iterator.__next__();
-        }
     }
 
-    // Handle iterator struct directly (legacy)
-    if (@hasDecl(T, "__next__")) {
-        return iterator.__next__();
-    }
-    if (@hasDecl(T, "next")) {
-        if (iterator.next()) |item| {
-            return item;
-        }
-        return error.StopIteration;
-    }
-
-    @compileError("Type does not have next() or __next__() method");
+    // Non-iterator type - return TypeError at runtime
+    return error.TypeError;
 }
 
 /// Helper to get the item type from an iterator
@@ -327,19 +337,31 @@ fn IteratorItem(comptime T: type) type {
     const info = @typeInfo(T);
     if (info == .pointer) {
         const Child = info.pointer.child;
-        if (@hasDecl(Child, "Item")) {
-            return error{StopIteration}!Child.Item;
-        }
-        if (@hasDecl(Child, "next")) {
-            const next_fn = @typeInfo(@TypeOf(@field(Child, "next")));
-            if (next_fn == .@"fn") {
-                const ReturnType = next_fn.@"fn".return_type.?;
-                if (@typeInfo(ReturnType) == .optional) {
-                    return error{StopIteration}!@typeInfo(ReturnType).optional.child;
+        const child_info = @typeInfo(Child);
+        // Only check for decls on struct/enum/union/opaque types
+        if (child_info == .@"struct" or child_info == .@"enum" or child_info == .@"union" or child_info == .@"opaque") {
+            if (@hasDecl(Child, "Item")) {
+                return error{StopIteration}!Child.Item;
+            }
+            if (@hasDecl(Child, "next")) {
+                const next_fn = @typeInfo(@TypeOf(@field(Child, "next")));
+                if (next_fn == .@"fn") {
+                    const ReturnType = next_fn.@"fn".return_type.?;
+                    if (@typeInfo(ReturnType) == .optional) {
+                        return error{StopIteration}!@typeInfo(ReturnType).optional.child;
+                    }
                 }
             }
         }
+        // Non-iterator pointer types - return void with error
+        return error{StopIteration, TypeError}!void;
     }
+    if (info == .@"struct" or info == .@"enum" or info == .@"union" or info == .@"opaque") {
+        if (@hasDecl(T, "Item")) {
+            return error{StopIteration}!T.Item;
+        }
+    }
+    // Non-iterator types
     if (@hasDecl(T, "Item")) {
         return error{StopIteration}!T.Item;
     }
@@ -508,9 +530,11 @@ pub fn maxIterable(iterable: anytype) i64 {
             return max_val;
         }
     }
-    // Fallback for slices
+    // Fallback for slices and ArrayLists - use runtime.iterSlice for universal handling
+    const rt = @import("../runtime.zig");
+    const slice = rt.iterSlice(iterable);
     var max_val: i64 = std.math.minInt(i64);
-    for (iterable) |item| {
+    for (slice) |item| {
         if (item > max_val) {
             max_val = item;
         }
@@ -644,17 +668,20 @@ pub fn len(obj: anytype) usize {
     const T = @TypeOf(obj);
     if (T == *PyObject) {
         return runtime_core.pyLen(obj);
+    } else if (comptime isSlice(T)) {
+        // Check slice before pointer since slices are also pointers
+        return obj.len;
     } else if (@typeInfo(T) == .pointer) {
         const Child = @typeInfo(T).pointer.child;
-        if (@hasField(Child, "items")) {
+        const child_info = @typeInfo(Child);
+        // Only check @hasField on struct types
+        if (child_info == .@"struct" and @hasField(Child, "items")) {
             return obj.items.len;
-        } else if (@hasDecl(Child, "len")) {
+        } else if (child_info == .@"struct" and @hasDecl(Child, "len")) {
             return obj.len;
         }
     } else if (@typeInfo(T) == .array) {
         return @typeInfo(T).array.len;
-    } else if (comptime isSlice(T)) {
-        return obj.len;
     }
     return 0;
 }
@@ -669,6 +696,7 @@ pub fn id(obj: anytype) usize {
 }
 
 /// hash() builtin - returns hash of object
+/// Implements Python's hash algorithm for compatibility
 pub fn hash(obj: anytype) i64 {
     const T = @TypeOf(obj);
     if (T == *PyObject) {
@@ -679,14 +707,208 @@ pub fn hash(obj: anytype) i64 {
         var h: u64 = 0;
         for (obj) |c| h = h *% 31 +% c;
         return @intCast(h);
+    } else if (@typeInfo(T) == .@"struct") {
+        // Tuple/struct hash - use Python's tuple hash algorithm
+        // xxHash-based algorithm matching CPython 3.8+
+        return tupleHash(obj);
     }
     return 0;
+}
+
+/// Python-compatible tuple hash using xxHash algorithm (CPython 3.8+)
+/// This matches Python's tuplehash() in Objects/tupleobject.c
+fn tupleHash(tup: anytype) i64 {
+    const T = @TypeOf(tup);
+    const info = @typeInfo(T);
+    if (info != .@"struct") return 0;
+
+    const fields = info.@"struct".fields;
+    const num_fields = fields.len;
+
+    // Python's xxHash constants
+    const XXPRIME_1: u64 = 11400714785074694791;
+    const XXPRIME_2: u64 = 14029467366897019727;
+    const XXPRIME_5: u64 = 2870177450012600261;
+
+    var acc: u64 = XXPRIME_5;
+
+    // Hash each element
+    inline for (fields) |field| {
+        const elem = @field(tup, field.name);
+        const elem_hash: u64 = @bitCast(hash(elem));
+        acc +%= elem_hash *% XXPRIME_2;
+        acc = (acc << 31) | (acc >> 33); // rotate left 31
+        acc *%= XXPRIME_1;
+    }
+
+    // Final mix
+    acc +%= @as(u64, num_fields) ^ (XXPRIME_5 ^ 3527539);
+
+    if (acc == @as(u64, @bitCast(@as(i64, -1)))) {
+        return 1546275796;
+    }
+
+    return @bitCast(acc);
+}
+
+/// Python-compatible tuple repr - returns "(a, b, c)" format
+/// For single element tuples, returns "(a,)" with trailing comma
+pub fn tupleRepr(allocator: std.mem.Allocator, tup: anytype) ![]const u8 {
+    const T = @TypeOf(tup);
+    const info = @typeInfo(T);
+    if (info != .@"struct") return "()";
+
+    const fields = info.@"struct".fields;
+    const num_fields = fields.len;
+
+    // Empty tuple
+    if (num_fields == 0) return "()";
+
+    var result = std.ArrayList(u8){};
+    errdefer result.deinit(allocator);
+
+    try result.append(allocator, '(');
+
+    inline for (fields, 0..) |field, i| {
+        const elem = @field(tup, field.name);
+        const elem_str = try valueRepr(allocator, elem);
+        try result.appendSlice(allocator, elem_str);
+
+        // Add comma: always between elements, and after single element
+        if (i < num_fields - 1) {
+            try result.appendSlice(allocator, ", ");
+        } else if (num_fields == 1) {
+            // Single element tuple needs trailing comma: (a,)
+            try result.append(allocator, ',');
+        }
+    }
+
+    try result.append(allocator, ')');
+    return result.toOwnedSlice(allocator);
+}
+
+/// Convert a value to its repr string (for tuple elements)
+fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
+    const T = @TypeOf(value);
+
+    // String - wrap in quotes
+    if (T == []const u8 or T == []u8) {
+        var buf = std.ArrayList(u8){};
+        try buf.append(allocator, '\'');
+        try buf.appendSlice(allocator, value);
+        try buf.append(allocator, '\'');
+        return buf.toOwnedSlice(allocator);
+    }
+
+    // Bool - Python True/False
+    if (T == bool) {
+        return if (value) "True" else "False";
+    }
+
+    // Integer
+    if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+        return std.fmt.allocPrint(allocator, "{d}", .{value});
+    }
+
+    // Float
+    if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
+        return std.fmt.allocPrint(allocator, "{d}", .{value});
+    }
+
+    // Nested tuple/struct - recursive repr
+    if (@typeInfo(T) == .@"struct") {
+        return tupleRepr(allocator, value);
+    }
+
+    // Slice (from tupleRepeat) - format as tuple (a, b, c)
+    if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .slice) {
+        return sliceAsTupleRepr(allocator, value);
+    }
+
+    // Fallback
+    return std.fmt.allocPrint(allocator, "{any}", .{value});
+}
+
+/// Format a slice as a Python tuple: (a, b, c) or (a,) for single element
+fn sliceAsTupleRepr(allocator: std.mem.Allocator, slice: anytype) ![]const u8 {
+    if (slice.len == 0) return "()";
+
+    var result = std.ArrayList(u8){};
+    errdefer result.deinit(allocator);
+
+    try result.append(allocator, '(');
+
+    for (slice, 0..) |elem, i| {
+        const elem_str = try valueRepr(allocator, elem);
+        try result.appendSlice(allocator, elem_str);
+
+        // Add comma: always between elements, and after single element
+        if (i < slice.len - 1) {
+            try result.appendSlice(allocator, ", ");
+        } else if (slice.len == 1) {
+            // Single element tuple needs trailing comma: (a,)
+            try result.append(allocator, ',');
+        }
+    }
+
+    try result.append(allocator, ')');
+    return result.toOwnedSlice(allocator);
+}
+
+/// Python-compatible repr for any value
+/// Routes to appropriate repr function based on type at comptime
+pub fn pyRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
+    return valueRepr(allocator, value);
+}
+
+/// Python-compatible str for any value
+/// For tuples, returns "(a, b, c)" format without quotes on strings
+pub fn pyStr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
+    return valueStr(allocator, value);
+}
+
+/// Convert a value to its str string (for tuple elements, without extra quotes)
+fn valueStr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
+    const T = @TypeOf(value);
+
+    // String - no wrapping quotes (unlike repr)
+    if (T == []const u8 or T == []u8) {
+        return value;
+    }
+
+    // Bool - Python True/False
+    if (T == bool) {
+        return if (value) "True" else "False";
+    }
+
+    // Integer
+    if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+        return std.fmt.allocPrint(allocator, "{d}", .{value});
+    }
+
+    // Float
+    if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
+        return std.fmt.allocPrint(allocator, "{d}", .{value});
+    }
+
+    // Tuple/struct - same as repr
+    if (@typeInfo(T) == .@"struct") {
+        return tupleRepr(allocator, value);
+    }
+
+    // Slice (from tupleRepeat) - format as tuple
+    if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .slice) {
+        return sliceAsTupleRepr(allocator, value);
+    }
+
+    // Fallback
+    return std.fmt.allocPrint(allocator, "{any}", .{value});
 }
 
 /// Helper to check if type is a slice
 fn isSlice(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .pointer => |p| p.size == .Slice,
+        .pointer => |p| p.size == .slice,
         else => false,
     };
 }

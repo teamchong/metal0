@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -163,9 +164,9 @@ pub export fn PySlice_New(start: ?*cpython.PyObject, stop: ?*cpython.PyObject, s
     obj.step = step;
 
     // INCREF
-    if (start) |s| s.ob_refcnt += 1;
-    if (stop) |s| s.ob_refcnt += 1;
-    if (step) |s| s.ob_refcnt += 1;
+    if (start) |s| _ = traits.incref(s);
+    if (stop) |s| _ = traits.incref(s);
+    if (step) |s| _ = traits.incref(s);
 
     return @ptrCast(&obj.ob_base);
 }
@@ -173,34 +174,134 @@ pub export fn PySlice_New(start: ?*cpython.PyObject, stop: ?*cpython.PyObject, s
 /// Get indices for sequence of given length
 pub export fn PySlice_GetIndices(slice: *cpython.PyObject, length: isize, start: *isize, stop: *isize, step: *isize) callconv(.c) c_int {
     const s: *PySliceObject = @ptrCast(@alignCast(slice));
-    _ = s;
-    _ = length;
+    const pylong = @import("pyobject_long.zig");
 
-    // Default values
-    start.* = 0;
-    stop.* = length;
-    step.* = 1;
+    // Extract step (default 1)
+    if (s.step) |step_obj| {
+        if (pylong.PyLong_Check(step_obj) != 0) {
+            step.* = pylong.PyLong_AsLong(step_obj);
+            if (step.* == 0) return -1; // Zero step is invalid
+        } else {
+            step.* = 1;
+        }
+    } else {
+        step.* = 1;
+    }
 
-    // TODO: Implement proper index calculation
+    // Extract start
+    if (s.start) |start_obj| {
+        if (pylong.PyLong_Check(start_obj) != 0) {
+            start.* = pylong.PyLong_AsLong(start_obj);
+            // Handle negative indices
+            if (start.* < 0) {
+                start.* += length;
+                if (start.* < 0) start.* = if (step.* < 0) -1 else 0;
+            } else if (start.* >= length) {
+                start.* = if (step.* < 0) length - 1 else length;
+            }
+        } else {
+            start.* = if (step.* < 0) length - 1 else 0;
+        }
+    } else {
+        start.* = if (step.* < 0) length - 1 else 0;
+    }
+
+    // Extract stop
+    if (s.stop) |stop_obj| {
+        if (pylong.PyLong_Check(stop_obj) != 0) {
+            stop.* = pylong.PyLong_AsLong(stop_obj);
+            // Handle negative indices
+            if (stop.* < 0) {
+                stop.* += length;
+                if (stop.* < 0) stop.* = if (step.* < 0) -1 else 0;
+            } else if (stop.* >= length) {
+                stop.* = if (step.* < 0) length - 1 else length;
+            }
+        } else {
+            stop.* = if (step.* < 0) -1 else length;
+        }
+    } else {
+        stop.* = if (step.* < 0) -1 else length;
+    }
+
     return 0;
 }
 
-/// Unpack slice object
+/// Unpack slice object into raw values (before adjusting for length)
 pub export fn PySlice_Unpack(slice: *cpython.PyObject, start: *isize, stop: *isize, step: *isize) callconv(.c) c_int {
-    _ = slice;
-    start.* = 0;
-    stop.* = std.math.maxInt(isize);
-    step.* = 1;
+    const s: *PySliceObject = @ptrCast(@alignCast(slice));
+    const pylong = @import("pyobject_long.zig");
+
+    // Extract step
+    if (s.step) |step_obj| {
+        if (pylong.PyLong_Check(step_obj) != 0) {
+            step.* = pylong.PyLong_AsLong(step_obj);
+            if (step.* == 0) return -1;
+        } else {
+            step.* = 1;
+        }
+    } else {
+        step.* = 1;
+    }
+
+    // Extract start (use placeholder for None)
+    if (s.start) |start_obj| {
+        if (pylong.PyLong_Check(start_obj) != 0) {
+            start.* = pylong.PyLong_AsLong(start_obj);
+        } else {
+            start.* = if (step.* < 0) std.math.maxInt(isize) else 0;
+        }
+    } else {
+        start.* = if (step.* < 0) std.math.maxInt(isize) else 0;
+    }
+
+    // Extract stop
+    if (s.stop) |stop_obj| {
+        if (pylong.PyLong_Check(stop_obj) != 0) {
+            stop.* = pylong.PyLong_AsLong(stop_obj);
+        } else {
+            stop.* = if (step.* < 0) std.math.minInt(isize) else std.math.maxInt(isize);
+        }
+    } else {
+        stop.* = if (step.* < 0) std.math.minInt(isize) else std.math.maxInt(isize);
+    }
+
     return 0;
 }
 
-/// Adjust indices for length
+/// Adjust indices for length and return slice length
 pub export fn PySlice_AdjustIndices(length: isize, start: *isize, stop: *isize, step: isize) callconv(.c) isize {
-    _ = step;
-    if (start.* < 0) start.* = 0;
-    if (stop.* > length) stop.* = length;
-    if (stop.* < start.*) return 0;
-    return stop.* - start.*;
+    // Adjust start
+    if (start.* < 0) {
+        start.* += length;
+        if (start.* < 0) {
+            start.* = if (step < 0) -1 else 0;
+        }
+    } else if (start.* >= length) {
+        start.* = if (step < 0) length - 1 else length;
+    }
+
+    // Adjust stop
+    if (stop.* < 0) {
+        stop.* += length;
+        if (stop.* < 0) {
+            stop.* = if (step < 0) -1 else 0;
+        }
+    } else if (stop.* >= length) {
+        stop.* = if (step < 0) length - 1 else length;
+    }
+
+    // Calculate slice length
+    if (step < 0) {
+        if (stop.* < start.*) {
+            return @divFloor((start.* - stop.* - 1), (-step)) + 1;
+        }
+    } else {
+        if (start.* < stop.*) {
+            return @divFloor((stop.* - start.* - 1), step) + 1;
+        }
+    }
+    return 0;
 }
 
 /// Type check
@@ -215,9 +316,9 @@ pub export fn PySlice_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 fn slice_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     const s: *PySliceObject = @ptrCast(@alignCast(obj));
 
-    if (s.start) |start| start.ob_refcnt -= 1;
-    if (s.stop) |stop| stop.ob_refcnt -= 1;
-    if (s.step) |step| step.ob_refcnt -= 1;
+    if (s.start) |start| traits.decref(start);
+    if (s.stop) |stop| traits.decref(stop);
+    if (s.step) |step| traits.decref(step);
 
     allocator.destroy(s);
 }

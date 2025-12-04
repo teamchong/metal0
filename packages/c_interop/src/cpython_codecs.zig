@@ -4,11 +4,12 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
-// External dependencies
-extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
-extern fn PyErr_SetString(*cpython.PyObject, [*:0]const u8) callconv(.c) void;
+// Use centralized extern declarations
+const Py_INCREF = traits.externs.Py_INCREF;
+const Py_DECREF = traits.externs.Py_DECREF;
+const PyErr_SetString = traits.externs.PyErr_SetString;
 
 /// Register a codec search function
 /// search_function should be a callable that takes encoding name and returns codec tuple
@@ -215,11 +216,7 @@ export fn PyCodec_KnownEncoding(encoding: [*:0]const u8) callconv(.c) c_int {
 // Convenience wrappers for common encodings
 // ============================================================================
 
-/// Encode Unicode object to UTF-8 bytes
-/// errors: "strict", "ignore", "replace", etc.
-export fn PyUnicode_AsUTF8String(unicode: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    return PyCodec_Encode(unicode, "utf-8", "strict");
-}
+// PyUnicode_AsUTF8String is in cpython_unicode.zig
 
 /// Encode Unicode object to ASCII bytes
 export fn PyUnicode_AsASCIIString(unicode: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {

@@ -208,8 +208,9 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: std.mem.join(allocator, separator, list)
-    try self.emit("std.mem.join(__global_allocator, ");
+    // Generate: try std.mem.join(allocator, separator, list)
+    // std.mem.join returns error{OutOfMemory}![]u8 so we need try
+    try self.emit("try std.mem.join(__global_allocator, ");
     try self.genExpr(obj); // The separator string
     try self.emit(", ");
     try self.genExpr(args[0]); // The list

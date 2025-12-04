@@ -307,6 +307,17 @@ fn equalValues(a: anytype, b: anytype) bool {
         return a == b;
     }
 
+    // Integer type coercion - comptime_int vs i64/i32/etc
+    if (comptime (a_info == .int or a_info == .comptime_int) and (b_info == .int or b_info == .comptime_int)) {
+        return a == b;
+    }
+
+    // Float type coercion - comptime_float vs f64/f32
+    if (comptime (a_info == .float or a_info == .comptime_float) and (b_info == .float or b_info == .comptime_float)) {
+        const diff = if (a > b) a - b else b - a;
+        return diff < 0.0001;
+    }
+
     return false;
 }
 
@@ -799,8 +810,29 @@ pub fn assertGreater(a: anytype, b: anytype) void {
 }
 
 /// Assertion: assertLess(a, b) - a < b
+/// Handles arrays of different sizes using Python semantics
 pub fn assertLess(a: anytype, b: anytype) void {
-    if (!(a < b)) {
+    const AType = @TypeOf(a);
+    const BType = @TypeOf(b);
+    const a_info = @typeInfo(AType);
+    const b_info = @typeInfo(BType);
+
+    // Use safe array comparison for arrays/slices (handles different sizes)
+    const is_less = blk: {
+        if ((a_info == .array or (a_info == .pointer and a_info.pointer.size == .slice)) and
+            (b_info == .array or (b_info == .pointer and b_info.pointer.size == .slice)))
+        {
+            // Arrays/slices of potentially different sizes - use element-wise comparison
+            // Use parent runtime module via relative import
+            const rt = @import("../runtime.zig");
+            break :blk rt.arrayLessThan(a, b);
+        } else {
+            // Scalars - direct comparison
+            break :blk a < b;
+        }
+    };
+
+    if (!is_less) {
         std.debug.print("AssertionError: {any} is not less than {any}\n", .{ a, b });
         if (runner.global_result) |result| {
             result.addFail("assertLess failed") catch {};

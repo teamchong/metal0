@@ -251,10 +251,10 @@ pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit(") 1 else 0)");
         },
         .float => {
-            // For floats: hash the bit representation
-            try self.emit("@as(i64, @bitCast(@as(u64, @bitCast(");
+            // For floats: use Python's float hash algorithm (from runtime.pyHash)
+            try self.emit("runtime.pyHash(");
             try self.genExpr(args[0]);
-            try self.emit("))))");
+            try self.emit(")");
         },
         .string => {
             // For strings: use std.hash.Wyhash

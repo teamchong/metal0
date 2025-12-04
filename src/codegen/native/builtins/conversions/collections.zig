@@ -120,8 +120,11 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("}\n");
     try self.emit("break :list_blk _list;\n");
     try self.emit("} else {\n");
-    // Tuples use PyValue for heterogeneous elements; others infer from first element
-    try self.emit("const _ElemType = if (_is_tuple) runtime.PyValue else if (_pointed_type_info == .@\"struct\" and @hasField(if (_is_ptr) _type_info.pointer.child else _IterType, \"items\")) @TypeOf(_iterable.items[0]) else @TypeOf(_iterable[0]);\n");
+    // Tuples use PyValue for heterogeneous elements; others infer from slice child type
+    // Use @typeInfo to get child type safely (handles empty slices)
+    try self.emit("const _ElemType = if (_is_tuple) runtime.PyValue else blk: { ");
+    try self.emit("const __slice_info = if (_pointed_type_info == .@\"struct\" and @hasField(if (_is_ptr) _type_info.pointer.child else _IterType, \"items\")) @typeInfo(@TypeOf(_iterable.items)) else if (_pointed_type_info == .pointer) _pointed_type_info else @typeInfo(_IterType); ");
+    try self.emit("break :blk if (__slice_info == .pointer and __slice_info.pointer.size == .slice) __slice_info.pointer.child else if (__slice_info == .array) __slice_info.array.child else runtime.PyValue; };\n");
     try self.emit("var _list = std.ArrayList(_ElemType){};\n");
     try self.emit("if (_is_tuple) {\n");
     try self.emit("inline for (0.._pointed_type_info.@\"struct\".fields.len) |_i| {\n");
@@ -152,9 +155,83 @@ pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (args.len != 1) return;
 
+    // Handle literal lists - convert to tuple literal directly
+    // tuple([]) -> .{}
+    // tuple([1, 2, 3]) -> .{ 1, 2, 3 }
+    if (args[0] == .list) {
+        const list = args[0].list;
+        if (list.elts.len == 0) {
+            try self.emit(".{}");
+            return;
+        }
+        // Generate tuple literal from list elements
+        try self.emit(".{ ");
+        for (list.elts, 0..) |elt, i| {
+            if (i > 0) try self.emit(", ");
+            try self.genExpr(elt);
+        }
+        try self.emit(" }");
+        return;
+    }
+
+    // Handle tuple literals - just pass through
+    if (args[0] == .tuple) {
+        const tup = args[0].tuple;
+        if (tup.elts.len == 0) {
+            try self.emit(".{}");
+            return;
+        }
+        try self.emit(".{ ");
+        for (tup.elts, 0..) |elt, i| {
+            if (i > 0) try self.emit(", ");
+            try self.genExpr(elt);
+        }
+        try self.emit(" }");
+        return;
+    }
+
+    // Handle literal strings - convert to tuple of characters
+    // tuple("abc") -> .{ "a", "b", "c" }
+    if (args[0] == .constant and args[0].constant.value == .string) {
+        const str = args[0].constant.value.string;
+        if (str.len == 0) {
+            try self.emit(".{}");
+            return;
+        }
+        try self.emit(".{ ");
+        var i: usize = 0;
+        while (i < str.len) {
+            if (i > 0) try self.emit(", ");
+            // Get UTF-8 character length
+            const byte = str[i];
+            const char_len: usize = if (byte < 0x80) 1 else if (byte < 0xE0) 2 else if (byte < 0xF0) 3 else 4;
+            const end = @min(i + char_len, str.len);
+            // Escape special characters
+            const char = str[i..end];
+            if (char.len == 1 and (char[0] == '"' or char[0] == '\\')) {
+                try self.emit("\"\\");
+                try self.emit(char);
+                try self.emit("\"");
+            } else if (char.len == 1 and char[0] == '\n') {
+                try self.emit("\"\\n\"");
+            } else if (char.len == 1 and char[0] == '\r') {
+                try self.emit("\"\\r\"");
+            } else if (char.len == 1 and char[0] == '\t') {
+                try self.emit("\"\\t\"");
+            } else {
+                try self.emit("\"");
+                try self.emit(char);
+                try self.emit("\"");
+            }
+            i = end;
+        }
+        try self.emit(" }");
+        return;
+    }
+
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
-    // Already a tuple - just return it
+    // Already a tuple type - just return it
     switch (arg_type) {
         .tuple => {
             try self.genExpr(args[0]);

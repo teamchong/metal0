@@ -52,18 +52,114 @@ pub fn loadModule(module_name: []const u8) ?*cpython.PyObject {
 }
 
 /// Load C extension module from .so/.dylib file
+/// Uses dynamic path discovery for Python 3.8-3.13 across all installation patterns
 fn loadExtensionModule(name: []const u8) ?*cpython.PyObject {
-    // Build search paths - check common locations
-    const search_paths = [_][]const u8{
-        ".venv/lib/python3.12/site-packages/",
-        ".venv/lib/python3.11/site-packages/",
-        "/usr/local/lib/python3.12/site-packages/",
-        "/usr/local/lib/python3.11/site-packages/",
-        "/opt/homebrew/lib/python3.12/site-packages/",
-        "/opt/homebrew/lib/python3.11/site-packages/",
-    };
+    // Generate search paths dynamically for Python 3.8-3.13
+    var search_paths_list = std.ArrayList([]const u8){};
+    defer {
+        for (search_paths_list.items) |path| allocator.free(path);
+        search_paths_list.deinit(allocator);
+    }
 
-    for (search_paths) |base_path| {
+    // Check VIRTUAL_ENV first (highest priority)
+    if (std.posix.getenv("VIRTUAL_ENV")) |venv| {
+        var version: u8 = 8;
+        while (version <= 13) : (version += 1) {
+            const venv_path = std.fmt.allocPrint(allocator, "{s}/lib/python3.{d}/site-packages/", .{ venv, version }) catch continue;
+            search_paths_list.append(allocator, venv_path) catch {
+                allocator.free(venv_path);
+                continue;
+            };
+        }
+    }
+
+    // Check .venv in current directory
+    var local_version: u8 = 8;
+    while (local_version <= 13) : (local_version += 1) {
+        const local_venv = std.fmt.allocPrint(allocator, ".venv/lib/python3.{d}/site-packages/", .{local_version}) catch continue;
+        search_paths_list.append(allocator, local_venv) catch {
+            allocator.free(local_venv);
+            continue;
+        };
+    }
+
+    // Platform-specific paths
+    const builtin = @import("builtin");
+    switch (builtin.os.tag) {
+        .macos => {
+            var version: u8 = 8;
+            while (version <= 13) : (version += 1) {
+                // Homebrew paths (both Intel and Apple Silicon)
+                const homebrew_paths = [_][]const u8{
+                    "/opt/homebrew/lib/python3.{d}/site-packages/",
+                    "/usr/local/lib/python3.{d}/site-packages/",
+                    "/Library/Frameworks/Python.framework/Versions/3.{d}/lib/python3.{d}/site-packages/",
+                };
+                for (homebrew_paths) |path_fmt| {
+                    if (std.mem.indexOf(u8, path_fmt, "Frameworks")) |_| {
+                        const path = std.fmt.allocPrint(allocator, path_fmt, .{ version, version }) catch continue;
+                        search_paths_list.append(allocator, path) catch allocator.free(path);
+                    } else {
+                        const path = std.fmt.allocPrint(allocator, path_fmt, .{version}) catch continue;
+                        search_paths_list.append(allocator, path) catch allocator.free(path);
+                    }
+                }
+
+                // mise/pyenv/uv installations
+                if (std.posix.getenv("HOME")) |home| {
+                    // mise installs
+                    var minor: u8 = 0;
+                    while (minor <= 20) : (minor += 1) {
+                        const mise_path = std.fmt.allocPrint(allocator, "{s}/.local/share/mise/installs/python/3.{d}.{d}/lib/python3.{d}/site-packages/", .{ home, version, minor, version }) catch continue;
+                        // Check if path exists before adding
+                        const check_path = mise_path[0 .. mise_path.len - 1]; // Remove trailing /
+                        std.fs.cwd().access(check_path, .{}) catch {
+                            allocator.free(mise_path);
+                            continue;
+                        };
+                        search_paths_list.append(allocator, mise_path) catch allocator.free(mise_path);
+                    }
+
+                    // pyenv installs
+                    const pyenv_path = std.fmt.allocPrint(allocator, "{s}/.pyenv/versions/3.{d}.*/lib/python3.{d}/site-packages/", .{ home, version, version }) catch continue;
+                    search_paths_list.append(allocator, pyenv_path) catch allocator.free(pyenv_path);
+
+                    // User site-packages
+                    const user_path = std.fmt.allocPrint(allocator, "{s}/Library/Python/3.{d}/lib/python/site-packages/", .{ home, version }) catch continue;
+                    search_paths_list.append(allocator, user_path) catch allocator.free(user_path);
+                }
+            }
+        },
+        .linux => {
+            var version: u8 = 8;
+            while (version <= 13) : (version += 1) {
+                const linux_paths = [_][]const u8{
+                    "/usr/lib/python3.{d}/site-packages/",
+                    "/usr/local/lib/python3.{d}/site-packages/",
+                    "/usr/lib/python3/dist-packages/",
+                };
+                for (linux_paths) |path_fmt| {
+                    if (std.mem.indexOf(u8, path_fmt, "{d}")) |_| {
+                        const path = std.fmt.allocPrint(allocator, path_fmt, .{version}) catch continue;
+                        search_paths_list.append(allocator, path) catch allocator.free(path);
+                    } else {
+                        const path = allocator.dupe(u8, path_fmt) catch continue;
+                        search_paths_list.append(allocator, path) catch allocator.free(path);
+                    }
+                }
+
+                // User site-packages
+                if (std.posix.getenv("HOME")) |home| {
+                    const user_path = std.fmt.allocPrint(allocator, "{s}/.local/lib/python3.{d}/site-packages/", .{ home, version }) catch continue;
+                    search_paths_list.append(allocator, user_path) catch allocator.free(user_path);
+                }
+            }
+        },
+        else => {},
+    }
+
+    // Try each search path
+    for (search_paths_list.items) |base_path| {
         if (tryLoadExtension(base_path, name)) |module| {
             return module;
         }
@@ -73,18 +169,65 @@ fn loadExtensionModule(name: []const u8) ?*cpython.PyObject {
 }
 
 /// Try loading extension from specific path
+/// Tries all Python 3.8-3.13 ABI versions and platform-specific extensions
 fn tryLoadExtension(base_path: []const u8, name: []const u8) ?*cpython.PyObject {
-    // Build path: base_path + name + extension
     var path_buf: [1024]u8 = undefined;
+    const builtin = @import("builtin");
 
-    // Try .cpython-312-darwin.so
+    // Platform-specific extension patterns
+    const platform_suffix = switch (builtin.os.tag) {
+        .macos => "-darwin.so",
+        .linux => switch (builtin.cpu.arch) {
+            .x86_64 => "-linux-gnu.so",
+            .aarch64 => "-linux-gnu.so",
+            else => "-linux-gnu.so",
+        },
+        .windows => ".pyd",
+        else => ".so",
+    };
+
+    // Try cpython-3XX extensions for Python 3.8-3.13 (most recent first)
+    var version: u8 = 13;
+    while (version >= 8) : (version -= 1) {
+        var i: usize = 0;
+        @memcpy(path_buf[i..][0..base_path.len], base_path);
+        i += base_path.len;
+        @memcpy(path_buf[i..][0..name.len], name);
+        i += name.len;
+
+        // Build extension: .cpython-3XX-{platform}
+        const prefix = ".cpython-3";
+        @memcpy(path_buf[i..][0..prefix.len], prefix);
+        i += prefix.len;
+
+        // Version number (8-13)
+        if (version >= 10) {
+            path_buf[i] = '1';
+            i += 1;
+            path_buf[i] = '0' + (version - 10);
+            i += 1;
+        } else {
+            path_buf[i] = '0' + version;
+            i += 1;
+        }
+
+        @memcpy(path_buf[i..][0..platform_suffix.len], platform_suffix);
+        i += platform_suffix.len;
+        path_buf[i] = 0;
+
+        if (loadSharedLibrary(path_buf[0..i :0], name)) |module| {
+            return module;
+        }
+    }
+
+    // Try abi3 stable ABI extension
     {
         var i: usize = 0;
         @memcpy(path_buf[i..][0..base_path.len], base_path);
         i += base_path.len;
         @memcpy(path_buf[i..][0..name.len], name);
         i += name.len;
-        const ext = ".cpython-312-darwin.so";
+        const ext = ".abi3.so";
         @memcpy(path_buf[i..][0..ext.len], ext);
         i += ext.len;
         path_buf[i] = 0;
@@ -94,24 +237,7 @@ fn tryLoadExtension(base_path: []const u8, name: []const u8) ?*cpython.PyObject 
         }
     }
 
-    // Try .cpython-311-darwin.so
-    {
-        var i: usize = 0;
-        @memcpy(path_buf[i..][0..base_path.len], base_path);
-        i += base_path.len;
-        @memcpy(path_buf[i..][0..name.len], name);
-        i += name.len;
-        const ext = ".cpython-311-darwin.so";
-        @memcpy(path_buf[i..][0..ext.len], ext);
-        i += ext.len;
-        path_buf[i] = 0;
-
-        if (loadSharedLibrary(path_buf[0..i :0], name)) |module| {
-            return module;
-        }
-    }
-
-    // Try .so
+    // Try generic .so
     {
         var i: usize = 0;
         @memcpy(path_buf[i..][0..base_path.len], base_path);
@@ -128,14 +254,31 @@ fn tryLoadExtension(base_path: []const u8, name: []const u8) ?*cpython.PyObject 
         }
     }
 
-    // Try .dylib
-    {
+    // Try .dylib (macOS)
+    if (builtin.os.tag == .macos) {
         var i: usize = 0;
         @memcpy(path_buf[i..][0..base_path.len], base_path);
         i += base_path.len;
         @memcpy(path_buf[i..][0..name.len], name);
         i += name.len;
         const ext = ".dylib";
+        @memcpy(path_buf[i..][0..ext.len], ext);
+        i += ext.len;
+        path_buf[i] = 0;
+
+        if (loadSharedLibrary(path_buf[0..i :0], name)) |module| {
+            return module;
+        }
+    }
+
+    // Try .pyd (Windows)
+    if (builtin.os.tag == .windows) {
+        var i: usize = 0;
+        @memcpy(path_buf[i..][0..base_path.len], base_path);
+        i += base_path.len;
+        @memcpy(path_buf[i..][0..name.len], name);
+        i += name.len;
+        const ext = ".pyd";
         @memcpy(path_buf[i..][0..ext.len], ext);
         i += ext.len;
         path_buf[i] = 0;

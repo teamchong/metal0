@@ -280,6 +280,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
         // Check if this is a Tier 1 runtime module (functions need allocator)
         const is_runtime_module = self.import_registry.lookup(from_imp.module) != null and
             (std.mem.eql(u8, from_imp.module, "json") or
+            std.mem.eql(u8, from_imp.module, "pickle") or
             std.mem.eql(u8, from_imp.module, "http") or
             std.mem.eql(u8, from_imp.module, "asyncio"));
 
@@ -312,6 +313,29 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     try self.emit("    const json_str_obj = try runtime.PyString.create(__global_allocator, json_str);\n");
                     try self.emit("    defer runtime.decref(json_str_obj, allocator);\n");
                     try self.emit("    return try runtime.json.loads(json_str_obj, allocator);\n");
+                    try self.emit("}\n");
+                    try generated_symbols.put(symbol_name, {});
+                    continue; // Skip const generation for this one
+                }
+
+                // For pickle.loads, generate a wrapper function that accepts bytes and allocator
+                if (std.mem.eql(u8, from_imp.module, "pickle") and std.mem.eql(u8, name, "loads")) {
+                    try self.emit("fn ");
+                    try self.emit(symbol_name);
+                    try self.emit("(data: []const u8, allocator: std.mem.Allocator) !*runtime.PyObject {\n");
+                    try self.emit("    return try runtime.pickle.loads(data, allocator);\n");
+                    try self.emit("}\n");
+                    try generated_symbols.put(symbol_name, {});
+                    continue; // Skip const generation for this one
+                }
+
+                // For pickle.dumps, generate a wrapper function
+                if (std.mem.eql(u8, from_imp.module, "pickle") and std.mem.eql(u8, name, "dumps")) {
+                    try self.emit("fn ");
+                    try self.emit(symbol_name);
+                    try self.emit("(obj: anytype, protocol: anytype) []const u8 {\n");
+                    try self.emit("    _ = protocol; // Protocol not used in simplified implementation\n");
+                    try self.emit("    return runtime.json.dumpsValue(obj, __global_allocator) catch \"\";\n");
                     try self.emit("}\n");
                     try generated_symbols.put(symbol_name, {});
                     continue; // Skip const generation for this one

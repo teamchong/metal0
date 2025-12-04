@@ -214,7 +214,10 @@ fn parseString(self: *Parser) ParseError!ast.Node {
         self.allocated_strings.append(self.allocator, result_str) catch {};
     }
 
-    return ast.Node{ .constant = .{ .value = .{ .string = result_str } } };
+    // Strip quotes from the final string - use stripQuotes for proper handling
+    // of both single/double quotes and triple quotes
+    const content = stripQuotes(result_str);
+    return ast.Node{ .constant = .{ .value = .{ .string = content } } };
 }
 
 fn parseByteString(self: *Parser) ParseError!ast.Node {
@@ -272,8 +275,10 @@ fn parseByteString(self: *Parser) ParseError!ast.Node {
         }
     }
 
+    // Strip quotes from the final byte string
+    const content = stripQuotes(result_str);
     // Use .bytes instead of .string for bytes literals (b"...")
-    return ast.Node{ .constant = .{ .value = .{ .bytes = result_str } } };
+    return ast.Node{ .constant = .{ .value = .{ .bytes = content } } };
 }
 
 fn parseRawString(self: *Parser) ParseError!ast.Node {
@@ -358,7 +363,9 @@ fn parseRawString(self: *Parser) ParseError!ast.Node {
         self.allocated_strings.append(self.allocator, result_str) catch {};
     }
 
-    return ast.Node{ .constant = .{ .value = .{ .string = result_str } } };
+    // Strip quotes from the final raw string
+    const content = stripQuotes(result_str);
+    return ast.Node{ .constant = .{ .value = .{ .string = content } } };
 }
 
 fn parseFString(self: *Parser) ParseError!ast.Node {

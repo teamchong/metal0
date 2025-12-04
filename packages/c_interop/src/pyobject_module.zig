@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -183,8 +184,7 @@ pub export fn PyModule_NewObject(name: *cpython.PyObject) callconv(.c) ?*cpython
     obj.md_dict = null;
     obj.md_state = null;
     obj.md_weaklist = null;
-    obj.md_name = name;
-    name.ob_refcnt += 1;
+    obj.md_name = traits.incref(name);
     obj.md_token_is_def = false;
     obj.md_state_size = 0;
     obj.md_state_traverse = null;
@@ -196,53 +196,19 @@ pub export fn PyModule_NewObject(name: *cpython.PyObject) callconv(.c) ?*cpython
     return @ptrCast(&obj.ob_base);
 }
 
-/// Get module dict
-pub export fn PyModule_GetDict(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+// NOTE: PyModule_GetDict, PyModule_GetName, PyModule_GetState, PyModule_GetDef
+// are exported from cpython_module.zig to avoid duplicate exports.
+// This file provides PyModuleObject struct and PyModule_Type for the CPython 3.12 layout.
+
+/// Get module name as object (internal helper)
+pub fn getNameObject(module: *cpython.PyObject) ?*cpython.PyObject {
     const m: *PyModuleObject = @ptrCast(@alignCast(module));
-    return m.md_dict;
+    return if (m.md_name) |name| traits.incref(name) else null;
 }
 
-/// Get module name as string
-pub export fn PyModule_GetName(module: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
-    const m: *PyModuleObject = @ptrCast(@alignCast(module));
-    _ = m;
-    // TODO: Get name from md_name
-    return null;
-}
-
-/// Get module name as object
-pub export fn PyModule_GetNameObject(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const m: *PyModuleObject = @ptrCast(@alignCast(module));
-    if (m.md_name) |name| {
-        name.ob_refcnt += 1;
-        return name;
-    }
-    return null;
-}
-
-/// Get module def
-pub export fn PyModule_GetDef(module: *cpython.PyObject) callconv(.c) ?*cpython.PyModuleDef {
-    const m: *PyModuleObject = @ptrCast(@alignCast(module));
-    if (m.md_token_is_def) {
-        return @ptrCast(@alignCast(m.md_token));
-    }
-    return null;
-}
-
-/// Get module state
-pub export fn PyModule_GetState(module: *cpython.PyObject) callconv(.c) ?*anyopaque {
-    const m: *PyModuleObject = @ptrCast(@alignCast(module));
-    return m.md_state;
-}
-
-/// Type checks
-pub export fn PyModule_Check(obj: *cpython.PyObject) callconv(.c) c_int {
-    const tp = cpython.Py_TYPE(obj);
-    return if (tp == &PyModule_Type) 1 else 0;
-}
-
-pub export fn PyModule_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
-    return if (cpython.Py_TYPE(obj) == &PyModule_Type) 1 else 0;
+/// Type checks (internal - cpython_module.zig exports these)
+pub fn isModule(obj: *cpython.PyObject) bool {
+    return cpython.Py_TYPE(obj) == &PyModule_Type;
 }
 
 // ============================================================================
@@ -251,7 +217,7 @@ pub export fn PyModule_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
 
 fn module_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     const m: *PyModuleObject = @ptrCast(@alignCast(obj));
-    if (m.md_dict) |d| d.ob_refcnt -= 1;
-    if (m.md_name) |n| n.ob_refcnt -= 1;
+    traits.decref(m.md_dict);
+    traits.decref(m.md_name);
     allocator.destroy(m);
 }

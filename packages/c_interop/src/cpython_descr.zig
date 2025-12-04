@@ -1,63 +1,58 @@
 /// CPython Descriptor Protocol
 ///
 /// Implements descriptors for property-like access.
+/// NOTE: Most PyObject_* attr functions are in cpython_misc.zig
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
 
-// External dependencies
-extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-extern fn PyErr_SetString(*cpython.PyObject, [*:0]const u8) callconv(.c) void;
+// Re-export from cpython_misc for compatibility
+// The actual implementations are in cpython_misc.zig
 
-/// Call descriptor __get__
-export fn PyObject_GenericGetAttr(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const type_obj = cpython.Py_TYPE(obj);
-    
-    if (type_obj.tp_getattro) |getattr| {
-        return getattr(obj, name);
-    }
-    
-    PyErr_SetString(@ptrFromInt(0), "attribute access not supported");
+/// Descriptor type object
+pub var PyClassMethodDescr_Type: cpython.PyTypeObject = undefined;
+pub var PyGetSetDescr_Type: cpython.PyTypeObject = undefined;
+pub var PyMemberDescr_Type: cpython.PyTypeObject = undefined;
+pub var PyMethodDescr_Type: cpython.PyTypeObject = undefined;
+pub var PyWrapperDescr_Type: cpython.PyTypeObject = undefined;
+
+/// Create a new method descriptor
+export fn PyDescr_NewMethod(type_obj: *cpython.PyTypeObject, method: *cpython.PyMethodDef) callconv(.c) ?*cpython.PyObject {
+    _ = type_obj;
+    _ = method;
+    // TODO: Create method descriptor object
     return null;
 }
 
-/// Call descriptor __set__
-export fn PyObject_GenericSetAttr(obj: *cpython.PyObject, name: *cpython.PyObject, value: ?*cpython.PyObject) callconv(.c) c_int {
-    const type_obj = cpython.Py_TYPE(obj);
-    
-    if (type_obj.tp_setattro) |setattr| {
-        return setattr(obj, name, value);
-    }
-    
-    PyErr_SetString(@ptrFromInt(0), "attribute assignment not supported");
-    return -1;
-}
-
-/// Get attribute with string name
-export fn PyObject_GetAttrString(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    // TODO: Convert string to unicode object
-    _ = obj;
-    _ = name;
+/// Create a new classmethod descriptor
+export fn PyDescr_NewClassMethod(type_obj: *cpython.PyTypeObject, method: *cpython.PyMethodDef) callconv(.c) ?*cpython.PyObject {
+    _ = type_obj;
+    _ = method;
     return null;
 }
 
-/// Set attribute with string name
-export fn PyObject_SetAttrString(obj: *cpython.PyObject, name: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
-    _ = obj;
-    _ = name;
-    _ = value;
-    return -1;
+/// Create a new member descriptor
+export fn PyDescr_NewMember(type_obj: *cpython.PyTypeObject, member: *cpython.PyMemberDef) callconv(.c) ?*cpython.PyObject {
+    _ = type_obj;
+    _ = member;
+    return null;
 }
 
-/// Delete attribute with string name
-export fn PyObject_DelAttrString(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) c_int {
-    _ = obj;
-    _ = name;
-    return -1;
+/// Create a new getset descriptor
+export fn PyDescr_NewGetSet(type_obj: *cpython.PyTypeObject, getset: *cpython.PyGetSetDef) callconv(.c) ?*cpython.PyObject {
+    _ = type_obj;
+    _ = getset;
+    return null;
+}
+
+/// Check if object is a descriptor (has __get__)
+export fn PyDescr_IsData(descr: *cpython.PyObject) callconv(.c) c_int {
+    const type_obj = cpython.Py_TYPE(descr);
+    return if (type_obj.tp_descr_set != null) 1 else 0;
 }
 
 // Tests
 test "descriptor exports" {
-    _ = PyObject_GenericGetAttr;
-    _ = PyObject_GenericSetAttr;
+    _ = PyDescr_NewMethod;
+    _ = PyDescr_IsData;
 }

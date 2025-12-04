@@ -235,12 +235,14 @@ fn stmtUsesVar(stmt: ast.Node, var_name: []const u8) bool {
             }
             break :blk false;
         },
+        .yield_stmt => |y| if (y.value) |v| exprUsesVar(v.*, var_name) else false,
+        .yield_from_stmt => |yf| exprUsesVar(yf.value.*, var_name),
         else => false,
     };
 }
 
 /// Check if a variable is used in the loop body
-fn varUsedInBody(body: []ast.Node, var_name: []const u8) bool {
+pub fn varUsedInBody(body: []ast.Node, var_name: []const u8) bool {
     for (body) |stmt| {
         if (stmtUsesVar(stmt, var_name)) return true;
     }
@@ -572,6 +574,17 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.indent();
         try self.pushScope();
 
+        // Track pending_discards keys before entering loop body
+        // Variables assigned inside inline for are block-scoped and shouldn't get function-level discards
+        var pending_keys_before = std.ArrayList([]const u8){};
+        defer pending_keys_before.deinit(self.allocator);
+        {
+            var iter = self.pending_discards.iterator();
+            while (iter.next()) |entry| {
+                try pending_keys_before.append(self.allocator, entry.key_ptr.*);
+            }
+        }
+
         // Assign loop value to outer variable so it persists
         try self.emitIndent();
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
@@ -634,6 +647,31 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         }
 
         self.popScope();
+
+        // Remove any pending_discards that were added during the inline for body
+        // These variables are block-scoped and not accessible at function end
+        {
+            var keys_to_remove = std.ArrayList([]const u8){};
+            defer keys_to_remove.deinit(self.allocator);
+            var iter = self.pending_discards.iterator();
+            while (iter.next()) |entry| {
+                // Check if this key existed before entering the loop body
+                var existed_before = false;
+                for (pending_keys_before.items) |before_key| {
+                    if (std.mem.eql(u8, entry.key_ptr.*, before_key)) {
+                        existed_before = true;
+                        break;
+                    }
+                }
+                if (!existed_before) {
+                    try keys_to_remove.append(self.allocator, entry.key_ptr.*);
+                }
+            }
+            for (keys_to_remove.items) |key| {
+                _ = self.pending_discards.swapRemove(key);
+            }
+        }
+
         self.dedent();
 
         try self.emitIndent();

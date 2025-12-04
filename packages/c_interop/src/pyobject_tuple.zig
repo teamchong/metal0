@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -170,9 +171,7 @@ export fn PyTuple_GetSlice(obj: *cpython.PyObject, low: isize, high: isize) call
 
         var i: isize = 0;
         while (i < slice_len) : (i += 1) {
-            const item = old_items[@intCast(real_low + i)];
-            item.ob_refcnt += 1;
-            new_items[@intCast(i)] = item;
+            new_items[@intCast(i)] = traits.incref(old_items[@intCast(real_low + i)]);
         }
     }
 
@@ -212,11 +211,7 @@ fn tuple_length(obj: *cpython.PyObject) callconv(.c) isize {
 }
 
 fn tuple_item(obj: *cpython.PyObject, idx: isize) callconv(.c) ?*cpython.PyObject {
-    const item = PyTuple_GetItem(obj, idx);
-    if (item) |i| {
-        i.ob_refcnt += 1; // Return new reference
-    }
-    return item;
+    return traits.incref(PyTuple_GetItem(obj, idx));
 }
 
 fn tuple_concat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
@@ -237,18 +232,14 @@ fn tuple_concat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpyth
         // Copy from a
         var i: usize = 0;
         while (i < @as(usize, @intCast(a_tuple.ob_base.ob_size))) : (i += 1) {
-            const item = a_items[i];
-            item.ob_refcnt += 1;
-            new_items[i] = item;
+            new_items[i] = traits.incref(a_items[i]);
         }
 
         // Copy from b
         i = 0;
         const offset: usize = @intCast(a_tuple.ob_base.ob_size);
         while (i < @as(usize, @intCast(b_tuple.ob_base.ob_size))) : (i += 1) {
-            const item = b_items[i];
-            item.ob_refcnt += 1;
-            new_items[offset + i] = item;
+            new_items[offset + i] = traits.incref(b_items[i]);
         }
     }
 
@@ -273,9 +264,7 @@ fn tuple_repeat(obj: *cpython.PyObject, n: isize) callconv(.c) ?*cpython.PyObjec
         while (rep < @as(usize, @intCast(n))) : (rep += 1) {
             var i: usize = 0;
             while (i < item_count) : (i += 1) {
-                const item = old_items[i];
-                item.ob_refcnt += 1;
-                new_items[rep * item_count + i] = item;
+                new_items[rep * item_count + i] = traits.incref(old_items[i]);
             }
         }
     }
@@ -290,8 +279,7 @@ fn tuple_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     // Decref all items
     var i: usize = 0;
     while (i < @as(usize, @intCast(tuple_obj.ob_base.ob_size))) : (i += 1) {
-        items_ptr[i].ob_refcnt -= 1;
-        // TODO: Check if refcnt == 0 and deallocate
+        traits.decref(items_ptr[i]);
     }
 
     // Free entire block (struct + items)
@@ -332,6 +320,32 @@ fn tuple_hash(obj: *cpython.PyObject) callconv(.c) isize {
 }
 
 // ============================================================================
+// Macro-style Accessors (No Error Checking)
+// ============================================================================
+
+/// PyTuple_GET_ITEM - Get item without error checking (macro in CPython)
+/// WARNING: No bounds checking, no type checking - caller must ensure validity
+export fn PyTuple_GET_ITEM(obj: *cpython.PyObject, idx: isize) callconv(.c) *cpython.PyObject {
+    const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
+    const items_ptr: [*]*cpython.PyObject = @ptrCast(&tuple_obj.ob_item);
+    return items_ptr[@intCast(idx)];
+}
+
+/// PyTuple_SET_ITEM - Set item without error checking (macro in CPython)
+/// WARNING: Steals reference, no bounds/type checking - only use during tuple creation
+export fn PyTuple_SET_ITEM(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObject) callconv(.c) void {
+    const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
+    const items_ptr: [*]*cpython.PyObject = @ptrCast(&tuple_obj.ob_item);
+    items_ptr[@intCast(idx)] = item;
+}
+
+/// PyTuple_GET_SIZE - Get size without error checking (macro in CPython)
+export fn PyTuple_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
+    const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
+    return tuple_obj.ob_base.ob_size;
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -345,4 +359,7 @@ test "tuple exports" {
     _ = PyTuple_New;
     _ = PyTuple_GetItem;
     _ = PyTuple_SetItem;
+    _ = PyTuple_GET_ITEM;
+    _ = PyTuple_SET_ITEM;
+    _ = PyTuple_GET_SIZE;
 }

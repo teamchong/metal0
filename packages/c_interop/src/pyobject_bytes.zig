@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -261,8 +262,7 @@ export fn PyBytes_ConcatAndDel(bytes_ptr: *?*cpython.PyObject, newpart: ?*cpytho
     PyBytes_Concat(bytes_ptr, newpart.?);
 
     // Decref newpart
-    newpart.?.ob_refcnt -= 1;
-    // TODO: Check if refcnt == 0 and deallocate
+    traits.decref(newpart.?);
 }
 
 // ============================================================================
@@ -290,6 +290,12 @@ pub export fn PyBytes_Size(obj: *cpython.PyObject) callconv(.c) isize {
 
 export fn PyBytes_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
     return PyBytes_Size(obj);
+}
+
+/// PyBytes_AS_STRING - macro form, no type checking
+export fn PyBytes_AS_STRING(obj: *cpython.PyObject) callconv(.c) [*]const u8 {
+    const bytes: *PyBytesObject = @ptrCast(@alignCast(obj));
+    return @ptrCast(&bytes.ob_sval);
 }
 
 // ============================================================================

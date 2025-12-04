@@ -144,8 +144,15 @@ pub const CodegenAnalyzer = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        var it = self.scope_analyses.valueIterator();
-        while (it.next()) |analysis| {
+        // Free shadow rename strings
+        var scope_it = self.scope_analyses.valueIterator();
+        while (scope_it.next()) |analysis| {
+            var var_it = analysis.variables.valueIterator();
+            while (var_it.next()) |usage| {
+                if (usage.shadow_rename) |rename| {
+                    self.allocator.free(rename);
+                }
+            }
             @constCast(analysis).deinit();
         }
         self.scope_analyses.deinit();

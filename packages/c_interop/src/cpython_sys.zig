@@ -4,10 +4,11 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
-// External dependencies
-extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
+// Use centralized extern declarations
+const Py_INCREF = traits.externs.Py_INCREF;
+const Py_DECREF = traits.externs.Py_DECREF;
 
 /// Get sys module attribute by name
 /// Returns borrowed reference to sys.{name} or null if not found

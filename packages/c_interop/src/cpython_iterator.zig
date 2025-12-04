@@ -5,62 +5,32 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
-
-// External dependencies
-extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
-extern fn PyErr_SetString(*cpython.PyObject, [*:0]const u8) callconv(.c) void;
+const traits = @import("pyobject_traits.zig");
 
 /// Get iterator from object
 export fn PyObject_GetIter(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const type_obj = cpython.Py_TYPE(obj);
-    
-    // Check for tp_iter
-    if (type_obj.tp_iter) |iter_func| {
-        return iter_func(obj);
+    // Use traits for unified iterator handling
+    if (traits.getIter(obj)) |iter| {
+        return iter;
     }
-    
+
     // Check if object is already an iterator (has __next__)
-    if (type_obj.tp_iternext) |_| {
-        Py_INCREF(obj);
-        return obj;
+    if (traits.isIterator(obj)) {
+        return traits.incref(obj);
     }
-    
-    // Check for sequence protocol fallback
-    if (type_obj.tp_as_sequence) |seq_procs| {
-        if (seq_procs.sq_item) |_| {
-            // Create sequence iterator
-            // TODO: Implement sequence iterator wrapper
-            PyErr_SetString(@ptrFromInt(0), "sequence iterator not implemented");
-            return null;
-        }
-    }
-    
-    PyErr_SetString(@ptrFromInt(0), "object is not iterable");
+
+    traits.setError("TypeError", "object is not iterable");
     return null;
 }
 
 /// Get next item from iterator
 export fn PyIter_Next(iter: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const type_obj = cpython.Py_TYPE(iter);
-    
-    if (type_obj.tp_iternext) |next_func| {
-        return next_func(iter);
-    }
-    
-    PyErr_SetString(@ptrFromInt(0), "iter() returned non-iterator");
-    return null;
+    return traits.iterNext(iter);
 }
 
 /// Check if object is an iterator
 export fn PyIter_Check(obj: *cpython.PyObject) callconv(.c) c_int {
-    const type_obj = cpython.Py_TYPE(obj);
-    
-    if (type_obj.tp_iternext != null) {
-        return 1;
-    }
-    
-    return 0;
+    return if (traits.isIterator(obj)) 1 else 0;
 }
 
 /// Send value to generator/coroutine

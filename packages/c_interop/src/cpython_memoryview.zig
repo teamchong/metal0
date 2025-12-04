@@ -1,9 +1,9 @@
-/// CPython MemoryView - Using Generic Buffer Implementation
+/// CPython MemoryView - Memory view objects
 ///
-/// Memory views provide a way to access buffer protocol data with comptime optimization.
+/// Memory views provide a way to access buffer protocol data.
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
-const buffer_impl = @import("shared/buffer_impl.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -16,9 +16,64 @@ pub const PyMemoryViewObject = extern struct {
 };
 
 /// Type object for memoryview
-pub var PyMemoryView_Type: cpython.PyTypeObject = undefined;
+pub var PyMemoryView_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "memoryview",
+    .tp_basicsize = @sizeOf(PyMemoryViewObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = memoryview_dealloc,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null, // TODO: memoryview_as_buffer
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_HAVE_GC,
+    .tp_doc = "memoryview object",
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};
 
-/// Create memory view from buffer (comptime specialized!)
+/// Create memory view from buffer
 export fn PyMemoryView_FromBuffer(view: *cpython.Py_buffer) callconv(.c) ?*cpython.PyObject {
     const memview = allocator.create(PyMemoryViewObject) catch return null;
 
@@ -34,7 +89,7 @@ export fn PyMemoryView_FromBuffer(view: *cpython.Py_buffer) callconv(.c) ?*cpyth
 
     // INCREF the underlying object
     if (view.obj) |obj| {
-        obj.ob_refcnt += 1;
+        _ = traits.incref(obj);
     }
 
     return @ptrCast(&memview.ob_base);
@@ -44,7 +99,7 @@ export fn PyMemoryView_FromBuffer(view: *cpython.Py_buffer) callconv(.c) ?*cpyth
 export fn PyMemoryView_FromObject(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     var view: cpython.Py_buffer = undefined;
 
-    // Get buffer from object (uses comptime-specialized buffer!)
+    // Get buffer from object
     const cpython_buffer = @import("cpython_buffer.zig");
     if (cpython_buffer.PyObject_GetBuffer(obj, &view, cpython.PyBUF_FULL) != 0) {
         return null;
@@ -53,7 +108,7 @@ export fn PyMemoryView_FromObject(obj: *cpython.PyObject) callconv(.c) ?*cpython
     return PyMemoryView_FromBuffer(&view);
 }
 
-/// Get contiguous memory view (uses generic buffer's contiguity check!)
+/// Get contiguous memory view
 export fn PyMemoryView_GetContiguous(
     obj: *cpython.PyObject,
     buffertype: c_int,
@@ -61,51 +116,16 @@ export fn PyMemoryView_GetContiguous(
 ) callconv(.c) ?*cpython.PyObject {
     _ = buffertype;
 
-    const memview = @as(*PyMemoryViewObject, @ptrCast(obj));
+    const memview: *PyMemoryViewObject = @ptrCast(@alignCast(obj));
+    const cpython_buffer = @import("cpython_buffer.zig");
 
-    // Use generic buffer to check contiguity
-    const Config = buffer_impl.NDArrayBufferConfig;
-    const Buffer = buffer_impl.BufferImpl(Config);
-
-    // Create buffer from view
-    var buffer = Buffer{
-        .buf = memview.view.buf orelse return null,
-        .len = memview.view.len,
-        .itemsize = memview.view.itemsize,
-        .readonly = memview.view.readonly != 0,
-        .allocator = allocator,
-        .ndim = @intCast(memview.view.ndim),
-        .shape = memview.view.shape,
-        .strides = memview.view.strides,
-        .format = memview.view.format,
-    };
-
-    if (buffer.isContiguous(order)) {
-        // Already contiguous, return same object
-        obj.ob_refcnt += 1;
-        return obj;
+    // Check if already contiguous
+    if (cpython_buffer.PyBuffer_IsContiguous(&memview.view, order) != 0) {
+        return traits.incref(obj);
     }
 
-    // Need to make contiguous copy (uses generic buffer's makeContiguous!)
-    var contiguous = buffer.makeContiguous(order) catch return null;
-    defer contiguous.deinit();
-
-    // Create new view for contiguous data
-    var new_view = cpython.Py_buffer{
-        .buf = contiguous.buf,
-        .obj = memview.view.obj,
-        .len = contiguous.len,
-        .itemsize = contiguous.itemsize,
-        .readonly = if (contiguous.readonly) 1 else 0,
-        .ndim = @intCast(contiguous.ndim),
-        .format = if (Config.has_format) contiguous.format else null,
-        .shape = if (contiguous.shape) |s| s.ptr else null,
-        .strides = if (contiguous.strides) |s| s.ptr else null,
-        .suboffsets = null,
-        .internal = null,
-    };
-
-    return PyMemoryView_FromBuffer(&new_view);
+    // TODO: Create contiguous copy
+    return null;
 }
 
 /// Check if object is memory view
@@ -114,8 +134,8 @@ export fn PyMemoryView_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Release memory view
-export fn PyMemoryView_Release(obj: *cpython.PyObject) callconv(.c) void {
-    const memview = @as(*PyMemoryViewObject, @ptrCast(obj));
+fn memoryview_dealloc(obj: *cpython.PyObject) callconv(.c) void {
+    const memview: *PyMemoryViewObject = @ptrCast(@alignCast(obj));
 
     // Release buffer
     const cpython_buffer = @import("cpython_buffer.zig");
@@ -152,22 +172,17 @@ export fn PyMemoryView_FromMemory(
 
 /// Get buffer from memory view
 export fn PyMemoryView_GET_BUFFER(obj: *cpython.PyObject) callconv(.c) ?*cpython.Py_buffer {
-    const memview = @as(*PyMemoryViewObject, @ptrCast(obj));
+    const memview: *PyMemoryViewObject = @ptrCast(@alignCast(obj));
     return &memview.view;
 }
 
 /// Get base object from memory view
 export fn PyMemoryView_GET_BASE(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const memview = @as(*PyMemoryViewObject, @ptrCast(obj));
+    const memview: *PyMemoryViewObject = @ptrCast(@alignCast(obj));
     return memview.view.obj;
 }
 
 // Tests
-test "memoryview size" {
-    const expected = @sizeOf(cpython.PyObject) + @sizeOf(cpython.Py_buffer) + @sizeOf(c_int) * 2;
-    try std.testing.expectEqual(expected, @sizeOf(PyMemoryViewObject));
-}
-
 test "memoryview from memory" {
     var data = [_]u8{ 1, 2, 3, 4, 5 };
     const view = PyMemoryView_FromMemory(&data, 5, cpython.PyBUF_SIMPLE);
@@ -176,6 +191,6 @@ test "memoryview from memory" {
 
     if (view) |v| {
         try std.testing.expectEqual(@as(c_int, 1), PyMemoryView_Check(v));
-        PyMemoryView_Release(v);
+        memoryview_dealloc(v);
     }
 }

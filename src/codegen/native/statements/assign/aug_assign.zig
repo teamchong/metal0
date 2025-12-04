@@ -682,6 +682,62 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         return;
     }
 
+    // Special handling for list += expression (comprehension, product, etc.)
+    // This handles cases where RHS is not a literal list but target is a list type
+    if (aug.op == .Add and aug.target.* == .name) {
+        const is_arraylist = self.isArrayListVar(aug.target.name.id);
+        const is_list_type = target_type == .list or target_type == .array;
+        const is_list_alias = self.arraylist_aliases.contains(aug.target.name.id);
+
+        if (is_arraylist or is_list_type or is_list_alias) {
+            // For list aliases (pointers to ArrayLists), we need to iterate and append
+            // to the underlying list. Use runtime.iterSlice for universal iteration.
+            // Use comptime type check to handle heterogeneous appends via PyValue
+            try self.emit("{\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("const __ext_src = ");
+            try self.genExpr(aug.value.*);
+            try self.emit(";\n");
+            try self.emitIndent();
+            // Use iterSlice to handle ArrayList, slice, array, etc.
+            try self.emit("for (runtime.iterSlice(__ext_src)) |__ext_item| {\n");
+            self.indent();
+            try self.emitIndent();
+            // Comptime check: if types match, append directly; otherwise skip
+            // (Proper heterogeneous list support requires ArrayList(PyValue))
+            try self.emit("const __ListElemType = @typeInfo(@TypeOf(");
+            try self.genExpr(aug.target.*);
+            try self.emit(".items)).pointer.child;\n");
+            try self.emitIndent();
+            try self.emit("const __ItemType = @TypeOf(__ext_item);\n");
+            try self.emitIndent();
+            try self.emit("if (__ListElemType == __ItemType) {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.genExpr(aug.target.*);
+            try self.emit(".append(__global_allocator, __ext_item) catch {};\n");
+            self.dedent();
+            try self.emitIndent();
+            // Fallback: if types don't match, try PyValue conversion for heterogeneous lists
+            try self.emit("} else if (__ListElemType == runtime.PyValue) {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.genExpr(aug.target.*);
+            try self.emit(".append(__global_allocator, try runtime.PyValue.fromAlloc(__global_allocator, __ext_item)) catch {};\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            return;
+        }
+    }
+
     // Emit target (variable name)
     try self.genExpr(aug.target.*);
     try self.emit(" = ");
@@ -733,6 +789,22 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         try self.emit(", @as(u6, @intCast(");
         try self.genExpr(aug.value.*);
         try self.emit(")));\n");
+        return;
+    }
+
+    // Handle string concatenation: s += "more" => s = std.mem.concat(allocator, u8, &.{s, "more"})
+    // Also check for unknown target + string value (e.g., msg += f"...")
+    // and check if value is a fstring (f-string) which always produces string
+    const value_type = try self.inferExprScoped(aug.value.*);
+    const is_fstring = aug.value.* == .fstring;
+    const is_string_concat = target_type == .string or value_type == .string or is_fstring or
+        (target_type == .unknown and (value_type == .string or is_fstring));
+    if (aug.op == .Add and is_string_concat) {
+        try self.emit("try std.mem.concat(__global_allocator, u8, &.{");
+        try self.genExpr(aug.target.*);
+        try self.emit(", ");
+        try self.genExpr(aug.value.*);
+        try self.emit("});\n");
         return;
     }
 

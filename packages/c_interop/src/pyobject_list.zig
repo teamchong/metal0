@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -171,9 +172,8 @@ export fn PyList_Insert(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObj
         while (i > idx) : (i -= 1) {
             items[@intCast(i)] = items[@intCast(i - 1)];
         }
-        
-        items[@intCast(idx)] = item;
-        item.ob_refcnt += 1;
+
+        items[@intCast(idx)] = traits.incref(item);
         list_obj.ob_base.ob_size += 1;
         return 0;
     }
@@ -214,8 +214,7 @@ export fn PyList_GetSlice(obj: *cpython.PyObject, low: isize, high: isize) callc
                 var i: isize = 0;
                 while (i < slice_len) : (i += 1) {
                     const item = items[@intCast(real_low + i)];
-                    item.ob_refcnt += 1;
-                    new_items[@intCast(i)] = item;
+                    new_items[@intCast(i)] = traits.incref(item);
                 }
             }
         }
@@ -288,8 +287,7 @@ export fn PyList_SetSlice(obj: *cpython.PyObject, low: isize, high: isize, iteml
                     var i: usize = 0;
                     while (i < @as(usize, @intCast(ins_count))) : (i += 1) {
                         const item = il_items[i];
-                        item.ob_refcnt += 1;
-                        items[@intCast(real_low) + i] = item;
+                        items[@as(usize, @intCast(real_low)) + i] = traits.incref(item);
                     }
                 }
             }
@@ -369,8 +367,7 @@ export fn PyList_AsTuple(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject
             var i: isize = 0;
             while (i < size) : (i += 1) {
                 const item = items[@intCast(i)];
-                item.ob_refcnt += 1;
-                _ = tuple.PyTuple_SetItem(t, i, item);
+                _ = tuple.PyTuple_SetItem(t, i, traits.incref(item));
             }
         }
     }
@@ -420,77 +417,68 @@ fn list_length(obj: *cpython.PyObject) callconv(.c) isize {
 
 fn list_item(obj: *cpython.PyObject, idx: isize) callconv(.c) ?*cpython.PyObject {
     const item = PyList_GetItem(obj, idx);
-    if (item) |i| {
-        i.ob_refcnt += 1; // Return new reference
-    }
-    return item;
+    return traits.incref(item); // Return new reference
 }
 
 fn list_concat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (PyList_Check(a) == 0 or PyList_Check(b) == 0) return null;
-    
+
     const a_list = @as(*PyListObject, @ptrCast(a));
     const b_list = @as(*PyListObject, @ptrCast(b));
-    
+
     const new_size = a_list.ob_base.ob_size + b_list.ob_base.ob_size;
     const new_list = PyList_New(new_size);
-    
+
     if (new_list) |new_obj| {
         const new_list_obj = @as(*PyListObject, @ptrCast(new_obj));
-        
+
         if (new_list_obj.ob_item) |new_items| {
             // Copy from a
             if (a_list.ob_item) |a_items| {
                 var i: usize = 0;
                 while (i < a_list.ob_base.ob_size) : (i += 1) {
-                    const item = a_items[i];
-                    item.ob_refcnt += 1;
-                    new_items[i] = item;
+                    new_items[i] = traits.incref(a_items[i]);
                 }
             }
-            
+
             // Copy from b
             if (b_list.ob_item) |b_items| {
                 var i: usize = 0;
                 const offset: usize = @intCast(a_list.ob_base.ob_size);
                 while (i < @as(usize, @intCast(b_list.ob_base.ob_size))) : (i += 1) {
-                    const item = b_items[i];
-                    item.ob_refcnt += 1;
-                    new_items[offset + i] = item;
+                    new_items[offset + i] = traits.incref(b_items[i]);
                 }
             }
         }
     }
-    
+
     return new_list;
 }
 
 fn list_repeat(obj: *cpython.PyObject, n: isize) callconv(.c) ?*cpython.PyObject {
     if (n <= 0) return PyList_New(0);
-    
+
     const list_obj = @as(*PyListObject, @ptrCast(obj));
     const new_size = list_obj.ob_base.ob_size * n;
-    
+
     const new_list = PyList_New(new_size);
-    
+
     if (new_list) |new_obj| {
         const new_list_obj = @as(*PyListObject, @ptrCast(new_obj));
-        
+
         if (list_obj.ob_item) |items| {
             if (new_list_obj.ob_item) |new_items| {
                 var rep: usize = 0;
                 while (rep < n) : (rep += 1) {
                     var i: usize = 0;
                     while (i < list_obj.ob_base.ob_size) : (i += 1) {
-                        const item = items[i];
-                        item.ob_refcnt += 1;
-                        new_items[rep * @as(usize, @intCast(list_obj.ob_base.ob_size)) + i] = item;
+                        new_items[rep * @as(usize, @intCast(list_obj.ob_base.ob_size)) + i] = traits.incref(items[i]);
                     }
                 }
             }
         }
     }
-    
+
     return new_list;
 }
 
@@ -506,7 +494,7 @@ fn list_ass_item(obj: *cpython.PyObject, idx: isize, value: ?*cpython.PyObject) 
 
         if (list_obj.ob_item) |items| {
             // Decref the deleted item
-            items[@intCast(idx)].ob_refcnt -= 1;
+            traits.decref(items[@intCast(idx)]);
 
             // Shift items left
             var i: usize = @intCast(idx);
@@ -528,16 +516,7 @@ fn list_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     if (list_obj.ob_item) |items| {
         var i: usize = 0;
         while (i < @as(usize, @intCast(list_obj.ob_base.ob_size))) : (i += 1) {
-            const item = items[i];
-            item.ob_refcnt -= 1;
-            // Deallocate if refcnt reaches 0
-            if (item.ob_refcnt == 0) {
-                if (item.ob_type) |tp| {
-                    if (tp.tp_dealloc) |dealloc| {
-                        dealloc(item);
-                    }
-                }
-            }
+            traits.decref(items[i]);
         }
 
         const slice = items[0..@intCast(list_obj.allocated)];
@@ -591,9 +570,36 @@ fn list_repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     return unicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
 }
 
+// ============================================================================
+// Macro-style Accessors (No Error Checking)
+// ============================================================================
+
+/// PyList_GET_ITEM - Get item without error checking (macro in CPython)
+/// WARNING: No bounds checking, no type checking - caller must ensure validity
+export fn PyList_GET_ITEM(obj: *cpython.PyObject, idx: isize) callconv(.c) *cpython.PyObject {
+    const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
+    return list_obj.ob_item.?[@intCast(idx)];
+}
+
+/// PyList_SET_ITEM - Set item without error checking (macro in CPython)
+/// WARNING: Steals reference, no bounds/type checking
+export fn PyList_SET_ITEM(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObject) callconv(.c) void {
+    const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
+    list_obj.ob_item.?[@intCast(idx)] = item;
+}
+
+/// PyList_GET_SIZE - Get size without error checking (macro in CPython)
+export fn PyList_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
+    const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
+    return list_obj.ob_base.ob_size;
+}
+
 // Tests
 test "list exports" {
     _ = PyList_New;
     _ = PyList_Append;
     _ = PyList_GetItem;
+    _ = PyList_GET_ITEM;
+    _ = PyList_SET_ITEM;
+    _ = PyList_GET_SIZE;
 }

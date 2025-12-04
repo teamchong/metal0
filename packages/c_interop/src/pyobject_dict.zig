@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -155,12 +156,8 @@ fn freeKeys(keys: *InternalDictKeys) void {
     // Decref all keys and values
     var i: usize = 0;
     while (i < size) : (i += 1) {
-        if (keys.entries[i].key) |key| {
-            key.ob_refcnt -= 1;
-        }
-        if (keys.entries[i].value) |value| {
-            value.ob_refcnt -= 1;
-        }
+        traits.decref(keys.entries[i].key);
+        traits.decref(keys.entries[i].value);
     }
 
     const header_size = @sizeOf(InternalDictKeys);
@@ -286,11 +283,8 @@ export fn PyDict_SetItem(obj: *cpython.PyObject, key: *cpython.PyObject, value: 
     // Check if key already exists
     if (findEntry(keys, key, hash)) |idx| {
         // Update existing entry
-        if (keys.entries[idx].value) |old_value| {
-            old_value.ob_refcnt -= 1;
-        }
-        value.ob_refcnt += 1;
-        keys.entries[idx].value = value;
+        traits.decref(keys.entries[idx].value);
+        keys.entries[idx].value = traits.incref(value);
         return 0;
     }
 
@@ -303,13 +297,10 @@ export fn PyDict_SetItem(obj: *cpython.PyObject, key: *cpython.PyObject, value: 
 
     const idx = findEmptySlot(keys, hash);
 
-    key.ob_refcnt += 1;
-    value.ob_refcnt += 1;
-
     keys.entries[idx] = .{
         .hash = hash,
-        .key = key,
-        .value = value,
+        .key = traits.incref(key),
+        .value = traits.incref(value),
     };
 
     keys.dk_usable -= 1;
@@ -331,15 +322,10 @@ export fn PyDict_DelItem(obj: *cpython.PyObject, key: *cpython.PyObject) callcon
 
     if (findEntry(keys, key, hash)) |idx| {
         // Found - delete entry
-        if (keys.entries[idx].key) |k| {
-            k.ob_refcnt -= 1;
-        }
-        if (keys.entries[idx].value) |v| {
-            v.ob_refcnt -= 1;
-        }
+        traits.decref(keys.entries[idx].key);
+        traits.decref(keys.entries[idx].value);
 
         // Mark as deleted (tombstone)
-        // For simplicity, just null out - real CPython uses DKIX_DUMMY
         keys.entries[idx].key = null;
         keys.entries[idx].value = null;
         keys.entries[idx].hash = 0;
@@ -364,12 +350,8 @@ export fn PyDict_Clear(obj: *cpython.PyObject) callconv(.c) void {
 
     var i: usize = 0;
     while (i < size) : (i += 1) {
-        if (keys.entries[i].key) |k| {
-            k.ob_refcnt -= 1;
-        }
-        if (keys.entries[i].value) |v| {
-            v.ob_refcnt -= 1;
-        }
+        traits.decref(keys.entries[i].key);
+        traits.decref(keys.entries[i].value);
         keys.entries[i] = .{ .hash = 0, .key = null, .value = null };
     }
 
@@ -387,27 +369,26 @@ export fn PyDict_Contains(obj: *cpython.PyObject, key: *cpython.PyObject) callco
 
 /// Get item with string key
 export fn PyDict_GetItemString(obj: *cpython.PyObject, key_str: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    // TODO: Convert C string to PyUnicode, then lookup
-    _ = obj;
-    _ = key_str;
-    return null;
+    const unicode = @import("cpython_unicode.zig");
+    const key = unicode.PyUnicode_FromString(key_str) orelse return null;
+    defer traits.decref(key);
+    return PyDict_GetItem(obj, key);
 }
 
 /// Set item with string key
 export fn PyDict_SetItemString(obj: *cpython.PyObject, key_str: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
-    // TODO: Convert C string to PyUnicode, then set
-    _ = obj;
-    _ = key_str;
-    _ = value;
-    return -1;
+    const unicode = @import("cpython_unicode.zig");
+    const key = unicode.PyUnicode_FromString(key_str) orelse return -1;
+    defer traits.decref(key);
+    return PyDict_SetItem(obj, key, value);
 }
 
 /// Delete item with string key
 export fn PyDict_DelItemString(obj: *cpython.PyObject, key_str: [*:0]const u8) callconv(.c) c_int {
-    // TODO: Convert C string to PyUnicode, then delete
-    _ = obj;
-    _ = key_str;
-    return -1;
+    const unicode = @import("cpython_unicode.zig");
+    const key = unicode.PyUnicode_FromString(key_str) orelse return -1;
+    defer traits.decref(key);
+    return PyDict_DelItem(obj, key);
 }
 
 /// Get list of keys (returns new reference)
@@ -417,7 +398,8 @@ export fn PyDict_Keys(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
     const keys: *InternalDictKeys = @ptrCast(@alignCast(dict.ma_keys));
 
-    const list = @import("pyobject_list.zig").PyList_New(dict.ma_used);
+    const list_mod = @import("pyobject_list.zig");
+    const list = list_mod.PyList_New(dict.ma_used);
     if (list == null) return null;
 
     const size: usize = @as(usize, 1) << @intCast(keys.dk_log2_size);
@@ -426,8 +408,7 @@ export fn PyDict_Keys(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     var i: usize = 0;
     while (i < size) : (i += 1) {
         if (keys.entries[i].key) |key| {
-            key.ob_refcnt += 1;
-            _ = @import("pyobject_list.zig").PyList_SetItem(list.?, list_idx, key);
+            _ = list_mod.PyList_SetItem(list.?, list_idx, traits.incref(key));
             list_idx += 1;
         }
     }
@@ -442,7 +423,8 @@ export fn PyDict_Values(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject 
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
     const keys: *InternalDictKeys = @ptrCast(@alignCast(dict.ma_keys));
 
-    const list = @import("pyobject_list.zig").PyList_New(dict.ma_used);
+    const list_mod = @import("pyobject_list.zig");
+    const list = list_mod.PyList_New(dict.ma_used);
     if (list == null) return null;
 
     const size: usize = @as(usize, 1) << @intCast(keys.dk_log2_size);
@@ -451,8 +433,7 @@ export fn PyDict_Values(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject 
     var i: usize = 0;
     while (i < size) : (i += 1) {
         if (keys.entries[i].value) |value| {
-            value.ob_refcnt += 1;
-            _ = @import("pyobject_list.zig").PyList_SetItem(list.?, list_idx, value);
+            _ = list_mod.PyList_SetItem(list.?, list_idx, traits.incref(value));
             list_idx += 1;
         }
     }
@@ -467,7 +448,10 @@ export fn PyDict_Items(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
     const keys_struct: *InternalDictKeys = @ptrCast(@alignCast(dict.ma_keys));
 
-    const list = @import("pyobject_list.zig").PyList_New(dict.ma_used);
+    const list_mod = @import("pyobject_list.zig");
+    const tuple_mod = @import("pyobject_tuple.zig");
+
+    const list = list_mod.PyList_New(dict.ma_used);
     if (list == null) return null;
 
     const size: usize = @as(usize, 1) << @intCast(keys_struct.dk_log2_size);
@@ -476,18 +460,16 @@ export fn PyDict_Items(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     var i: usize = 0;
     while (i < size) : (i += 1) {
         if (keys_struct.entries[i].key) |key| {
-            const tuple = @import("pyobject_tuple.zig").PyTuple_New(2);
+            const tuple = tuple_mod.PyTuple_New(2);
             if (tuple == null) return null;
 
-            key.ob_refcnt += 1;
-            _ = @import("pyobject_tuple.zig").PyTuple_SetItem(tuple.?, 0, key);
+            _ = tuple_mod.PyTuple_SetItem(tuple.?, 0, traits.incref(key));
 
             if (keys_struct.entries[i].value) |value| {
-                value.ob_refcnt += 1;
-                _ = @import("pyobject_tuple.zig").PyTuple_SetItem(tuple.?, 1, value);
+                _ = tuple_mod.PyTuple_SetItem(tuple.?, 1, traits.incref(value));
             }
 
-            _ = @import("pyobject_list.zig").PyList_SetItem(list.?, list_idx, tuple.?);
+            _ = list_mod.PyList_SetItem(list.?, list_idx, tuple.?);
             list_idx += 1;
         }
     }
@@ -505,11 +487,7 @@ fn dict_length(obj: *cpython.PyObject) callconv(.c) isize {
 
 fn dict_subscript(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const result = PyDict_GetItem(obj, key);
-    if (result) |r| {
-        r.ob_refcnt += 1; // Return new reference
-        return r;
-    }
-    return null;
+    return traits.incref(result); // Return new reference
 }
 
 fn dict_ass_subscript(obj: *cpython.PyObject, key: *cpython.PyObject, value: ?*cpython.PyObject) callconv(.c) c_int {
@@ -529,6 +507,155 @@ fn dict_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     }
 
     allocator.destroy(dict);
+}
+
+// ============================================================================
+// Iteration Functions
+// ============================================================================
+
+/// PyDict_Next - Iterate over dict entries
+/// pos should start at 0 and will be updated on each call
+/// Returns 1 if an entry was returned, 0 when iteration is done
+export fn PyDict_Next(obj: *cpython.PyObject, ppos: *isize, pkey: ?*?*cpython.PyObject, pvalue: ?*?*cpython.PyObject) callconv(.c) c_int {
+    if (PyDict_Check(obj) == 0) return 0;
+
+    const dict: *PyDictObject = @ptrCast(@alignCast(obj));
+    const keys: *InternalDictKeys = @ptrCast(@alignCast(dict.ma_keys));
+
+    const size: usize = @as(usize, 1) << @intCast(keys.dk_log2_size);
+    var pos: usize = @intCast(ppos.*);
+
+    // Find next non-empty entry
+    while (pos < size) : (pos += 1) {
+        if (keys.entries[pos].key != null) {
+            if (pkey) |pk| {
+                pk.* = keys.entries[pos].key;
+            }
+            if (pvalue) |pv| {
+                pv.* = keys.entries[pos].value;
+            }
+            ppos.* = @intCast(pos + 1);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+/// PyDict_Copy - Create a shallow copy of dict
+export fn PyDict_Copy(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    if (PyDict_Check(obj) == 0) return null;
+
+    const new_dict = PyDict_New() orelse return null;
+
+    var pos: isize = 0;
+    var key: ?*cpython.PyObject = null;
+    var value: ?*cpython.PyObject = null;
+
+    while (PyDict_Next(obj, &pos, &key, &value) != 0) {
+        if (key != null and value != null) {
+            if (PyDict_SetItem(new_dict, key.?, value.?) < 0) {
+                traits.decref(new_dict);
+                return null;
+            }
+        }
+    }
+
+    return new_dict;
+}
+
+/// PyDict_Update - Update dict a with entries from dict b (a.update(b))
+export fn PyDict_Update(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) c_int {
+    if (PyDict_Check(a) == 0 or PyDict_Check(b) == 0) return -1;
+
+    var pos: isize = 0;
+    var key: ?*cpython.PyObject = null;
+    var value: ?*cpython.PyObject = null;
+
+    while (PyDict_Next(b, &pos, &key, &value) != 0) {
+        if (key != null and value != null) {
+            if (PyDict_SetItem(a, key.?, value.?) < 0) {
+                return -1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+/// PyDict_Merge - Merge dict b into dict a
+/// override: if 1, replace existing keys; if 0, skip existing keys
+export fn PyDict_Merge(a: *cpython.PyObject, b: *cpython.PyObject, override: c_int) callconv(.c) c_int {
+    if (PyDict_Check(a) == 0 or PyDict_Check(b) == 0) return -1;
+
+    var pos: isize = 0;
+    var key: ?*cpython.PyObject = null;
+    var value: ?*cpython.PyObject = null;
+
+    while (PyDict_Next(b, &pos, &key, &value) != 0) {
+        if (key != null and value != null) {
+            // Check if key exists and we shouldn't override
+            if (override == 0 and PyDict_Contains(a, key.?) != 0) {
+                continue;
+            }
+            if (PyDict_SetItem(a, key.?, value.?) < 0) {
+                return -1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+/// PyDict_MergeFromSeq2 - Merge key-value pairs from sequence into dict
+/// override: if 1, replace existing keys; if 0, skip existing keys
+export fn PyDict_MergeFromSeq2(obj: *cpython.PyObject, seq: *cpython.PyObject, override: c_int) callconv(.c) c_int {
+    _ = obj;
+    _ = seq;
+    _ = override;
+    // TODO: Implement sequence iteration
+    return -1;
+}
+
+/// PyDict_GetItemWithError - Like GetItem but sets KeyError on failure
+export fn PyDict_GetItemWithError(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const result = PyDict_GetItem(obj, key);
+    if (result == null) {
+        // Set KeyError (in real CPython)
+        traits.setError("KeyError", "key not found");
+    }
+    return result;
+}
+
+/// PyDict_SetDefault - Get value or set default if key not present
+export fn PyDict_SetDefault(obj: *cpython.PyObject, key: *cpython.PyObject, default_value: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    if (PyDict_Check(obj) == 0) return null;
+
+    // Check if key exists
+    if (PyDict_GetItem(obj, key)) |existing| {
+        return existing;
+    }
+
+    // Key doesn't exist, set default
+    if (PyDict_SetItem(obj, key, default_value) < 0) {
+        return null;
+    }
+
+    return default_value;
+}
+
+/// PyDict_Pop - Remove key and return value (or default if not found)
+export fn PyDict_Pop(obj: *cpython.PyObject, key: *cpython.PyObject, default_value: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    if (PyDict_Check(obj) == 0) return null;
+
+    const value = PyDict_GetItem(obj, key);
+    if (value) |v| {
+        const result = traits.incref(v); // Return new reference
+        _ = PyDict_DelItem(obj, key);
+        return result;
+    }
+
+    return traits.incref(default_value);
 }
 
 // ============================================================================
@@ -563,4 +690,10 @@ test "dict exports" {
     _ = PyDict_GetItem;
     _ = PyDict_SetItem;
     _ = PyDict_Check;
+    _ = PyDict_Next;
+    _ = PyDict_Copy;
+    _ = PyDict_Update;
+    _ = PyDict_Merge;
+    _ = PyDict_SetDefault;
+    _ = PyDict_Pop;
 }

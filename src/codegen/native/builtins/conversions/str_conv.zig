@@ -83,6 +83,14 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit(") \"True\" else \"False\")");
         return;
+    } else if (arg_type == .tuple) {
+        // For tuples: use Python-style (a, b, c) format
+        try self.emit("(try runtime.builtins.tupleRepr(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit("))");
+        return;
     }
 
     // Check if this might be a PyObject (subscript on unknown type, function return, etc.)
@@ -103,14 +111,12 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit("))");
     } else {
-        // Fallback for unknown types: use heap allocation with {any} format
-        try self.emitFmt("str_{d}: {{\n", .{str_label_id});
-        try self.emitFmt("var __str_buf_{d} = std.ArrayList(u8){{}};\n", .{str_label_id});
-        try self.emitFmt("try __str_buf_{d}.writer({s}).print(\"{{any}}\", .{{", .{ str_label_id, alloc_name });
+        // For unknown types: use pyStr which handles tuples/structs with Python formatting
+        try self.emit("(try runtime.builtins.pyStr(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
         try self.genExpr(args[0]);
-        try self.emit("});\n");
-        try self.emitFmt("break :str_{d} try __str_buf_{d}.toOwnedSlice({s});\n", .{ str_label_id, str_label_id, alloc_name });
-        try self.emit("}");
+        try self.emit("))");
     }
 }
 
@@ -250,11 +256,15 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // For numbers, same as str()
-    const repr_num_label_id = self.block_label_counter;
-    self.block_label_counter += 1;
-    try self.emitFmt("repr_num_{d}: {{\n", .{repr_num_label_id});
-    try self.emitFmt("var __repr_num_buf_{d} = std.ArrayList(u8){{}};\n", .{repr_num_label_id});
+    // For tuples: use Python-style (a, b, c) format
+    if (arg_type == .tuple) {
+        try self.emit("(try runtime.builtins.tupleRepr(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit("))");
+        return;
+    }
 
     // Check if this is a float() call that might return error union
     // float(string_var) generates runtime.floatBuiltinCall which returns !f64
@@ -270,27 +280,45 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     } else false;
 
-    if (arg_type == .int) {
-        try self.emitFmt("try __repr_num_buf_{d}.writer({s}).print(\"{{}}\", .{{", .{ repr_num_label_id, alloc_name });
-    } else if (arg_type == .bigint) {
-        // BigInt - use toDecimalString method
+    // For numbers, use inline formatting
+    if (arg_type == .int or (arg_type == .float and !is_float_error_union)) {
+        const repr_num_label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("repr_num_{d}: {{\n", .{repr_num_label_id});
+        try self.emitFmt("var __repr_num_buf_{d} = std.ArrayList(u8){{}};\n", .{repr_num_label_id});
+
+        if (arg_type == .int) {
+            try self.emitFmt("try __repr_num_buf_{d}.writer({s}).print(\"{{}}\", .{{", .{ repr_num_label_id, alloc_name });
+        } else {
+            try self.emitFmt("try __repr_num_buf_{d}.writer({s}).print(\"{{d}}\", .{{", .{ repr_num_label_id, alloc_name });
+        }
+        try self.genExpr(args[0]);
+        try self.emit("});\n");
+        try self.emitFmt("break :repr_num_{d} try __repr_num_buf_{d}.toOwnedSlice({s});\n", .{ repr_num_label_id, repr_num_label_id, alloc_name });
+        try self.emit("}");
+        return;
+    }
+
+    // For bigint, use toDecimalString method
+    if (arg_type == .bigint) {
+        const repr_num_label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("repr_num_{d}: {{\n", .{repr_num_label_id});
+        try self.emitFmt("var __repr_num_buf_{d} = std.ArrayList(u8){{}};\n", .{repr_num_label_id});
         try self.emitFmt("try __repr_num_buf_{d}.appendSlice({s}, try (", .{ repr_num_label_id, alloc_name });
         try self.genExpr(args[0]);
         try self.emitFmt(").toDecimalString({s}));\n", .{alloc_name});
         try self.emitFmt("break :repr_num_{d} try __repr_num_buf_{d}.toOwnedSlice({s});\n", .{ repr_num_label_id, repr_num_label_id, alloc_name });
         try self.emit("}");
         return;
-    } else if (arg_type == .float and !is_float_error_union) {
-        try self.emitFmt("try __repr_num_buf_{d}.writer({s}).print(\"{{d}}\", .{{", .{ repr_num_label_id, alloc_name });
-    } else {
-        // Use {any} for error unions and unknown types
-        try self.emitFmt("try __repr_num_buf_{d}.writer({s}).print(\"{{any}}\", .{{", .{ repr_num_label_id, alloc_name });
     }
 
+    // For unknown types: use pyRepr which handles tuples/structs with Python formatting
+    try self.emit("(try runtime.builtins.pyRepr(");
+    try self.emit(alloc_name);
+    try self.emit(", ");
     try self.genExpr(args[0]);
-    try self.emit("});\n");
-    try self.emitFmt("break :repr_num_{d} try __repr_num_buf_{d}.toOwnedSlice({s});\n", .{ repr_num_label_id, repr_num_label_id, alloc_name });
-    try self.emit("}");
+    try self.emit("))");
 }
 
 /// Generate code for ascii(obj)

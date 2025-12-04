@@ -5,8 +5,13 @@
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
 const cpython_module = @import("cpython_module.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
+
+// Use centralized extern declarations
+const Py_INCREF = traits.externs.Py_INCREF;
+const Py_DECREF = traits.externs.Py_DECREF;
 
 /// ============================================================================
 /// FUNCTION TYPE OBJECTS
@@ -117,13 +122,6 @@ export fn PyCFunction_GetFlags(op: *cpython.PyObject) callconv(.c) c_int {
     const func = @as(*PyCFunctionObject, @ptrCast(op));
     return func.m_ml.ml_flags;
 }
-
-/// ============================================================================
-/// HELPER FUNCTIONS
-/// ============================================================================
-
-extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
 
 /// ============================================================================
 /// TESTS

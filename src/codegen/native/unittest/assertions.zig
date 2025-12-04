@@ -211,6 +211,16 @@ fn emitCallableInvocation(
         }
 
         // Complex expression attribute (e.g., {}.update, some_call().method)
+        // Check for float methods that need runtime dispatch (as_integer_ratio, __floor__, etc.)
+        if (FloatMethods.get(attr.attr)) |info| {
+            try self.emit("__ar_obj_blk: { const __ar_obj = ");
+            try parent.genExpr(self, attr.value.*);
+            try self.emit("; break :__ar_obj_blk runtime.float");
+            try self.emit(info.func);
+            try self.emit(if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
+            try self.emit("; }");
+            return;
+        }
         try self.emit("__ar_obj_blk: { const __ar_obj = ");
         try parent.genExpr(self, attr.value.*);
         try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
@@ -294,14 +304,15 @@ fn emitCallableInvocation(
     }
 
     if (callable == .name and std.mem.eql(u8, callable.name.id, "next")) {
-        try self.emit("runtime.builtins.next(");
+        // next() returns error union, use try to propagate or catch to handle
+        try self.emit("(runtime.builtins.next(");
         if (call_args.len > 0) {
             try self.emit("&");
             try parent.genExpr(self, call_args[0]);
         } else {
             try self.emit("&.{}");
         }
-        try self.emit(")");
+        try self.emit(") catch |err| if (err == error.StopIteration) @panic(\"StopIteration\") else @panic(\"TypeError\"))");
         return;
     }
 

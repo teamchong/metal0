@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -219,10 +220,10 @@ pub export fn PyRange_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 fn range_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     const r: *PyRangeObject = @ptrCast(@alignCast(obj));
 
-    if (r.start) |s| s.ob_refcnt -= 1;
-    if (r.stop) |s| s.ob_refcnt -= 1;
-    if (r.step) |s| s.ob_refcnt -= 1;
-    if (r.length) |s| s.ob_refcnt -= 1;
+    if (r.start) |s| traits.decref(s);
+    if (r.stop) |s| traits.decref(s);
+    if (r.step) |s| traits.decref(s);
+    if (r.length) |s| traits.decref(s);
 
     allocator.destroy(r);
 }

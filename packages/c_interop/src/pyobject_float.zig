@@ -325,6 +325,110 @@ export fn PyFloat_GetMin() callconv(.c) f64 {
 }
 
 // ============================================================================
+// PACK/UNPACK FUNCTIONS (IEEE 754 binary format)
+// ============================================================================
+
+/// PyFloat_Pack2 - Pack f64 to IEEE 754 half-precision (2 bytes)
+export fn PyFloat_Pack2(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
+    // Convert to f16 and store
+    const f16_val: f16 = @floatCast(x);
+    const bits: u16 = @bitCast(f16_val);
+
+    if (le != 0) {
+        // Little endian
+        p[0] = @truncate(bits);
+        p[1] = @truncate(bits >> 8);
+    } else {
+        // Big endian
+        p[0] = @truncate(bits >> 8);
+        p[1] = @truncate(bits);
+    }
+    return 0;
+}
+
+/// PyFloat_Pack4 - Pack f64 to IEEE 754 single-precision (4 bytes)
+export fn PyFloat_Pack4(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
+    const f32_val: f32 = @floatCast(x);
+    const bits: u32 = @bitCast(f32_val);
+
+    if (le != 0) {
+        p[0] = @truncate(bits);
+        p[1] = @truncate(bits >> 8);
+        p[2] = @truncate(bits >> 16);
+        p[3] = @truncate(bits >> 24);
+    } else {
+        p[0] = @truncate(bits >> 24);
+        p[1] = @truncate(bits >> 16);
+        p[2] = @truncate(bits >> 8);
+        p[3] = @truncate(bits);
+    }
+    return 0;
+}
+
+/// PyFloat_Pack8 - Pack f64 to IEEE 754 double-precision (8 bytes)
+export fn PyFloat_Pack8(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
+    const bits: u64 = @bitCast(x);
+
+    if (le != 0) {
+        p[0] = @truncate(bits);
+        p[1] = @truncate(bits >> 8);
+        p[2] = @truncate(bits >> 16);
+        p[3] = @truncate(bits >> 24);
+        p[4] = @truncate(bits >> 32);
+        p[5] = @truncate(bits >> 40);
+        p[6] = @truncate(bits >> 48);
+        p[7] = @truncate(bits >> 56);
+    } else {
+        p[0] = @truncate(bits >> 56);
+        p[1] = @truncate(bits >> 48);
+        p[2] = @truncate(bits >> 40);
+        p[3] = @truncate(bits >> 32);
+        p[4] = @truncate(bits >> 24);
+        p[5] = @truncate(bits >> 16);
+        p[6] = @truncate(bits >> 8);
+        p[7] = @truncate(bits);
+    }
+    return 0;
+}
+
+/// PyFloat_Unpack2 - Unpack IEEE 754 half-precision (2 bytes) to f64
+export fn PyFloat_Unpack2(p: [*]const u8, le: c_int) callconv(.c) f64 {
+    var bits: u16 = undefined;
+    if (le != 0) {
+        bits = @as(u16, p[0]) | (@as(u16, p[1]) << 8);
+    } else {
+        bits = (@as(u16, p[0]) << 8) | @as(u16, p[1]);
+    }
+    const f16_val: f16 = @bitCast(bits);
+    return @floatCast(f16_val);
+}
+
+/// PyFloat_Unpack4 - Unpack IEEE 754 single-precision (4 bytes) to f64
+export fn PyFloat_Unpack4(p: [*]const u8, le: c_int) callconv(.c) f64 {
+    var bits: u32 = undefined;
+    if (le != 0) {
+        bits = @as(u32, p[0]) | (@as(u32, p[1]) << 8) | (@as(u32, p[2]) << 16) | (@as(u32, p[3]) << 24);
+    } else {
+        bits = (@as(u32, p[0]) << 24) | (@as(u32, p[1]) << 16) | (@as(u32, p[2]) << 8) | @as(u32, p[3]);
+    }
+    const f32_val: f32 = @bitCast(bits);
+    return @floatCast(f32_val);
+}
+
+/// PyFloat_Unpack8 - Unpack IEEE 754 double-precision (8 bytes) to f64
+export fn PyFloat_Unpack8(p: [*]const u8, le: c_int) callconv(.c) f64 {
+    var bits: u64 = undefined;
+    if (le != 0) {
+        bits = @as(u64, p[0]) | (@as(u64, p[1]) << 8) | (@as(u64, p[2]) << 16) | (@as(u64, p[3]) << 24) |
+            (@as(u64, p[4]) << 32) | (@as(u64, p[5]) << 40) | (@as(u64, p[6]) << 48) | (@as(u64, p[7]) << 56);
+    } else {
+        bits = (@as(u64, p[0]) << 56) | (@as(u64, p[1]) << 48) | (@as(u64, p[2]) << 40) | (@as(u64, p[3]) << 32) |
+            (@as(u64, p[4]) << 24) | (@as(u64, p[5]) << 16) | (@as(u64, p[6]) << 8) | @as(u64, p[7]);
+    }
+    return @bitCast(bits);
+}
+
+// ============================================================================
 // TYPE CHECKING
 // ============================================================================
 

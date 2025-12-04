@@ -391,12 +391,27 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             };
 
             if (is_optional_param_check) {
-                // Generate: var == null (or != null for "is not None")
-                try genExpr(self, current_left);
-                if (op == .Is or op == .Eq) {
-                    try self.emit(" == null");
+                // For anytype parameters (used with None defaults), use comptime type check
+                // This handles cases like `expected=None` where expected can be tuple or null
+                if (current_left_type == .unknown) {
+                    // Emit comptime type check: @TypeOf(x) == @TypeOf(null)
+                    if (op == .Is or op == .Eq) {
+                        try self.emit("(@TypeOf(");
+                        try genExpr(self, current_left);
+                        try self.emit(") == @TypeOf(null))");
+                    } else {
+                        try self.emit("(@TypeOf(");
+                        try genExpr(self, current_left);
+                        try self.emit(") != @TypeOf(null))");
+                    }
                 } else {
-                    try self.emit(" != null");
+                    // Generate: var == null (or != null for "is not None")
+                    try genExpr(self, current_left);
+                    if (op == .Is or op == .Eq) {
+                        try self.emit(" == null");
+                    } else {
+                        try self.emit(" != null");
+                    }
                 }
             }
             // None comparisons with mixed types: result is known at compile time
@@ -784,12 +799,33 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         }
         // Handle unknown type comparisons (anytype parameters)
         else if (current_left_type == .unknown or right_type == .unknown) {
-            // Use runtime.bigIntCompare for safe comparison
-            try self.emit("runtime.bigIntCompare(");
-            try genExpr(self, current_left);
-            try self.emit(", ");
-            try genExpr(self, compare.comparators[i]);
-            try self.emit(BigIntCompOps.get(@tagName(op)) orelse ", .eq)");
+            // Special case: anytype compared to None
+            // For anytype params with default=None, use comptime type check instead of null comparison
+            const left_is_none = current_left_type == .none or
+                (current_left == .constant and current_left.constant.value == .none);
+            const right_is_none = right_type == .none or
+                (compare.comparators[i] == .constant and compare.comparators[i].constant.value == .none);
+
+            if (left_is_none or right_is_none) {
+                // Emit comptime type check: @TypeOf(x) == @TypeOf(null)
+                // This works whether x is null, a tuple, or any other type
+                if (op == .Is or op == .Eq) {
+                    try self.emit("(@TypeOf(");
+                    try genExpr(self, if (left_is_none) compare.comparators[i] else current_left);
+                    try self.emit(") == @TypeOf(null))");
+                } else {
+                    try self.emit("(@TypeOf(");
+                    try genExpr(self, if (left_is_none) compare.comparators[i] else current_left);
+                    try self.emit(") != @TypeOf(null))");
+                }
+            } else {
+                // Use runtime.bigIntCompare for safe comparison
+                try self.emit("runtime.bigIntCompare(");
+                try genExpr(self, current_left);
+                try self.emit(", ");
+                try genExpr(self, compare.comparators[i]);
+                try self.emit(BigIntCompOps.get(@tagName(op)) orelse ", .eq)");
+            }
         } else {
             // Regular comparisons for non-strings
             // Check for type mismatches between usize and i64

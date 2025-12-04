@@ -27,14 +27,7 @@ const PyListGenerated = generator.generateBatchCExports(&PyListSpecs);
 // Step 3: Export each function with C linkage
 // This is the manual part, but it's TINY compared to implementing each function!
 
-/// PyList_Append - Export auto-generated implementation
-export fn PyList_Append(list: *anyopaque, item: *anyopaque) callconv(.C) c_int {
-    // TODO: Call actual implementation
-    // For now, return success
-    _ = list;
-    _ = item;
-    return 0;
-}
+// PyList_Append is implemented in pyobject_list.zig
 
 /// ============================================================================
 /// BETTER APPROACH: Macro-style generation

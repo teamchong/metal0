@@ -14,18 +14,41 @@ pub const PythonError = error{
     OverflowError,
 };
 
+/// Convert any numeric type to f64 (simple version for mixed arithmetic)
+pub inline fn numToFloat(value: anytype) f64 {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    if (info == .float or info == .comptime_float) {
+        return @floatCast(value);
+    } else if (info == .int or info == .comptime_int) {
+        return @floatFromInt(value);
+    } else if (T == @import("bigint").BigInt) {
+        return value.toFloat();
+    } else {
+        @compileError("numToFloat: unsupported type " ++ @typeName(T));
+    }
+}
+
+/// Subtract two numbers, handling mixed int/float types (returns f64)
+pub inline fn subtractNum(a: anytype, b: anytype) f64 {
+    return numToFloat(a) - numToFloat(b);
+}
+
+/// Add two numbers, handling mixed int/float types (returns f64)
+pub inline fn addNum(a: anytype, b: anytype) f64 {
+    return numToFloat(a) + numToFloat(b);
+}
+
+/// Multiply two numbers, handling mixed int/float types (returns f64)
+pub inline fn mulNum(a: anytype, b: anytype) f64 {
+    return numToFloat(a) * numToFloat(b);
+}
+
 /// Float division with zero check
 pub fn divideFloat(a: anytype, b: anytype) PythonError!f64 {
-    const a_float: f64 = switch (@typeInfo(@TypeOf(a))) {
-        .float, .comptime_float => @as(f64, a),
-        .int, .comptime_int => @floatFromInt(a),
-        else => @compileError("divideFloat: unsupported type " ++ @typeName(@TypeOf(a))),
-    };
-    const b_float: f64 = switch (@typeInfo(@TypeOf(b))) {
-        .float, .comptime_float => @as(f64, b),
-        .int, .comptime_int => @floatFromInt(b),
-        else => @compileError("divideFloat: unsupported type " ++ @typeName(@TypeOf(b))),
-    };
+    const a_float = numToFloat(a);
+    const b_float = numToFloat(b);
 
     if (b_float == 0.0) {
         return PythonError.ZeroDivisionError;

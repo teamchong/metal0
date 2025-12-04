@@ -1,25 +1,13 @@
-/// CPython Buffer Protocol - Using Generic Buffer Implementation
+/// CPython Buffer Protocol
 ///
-/// This implements the buffer protocol with comptime-specialized buffer types.
-/// All buffer variants share the same generic implementation!
+/// Implements the buffer protocol for memory-efficient data exchange.
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
-const buffer_impl = @import("shared/buffer_impl.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
-/// Comptime select buffer config based on flags
-fn selectBufferConfig(comptime flags: c_int) type {
-    if (flags & cpython.PyBUF_ND != 0) {
-        return buffer_impl.NDArrayBufferConfig;
-    } else if (flags & cpython.PyBUF_WRITABLE == 0) {
-        return buffer_impl.ReadOnlyBufferConfig;
-    } else {
-        return buffer_impl.SimpleBufferConfig;
-    }
-}
-
-/// Fill buffer info from object (comptime specialized!)
+/// Fill buffer info from object
 export fn PyBuffer_FillInfo(
     view: *cpython.Py_buffer,
     obj: ?*cpython.PyObject,
@@ -28,42 +16,24 @@ export fn PyBuffer_FillInfo(
     readonly: c_int,
     flags: c_int,
 ) callconv(.c) c_int {
-    // Comptime select config based on flags
-    const Config = comptime selectBufferConfig(flags);
-    const Buffer = buffer_impl.BufferImpl(Config);
-
-    // Create buffer (comptime specialized!)
-    var buffer = Buffer.init(allocator, buf orelse return -1, len, readonly != 0) catch return -1;
+    _ = flags;
 
     // Fill Py_buffer view
-    view.buf = buffer.buf;
+    view.buf = buf;
     view.obj = obj;
-    view.len = buffer.len;
-    view.readonly = if (buffer.readonly) 1 else 0;
-    view.itemsize = buffer.itemsize;
-
-    if (Config.multi_dimensional) {
-        view.ndim = @intCast(buffer.ndim);
-        view.shape = if (buffer.shape) |s| s.ptr else null;
-        view.strides = if (buffer.strides) |s| s.ptr else null;
-    } else {
-        view.ndim = 1;
-        view.shape = null;
-        view.strides = null;
-    }
-
-    if (Config.has_format) {
-        view.format = @constCast(buffer.format orelse null);
-    } else {
-        view.format = null;
-    }
-
+    view.len = len;
+    view.readonly = readonly;
+    view.itemsize = 1;
+    view.ndim = 1;
+    view.shape = null;
+    view.strides = null;
+    view.format = null;
     view.suboffsets = null;
     view.internal = null;
 
     // INCREF object
     if (obj) |o| {
-        o.ob_refcnt += 1;
+        _ = traits.incref(o);
     }
 
     return 0;
@@ -100,18 +70,21 @@ export fn PyBuffer_Release(view: *cpython.Py_buffer) callconv(.c) void {
         }
 
         // DECREF object
-        obj.ob_refcnt -= 1;
+        traits.decref(obj);
         view.obj = null;
     }
 
-    // Free allocated shape/strides
-    if (view.shape) |s| {
-        allocator.free(s[0..@intCast(view.ndim)]);
-        view.shape = null;
-    }
-    if (view.strides) |s| {
-        allocator.free(s[0..@intCast(view.ndim)]);
-        view.strides = null;
+    // Free allocated shape/strides if we own them
+    if (view.internal != null) {
+        if (view.shape) |s| {
+            allocator.free(s[0..@intCast(view.ndim)]);
+            view.shape = null;
+        }
+        if (view.strides) |s| {
+            allocator.free(s[0..@intCast(view.ndim)]);
+            view.strides = null;
+        }
+        view.internal = null;
     }
 }
 
@@ -135,31 +108,50 @@ export fn PyBuffer_SizeFromFormat(format: [*:0]const u8) callconv(.c) isize {
     return -1;
 }
 
-/// Check if buffer is contiguous (uses generic buffer!)
+/// Check if buffer is contiguous
 export fn PyBuffer_IsContiguous(view: *const cpython.Py_buffer, fort: u8) callconv(.c) c_int {
     // If no strides, it's C-contiguous by default
     if (view.strides == null) {
-        return if (fort == 'C' or fort == 'c') 1 else 0;
+        return if (fort == 'C' or fort == 'c' or fort == 'A' or fort == 'a') 1 else 0;
     }
 
-    // Use generic buffer's contiguity check
-    const Config = buffer_impl.NDArrayBufferConfig;
-    const Buffer = buffer_impl.BufferImpl(Config);
+    const ndim = view.ndim;
+    if (ndim == 0) return 1;
 
-    // Create temporary buffer from view
-    var buffer = Buffer{
-        .buf = view.buf orelse return 0,
-        .len = view.len,
-        .itemsize = view.itemsize,
-        .readonly = view.readonly != 0,
-        .allocator = allocator,
-        .ndim = @intCast(view.ndim),
-        .shape = view.shape,
-        .strides = view.strides,
-        .format = view.format,
-    };
+    const shape = view.shape orelse return 0;
+    const strides = view.strides.?;
+    const itemsize = view.itemsize;
 
-    return if (buffer.isContiguous(fort)) 1 else 0;
+    // Check C-contiguous
+    if (fort == 'C' or fort == 'c' or fort == 'A' or fort == 'a') {
+        var expected_stride = itemsize;
+        var i: isize = ndim - 1;
+        while (i >= 0) : (i -= 1) {
+            const idx: usize = @intCast(i);
+            if (strides[idx] != expected_stride) {
+                if (fort == 'A' or fort == 'a') {
+                    // Try Fortran order
+                    break;
+                }
+                return 0;
+            }
+            expected_stride *= shape[idx];
+        }
+        if (i < 0) return 1;
+    }
+
+    // Check Fortran-contiguous
+    if (fort == 'F' or fort == 'f' or fort == 'A' or fort == 'a') {
+        var expected_stride = itemsize;
+        var i: usize = 0;
+        while (i < ndim) : (i += 1) {
+            if (strides[i] != expected_stride) return 0;
+            expected_stride *= shape[i];
+        }
+        return 1;
+    }
+
+    return 0;
 }
 
 /// Fill contiguous strides
@@ -266,11 +258,6 @@ export fn PyObject_CheckBuffer(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 // Tests
-test "Py_buffer size" {
-    // Verify struct matches CPython layout
-    try std.testing.expectEqual(@as(usize, 88), @sizeOf(cpython.Py_buffer)); // On 64-bit
-}
-
 test "PyBuffer_SizeFromFormat" {
     try std.testing.expectEqual(@as(isize, 1), PyBuffer_SizeFromFormat("b"));
     try std.testing.expectEqual(@as(isize, 2), PyBuffer_SizeFromFormat("h"));

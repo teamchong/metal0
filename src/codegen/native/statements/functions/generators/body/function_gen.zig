@@ -15,6 +15,7 @@ const scope_analyzer = @import("../../scope_analyzer.zig");
 const var_hoisting = @import("../../var_hoisting.zig");
 const self_analyzer = @import("../../self_analyzer.zig");
 const signature = @import("../signature.zig");
+const param_analyzer = @import("../../param_analyzer.zig");
 
 /// Info about a type check at the start of a function
 pub const TypeCheckInfo = struct {
@@ -515,7 +516,6 @@ pub fn genFunctionBody(
     // 1. Are in a generator function (yield body becomes pass)
     // 2. Are NOT actually used in the non-yield parts of the body
     // 3. Don't have defaults (defaults are handled below)
-    const param_analyzer = @import("../../param_analyzer.zig");
     if (signature.hasYieldStatement(func.body)) {
         for (func.args) |arg| {
             // Skip params with defaults - they're used in "const x = x_param orelse ..."
@@ -791,6 +791,15 @@ pub fn genFunctionBody(
         };
 
         for (func.args) |arg| {
+            // IMPORTANT: Skip params that were made anonymous ("_:") during signature generation.
+            // These params are named "_" in Zig, so referencing the original Python name would
+            // cause "undeclared identifier" errors. Check if param was used in Python body.
+            const was_param_used_in_python = param_analyzer.isNameUsedInBody(func.body, arg.name);
+            if (!was_param_used_in_python) {
+                // Param was made anonymous in signature - no discard needed
+                continue;
+            }
+
             // Check all params - anytype params don't get _ prefix in signature,
             // but regular params might be unused if body was partially skipped
             // Check if this param appears as a complete identifier in the generated body
@@ -1378,6 +1387,16 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // Start from 1 to skip self parameter (already handled above)
         const start_param = if (method.args.len > 0) @as(usize, 1) else @as(usize, 0);
         for (method.args[start_param..]) |arg| {
+            // IMPORTANT: Skip params that were made anonymous ("_:") during signature generation.
+            // These params are named "_" in Zig, so referencing the original Python name would
+            // cause "undeclared identifier" errors. We check if the param was used in Python
+            // body analysis - if not, signature gen already handled it.
+            const was_param_used_in_python = param_analyzer.isNameUsedInBody(method.body, arg.name);
+            if (!was_param_used_in_python) {
+                // Param was made anonymous in signature - no discard needed
+                continue;
+            }
+
             // Check if this param appears as a complete identifier in the generated body
             const param_is_used = blk: {
                 var pos: usize = 0;

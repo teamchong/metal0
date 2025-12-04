@@ -73,3 +73,23 @@ pub export fn Py_IsTrue(obj: *cpython.PyObject) callconv(.c) c_int {
 pub export fn Py_IsFalse(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (obj == @as(*cpython.PyObject, @ptrCast(&_Py_FalseStruct.ob_base))) 1 else 0;
 }
+
+/// Get the True singleton
+pub export fn Py_True() callconv(.c) *cpython.PyObject {
+    return @ptrCast(&_Py_TrueStruct.ob_base);
+}
+
+/// Get the False singleton
+pub export fn Py_False() callconv(.c) *cpython.PyObject {
+    return @ptrCast(&_Py_FalseStruct.ob_base);
+}
+
+/// Get True singleton as borrowed reference (macro in CPython)
+pub export fn Py_RETURN_TRUE() callconv(.c) *cpython.PyObject {
+    return @ptrCast(&_Py_TrueStruct.ob_base);
+}
+
+/// Get False singleton as borrowed reference (macro in CPython)
+pub export fn Py_RETURN_FALSE() callconv(.c) *cpython.PyObject {
+    return @ptrCast(&_Py_FalseStruct.ob_base);
+}

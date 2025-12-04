@@ -159,11 +159,7 @@ export fn Py_GetProgramFullPath() callconv(.c) [*:0]const u8 {
     return "/usr/local/bin/python"; // Default
 }
 
-/// Initialize and acquire the GIL
-/// Prepares Python for multi-threaded use
-export fn PyEval_InitThreads() callconv(.c) void {
-    // TODO: Initialize GIL if not already initialized
-}
+// PyEval_InitThreads is in cpython_eval.zig
 
 /// At exit handler registration
 /// Registers a function to be called during finalization

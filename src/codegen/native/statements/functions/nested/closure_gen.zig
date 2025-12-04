@@ -7,6 +7,38 @@ const DeferredClosureInfo = @import("../../../main/core.zig").DeferredClosureInf
 const zig_keywords = @import("zig_keywords");
 const hashmap_helper = @import("hashmap_helper");
 const var_tracking = @import("var_tracking.zig");
+const function_traits = @import("function_traits");
+
+/// Find the specific context manager type from return statements in body
+/// Returns the Zig type string for the context manager, or null if unknown
+fn findContextManagerTypeInBody(body: []const ast.Node) ?[]const u8 {
+    for (body) |stmt| {
+        if (stmt == .return_stmt) {
+            const ret = stmt.return_stmt;
+            if (ret.value) |val_ptr| {
+                return findContextManagerTypeInExpr(val_ptr.*);
+            }
+        }
+    }
+    return null;
+}
+
+/// Find context manager type from an expression
+fn findContextManagerTypeInExpr(expr: ast.Node) ?[]const u8 {
+    if (expr == .call) {
+        const call = expr.call;
+        if (call.func.* == .attribute) {
+            const attr = call.func.attribute;
+            // Check known context manager methods
+            return function_traits.getContextManagerType(attr.attr);
+        }
+        if (call.func.* == .name) {
+            // Check known context manager functions
+            return function_traits.getContextManagerType(call.func.name.id);
+        }
+    }
+    return null;
+}
 
 /// Emit the type annotation for a captured variable in a closure struct.
 /// This centralizes type inference logic for captured variables:
@@ -163,16 +195,35 @@ pub fn genStandardClosure(
             try self.output.writer(self.allocator).print(", _: anytype", .{});
         }
     }
-    // Determine return type based on body analysis:
-    // - Has return with value -> anyerror!i64
-    // - Can produce errors (calls, etc.) -> anyerror!void
+    // Determine return type based on body analysis using function_traits:
+    // - Returns context manager -> use specific context manager type
+    // - Returns value -> infer type from expression
+    // - Can produce errors -> error union
     // - Neither -> void
-    if (var_tracking.hasReturnWithValue(func.body)) {
-        try self.emit(") anyerror!i64 {\n");
-    } else if (var_tracking.canProduceErrors(func.body)) {
-        try self.emit(") anyerror!void {\n");
+    const closure_ret_type = function_traits.analyzeClosureReturnType(func.body);
+    if (closure_ret_type == .context_manager) {
+        // Context managers - find the specific return type from the body
+        const ctx_type = findContextManagerTypeInBody(func.body);
+        if (ctx_type) |cm_type| {
+            try self.output.writer(self.allocator).print(") {s} {{\n", .{cm_type});
+        } else {
+            // Fallback: use generic context manager type
+            try self.emit(") runtime.unittest.AssertRaisesContext {\n");
+        }
+    } else if (closure_ret_type == .void) {
+        if (var_tracking.canProduceErrors(func.body)) {
+            try self.emit(") anyerror!void {\n");
+        } else {
+            try self.emit(") void {\n");
+        }
     } else {
-        try self.emit(") void {\n");
+        // Has return with value - use inferred type
+        const zig_type = function_traits.closureReturnTypeToZig(closure_ret_type);
+        if (var_tracking.canProduceErrors(func.body)) {
+            try self.output.writer(self.allocator).print(") anyerror!{s} {{\n", .{zig_type});
+        } else {
+            try self.output.writer(self.allocator).print(") {s} {{\n", .{zig_type});
+        }
     }
 
     // Generate body with captured vars renamed to capture_param.varname
@@ -296,6 +347,23 @@ pub fn genStandardClosure(
         self.pending_discards = saved_pending_discards;
     }
 
+    // Save and clear mutation tracking for this closure body
+    // Closures need their own mutation analysis to determine var vs const
+    const saved_func_local_mutations = self.func_local_mutations;
+    const saved_func_local_aug_assigns = self.func_local_aug_assigns;
+    self.func_local_mutations = hashmap_helper.StringHashMap(void).init(self.allocator);
+    self.func_local_aug_assigns = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.func_local_mutations.deinit();
+        self.func_local_aug_assigns.deinit();
+        self.func_local_mutations = saved_func_local_mutations;
+        self.func_local_aug_assigns = saved_func_local_aug_assigns;
+    }
+
+    // Analyze closure body for local mutations (determines var vs const)
+    const mutation_analysis = @import("../generators/body/mutation_analysis.zig");
+    try mutation_analysis.analyzeFunctionLocalMutations(self, func);
+
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
     }
@@ -359,6 +427,21 @@ pub fn genStandardClosure(
     var total_params: usize = func.args.len;
     if (func.vararg != null) total_params += 1;
     if (func.kwarg != null) total_params += 1;
+
+    // Count required params (those without defaults)
+    var required_params: usize = 0;
+    for (func.args) |arg| {
+        if (arg.default == null) {
+            required_params += 1;
+        }
+    }
+
+    // Store function signature for default parameter handling during calls
+    const func_sig_name = try self.allocator.dupe(u8, func.name);
+    try self.function_signatures.put(func_sig_name, .{
+        .total_params = total_params,
+        .required_params = required_params,
+    });
 
     // Create alias with original function name - use saved_counter
     // Check if func.name would shadow a module-level import

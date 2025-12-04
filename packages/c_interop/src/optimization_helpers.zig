@@ -6,9 +6,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-// Import wyhash from tokenizer package
-const wyhash_path = "../../tokenizer/src/wyhash.zig";
-const wyhash = @import(wyhash_path);
+// Use std hash instead of external wyhash to avoid import issues
+const wyhash = struct {
+    pub const WyhashStateless = struct {
+        pub fn hash(_: u64, data: []const u8) u64 {
+            return std.hash.Wyhash.hash(0, data);
+        }
+    };
+};
 
 /// Get optimal allocator for C interop
 /// - C extensions expect C allocator behavior

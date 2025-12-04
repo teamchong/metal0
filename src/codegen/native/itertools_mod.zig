@@ -28,17 +28,15 @@ fn emitIter(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
             return;
         }
     }
-    const needs_items = needsItems(self, arg);
-    const is_block = producesBlockExpression(arg);
-    // Block expressions (list comprehensions, etc.) need parentheses before .items
-    if (needs_items and is_block) {
-        try self.emit("(");
-        try self.genExpr(arg);
-        try self.emit(").items");
-    } else {
-        try self.genExpr(arg);
-        if (needs_items) try self.emit(".items");
-    }
+
+    // Use runtime.iterSlice universally - it handles:
+    // - ArrayList (extracts .items)
+    // - PyValue (extracts .list or .tuple slice)
+    // - Regular slices (returns as-is)
+    // This is safer than trying to detect specific types
+    try self.emit("runtime.iterSlice(");
+    try self.genExpr(arg);
+    try self.emit(")");
 }
 
 /// Generate a native Zig slice for range(start, stop, step)

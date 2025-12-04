@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -236,14 +237,11 @@ pub export fn PyFunction_NewWithQualName(code: *cpython.PyObject, globals: *cpyt
 
     obj.ob_base.ob_refcnt = 1;
     obj.ob_base.ob_type = &PyFunction_Type;
-    obj.func_globals = globals;
-    globals.ob_refcnt += 1;
+    obj.func_globals = traits.incref(globals);
     obj.func_builtins = null;
     obj.func_name = null;
-    obj.func_qualname = qualname;
-    if (qualname) |q| q.ob_refcnt += 1;
-    obj.func_code = code;
-    code.ob_refcnt += 1;
+    obj.func_qualname = traits.incref(qualname);
+    obj.func_code = traits.incref(code);
     obj.func_defaults = null;
     obj.func_kwdefaults = null;
     obj.func_closure = null;
@@ -287,9 +285,8 @@ pub export fn PyFunction_GetDefaults(op: *cpython.PyObject) callconv(.c) ?*cpyth
 /// Set defaults
 pub export fn PyFunction_SetDefaults(op: *cpython.PyObject, defaults: ?*cpython.PyObject) callconv(.c) c_int {
     const f: *PyFunctionObject = @ptrCast(@alignCast(op));
-    if (f.func_defaults) |d| d.ob_refcnt -= 1;
-    f.func_defaults = defaults;
-    if (defaults) |d| d.ob_refcnt += 1;
+    traits.decref(f.func_defaults);
+    f.func_defaults = traits.incref(defaults);
     return 0;
 }
 
@@ -302,9 +299,8 @@ pub export fn PyFunction_GetKwDefaults(op: *cpython.PyObject) callconv(.c) ?*cpy
 /// Set kwdefaults
 pub export fn PyFunction_SetKwDefaults(op: *cpython.PyObject, kwdefaults: ?*cpython.PyObject) callconv(.c) c_int {
     const f: *PyFunctionObject = @ptrCast(@alignCast(op));
-    if (f.func_kwdefaults) |d| d.ob_refcnt -= 1;
-    f.func_kwdefaults = kwdefaults;
-    if (kwdefaults) |d| d.ob_refcnt += 1;
+    traits.decref(f.func_kwdefaults);
+    f.func_kwdefaults = traits.incref(kwdefaults);
     return 0;
 }
 
@@ -317,9 +313,8 @@ pub export fn PyFunction_GetClosure(op: *cpython.PyObject) callconv(.c) ?*cpytho
 /// Set closure
 pub export fn PyFunction_SetClosure(op: *cpython.PyObject, closure: ?*cpython.PyObject) callconv(.c) c_int {
     const f: *PyFunctionObject = @ptrCast(@alignCast(op));
-    if (f.func_closure) |c| c.ob_refcnt -= 1;
-    f.func_closure = closure;
-    if (closure) |c| c.ob_refcnt += 1;
+    traits.decref(f.func_closure);
+    f.func_closure = traits.incref(closure);
     return 0;
 }
 
@@ -332,9 +327,8 @@ pub export fn PyFunction_GetAnnotations(op: *cpython.PyObject) callconv(.c) ?*cp
 /// Set annotations
 pub export fn PyFunction_SetAnnotations(op: *cpython.PyObject, annotations: ?*cpython.PyObject) callconv(.c) c_int {
     const f: *PyFunctionObject = @ptrCast(@alignCast(op));
-    if (f.func_annotations) |a| a.ob_refcnt -= 1;
-    f.func_annotations = annotations;
-    if (annotations) |a| a.ob_refcnt += 1;
+    traits.decref(f.func_annotations);
+    f.func_annotations = traits.incref(annotations);
     return 0;
 }
 
@@ -364,20 +358,20 @@ pub export fn PyStaticMethod_New(callable: *cpython.PyObject) callconv(.c) ?*cpy
 fn function_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     const f: *PyFunctionObject = @ptrCast(@alignCast(obj));
 
-    if (f.func_globals) |g| g.ob_refcnt -= 1;
-    if (f.func_builtins) |b| b.ob_refcnt -= 1;
-    if (f.func_name) |n| n.ob_refcnt -= 1;
-    if (f.func_qualname) |q| q.ob_refcnt -= 1;
-    if (f.func_code) |c| c.ob_refcnt -= 1;
-    if (f.func_defaults) |d| d.ob_refcnt -= 1;
-    if (f.func_kwdefaults) |k| k.ob_refcnt -= 1;
-    if (f.func_closure) |c| c.ob_refcnt -= 1;
-    if (f.func_doc) |d| d.ob_refcnt -= 1;
-    if (f.func_dict) |d| d.ob_refcnt -= 1;
-    if (f.func_module) |m| m.ob_refcnt -= 1;
-    if (f.func_annotations) |a| a.ob_refcnt -= 1;
-    if (f.func_annotate) |a| a.ob_refcnt -= 1;
-    if (f.func_typeparams) |t| t.ob_refcnt -= 1;
+    traits.decref(f.func_globals);
+    traits.decref(f.func_builtins);
+    traits.decref(f.func_name);
+    traits.decref(f.func_qualname);
+    traits.decref(f.func_code);
+    traits.decref(f.func_defaults);
+    traits.decref(f.func_kwdefaults);
+    traits.decref(f.func_closure);
+    traits.decref(f.func_doc);
+    traits.decref(f.func_dict);
+    traits.decref(f.func_module);
+    traits.decref(f.func_annotations);
+    traits.decref(f.func_annotate);
+    traits.decref(f.func_typeparams);
 
     allocator.destroy(f);
 }

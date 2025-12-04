@@ -13,19 +13,29 @@
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
 const helpers = @import("optimization_helpers.zig");
+const traits = @import("pyobject_traits.zig");
+const exceptions = @import("exception_exports.zig");
 
-// External dependencies
-extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
-extern fn PyErr_SetString(*cpython.PyTypeObject, [*:0]const u8) callconv(.c) void;
-extern fn PyMem_Malloc(usize) callconv(.c) ?*anyopaque;
-extern fn PyMem_Free(?*anyopaque) callconv(.c) void;
-extern fn PyObject_Malloc(usize) callconv(.c) ?*anyopaque;
-extern fn PyObject_Free(?*anyopaque) callconv(.c) void;
+// Use centralized extern declarations
+const Py_INCREF = traits.externs.Py_INCREF;
+const Py_DECREF = traits.externs.Py_DECREF;
+const PyMem_Malloc = traits.externs.PyMem_Malloc;
+const PyMem_Free = traits.externs.PyMem_Free;
+const PyObject_Malloc = traits.externs.PyObject_Malloc;
+const PyObject_Free = traits.externs.PyObject_Free;
 
-// Exception types
-extern var PyExc_TypeError: cpython.PyTypeObject;
-extern var PyExc_ValueError: cpython.PyTypeObject;
+// Use centralized exception types (these are already pointers)
+const PyExc_TypeError = exceptions.PyExc_TypeError;
+const PyExc_ValueError = exceptions.PyExc_ValueError;
+
+// Import PyErr_SetString from exceptions module
+fn setTypeError(msg: [*:0]const u8) void {
+    exceptions.PyErr_SetString(PyExc_TypeError, msg);
+}
+
+fn setValueError(msg: [*:0]const u8) void {
+    exceptions.PyErr_SetString(PyExc_ValueError, msg);
+}
 
 /// ============================================================================
 /// PYUNICODE TYPE DEFINITION
@@ -238,7 +248,7 @@ export fn PyUnicode_FromStringAndSize(str: [*]const u8, size: isize) callconv(.c
 /// Returns: Null-terminated C string or null on error
 export fn PyUnicode_AsUTF8(obj: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
     if (PyUnicode_Check(obj) == 0) {
-        PyErr_SetString(&PyExc_TypeError, "expected str object");
+        setTypeError("expected str object");
         return null;
     }
     if (getUnicodeData(obj)) |d| return d.utf8;
@@ -265,7 +275,7 @@ export fn PyUnicode_AsUTF8AndSize(obj: *cpython.PyObject, size: *isize) callconv
 /// Returns: Character count (not byte count) or -1 on error
 export fn PyUnicode_GetLength(obj: *cpython.PyObject) callconv(.c) isize {
     if (PyUnicode_Check(obj) == 0) {
-        PyErr_SetString(&PyExc_TypeError, "expected str object");
+        setTypeError("expected str object");
         return -1;
     }
     if (getUnicodeData(obj)) |d| return @intCast(d.length);
@@ -306,7 +316,7 @@ export fn PyUnicode_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 export fn PyUnicode_Concat(left: *cpython.PyObject, right: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Type check
     if (PyUnicode_Check(left) == 0 or PyUnicode_Check(right) == 0) {
-        PyErr_SetString(&PyExc_TypeError, "can only concatenate str (not other types)");
+        setTypeError("can only concatenate str (not other types)");
         return null;
     }
 
@@ -348,7 +358,7 @@ export fn PyUnicode_Format(format: *cpython.PyObject, args: *cpython.PyObject) c
     _ = args;
 
     // TODO: Implement proper string formatting
-    PyErr_SetString(&PyExc_TypeError, "string formatting not yet implemented");
+    setTypeError("string formatting not yet implemented");
     return null;
 }
 
@@ -428,7 +438,7 @@ export fn PyUnicode_Join(separator: *cpython.PyObject, seq: *cpython.PyObject) c
         return PyUnicode_FromStringAndSize(&buf, @intCast(pos));
     }
 
-    PyErr_SetString(&PyExc_TypeError, "can only join list or tuple");
+    setTypeError("can only join list or tuple");
     return null;
 }
 
@@ -517,6 +527,35 @@ export fn PyUnicode_DecodeUTF8(s: [*]const u8, size: isize, errors: ?[*:0]const 
     return PyUnicode_FromStringAndSize(s, size);
 }
 
+/// Decode string from locale encoding to unicode
+///
+/// CPython: PyObject* PyUnicode_DecodeLocale(const char *str, const char *errors)
+/// Returns: Unicode object or null on error
+/// Note: Simplified - assumes locale is UTF-8 compatible
+export fn PyUnicode_DecodeLocale(str: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+    _ = errors; // Simplified: assume UTF-8 locale
+    return PyUnicode_FromString(str);
+}
+
+/// Decode string from locale encoding with explicit size
+///
+/// CPython: PyObject* PyUnicode_DecodeLocaleAndSize(const char *str, Py_ssize_t len, const char *errors)
+/// Returns: Unicode object or null on error
+export fn PyUnicode_DecodeLocaleAndSize(str: [*]const u8, len: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+    _ = errors; // Simplified: assume UTF-8 locale
+    return PyUnicode_FromStringAndSize(str, len);
+}
+
+/// Encode unicode to locale encoding
+///
+/// CPython: PyObject* PyUnicode_EncodeLocale(PyObject *unicode, const char *errors)
+/// Returns: Bytes object or null on error
+export fn PyUnicode_EncodeLocale(unicode: *cpython.PyObject, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+    _ = errors;
+    // Simplified: just return UTF-8 encoding
+    return PyUnicode_AsUTF8String(unicode);
+}
+
 /// Encode unicode to UTF-8 bytes
 ///
 /// CPython: PyObject* PyUnicode_AsUTF8String(PyObject *obj)
@@ -535,7 +574,7 @@ export fn PyUnicode_AsUTF8String(obj: *cpython.PyObject) callconv(.c) ?*cpython.
 /// Returns: -1 (less), 0 (equal), 1 (greater), -1 on error
 export fn PyUnicode_Compare(left: *cpython.PyObject, right: *cpython.PyObject) callconv(.c) c_int {
     if (PyUnicode_Check(left) == 0 or PyUnicode_Check(right) == 0) {
-        PyErr_SetString(&PyExc_TypeError, "can only compare str objects");
+        setTypeError("can only compare str objects");
         return -1;
     }
 
@@ -556,7 +595,7 @@ export fn PyUnicode_Compare(left: *cpython.PyObject, right: *cpython.PyObject) c
 /// Returns: 1 if contains, 0 if not, -1 on error
 export fn PyUnicode_Contains(container: *cpython.PyObject, element: *cpython.PyObject) callconv(.c) c_int {
     if (PyUnicode_Check(container) == 0 or PyUnicode_Check(element) == 0) {
-        PyErr_SetString(&PyExc_TypeError, "can only check str containment");
+        setTypeError("can only check str containment");
         return -1;
     }
 

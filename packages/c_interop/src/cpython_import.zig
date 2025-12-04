@@ -6,8 +6,18 @@
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
 const cpython_module = @import("cpython_module.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
+
+// Use centralized extern declarations
+const Py_INCREF = traits.externs.Py_INCREF;
+const Py_DECREF = traits.externs.Py_DECREF;
+const PyDict_New = traits.externs.PyDict_New;
+const PyDict_GetItemString = traits.externs.PyDict_GetItemString;
+const PyDict_SetItemString = traits.externs.PyDict_SetItemString;
+const PyUnicode_AsUTF8 = traits.externs.PyUnicode_AsUTF8;
+const PyModule_Create2 = traits.externs.PyModule_Create2;
 
 /// ============================================================================
 /// MODULE REGISTRY
@@ -360,18 +370,6 @@ fn loadSharedLibrary(path: [:0]const u8, name: []const u8) ?*cpython.PyObject {
     _ = std.c.dlclose(handle);
     return null;
 }
-
-/// ============================================================================
-/// HELPER FUNCTIONS (External dependencies)
-/// ============================================================================
-
-extern fn PyDict_New() callconv(.c) ?*cpython.PyObject;
-extern fn PyDict_GetItemString(*cpython.PyObject, [*:0]const u8) callconv(.c) ?*cpython.PyObject;
-extern fn PyDict_SetItemString(*cpython.PyObject, [*:0]const u8, *cpython.PyObject) callconv(.c) c_int;
-extern fn PyUnicode_AsUTF8(*cpython.PyObject) callconv(.c) ?[*:0]const u8;
-extern fn PyModule_Create2(*cpython_module.PyModuleDef, c_int) callconv(.c) ?*cpython.PyObject;
-extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
 
 /// ============================================================================
 /// TESTS

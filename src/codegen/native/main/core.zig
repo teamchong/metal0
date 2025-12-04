@@ -810,6 +810,19 @@ pub const NativeCodegen = struct {
         return .trivial;
     }
 
+    /// Query: Check if a variable needs PyValue type (heterogeneous list)
+    pub fn varNeedsPyValue(self: *const NativeCodegen, var_name: []const u8) bool {
+        if (self.call_graph) |*cg| {
+            // Use current function context
+            if (self.current_function_name) |func_name| {
+                if (cg.functions.get(func_name)) |traits| {
+                    return traits.listNeedsPyValue(var_name);
+                }
+            }
+        }
+        return false;
+    }
+
     pub fn deinit(self: *NativeCodegen) void {
         cleanup.deinit(self);
     }
@@ -828,6 +841,9 @@ pub const NativeCodegen = struct {
     /// When inside_nested_function is true, only checks current scope + var_renames
     /// (nested functions have fresh scope - outer vars only visible if captured)
     pub fn isDeclared(self: *NativeCodegen, name: []const u8) bool {
+        // Always check hoisted_vars first - these are function-level hoisted declarations
+        if (self.hoisted_vars.contains(name)) return true;
+
         if (self.inside_nested_function) {
             // Inside nested function: check current scope OR var_renames (for captured vars)
             // Variables from outer scope that weren't captured should be treated as undeclared

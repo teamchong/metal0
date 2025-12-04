@@ -88,8 +88,15 @@ fn long_dealloc(obj: *cpython.PyObject) callconv(.c) void {
 }
 
 fn long_repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = obj;
-    return null; // TODO: Implement string conversion
+    const unicode = @import("cpython_unicode.zig");
+    const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
+    const val = getLongValue(long_obj);
+
+    // Format the integer to string
+    var buf: [32]u8 = undefined;
+    const str = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return null;
+
+    return unicode.PyUnicode_FromStringAndSize(str.ptr, @intCast(str.len));
 }
 
 fn long_hash(obj: *cpython.PyObject) callconv(.c) isize {
@@ -394,6 +401,67 @@ export fn PyLong_FromVoidPtr(ptr: ?*anyopaque) callconv(.c) ?*cpython.PyObject {
     return createLong(@intCast(@intFromPtr(ptr)));
 }
 
+/// PyLong_FromUnicodeObject - Parse integer from unicode string
+/// Returns new PyLongObject or null on error
+export fn PyLong_FromUnicodeObject(u: *cpython.PyObject, base: c_int) callconv(.c) ?*cpython.PyObject {
+    const unicode = @import("cpython_unicode.zig");
+
+    // Get UTF-8 string from unicode object
+    const str = unicode.PyUnicode_AsUTF8(u) orelse return null;
+    const len = std.mem.len(str);
+
+    // Skip leading whitespace
+    var start: usize = 0;
+    while (start < len and std.ascii.isWhitespace(str[start])) {
+        start += 1;
+    }
+
+    // Skip trailing whitespace
+    var end: usize = len;
+    while (end > start and std.ascii.isWhitespace(str[end - 1])) {
+        end -= 1;
+    }
+
+    if (start >= end) return null;
+
+    // Handle sign
+    var negative = false;
+    if (str[start] == '-') {
+        negative = true;
+        start += 1;
+    } else if (str[start] == '+') {
+        start += 1;
+    }
+
+    // Determine radix
+    var radix: u8 = if (base == 0) 10 else @intCast(base);
+
+    // Handle base prefixes for base 0
+    if (base == 0 and start + 2 <= end) {
+        if (str[start] == '0') {
+            if (start + 1 < end) {
+                const prefix = str[start + 1];
+                if (prefix == 'x' or prefix == 'X') {
+                    radix = 16;
+                    start += 2;
+                } else if (prefix == 'o' or prefix == 'O') {
+                    radix = 8;
+                    start += 2;
+                } else if (prefix == 'b' or prefix == 'B') {
+                    radix = 2;
+                    start += 2;
+                }
+            }
+        }
+    }
+
+    // Parse the number
+    const value = std.fmt.parseInt(i64, str[start..end], radix) catch return null;
+    const final_value = if (negative) -value else value;
+
+    return createLong(final_value);
+}
+
 // ============================================================================
 // CONVERSION FUNCTIONS (Exported)
 // ============================================================================
@@ -435,6 +503,76 @@ export fn PyLong_AsSsize_t(obj: *cpython.PyObject) callconv(.c) isize {
 export fn PyLong_AsVoidPtr(obj: *cpython.PyObject) callconv(.c) ?*anyopaque {
     const val = getLongValue(@ptrCast(@alignCast(obj)));
     return @ptrFromInt(@as(usize, @intCast(val)));
+}
+
+/// PyLong_AsLongAndOverflow - Convert to long with overflow detection
+/// overflow is set to: 1 if overflow, -1 if underflow, 0 if successful
+export fn PyLong_AsLongAndOverflow(obj: *cpython.PyObject, overflow: *c_int) callconv(.c) c_long {
+    if (PyLong_Check(obj) == 0) {
+        overflow.* = 0;
+        return -1;
+    }
+
+    const val = getLongValue(@ptrCast(@alignCast(obj)));
+    const max_long: i64 = std.math.maxInt(c_long);
+    const min_long: i64 = std.math.minInt(c_long);
+
+    if (val > max_long) {
+        overflow.* = 1;
+        return -1;
+    }
+    if (val < min_long) {
+        overflow.* = -1;
+        return -1;
+    }
+
+    overflow.* = 0;
+    return @intCast(val);
+}
+
+/// PyLong_AsLongLongAndOverflow - Convert to long long with overflow detection
+export fn PyLong_AsLongLongAndOverflow(obj: *cpython.PyObject, overflow: *c_int) callconv(.c) c_longlong {
+    if (PyLong_Check(obj) == 0) {
+        overflow.* = 0;
+        return -1;
+    }
+
+    // For our simplified implementation, i64 == c_longlong, so no overflow possible
+    // In full CPython with arbitrary precision, this would check against INT64_MAX/MIN
+    overflow.* = 0;
+    return @intCast(getLongValue(@ptrCast(@alignCast(obj))));
+}
+
+/// _PyLong_Sign - Return sign of long: -1, 0, or 1
+export fn _PyLong_Sign(obj: *cpython.PyObject) callconv(.c) c_int {
+    const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
+    const sign = long_obj.long_value.lv_tag & cpython._PyLong_SIGN_MASK;
+    return switch (sign) {
+        0 => 1, // Positive
+        1 => 0, // Zero
+        2 => -1, // Negative
+        else => 0,
+    };
+}
+
+/// _PyLong_NumBits - Return number of bits needed to represent the absolute value
+export fn _PyLong_NumBits(obj: *cpython.PyObject) callconv(.c) usize {
+    const val = getLongValue(@ptrCast(@alignCast(obj)));
+    if (val == 0) return 0;
+    const abs_val: u64 = if (val < 0) @intCast(-val) else @intCast(val);
+    return 64 - @clz(abs_val);
+}
+
+/// PyLong_AsUnsignedLongMask - Convert to unsigned long with masking (no overflow error)
+export fn PyLong_AsUnsignedLongMask(obj: *cpython.PyObject) callconv(.c) c_ulong {
+    const val = getLongValue(@ptrCast(@alignCast(obj)));
+    return @bitCast(@as(c_long, @intCast(val)));
+}
+
+/// PyLong_AsUnsignedLongLongMask - Convert to unsigned long long with masking
+export fn PyLong_AsUnsignedLongLongMask(obj: *cpython.PyObject) callconv(.c) c_ulonglong {
+    const val = getLongValue(@ptrCast(@alignCast(obj)));
+    return @bitCast(@as(c_longlong, @intCast(val)));
 }
 
 // ============================================================================

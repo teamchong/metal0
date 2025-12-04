@@ -412,15 +412,20 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     };
 
     // Generate: blk: {
-    //   var copy = try allocator.dupe(elem_type, items);
+    //   const _input = data;
+    //   // Coerce array to slice if needed using @as and &
+    //   const _slice = if (@typeInfo(@TypeOf(_input)) == .array) &_input else _input;
+    //   var copy = try allocator.dupe(elem_type, _slice);
     //   std.mem.reverse(elem_type, copy);
     //   break :blk copy;
     // }
 
     try self.emit("blk: {\n");
-    try self.emitFmt("const __reversed_copy = try {s}.dupe({s}, ", .{ alloc_name, elem_zig_type });
+    try self.emit("const _rev_input = ");
     try self.genExpr(args[0]);
-    try self.emit(");\n");
+    try self.emit(";\n");
+    try self.emit("const _rev_slice = if (@typeInfo(@TypeOf(_rev_input)) == .array) @as([]const @typeInfo(@TypeOf(_rev_input)).array.child, &_rev_input) else _rev_input;\n");
+    try self.emitFmt("const __reversed_copy = try {s}.dupe({s}, _rev_slice);\n", .{ alloc_name, elem_zig_type });
     try self.emitFmt("std.mem.reverse({s}, __reversed_copy);\n", .{elem_zig_type});
     try self.emit("break :blk __reversed_copy;\n");
     try self.emit("}");
@@ -579,6 +584,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Fallback: Generate runtime map using anytype
     // For unknown functions, we store the iterable first, then infer from first element
+    // Use iterSlice to handle all iterable types (ArrayList, PyValue, slice, etc.)
     try self.emit("(__map_blk: {\n");
     self.indent();
     try self.emitIndent();
@@ -586,12 +592,8 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(iterable);
     try self.emit(";\n");
     try self.emitIndent();
-    // Get slice to iterate over
-    if (needs_items) {
-        try self.emit("const __map_slice = __map_iterable.items;\n");
-    } else {
-        try self.emit("const __map_slice = __map_iterable;\n");
-    }
+    // Use iterSlice for universal iterable handling (ArrayList, PyValue, slice, etc.)
+    try self.emit("const __map_slice = runtime.iterSlice(__map_iterable);\n");
     try self.emitIndent();
     try self.emit("const __map_func = ");
     try self.genExpr(func);
@@ -673,10 +675,11 @@ pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // For StringIterator and other stateful iterators, pass pointer for mutation
-    // The runtime.builtins.next() function handles both pointers and values
-    try self.emit("runtime.builtins.next(&");
+    // The runtime.builtins.next() returns an error union, wrap with try/catch
+    // Use catch to convert StopIteration/TypeError to panic (matches Python semantics)
+    try self.emit("(runtime.builtins.next(&");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emit(") catch |err| switch (err) { error.StopIteration => @panic(\"StopIteration\"), error.TypeError => @panic(\"TypeError: object is not an iterator\") })");
 }
 
 // Built-in functions implementation status:

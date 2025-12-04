@@ -308,6 +308,12 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     try self.output.writer(self.allocator).print("(dupdate_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
+    // Store target dict as mutable pointer to enable put()
+    try self.emitIndent();
+    try self.emit("var __target_dict = &");
+    try self.genExpr(obj);
+    try self.emit(";\n");
+
     // Assign to temp variable first to avoid block expression syntax issues
     try self.emitIndent();
     try self.emit("const __other_dict = ");
@@ -322,10 +328,8 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("try ");
-    try emitObjExpr(self, obj);
-    // ArrayHashMap.put() doesn't take allocator - it uses the one stored internally
-    try self.emit(".put(entry.key_ptr.*, entry.value_ptr.*);\n");
+    // Use the mutable pointer we stored above
+    try self.emit("try __target_dict.put(entry.key_ptr.*, entry.value_ptr.*);\n");
 
     self.indent_level -= 1;
     try self.emitIndent();

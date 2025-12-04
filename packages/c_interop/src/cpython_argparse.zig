@@ -14,6 +14,20 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
+
+// Use centralized extern declarations
+const Py_INCREF = traits.externs.Py_INCREF;
+const PyLong_FromLong = traits.externs.PyLong_FromLong;
+const PyTuple_New = traits.externs.PyTuple_New;
+const PyTuple_GetItem = traits.externs.PyTuple_GetItem;
+const PyTuple_SetItem = traits.externs.PyTuple_SetItem;
+
+// Float operations (need local externs - not in traits yet)
+extern fn PyFloat_AsDouble(*cpython.PyObject) callconv(.C) f64;
+extern fn PyFloat_FromDouble(f64) callconv(.C) ?*cpython.PyObject;
+extern fn PyLong_AsLong(*cpython.PyObject) callconv(.C) c_long;
+extern fn PyUnicode_AsUTF8(*cpython.PyObject) callconv(.C) ?[*:0]const u8;
 
 /// ============================================================================
 /// PYARG_PARSETUPLE - The Big One!
@@ -280,20 +294,8 @@ export fn Py_BuildValue(format: [*:0]const u8, ...) callconv(.C) ?*cpython.PyObj
     return tuple;
 }
 
-/// ============================================================================
-/// IMPORTS (Forward declarations to avoid circular deps)
-/// ============================================================================
-
-// Import type conversion functions
-extern fn PyLong_AsLong(*cpython.PyObject) callconv(.C) c_long;
+// PyLong_AsLongLong is not in traits yet
 extern fn PyLong_AsLongLong(*cpython.PyObject) callconv(.C) c_longlong;
-extern fn PyLong_FromLong(c_long) callconv(.C) ?*cpython.PyObject;
-extern fn PyFloat_AsDouble(*cpython.PyObject) callconv(.C) f64;
-extern fn PyFloat_FromDouble(f64) callconv(.C) ?*cpython.PyObject;
-extern fn PyTuple_GetItem(*cpython.PyObject, isize) callconv(.C) ?*cpython.PyObject;
-extern fn PyTuple_SetItem(*cpython.PyObject, isize, *cpython.PyObject) callconv(.C) c_int;
-extern fn PyTuple_New(isize) callconv(.C) ?*cpython.PyObject;
-extern fn Py_INCREF(*cpython.PyObject) callconv(.C) void;
 
 // Tests
 test "PyArg_ParseTuple with longs" {

@@ -39,15 +39,15 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
             try self.output.writer(self.allocator).print("runtime.PyComplex.create(0.0, {d})", .{imag});
         },
         .string => |s| {
-            const content = stripPythonQuotes(s);
+            // String content already has quotes stripped by parser
             try self.emit("\"");
-            try emitZigStringContent(self, content, StringContext.default);
+            try emitZigStringContent(self, s, StringContext.default);
             try self.emit("\"");
         },
         .bytes => |s| {
-            const content = if (s.len >= 2) s[1 .. s.len - 1] else s;
+            // Bytes content already has quotes stripped by parser
             try self.emit("\"");
-            try emitZigStringContent(self, content, StringContext.bytes);
+            try emitZigStringContent(self, s, StringContext.bytes);
             try self.emit("\"");
         },
     }

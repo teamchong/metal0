@@ -133,12 +133,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     // The generated wrapper function takes []const u8, not PyObject
     if (call.func.* == .name) {
         const func_name = call.func.name.id;
+        // Only apply special handling if loads was imported from json module
         if (std.mem.eql(u8, func_name, "loads") and call.args.len == 1) {
-            // Just call the wrapper function directly with the string
-            try self.emit("try loads(");
-            try genExpr(self, call.args[0]);
-            try self.emit(", allocator)");
-            return;
+            // Check if this loads is from json module (via from_import_needs_allocator)
+            // pickle.loads and other modules use different signatures
+            if (self.from_import_needs_allocator.contains("loads")) {
+                // json.loads wrapper - call with allocator
+                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                try self.emit("try loads(");
+                try genExpr(self, call.args[0]);
+                try self.emit(", ");
+                try self.emit(alloc_name);
+                try self.emit(")");
+                return;
+            }
+            // For pickle.loads: const loads = pickle.loads expects (data, allocator)
+            // but pickle.loads already wraps pickleLoads which doesn't need allocator
+            // Let it fall through to normal handling
         }
         // Handle from-imported array.array: from array import array -> array("B", data)
         // Returns bytes as []const u8 (Python array("B", ...) is byte array)
@@ -685,6 +696,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     try self.emit(")");
                 } else {
                     try genExpr(self, kwarg.value);
+                }
+            }
+
+            // Supply null for missing default arguments
+            // Check if this closure has a known signature with more params than provided
+            const provided_args = call.args.len + call.keyword_args.len;
+            if (self.function_signatures.get(raw_func_name)) |sig| {
+                // Add null for each missing optional argument
+                if (sig.total_params > provided_args) {
+                    const missing_count = sig.total_params - provided_args;
+                    for (0..missing_count) |i| {
+                        // Need comma before null if there were provided args, or between nulls
+                        if (provided_args > 0 or i > 0) {
+                            try self.emit(", ");
+                        }
+                        try self.emit("null");
+                    }
                 }
             }
 

@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -116,7 +117,7 @@ pub var PyCallIter_Type: cpython.PyTypeObject = .{
     .tp_richcompare = null,
     .tp_weaklistoffset = 0,
     .tp_iter = null,
-    .tp_iternext = null,
+    .tp_iternext = calliter_next,
     .tp_methods = null,
     .tp_members = null,
     .tp_getset = null,
@@ -155,7 +156,7 @@ pub export fn PySeqIter_New(seq: *cpython.PyObject) callconv(.c) ?*cpython.PyObj
     obj.ob_base.ob_type = &PySeqIter_Type;
     obj.it_index = 0;
     obj.it_seq = seq;
-    seq.ob_refcnt += 1;
+    _ = traits.incref(seq);
 
     return @ptrCast(&obj.ob_base);
 }
@@ -168,8 +169,8 @@ pub export fn PyCallIter_New(callable: *cpython.PyObject, sentinel: *cpython.PyO
     obj.ob_base.ob_type = &PyCallIter_Type;
     obj.it_callable = callable;
     obj.it_sentinel = sentinel;
-    callable.ob_refcnt += 1;
-    sentinel.ob_refcnt += 1;
+    _ = traits.incref(callable);
+    _ = traits.incref(sentinel);
 
     return @ptrCast(&obj.ob_base);
 }
@@ -189,22 +190,124 @@ pub export fn PyCallIter_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 
 fn seqiter_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     const it: *PySeqIterObject = @ptrCast(@alignCast(obj));
-    if (it.it_seq) |seq| seq.ob_refcnt -= 1;
+    if (it.it_seq) |seq| traits.decref(seq);
     allocator.destroy(it);
 }
 
 fn seqiter_next(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const it: *PySeqIterObject = @ptrCast(@alignCast(obj));
-    _ = it;
-    // TODO: Implement iteration
+    const seq = it.it_seq orelse return null;
+
+    const type_obj = cpython.Py_TYPE(seq);
+
+    // Try sequence protocol (sq_item)
+    if (type_obj.tp_as_sequence) |seq_methods| {
+        if (seq_methods.sq_item) |getitem| {
+            const result = getitem(seq, it.it_index);
+            if (result) |item| {
+                it.it_index += 1;
+                return item;
+            }
+            // IndexError/StopIteration - clear and stop
+            return null;
+        }
+    }
+
+    // Fallback: try mapping protocol (mp_subscript) with int key
+    if (type_obj.tp_as_mapping) |map_methods| {
+        if (map_methods.mp_subscript) |getitem| {
+            const long_mod = @import("pyobject_long.zig");
+            const idx_obj = long_mod.PyLong_FromLong(@intCast(it.it_index)) orelse return null;
+            defer traits.decref(idx_obj);
+
+            const result = getitem(seq, idx_obj);
+            if (result) |item| {
+                it.it_index += 1;
+                return item;
+            }
+            return null;
+        }
+    }
+
     return null;
 }
 
 fn calliter_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     const it: *PyCallIterObject = @ptrCast(@alignCast(obj));
-    if (it.it_callable) |c| c.ob_refcnt -= 1;
-    if (it.it_sentinel) |s| s.ob_refcnt -= 1;
+    if (it.it_callable) |c| traits.decref(c);
+    if (it.it_sentinel) |s| traits.decref(s);
     allocator.destroy(it);
+}
+
+fn calliter_next(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const it: *PyCallIterObject = @ptrCast(@alignCast(obj));
+    const callable = it.it_callable orelse return null;
+    const sentinel = it.it_sentinel orelse return null;
+
+    const type_obj = cpython.Py_TYPE(callable);
+    if (type_obj.tp_call) |call_func| {
+        // Call with empty args tuple
+        var empty_tuple = cpython.PyObject{ .ob_refcnt = 1, .ob_type = undefined };
+        const result = call_func(callable, &empty_tuple, null) orelse return null;
+
+        // Check if result equals sentinel
+        if (result == sentinel) {
+            traits.decref(result);
+            it.it_callable = null; // Exhaust iterator
+            return null;
+        }
+
+        return result;
+    }
+
+    return null;
+}
+
+// ============================================================================
+// GENERIC ITERATOR API
+// ============================================================================
+
+/// Get next item from any iterator
+///
+/// CPython: PyObject* PyIter_Next(PyObject *iter)
+/// Returns: Next item or null (check PyErr_Occurred for error vs StopIteration)
+pub export fn PyIter_Next(iter: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const type_obj = cpython.Py_TYPE(iter);
+    if (type_obj.tp_iternext) |next_func| {
+        return next_func(iter);
+    }
+    return null;
+}
+
+/// Check if object is an iterator
+///
+/// CPython: int PyIter_Check(PyObject *obj)
+/// Returns: 1 if iterator, 0 if not
+pub export fn PyIter_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+    const type_obj = cpython.Py_TYPE(obj);
+    return if (type_obj.tp_iternext != null) 1 else 0;
+}
+
+/// Get iterator for object (calls __iter__)
+///
+/// CPython: PyObject* PyObject_GetIter(PyObject *obj)
+/// Returns: Iterator object or null on error
+pub export fn PyObject_GetIter(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const type_obj = cpython.Py_TYPE(obj);
+
+    // Try tp_iter first
+    if (type_obj.tp_iter) |iter_func| {
+        return iter_func(obj);
+    }
+
+    // Fallback: create sequence iterator if object supports sequence protocol
+    if (type_obj.tp_as_sequence) |seq_methods| {
+        if (seq_methods.sq_item != null) {
+            return PySeqIter_New(obj);
+        }
+    }
+
+    return null;
 }
 
 // ============================================================================

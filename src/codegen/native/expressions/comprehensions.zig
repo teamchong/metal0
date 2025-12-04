@@ -153,6 +153,14 @@ fn genExprWithSubs(
                 try self.emit(", ");
                 try genExprWithSubs(self, b.right.*, subs);
                 try self.emit(")");
+            } else if (b.op == .LShift or b.op == .RShift) {
+                // Bit shifts need RHS cast to u6 (Zig requires unsigned shift amount)
+                try self.emit("(");
+                try genExprWithSubs(self, b.left.*, subs);
+                try self.emit(if (b.op == .LShift) " << " else " >> ");
+                try self.emit("@as(u6, @intCast(@mod(");
+                try genExprWithSubs(self, b.right.*, subs);
+                try self.emit(", 64))))");
             } else {
                 try self.emit("(");
                 try genExprWithSubs(self, b.left.*, subs);
@@ -409,10 +417,11 @@ fn genExprWithSubs(
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), a.attr);
         },
         .tuple => |t| {
-            // Handle tuple with substitution
+            // Handle tuple with substitution - use named fields for struct compatibility
             try self.emit(".{ ");
             for (t.elts, 0..) |elt, idx| {
                 if (idx > 0) try self.emit(", ");
+                try self.output.writer(self.allocator).print(".@\"{d}\" = ", .{idx});
                 try genExprWithSubs(self, elt, subs);
             }
             try self.emit(" }");
@@ -713,8 +722,31 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     self.indent();
 
     // Determine element type from the expression
+    // For tuple elements, we need to generate a struct type dynamically
     const element_type: []const u8 = blk: {
-        if (listcomp.elt.* == .call) {
+        if (listcomp.elt.* == .tuple) {
+            // Tuple element like (a,) - need to infer types of each element
+            const tuple = listcomp.elt.tuple;
+            var type_buf = std.ArrayList(u8){};
+            const writer = type_buf.writer(self.allocator);
+            writer.writeAll("struct { ") catch {};
+            for (tuple.elts, 0..) |elt, idx| {
+                if (idx > 0) writer.writeAll(", ") catch {};
+                writer.print("@\"{d}\": ", .{idx}) catch {};
+                // Infer type of each tuple element
+                const elt_type = self.type_inferrer.inferExpr(elt) catch .unknown;
+                const type_str: []const u8 = switch (elt_type) {
+                    .string => "[]const u8",
+                    .bool => "bool",
+                    .float => "f64",
+                    .pyvalue => "runtime.PyValue",
+                    else => "i64",
+                };
+                writer.writeAll(type_str) catch {};
+            }
+            writer.writeAll(" }") catch {};
+            break :blk type_buf.items;
+        } else if (listcomp.elt.* == .call) {
             const call = listcomp.elt.call;
             if (call.func.* == .name) {
                 const func_name = call.func.name.id;

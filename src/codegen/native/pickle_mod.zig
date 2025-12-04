@@ -39,8 +39,12 @@ fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("try runtime.json.dumpsDirect(try runtime.PyFloat.create(__global_allocator, "); try self.genExpr(args[0]); try self.emit("), __global_allocator)");
     } else if (arg_type == .string or @as(std.meta.Tag(@TypeOf(arg_type)), arg_type) == .string) {
         try self.emit("try runtime.json.dumpsDirect(try runtime.PyString.create(__global_allocator, "); try self.genExpr(args[0]); try self.emit("), __global_allocator)");
+    } else if (arg_type == .tuple) {
+        // Tuple - use dumpsValue for native Zig tuples
+        try self.emit("try runtime.json.dumpsValue("); try self.genExpr(args[0]); try self.emit(", __global_allocator)");
     } else {
-        try self.emit("try runtime.json.dumpsDirect("); try self.genExpr(args[0]); try self.emit(", __global_allocator)");
+        // Fallback: use dumpsValue for native Zig types (slices, tuples, etc.)
+        try self.emit("try runtime.json.dumpsValue("); try self.genExpr(args[0]); try self.emit(", __global_allocator)");
     }
 }
 

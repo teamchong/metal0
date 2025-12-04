@@ -5,34 +5,19 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
-
-// External dependencies
-extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
-extern fn PyErr_SetString(*cpython.PyObject, [*:0]const u8) callconv(.c) void;
+const traits = @import("pyobject_traits.zig");
 
 /// Check if object is a mapping
 export fn PyMapping_Check(obj: *cpython.PyObject) callconv(.c) c_int {
-    const type_obj = cpython.Py_TYPE(obj);
-    
-    if (type_obj.tp_as_mapping) |_| {
-        return 1;
-    }
-    
-    return 0;
+    return if (traits.isMapping(obj)) 1 else 0;
 }
 
 /// Get mapping length
 export fn PyMapping_Size(obj: *cpython.PyObject) callconv(.c) isize {
-    const type_obj = cpython.Py_TYPE(obj);
-    
-    if (type_obj.tp_as_mapping) |map_procs| {
-        if (map_procs.mp_length) |len_func| {
-            return len_func(obj);
-        }
+    if (traits.getLength(obj)) |len| {
+        return len;
     }
-    
-    PyErr_SetString(@ptrFromInt(0), "object has no len()");
+    traits.setError("TypeError", "object has no len()");
     return -1;
 }
 
@@ -44,16 +29,17 @@ export fn PyMapping_Length(obj: *cpython.PyObject) callconv(.c) isize {
 /// Get item by key
 export fn PyMapping_GetItemString(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
-    
+    const unicode = @import("cpython_unicode.zig");
+
     if (type_obj.tp_as_mapping) |map_procs| {
         if (map_procs.mp_subscript) |subscript_func| {
             // Create string key
-            // TODO: Use PyUnicode_FromString when properly linked
-            _ = subscript_func;
-            _ = key;
+            const key_obj = unicode.PyUnicode_FromString(key) orelse return null;
+            defer traits.decref(key_obj);
+            return subscript_func(obj, key_obj);
         }
     }
-    
+
     PyErr_SetString(@ptrFromInt(0), "object is not subscriptable");
     return null;
 }
@@ -61,16 +47,17 @@ export fn PyMapping_GetItemString(obj: *cpython.PyObject, key: [*:0]const u8) ca
 /// Set item by key
 export fn PyMapping_SetItemString(obj: *cpython.PyObject, key: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
-    
+    const unicode = @import("cpython_unicode.zig");
+
     if (type_obj.tp_as_mapping) |map_procs| {
         if (map_procs.mp_ass_subscript) |ass_subscript_func| {
             // Create string key
-            _ = ass_subscript_func;
-            _ = key;
-            _ = value;
+            const key_obj = unicode.PyUnicode_FromString(key) orelse return -1;
+            defer traits.decref(key_obj);
+            return ass_subscript_func(obj, key_obj, value);
         }
     }
-    
+
     PyErr_SetString(@ptrFromInt(0), "object does not support item assignment");
     return -1;
 }
@@ -78,15 +65,17 @@ export fn PyMapping_SetItemString(obj: *cpython.PyObject, key: [*:0]const u8, va
 /// Delete item by key
 export fn PyMapping_DelItemString(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
-    
+    const unicode = @import("cpython_unicode.zig");
+
     if (type_obj.tp_as_mapping) |map_procs| {
         if (map_procs.mp_ass_subscript) |ass_subscript_func| {
-            // Create string key and pass null for value
-            _ = ass_subscript_func;
-            _ = key;
+            // Create string key and pass null for value (indicates deletion)
+            const key_obj = unicode.PyUnicode_FromString(key) orelse return -1;
+            defer traits.decref(key_obj);
+            return ass_subscript_func(obj, key_obj, null);
         }
     }
-    
+
     PyErr_SetString(@ptrFromInt(0), "object doesn't support item deletion");
     return -1;
 }

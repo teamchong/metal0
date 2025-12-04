@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -215,9 +216,9 @@ pub export fn PyUnicode_FromStringAndSize(str: ?[*]const u8, size: isize) callco
     }
 }
 
-/// Get UTF-8 representation
-pub export fn PyUnicode_AsUTF8(obj: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
-    if (PyUnicode_Check(obj) == 0) return null;
+/// Get UTF-8 representation (internal - exported version in cpython_unicode.zig)
+pub fn asUTF8(obj: *cpython.PyObject) ?[*:0]const u8 {
+    if (!isUnicode(obj)) return null;
 
     const ascii_obj: *PyASCIIObject = @ptrCast(@alignCast(obj));
 
@@ -239,96 +240,23 @@ pub export fn PyUnicode_AsUTF8(obj: *cpython.PyObject) callconv(.c) ?[*:0]const 
     return compact_obj.utf8;
 }
 
-/// Get UTF-8 with size
-export fn PyUnicode_AsUTF8AndSize(obj: *cpython.PyObject, size: ?*isize) callconv(.c) ?[*:0]const u8 {
-    if (PyUnicode_Check(obj) == 0) return null;
+// NOTE: All PyUnicode_* functions are exported from cpython_unicode.zig
+// to avoid duplicate exports. This file provides:
+// - PyUnicodeObject type definition and helpers
+// - PyUnicode_Type object
+// - Internal helper functions (unicode_concat, etc.)
 
-    const ascii_obj: *PyASCIIObject = @ptrCast(@alignCast(obj));
-
-    if (size) |s| {
-        if (isAscii(ascii_obj.state)) {
-            s.* = ascii_obj.length;
-        } else {
-            const compact_obj: *PyCompactUnicodeObject = @ptrCast(@alignCast(obj));
-            s.* = compact_obj.utf8_length;
-        }
-    }
-
-    return PyUnicode_AsUTF8(obj);
-}
-
-/// Get character length
-pub export fn PyUnicode_GetLength(obj: *cpython.PyObject) callconv(.c) isize {
-    if (PyUnicode_Check(obj) == 0) return -1;
-
+/// Get character length (internal helper)
+pub fn getLength(obj: *cpython.PyObject) isize {
+    if (!isUnicode(obj)) return -1;
     const ascii_obj: *PyASCIIObject = @ptrCast(@alignCast(obj));
     return ascii_obj.length;
 }
 
-/// Type check
-pub export fn PyUnicode_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+/// Type check (internal helper)
+pub fn isUnicode(obj: *cpython.PyObject) bool {
     const flags = cpython.Py_TYPE(obj).tp_flags;
-    return if ((flags & cpython.Py_TPFLAGS_UNICODE_SUBCLASS) != 0) 1 else 0;
-}
-
-/// Exact type check
-export fn PyUnicode_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
-    return if (cpython.Py_TYPE(obj) == &PyUnicode_Type) 1 else 0;
-}
-
-/// Decode UTF-8 bytes to Unicode
-export fn PyUnicode_DecodeUTF8(data: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    _ = errors;
-    return PyUnicode_FromStringAndSize(data, size);
-}
-
-/// Encode Unicode to UTF-8 bytes
-export fn PyUnicode_AsUTF8String(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const utf8 = PyUnicode_AsUTF8(obj);
-    if (utf8 == null) return null;
-
-    const ascii_obj: *PyASCIIObject = @ptrCast(@alignCast(obj));
-    var len: isize = undefined;
-
-    if (isAscii(ascii_obj.state)) {
-        len = ascii_obj.length;
-    } else {
-        const compact_obj: *PyCompactUnicodeObject = @ptrCast(@alignCast(obj));
-        len = compact_obj.utf8_length;
-    }
-
-    // Create bytes object from UTF-8 data
-    return @import("pyobject_bytes.zig").PyBytes_FromStringAndSize(utf8, len);
-}
-
-/// Concatenate two strings
-export fn PyUnicode_Concat(left: *cpython.PyObject, right: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    if (PyUnicode_Check(left) == 0 or PyUnicode_Check(right) == 0) {
-        return null;
-    }
-
-    return unicode_concat(left, right);
-}
-
-/// Compare strings
-export fn PyUnicode_Compare(left: *cpython.PyObject, right: *cpython.PyObject) callconv(.c) c_int {
-    if (PyUnicode_Check(left) == 0 or PyUnicode_Check(right) == 0) {
-        return -1;
-    }
-
-    const left_str = PyUnicode_AsUTF8(left);
-    const right_str = PyUnicode_AsUTF8(right);
-
-    if (left_str == null or right_str == null) return -1;
-
-    const left_bytes = std.mem.span(left_str.?);
-    const right_bytes = std.mem.span(right_str.?);
-
-    return switch (std.mem.order(u8, left_bytes, right_bytes)) {
-        .lt => -1,
-        .eq => 0,
-        .gt => 1,
-    };
+    return (flags & cpython.Py_TPFLAGS_UNICODE_SUBCLASS) != 0;
 }
 
 // ============================================================================
@@ -336,8 +264,8 @@ export fn PyUnicode_Compare(left: *cpython.PyObject, right: *cpython.PyObject) c
 // ============================================================================
 
 fn unicode_concat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const a_str = PyUnicode_AsUTF8(a);
-    const b_str = PyUnicode_AsUTF8(b);
+    const a_str = asUTF8(a);
+    const b_str = asUTF8(b);
 
     if (a_str == null or b_str == null) return null;
 
@@ -403,8 +331,7 @@ fn unicode_dealloc(obj: *cpython.PyObject) callconv(.c) void {
 }
 
 fn unicode_str(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    obj.ob_refcnt += 1;
-    return obj;
+    return traits.incref(obj);
 }
 
 fn unicode_hash(obj: *cpython.PyObject) callconv(.c) isize {
@@ -416,7 +343,7 @@ fn unicode_hash(obj: *cpython.PyObject) callconv(.c) isize {
     }
 
     // Compute hash using SipHash-like algorithm
-    const str = PyUnicode_AsUTF8(obj);
+    const str = asUTF8(obj);
     if (str == null) return 0;
 
     var len: usize = undefined;
@@ -454,16 +381,18 @@ test "PyUnicode creation and access" {
     const obj = PyUnicode_FromString("hello");
     try std.testing.expect(obj != null);
 
-    const length = PyUnicode_GetLength(obj.?);
+    const length = getLength(obj.?);
     try std.testing.expectEqual(@as(isize, 5), length);
 
-    const str = PyUnicode_AsUTF8(obj.?);
+    const str = asUTF8(obj.?);
     try std.testing.expect(str != null);
     try std.testing.expectEqualStrings("hello", std.mem.span(str.?));
 }
 
-test "unicode exports" {
+test "unicode internal helpers" {
     _ = PyUnicode_FromString;
-    _ = PyUnicode_AsUTF8;
-    _ = PyUnicode_Check;
+    _ = PyUnicode_FromStringAndSize;
+    _ = asUTF8;
+    _ = getLength;
+    _ = isUnicode;
 }

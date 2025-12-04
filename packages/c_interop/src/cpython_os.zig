@@ -4,10 +4,11 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
+const traits = @import("pyobject_traits.zig");
 
-// External dependencies
-extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
+// Use centralized extern declarations
+const Py_INCREF = traits.externs.Py_INCREF;
+const Py_DECREF = traits.externs.Py_DECREF;
 
 /// Safe snprintf implementation
 /// Returns number of characters written (excluding null terminator)
@@ -92,10 +93,13 @@ export fn PyOS_AfterFork() callconv(.c) void {
 /// Initialize random number generator
 /// Returns 0 on success, -1 on error
 export fn _PyOS_URandom(buffer: [*]u8, size: isize) callconv(.c) c_int {
-    _ = buffer;
-    _ = size;
-    // TODO: Fill buffer with cryptographically secure random bytes
-    // Use /dev/urandom on Unix, CryptGenRandom on Windows
+    if (size <= 0) return 0;
+
+    const buf_slice = buffer[0..@intCast(size)];
+
+    // Use Zig's cryptographic random (uses /dev/urandom on Unix, BCryptGenRandom on Windows)
+    std.crypto.random.bytes(buf_slice);
+
     return 0;
 }
 
@@ -134,4 +138,76 @@ export fn PyOS_Readline(stdin_: *std.c.FILE, stdout_: *std.c.FILE, prompt: [*:0]
     const str: [*]u8 = @ptrCast(empty);
     str[0] = 0;
     return @ptrCast(str);
+}
+
+// ============================================================================
+// FLOAT <-> STRING CONVERSION
+// ============================================================================
+
+/// Convert double to string
+/// Returns newly allocated string (caller must free with PyMem_Free)
+export fn PyOS_double_to_string(val: f64, format_code: u8, precision: c_int, flags: c_int, ptype: ?*c_int) callconv(.c) ?[*:0]u8 {
+    _ = flags;
+
+    // Set type if requested
+    if (ptype) |pt| {
+        pt.* = if (std.math.isNan(val)) 1 else if (std.math.isInf(val)) 2 else 0;
+    }
+
+    const allocator = std.heap.c_allocator;
+    var buf: [64]u8 = undefined;
+
+    // Format based on format_code
+    const fmt_str: []const u8 = switch (format_code) {
+        'e', 'E' => blk: {
+            const result = std.fmt.bufPrint(&buf, "{e}", .{val}) catch return null;
+            break :blk result;
+        },
+        'f', 'F' => blk: {
+            if (precision >= 0 and precision <= 20) {
+                const result = std.fmt.bufPrint(&buf, "{d:.6}", .{val}) catch return null;
+                break :blk result;
+            } else {
+                const result = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return null;
+                break :blk result;
+            }
+        },
+        'g', 'G' => blk: {
+            const result = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return null;
+            break :blk result;
+        },
+        'r' => blk: {
+            // repr format - full precision
+            const result = std.fmt.bufPrint(&buf, "{d:.17}", .{val}) catch return null;
+            break :blk result;
+        },
+        else => blk: {
+            const result = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return null;
+            break :blk result;
+        },
+    };
+
+    // Allocate and copy result
+    const result = allocator.allocSentinel(u8, fmt_str.len, 0) catch return null;
+    @memcpy(result[0..fmt_str.len], fmt_str);
+    return result.ptr;
+}
+
+/// Convert string to double
+/// Returns the parsed value, sets endptr to first unconverted char
+export fn PyOS_string_to_double(s: [*:0]const u8, endptr: ?*[*:0]const u8, overflow_exception: ?*cpython.PyObject) callconv(.c) f64 {
+    _ = overflow_exception;
+
+    const str = std.mem.span(s);
+    const result = std.fmt.parseFloat(f64, str) catch {
+        if (endptr) |ep| ep.* = s;
+        return 0.0;
+    };
+
+    if (endptr) |ep| {
+        // Set to end of string (simplified - should point to first unconverted char)
+        ep.* = @ptrFromInt(@intFromPtr(s) + str.len);
+    }
+
+    return result;
 }

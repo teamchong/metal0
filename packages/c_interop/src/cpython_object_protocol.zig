@@ -11,17 +11,7 @@
 
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
-
-// External dependencies (implemented in other modules)
-extern fn Py_INCREF(?*cpython.PyObject) callconv(.c) void;
-extern fn Py_DECREF(?*cpython.PyObject) callconv(.c) void;
-extern fn PyErr_SetString(*cpython.PyTypeObject, [*:0]const u8) callconv(.c) void;
-extern fn PyErr_Occurred() callconv(.c) ?*cpython.PyTypeObject;
-extern fn PyUnicode_FromString([*:0]const u8) callconv(.c) ?*cpython.PyObject;
-
-// Exception types (defined in pyobject_exceptions.zig)
-extern var PyExc_TypeError: cpython.PyTypeObject;
-extern var PyExc_AttributeError: cpython.PyTypeObject;
+const traits = @import("pyobject_traits.zig");
 
 /// ============================================================================
 /// FUNCTION CALLING
@@ -41,7 +31,7 @@ export fn PyObject_Call(callable: *cpython.PyObject, args: *cpython.PyObject, kw
     }
 
     // Not callable
-    PyErr_SetString(&PyExc_TypeError, "object is not callable");
+    traits.setError("TypeError", "object is not callable");
     return null;
 }
 
@@ -60,103 +50,8 @@ var _Py_EmptyTuple: cpython.PyObject = .{
     .ob_type = undefined, // Will be set to PyTuple_Type at runtime
 };
 
-/// ============================================================================
-/// ATTRIBUTE ACCESS
-/// ============================================================================
-
-/// Get attribute by name object
-///
-/// CPython: PyObject* PyObject_GetAttr(PyObject *obj, PyObject *name)
-/// Name: PyUnicode object with attribute name
-/// Returns: Attribute value or null on error
-export fn PyObject_GetAttr(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const type_obj = cpython.Py_TYPE(obj);
-
-    if (type_obj.tp_getattro) |getattr_func| {
-        return getattr_func(obj, name);
-    }
-
-    // No getattr support
-    PyErr_SetString(&PyExc_AttributeError, "attribute access not supported");
-    return null;
-}
-
-/// Get attribute by C string name (convenience wrapper)
-///
-/// CPython: PyObject* PyObject_GetAttrString(PyObject *obj, const char *name)
-/// Name: Null-terminated C string
-/// Returns: Attribute value or null on error
-export fn PyObject_GetAttrString(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    const name_obj = PyUnicode_FromString(name) orelse return null;
-    defer Py_DECREF(name_obj);
-
-    return PyObject_GetAttr(obj, name_obj);
-}
-
-/// Set attribute by name object
-///
-/// CPython: int PyObject_SetAttr(PyObject *obj, PyObject *name, PyObject *value)
-/// Name: PyUnicode object with attribute name
-/// Value: New attribute value
-/// Returns: 0 on success, -1 on error
-export fn PyObject_SetAttr(obj: *cpython.PyObject, name: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) c_int {
-    const type_obj = cpython.Py_TYPE(obj);
-
-    if (type_obj.tp_setattro) |setattr_func| {
-        return setattr_func(obj, name, value);
-    }
-
-    // No setattr support
-    PyErr_SetString(&PyExc_AttributeError, "attribute assignment not supported");
-    return -1;
-}
-
-/// Set attribute by C string name (convenience wrapper)
-///
-/// CPython: int PyObject_SetAttrString(PyObject *obj, const char *name, PyObject *value)
-/// Name: Null-terminated C string
-/// Value: New attribute value
-/// Returns: 0 on success, -1 on error
-export fn PyObject_SetAttrString(obj: *cpython.PyObject, name: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
-    const name_obj = PyUnicode_FromString(name) orelse return -1;
-    defer Py_DECREF(name_obj);
-
-    return PyObject_SetAttr(obj, name_obj, value);
-}
-
-/// Check if attribute exists by name object
-///
-/// CPython: int PyObject_HasAttr(PyObject *obj, PyObject *name)
-/// Name: PyUnicode object with attribute name
-/// Returns: 1 if exists, 0 if not
-export fn PyObject_HasAttr(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) c_int {
-    const result = PyObject_GetAttr(obj, name);
-
-    if (result) |r| {
-        Py_DECREF(r);
-        return 1;
-    }
-
-    // Clear error - HasAttr doesn't raise exceptions
-    if (PyErr_Occurred()) |_| {
-        // Clear error state (simplified - should use PyErr_Clear)
-        _ = PyErr_Occurred();
-    }
-
-    return 0;
-}
-
-/// Check if attribute exists by C string name
-///
-/// CPython: int PyObject_HasAttrString(PyObject *obj, const char *name)
-/// Name: Null-terminated C string
-/// Returns: 1 if exists, 0 if not
-export fn PyObject_HasAttrString(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) c_int {
-    const name_obj = PyUnicode_FromString(name) orelse return 0;
-    defer Py_DECREF(name_obj);
-
-    return PyObject_HasAttr(obj, name_obj);
-}
+// NOTE: Attribute access functions (PyObject_GetAttr, PyObject_SetAttr, etc.)
+// are implemented in cpython_misc.zig with full descriptor protocol support
 
 /// ============================================================================
 /// STRING CONVERSION
@@ -189,7 +84,7 @@ export fn PyObject_Repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject 
     }
 
     // Default repr: <typename object at 0xADDRESS>
-    PyErr_SetString(&PyExc_TypeError, "no repr available");
+    traits.setError("TypeError", "no repr available");
     return null;
 }
 
@@ -203,8 +98,7 @@ export fn PyObject_Repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject 
 /// Returns: Type object (new reference)
 export fn PyObject_Type(obj: *cpython.PyObject) callconv(.c) *cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
-    Py_INCREF(@ptrCast(type_obj));
-    return @ptrCast(type_obj);
+    return traits.incref(@as(*cpython.PyObject, @ptrCast(type_obj)));
 }
 
 /// ============================================================================
@@ -216,32 +110,7 @@ export fn PyObject_Type(obj: *cpython.PyObject) callconv(.c) *cpython.PyObject {
 /// CPython: int PyObject_IsTrue(PyObject *obj)
 /// Returns: 1 if true, 0 if false, -1 on error
 export fn PyObject_IsTrue(obj: *cpython.PyObject) callconv(.c) c_int {
-    // Special cases for common types
-    const type_obj = cpython.Py_TYPE(obj);
-
-    if (type_obj.tp_name) |name| {
-        const type_name: []const u8 = std.mem.span(name);
-
-        // None is always false
-        if (std.mem.eql(u8, type_name, "NoneType")) {
-            return 0;
-        }
-
-        // Bool type
-        if (std.mem.eql(u8, type_name, "bool")) {
-            // Simplified: assume bool is stored as int-like
-            return 1; // TODO: Check actual bool value
-        }
-
-        // Numeric types: zero is false, non-zero is true
-        if (std.mem.eql(u8, type_name, "int") or std.mem.eql(u8, type_name, "float")) {
-            // TODO: Check actual numeric value
-            return 1;
-        }
-    }
-
-    // For now, default to true
-    return 1;
+    return if (traits.toBool(obj)) 1 else 0;
 }
 
 /// Boolean NOT operation
@@ -249,9 +118,7 @@ export fn PyObject_IsTrue(obj: *cpython.PyObject) callconv(.c) c_int {
 /// CPython: int PyObject_Not(PyObject *obj)
 /// Returns: 0 if true, 1 if false, -1 on error
 export fn PyObject_Not(obj: *cpython.PyObject) callconv(.c) c_int {
-    const result = PyObject_IsTrue(obj);
-    if (result < 0) return -1;
-    return if (result == 0) @as(c_int, 1) else @as(c_int, 0);
+    return if (traits.toBool(obj)) 0 else 1;
 }
 
 /// ============================================================================
@@ -272,14 +139,61 @@ pub const Py_GE: c_int = 5;
 /// Op: One of Py_LT, Py_LE, Py_EQ, Py_NE, Py_GT, Py_GE
 /// Returns: Comparison result (usually bool) or null on error
 export fn PyObject_RichCompare(a: *cpython.PyObject, b: *cpython.PyObject, op: c_int) callconv(.c) ?*cpython.PyObject {
-    _ = a;
-    _ = b;
-    _ = op;
+    const bool_mod = @import("pyobject_bool.zig");
 
-    // TODO: Implement proper comparison dispatch
-    // For now, return NotImplemented
-    PyErr_SetString(&PyExc_TypeError, "comparison not implemented");
+    // Try a's tp_richcompare first
+    const type_a = cpython.Py_TYPE(a);
+    if (type_a.tp_richcompare) |cmp_func| {
+        const result = cmp_func(a, b, op);
+        if (result != null) return result;
+    }
+
+    // Try b's tp_richcompare with swapped comparison
+    const type_b = cpython.Py_TYPE(b);
+    if (type_b.tp_richcompare) |cmp_func| {
+        // Swap comparison: < becomes >, <= becomes >=, etc.
+        const swapped_op: c_int = switch (op) {
+            Py_LT => Py_GT,
+            Py_LE => Py_GE,
+            Py_GT => Py_LT,
+            Py_GE => Py_LE,
+            else => op, // EQ and NE are symmetric
+        };
+        const result = cmp_func(b, a, swapped_op);
+        if (result != null) return result;
+    }
+
+    // Fallback: identity comparison for EQ/NE
+    if (op == Py_EQ) {
+        return bool_mod.PyBool_FromLong(if (a == b) 1 else 0);
+    }
+    if (op == Py_NE) {
+        return bool_mod.PyBool_FromLong(if (a != b) 1 else 0);
+    }
+
+    // No comparison defined
+    traits.setError("TypeError", "comparison not supported");
     return null;
+}
+
+/// Rich comparison returning boolean
+///
+/// CPython: int PyObject_RichCompareBool(PyObject *a, PyObject *b, int op)
+/// Returns: 1 if true, 0 if false, -1 on error
+export fn PyObject_RichCompareBool(a: *cpython.PyObject, b: *cpython.PyObject, op: c_int) callconv(.c) c_int {
+    // Fast path for identity
+    if (a == b) {
+        return switch (op) {
+            Py_EQ, Py_LE, Py_GE => 1,
+            Py_NE, Py_LT, Py_GT => 0,
+            else => -1,
+        };
+    }
+
+    const result = PyObject_RichCompare(a, b, op) orelse return -1;
+    defer traits.decref(result);
+
+    return PyObject_IsTrue(result);
 }
 
 /// ============================================================================
@@ -298,8 +212,143 @@ export fn PyObject_Hash(obj: *cpython.PyObject) callconv(.c) isize {
     }
 
     // Unhashable type
-    PyErr_SetString(&PyExc_TypeError, "unhashable type");
+    traits.setError("TypeError", "unhashable type");
     return -1;
+}
+
+/// ============================================================================
+/// LENGTH/SIZE
+/// ============================================================================
+
+/// Get length of object (sequence or mapping)
+///
+/// CPython: Py_ssize_t PyObject_Length(PyObject *obj)
+/// Returns: Length or -1 on error
+export fn PyObject_Length(obj: *cpython.PyObject) callconv(.c) isize {
+    if (traits.getLength(obj)) |len| {
+        return len;
+    }
+    traits.setError("TypeError", "object has no len()");
+    return -1;
+}
+
+/// Alias for PyObject_Length
+export fn PyObject_Size(obj: *cpython.PyObject) callconv(.c) isize {
+    return PyObject_Length(obj);
+}
+
+/// ============================================================================
+/// SUBSCRIPT (ITEM ACCESS)
+/// ============================================================================
+
+/// Get item by key (subscript: obj[key])
+///
+/// CPython: PyObject* PyObject_GetItem(PyObject *obj, PyObject *key)
+/// Returns: Item value or null on error
+export fn PyObject_GetItem(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    // Try mapping protocol first
+    if (traits.getItemByKey(obj, key)) |item| {
+        return item;
+    }
+
+    // Try sequence protocol with integer key
+    if (traits.isInt(key)) {
+        if (traits.toInt(key)) |idx| {
+            if (traits.getItem(obj, @intCast(idx))) |item| {
+                return item;
+            }
+        }
+    }
+
+    traits.setError("TypeError", "object is not subscriptable");
+    return null;
+}
+
+/// Set item by key (subscript: obj[key] = value)
+///
+/// CPython: int PyObject_SetItem(PyObject *obj, PyObject *key, PyObject *value)
+/// Returns: 0 on success, -1 on error
+export fn PyObject_SetItem(obj: *cpython.PyObject, key: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) c_int {
+    // Try mapping protocol first
+    if (traits.setItemByKey(obj, key, value)) {
+        return 0;
+    }
+
+    // Try sequence protocol with integer key
+    if (traits.isInt(key)) {
+        if (traits.toInt(key)) |idx| {
+            if (traits.setItem(obj, @intCast(idx), value)) {
+                return 0;
+            }
+        }
+    }
+
+    traits.setError("TypeError", "object does not support item assignment");
+    return -1;
+}
+
+/// Delete item by key (del obj[key])
+///
+/// CPython: int PyObject_DelItem(PyObject *obj, PyObject *key)
+/// Returns: 0 on success, -1 on error
+export fn PyObject_DelItem(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
+    // Try mapping protocol first (pass null for value = deletion)
+    if (traits.setItemByKey(obj, key, null)) {
+        return 0;
+    }
+
+    // Try sequence protocol with integer key
+    if (traits.isInt(key)) {
+        const type_obj = cpython.Py_TYPE(obj);
+        if (type_obj.tp_as_sequence) |seq| {
+            if (seq.sq_ass_item) |ass_fn| {
+                if (traits.toInt(key)) |idx| {
+                    return ass_fn(obj, @intCast(idx), null);
+                }
+            }
+        }
+    }
+
+    traits.setError("TypeError", "object does not support item deletion");
+    return -1;
+}
+
+/// ============================================================================
+/// ASCII / BYTES CONVERSION
+/// ============================================================================
+
+/// Convert object to ASCII string (escapes non-ASCII)
+///
+/// CPython: PyObject* PyObject_ASCII(PyObject *obj)
+/// Returns: ASCII string representation or null on error
+export fn PyObject_ASCII(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    // Get repr first
+    const repr = PyObject_Repr(obj) orelse return null;
+
+    // For now, just return repr (full impl would escape non-ASCII)
+    // TODO: Escape non-ASCII characters to \xNN or \uNNNN
+    return repr;
+}
+
+/// Convert object to bytes
+///
+/// CPython: PyObject* PyObject_Bytes(PyObject *obj)
+/// Returns: Bytes object or null on error
+export fn PyObject_Bytes(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    // If already bytes, incref and return
+    if (traits.isBytes(obj)) {
+        return traits.incref(obj);
+    }
+
+    // Get string and encode to UTF-8
+    const str_obj = PyObject_Str(obj) orelse return null;
+    defer traits.decref(str_obj);
+
+    const unicode = @import("cpython_unicode.zig");
+    var size: isize = 0;
+    const data = unicode.PyUnicode_AsUTF8AndSize(str_obj, &size) orelse return null;
+
+    return traits.createBytes(data[0..@intCast(size)]);
 }
 
 // ============================================================================
@@ -314,22 +363,24 @@ test "PyObject protocol functions exist" {
     const funcs = .{
         PyObject_Call,
         PyObject_CallObject,
-        PyObject_GetAttr,
-        PyObject_GetAttrString,
-        PyObject_SetAttr,
-        PyObject_SetAttrString,
-        PyObject_HasAttr,
-        PyObject_HasAttrString,
         PyObject_Str,
         PyObject_Repr,
         PyObject_Type,
         PyObject_IsTrue,
         PyObject_Not,
         PyObject_RichCompare,
+        PyObject_RichCompareBool,
         PyObject_Hash,
+        PyObject_Length,
+        PyObject_Size,
+        PyObject_GetItem,
+        PyObject_SetItem,
+        PyObject_DelItem,
+        PyObject_ASCII,
+        PyObject_Bytes,
     };
 
-    // 15 functions total
+    // 16 functions total
     inline for (funcs) |func| {
         _ = func;
     }
