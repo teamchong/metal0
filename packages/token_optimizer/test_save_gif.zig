@@ -1,5 +1,5 @@
 const std = @import("std");
-const render = @import("src/render.zig");
+const render = @import("pixel_render");
 const gif = @import("src/gif_zigimg.zig");
 
 pub fn main() !void {

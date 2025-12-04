@@ -1,6 +1,6 @@
 const std = @import("std");
 const compress = @import("src/compress.zig");
-const render = @import("src/render.zig");
+const render = @import("pixel_render");
 
 // Test single line text (no newline)
 test "single line - no newline" {
@@ -116,7 +116,7 @@ test "full compression pipeline - short text stays text" {
     defer allocator.free(compressed);
 
     // Verify valid JSON using metal0 JSON parser
-    const api_types = @import("src/api_types.zig");
+    const api_types = @import("anthropic_types");
     const parser = api_types.MessageParser.init(allocator);
 
     // Extract text to verify it's valid
@@ -322,7 +322,7 @@ test "escape sequences in content" {
         \\{"model":"claude-3-5-sonnet-20241022","max_tokens":100,"messages":[{"role":"user","content":"Line1\nLine2\tTabbed\"Quoted\""}]}
     ;
 
-    const api_types = @import("src/api_types.zig");
+    const api_types = @import("anthropic_types");
     const parser = api_types.MessageParser.init(allocator);
 
     // Should parse and extract text correctly

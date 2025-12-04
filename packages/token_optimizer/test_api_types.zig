@@ -1,5 +1,5 @@
 const std = @import("std");
-const api_types = @import("src/api_types.zig");
+const api_types = @import("anthropic_types");
 
 // ============================================================================
 // Role Tests

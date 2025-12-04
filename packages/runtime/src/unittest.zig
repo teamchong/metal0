@@ -106,7 +106,27 @@ pub const ContextManager = struct {
     };
 
     exception: Exception = .{},
+
+    /// Context manager __enter__ - returns self
+    pub fn __enter__(self: *@This(), _: anytype) !*@This() {
+        return self;
+    }
+
+    /// Context manager __exit__ - returns null/false to propagate exception
+    pub fn __exit__(self: *@This(), _: anytype, _: anytype, _: anytype, _: anytype) !?bool {
+        _ = self;
+        return null;
+    }
 };
+
+/// AssertRaises context manager type (returned by assertRaises/assertRaisesRegex)
+pub const AssertRaisesContext = ContextManager;
+
+/// AssertWarns context manager type (returned by assertWarns/assertWarnsRegex)
+pub const AssertWarnsContext = ContextManager;
+
+/// AssertLogs context manager type (returned by assertLogs/assertNoLogs)
+pub const AssertLogsContext = ContextManager;
 
 /// SkipTest exception - raised to skip a test
 /// In Python: raise unittest.SkipTest("reason")

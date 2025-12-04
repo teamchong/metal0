@@ -6,7 +6,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     // Import the actual modules used by proxy
-    const render = @import("src/render.zig");
+    const render = @import("pixel_render");
     const compress = @import("src/compress.zig");
     
     const test_text = 

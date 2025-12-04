@@ -726,6 +726,52 @@ pub fn run_in_subinterp(_: []const u8) i64 {
     return 0;
 }
 
+/// Calculate collision statistics for hash testing
+/// Returns (mean, sdev) of number of collisions when tossing nballs balls
+/// uniformly at random into nbins bins.
+/// Port of Python's test.support.collision_stats using high-precision floats
+pub fn collision_stats(nbins: anytype, nballs: anytype) struct { f64, f64 } {
+    // Handle BigInt and regular integers uniformly
+    const NbinsT = @TypeOf(nbins);
+    const NballsT = @TypeOf(nballs);
+
+    const n: f64 = if (NbinsT == @import("bigint").BigInt)
+        nbins.toFloat()
+    else if (@typeInfo(NbinsT) == .int or @typeInfo(NbinsT) == .comptime_int)
+        @floatFromInt(nbins)
+    else
+        @floatCast(nbins);
+
+    const k: f64 = if (NballsT == @import("bigint").BigInt)
+        nballs.toFloat()
+    else if (@typeInfo(NballsT) == .int or @typeInfo(NballsT) == .comptime_int)
+        @floatFromInt(nballs)
+    else
+        @floatCast(nballs);
+
+    // Use f64 for calculations (std.math.pow doesn't support f128)
+    // prob a bin empty after k trials = (1 - 1/n)**k
+    // p1empty = ((n - 1) / n) ** k
+    const p1empty = std.math.pow(f64, (n - 1.0) / n, k);
+
+    // meanempty = n * p1empty
+    const meanempty = n * p1empty;
+
+    // occupied = n - meanempty
+    const occupied = n - meanempty;
+
+    // collisions = k - occupied
+    const collisions = k - occupied;
+
+    // var = n*(n-1)*((n-2)/n)**k + meanempty * (1 - meanempty)
+    const var_term1 = n * (n - 1.0) * std.math.pow(f64, (n - 2.0) / n, k);
+    const var_term2 = meanempty * (1.0 - meanempty);
+    const variance = var_term1 + var_term2;
+    const sdev = @sqrt(variance);
+
+    return .{ collisions, sdev };
+}
+
 // ============================================================================
 // test.support sub-module (self-reference for nested imports)
 // ============================================================================

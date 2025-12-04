@@ -1,6 +1,6 @@
 const std = @import("std");
-const render = @import("src/render.zig");
-const gif = @import("src/gif.zig");
+const render = @import("pixel_render");
+const gif = @import("tiny_gif");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

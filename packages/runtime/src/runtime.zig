@@ -169,6 +169,64 @@ pub fn istype(comptime T: type, comptime type_name: []const u8) bool {
 /// This is a no-op function that accepts any value
 pub inline fn discard(_: anytype) void {}
 
+/// Convert ArrayList or other container types to a slice for iteration
+/// This is a comptime function that normalizes different container types to slices
+pub inline fn iterSlice(value: anytype) IterSliceType(@TypeOf(value)) {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // Handle ArrayList - extract .items slice
+    if (info == .@"struct" and @hasField(T, "items") and @hasField(T, "capacity")) {
+        return value.items;
+    }
+
+    // Handle PyValue - extract list slice
+    if (T == PyValue) {
+        return switch (value) {
+            .list => |l| l,
+            .tuple => |t| t,
+            else => &[_]PyValue{},
+        };
+    }
+
+    // Array - convert to slice
+    if (info == .array) {
+        return &value;
+    }
+
+    // Already a slice - return as-is
+    return value;
+}
+
+/// Helper to determine return type for iterSlice
+fn IterSliceType(comptime T: type) type {
+    const info = @typeInfo(T);
+
+    // ArrayList -> slice of its item type
+    if (info == .@"struct" and @hasField(T, "items") and @hasField(T, "capacity")) {
+        // ArrayList.items is a slice, return that slice type directly
+        return @TypeOf(@as(T, undefined).items);
+    }
+
+    // PyValue -> []const PyValue
+    if (T == PyValue) {
+        return []const PyValue;
+    }
+
+    // Already a slice - return same type
+    if (info == .pointer and info.pointer.size == .slice) {
+        return T;
+    }
+
+    // Array - return as slice
+    if (info == .array) {
+        return []const info.array.child;
+    }
+
+    // Fallback
+    return T;
+}
+
 /// Generic bool conversion for Python truthiness semantics
 /// Returns false for: 0, 0.0, false, empty strings, empty slices
 /// Returns true for everything else
@@ -1422,6 +1480,11 @@ pub const float_ops = @import("runtime/float_ops.zig");
 pub const divideFloat = float_ops.divideFloat;
 pub const floatFromHex = float_ops.floatFromHex;
 pub const floatGetFormat = float_ops.floatGetFormat;
+pub const toFloat = float_ops.toFloat;
+pub const subtractNum = float_ops.subtractNum;
+pub const addNum = float_ops.addNum;
+pub const mulNum = float_ops.mulNum;
+pub const numToFloat = float_ops.numToFloat;
 pub const floatIsInteger = float_ops.floatIsInteger;
 
 // Import and re-export integer operations
@@ -1526,7 +1589,6 @@ pub fn objectBuiltin(arg: []const u8) []const u8 {
 pub fn complexBuiltin(arg: []const u8) []const u8 {
     return if (arg.len > 0) arg else "complex";
 }
-pub const toFloat = float_ops.toFloat;
 
 /// Format mode for formatInt
 pub const FormatMode = enum {
@@ -2075,6 +2137,75 @@ pub fn createObject() *PyObject {
 /// This is Python list concatenation: [1,2] + [3,4] = [1,2,3,4]
 pub inline fn concat(a: anytype, b: anytype) @TypeOf(a ++ b) {
     return a ++ b;
+}
+
+/// Runtime-friendly list concatenation that handles PyValue types
+/// Use this when values might not be comptime-known
+/// Returns PyValue (list variant) for Python semantic compatibility
+pub fn concatRuntime(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
+    var result = std.ArrayList(PyValue){};
+
+    // Add elements from a
+    const AType = @TypeOf(a);
+    const a_is_pyvalue = @typeInfo(AType) == .@"union" and @hasField(AType, "list");
+    const a_is_arraylist = @typeInfo(AType) == .@"struct" and @hasField(AType, "items") and @hasField(AType, "capacity");
+    if (a_is_pyvalue) {
+        const a_list = if (a == .list) a.list else if (a == .tuple) a.tuple else &[_]PyValue{};
+        try result.appendSlice(allocator, a_list);
+    } else if (a_is_arraylist) {
+        // ArrayList - iterate over items and convert each to PyValue
+        for (a.items) |item| {
+            try result.append(allocator, try PyValue.fromAlloc(allocator, item));
+        }
+    } else {
+        const a_slice = iterSlice(a);
+        for (a_slice) |item| {
+            try result.append(allocator, try PyValue.fromAlloc(allocator, item));
+        }
+    }
+
+    // Add elements from b
+    const BType = @TypeOf(b);
+    const b_is_pyvalue = @typeInfo(BType) == .@"union" and @hasField(BType, "list");
+    const b_is_arraylist = @typeInfo(BType) == .@"struct" and @hasField(BType, "items") and @hasField(BType, "capacity");
+    if (b_is_pyvalue) {
+        const b_list = if (b == .list) b.list else if (b == .tuple) b.tuple else &[_]PyValue{};
+        try result.appendSlice(allocator, b_list);
+    } else if (b_is_arraylist) {
+        // ArrayList - iterate over items and convert each to PyValue
+        for (b.items) |item| {
+            try result.append(allocator, try PyValue.fromAlloc(allocator, item));
+        }
+    } else {
+        const b_slice = iterSlice(b);
+        for (b_slice) |item| {
+            try result.append(allocator, try PyValue.fromAlloc(allocator, item));
+        }
+    }
+
+    return PyValue{ .list = result.items };
+}
+
+/// Safe array/list comparison that handles different lengths
+/// Python semantics: compare element by element, shorter list is "less" if equal prefix
+pub fn arrayLessThan(a: anytype, b: anytype) bool {
+    const a_slice = iterSlice(a);
+    const b_slice = iterSlice(b);
+    const min_len = @min(a_slice.len, b_slice.len);
+
+    for (a_slice[0..min_len], b_slice[0..min_len]) |ea, eb| {
+        if (comptime @typeInfo(@TypeOf(ea)) == .@"struct") {
+            // Handle tuple elements by comparing field by field
+            const ea_val: i64 = if (@hasField(@TypeOf(ea), "@\"0\"")) @intCast(ea.@"0") else 0;
+            const eb_val: i64 = if (@hasField(@TypeOf(eb), "@\"0\"")) @intCast(eb.@"0") else 0;
+            if (ea_val < eb_val) return true;
+            if (ea_val > eb_val) return false;
+        } else {
+            if (ea < eb) return true;
+            if (ea > eb) return false;
+        }
+    }
+    return a_slice.len < b_slice.len;
 }
 
 /// Repeat an array n times - returns a new array with elements repeated

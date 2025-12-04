@@ -119,8 +119,8 @@ Claude Code → localhost:8080 (proxy) → api.anthropic.com
 - `src/main.zig` - Entry point, HTTP server
 - `src/proxy.zig` - API forwarding, request/response handling
 - `src/compress.zig` - Per-line compression logic (Option 3)
-- `src/render.zig` - 5×7 bitmap font with visual whitespace
-- `src/gif.zig` - GIF89a encoder (3-color palette)
+- `packages/pixel_render/src/render.zig` - 5×7 bitmap font with visual whitespace
+- `packages/tiny_gif/src/gif.zig` - GIF89a encoder (3-color palette)
 - `src/json.zig` - JSON parser/writer for message extraction
 
 ## Troubleshooting

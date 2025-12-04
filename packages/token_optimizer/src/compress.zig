@@ -1,7 +1,7 @@
 const std = @import("std");
-const api_types = @import("api_types.zig");
-const render = @import("render.zig");
-const png = @import("png_zigimg.zig");
+const api_types = @import("anthropic_types");
+const render = @import("pixel_render");
+const png = @import("pal_png");
 
 /// Max chars per image chunk (fits in ~1024x1024 at scale 2)
 /// 1024 / 2 / 6 (char width) ≈ 85 chars per line

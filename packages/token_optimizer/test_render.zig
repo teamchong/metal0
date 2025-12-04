@@ -1,6 +1,6 @@
 const std = @import("std");
-const render = @import("src/render.zig");
-const api_types = @import("src/api_types.zig");
+const render = @import("pixel_render");
+const api_types = @import("anthropic_types");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
