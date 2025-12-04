@@ -95,13 +95,7 @@ pub const HashObject = struct {
     pub fn hexdigest(self: *HashObject, allocator: std.mem.Allocator) ![]u8 {
         const d = try self.digest(allocator);
         defer allocator.free(d);
-        const hex = try allocator.alloc(u8, d.len * 2);
-        const hex_chars = "0123456789abcdef";
-        for (d, 0..) |byte, i| {
-            hex[i * 2] = hex_chars[byte >> 4];
-            hex[i * 2 + 1] = hex_chars[byte & 0x0f];
-        }
-        return hex;
+        return bytesToHex(d, allocator);
     }
 
     /// Copy the hash object (copies hasher state)

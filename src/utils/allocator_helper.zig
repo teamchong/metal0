@@ -31,6 +31,23 @@ pub fn getAllocator(gpa_ptr: anytype) std.mem.Allocator {
 /// Alias for getAllocator - used in benchmarks
 pub const getBenchmarkAllocator = getAllocator;
 
+/// Get allocator type at comptime (for struct fields)
+/// - Native release: void (c_allocator has no state)
+/// - Debug/WASM: GPA type
+pub fn BenchmarkAllocatorType() type {
+    comptime {
+        const is_wasm = builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64;
+        const is_debug = builtin.mode == .Debug;
+
+        if (is_wasm or is_debug) {
+            return std.heap.GeneralPurposeAllocator(.{});
+        }
+    }
+
+    // For native release builds, c_allocator has no state
+    return void;
+}
+
 test "allocator selection" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
