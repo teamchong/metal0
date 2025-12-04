@@ -167,10 +167,10 @@ metal0 compiles Python's `asyncio` to optimized native code:
 
 | Library | Time | vs metal0 | Size |
 |---------|------|----------|------|
-| @anthropic-ai/tokenizer (JS) | 64.8ms | 1.12x faster | 8.6MB |
-| **metal0 (WASM)** | **72.5ms** | **1.00x** | **46KB** |
-| gpt-tokenizer (JS) | 1487ms | 20.5x slower | 1.1MB |
-| tiktoken (Node) | 17951ms | 248x slower | 1.0MB |
+| **metal0 (WASM)** | **33.6ms** | **1.00x** | **46KB** |
+| @anthropic-ai/tokenizer (JS) | 33.5ms | 1.00x | 8.6MB |
+| gpt-tokenizer (JS) | 904ms | 27x slower | 1.1MB |
+| tiktoken (Node) | 11965ms | 356x slower | 1.0MB |
 
 **BPE Training (vocab_size=32000, 300 iterations):**
 
