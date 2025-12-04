@@ -1106,6 +1106,21 @@ pub fn assertIs(a: anytype, b: anytype) void {
             break :blk false;
         }
 
+        // PickleValue compared with bool - extract bool from PickleValue
+        // This handles pickle.loads() is True/False
+        if (@hasField(A, "bool") and B == bool) {
+            if (a == .bool) {
+                break :blk a.bool == b;
+            }
+            break :blk false;
+        }
+        if (@hasField(B, "bool") and A == bool) {
+            if (b == .bool) {
+                break :blk a == b.bool;
+            }
+            break :blk false;
+        }
+
         // Different types - can never be the same object
         break :blk false;
     };
