@@ -341,6 +341,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     const HoistedVar = struct {
         name: []const u8,
         value: ast.Node, // The RHS expression for type inference
+        is_exception_name: bool = false, // true if this is an "except X as name" variable
     };
     var declared_vars = std.ArrayList(HoistedVar){};
     defer declared_vars.deinit(self.allocator);
@@ -397,17 +398,52 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try collectAssignedVarsRecursive(handler.body, &declared_vars, self, addVarIfNeeded);
     }
 
+    // Also hoist exception variable names (the "as name" in "except Exception as name")
+    // Python allows these variables to be accessed after the try/except block
+    for (try_node.handlers) |handler| {
+        if (handler.name) |exc_name| {
+            // Only hoist if not already declared in scope or previously hoisted
+            if (!self.isDeclared(exc_name) and !self.hoisted_vars.contains(exc_name)) {
+                // Check if already in declared_vars
+                const already_declared = blk: {
+                    for (declared_vars.items) |dv| {
+                        if (std.mem.eql(u8, dv.name, exc_name)) break :blk true;
+                    }
+                    break :blk false;
+                };
+                if (!already_declared) {
+                    // Create a dummy node for the exception name - it's a string type
+                    try declared_vars.append(self.allocator, .{
+                        .name = exc_name,
+                        .value = .{ .constant = .{ .value = .{ .string = "" } } }, // dummy string value
+                        .is_exception_name = true, // marker that this is an exception name
+                    });
+                }
+            }
+        }
+    }
+
     // Hoist variable declarations BEFORE the block (so they're accessible after try)
     for (declared_vars.items) |hoisted| {
         const var_name = hoisted.name;
 
-        // Infer type directly from the RHS expression - this is more accurate than
-        // looking up by variable name which can confuse same-named vars in different methods
-        const var_type = self.type_inferrer.inferExpr(hoisted.value) catch null;
-        var zig_type = if (var_type) |vt| blk: {
-            break :blk try self.nativeTypeToZigType(vt);
-        } else "i64";
-        defer if (var_type != null) self.allocator.free(zig_type);
+        // Exception names (from "except X as name") are always strings
+        // For regular variables, infer type from the RHS expression
+        var zig_type: []const u8 = undefined;
+        var needs_free = false;
+        var var_type: ?NativeType = null;
+        if (hoisted.is_exception_name) {
+            zig_type = "[]const u8";
+        } else {
+            var_type = self.type_inferrer.inferExpr(hoisted.value) catch null;
+            if (var_type) |vt| {
+                zig_type = try self.nativeTypeToZigType(vt);
+                needs_free = true;
+            } else {
+                zig_type = "i64";
+            }
+        }
+        defer if (needs_free) self.allocator.free(zig_type);
 
         // If it's a class instance type, check if the class was renamed (e.g., duplicate S classes)
         if (var_type) |vt| {
@@ -938,33 +974,49 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
 
             if (handler.type) |exc_type| {
-                const zig_err = pythonExceptionToZigError(exc_type);
-                try self.output.writer(self.allocator).print("if ({s} == error.", .{err_var});
-                try self.emit(zig_err);
-                try self.emit(") {\n");
+                // Exception and BaseException are catch-all - they catch any error
+                const is_catch_all = std.mem.eql(u8, exc_type, "Exception") or
+                    std.mem.eql(u8, exc_type, "BaseException");
+
+                if (is_catch_all) {
+                    // Catch-all: just enter the handler block without checking specific error
+                    try self.emit("{\n");
+                    // Suppress unused error variable warning (can't use _ for error sets)
+                    self.indent();
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("_ = @errorName({s});\n", .{err_var});
+                    self.dedent();
+                } else {
+                    const zig_err = pythonExceptionToZigError(exc_type);
+                    try self.output.writer(self.allocator).print("if ({s} == error.", .{err_var});
+                    try self.emit(zig_err);
+                    try self.emit(") {\n");
+                }
                 self.indent();
-                // If handler has "as name", declare the exception variable as a string
-                // But only if it's actually used in the handler body
-                // Check if this variable was hoisted (already declared with var at outer scope)
+                // If handler has "as name", always assign the exception variable
+                // It might be used in the handler body OR after the try/except block
                 if (handler.name) |exc_name| {
-                    if (isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
-                        // Check if this name was already hoisted as a var
-                        const is_hoisted = blk: {
-                            for (declared_vars.items) |hoisted| {
-                                if (std.mem.eql(u8, hoisted.name, exc_name)) break :blk true;
-                            }
-                            break :blk false;
-                        };
+                    // Check if this name was already hoisted as a var
+                    const is_hoisted = blk: {
+                        for (declared_vars.items) |hoisted| {
+                            if (std.mem.eql(u8, hoisted.name, exc_name)) break :blk true;
+                        }
+                        break :blk false;
+                    };
+                    // Only emit if used in handler body OR hoisted (used elsewhere)
+                    if (is_hoisted or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
                         try self.emitIndent();
+                        // Use runtime.getExceptionStr() to get the actual exception message
+                        // not just the error type name
                         if (is_hoisted) {
                             // Assign to the existing hoisted variable
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
-                            try self.output.writer(self.allocator).print(" = @errorName({s});\n", .{err_var});
+                            try self.emit(" = runtime.getExceptionStr();\n");
                         } else {
                             // Declare new const
                             try self.emit("const ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
-                            try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
+                            try self.emit(": []const u8 = runtime.getExceptionStr();\n");
                         }
                     }
                 }
@@ -972,6 +1024,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     try self.generateStmt(stmt);
                 }
                 self.dedent();
+                // For catch-all handlers (Exception/BaseException), close the block
+                if (is_catch_all) {
+                    try self.emitIndent();
+                    try self.emit("}\n");
+                }
                 generated_handler = true;
             } else {
                 if (i > 0) {
@@ -981,28 +1038,30 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     try self.emit("{\n");
                 }
                 self.indent();
-                // If handler has "as name", declare the exception variable as a string
-                // But only if it's actually used in the handler body
-                // Check if this variable was hoisted (already declared with var at outer scope)
+                // If handler has "as name", always assign the exception variable
+                // It might be used in the handler body OR after the try/except block
                 if (handler.name) |exc_name| {
-                    if (isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
-                        // Check if this name was already hoisted as a var
-                        const is_hoisted = blk: {
-                            for (declared_vars.items) |hoisted| {
-                                if (std.mem.eql(u8, hoisted.name, exc_name)) break :blk true;
-                            }
-                            break :blk false;
-                        };
+                    // Check if this name was already hoisted as a var
+                    const is_hoisted = blk: {
+                        for (declared_vars.items) |hoisted| {
+                            if (std.mem.eql(u8, hoisted.name, exc_name)) break :blk true;
+                        }
+                        break :blk false;
+                    };
+                    // Only emit if used in handler body OR hoisted (used elsewhere)
+                    if (is_hoisted or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
                         try self.emitIndent();
+                        // Use runtime.getExceptionStr() to get the actual exception message
+                        // not just the error type name
                         if (is_hoisted) {
                             // Assign to the existing hoisted variable
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
-                            try self.output.writer(self.allocator).print(" = @errorName({s});\n", .{err_var});
+                            try self.emit(" = runtime.getExceptionStr();\n");
                         } else {
                             // Declare new const
                             try self.emit("const ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
-                            try self.output.writer(self.allocator).print(": []const u8 = @errorName({s});\n", .{err_var});
+                            try self.emit(": []const u8 = runtime.getExceptionStr();\n");
                         }
                     }
                 }
@@ -1016,15 +1075,23 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
         }
 
+        // Generate `else { return err; }` only if the last handler is NOT a catch-all
+        // Exception and BaseException are catch-all handlers that handle all errors
         if (generated_handler and try_node.handlers[try_node.handlers.len - 1].type != null) {
-            try self.emitIndent();
-            try self.emit("} else {\n");
-            self.indent();
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print("return {s};\n", .{err_var});
-            self.dedent();
-            try self.emitIndent();
-            try self.emit("}\n");
+            const last_exc_type = try_node.handlers[try_node.handlers.len - 1].type.?;
+            const is_catch_all = std.mem.eql(u8, last_exc_type, "Exception") or
+                std.mem.eql(u8, last_exc_type, "BaseException");
+
+            if (!is_catch_all) {
+                try self.emitIndent();
+                try self.emit("} else {\n");
+                self.indent();
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("return {s};\n", .{err_var});
+                self.dedent();
+                try self.emitIndent();
+                try self.emit("}\n");
+            }
         }
 
         self.dedent();

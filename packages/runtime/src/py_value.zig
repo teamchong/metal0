@@ -91,6 +91,20 @@ pub const PyValue = union(enum) {
         };
     }
 
+    /// Get Python type name for this value
+    pub fn typeName(self: PyValue) []const u8 {
+        return switch (self) {
+            .int => "int",
+            .float => "float",
+            .string => "str",
+            .bool => "bool",
+            .none => "NoneType",
+            .list => "list",
+            .tuple => "tuple",
+            .ptr => "object",
+        };
+    }
+
     /// Index into list/tuple PyValue
     pub fn pyAt(self: PyValue, idx: usize) PyValue {
         return switch (self) {

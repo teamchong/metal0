@@ -10,7 +10,50 @@ pub const PythonError = error{
     TypeError,
     KeyError,
     OverflowError,
+    Exception, // Generic exception catch-all
 };
+
+/// Thread-local storage for the last exception message
+/// This allows us to preserve Python exception messages through Zig's error system
+threadlocal var last_exception_message: ?[]const u8 = null;
+threadlocal var last_exception_type: ?[]const u8 = null;
+
+/// Set the last exception message (call before returning an error)
+pub fn setExceptionMessage(msg: []const u8) void {
+    last_exception_message = msg;
+}
+
+/// Set the last exception type name
+pub fn setExceptionType(type_name: []const u8) void {
+    last_exception_type = type_name;
+}
+
+/// Set both exception type and message
+pub fn setException(type_name: []const u8, msg: []const u8) void {
+    last_exception_type = type_name;
+    last_exception_message = msg;
+}
+
+/// Get the last exception message (returns empty string if none)
+pub fn getExceptionMessage() []const u8 {
+    return last_exception_message orelse "";
+}
+
+/// Get the last exception type name (returns "Exception" if none)
+pub fn getExceptionType() []const u8 {
+    return last_exception_type orelse "Exception";
+}
+
+/// Get formatted exception string like Python's str(e)
+pub fn getExceptionStr() []const u8 {
+    return last_exception_message orelse "";
+}
+
+/// Clear the last exception (call after handling)
+pub fn clearException() void {
+    last_exception_message = null;
+    last_exception_type = null;
+}
 
 /// Python exception type enum - integer values that can be stored in lists/tuples
 /// Used when Python code stores exception types as values: [("x", ValueError), ("y", 1)]

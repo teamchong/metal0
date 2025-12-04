@@ -12,6 +12,7 @@ pub const PythonError = error{
     TypeError,
     KeyError,
     OverflowError,
+    Exception, // Generic exception catch-all
 };
 
 /// Convert any numeric type to f64 (simple version for mixed arithmetic)
