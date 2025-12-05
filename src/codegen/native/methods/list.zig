@@ -275,17 +275,16 @@ pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     item_type.toZigType(self.allocator, &type_buf) catch {};
     const elem_type = if (type_buf.items.len > 0) type_buf.items else "i64";
 
-    // Generate: @as(i64, @intCast(std.mem.count(T, (list).items, &[_]T{item})))
+    // Generate: @as(i64, @intCast(runtime.pyCount(T, (list).items, item)))
+    // Uses runtime.pyCount which handles NaN identity for floats
     // Parentheses around list are needed for list literal blocks
-    try self.emit("@as(i64, @intCast(std.mem.count(");
+    try self.emit("@as(i64, @intCast(runtime.pyCount(");
     try self.emit(elem_type);
     try self.emit(", (");
     try self.genExpr(obj);
-    try self.emit(").items, &[_]");
-    try self.emit(elem_type);
-    try self.emit("{");
+    try self.emit(").items, ");
     try self.genExpr(args[0]);
-    try self.emit("})))");
+    try self.emit(")))");
 }
 
 /// Generate code for deque.appendleft(item)

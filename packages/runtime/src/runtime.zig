@@ -215,6 +215,25 @@ pub fn pyContains(comptime T: type, slice: []const T, value: T) bool {
     return std.mem.indexOfScalar(T, slice, value) != null;
 }
 
+/// Python-style count for slices
+/// Handles NaN specially: both sides being NaN counts as a match (identity semantics)
+pub fn pyCount(comptime T: type, slice: []const T, value: T) usize {
+    var count: usize = 0;
+    // For floats, check NaN identity
+    if (@typeInfo(T) == .float) {
+        const value_is_nan = std.math.isNan(value);
+        for (slice) |item| {
+            if ((value_is_nan and std.math.isNan(item)) or item == value) count += 1;
+        }
+    } else {
+        // For other types, use standard equality
+        for (slice) |item| {
+            if (item == value) count += 1;
+        }
+    }
+    return count;
+}
+
 /// Convert ArrayList or other container types to a slice for iteration
 /// This is a comptime function that normalizes different container types to slices
 pub inline fn iterSlice(value: anytype) IterSliceType(@TypeOf(value)) {
