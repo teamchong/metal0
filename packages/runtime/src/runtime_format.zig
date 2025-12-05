@@ -441,24 +441,31 @@ fn applyPadding(allocator: std.mem.Allocator, content: []const u8, spec: FormatS
 /// e.g., "123456.789" with int_sep='_', dec_sep=null -> "123_456.789"
 /// e.g., "123456.789" with int_sep=null, dec_sep='_' -> "123456.789_" (every 3 digits in decimal part)
 /// e.g., "123456.789123" with int_sep='_', dec_sep='_' -> "123_456.789_123"
+/// NOTE: Exponent part (e.g., "e+05") is NOT grouped - grouping stops at 'e' or 'E'
 fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, int_sep: ?u8, dec_sep: ?u8) ![]const u8 {
     if (int_sep == null and dec_sep == null) {
         return try allocator.dupe(u8, num_str);
     }
 
-    // Find the decimal point (or end of string for integers)
+    // Find positions of decimal point and exponent
     var decimal_pos: usize = num_str.len;
+    var exponent_pos: usize = num_str.len;
     var start_pos: usize = 0;
     for (num_str, 0..) |c, i| {
         if (c == '.') {
             decimal_pos = i;
-            break;
+        } else if (c == 'e' or c == 'E') {
+            exponent_pos = i;
+            break; // Stop at exponent
         }
         // Skip sign at the start
         if (i == 0 and (c == '-' or c == '+' or c == ' ')) {
             start_pos = 1;
         }
     }
+
+    // The actual end of the numeric part we group
+    const numeric_end = exponent_pos;
 
     var result = std.ArrayList(u8){};
 
@@ -467,7 +474,7 @@ fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, int_s
         try result.append(allocator, num_str[0]);
     }
 
-    const int_part = num_str[start_pos..decimal_pos];
+    const int_part = num_str[start_pos..@min(decimal_pos, numeric_end)];
 
     // Add integer part with grouping
     if (int_sep) |sep| {
@@ -492,10 +499,10 @@ fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, int_s
         try result.appendSlice(allocator, int_part);
     }
 
-    // Copy decimal part with grouping if present
-    if (decimal_pos < num_str.len) {
+    // Copy decimal part with grouping if present (only up to exponent)
+    if (decimal_pos < numeric_end) {
         try result.append(allocator, '.'); // Add the decimal point
-        const dec_part = num_str[decimal_pos + 1 ..]; // Skip the '.'
+        const dec_part = num_str[decimal_pos + 1 .. numeric_end]; // Skip the '.', stop at exponent
 
         if (dec_sep) |sep| {
             if (dec_part.len > 3) {
@@ -515,6 +522,11 @@ fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, int_s
         } else {
             try result.appendSlice(allocator, dec_part);
         }
+    }
+
+    // Append exponent part without grouping
+    if (exponent_pos < num_str.len) {
+        try result.appendSlice(allocator, num_str[exponent_pos..]);
     }
 
     return result.toOwnedSlice(allocator);
