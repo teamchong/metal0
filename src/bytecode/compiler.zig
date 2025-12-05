@@ -3,7 +3,10 @@
 /// Reuses metal0's existing parser (src/parser/) instead of duplicating.
 /// Converts AST nodes to stack-based bytecode instructions.
 const std = @import("std");
+const builtin = @import("builtin");
 const opcode = @import("opcode.zig");
+
+/// Use relative import for ast (within same src tree)
 const ast = @import("../ast.zig");
 
 const OpCode = opcode.OpCode;
@@ -817,14 +820,25 @@ fn valueEqual(a: Value, b: Value) bool {
 
 /// Compile Python source string to bytecode Program
 /// This is the main entry point for eval()/exec()
-pub fn compile(allocator: std.mem.Allocator, source: []const u8, filename: []const u8, mode: enum { eval, exec }) !*Program {
-    // Import metal0's parser
-    const parser = @import("../parser/parser.zig");
-    const lexer_mod = @import("../lexer/lexer.zig");
+/// Note: This function is only available in main binary context (requires parser)
+pub const compile = if (builtin.is_test)
+    // Stub for test mode - parser not available during bytecode-only tests
+    struct {
+        fn stub(_: std.mem.Allocator, _: []const u8, _: []const u8, _: enum { eval, exec }) error{NotImplementedInTests}!*Program {
+            return error.NotImplementedInTests;
+        }
+    }.stub
+else
+    compileImpl;
+
+fn compileImpl(allocator: std.mem.Allocator, source: []const u8, filename: []const u8, mode: enum { eval, exec }) !*Program {
+    // Import parser/lexer using relative imports (part of the same src/ tree)
+    const parser_mod = @import("../parser.zig");
+    const lexer_mod = @import("../lexer.zig");
 
     // Lex and parse
     var lex = try lexer_mod.Lexer.init(allocator, source, filename);
-    var p = parser.Parser.init(&lex, allocator);
+    var p = parser_mod.Parser.init(&lex, allocator);
     const ast_nodes = try p.parse();
 
     // Compile to bytecode

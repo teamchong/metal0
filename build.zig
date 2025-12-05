@@ -45,6 +45,7 @@ pub fn build(b: *std.Build) void {
     const ast = b.addModule("ast", .{
         .root_source_file = b.path("src/ast.zig"),
     });
+
     const gzip_module = b.addModule("gzip", .{
         .root_source_file = b.path("packages/runtime/src/gzip/gzip.zig"),
     });
@@ -156,6 +157,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("fnv_hash", fnv_hash);
     exe.root_module.addImport("zig_keywords", zig_keywords);
     exe.root_module.addImport("ast", ast);
+    // lexer and parser are imported via relative paths from src/
     exe.root_module.addImport("c_interop", c_interop_mod);
     exe.root_module.addImport("pkg", pkg_mod);
     exe.root_module.addImport("function_traits", function_traits);
@@ -523,4 +525,31 @@ pub fn build(b: *std.Build) void {
     }
     const resolve_step = b.step("resolve", "Run package resolver (usage: zig build resolve -- numpy pandas)");
     resolve_step.dependOn(&run_resolve.step);
+
+    // Bytecode VM tests (for eval/exec) - test opcode and VM directly
+    // (compiler.zig has parser/lexer deps that require separate build config)
+    const opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/bytecode/opcode.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const vm_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/bytecode/vm.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    // VM uses runtime.PyValue conditionally
+    vm_tests.root_module.addImport("runtime", runtime);
+
+    const run_opcode_tests = b.addRunArtifact(opcode_tests);
+    const run_vm_tests = b.addRunArtifact(vm_tests);
+
+    const bytecode_test_step = b.step("test-bytecode", "Run bytecode VM tests");
+    bytecode_test_step.dependOn(&run_opcode_tests.step);
+    bytecode_test_step.dependOn(&run_vm_tests.step);
 }

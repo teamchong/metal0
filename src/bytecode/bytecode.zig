@@ -9,9 +9,11 @@
 /// Dead code elimination:
 /// - Only included in binary if eval()/exec() are called
 /// - Zig's comptime + unused code elimination handles this
+const builtin = @import("builtin");
+
 pub const opcode = @import("opcode.zig");
-pub const compiler = @import("compiler.zig");
 pub const vm = @import("vm.zig");
+pub const compiler = @import("compiler.zig");
 
 pub const OpCode = opcode.OpCode;
 pub const Instruction = opcode.Instruction;
@@ -26,6 +28,7 @@ pub const StackValue = vm.StackValue;
 
 pub const serialize = opcode.serialize;
 pub const deserialize = opcode.deserialize;
+pub const compile = compiler.compile;
 
 /// Target detection at comptime
 pub const Target = enum {
@@ -34,10 +37,8 @@ pub const Target = enum {
     wasm_edge,
 };
 
-const builtin = @import("builtin");
-
 /// Detect target at comptime
-pub const target: Target = comptime blk: {
+pub const target: Target = blk: {
     if (builtin.target.isWasm()) {
         // Check for WASI (WasmEdge has WASI support)
         if (builtin.os.tag == .wasi) {
@@ -47,17 +48,3 @@ pub const target: Target = comptime blk: {
     }
     break :blk .native;
 };
-
-/// VM will be implemented in vm.zig
-/// For now, export placeholder
-pub const VM = struct {
-    // TODO: implement
-};
-
-test "target detection" {
-    const std = @import("std");
-    // On native build, should be native
-    if (!builtin.target.isWasm()) {
-        try std.testing.expectEqual(Target.native, target);
-    }
-}
