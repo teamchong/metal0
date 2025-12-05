@@ -718,6 +718,16 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
             }
             break :blk false;
         },
+        // raise statement: raise ValueError(v) uses v
+        .raise_stmt => |r| blk: {
+            if (r.exc) |exc| {
+                if (isParamUsedInNode(param_name, exc.*)) break :blk true;
+            }
+            if (r.cause) |cause| {
+                if (isParamUsedInNode(param_name, cause.*)) break :blk true;
+            }
+            break :blk false;
+        },
         else => false,
     };
 }
