@@ -71,10 +71,16 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         .class_instance => true,
         else => false,
     };
+    const is_slice = switch (arg_type) {
+        .slice => true,
+        else => false,
+    };
 
     // Check if this is a tracked ArrayList variable (must check BEFORE dict/set type check)
     // Dict comprehensions generate ArrayList but are typed as .dict
+    // Note: Skip if type is .slice - slice variables use .len, not .items.len
     const is_arraylist = blk: {
+        if (is_slice) break :blk false; // Slices are not ArrayLists
         if (args[0] == .name) {
             const var_name = args[0].name.id;
             if (self.isArrayListVar(var_name)) {

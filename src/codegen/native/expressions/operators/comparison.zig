@@ -982,9 +982,15 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             const left_is_array = (current_left_type == .array);
             const right_is_array = (right_type == .array);
 
+            // Check if either side is PyValue (e.g., from list(tuple) element access)
+            const left_is_pyvalue = (current_left_type == .pyvalue);
+            const right_is_pyvalue = (right_type == .pyvalue);
+
             // Only use pyAnyEql when we have a type mismatch between list (ArrayList) and array (fixed)
+            // or when either side is PyValue (needs runtime type comparison)
             // This is slower due to comptime type resolution, so avoid when both types match
-            const needs_cross_type_comparison = (left_is_list and right_is_array) or (left_is_array and right_is_list);
+            const needs_cross_type_comparison = (left_is_list and right_is_array) or (left_is_array and right_is_list) or
+                left_is_pyvalue or right_is_pyvalue;
 
             // Use runtime.pyAnyEql for cross-type list/array comparisons (handles ArrayList vs fixed array)
             // Use std.meta.eql for same-type comparisons (faster compilation)
