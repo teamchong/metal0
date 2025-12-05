@@ -88,6 +88,8 @@ pub const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
     .{ "BufferError", {} },     .{ "ConnectionError", {} },   .{ "TimeoutError", {} },
     .{ "ArithmeticError", {} }, .{ "EOFError", {} },          .{ "GeneratorExit", {} },
     .{ "SystemExit", {} },      .{ "KeyboardInterrupt", {} }, .{ "SyntaxError", {} },
+    // Exception groups (Python 3.11+)
+    .{ "ExceptionGroup", {} },  .{ "BaseExceptionGroup", {} },
     // Warning types (used in assertWarns contexts)
     .{ "Warning", {} },         .{ "UserWarning", {} },       .{ "DeprecationWarning", {} },
     .{ "SyntaxWarning", {} },   .{ "RuntimeWarning", {} },    .{ "FutureWarning", {} },
