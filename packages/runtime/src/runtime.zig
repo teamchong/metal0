@@ -1347,8 +1347,35 @@ fn printPyObjectImpl(obj: *PyObject, quote_strings: bool) void {
             printDict(obj);
         },
         else => {
-            // For other types (file, regex), print the pointer
-            std.debug.print("{*}", .{obj});
+            // For C extension types, try to call tp_str or tp_repr
+            const type_obj = Py_TYPE(obj);
+            if (type_obj.tp_str) |str_func| {
+                const str_result = str_func(obj);
+                // Check if result is a string type (PyUnicode) and print it
+                const result_type = Py_TYPE(str_result);
+                if (result_type == &PyUnicode_Type or
+                    std.mem.eql(u8, std.mem.span(result_type.tp_name), "str"))
+                {
+                    const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(str_result));
+                    const len: usize = @intCast(str_obj.length);
+                    std.debug.print("{s}", .{str_obj.data[0..len]});
+                    return;
+                }
+            }
+            if (type_obj.tp_repr) |repr_func| {
+                const repr_result = repr_func(obj);
+                const result_type = Py_TYPE(repr_result);
+                if (result_type == &PyUnicode_Type or
+                    std.mem.eql(u8, std.mem.span(result_type.tp_name), "str"))
+                {
+                    const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(repr_result));
+                    const len: usize = @intCast(str_obj.length);
+                    std.debug.print("{s}", .{str_obj.data[0..len]});
+                    return;
+                }
+            }
+            // Fallback: print type name and pointer
+            std.debug.print("<{s} at {*}>", .{ std.mem.span(type_obj.tp_name), obj });
         },
     }
 }

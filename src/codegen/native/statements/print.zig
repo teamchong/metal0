@@ -113,7 +113,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Check if any arg is string concatenation, allocating method call, list, array, tuple, dict, bool, float, none, or unknown (PyObject)
+    // Check if any arg is string concatenation, allocating method call, list, array, tuple, dict, bool, float, none, unknown (PyObject), or pyobject (C extension)
     var has_string_concat = false;
     var has_allocating_call = false;
     var has_list = false;
@@ -124,6 +124,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     var has_float = false;
     var has_none = false;
     var has_unknown = false;
+    var has_pyobject = false;
     for (args) |arg| {
         if (arg == .binop and arg.binop.op == .Add) {
             const left_type = try self.type_inferrer.inferExpr(arg.binop.left.*);
@@ -161,6 +162,9 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (arg_type == .unknown) {
             has_unknown = true;
         }
+        if (arg_type == .pyobject) {
+            has_pyobject = true;
+        }
     }
 
     // Check for sqlite types that need special handling
@@ -173,8 +177,8 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     }
 
-    // If we have lists, arrays, tuples, dicts, bools, none, unknowns (PyObject), or sqlite types, handle specially
-    if (has_list or has_array or has_tuple or has_dict or has_bool or has_none or has_unknown or has_sqlite) {
+    // If we have lists, arrays, tuples, dicts, bools, none, unknowns, pyobjects (C extension), or sqlite types, handle specially
+    if (has_list or has_array or has_tuple or has_dict or has_bool or has_none or has_unknown or has_pyobject or has_sqlite) {
         try genPrintComplex(self, args);
         return;
     }
@@ -201,11 +205,16 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else if (arg_type == .dict) {
             try genPrintDict(self, arg);
         } else if (arg_type == .unknown) {
-            // Unknown types (PyObject) - use runtime printer
-            // This handles both PyObject pointers and other dynamic types
+            // Unknown types - use runtime printer
             try self.emit("runtime.printPyObject(");
             try self.genExpr(arg);
             try self.emit(");\n");
+        } else if (arg_type == .pyobject) {
+            // C extension PyObjects - print address
+            // Full string conversion requires unified type system (future work)
+            try self.emit("std.debug.print(\"<C extension object at {*}>\", .{");
+            try self.genExpr(arg);
+            try self.emit("});\n");
         } else if (arg_type == .sqlite_row) {
             // SQLite Row - use its print method
             try self.genExpr(arg);

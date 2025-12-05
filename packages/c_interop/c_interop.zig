@@ -857,6 +857,16 @@ pub fn getModuleAttr(
 pub var _Py_TrueStruct: cpython.PyObject = .{ .ob_refcnt = 1, .ob_type = undefined };
 pub var _Py_FalseStruct: cpython.PyObject = .{ .ob_refcnt = 1, .ob_type = undefined };
 
+/// Get the type name of a PyObject as a Zig slice
+/// Used for printing C extension objects
+pub fn getTypeName(obj: *cpython.PyObject) []const u8 {
+    const type_obj = cpython.Py_TYPE(obj);
+    if (type_obj.tp_name) |name| {
+        return std.mem.span(name);
+    }
+    return "<unknown>";
+}
+
 /// Build a tuple from Zig values for Python function calls
 fn buildArgsTuple(args: anytype) ?*cpython.PyObject {
     const ArgsType = @TypeOf(args);
