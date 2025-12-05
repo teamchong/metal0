@@ -227,6 +227,77 @@ pub const CacheInfo = struct {
     currsize: usize,
 };
 
+/// cache(func) - Simple unbounded cache
+/// This is equivalent to lru_cache(maxsize=None)
+pub fn Cache(comptime KeyType: type, comptime ValueType: type) type {
+    return struct {
+        cache: std.AutoHashMap(KeyType, ValueType),
+        hits: usize,
+        misses: usize,
+        allocator: Allocator,
+
+        const Self = @This();
+
+        pub fn init(allocator: Allocator) Self {
+            return .{
+                .cache = std.AutoHashMap(KeyType, ValueType).init(allocator),
+                .hits = 0,
+                .misses = 0,
+                .allocator = allocator,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.cache.deinit();
+        }
+
+        pub fn get(self: *Self, key: KeyType) ?ValueType {
+            if (self.cache.get(key)) |value| {
+                self.hits += 1;
+                return value;
+            }
+            return null;
+        }
+
+        pub fn put(self: *Self, key: KeyType, value: ValueType) !void {
+            self.misses += 1;
+            try self.cache.put(key, value);
+        }
+
+        pub fn cacheInfo(self: Self) CacheInfo {
+            return .{
+                .hits = self.hits,
+                .misses = self.misses,
+                .maxsize = 0, // 0 means unlimited
+                .currsize = self.cache.count(),
+            };
+        }
+
+        pub fn cacheClear(self: *Self) void {
+            self.cache.clearRetainingCapacity();
+            self.hits = 0;
+            self.misses = 0;
+        }
+    };
+}
+
+/// WRAPPER_ASSIGNMENTS - Default attributes copied by update_wrapper
+/// In Python: ('__module__', '__name__', '__qualname__', '__annotations__', '__doc__', '__wrapped__')
+pub const WRAPPER_ASSIGNMENTS: [6][]const u8 = .{
+    "__module__",
+    "__name__",
+    "__qualname__",
+    "__annotations__",
+    "__doc__",
+    "__wrapped__",
+};
+
+/// WRAPPER_UPDATES - Default attributes updated by update_wrapper
+/// In Python: ('__dict__',)
+pub const WRAPPER_UPDATES: [1][]const u8 = .{
+    "__dict__",
+};
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -334,4 +405,39 @@ test "cmp_to_key comparisons" {
     try std.testing.expect(!k3.gt(k5)); // 3 > 5 is false
     try std.testing.expect(k5.ge(k5b)); // 5 >= 5 is true
     try std.testing.expect(k5.ge(k3)); // 5 >= 3 is true
+}
+
+test "cache basic (unbounded)" {
+    const allocator = std.testing.allocator;
+    var cache = Cache(i32, i32).init(allocator);
+    defer cache.deinit();
+
+    try cache.put(1, 100);
+    try cache.put(2, 200);
+    try cache.put(3, 300);
+
+    try std.testing.expectEqual(@as(?i32, 100), cache.get(1));
+    try std.testing.expectEqual(@as(?i32, 200), cache.get(2));
+    try std.testing.expectEqual(@as(?i32, 300), cache.get(3));
+    try std.testing.expectEqual(@as(?i32, null), cache.get(4));
+
+    // No eviction - all items remain
+    const info = cache.cacheInfo();
+    try std.testing.expectEqual(@as(usize, 3), info.currsize);
+    try std.testing.expectEqual(@as(usize, 0), info.maxsize); // 0 = unlimited
+}
+
+test "cache clear" {
+    const allocator = std.testing.allocator;
+    var cache = Cache(i32, i32).init(allocator);
+    defer cache.deinit();
+
+    try cache.put(1, 100);
+    try cache.put(2, 200);
+
+    cache.cacheClear();
+
+    try std.testing.expectEqual(@as(?i32, null), cache.get(1));
+    try std.testing.expectEqual(@as(?i32, null), cache.get(2));
+    try std.testing.expectEqual(@as(usize, 0), cache.cacheInfo().currsize);
 }

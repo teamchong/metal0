@@ -738,6 +738,7 @@ fn handleStreamMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.No
     const fnv = @import("fnv_hash");
     const WRITE = comptime fnv.hash("write");
     const READ = comptime fnv.hash("read");
+    const READLINE = comptime fnv.hash("readline");
     const GETVALUE = comptime fnv.hash("getvalue");
     const SEEK = comptime fnv.hash("seek");
     const TELL = comptime fnv.hash("tell");
@@ -753,21 +754,50 @@ fn handleStreamMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.No
         try self.emit(")");
     } else if (method_hash == READ) {
         try self.emit(receiver);
-        try self.emit(".read()");
+        if (args.len > 0) {
+            try self.emit(".readSize(");
+            try parent.genExpr(self, args[0]);
+            try self.emit(")");
+        } else {
+            try self.emit(".read()");
+        }
+    } else if (method_hash == READLINE) {
+        try self.emit(receiver);
+        if (args.len > 0) {
+            try self.emit(".readlineSize(");
+            try parent.genExpr(self, args[0]);
+            try self.emit(")");
+        } else {
+            try self.emit(".readline()");
+        }
     } else if (method_hash == GETVALUE) {
         try self.emit(receiver);
         try self.emit(".getvalue()");
     } else if (method_hash == SEEK) {
         try self.emit(receiver);
-        try self.emit(".seek(");
-        if (args.len > 0) try parent.genExpr(self, args[0]) else try self.emit("0");
-        try self.emit(")");
+        if (args.len > 1) {
+            try self.emit(".seekWhence(");
+            try parent.genExpr(self, args[0]);
+            try self.emit(", ");
+            try parent.genExpr(self, args[1]);
+            try self.emit(")");
+        } else {
+            try self.emit(".seek(");
+            if (args.len > 0) try parent.genExpr(self, args[0]) else try self.emit("0");
+            try self.emit(")");
+        }
     } else if (method_hash == TELL) {
         try self.emit(receiver);
         try self.emit(".tell()");
     } else if (method_hash == TRUNCATE) {
         try self.emit(receiver);
-        try self.emit(".truncate()");
+        if (args.len > 0) {
+            try self.emit(".truncateSize(");
+            try parent.genExpr(self, args[0]);
+            try self.emit(")");
+        } else {
+            try self.emit(".truncate()");
+        }
     } else if (method_hash == CLOSE) {
         try self.emit(receiver);
         try self.emit(".close()");

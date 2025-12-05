@@ -763,19 +763,48 @@ pub fn maxIterable(iterable: anytype) i64 {
     return max_val;
 }
 
-/// Python round() - rounds a number to given precision
+/// Python round() - rounds a number to given precision using banker's rounding
 /// For integers, returns the integer unchanged
-/// For floats, returns @round result
+/// For floats, uses banker's rounding (round half to even)
 pub fn pyRound(value: anytype) i64 {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
     if (info == .int or info == .comptime_int) {
         return @as(i64, @intCast(value));
     } else if (info == .float or info == .comptime_float) {
-        return @intFromFloat(@round(value));
+        // Use banker's rounding (round half to even) like Python
+        return @intFromFloat(pyBankersRound(value));
     }
     // For other types (structs with __round__ method), not handled here
     return 0;
+}
+
+/// Banker's rounding (round half to even) - Python's rounding behavior
+fn pyBankersRound(value: f64) f64 {
+    if (std.math.isNan(value) or std.math.isInf(value)) {
+        return value;
+    }
+
+    // For banker's rounding, we need to find the two candidate integers
+    // and pick the one that's even when we're exactly at 0.5
+    const floored = @floor(value);
+    const ceiled = @ceil(value);
+    const frac = value - floored;
+
+    if (frac < 0.5) {
+        return floored;
+    } else if (frac > 0.5) {
+        return ceiled;
+    } else {
+        // Exactly 0.5 - round to even (the candidate that's even)
+        const floored_int: i64 = @intFromFloat(floored);
+        // Return the even one
+        if (@mod(floored_int, 2) == 0) {
+            return floored;
+        } else {
+            return ceiled;
+        }
+    }
 }
 
 /// Sum of all numeric values in a list
