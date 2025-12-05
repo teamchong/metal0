@@ -148,11 +148,13 @@ pub const ExceptionTypeId = enum(i64) {
     BlockingIOError = -1000028,
     Exception = -1000029,
     BaseException = -1000030,
+    ExceptionGroup = -1000031,
+    BaseExceptionGroup = -1000032,
     _,
 
     /// Check if an i64 value represents an exception type
     pub fn isExceptionType(value: i64) bool {
-        return value <= -1000001 and value >= -1000030;
+        return value <= -1000001 and value >= -1000032;
     }
 };
 

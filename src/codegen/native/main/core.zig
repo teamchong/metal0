@@ -133,6 +133,10 @@ pub const NativeCodegen = struct {
     // Counter for unique __TryHelper struct names (avoids shadowing in nested try blocks)
     try_helper_counter: usize,
 
+    // Depth of nested TryHelper structs. 0 = not inside any TryHelper, 1+ = inside TryHelper(s)
+    // Used to determine if exception variables should be local (inside TryHelper) or hoisted (outside)
+    try_helper_depth: usize,
+
     // When inside a try helper that contains break/continue, stores the helper ID for special handling
     // null = not in try helper with break/continue, non-null = emit return error.BreakRequested
     try_break_helper_id: ?usize,
@@ -621,6 +625,7 @@ pub const NativeCodegen = struct {
             .class_registry = cls_registry,
             .unpack_counter = 0,
             .try_helper_counter = 0,
+            .try_helper_depth = 0,
             .try_break_helper_id = null,
             .lambda_counter = 0,
             .lambda_functions = std.ArrayList([]const u8){},
