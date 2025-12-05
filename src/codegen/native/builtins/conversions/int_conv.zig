@@ -461,8 +461,9 @@ pub fn genBin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for bool(obj)
 /// Converts to bool
 /// Python truthiness rules: 0, "", [], {} are False, everything else is True
-/// NOTE: Uses boolBuiltinCall which returns PythonError!bool to properly
-/// propagate TypeError when __bool__ returns a non-bool type
+/// NOTE: For simple types (int, float, string, list, array), use runtime.toBool
+/// which doesn't return an error. For complex types that might have __bool__,
+/// use boolBuiltinCall which returns PythonError!bool.
 pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // bool() with no args returns False
     if (args.len == 0) {
@@ -470,16 +471,39 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Use runtime.boolBuiltinCall which returns !bool to properly propagate
-    // TypeError when __bool__ returns non-bool (Python 3 requirement)
-    // Also handles extra args by raising TypeError at runtime
-    try self.emit("(try runtime.boolBuiltinCall(");
-    try self.genExpr(args[0]);
-    try self.emit(", .{");
-    // Pass rest arguments as tuple to detect extra args at runtime
-    for (args[1..], 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
-        try self.genExpr(arg);
+    // Check if we have extra args - need error handling for TypeError
+    if (args.len > 1) {
+        try self.emit("(try runtime.boolBuiltinCall(");
+        try self.genExpr(args[0]);
+        try self.emit(", .{");
+        for (args[1..], 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try self.genExpr(arg);
+        }
+        try self.emit("}))");
+        return;
     }
-    try self.emit("}))");
+
+    // Single argument - check type to decide which function to use
+    const arg_type = self.inferExprScoped(args[0]) catch .unknown;
+    const arg_tag = @as(std.meta.Tag(@TypeOf(arg_type)), arg_type);
+
+    // Simple types can use runtime.toBool (no error)
+    const is_simple = switch (arg_tag) {
+        .bool, .int, .float, .string, .list, .array, .tuple, .bytes => true,
+        else => false,
+    };
+
+    if (is_simple) {
+        // Use runtime.toBool for simple types - no error propagation needed
+        try self.emit("runtime.toBool(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    } else {
+        // Use boolBuiltinCall for complex types that might have __bool__
+        // Returns !bool to properly propagate TypeError
+        try self.emit("(try runtime.boolBuiltinCall(");
+        try self.genExpr(args[0]);
+        try self.emit(", .{}))");
+    }
 }
