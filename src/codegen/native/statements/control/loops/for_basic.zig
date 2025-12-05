@@ -119,7 +119,7 @@ fn exprUsesVar(expr: ast.Node, var_name: []const u8) bool {
         .fstring => |f| blk: {
             for (f.parts) |p| {
                 switch (p) {
-                    .expr => |e| if (exprUsesVar(e.*, var_name)) break :blk true,
+                    .expr => |e| if (exprUsesVar(e.node.*, var_name)) break :blk true,
                     .format_expr => |fe| if (exprUsesVar(fe.expr.*, var_name)) break :blk true,
                     .conv_expr => |ce| if (exprUsesVar(ce.expr.*, var_name)) break :blk true,
                     .literal => {},

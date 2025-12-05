@@ -308,8 +308,8 @@ fn analyzeExpr(node: ast.Node) !ModuleAnalysis {
             // Analyze expressions inside f-string parts
             for (f.parts) |part| {
                 switch (part) {
-                    .expr => |expr| {
-                        const part_analysis = try analyzeExpr(expr.*);
+                    .expr => |e| {
+                        const part_analysis = try analyzeExpr(e.node.*);
                         analysis.merge(part_analysis);
                     },
                     .format_expr => |fe| {

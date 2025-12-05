@@ -709,9 +709,11 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
         // f-string support: f"{tag}..." uses the variable 'tag'
         .fstring => |fstr| blk: {
             for (fstr.parts) |part| {
-                // .expr parts contain the variable references
-                if (part == .expr) {
-                    if (isParamUsedInNode(param_name, part.expr.*)) break :blk true;
+                switch (part) {
+                    .expr => |e| if (isParamUsedInNode(param_name, e.node.*)) break :blk true,
+                    .format_expr => |fe| if (isParamUsedInNode(param_name, fe.expr.*)) break :blk true,
+                    .conv_expr => |ce| if (isParamUsedInNode(param_name, ce.expr.*)) break :blk true,
+                    .literal => {},
                 }
             }
             break :blk false;

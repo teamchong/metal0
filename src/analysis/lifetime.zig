@@ -412,8 +412,8 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             for (fstr.parts) |part| {
                 switch (part) {
                     .literal => {}, // No variables
-                    .expr => |expr| {
-                        line = try analyzeLifetimes(info, expr.*, line);
+                    .expr => |e| {
+                        line = try analyzeLifetimes(info, e.node.*, line);
                     },
                     .format_expr => |fmt| {
                         line = try analyzeLifetimes(info, fmt.expr.*, line);

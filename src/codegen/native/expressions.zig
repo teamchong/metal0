@@ -472,12 +472,17 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 self.output = saved_output;
                 try format_buf.appendSlice(self.allocator, escaped);
             },
-            .expr => |expr| {
+            .expr => |e| {
+                // Prepend debug_text (e.g., "x=") if present for f"{x=}"
+                if (e.debug_text) |dbg| {
+                    try format_buf.appendSlice(self.allocator, dbg);
+                }
+
                 // Determine format specifier based on inferred type
-                const expr_type = try self.type_inferrer.inferExpr(expr.*);
+                const expr_type = try self.type_inferrer.inferExpr(e.node.*);
                 const format_spec = switch (expr_type) {
                     .int => "d",
-                    .float => "e",
+                    .float => "d",
                     .string => "s",
                     .bool => "any",
                     else => "any",
@@ -489,13 +494,18 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 const saved_output = self.output;
                 self.output = std.ArrayList(u8){};
 
-                try genExpr(self, expr.*);
+                try genExpr(self, e.node.*);
                 const expr_code = try self.output.toOwnedSlice(self.allocator);
                 try args_list.append(self.allocator, expr_code);
 
                 self.output = saved_output;
             },
             .format_expr => |fe| {
+                // Prepend debug_text (e.g., "x=") if present for f"{x=:...}"
+                if (fe.debug_text) |dbg| {
+                    try format_buf.appendSlice(self.allocator, dbg);
+                }
+
                 // Use runtime.pyFormat for ALL format specs to handle Python's format mini-language
                 // Python format specs like #10x, 08b, .2f are different from Zig's format specs
                 try format_buf.writer(self.allocator).writeAll("{s}");
@@ -575,6 +585,11 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 self.output = saved_output;
             },
             .conv_expr => |ce| {
+                // Prepend debug_text (e.g., "x=") if present for f"{x=!r}"
+                if (ce.debug_text) |dbg| {
+                    try format_buf.appendSlice(self.allocator, dbg);
+                }
+
                 // Expression with conversion specifier (!r, !s, !a)
                 const expr_type = try self.type_inferrer.inferExpr(ce.expr.*);
 
@@ -595,7 +610,7 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                         // For non-strings, just use default formatting
                         const format_spec = switch (expr_type) {
                             .int => "d",
-                            .float => "e",
+                            .float => "d",
                             .bool => "any",
                             else => "any",
                         };
@@ -606,7 +621,7 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                     // !s (str) and !a (ascii) - just convert to string
                     const format_spec = switch (expr_type) {
                         .int => "d",
-                        .float => "e",
+                        .float => "d",
                         .string => "s",
                         .bool => "any",
                         else => "any",
