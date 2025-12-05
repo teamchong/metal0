@@ -1139,7 +1139,8 @@ fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
     const T = @TypeOf(value);
 
     // PyBytes - format as b'...' with non-printable bytes escaped
-    if (T == PyBytes) {
+    // Check by type name to handle cases where PyBytes is referenced differently
+    if (T == PyBytes or (@typeInfo(T) == .@"struct" and @hasField(T, "data") and @hasDecl(T, "slice"))) {
         return bytesRepr(allocator, value.data);
     }
 

@@ -909,15 +909,15 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
 
             if (arg_type == .bool) {
                 if (protocol_value != null and protocol_value.? >= 2) {
-                    // Protocol 2+: use binary format
-                    try self.emit("if (");
+                    // Protocol 2+: use binary format - return as PyBytes for correct type
+                    try self.emit("runtime.builtins.bytesLiteral(if (");
                     try self.genExpr(call.args[0]);
-                    try self.emit(") \"\\x80\\x02\\x88.\" else \"\\x80\\x02\\x89.\"");
+                    try self.emit(") \"\\x80\\x02\\x88.\" else \"\\x80\\x02\\x89.\")");
                 } else {
-                    // Protocol 0/1: use text format
-                    try self.emit("if (");
+                    // Protocol 0/1: use text format - return as PyBytes for correct type
+                    try self.emit("runtime.builtins.bytesLiteral(if (");
                     try self.genExpr(call.args[0]);
-                    try self.emit(") \"I01\\n.\" else \"I00\\n.\"");
+                    try self.emit(") \"I01\\n.\" else \"I00\\n.\")");
                 }
                 return true;
             }

@@ -608,7 +608,13 @@ pub fn int__new__(cls: anytype, value: anytype) PythonError!@TypeOf(value) {
 /// Convert bytes to int - implements int.from_bytes(bytes, byteorder)
 /// Python: int.from_bytes(b'\x00\x01', 'big') -> 1
 /// Python: int.from_bytes(b'\x01\x00', 'little') -> 1
-pub fn intFromBytes(bytes: []const u8, byteorder: []const u8) i64 {
+/// Accepts both []const u8 and PyBytes (wrapper type with .data field)
+pub fn intFromBytes(bytes_input: anytype, byteorder: []const u8) i64 {
+    // Extract []const u8 from either raw slice or PyBytes wrapper
+    const bytes: []const u8 = switch (@TypeOf(bytes_input)) {
+        []const u8, []u8 => bytes_input,
+        else => if (@hasField(@TypeOf(bytes_input), "data")) bytes_input.data else bytes_input,
+    };
     if (bytes.len == 0) return 0;
 
     const is_big_endian = std.mem.eql(u8, byteorder, "big");
