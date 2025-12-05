@@ -883,6 +883,7 @@ pub const JSONDecoder = struct {
     object_pairs_hook: ?*const fn ([]struct { []const u8, *runtime.PyObject }, std.mem.Allocator) anyerror!*runtime.PyObject = null,
     parse_float: ?*const fn ([]const u8, std.mem.Allocator) anyerror!*runtime.PyObject = null,
     parse_int: ?*const fn ([]const u8, std.mem.Allocator) anyerror!*runtime.PyObject = null,
+    parse_constant: ?*const fn ([]const u8, std.mem.Allocator) anyerror!*runtime.PyObject = null,
     strict: bool = true,
 
     pub fn init(allocator: std.mem.Allocator) JSONDecoder {
@@ -893,7 +894,84 @@ pub const JSONDecoder = struct {
         // Basic decode - hooks not fully implemented yet
         return parse_arena.parseWithArena(json_str, self.allocator);
     }
+
+    /// Set parse_constant callback for handling -Infinity, Infinity, NaN
+    /// In Python: JSONDecoder(parse_constant=my_func)
+    pub fn setParseConstant(self: *JSONDecoder, callback: *const fn ([]const u8, std.mem.Allocator) anyerror!*runtime.PyObject) void {
+        self.parse_constant = callback;
+    }
+
+    /// Decode with parse_constant support
+    /// This method applies parse_constant callback to special constants like NaN, Infinity
+    pub fn decodeWithHooks(self: JSONDecoder, json_str: []const u8) !*runtime.PyObject {
+        // First do basic parse
+        const result = try parse_arena.parseWithArena(json_str, self.allocator);
+
+        // If we have a parse_constant hook and the result is a special constant
+        if (self.parse_constant) |callback| {
+            const type_id = runtime.getTypeId(result);
+            if (type_id == .float) {
+                const float_obj: *runtime.PyFloatObject = @ptrCast(@alignCast(result));
+                const val = float_obj.ob_fval;
+                if (std.math.isNan(val)) {
+                    runtime.decref(result, self.allocator);
+                    return callback("NaN", self.allocator);
+                } else if (std.math.isInf(val)) {
+                    runtime.decref(result, self.allocator);
+                    if (val > 0) {
+                        return callback("Infinity", self.allocator);
+                    } else {
+                        return callback("-Infinity", self.allocator);
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
 };
+
+/// LoadsOptions - parameters for json.loads()
+pub const LoadsOptions = struct {
+    object_hook: ?*const fn (*runtime.PyObject, std.mem.Allocator) anyerror!*runtime.PyObject = null,
+    parse_float: ?*const fn ([]const u8, std.mem.Allocator) anyerror!*runtime.PyObject = null,
+    parse_int: ?*const fn ([]const u8, std.mem.Allocator) anyerror!*runtime.PyObject = null,
+    parse_constant: ?*const fn ([]const u8, std.mem.Allocator) anyerror!*runtime.PyObject = null,
+    object_pairs_hook: ?*const fn ([]struct { []const u8, *runtime.PyObject }, std.mem.Allocator) anyerror!*runtime.PyObject = null,
+    strict: bool = true,
+};
+
+/// loads with options - json.loads(s, parse_constant=..., parse_float=..., etc.)
+pub fn loadsWithOptions(json_str: *runtime.PyObject, allocator: std.mem.Allocator, options: LoadsOptions) !*runtime.PyObject {
+    if (!runtime.PyUnicode_Check(json_str)) {
+        return error.TypeError;
+    }
+
+    const json_bytes = runtime.PyString.getValue(json_str);
+    const result = try parse_arena.parseWithArena(json_bytes, allocator);
+
+    // Apply parse_constant hook if provided
+    if (options.parse_constant) |callback| {
+        const type_id = runtime.getTypeId(result);
+        if (type_id == .float) {
+            const float_obj: *runtime.PyFloatObject = @ptrCast(@alignCast(result));
+            const val = float_obj.ob_fval;
+            if (std.math.isNan(val)) {
+                runtime.decref(result, allocator);
+                return callback("NaN", allocator);
+            } else if (std.math.isInf(val)) {
+                runtime.decref(result, allocator);
+                if (val > 0) {
+                    return callback("Infinity", allocator);
+                } else {
+                    return callback("-Infinity", allocator);
+                }
+            }
+        }
+    }
+
+    return result;
+}
 
 // =============================================================================
 // Tests

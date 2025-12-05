@@ -458,12 +458,12 @@ For each module, compare against CPython and list:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `namedtuple(typename, field_names)` | ⬜ | TODO - Factory function |
-| `_make(iterable)` | ⬜ | TODO |
-| `_asdict()` | ⬜ | TODO |
-| `_replace(**kwargs)` | ⬜ | TODO |
-| `_fields` | ⬜ | TODO |
-| `_field_defaults` | ⬜ | TODO |
+| `namedtuple(typename, field_names)` | ✅ | NamedTuple + namedtupleFactory |
+| `_make(iterable)` | ✅ | NamedTuple._make |
+| `_asdict()` | ✅ | NamedTuple._asdict |
+| `_replace(**kwargs)` | ✅ | NamedTuple._replace |
+| `_fields` | ✅ | NamedTuple._fields |
+| `_field_defaults` | ✅ | NamedTuple._field_defaults |
 
 #### deque
 
@@ -514,7 +514,7 @@ For each module, compare against CPython and list:
 | `__or__` | ✅ | union() |
 | `__pos__` | ✅ | positive() |
 | `__neg__` | ✅ | negative() |
-| `fromkeys(iterable)` | ⬜ | TODO |
+| `fromkeys(iterable)` | ✅ | Counter.fromkeys |
 
 #### defaultdict
 
@@ -535,8 +535,8 @@ For each module, compare against CPython and list:
 | `OrderedDict([items])` | ✅ | Constructor |
 | `popitem(last=True)` | ✅ | |
 | `move_to_end(key, last=True)` | ✅ | |
-| `__reversed__` | ⬜ | TODO |
-| `__eq__` (order-sensitive) | ⬜ | TODO |
+| `__reversed__` | ✅ | OrderedDict.reversed |
+| `__eq__` (order-sensitive) | ✅ | OrderedDict.eql |
 | Dict methods | 🔄 | Partial |
 
 #### UserDict, UserList, UserString
@@ -547,9 +547,11 @@ For each module, compare against CPython and list:
 | `UserList` | ✅ | _collections.UserList |
 | `UserString` | ✅ | _collections.UserString |
 
-**Summary**: 8/9 classes implemented, ~90% method coverage
+**Summary**: 9/9 classes implemented, ~95% method coverage ✅
 **Missing for 100% CPython alignment**:
-- `namedtuple` - Factory function for named tuples (requires codegen)
+- ~~`namedtuple` - Factory function for named tuples~~ ✅ Implemented
+- ~~`Counter.fromkeys`~~ ✅ Implemented
+- ~~`OrderedDict.__reversed__` and `__eq__`~~ ✅ Implemented
 **Note**: Existing classes need full dict/list method compatibility
 
 ---
@@ -567,7 +569,7 @@ For each module, compare against CPython and list:
 | `fromtimestamp(ts)` | ✅ | Via fromTimestamp |
 | `fromordinal(ordinal)` | ✅ | |
 | `fromisoformat(string)` | ✅ | parseIsoformat |
-| `fromisocalendar(year, week, day)` | ⬜ | TODO |
+| `fromisocalendar(year, week, day)` | ✅ | dateFromIsocalendar |
 | `replace(year, month, day)` | ✅ | DateExt.replace |
 | `weekday()` | ✅ | |
 | `isoweekday()` | ✅ | DateExt.isoweekday |
@@ -605,14 +607,14 @@ For each module, compare against CPython and list:
 | `fromtimestamp(ts, tz)` | ✅ | |
 | `utcfromtimestamp(ts)` | ✅ | utcfromtimestamp() |
 | `fromisoformat(string)` | ✅ | parseIsoformat |
-| `fromisocalendar()` | ⬜ | TODO |
+| `fromisocalendar()` | ✅ | datetimeFromIsocalendar |
 | `combine(date, time)` | ✅ | combine() |
 | `strptime(string, format)` | ✅ | strptime() |
 | `date()` | ✅ | DatetimeExt.toDate |
 | `time()` | ✅ | DatetimeExt.toTime |
 | `timetz()` | ✅ | DatetimeExt.toTime |
 | `replace()` | ✅ | DatetimeExt.replace |
-| `astimezone(tz)` | ⬜ | TODO |
+| `astimezone(tz)` | ✅ | astimezone() + DatetimeWithTz |
 | `utcoffset()` | ✅ | Timezone.utcoffset |
 | `dst()` | ✅ | Timezone.dst |
 | `tzname()` | ✅ | Timezone.tzname |
@@ -655,8 +657,8 @@ For each module, compare against CPython and list:
 **Summary**: ~85% method coverage
 **Well-implemented**: datetime.now, timedelta arithmetic, strftime, strptime, timezone
 **Remaining**:
-- `fromisocalendar()` - Create from ISO calendar
-- `astimezone(tz)` - Convert to different timezone
+- ~~`fromisocalendar()` - Create from ISO calendar~~ ✅ Implemented
+- ~~`astimezone(tz)` - Convert to different timezone~~ ✅ Implemented
 - `fold` attribute - For ambiguous times
 
 ---
@@ -683,7 +685,7 @@ For each module, compare against CPython and list:
 | `object_hook=None` | ✅ | JSONDecoder.object_hook |
 | `parse_float=None` | ✅ | JSONDecoder.parse_float |
 | `parse_int=None` | ✅ | JSONDecoder.parse_int |
-| `parse_constant=None` | ⬜ | Not implemented |
+| `parse_constant=None` | ✅ | JSONDecoder.parse_constant, LoadsOptions |
 | `object_pairs_hook=None` | ✅ | JSONDecoder.object_pairs_hook |
 
 #### dumps() Parameters
@@ -712,7 +714,7 @@ For each module, compare against CPython and list:
 **Summary**: 4/4 main functions, ~95% parameter coverage
 **Well-implemented**: All core features with SIMD-accelerated string escaping
 **Remaining**:
-- `parse_constant` parameter for loads()
+- ~~`parse_constant` parameter for loads()~~ ✅ Implemented
 
 ---
 
@@ -1063,7 +1065,7 @@ For each module, compare against CPython and list:
 - [x] `UserDict` - Dict wrapper for subclassing
 - [x] `UserList` - List wrapper for subclassing
 - [x] `UserString` - Str wrapper for subclassing
-- [ ] `namedtuple(typename, field_names)` - Factory function (requires codegen)
+- [x] `namedtuple(typename, field_names)` - Factory function (NamedTuple + namedtupleFactory)
 
 ### datetime ✅
 - [x] `strptime(string, format)` - Parse string to datetime
