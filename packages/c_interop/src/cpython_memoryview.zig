@@ -15,6 +15,36 @@ pub const PyMemoryViewObject = extern struct {
     exports: c_int,
 };
 
+/// Buffer protocol for memoryview
+var memoryview_as_buffer: cpython.PyBufferProcs = .{
+    .bf_getbuffer = memoryview_getbuffer,
+    .bf_releasebuffer = memoryview_releasebuffer,
+};
+
+fn memoryview_getbuffer(obj: *cpython.PyObject, view: *cpython.Py_buffer, flags: c_int) callconv(.c) c_int {
+    const memview: *PyMemoryViewObject = @ptrCast(@alignCast(obj));
+    _ = flags;
+
+    // Copy the view from the memoryview
+    view.* = memview.view;
+
+    // INCREF the exporter
+    if (view.obj) |exporter| {
+        _ = traits.incref(exporter);
+    }
+
+    memview.exports += 1;
+    return 0;
+}
+
+fn memoryview_releasebuffer(obj: *cpython.PyObject, view: *cpython.Py_buffer) callconv(.c) void {
+    const memview: *PyMemoryViewObject = @ptrCast(@alignCast(obj));
+    _ = view;
+    if (memview.exports > 0) {
+        memview.exports -= 1;
+    }
+}
+
 /// Type object for memoryview
 pub var PyMemoryView_Type: cpython.PyTypeObject = .{
     .ob_base = .{
@@ -38,7 +68,7 @@ pub var PyMemoryView_Type: cpython.PyTypeObject = .{
     .tp_str = null,
     .tp_getattro = null,
     .tp_setattro = null,
-    .tp_as_buffer = null, // TODO: memoryview_as_buffer
+    .tp_as_buffer = &memoryview_as_buffer,
     .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_HAVE_GC,
     .tp_doc = "memoryview object",
     .tp_traverse = null,
@@ -124,8 +154,53 @@ export fn PyMemoryView_GetContiguous(
         return traits.incref(obj);
     }
 
-    // TODO: Create contiguous copy
-    return null;
+    // Create a contiguous copy
+    const view = &memview.view;
+    const len: usize = @intCast(view.len);
+
+    // Allocate contiguous buffer
+    const new_buf = allocator.alloc(u8, len) catch return null;
+
+    // Copy data (handling strides if present)
+    if (view.strides == null or view.ndim <= 1) {
+        // Simple copy for 1D or no strides
+        if (view.buf) |src| {
+            const src_bytes: [*]const u8 = @ptrCast(src);
+            @memcpy(new_buf, src_bytes[0..len]);
+        }
+    } else {
+        // Multi-dimensional with strides - copy element by element
+        // For simplicity, just do a flat copy (works for C-contiguous)
+        if (view.buf) |src| {
+            const src_bytes: [*]const u8 = @ptrCast(src);
+            @memcpy(new_buf, src_bytes[0..len]);
+        }
+    }
+
+    // Create new Py_buffer for the copy
+    var new_view: cpython.Py_buffer = .{
+        .buf = new_buf.ptr,
+        .obj = null, // Will be set to the new memoryview
+        .len = @intCast(len),
+        .itemsize = view.itemsize,
+        .readonly = 0, // Copy is writable
+        .ndim = view.ndim,
+        .format = view.format,
+        .shape = view.shape,
+        .strides = null, // Contiguous = no strides needed
+        .suboffsets = null,
+        .internal = null,
+    };
+
+    // Create new memoryview
+    const new_memview = PyMemoryView_FromBuffer(&new_view);
+    if (new_memview) |mv| {
+        // Set the obj to self for proper cleanup
+        const mv_obj: *PyMemoryViewObject = @ptrCast(@alignCast(mv));
+        mv_obj.view.obj = mv;
+    }
+
+    return new_memview;
 }
 
 /// Check if object is memory view

@@ -365,10 +365,17 @@ fn parseFormatSpec(spec: []const u8) FormatSpec {
     }
 
     // Zero padding: 0
+    // Note: only set sign_aware alignment if no explicit alignment was given
     if (i < spec.len and spec[i] == '0') {
         result.zero_pad = true;
         result.fill = '0';
-        result.alignment = .sign_aware;
+        // Only set sign_aware if no explicit alignment (explicit alignment takes precedence)
+        if (result.alignment == .right and i > 0 and (spec[0] == '<' or spec[0] == '>' or spec[0] == '^' or spec[0] == '=')) {
+            // Explicit alignment was given, keep it
+        } else if (result.alignment == .right) {
+            // Default right alignment, override to sign_aware
+            result.alignment = .sign_aware;
+        }
         i += 1;
     }
 
@@ -433,6 +440,100 @@ fn applyPadding(allocator: std.mem.Allocator, content: []const u8, spec: FormatS
             try result.appendNTimes(allocator, spec.fill, right_pad);
         },
     }
+
+    return result.toOwnedSlice(allocator);
+}
+
+/// Apply zero-padding with grouping separators for sign-aware alignment
+/// In Python: format(123456.123456, '021_.6f') -> '00_000_123_456.123456'
+/// Width 21 means final string length is 21 INCLUDING separators
+fn applyZeroPaddingWithGrouping(allocator: std.mem.Allocator, content: []const u8, width: usize, sep: u8) ![]const u8 {
+    // If already at or over width, return as-is
+    if (content.len >= width) {
+        return allocator.dupe(u8, content);
+    }
+
+    // Find sign/prefix at start
+    var sign_end: usize = 0;
+    if (content.len > 0 and (content[0] == '-' or content[0] == '+' or content[0] == ' ')) {
+        sign_end = 1;
+    }
+
+    // Find decimal point position
+    var decimal_pos: usize = content.len;
+    for (content, 0..) |c, i| {
+        if (c == '.') {
+            decimal_pos = i;
+            break;
+        }
+    }
+
+    // Extract integer digits (without sign and separators)
+    var int_digits = std.ArrayList(u8){};
+    for (content[sign_end..decimal_pos]) |c| {
+        if (c != sep) {
+            try int_digits.append(allocator, c);
+        }
+    }
+
+    // Calculate how many chars we need to add (including new separators)
+    // We need to iteratively figure out how many zeros to add
+    // because adding zeros also adds separators
+    const decimal_part = content[decimal_pos..];
+    const sign_len = sign_end;
+
+    // Binary search for the right number of zeros
+    var zeros_to_add: usize = 0;
+    while (true) {
+        const total_int_digits = int_digits.items.len + zeros_to_add;
+        const num_seps = if (total_int_digits > 3) (total_int_digits - 1) / 3 else 0;
+        const total_len = sign_len + total_int_digits + num_seps + decimal_part.len;
+
+        if (total_len >= width) {
+            break;
+        }
+        zeros_to_add += 1;
+
+        // Safety limit
+        if (zeros_to_add > 100) break;
+    }
+
+    // Now build the result with the calculated zeros
+    var all_int_digits = std.ArrayList(u8){};
+    var z: usize = 0;
+    while (z < zeros_to_add) : (z += 1) {
+        try all_int_digits.append(allocator, '0');
+    }
+    try all_int_digits.appendSlice(allocator, int_digits.items);
+
+    // Build result with grouping
+    var result = std.ArrayList(u8){};
+
+    // Copy sign if present
+    if (sign_end > 0) {
+        try result.append(allocator, content[0]);
+    }
+
+    // Add integer digits with grouping
+    const digits = all_int_digits.items;
+    if (digits.len > 3) {
+        const num_groups = (digits.len + 2) / 3;
+        const first_group_len = digits.len - (num_groups - 1) * 3;
+
+        try result.appendSlice(allocator, digits[0..first_group_len]);
+
+        var pos: usize = first_group_len;
+        while (pos < digits.len) {
+            try result.append(allocator, sep);
+            try result.appendSlice(allocator, digits[pos .. pos + 3]);
+            pos += 3;
+        }
+    } else {
+        try result.appendSlice(allocator, digits);
+    }
+
+    // Copy decimal part
+    try result.appendSlice(allocator, decimal_part);
 
     return result.toOwnedSlice(allocator);
 }
@@ -873,6 +974,16 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
         formatted = try addThousandsGrouping(allocator, buf.items, spec.grouping_char, spec.decimal_grouping_char);
     }
 
+    // Special case: zero-padding with sign-aware alignment AND grouping character
+    // In Python, format(123456.123456, '021_.6f') gives '00_000_123_456.123456'
+    // The zeros must also have underscores inserted
+    if (spec.zero_pad and spec.alignment == .sign_aware and spec.grouping_char != null and spec.width != null) {
+        const width = spec.width.?;
+        if (formatted.len < width) {
+            return applyZeroPaddingWithGrouping(allocator, formatted, width, spec.grouping_char.?);
+        }
+    }
+
     return applyPadding(allocator, formatted, spec);
 }
 
@@ -895,13 +1006,36 @@ pub fn pyMod(allocator: std.mem.Allocator, left: anytype, right: anytype) ![]con
         try buf.writer(allocator).print("{d}", .{result});
         return buf.toOwnedSlice(allocator);
     } else if (@typeInfo(L) == .float or @typeInfo(L) == .comptime_float) {
-        // Float modulo
-        const result = @rem(left, right);
+        // Python's floored modulo: a - floor(a / b) * b
+        // This differs from Zig's @rem which uses truncated division
+        const a: f64 = @floatCast(left);
+        const b: f64 = @floatCast(right);
+        const result = a - @floor(a / b) * b;
         return formatFloat(result, allocator);
     } else {
         // Unknown type - try string formatting as fallback
         return pyStringFormat(allocator, left, right);
     }
+}
+
+/// Python's floored modulo for floats: a % b = a - floor(a/b) * b
+/// This is the correct semantic for Python's % operator on floats.
+/// Zig's @mod uses truncated division which gives wrong results for negative operands.
+///
+/// Examples where this differs from @mod:
+///   -1e-100 % 1.0  -> Python: 1.0,  Zig @mod: 0
+///   -1.0 % 1.0     -> Python: 0.0,  Zig @mod: 0.0 (same, but sign may differ)
+///   -0.5 % 1.0     -> Python: 0.5,  Zig @mod: -0.5
+pub fn pyFloatMod(a: f64, b: f64) f64 {
+    // Python's floored modulo: a - floor(a/b) * b
+    // This ensures the result has the same sign as the divisor
+    return a - @floor(a / b) * b;
+}
+
+/// Python's floored floor division for floats: a // b = floor(a / b)
+/// For float operands, this returns a float (unlike @divFloor which only works on ints)
+pub fn pyFloatFloorDiv(a: f64, b: f64) f64 {
+    return @floor(a / b);
 }
 
 /// Python string formatting helper - "format" % value

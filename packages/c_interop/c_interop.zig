@@ -12,6 +12,66 @@ pub const ssl = @import("src/ssl.zig");
 // CPython C API - our own implementation (drop-in replacement for libpython)
 pub const cpython = @import("src/cpython_object.zig");
 
+// ============================================================================
+// CPYTHON EXPORTS - Force inclusion of all CPython API symbols
+// ============================================================================
+// C extensions (numpy, pandas, etc.) expect these symbols to be available.
+// By referencing them here, we prevent Zig from dead-code eliminating them.
+
+pub const cpython_exports = struct {
+    // Core modules with export fn declarations
+    pub const argparse = @import("src/cpython_argparse.zig");
+    pub const refcount = @import("src/cpython_refcount.zig");
+    pub const buffer = @import("src/cpython_buffer.zig");
+    pub const datetime = @import("src/cpython_datetime.zig");
+    pub const descr = @import("src/cpython_descr.zig");
+    pub const eval = @import("src/cpython_eval.zig");
+    pub const file = @import("src/cpython_file.zig");
+    pub const import_ = @import("src/cpython_import.zig");
+    pub const init = @import("src/cpython_init.zig");
+    pub const misc = @import("src/cpython_misc.zig"); // Memory, capsule, attribute access
+    pub const module = @import("src/cpython_module.zig");
+    pub const number = @import("src/cpython_number.zig");
+    pub const sequence = @import("src/cpython_sequence.zig");
+    pub const slice = @import("src/cpython_slice.zig");
+    pub const sys = @import("src/cpython_sys.zig");
+    pub const type_ = @import("src/cpython_type.zig");
+    pub const unicode = @import("src/cpython_unicode.zig");
+    pub const weakref = @import("src/cpython_weakref.zig");
+    pub const mapping = @import("src/cpython_mapping.zig");
+    pub const object_protocol = @import("src/cpython_object_protocol.zig");
+    pub const codecs = @import("src/cpython_codecs.zig");
+    pub const context = @import("src/cpython_context.zig");
+    pub const gc = @import("src/cpython_gc.zig");
+    pub const iterator = @import("src/cpython_iterator.zig");
+    pub const call = @import("src/cpython_call.zig");
+    pub const structseq = @import("src/cpython_structseq.zig");
+
+    // PyObject type modules
+    pub const pylong = @import("src/pyobject_long.zig");
+    pub const pyfloat = @import("src/pyobject_float.zig");
+    pub const pylist = @import("src/pyobject_list.zig");
+    pub const pytuple = @import("src/pyobject_tuple.zig");
+    pub const pydict = @import("src/pyobject_dict.zig");
+    pub const pybytes = @import("src/pyobject_bytes.zig");
+    pub const pyset = @import("src/pyobject_set.zig");
+    pub const pybool = @import("src/pyobject_bool.zig");
+    pub const pynone = @import("src/pyobject_none.zig");
+    pub const pycomplex = @import("src/pyobject_complex.zig");
+    pub const pyunicode = @import("src/pyobject_unicode.zig");
+    pub const pyiter = @import("src/pyobject_iter.zig");
+    pub const pymethod = @import("src/pyobject_method.zig");
+    pub const pymodule = @import("src/pyobject_module.zig");
+    pub const pyslice = @import("src/pyobject_slice.zig");
+
+    // Exception types and PyErr_* functions
+    pub const exceptions = @import("src/pyobject_exceptions.zig");
+    pub const traits = @import("src/pyobject_traits.zig");
+
+    // Generic CPython API exports (for ALL C extensions)
+    pub const api = @import("src/cpython_api.zig");
+};
+
 const allocator = std.heap.c_allocator;
 
 // ============================================================================
@@ -772,6 +832,21 @@ pub fn callModuleFunction(
 
     // Call function
     return PyObject_CallObject(func, args_tuple);
+}
+
+/// Get an attribute from a module
+/// Example: getModuleAttr("numpy", "__version__")
+pub fn getModuleAttr(
+    module_name: []const u8,
+    attr_name: []const u8,
+) ?*cpython.PyObject {
+    const module = loadModule(module_name) orelse return null;
+
+    // Get attribute from module
+    const attr_name_z = allocator.dupeZ(u8, attr_name) catch return null;
+    defer allocator.free(attr_name_z);
+
+    return PyObject_GetAttrString(module, attr_name_z);
 }
 
 // ============================================================================

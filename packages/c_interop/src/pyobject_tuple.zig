@@ -181,12 +181,21 @@ export fn PyTuple_GetSlice(obj: *cpython.PyObject, low: isize, high: isize) call
 /// Pack arguments into tuple
 export fn PyTuple_Pack(n: isize, ...) callconv(.c) ?*cpython.PyObject {
     if (n < 0) return null;
+    if (n == 0) return PyTuple_New(0);
 
-    const tuple = PyTuple_New(n);
-    if (tuple == null) return null;
+    const tuple = PyTuple_New(n) orelse return null;
+    const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(tuple));
+    const items_ptr: [*]*cpython.PyObject = @ptrCast(&tuple_obj.ob_item);
 
-    // TODO: Extract varargs and fill tuple
-    // For now just return empty tuple
+    var va = @cVaStart();
+    defer @cVaEnd(&va);
+
+    var i: isize = 0;
+    while (i < n) : (i += 1) {
+        const item = @cVaArg(&va, *cpython.PyObject);
+        // PyTuple_Pack increfs items (unlike SetItem which steals)
+        items_ptr[@intCast(i)] = traits.incref(item);
+    }
 
     return tuple;
 }

@@ -337,18 +337,113 @@ pub export fn PyFunction_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyFunction_Type) 1 else 0;
 }
 
+/// Classmethod wrapper object
+pub const PyClassMethodObject = extern struct {
+    ob_base: cpython.PyObject,
+    cm_callable: ?*cpython.PyObject,
+    cm_dict: ?*cpython.PyObject,
+};
+
+/// Staticmethod wrapper object
+pub const PyStaticMethodObject = extern struct {
+    ob_base: cpython.PyObject,
+    sm_callable: ?*cpython.PyObject,
+    sm_dict: ?*cpython.PyObject,
+};
+
+fn classmethod_get(self: *cpython.PyObject, obj: ?*cpython.PyObject, owner: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const cm: *PyClassMethodObject = @ptrCast(@alignCast(self));
+    const callable = cm.cm_callable orelse return null;
+
+    // Get the class - either from owner or from obj's type
+    const cls: *cpython.PyObject = if (owner) |o|
+        @ptrCast(o)
+    else if (obj) |o|
+        @ptrCast(cpython.Py_TYPE(o))
+    else
+        return null;
+
+    // Return bound method with class as first argument
+    const pymethod = @import("pyobject_method.zig");
+    return pymethod.PyMethod_New(callable, cls);
+}
+
+fn staticmethod_get(self: *cpython.PyObject, obj: ?*cpython.PyObject, owner: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    _ = obj;
+    _ = owner;
+    const sm: *PyStaticMethodObject = @ptrCast(@alignCast(self));
+    const callable = sm.sm_callable orelse return null;
+
+    // Return the callable unchanged (not bound)
+    return traits.incref(callable);
+}
+
+fn classmethod_dealloc(obj: *cpython.PyObject) callconv(.c) void {
+    const cm: *PyClassMethodObject = @ptrCast(@alignCast(obj));
+    if (cm.cm_callable) |c| traits.decref(c);
+    if (cm.cm_dict) |d| traits.decref(d);
+    allocator.destroy(cm);
+}
+
+fn staticmethod_dealloc(obj: *cpython.PyObject) callconv(.c) void {
+    const sm: *PyStaticMethodObject = @ptrCast(@alignCast(obj));
+    if (sm.sm_callable) |c| traits.decref(c);
+    if (sm.sm_dict) |d| traits.decref(d);
+    allocator.destroy(sm);
+}
+
+pub var PyClassMethod_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "classmethod",
+    .tp_basicsize = @sizeOf(PyClassMethodObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = classmethod_dealloc,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE,
+    .tp_descr_get = classmethod_get,
+};
+
+pub var PyStaticMethod_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "staticmethod",
+    .tp_basicsize = @sizeOf(PyStaticMethodObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = staticmethod_dealloc,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE,
+    .tp_descr_get = staticmethod_get,
+};
+
 /// Create classmethod
 pub export fn PyClassMethod_New(callable: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = callable;
-    // TODO: Implement
-    return null;
+    const cm = allocator.create(PyClassMethodObject) catch return null;
+    cm.* = .{
+        .ob_base = .{
+            .ob_refcnt = 1,
+            .ob_type = &PyClassMethod_Type,
+        },
+        .cm_callable = traits.incref(callable),
+        .cm_dict = null,
+    };
+    return @ptrCast(cm);
 }
 
 /// Create staticmethod
 pub export fn PyStaticMethod_New(callable: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = callable;
-    // TODO: Implement
-    return null;
+    const sm = allocator.create(PyStaticMethodObject) catch return null;
+    sm.* = .{
+        .ob_base = .{
+            .ob_refcnt = 1,
+            .ob_type = &PyStaticMethod_Type,
+        },
+        .sm_callable = traits.incref(callable),
+        .sm_dict = null,
+    };
+    return @ptrCast(sm);
 }
 
 // ============================================================================

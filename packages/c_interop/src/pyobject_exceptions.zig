@@ -149,8 +149,8 @@ const ExceptionState = struct {
     exc_traceback: ?*cpython.PyObject,
 };
 
-// Global exception state (TODO: make thread-local)
-var global_exception_state: ExceptionState = .{
+// Thread-local exception state for proper multi-threaded exception handling
+threadlocal var global_exception_state: ExceptionState = .{
     .exc_type = null,
     .exc_value = null,
     .exc_traceback = null,
@@ -160,14 +160,26 @@ var global_exception_state: ExceptionState = .{
 //                         PYERR_* C API FUNCTIONS
 // ============================================================================
 
+/// Generic exception object structure (works for all exception types)
+/// All Python exceptions share this common layout
+const GenericExceptionObject = extern struct {
+    ob_base: cpython.PyObject,
+    args: ?*cpython.PyObject, // Exception arguments tuple
+    traceback: ?*cpython.PyObject,
+    cause: ?*cpython.PyObject,
+    context: ?*cpython.PyObject,
+    suppress_context: u8,
+    _padding: [7]u8 = .{0} ** 7,
+};
+
 /// Set exception with string message
 export fn PyErr_SetString(exc_type: *cpython.PyTypeObject, message: [*:0]const u8) callconv(.c) void {
     // Convert C string to PyUnicode
-    const py_msg = @import("pyobject_unicode.zig").PyUnicode_FromString(message);
+    const pyunicode = @import("pyobject_unicode.zig");
+    const py_msg = pyunicode.PyUnicode_FromString(message);
 
-    // Create exception instance
-    // TODO: Use proper exception type based on exc_type
-    const exc = allocator.create(PyValueError) catch {
+    // Create exception instance with the correct type
+    const exc = allocator.create(GenericExceptionObject) catch {
         // Failed to allocate exception - just set type
         global_exception_state = .{
             .exc_type = exc_type,
@@ -177,15 +189,20 @@ export fn PyErr_SetString(exc_type: *cpython.PyTypeObject, message: [*:0]const u
         return;
     };
 
-    exc.* = PyValueError{
+    // Create args tuple with message
+    const pytuple = @import("pyobject_tuple.zig");
+    const args = if (py_msg) |msg| pytuple.PyTuple_Pack(1, msg) else null;
+
+    exc.* = GenericExceptionObject{
         .ob_base = .{
             .ob_refcnt = 1,
-            .ob_type = @ptrCast(exc_type),
+            .ob_type = exc_type, // Use the passed exception type
         },
-        .message = @ptrCast(py_msg),
+        .args = args,
         .traceback = null,
         .cause = null,
         .context = null,
+        .suppress_context = 0,
     };
 
     global_exception_state = .{
@@ -263,9 +280,70 @@ export fn PyErr_Print() callconv(.c) void {
 
 /// Format and set exception
 export fn PyErr_Format(exc_type: *cpython.PyTypeObject, format: [*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
-    // TODO: Implement actual formatting with varargs
-    // For now: just use format string as message
-    PyErr_SetString(exc_type, format);
+    const fmt = std.mem.span(format);
+    var va = @cVaStart();
+    defer @cVaEnd(&va);
+
+    var buf: [1024]u8 = undefined;
+    var buf_idx: usize = 0;
+    var fmt_idx: usize = 0;
+
+    while (fmt_idx < fmt.len and buf_idx < buf.len - 1) {
+        if (fmt[fmt_idx] == '%' and fmt_idx + 1 < fmt.len) {
+            fmt_idx += 1;
+            switch (fmt[fmt_idx]) {
+                's' => {
+                    const str = @cVaArg(&va, ?[*:0]const u8);
+                    if (str) |s| {
+                        const str_slice = std.mem.span(s);
+                        const copy_len = @min(str_slice.len, buf.len - buf_idx - 1);
+                        @memcpy(buf[buf_idx .. buf_idx + copy_len], str_slice[0..copy_len]);
+                        buf_idx += copy_len;
+                    }
+                },
+                'd', 'i' => {
+                    const val = @cVaArg(&va, c_int);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "{d}", .{val}) catch break;
+                    buf_idx += result.len;
+                },
+                'l' => {
+                    if (fmt_idx + 1 < fmt.len and (fmt[fmt_idx + 1] == 'd' or fmt[fmt_idx + 1] == 'i')) {
+                        fmt_idx += 1;
+                        const val = @cVaArg(&va, c_long);
+                        const result = std.fmt.bufPrint(buf[buf_idx..], "{d}", .{val}) catch break;
+                        buf_idx += result.len;
+                    }
+                },
+                'u' => {
+                    const val = @cVaArg(&va, c_uint);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "{d}", .{val}) catch break;
+                    buf_idx += result.len;
+                },
+                'p' => {
+                    const val = @cVaArg(&va, usize);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "0x{x}", .{val}) catch break;
+                    buf_idx += result.len;
+                },
+                '%' => {
+                    buf[buf_idx] = '%';
+                    buf_idx += 1;
+                },
+                else => {
+                    buf[buf_idx] = '%';
+                    buf[buf_idx + 1] = fmt[fmt_idx];
+                    buf_idx += 2;
+                },
+            }
+            fmt_idx += 1;
+        } else {
+            buf[buf_idx] = fmt[fmt_idx];
+            buf_idx += 1;
+            fmt_idx += 1;
+        }
+    }
+    buf[buf_idx] = 0;
+
+    PyErr_SetString(exc_type, @ptrCast(&buf));
     return null;
 }
 
@@ -310,12 +388,80 @@ export fn PyErr_Fetch(p_type: *?*cpython.PyTypeObject, p_value: *?*cpython.PyObj
 }
 
 /// Normalize exception (ensure exc_value is instance of exc_type)
+/// This converts exception from tuple format (type, args) to (type, instance)
 export fn PyErr_NormalizeException(p_type: *?*cpython.PyTypeObject, p_value: *?*cpython.PyObject, p_tb: *?*cpython.PyObject) callconv(.c) void {
-    // TODO: Implement normalization
-    // For now: no-op
-    _ = p_type;
-    _ = p_value;
-    _ = p_tb;
+    const exc_type = p_type.* orelse return;
+    const exc_value = p_value.*;
+
+    // If no value, create an instance with no args
+    if (exc_value == null) {
+        // Create exception instance by calling type()
+        if (exc_type.tp_new) |new_fn| {
+            const instance = new_fn(@ptrCast(exc_type), null, null);
+            if (instance) |inst| {
+                p_value.* = inst;
+                // Set traceback on the exception if we have one
+                if (p_tb.*) |tb| {
+                    _ = PyException_SetTraceback(inst, tb);
+                }
+            }
+        }
+        return;
+    }
+
+    // Check if value is already an instance of the type
+    const value_type = cpython.Py_TYPE(exc_value.?);
+    if (value_type == @as(*cpython.PyTypeObject, @ptrCast(@alignCast(exc_type)))) {
+        // Already normalized - set traceback
+        if (p_tb.*) |tb| {
+            _ = PyException_SetTraceback(exc_value.?, tb);
+        }
+        return;
+    }
+
+    // Check if value type is a subclass of exc_type (check base)
+    var check_type = value_type;
+    while (check_type.tp_base) |base| {
+        if (base == @as(*cpython.PyTypeObject, @ptrCast(@alignCast(exc_type)))) {
+            // Value is instance of subclass - that's fine
+            if (p_tb.*) |tb| {
+                _ = PyException_SetTraceback(exc_value.?, tb);
+            }
+            return;
+        }
+        check_type = base;
+    }
+
+    // Value is not an instance - it's probably the args tuple
+    // Create instance by calling type(value)
+    if (exc_type.tp_call) |call_fn| {
+        // Pack value into a tuple for args
+        const tuple = @import("pyobject_tuple.zig");
+        const args = tuple.PyTuple_Pack(1, exc_value.?);
+        if (args) |a| {
+            const instance = call_fn(@ptrCast(&exc_type.ob_base.ob_base), a, null);
+            if (instance) |inst| {
+                traits.decref(exc_value.?);
+                p_value.* = inst;
+                if (p_tb.*) |tb| {
+                    _ = PyException_SetTraceback(inst, tb);
+                }
+            }
+            traits.decref(a);
+        }
+    } else if (exc_type.tp_new) |new_fn| {
+        // Try tp_new if no tp_call
+        const instance = new_fn(@ptrCast(exc_type), null, null);
+        if (instance) |inst| {
+            // Set message from value if it's a string
+            const base_exc: *PyBaseException = @ptrCast(@alignCast(inst));
+            base_exc.message = @ptrCast(exc_value);
+            p_value.* = inst;
+            if (p_tb.*) |tb| {
+                _ = PyException_SetTraceback(inst, tb);
+            }
+        }
+    }
 }
 
 /// Set MemoryError exception
@@ -469,6 +615,25 @@ export fn PyErr_NewExceptionWithDoc(name: [*:0]const u8, doc: ?[*:0]const u8, ba
     return @ptrCast(&type_obj.ob_base.ob_base);
 }
 
+/// SyntaxError object structure (extends GenericExceptionObject)
+const SyntaxErrorObject = extern struct {
+    ob_base: cpython.PyObject,
+    args: ?*cpython.PyObject,
+    traceback: ?*cpython.PyObject,
+    cause: ?*cpython.PyObject,
+    context: ?*cpython.PyObject,
+    suppress_context: u8,
+    _padding: [7]u8,
+    // SyntaxError-specific fields
+    msg: ?*cpython.PyObject,
+    filename: ?*cpython.PyObject,
+    lineno: ?*cpython.PyObject,
+    offset: ?*cpython.PyObject,
+    text: ?*cpython.PyObject,
+    end_lineno: ?*cpython.PyObject,
+    end_offset: ?*cpython.PyObject,
+};
+
 /// Set syntax error location
 export fn PyErr_SyntaxLocation(filename: [*:0]const u8, lineno: c_int) callconv(.c) void {
     PyErr_SyntaxLocationEx(filename, lineno, -1);
@@ -476,15 +641,43 @@ export fn PyErr_SyntaxLocation(filename: [*:0]const u8, lineno: c_int) callconv(
 
 /// Set syntax error location with column
 export fn PyErr_SyntaxLocationEx(filename: [*:0]const u8, lineno: c_int, col_offset: c_int) callconv(.c) void {
-    _ = filename;
-    _ = lineno;
-    _ = col_offset;
-    // TODO: Set location info on current SyntaxError exception
+    // Only set if current exception is a SyntaxError
+    if (global_exception_state.exc_value == null) return;
+
+    const pyunicode = @import("pyobject_unicode.zig");
+    const pylong = @import("pyobject_long.zig");
+
+    // Try to set attributes on the exception value
+    // In CPython, this modifies the current SyntaxError in-place
+    const exc = global_exception_state.exc_value.?;
+
+    // Check if it's a SyntaxError type
+    const exc_type = global_exception_state.exc_type;
+    if (exc_type) |et| {
+        const type_name = std.mem.span(et.tp_name);
+        if (std.mem.indexOf(u8, type_name, "SyntaxError") != null) {
+            // Cast to SyntaxError and set location fields
+            const syntax_exc: *SyntaxErrorObject = @ptrCast(@alignCast(exc));
+
+            // Set filename
+            syntax_exc.filename = pyunicode.PyUnicode_FromString(filename);
+
+            // Set lineno
+            syntax_exc.lineno = pylong.PyLong_FromLong(lineno);
+
+            // Set offset (column)
+            if (col_offset >= 0) {
+                syntax_exc.offset = pylong.PyLong_FromLong(col_offset);
+            }
+        }
+    }
 }
 
 /// Raise interrupt exception
 export fn PyErr_SetInterrupt() callconv(.c) void {
-    // TODO: Set keyboard interrupt flag
+    // Import cpython_os to use the interrupt flag
+    const cpython_os = @import("cpython_os.zig");
+    _ = cpython_os.PyErr_SetInterruptEx(2); // SIGINT = 2
 }
 
 // ============================================================================

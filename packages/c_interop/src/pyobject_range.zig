@@ -230,9 +230,65 @@ fn range_dealloc(obj: *cpython.PyObject) callconv(.c) void {
 
 fn range_hash(obj: *cpython.PyObject) callconv(.c) isize {
     const r: *PyRangeObject = @ptrCast(@alignCast(obj));
-    _ = r;
-    // TODO: Implement proper hash
-    return 0;
+    const pylong = @import("pyobject_long.zig");
+    const pytuple = @import("pyobject_tuple.zig");
+    const pynone = @import("pyobject_none.zig");
+
+    // CPython hashes range as tuple(length, start_or_none, step_or_none)
+    // Empty range: (0, None, None)
+    // Single element: (1, start, None)
+    // Multiple elements: (n, start, step)
+
+    const length_val: i64 = if (r.length) |len| blk: {
+        if (pylong.PyLong_Check(len) != 0) {
+            break :blk pylong.PyLong_AsLong(len);
+        }
+        break :blk 0;
+    } else 0;
+
+    // Create tuple for hashing
+    const t = pytuple.PyTuple_New(3) orelse return -1;
+    defer traits.decref(t);
+
+    const tuple_obj: *pytuple.PyTupleObject = @ptrCast(@alignCast(t));
+    const items: [*]*cpython.PyObject = @ptrCast(&tuple_obj.ob_item);
+
+    // Position 0: length (always)
+    items[0] = if (r.length) |len| traits.incref(len) else pylong.PyLong_FromLong(0) orelse return -1;
+
+    if (length_val == 0) {
+        // Empty range: (0, None, None)
+        items[1] = traits.incref(&pynone._Py_NoneStruct);
+        items[2] = traits.incref(&pynone._Py_NoneStruct);
+    } else if (length_val == 1) {
+        // Single element: (1, start, None)
+        items[1] = if (r.start) |s| traits.incref(s) else pylong.PyLong_FromLong(0) orelse return -1;
+        items[2] = traits.incref(&pynone._Py_NoneStruct);
+    } else {
+        // Multiple elements: (n, start, step)
+        items[1] = if (r.start) |s| traits.incref(s) else pylong.PyLong_FromLong(0) orelse return -1;
+        items[2] = if (r.step) |s| traits.incref(s) else pylong.PyLong_FromLong(1) orelse return -1;
+    }
+
+    // Hash the tuple
+    if (pytuple.PyTuple_Type.tp_hash) |hash_fn| {
+        return hash_fn(t);
+    }
+
+    // Fallback: simple hash combining
+    var hash: isize = 0x345678;
+    hash = hash *% 1000003 +% @as(isize, @intCast(length_val));
+    if (r.start) |s| {
+        if (pylong.PyLong_Check(s) != 0) {
+            hash = hash *% 1000003 +% pylong.PyLong_AsLong(s);
+        }
+    }
+    if (r.step) |s| {
+        if (pylong.PyLong_Check(s) != 0) {
+            hash = hash *% 1000003 +% pylong.PyLong_AsLong(s);
+        }
+    }
+    return hash;
 }
 
 // ============================================================================

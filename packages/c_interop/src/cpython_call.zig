@@ -13,20 +13,270 @@ pub const PyObject_Call = obj_proto.PyObject_Call;
 pub const PyObject_CallObject = obj_proto.PyObject_CallObject;
 
 /// Call with format string arguments
+/// Format codes: O (PyObject*), s (const char*), i (int), l (long), d (double), etc.
 export fn PyObject_CallFunction(callable: *cpython.PyObject, format: ?[*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
-    _ = format;
-    // TODO: Parse format string and build args tuple
-    return obj_proto.PyObject_Call(callable, @ptrFromInt(0), null);
+    const pytuple = @import("pyobject_tuple.zig");
+    const pyunicode = @import("pyobject_unicode.zig");
+    const pylong = @import("pyobject_long.zig");
+    const pyfloat = @import("pyobject_float.zig");
+
+    // If no format, call with empty args
+    if (format == null) {
+        const empty_args = pytuple.PyTuple_New(0) orelse return null;
+        defer traits.decref(empty_args);
+        return obj_proto.PyObject_Call(callable, empty_args, null);
+    }
+
+    const fmt = std.mem.span(format.?);
+    if (fmt.len == 0) {
+        const empty_args = pytuple.PyTuple_New(0) orelse return null;
+        defer traits.decref(empty_args);
+        return obj_proto.PyObject_Call(callable, empty_args, null);
+    }
+
+    // Count format characters (excluding parentheses)
+    var arg_count: usize = 0;
+    var i: usize = 0;
+    while (i < fmt.len) : (i += 1) {
+        const c = fmt[i];
+        switch (c) {
+            '(', ')', ' ', '\t', '\n' => {},
+            'O', 'S', 'N', 's', 'z', 'y', 'u', 'i', 'b', 'h', 'l', 'L', 'k', 'K', 'n', 'c', 'C', 'd', 'f', 'D', 'p' => {
+                arg_count += 1;
+            },
+            else => {},
+        }
+    }
+
+    // Build args tuple
+    const args_tuple = pytuple.PyTuple_New(@intCast(arg_count)) orelse return null;
+    errdefer traits.decref(args_tuple);
+
+    var va = @cVaStart();
+    defer @cVaEnd(&va);
+
+    var arg_idx: isize = 0;
+    i = 0;
+    while (i < fmt.len) : (i += 1) {
+        const c = fmt[i];
+        switch (c) {
+            '(', ')', ' ', '\t', '\n' => {},
+            'O', 'S', 'N' => {
+                // PyObject*
+                const obj = @cVaArg(&va, ?*cpython.PyObject);
+                if (obj) |o| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, traits.incref(o));
+                }
+                arg_idx += 1;
+            },
+            's', 'z' => {
+                // const char* (z allows NULL)
+                const str = @cVaArg(&va, ?[*:0]const u8);
+                if (str) |s| {
+                    const py_str = pyunicode.PyUnicode_FromString(s);
+                    if (py_str) |ps| {
+                        _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, ps);
+                    }
+                }
+                arg_idx += 1;
+            },
+            'y' => {
+                // const char* as bytes
+                const str = @cVaArg(&va, ?[*:0]const u8);
+                if (str) |s| {
+                    const pybytes = @import("pyobject_bytes.zig");
+                    const py_bytes = pybytes.PyBytes_FromString(s);
+                    if (py_bytes) |pb| {
+                        _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pb);
+                    }
+                }
+                arg_idx += 1;
+            },
+            'i', 'b', 'h' => {
+                // int (b=char, h=short promoted to int)
+                const val = @cVaArg(&va, c_int);
+                const py_int = pylong.PyLong_FromLong(val);
+                if (py_int) |pi| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pi);
+                }
+                arg_idx += 1;
+            },
+            'l' => {
+                // long
+                const val = @cVaArg(&va, c_long);
+                const py_int = pylong.PyLong_FromLong(val);
+                if (py_int) |pi| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pi);
+                }
+                arg_idx += 1;
+            },
+            'L', 'K' => {
+                // long long
+                const val = @cVaArg(&va, c_longlong);
+                const py_int = pylong.PyLong_FromLongLong(val);
+                if (py_int) |pi| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pi);
+                }
+                arg_idx += 1;
+            },
+            'k' => {
+                // unsigned long
+                const val = @cVaArg(&va, c_ulong);
+                const py_int = pylong.PyLong_FromUnsignedLong(val);
+                if (py_int) |pi| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pi);
+                }
+                arg_idx += 1;
+            },
+            'n' => {
+                // Py_ssize_t
+                const val = @cVaArg(&va, isize);
+                const py_int = pylong.PyLong_FromSsize_t(val);
+                if (py_int) |pi| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pi);
+                }
+                arg_idx += 1;
+            },
+            'd', 'f' => {
+                // double (f promoted to double)
+                const val = @cVaArg(&va, f64);
+                const py_float = pyfloat.PyFloat_FromDouble(val);
+                if (py_float) |pf| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pf);
+                }
+                arg_idx += 1;
+            },
+            'c', 'C' => {
+                // char
+                const val = @cVaArg(&va, c_int);
+                var buf: [2]u8 = .{ @intCast(val & 0xFF), 0 };
+                const py_str = pyunicode.PyUnicode_FromString(@ptrCast(&buf));
+                if (py_str) |ps| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, ps);
+                }
+                arg_idx += 1;
+            },
+            'p' => {
+                // pointer as int
+                const val = @cVaArg(&va, usize);
+                const py_int = pylong.PyLong_FromVoidPtr(@ptrFromInt(val));
+                if (py_int) |pi| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pi);
+                }
+                arg_idx += 1;
+            },
+            else => {},
+        }
+    }
+
+    const result = obj_proto.PyObject_Call(callable, args_tuple, null);
+    traits.decref(args_tuple);
+    return result;
 }
 
 /// Call method with format string
 export fn PyObject_CallMethod(obj: *cpython.PyObject, name: [*:0]const u8, format: ?[*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
-    _ = name;
-    _ = format;
-    _ = obj;
-    // TODO: Get method from object, then call with args
-    traits.setError("RuntimeError", "PyObject_CallMethod not fully implemented");
-    return null;
+    const pytuple = @import("pyobject_tuple.zig");
+    const pyunicode = @import("pyobject_unicode.zig");
+    const pylong = @import("pyobject_long.zig");
+    const pyfloat = @import("pyobject_float.zig");
+    const misc = @import("cpython_misc.zig");
+
+    // Get method from object
+    const name_obj = pyunicode.PyUnicode_FromString(name) orelse return null;
+    defer traits.decref(name_obj);
+
+    const method = misc.PyObject_GetAttr(obj, name_obj) orelse return null;
+    defer traits.decref(method);
+
+    // If no format, call with empty args
+    if (format == null) {
+        const empty_args = pytuple.PyTuple_New(0) orelse return null;
+        defer traits.decref(empty_args);
+        return obj_proto.PyObject_Call(method, empty_args, null);
+    }
+
+    const fmt = std.mem.span(format.?);
+    if (fmt.len == 0) {
+        const empty_args = pytuple.PyTuple_New(0) orelse return null;
+        defer traits.decref(empty_args);
+        return obj_proto.PyObject_Call(method, empty_args, null);
+    }
+
+    // Count format characters
+    var arg_count: usize = 0;
+    for (fmt) |c| {
+        switch (c) {
+            '(', ')', ' ', '\t', '\n' => {},
+            'O', 'S', 'N', 's', 'z', 'y', 'u', 'i', 'b', 'h', 'l', 'L', 'k', 'K', 'n', 'c', 'C', 'd', 'f', 'D', 'p' => {
+                arg_count += 1;
+            },
+            else => {},
+        }
+    }
+
+    // Build args tuple
+    const args_tuple = pytuple.PyTuple_New(@intCast(arg_count)) orelse return null;
+    errdefer traits.decref(args_tuple);
+
+    var va = @cVaStart();
+    defer @cVaEnd(&va);
+
+    var arg_idx: isize = 0;
+    for (fmt) |c| {
+        switch (c) {
+            '(', ')', ' ', '\t', '\n' => {},
+            'O', 'S', 'N' => {
+                const o = @cVaArg(&va, ?*cpython.PyObject);
+                if (o) |ob| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, traits.incref(ob));
+                }
+                arg_idx += 1;
+            },
+            's', 'z' => {
+                const str = @cVaArg(&va, ?[*:0]const u8);
+                if (str) |s| {
+                    if (pyunicode.PyUnicode_FromString(s)) |ps| {
+                        _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, ps);
+                    }
+                }
+                arg_idx += 1;
+            },
+            'i', 'b', 'h' => {
+                const val = @cVaArg(&va, c_int);
+                if (pylong.PyLong_FromLong(val)) |pi| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pi);
+                }
+                arg_idx += 1;
+            },
+            'l' => {
+                const val = @cVaArg(&va, c_long);
+                if (pylong.PyLong_FromLong(val)) |pi| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pi);
+                }
+                arg_idx += 1;
+            },
+            'L', 'K' => {
+                const val = @cVaArg(&va, c_longlong);
+                if (pylong.PyLong_FromLongLong(val)) |pi| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pi);
+                }
+                arg_idx += 1;
+            },
+            'd', 'f' => {
+                const val = @cVaArg(&va, f64);
+                if (pyfloat.PyFloat_FromDouble(val)) |pf| {
+                    _ = pytuple.PyTuple_SetItem(args_tuple, arg_idx, pf);
+                }
+                arg_idx += 1;
+            },
+            else => {},
+        }
+    }
+
+    const result = obj_proto.PyObject_Call(method, args_tuple, null);
+    traits.decref(args_tuple);
+    return result;
 }
 
 /// Call with single argument
@@ -123,11 +373,10 @@ export fn PyObject_Vectorcall(callable: *cpython.PyObject, args: ?[*]const ?*cpy
 
 /// Call using vectorcall with dict for kwargs
 export fn PyObject_VectorcallDict(callable: *cpython.PyObject, args: ?[*]const ?*cpython.PyObject, nargsf: usize, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = nargsf;
     const pytuple = @import("pyobject_tuple.zig");
 
     // Simple fallback: build tuple from args
-    const nargs = PyVectorcall_NARGS(nargsf);
+    const nargs = nargsf & ~@as(usize, 1 << 63); // Strip PY_VECTORCALL_ARGUMENTS_OFFSET flag
     const args_tuple = pytuple.PyTuple_New(@intCast(nargs)) orelse return null;
     if (args) |a| {
         for (0..nargs) |i| {

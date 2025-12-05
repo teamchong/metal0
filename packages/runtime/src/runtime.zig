@@ -100,6 +100,8 @@ pub const PyDict_AsString = runtime_format.PyDict_AsString;
 pub const printValue = runtime_format.printValue;
 pub const pyFormat = runtime_format.pyFormat;
 pub const pyMod = runtime_format.pyMod;
+pub const pyFloatMod = runtime_format.pyFloatMod;
+pub const pyFloatFloorDiv = runtime_format.pyFloatFloorDiv;
 pub const pyStringFormat = runtime_format.pyStringFormat;
 
 /// Export exception types from runtime/exceptions.zig
@@ -1487,14 +1489,32 @@ pub fn stringSplitWhitespace(text: []const u8, allocator: std.mem.Allocator) !st
 
 /// Convert any value to i64 (Python int() constructor)
 /// Handles strings, floats, ints, and types with __int__ method
-/// Repeat string n times (Python str * n)
-pub fn strRepeat(allocator: std.mem.Allocator, s: []const u8, n: usize) []const u8 {
-    if (n == 0) return "";
-    if (n == 1) return s;
+/// Repeat string n times (Python str * n or bytes * n)
+/// Accepts both []const u8 and PyBytes for bytes literal support
+pub fn strRepeat(allocator: std.mem.Allocator, s: anytype, n: usize) []const u8 {
+    // Extract the actual slice from either []const u8, PyBytes, or string literal pointer at comptime type check
+    const T = @TypeOf(s);
+    const actual_slice: []const u8 = if (T == []const u8)
+        s
+    else if (@typeInfo(T) == .@"struct" and @hasField(T, "data"))
+        // PyBytes has a .data field
+        s.data
+    else if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .one) blk: {
+        // Pointer to array (string literal like *const [N:0]u8) - coerce to slice
+        const child_info = @typeInfo(@typeInfo(T).pointer.child);
+        if (child_info == .array and child_info.array.child == u8) {
+            break :blk s;
+        } else {
+            @compileError("strRepeat expects []const u8, PyBytes, or string literal, got " ++ @typeName(T));
+        }
+    } else @compileError("strRepeat expects []const u8, PyBytes, or string literal, got " ++ @typeName(T));
 
-    const result = allocator.alloc(u8, s.len * n) catch return "";
+    if (n == 0) return "";
+    if (n == 1) return actual_slice;
+
+    const result = allocator.alloc(u8, actual_slice.len * n) catch return "";
     for (0..n) |i| {
-        @memcpy(result[i * s.len ..][0..s.len], s);
+        @memcpy(result[i * actual_slice.len ..][0..actual_slice.len], actual_slice);
     }
     return result;
 }
@@ -1761,6 +1781,7 @@ pub const classInstanceEq = builtins.classInstanceEq;
 pub const classInstanceNe = builtins.classInstanceNe;
 pub const PyPowResult = builtins.PyPowResult;
 pub const pyPow = builtins.pyPow;
+pub const PyBytes = builtins.PyBytes;
 
 /// Get Python type name for type() builtin
 /// Handles special cases like PyPowResult which can be float or complex
@@ -1855,6 +1876,7 @@ pub const floatCeil = float_ops.floatCeil;
 pub const floatTrunc = float_ops.floatTrunc;
 pub const floatRound = float_ops.floatRound;
 pub const floatBuiltinCall = float_ops.floatBuiltinCall;
+pub const floatBuiltinCallBytes = float_ops.floatBuiltinCallBytes;
 pub const boolBuiltinCall = float_ops.boolBuiltinCall;
 pub const parseFloatWithUnicode = float_ops.parseFloatWithUnicode;
 

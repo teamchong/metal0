@@ -544,16 +544,16 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
 }
 
 /// Compile Zig source code to WASM binary with target selection
-pub fn compileWasmWithTarget(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, target: @import("main.zig").CompileOptions.Target) !void {
-    return compileWasmInternal(allocator, zig_code, output_path, target);
+pub fn compileWasmWithTarget(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, target: @import("main.zig").CompileOptions.Target, exports: []const []const u8) !void {
+    return compileWasmInternal(allocator, zig_code, output_path, target, exports);
 }
 
 /// Compile Zig source code to WASM binary (legacy - uses wasm32-wasi)
 pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
-    return compileWasmInternal(allocator, zig_code, output_path, .wasm_edge);
+    return compileWasmInternal(allocator, zig_code, output_path, .wasm_edge, &.{});
 }
 
-fn compileWasmInternal(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, target: @import("main.zig").CompileOptions.Target) !void {
+fn compileWasmInternal(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, target: @import("main.zig").CompileOptions.Target, exports: []const []const u8) !void {
     // Use arena for all intermediate allocations
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -684,6 +684,12 @@ fn compileWasmInternal(allocator: std.mem.Allocator, zig_code: []const u8, outpu
     }
     try args.append(aa, "-fno-stack-check");
     // Note: -flto not supported for WASM target
+
+    // Add --export flags for each function to export
+    for (exports) |export_name| {
+        const export_flag = try std.fmt.allocPrint(aa, "--export={s}", .{export_name});
+        try args.append(aa, export_flag);
+    }
 
     try args.append(aa, output_flag);
 

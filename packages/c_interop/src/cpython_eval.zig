@@ -115,28 +115,108 @@ export fn PyEval_EvalFrameEx(frame: *PyFrameObject, throwflag: c_int) callconv(.
     return PyEval_EvalFrame(frame);
 }
 
+// Global execution context - provides runtime dictionaries for C extensions
+var builtins_dict: ?*cpython.PyObject = null;
+var globals_dict: ?*cpython.PyObject = null;
+var locals_dict: ?*cpython.PyObject = null;
+var eval_context_initialized: bool = false;
+
+/// Initialize the global execution context
+fn ensureEvalContextInitialized() void {
+    if (eval_context_initialized) return;
+    eval_context_initialized = true;
+
+    const pydict = @import("pyobject_dict.zig");
+    const pyunicode = @import("cpython_unicode.zig");
+    const pybool = @import("pyobject_bool.zig");
+
+    // Create builtins dict with common Python builtins
+    builtins_dict = pydict.PyDict_New();
+    if (builtins_dict) |builtins| {
+        // Add True/False/None
+        if (pybool.Py_True) |t| _ = pydict.PyDict_SetItemString(builtins, "True", t);
+        if (pybool.Py_False) |f| _ = pydict.PyDict_SetItemString(builtins, "False", f);
+        if (@import("pyobject_none.zig").Py_None) |n| _ = pydict.PyDict_SetItemString(builtins, "None", n);
+
+        // Add common type objects
+        const types = @import("cpython_type.zig");
+        if (types.PyType_GetBuiltinType("int")) |t| _ = pydict.PyDict_SetItemString(builtins, "int", @ptrCast(t));
+        if (types.PyType_GetBuiltinType("str")) |t| _ = pydict.PyDict_SetItemString(builtins, "str", @ptrCast(t));
+        if (types.PyType_GetBuiltinType("float")) |t| _ = pydict.PyDict_SetItemString(builtins, "float", @ptrCast(t));
+        if (types.PyType_GetBuiltinType("list")) |t| _ = pydict.PyDict_SetItemString(builtins, "list", @ptrCast(t));
+        if (types.PyType_GetBuiltinType("dict")) |t| _ = pydict.PyDict_SetItemString(builtins, "dict", @ptrCast(t));
+        if (types.PyType_GetBuiltinType("tuple")) |t| _ = pydict.PyDict_SetItemString(builtins, "tuple", @ptrCast(t));
+        if (types.PyType_GetBuiltinType("bool")) |t| _ = pydict.PyDict_SetItemString(builtins, "bool", @ptrCast(t));
+        if (types.PyType_GetBuiltinType("bytes")) |t| _ = pydict.PyDict_SetItemString(builtins, "bytes", @ptrCast(t));
+        if (types.PyType_GetBuiltinType("type")) |t| _ = pydict.PyDict_SetItemString(builtins, "type", @ptrCast(t));
+        if (types.PyType_GetBuiltinType("object")) |t| _ = pydict.PyDict_SetItemString(builtins, "object", @ptrCast(t));
+
+        // Add __name__ for builtins module
+        const name = pyunicode.PyUnicode_FromString("builtins");
+        if (name) |n| {
+            _ = pydict.PyDict_SetItemString(builtins, "__name__", n);
+            traits.decref(n);
+        }
+    }
+
+    // Create empty globals and locals dicts
+    globals_dict = pydict.PyDict_New();
+    if (globals_dict) |globals| {
+        // Set __builtins__ in globals
+        if (builtins_dict) |b| {
+            _ = pydict.PyDict_SetItemString(globals, "__builtins__", b);
+        }
+        // Set __name__ to __main__ by default
+        const main_name = pyunicode.PyUnicode_FromString("__main__");
+        if (main_name) |n| {
+            _ = pydict.PyDict_SetItemString(globals, "__name__", n);
+            traits.decref(n);
+        }
+    }
+
+    // Locals starts empty - populated at runtime
+    locals_dict = pydict.PyDict_New();
+}
+
+/// Set the current globals dictionary (for exec/eval)
+export fn PyEval_SetGlobals(globals: ?*cpython.PyObject) callconv(.c) void {
+    ensureEvalContextInitialized();
+    if (globals) |g| {
+        if (globals_dict) |old| traits.decref(old);
+        traits.incref(g);
+        globals_dict = g;
+    }
+}
+
+/// Set the current locals dictionary (for exec/eval)
+export fn PyEval_SetLocals(locals: ?*cpython.PyObject) callconv(.c) void {
+    ensureEvalContextInitialized();
+    if (locals) |l| {
+        if (locals_dict) |old| traits.decref(old);
+        traits.incref(l);
+        locals_dict = l;
+    }
+}
+
 /// Get the builtins dictionary for current context
 /// Returns borrowed reference
-/// STATUS: STUB - returns null (no runtime context available)
 export fn PyEval_GetBuiltins() callconv(.c) ?*cpython.PyObject {
-    // Would need runtime context - metal0 builtins are compiled inline
-    return null;
+    ensureEvalContextInitialized();
+    return builtins_dict;
 }
 
 /// Get the globals dictionary for current context
 /// Returns borrowed reference
-/// STATUS: STUB - returns null (no runtime frame)
 export fn PyEval_GetGlobals() callconv(.c) ?*cpython.PyObject {
-    // No frame-based globals - metal0 uses static compilation
-    return null;
+    ensureEvalContextInitialized();
+    return globals_dict;
 }
 
 /// Get the locals dictionary for current context
 /// Returns borrowed reference
-/// STATUS: STUB - returns null (no runtime frame)
 export fn PyEval_GetLocals() callconv(.c) ?*cpython.PyObject {
-    // No frame-based locals - metal0 uses static compilation
-    return null;
+    ensureEvalContextInitialized();
+    return locals_dict;
 }
 
 /// Get the current frame object
@@ -504,10 +584,10 @@ export fn PyThread_tss_create(key: *Py_tss_t) callconv(.c) c_int {
 
     // Use simple counter as key (in real impl would use pthread_key_create)
     const tss_key_counter = struct {
-        var counter: usize = 1;
+        var counter: std.atomic.Value(usize) = std.atomic.Value(usize).init(1);
     };
-    key._key = @atomicLoad(&tss_key_counter.counter, .seq_cst);
-    _ = @atomicRmw(&tss_key_counter.counter, .Add, 1, .seq_cst);
+    key._key = tss_key_counter.counter.load(.seq_cst);
+    _ = tss_key_counter.counter.fetchAdd(1, .seq_cst);
     key._is_initialized = 1;
     return 0;
 }
@@ -518,23 +598,32 @@ export fn PyThread_tss_delete(key: *Py_tss_t) callconv(.c) void {
     key._key = 0;
 }
 
+/// Thread-local storage for TSS values (keyed by TSS key index)
+const TssStorage = struct {
+    const MAX_KEYS = 128;
+    var values: [MAX_KEYS]?*anyopaque = [_]?*anyopaque{null} ** MAX_KEYS;
+    var mutex: std.Thread.Mutex = .{};
+};
+
 /// Get value associated with TSS key for current thread
-/// STATUS: STUB - returns null (would need pthread_getspecific)
 export fn PyThread_tss_get(key: *Py_tss_t) callconv(.c) ?*anyopaque {
     if (key._is_initialized == 0) return null;
-    // Would need platform-specific TLS (pthread_getspecific on POSIX)
-    // Currently returns null - single value storage not implemented
-    return null;
+    if (key._key == 0 or key._key >= TssStorage.MAX_KEYS) return null;
+
+    TssStorage.mutex.lock();
+    defer TssStorage.mutex.unlock();
+    return TssStorage.values[key._key];
 }
 
 /// Set value associated with TSS key for current thread
 /// Returns 0 on success, -1 on error
-/// STATUS: STUB - accepts but doesn't store (would need pthread_setspecific)
 export fn PyThread_tss_set(key: *Py_tss_t, value: ?*anyopaque) callconv(.c) c_int {
     if (key._is_initialized == 0) return -1;
-    _ = value;
-    // Would need platform-specific TLS (pthread_setspecific on POSIX)
-    // Currently no-op - single value storage not implemented
+    if (key._key == 0 or key._key >= TssStorage.MAX_KEYS) return -1;
+
+    TssStorage.mutex.lock();
+    defer TssStorage.mutex.unlock();
+    TssStorage.values[key._key] = value;
     return 0;
 }
 
@@ -816,19 +905,57 @@ export fn PyThreadState_Swap(new_tstate: ?*PyThreadState) callconv(.c) ?*PyThrea
     return old;
 }
 
+/// Thread-local dictionary for PyThreadState_GetDict
+/// Extensions use this for thread-local storage (e.g., SQLite3 connection state)
+threadlocal var thread_dict: ?*cpython.PyObject = null;
+
 /// Get dictionary for thread-local data
-/// STATUS: STUB - returns null (no thread state dict)
+/// Returns a dict that persists for the lifetime of the thread
 export fn PyThreadState_GetDict() callconv(.c) ?*cpython.PyObject {
-    // No thread state dict in metal0
-    return null;
+    if (thread_dict == null) {
+        const pydict = @import("pyobject_dict.zig");
+        thread_dict = pydict.PyDict_New();
+    }
+    return thread_dict;
+}
+
+/// Internal thread state structure (our implementation)
+const InternalThreadState = struct {
+    interp: ?*PyInterpreterState,
+    dict: ?*cpython.PyObject,
+    thread_id: u64,
+    prev: ?*InternalThreadState,
+    next: ?*InternalThreadState,
+};
+
+/// Thread state pool for reuse
+var thread_state_pool: std.ArrayList(*InternalThreadState) = undefined;
+var thread_state_pool_initialized: bool = false;
+
+fn initThreadStatePool() void {
+    if (thread_state_pool_initialized) return;
+    thread_state_pool_initialized = true;
+    thread_state_pool = std.ArrayList(*InternalThreadState).init(std.heap.c_allocator);
 }
 
 /// Create new thread state
-/// STATUS: STUB - returns null (no thread state management)
 export fn PyThreadState_New(interp: ?*PyInterpreterState) callconv(.c) ?*PyThreadState {
-    _ = interp;
-    // Thread states not managed - metal0 uses native threads
-    return null;
+    initThreadStatePool();
+
+    // Allocate new thread state
+    const tstate = std.heap.c_allocator.create(InternalThreadState) catch return null;
+    tstate.* = InternalThreadState{
+        .interp = interp orelse main_interp_state,
+        .dict = null,
+        .thread_id = @intCast(std.Thread.getCurrentId()),
+        .prev = null,
+        .next = null,
+    };
+
+    thread_state_pool.append(tstate) catch {};
+
+    // Return as opaque pointer
+    return @ptrCast(tstate);
 }
 
 /// Delete thread state

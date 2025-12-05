@@ -154,14 +154,32 @@ pub var PyModuleDef_Type: cpython.PyTypeObject = .{
 
 /// Create module from name string
 pub export fn PyModule_New(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+    const pydict = @import("pyobject_dict.zig");
+    const pyunicode = @import("pyobject_unicode.zig");
+
     const obj = allocator.create(PyModuleObject) catch return null;
 
     obj.ob_base.ob_refcnt = 1;
     obj.ob_base.ob_type = &PyModule_Type;
-    obj.md_dict = null; // TODO: Create empty dict
+
+    // Create empty __dict__
+    obj.md_dict = pydict.PyDict_New();
+
     obj.md_state = null;
     obj.md_weaklist = null;
-    obj.md_name = null; // TODO: Create unicode from name
+
+    // Create __name__ from C string
+    obj.md_name = pyunicode.PyUnicode_FromString(name);
+
+    // Set __name__ in __dict__ too
+    if (obj.md_dict != null and obj.md_name != null) {
+        const name_key = pyunicode.PyUnicode_FromString("__name__");
+        if (name_key) |key| {
+            _ = pydict.PyDict_SetItem(obj.md_dict.?, key, obj.md_name.?);
+            traits.decref(key);
+        }
+    }
+
     obj.md_token_is_def = false;
     obj.md_state_size = 0;
     obj.md_state_traverse = null;
@@ -170,21 +188,35 @@ pub export fn PyModule_New(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject 
     obj.md_token = null;
     obj.md_exec = null;
 
-    _ = name;
-
     return @ptrCast(&obj.ob_base);
 }
 
 /// Create module from PyObject name
 pub export fn PyModule_NewObject(name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const pydict = @import("pyobject_dict.zig");
+    const pyunicode = @import("pyobject_unicode.zig");
+
     const obj = allocator.create(PyModuleObject) catch return null;
 
     obj.ob_base.ob_refcnt = 1;
     obj.ob_base.ob_type = &PyModule_Type;
-    obj.md_dict = null;
+
+    // Create empty __dict__
+    obj.md_dict = pydict.PyDict_New();
+
     obj.md_state = null;
     obj.md_weaklist = null;
     obj.md_name = traits.incref(name);
+
+    // Set __name__ in __dict__ too
+    if (obj.md_dict != null) {
+        const name_key = pyunicode.PyUnicode_FromString("__name__");
+        if (name_key) |key| {
+            _ = pydict.PyDict_SetItem(obj.md_dict.?, key, name);
+            traits.decref(key);
+        }
+    }
+
     obj.md_token_is_def = false;
     obj.md_state_size = 0;
     obj.md_state_traverse = null;

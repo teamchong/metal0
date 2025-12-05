@@ -95,6 +95,38 @@ pub const METH_O: c_int = 0x0008;
 /// TYPE OBJECTS
 /// ============================================================================
 
+fn module_dealloc(obj: *cpython.PyObject) callconv(.c) void {
+    const module: *PyModuleObject = @ptrCast(@alignCast(obj));
+
+    // Call module's m_free if defined
+    if (module.md_def) |def| {
+        if (def.m_free) |free_fn| {
+            const free_func: *const fn (*cpython.PyObject) callconv(.c) void = @ptrCast(free_fn);
+            free_func(obj);
+        }
+    }
+
+    // Decref the dict
+    if (module.md_dict) |dict| {
+        traits.decref(dict);
+    }
+
+    // Decref the name
+    if (module.md_name) |name| {
+        traits.decref(name);
+    }
+
+    // Free the state if allocated
+    if (module.md_state != null and module.md_def != null) {
+        if (module.md_def.?.m_size > 0) {
+            allocator.free(@as([*]u8, @ptrCast(module.md_state.?))[0..@intCast(module.md_def.?.m_size)]);
+        }
+    }
+
+    // Free the module object itself
+    allocator.destroy(module);
+}
+
 pub var PyModule_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
@@ -103,7 +135,7 @@ pub var PyModule_Type: cpython.PyTypeObject = .{
     .tp_name = "module",
     .tp_basicsize = @sizeOf(PyModuleObject),
     .tp_itemsize = 0,
-    .tp_dealloc = null, // TODO: module_dealloc
+    .tp_dealloc = module_dealloc,
     .tp_vectorcall_offset = 0,
     .tp_getattr = null,
     .tp_setattr = null,
@@ -506,16 +538,17 @@ export fn PyState_RemoveModule(def: *PyModuleDef) callconv(.c) c_int {
 }
 
 /// ============================================================================
-/// HELPER FUNCTIONS (External dependencies)
+/// HELPER FUNCTIONS (Pure Zig implementations - NO extern declarations)
 /// ============================================================================
 
-extern fn PyDict_New() callconv(.c) ?*cpython.PyObject;
-extern fn PyDict_SetItemString(*cpython.PyObject, [*:0]const u8, *cpython.PyObject) callconv(.c) c_int;
-extern fn PyDict_GetItemString(*cpython.PyObject, [*:0]const u8) callconv(.c) ?*cpython.PyObject;
-extern fn PyUnicode_FromString([*:0]const u8) callconv(.c) ?*cpython.PyObject;
-extern fn PyUnicode_AsUTF8(*cpython.PyObject) callconv(.c) ?[*:0]const u8;
-extern fn PyLong_FromLong(c_long) callconv(.c) ?*cpython.PyObject;
-extern fn PyCFunction_NewEx(*const PyMethodDef, ?*cpython.PyObject, ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject;
+// Use centralized pure Zig implementations from traits.externs
+const PyDict_New = traits.externs.PyDict_New;
+const PyDict_SetItemString = traits.externs.PyDict_SetItemString;
+const PyDict_GetItemString = traits.externs.PyDict_GetItemString;
+const PyUnicode_FromString = traits.externs.PyUnicode_FromString;
+const PyUnicode_AsUTF8 = traits.externs.PyUnicode_AsUTF8;
+const PyLong_FromLong = traits.externs.PyLong_FromLong;
+const PyCFunction_NewEx = traits.externs.PyCFunction_NewEx;
 
 // ============================================================================
 // TESTS

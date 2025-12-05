@@ -97,12 +97,24 @@ pub const TestCase = struct {
 };
 
 /// Context manager for unittest assertions (e.g., with self.assertRaises(...) as cm)
-/// This provides a dummy implementation for cm.exception.args[0] etc.
+/// This provides access to the captured exception message via cm.exception
+/// The exception message is stored in thread-local storage by the error-raising code
 pub const ContextManager = struct {
     /// Exception info captured by the context manager
+    /// When str(cm.exception) is called, it retrieves from thread-local storage
     pub const Exception = struct {
         /// Exception arguments (like args[0])
         args: [8][]const u8 = .{""} ** 8,
+
+        /// Python __str__ - returns the exception message from thread-local storage
+        pub fn __str__(_: *const @This(), _: std.mem.Allocator) ![]const u8 {
+            return exceptions.getExceptionMessage();
+        }
+
+        /// toStr for pyStr compatibility
+        pub fn toStr(_: @This(), _: std.mem.Allocator) []const u8 {
+            return exceptions.getExceptionMessage();
+        }
     };
 
     exception: Exception = .{},
@@ -118,6 +130,8 @@ pub const ContextManager = struct {
         return null;
     }
 };
+
+const exceptions = @import("runtime/exceptions.zig");
 
 /// AssertRaises context manager type (returned by assertRaises/assertRaisesRegex)
 pub const AssertRaisesContext = ContextManager;

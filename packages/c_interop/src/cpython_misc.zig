@@ -43,8 +43,8 @@ export fn PyMem_RawCalloc(nelem: usize, elsize: usize) callconv(.c) ?*anyopaque 
 
 /// Allocate memory from Python heap
 /// Similar to PyMem_RawMalloc but tracked by Python
+/// Uses C malloc directly - no additional tracking in metal0's AOT model
 export fn PyMem_Malloc(size: usize) callconv(.c) ?*anyopaque {
-    // TODO: Use Python's memory allocator with tracking
     return std.c.malloc(size);
 }
 
@@ -117,8 +117,8 @@ export fn PyMem_SetupDebugHooks() callconv(.c) void {
 
 /// Allocate memory for a Python object
 /// Used when creating new object instances
+/// Uses C malloc directly - metal0 doesn't use CPython's pymalloc arena
 export fn PyObject_Malloc(size: usize) callconv(.c) ?*anyopaque {
-    // TODO: Use object allocator (may use pymalloc)
     return std.c.malloc(size);
 }
 

@@ -30,25 +30,131 @@ const traits = @import("pyobject_traits.zig");
 const Py_INCREF = traits.externs.Py_INCREF;
 const Py_DECREF = traits.externs.Py_DECREF;
 
+/// Global sys module dictionary - stores sys attributes
+var sys_dict: ?*cpython.PyObject = null;
+var sys_initialized: bool = false;
+
+/// Initialize the sys module dictionary with default values
+fn ensureSysInitialized() void {
+    if (sys_initialized) return;
+    sys_initialized = true;
+
+    const pydict = @import("pyobject_dict.zig");
+    const pylist = @import("pyobject_list.zig");
+    const pyunicode = @import("cpython_unicode.zig");
+    const pylong = @import("pyobject_long.zig");
+
+    // Create sys dict
+    sys_dict = pydict.PyDict_New();
+    if (sys_dict == null) return;
+
+    // sys.argv - empty list by default
+    const argv = pylist.PyList_New(0);
+    if (argv) |a| {
+        _ = pydict.PyDict_SetItemString(sys_dict.?, "argv", a);
+        traits.decref(a);
+    }
+
+    // sys.path - empty list by default (modules compiled statically)
+    const path = pylist.PyList_New(0);
+    if (path) |p| {
+        _ = pydict.PyDict_SetItemString(sys_dict.?, "path", p);
+        traits.decref(p);
+    }
+
+    // sys.modules - empty dict (modules are compiled in)
+    const modules = pydict.PyDict_New();
+    if (modules) |m| {
+        _ = pydict.PyDict_SetItemString(sys_dict.?, "modules", m);
+        traits.decref(m);
+    }
+
+    // sys.version - metal0 version string
+    const version = pyunicode.PyUnicode_FromString("3.12.0 (metal0 AOT compiler)");
+    if (version) |v| {
+        _ = pydict.PyDict_SetItemString(sys_dict.?, "version", v);
+        traits.decref(v);
+    }
+
+    // sys.version_info - tuple(3, 12, 0, 'final', 0)
+    const pytuple = @import("pyobject_tuple.zig");
+    const version_info = pytuple.PyTuple_New(5);
+    if (version_info) |vi| {
+        pytuple.PyTuple_SetItem(vi, 0, pylong.PyLong_FromLong(3));
+        pytuple.PyTuple_SetItem(vi, 1, pylong.PyLong_FromLong(12));
+        pytuple.PyTuple_SetItem(vi, 2, pylong.PyLong_FromLong(0));
+        pytuple.PyTuple_SetItem(vi, 3, pyunicode.PyUnicode_FromString("final"));
+        pytuple.PyTuple_SetItem(vi, 4, pylong.PyLong_FromLong(0));
+        _ = pydict.PyDict_SetItemString(sys_dict.?, "version_info", vi);
+        traits.decref(vi);
+    }
+
+    // sys.platform
+    const platform = pyunicode.PyUnicode_FromString(switch (@import("builtin").os.tag) {
+        .linux => "linux",
+        .macos => "darwin",
+        .windows => "win32",
+        else => "unknown",
+    });
+    if (platform) |p| {
+        _ = pydict.PyDict_SetItemString(sys_dict.?, "platform", p);
+        traits.decref(p);
+    }
+
+    // sys.executable - placeholder
+    const executable = pyunicode.PyUnicode_FromString("");
+    if (executable) |e| {
+        _ = pydict.PyDict_SetItemString(sys_dict.?, "executable", e);
+        traits.decref(e);
+    }
+
+    // sys.maxsize
+    const maxsize = pylong.PyLong_FromLongLong(std.math.maxInt(i64));
+    if (maxsize) |m| {
+        _ = pydict.PyDict_SetItemString(sys_dict.?, "maxsize", m);
+        traits.decref(m);
+    }
+
+    // sys.byteorder
+    const byteorder = pyunicode.PyUnicode_FromString(if (@import("builtin").cpu.arch.endian() == .little) "little" else "big");
+    if (byteorder) |b| {
+        _ = pydict.PyDict_SetItemString(sys_dict.?, "byteorder", b);
+        traits.decref(b);
+    }
+
+    // sys.stdin/stdout/stderr - placeholders (null for now)
+    // Extensions that need these should use C stdio directly
+}
+
 /// Get sys module attribute by name
 /// Returns borrowed reference to sys.{name} or null if not found
-/// STATUS: STUB - returns null (sys attributes not dynamically tracked)
 export fn PySys_GetObject(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    _ = name;
-    // sys attributes not tracked at runtime - AOT compiled
+    ensureSysInitialized();
+
+    if (sys_dict) |dict| {
+        const pydict = @import("pyobject_dict.zig");
+        return pydict.PyDict_GetItemString(dict, name);
+    }
+
     return null;
 }
 
 /// Set sys module attribute
 /// Steals reference to value
-/// STATUS: STUB - accepts silently
 export fn PySys_SetObject(name: [*:0]const u8, value: ?*cpython.PyObject) callconv(.c) c_int {
-    _ = name;
-    if (value) |v| {
-        _ = v;
-        // sys attributes not tracked - value is silently dropped
+    ensureSysInitialized();
+
+    if (sys_dict) |dict| {
+        const pydict = @import("pyobject_dict.zig");
+        if (value) |v| {
+            return pydict.PyDict_SetItemString(dict, name, v);
+        } else {
+            // null value means delete
+            return pydict.PyDict_DelItemString(dict, name);
+        }
     }
-    return 0; // Success (accepts silently)
+
+    return -1; // Failed - no sys dict
 }
 
 /// Set sys.path to the given path list

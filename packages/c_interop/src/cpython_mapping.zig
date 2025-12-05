@@ -7,6 +7,11 @@ const std = @import("std");
 const cpython = @import("cpython_object.zig");
 const traits = @import("pyobject_traits.zig");
 
+// Import error handling functions
+const PyErr_SetString = traits.externs.PyErr_SetString;
+const Py_INCREF = traits.externs.Py_INCREF;
+const Py_DECREF = traits.externs.Py_DECREF;
+
 /// Check if object is a mapping
 export fn PyMapping_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (traits.isMapping(obj)) 1 else 0;
@@ -110,30 +115,120 @@ export fn PyMapping_HasKey(obj: *cpython.PyObject, key: *cpython.PyObject) callc
     return 0;
 }
 
-/// Get keys
+/// Get keys as a list
 export fn PyMapping_Keys(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    // Try dict.keys() method
-    _ = obj;
-    
-    PyErr_SetString(@ptrFromInt(0), "PyMapping_Keys not fully implemented");
+    const pydict = @import("pyobject_dict.zig");
+    const pylist = @import("pyobject_list.zig");
+    const type_obj = cpython.Py_TYPE(obj);
+
+    // Check if it's a dict - use PyDict_Keys directly
+    if (type_obj == pydict.getPyDictType()) {
+        return pydict.PyDict_Keys(obj);
+    }
+
+    // For other mappings, try to call keys() method via tp_getattro
+    if (type_obj.tp_getattro) |getattro| {
+        const unicode = @import("cpython_unicode.zig");
+        const keys_name = unicode.PyUnicode_FromString("keys") orelse return null;
+        defer traits.decref(keys_name);
+
+        const keys_method = getattro(obj, keys_name);
+        if (keys_method) |method| {
+            defer traits.decref(method);
+            // Call the method with no arguments
+            const method_type = cpython.Py_TYPE(method);
+            if (method_type.tp_call) |call_fn| {
+                const empty_tuple = @import("pyobject_tuple.zig").PyTuple_New(0) orelse return null;
+                defer traits.decref(empty_tuple);
+                const result = call_fn(method, empty_tuple, null);
+                if (result) |res| {
+                    // Convert to list if it's a view
+                    return pylist.PySequence_List(res);
+                }
+            }
+        }
+    }
+
+    // Fallback: iterate manually if tp_as_mapping has mp_subscript
+    if (type_obj.tp_as_mapping) |_| {
+        // Can't iterate without iterator protocol
+        PyErr_SetString(@ptrFromInt(0), "mapping object has no keys() method");
+        return null;
+    }
+
+    PyErr_SetString(@ptrFromInt(0), "object is not a mapping");
     return null;
 }
 
-/// Get values
+/// Get values as a list
 export fn PyMapping_Values(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    // Try dict.values() method
-    _ = obj;
-    
-    PyErr_SetString(@ptrFromInt(0), "PyMapping_Values not fully implemented");
+    const pydict = @import("pyobject_dict.zig");
+    const pylist = @import("pyobject_list.zig");
+    const type_obj = cpython.Py_TYPE(obj);
+
+    // Check if it's a dict - use PyDict_Values directly
+    if (type_obj == pydict.getPyDictType()) {
+        return pydict.PyDict_Values(obj);
+    }
+
+    // For other mappings, try to call values() method
+    if (type_obj.tp_getattro) |getattro| {
+        const unicode = @import("cpython_unicode.zig");
+        const values_name = unicode.PyUnicode_FromString("values") orelse return null;
+        defer traits.decref(values_name);
+
+        const values_method = getattro(obj, values_name);
+        if (values_method) |method| {
+            defer traits.decref(method);
+            const method_type = cpython.Py_TYPE(method);
+            if (method_type.tp_call) |call_fn| {
+                const empty_tuple = @import("pyobject_tuple.zig").PyTuple_New(0) orelse return null;
+                defer traits.decref(empty_tuple);
+                const result = call_fn(method, empty_tuple, null);
+                if (result) |res| {
+                    return pylist.PySequence_List(res);
+                }
+            }
+        }
+    }
+
+    PyErr_SetString(@ptrFromInt(0), "object is not a mapping or has no values() method");
     return null;
 }
 
-/// Get items
+/// Get items as a list of (key, value) tuples
 export fn PyMapping_Items(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    // Try dict.items() method
-    _ = obj;
-    
-    PyErr_SetString(@ptrFromInt(0), "PyMapping_Items not fully implemented");
+    const pydict = @import("pyobject_dict.zig");
+    const pylist = @import("pyobject_list.zig");
+    const type_obj = cpython.Py_TYPE(obj);
+
+    // Check if it's a dict - use PyDict_Items directly
+    if (type_obj == pydict.getPyDictType()) {
+        return pydict.PyDict_Items(obj);
+    }
+
+    // For other mappings, try to call items() method
+    if (type_obj.tp_getattro) |getattro| {
+        const unicode = @import("cpython_unicode.zig");
+        const items_name = unicode.PyUnicode_FromString("items") orelse return null;
+        defer traits.decref(items_name);
+
+        const items_method = getattro(obj, items_name);
+        if (items_method) |method| {
+            defer traits.decref(method);
+            const method_type = cpython.Py_TYPE(method);
+            if (method_type.tp_call) |call_fn| {
+                const empty_tuple = @import("pyobject_tuple.zig").PyTuple_New(0) orelse return null;
+                defer traits.decref(empty_tuple);
+                const result = call_fn(method, empty_tuple, null);
+                if (result) |res| {
+                    return pylist.PySequence_List(res);
+                }
+            }
+        }
+    }
+
+    PyErr_SetString(@ptrFromInt(0), "object is not a mapping or has no items() method");
     return null;
 }
 

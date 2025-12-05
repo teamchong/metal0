@@ -33,6 +33,14 @@
 const std = @import("std");
 const cpython = @import("cpython_object.zig");
 
+// Import type objects from their respective modules
+const pylong = @import("pyobject_long.zig");
+const pyfloat = @import("pyobject_float.zig");
+const pylist = @import("pyobject_list.zig");
+const pytuple = @import("pyobject_tuple.zig");
+const pydict = @import("pyobject_dict.zig");
+const pyunicode = @import("pyobject_unicode.zig");
+
 const allocator = std.heap.c_allocator;
 
 // ============================================================================
@@ -250,7 +258,6 @@ pub fn getItem(obj: *cpython.PyObject, index: isize) ?*cpython.PyObject {
     // Fallback to mapping with int key
     if (type_obj.tp_as_mapping) |map| {
         if (map.mp_subscript) |sub_fn| {
-            const pylong = @import("pyobject_long.zig");
             const key = pylong.PyLong_FromSsize_t(index) orelse return null;
             defer decref(key);
             return sub_fn(obj, key);
@@ -349,8 +356,6 @@ pub fn toBool(obj: *cpython.PyObject) bool {
 
 /// Convert to integer
 pub fn toInt(obj: *cpython.PyObject) ?i64 {
-    const pylong = @import("pyobject_long.zig");
-
     if (isInt(obj)) {
         return pylong.PyLong_AsLong(obj);
     }
@@ -369,14 +374,11 @@ pub fn toInt(obj: *cpython.PyObject) ?i64 {
 
 /// Convert to float
 pub fn toFloat(obj: *cpython.PyObject) ?f64 {
-    const pyfloat = @import("pyobject_float.zig");
-
     if (isFloat(obj)) {
         return pyfloat.PyFloat_AsDouble(obj);
     }
 
     if (isInt(obj)) {
-        const pylong = @import("pyobject_long.zig");
         return pylong.PyLong_AsDouble(obj);
     }
 
@@ -398,44 +400,39 @@ pub fn toFloat(obj: *cpython.PyObject) ?f64 {
 
 /// Create a new list with given size
 pub fn createList(size: isize) ?*cpython.PyObject {
-    const pylist = @import("pyobject_list.zig");
     return pylist.PyList_New(size);
 }
 
 /// Create a new tuple with given size
 pub fn createTuple(size: isize) ?*cpython.PyObject {
-    const pytuple = @import("pyobject_tuple.zig");
     return pytuple.PyTuple_New(size);
 }
 
 /// Create a new dict
 pub fn createDict() ?*cpython.PyObject {
-    const pydict = @import("pyobject_dict.zig");
     return pydict.PyDict_New();
 }
 
 /// Create integer from i64
 pub fn createInt(value: i64) ?*cpython.PyObject {
-    const pylong = @import("pyobject_long.zig");
     return pylong.PyLong_FromLong(@intCast(value));
 }
 
 /// Create float from f64
 pub fn createFloat(value: f64) ?*cpython.PyObject {
-    const pyfloat = @import("pyobject_float.zig");
     return pyfloat.PyFloat_FromDouble(value);
 }
 
 /// Create string from slice
 pub fn createString(data: []const u8) ?*cpython.PyObject {
-    const pyunicode = @import("cpython_unicode.zig");
-    return pyunicode.PyUnicode_FromStringAndSize(data.ptr, @intCast(data.len));
+    const cpython_unicode = @import("cpython_unicode.zig");
+    return cpython_unicode.PyUnicode_FromStringAndSize(data.ptr, @intCast(data.len));
 }
 
 /// Create string from C string
 pub fn createStringFromCStr(cstr: [*:0]const u8) ?*cpython.PyObject {
-    const pyunicode = @import("cpython_unicode.zig");
-    return pyunicode.PyUnicode_FromString(cstr);
+    const cpython_unicode = @import("cpython_unicode.zig");
+    return cpython_unicode.PyUnicode_FromString(cstr);
 }
 
 /// Create bytes from slice
@@ -642,63 +639,338 @@ pub fn isType(comptime T: type, obj: *cpython.PyObject) bool {
 }
 
 // ============================================================================
-// CENTRALIZED EXTERN DECLARATIONS
+// PURE ZIG IMPLEMENTATIONS (no extern - all implemented in Zig)
 // ============================================================================
-// Instead of declaring extern fn in every file, import from here:
-//   const externs = traits.externs;
-//   _ = externs.PyDict_New();
+// These functions use the same memory layout as CPython but are pure Zig.
+// Import via: const externs = traits.externs;
 
 pub const externs = struct {
-    // Reference counting (prefer using traits.incref/decref instead)
-    pub extern fn Py_INCREF(*cpython.PyObject) callconv(.c) void;
-    pub extern fn Py_DECREF(*cpython.PyObject) callconv(.c) void;
+    // Reference counting
+    pub fn Py_INCREF(op: *cpython.PyObject) void {
+        op.ob_refcnt += 1;
+    }
 
-    // Error handling
-    pub extern fn PyErr_SetString(*cpython.PyObject, [*:0]const u8) callconv(.c) void;
-    pub extern fn PyErr_Occurred() callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyErr_Clear() callconv(.c) void;
+    pub fn Py_DECREF(op: *cpython.PyObject) void {
+        op.ob_refcnt -= 1;
+        // Note: actual deallocation would happen at refcnt == 0
+        // For now we rely on Zig allocator for memory management
+    }
 
-    // Dict operations
-    pub extern fn PyDict_New() callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyDict_Copy(*cpython.PyObject) callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyDict_SetItem(*cpython.PyObject, *cpython.PyObject, *cpython.PyObject) callconv(.c) c_int;
-    pub extern fn PyDict_SetItemString(*cpython.PyObject, [*:0]const u8, *cpython.PyObject) callconv(.c) c_int;
-    pub extern fn PyDict_GetItem(*cpython.PyObject, *cpython.PyObject) callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyDict_GetItemString(*cpython.PyObject, [*:0]const u8) callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyDict_DelItem(*cpython.PyObject, *cpython.PyObject) callconv(.c) c_int;
+    // Error handling (simplified - uses thread-local or global error state)
+    var current_error: ?*cpython.PyObject = null;
+    var current_error_msg: ?[*:0]const u8 = null;
 
-    // Unicode operations
-    pub extern fn PyUnicode_FromString([*:0]const u8) callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyUnicode_FromStringAndSize([*]const u8, isize) callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyUnicode_AsUTF8(*cpython.PyObject) callconv(.c) ?[*:0]const u8;
+    pub fn PyErr_SetString(exc_type: *cpython.PyObject, msg: [*:0]const u8) void {
+        current_error = exc_type;
+        current_error_msg = msg;
+    }
 
-    // Integer operations
-    pub extern fn PyLong_FromLong(c_long) callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyLong_AsLong(*cpython.PyObject) callconv(.c) c_long;
+    pub fn PyErr_Occurred() ?*cpython.PyObject {
+        return current_error;
+    }
+
+    pub fn PyErr_Clear() void {
+        current_error = null;
+        current_error_msg = null;
+    }
+
+    // Integer operations - create PyLongObject
+    pub fn PyLong_FromLong(val: c_long) ?*cpython.PyObject {
+        return PyLong_FromLongLong(@intCast(val));
+    }
+
+    pub fn PyLong_FromLongLong(val: c_longlong) ?*cpython.PyObject {
+        const obj = allocator.create(cpython.PyLongObject) catch return null;
+        obj.* = cpython.PyLongObject{
+            .ob_base = .{
+                .ob_base = .{
+                    .ob_refcnt = 1,
+                    .ob_type = &pylong.PyLong_Type,
+                },
+                .ob_size = 1,
+            },
+            .ob_digit = .{@intCast(val)},
+        };
+        return @ptrCast(obj);
+    }
+
+    pub fn PyLong_AsLong(op: *cpython.PyObject) c_long {
+        const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(op));
+        return @intCast(long_obj.ob_digit[0]);
+    }
+
+    pub fn PyLong_AsLongLong(op: *cpython.PyObject) c_longlong {
+        const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(op));
+        return @intCast(long_obj.ob_digit[0]);
+    }
+
+    // Float operations - create PyFloatObject
+    pub fn PyFloat_FromDouble(val: f64) ?*cpython.PyObject {
+        const obj = allocator.create(cpython.PyFloatObject) catch return null;
+        obj.* = cpython.PyFloatObject{
+            .ob_base = .{
+                .ob_refcnt = 1,
+                .ob_type = &pyfloat.PyFloat_Type,
+            },
+            .ob_fval = val,
+        };
+        return @ptrCast(obj);
+    }
+
+    pub fn PyFloat_AsDouble(op: *cpython.PyObject) f64 {
+        const float_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(op));
+        return float_obj.ob_fval;
+    }
+
+    // Singleton objects
+    var _Py_NoneStruct: cpython.PyObject = .{
+        .ob_refcnt = 1,
+        .ob_type = undefined, // Will be set on first use
+    };
+    var _Py_TrueStruct: cpython.PyLongObject = .{
+        .ob_base = .{ .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined }, .ob_size = 1 },
+        .ob_digit = .{1},
+    };
+    var _Py_FalseStruct: cpython.PyLongObject = .{
+        .ob_base = .{ .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined }, .ob_size = 0 },
+        .ob_digit = .{0},
+    };
+
+    pub fn Py_None() *cpython.PyObject {
+        return &_Py_NoneStruct;
+    }
+
+    pub fn Py_True() *cpython.PyObject {
+        return @ptrCast(&_Py_TrueStruct);
+    }
+
+    pub fn Py_False() *cpython.PyObject {
+        return @ptrCast(&_Py_FalseStruct);
+    }
 
     // Tuple operations
-    pub extern fn PyTuple_New(isize) callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyTuple_GetItem(*cpython.PyObject, isize) callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyTuple_SetItem(*cpython.PyObject, isize, *cpython.PyObject) callconv(.c) c_int;
-    pub extern fn PyTuple_Size(*cpython.PyObject) callconv(.c) isize;
+    pub fn PyTuple_New(size: isize) ?*cpython.PyObject {
+        const usize_val: usize = @intCast(size);
+        const items = allocator.alloc(*cpython.PyObject, usize_val) catch return null;
+        const obj = allocator.create(cpython.PyTupleObject) catch {
+            allocator.free(items);
+            return null;
+        };
+        obj.* = cpython.PyTupleObject{
+            .ob_base = .{
+                .ob_base = .{ .ob_refcnt = 1, .ob_type = &pytuple.PyTuple_Type },
+                .ob_size = size,
+            },
+            .ob_item = items.ptr,
+        };
+        return @ptrCast(obj);
+    }
+
+    pub fn PyTuple_GetItem(op: *cpython.PyObject, idx: isize) ?*cpython.PyObject {
+        const tuple: *cpython.PyTupleObject = @ptrCast(@alignCast(op));
+        if (idx < 0 or idx >= tuple.ob_base.ob_size) return null;
+        return tuple.ob_item[@intCast(idx)];
+    }
+
+    pub fn PyTuple_SetItem(op: *cpython.PyObject, idx: isize, value: *cpython.PyObject) c_int {
+        const tuple: *cpython.PyTupleObject = @ptrCast(@alignCast(op));
+        if (idx < 0 or idx >= tuple.ob_base.ob_size) return -1;
+        tuple.ob_item[@intCast(idx)] = value;
+        return 0;
+    }
+
+    pub fn PyTuple_Size(op: *cpython.PyObject) isize {
+        const tuple: *cpython.PyTupleObject = @ptrCast(@alignCast(op));
+        return tuple.ob_base.ob_size;
+    }
 
     // List operations
-    pub extern fn PyList_New(isize) callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyList_GetItem(*cpython.PyObject, isize) callconv(.c) ?*cpython.PyObject;
-    pub extern fn PyList_SetItem(*cpython.PyObject, isize, *cpython.PyObject) callconv(.c) c_int;
-    pub extern fn PyList_Append(*cpython.PyObject, *cpython.PyObject) callconv(.c) c_int;
+    pub fn PyList_New(size: isize) ?*cpython.PyObject {
+        const usize_val: usize = @intCast(size);
+        const items = allocator.alloc(*cpython.PyObject, usize_val) catch return null;
+        const obj = allocator.create(cpython.PyListObject) catch {
+            allocator.free(items);
+            return null;
+        };
+        obj.* = cpython.PyListObject{
+            .ob_base = .{
+                .ob_base = .{ .ob_refcnt = 1, .ob_type = &pylist.PyList_Type },
+                .ob_size = size,
+            },
+            .ob_item = items.ptr,
+            .allocated = size,
+        };
+        return @ptrCast(obj);
+    }
+
+    pub fn PyList_GetItem(op: *cpython.PyObject, idx: isize) ?*cpython.PyObject {
+        const list: *cpython.PyListObject = @ptrCast(@alignCast(op));
+        if (idx < 0 or idx >= list.ob_base.ob_size) return null;
+        return list.ob_item[@intCast(idx)];
+    }
+
+    pub fn PyList_SetItem(op: *cpython.PyObject, idx: isize, value: *cpython.PyObject) c_int {
+        const list: *cpython.PyListObject = @ptrCast(@alignCast(op));
+        if (idx < 0 or idx >= list.ob_base.ob_size) return -1;
+        list.ob_item[@intCast(idx)] = value;
+        return 0;
+    }
+
+    pub fn PyList_Append(op: *cpython.PyObject, value: *cpython.PyObject) c_int {
+        const list: *cpython.PyListObject = @ptrCast(@alignCast(op));
+        const new_size = list.ob_base.ob_size + 1;
+        if (new_size > list.allocated) {
+            // Need to grow - double capacity
+            const new_cap = @max(list.allocated * 2, 8);
+            const old_slice = list.ob_item[0..@intCast(list.ob_base.ob_size)];
+            const new_items = allocator.alloc(*cpython.PyObject, @intCast(new_cap)) catch return -1;
+            @memcpy(new_items[0..old_slice.len], old_slice);
+            if (list.allocated > 0) {
+                allocator.free(list.ob_item[0..@intCast(list.allocated)]);
+            }
+            list.ob_item = new_items.ptr;
+            list.allocated = @intCast(new_cap);
+        }
+        list.ob_item[@intCast(list.ob_base.ob_size)] = value;
+        list.ob_base.ob_size = new_size;
+        return 0;
+    }
+
+    // Unicode operations - use existing pyunicode module
+    pub fn PyUnicode_FromString(str: [*:0]const u8) ?*cpython.PyObject {
+        return pyunicode.createFromCString(str);
+    }
+
+    pub fn PyUnicode_FromStringAndSize(str: [*]const u8, len: isize) ?*cpython.PyObject {
+        return pyunicode.createFromSlice(str[0..@intCast(len)]);
+    }
+
+    pub fn PyUnicode_AsUTF8(op: *cpython.PyObject) ?[*:0]const u8 {
+        return pyunicode.asUTF8(op);
+    }
+
+    // Dict operations - use existing pydict module
+    pub fn PyDict_New() ?*cpython.PyObject {
+        return pydict.create(allocator);
+    }
+
+    // Dict operations - delegate to pyobject_dict.zig
+    pub fn PyDict_Copy(obj: *cpython.PyObject) ?*cpython.PyObject {
+        return pydict.PyDict_Copy(obj);
+    }
+
+    pub fn PyDict_SetItem(dict: *cpython.PyObject, key: *cpython.PyObject, value: *cpython.PyObject) c_int {
+        return pydict.PyDict_SetItem(dict, key, value);
+    }
+
+    pub fn PyDict_SetItemString(dict: *cpython.PyObject, key: [*:0]const u8, value: *cpython.PyObject) c_int {
+        return pydict.PyDict_SetItemString(dict, key, value);
+    }
+
+    pub fn PyDict_GetItem(dict: *cpython.PyObject, key: *cpython.PyObject) ?*cpython.PyObject {
+        return pydict.PyDict_GetItem(dict, key);
+    }
+
+    pub fn PyDict_GetItemString(dict: *cpython.PyObject, key: [*:0]const u8) ?*cpython.PyObject {
+        return pydict.PyDict_GetItemString(dict, key);
+    }
+
+    pub fn PyDict_DelItem(dict: *cpython.PyObject, key: *cpython.PyObject) c_int {
+        return pydict.PyDict_DelItem(dict, key);
+    }
+
+    // Object attribute operations - use type's tp_getattro/tp_setattro slots
+    pub fn PyObject_GetAttrString(obj: *cpython.PyObject, name: [*:0]const u8) ?*cpython.PyObject {
+        const type_obj = cpython.Py_TYPE(obj);
+
+        // Try tp_getattro first (takes PyObject* name)
+        if (type_obj.tp_getattro) |getattro| {
+            const name_obj = PyUnicode_FromString(name) orelse return null;
+            defer Py_DECREF(name_obj);
+            return getattro(obj, name_obj);
+        }
+
+        // Fall back to tp_getattr (takes C string)
+        if (type_obj.tp_getattr) |getattr| {
+            // tp_getattr expects non-const, but we won't modify it
+            return getattr(obj, @constCast(name));
+        }
+
+        return null;
+    }
+
+    pub fn PyObject_SetAttrString(obj: *cpython.PyObject, name: [*:0]const u8, value: *cpython.PyObject) c_int {
+        const type_obj = cpython.Py_TYPE(obj);
+
+        // Try tp_setattro first
+        if (type_obj.tp_setattro) |setattro| {
+            const name_obj = PyUnicode_FromString(name) orelse return -1;
+            defer Py_DECREF(name_obj);
+            return setattro(obj, name_obj, value);
+        }
+
+        // Fall back to tp_setattr
+        if (type_obj.tp_setattr) |setattr| {
+            return setattr(obj, @constCast(name), value);
+        }
+
+        return -1;
+    }
+
+    pub fn PyObject_CallObject(callable: *cpython.PyObject, args: ?*cpython.PyObject) ?*cpython.PyObject {
+        const type_obj = cpython.Py_TYPE(callable);
+
+        // Use tp_call slot
+        if (type_obj.tp_call) |call_fn| {
+            // args can be null (no args) - pass empty tuple
+            const args_tuple = args orelse PyTuple_New(0) orelse return null;
+            defer if (args == null) Py_DECREF(args_tuple);
+            return call_fn(callable, args_tuple, null);
+        }
+
+        return null;
+    }
+
+    pub fn PyObject_Call(callable: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) ?*cpython.PyObject {
+        const type_obj = cpython.Py_TYPE(callable);
+
+        // Use tp_call slot
+        if (type_obj.tp_call) |call_fn| {
+            return call_fn(callable, args, kwargs);
+        }
+
+        return null;
+    }
 
     // Memory operations
-    pub extern fn PyMem_Malloc(usize) callconv(.c) ?*anyopaque;
-    pub extern fn PyMem_Free(?*anyopaque) callconv(.c) void;
-    pub extern fn PyObject_Malloc(usize) callconv(.c) ?*anyopaque;
-    pub extern fn PyObject_Free(?*anyopaque) callconv(.c) void;
+    pub fn PyMem_Malloc(size: usize) ?*anyopaque {
+        const mem = allocator.alloc(u8, size) catch return null;
+        return mem.ptr;
+    }
 
-    // Module operations
-    pub extern fn PyModule_Create2(*anyopaque, c_int) callconv(.c) ?*cpython.PyObject;
+    pub fn PyMem_Free(ptr: ?*anyopaque) void {
+        _ = ptr; // Can't free without size info in Zig allocator
+    }
 
-    // Function operations
-    pub extern fn PyCFunction_NewEx(*const anyopaque, ?*cpython.PyObject, ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject;
+    pub fn PyObject_Malloc(size: usize) ?*anyopaque {
+        return PyMem_Malloc(size);
+    }
+
+    pub fn PyObject_Free(ptr: ?*anyopaque) void {
+        PyMem_Free(ptr);
+    }
+
+    // Module operations - delegate to cpython_module.zig
+    pub fn PyModule_Create2(def: *cpython.PyModuleDef, api_version: c_int) ?*cpython.PyObject {
+        const module_mod = @import("cpython_module.zig");
+        return module_mod.PyModule_Create2(def, api_version);
+    }
+
+    // Function operations - delegate to pyobject_method.zig
+    pub fn PyCFunction_NewEx(meth: *const cpython.PyMethodDef, self: ?*cpython.PyObject, module: ?*cpython.PyObject) ?*cpython.PyObject {
+        const pymethod = @import("pyobject_method.zig");
+        return pymethod.PyCFunction_NewEx(meth, self, module);
+    }
 };
 
 // ============================================================================
@@ -706,8 +978,6 @@ pub const externs = struct {
 // ============================================================================
 
 test "type checking" {
-    const pylong = @import("pyobject_long.zig");
-
     const int_obj = pylong.PyLong_FromLong(42).?;
     defer decref(int_obj);
 
@@ -717,8 +987,6 @@ test "type checking" {
 }
 
 test "reference counting" {
-    const pylong = @import("pyobject_long.zig");
-
     const obj = pylong.PyLong_FromLong(100).?;
     const initial_refcnt = obj.ob_refcnt;
 
@@ -732,9 +1000,6 @@ test "reference counting" {
 }
 
 test "protocol dispatch" {
-    const pytuple = @import("pyobject_tuple.zig");
-    const pylong = @import("pyobject_long.zig");
-
     const tuple = pytuple.PyTuple_New(3).?;
     defer decref(tuple);
 

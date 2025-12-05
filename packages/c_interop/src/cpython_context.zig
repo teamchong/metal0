@@ -97,6 +97,64 @@ pub var PyContext_Type: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
+/// PyContextToken_Type - the 'Token' type
+pub var PyContextToken_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "Token",
+    .tp_basicsize = @sizeOf(PyContextToken),
+    .tp_itemsize = 0,
+    .tp_dealloc = contexttoken_dealloc,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Context variable token",
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};
+
 /// PyContextVar_Type - the 'ContextVar' type
 pub var PyContextVar_Type: cpython.PyTypeObject = .{
     .ob_base = .{
@@ -313,7 +371,7 @@ export fn PyContextVar_Set(var_obj: *cpython.PyObject, value: *cpython.PyObject)
     // Create token
     const token = allocator.create(PyContextToken) catch return null;
     token.ob_base.ob_refcnt = 1;
-    token.ob_base.ob_type = undefined; // TODO: PyContextToken_Type
+    token.ob_base.ob_type = &PyContextToken_Type;
     token.tok_used = 0;
     token.tok_var = @ptrCast(@alignCast(traits.incref(var_obj)));
 
@@ -391,13 +449,26 @@ fn contextvar_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     allocator.destroy(cv);
 }
 
-// External dependencies
-extern fn PyDict_New() callconv(.c) ?*cpython.PyObject;
-extern fn PyDict_Copy(*cpython.PyObject) callconv(.c) ?*cpython.PyObject;
-extern fn PyDict_GetItem(*cpython.PyObject, *cpython.PyObject) callconv(.c) ?*cpython.PyObject;
-extern fn PyDict_SetItem(*cpython.PyObject, *cpython.PyObject, *cpython.PyObject) callconv(.c) c_int;
-extern fn PyDict_DelItem(*cpython.PyObject, *cpython.PyObject) callconv(.c) c_int;
-extern fn PyUnicode_FromString([*:0]const u8) callconv(.c) ?*cpython.PyObject;
+fn contexttoken_dealloc(obj: *cpython.PyObject) callconv(.c) void {
+    const tok: *PyContextToken = @ptrCast(@alignCast(obj));
+
+    if (tok.tok_var) |cv| {
+        traits.decref(@ptrCast(&cv.ob_base));
+    }
+    if (tok.tok_oldval) |old| {
+        traits.decref(old);
+    }
+
+    allocator.destroy(tok);
+}
+
+// Pure Zig implementations (NO extern declarations - use traits.externs)
+const PyDict_New = traits.externs.PyDict_New;
+const PyDict_Copy = traits.externs.PyDict_Copy;
+const PyDict_GetItem = traits.externs.PyDict_GetItem;
+const PyDict_SetItem = traits.externs.PyDict_SetItem;
+const PyDict_DelItem = traits.externs.PyDict_DelItem;
+const PyUnicode_FromString = traits.externs.PyUnicode_FromString;
 
 // Tests
 test "context exports" {

@@ -702,17 +702,132 @@ export fn PyDateTime_IMPORT() callconv(.c) ?*PyDateTime_CAPI {
 /// Create datetime from POSIX timestamp
 /// CPython: PyObject* PyDateTime_FromTimestamp(PyObject *args)
 export fn PyDateTime_FromTimestamp(args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = args;
-    // TODO: Extract timestamp and convert to datetime
-    return null;
+    const pytuple = @import("pyobject_tuple.zig");
+    const pylong = @import("pyobject_long.zig");
+    const pyfloat = @import("pyobject_float.zig");
+
+    // Args is a tuple containing (timestamp,) or (timestamp, tz)
+    if (pytuple.PyTuple_Check(args) == 0) return null;
+    const size = pytuple.PyTuple_Size(args);
+    if (size < 1) return null;
+
+    const ts_obj = pytuple.PyTuple_GetItem(args, 0) orelse return null;
+
+    // Get timestamp as float
+    var timestamp: f64 = 0;
+    if (pylong.PyLong_Check(ts_obj) != 0) {
+        timestamp = @floatFromInt(pylong.PyLong_AsLong(ts_obj));
+    } else if (pyfloat.PyFloat_Check(ts_obj) != 0) {
+        timestamp = pyfloat.PyFloat_AsDouble(ts_obj);
+    } else {
+        return null;
+    }
+
+    // Convert POSIX timestamp to datetime components
+    // timestamp is seconds since 1970-01-01 00:00:00 UTC
+    const secs: i64 = @intFromFloat(timestamp);
+    const frac = timestamp - @as(f64, @floatFromInt(secs));
+    const usec: c_int = @intFromFloat(frac * 1_000_000);
+
+    // Calculate date/time from seconds since epoch
+    // Days since epoch (1970-01-01)
+    var days = @divFloor(secs, 86400);
+    var remaining = @mod(secs, 86400);
+    if (remaining < 0) {
+        remaining += 86400;
+        days -= 1;
+    }
+
+    const hour: c_int = @intCast(@divFloor(remaining, 3600));
+    remaining = @mod(remaining, 3600);
+    const minute: c_int = @intCast(@divFloor(remaining, 60));
+    const second: c_int = @intCast(@mod(remaining, 60));
+
+    // Convert days since epoch to year/month/day
+    var year: c_int = 1970;
+    while (days >= daysInYear(year)) {
+        days -= daysInYear(year);
+        year += 1;
+    }
+    while (days < 0) {
+        year -= 1;
+        days += daysInYear(year);
+    }
+
+    var month: c_int = 1;
+    const is_leap = isLeapYear(year);
+    while (days >= daysInMonth(month, is_leap)) {
+        days -= daysInMonth(month, is_leap);
+        month += 1;
+    }
+    const day: c_int = @intCast(days + 1);
+
+    return PyDateTime_FromDateAndTime(year, month, day, hour, minute, second, usec);
+}
+
+fn daysInYear(year: c_int) i64 {
+    return if (isLeapYear(year)) 366 else 365;
+}
+
+fn isLeapYear(year: c_int) bool {
+    return (@mod(year, 4) == 0 and @mod(year, 100) != 0) or @mod(year, 400) == 0;
+}
+
+fn daysInMonth(month: c_int, is_leap: bool) i64 {
+    const days = [_]i64{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    if (month == 2 and is_leap) return 29;
+    if (month < 1 or month > 12) return 0;
+    return days[@intCast(month - 1)];
 }
 
 /// Create date from POSIX timestamp
 /// CPython: PyObject* PyDate_FromTimestamp(PyObject *args)
 export fn PyDate_FromTimestamp(args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = args;
-    // TODO: Extract timestamp and convert to date
-    return null;
+    const pytuple = @import("pyobject_tuple.zig");
+    const pylong = @import("pyobject_long.zig");
+    const pyfloat = @import("pyobject_float.zig");
+
+    // Args is a tuple containing (timestamp,)
+    if (pytuple.PyTuple_Check(args) == 0) return null;
+    const size = pytuple.PyTuple_Size(args);
+    if (size < 1) return null;
+
+    const ts_obj = pytuple.PyTuple_GetItem(args, 0) orelse return null;
+
+    // Get timestamp as float
+    var timestamp: f64 = 0;
+    if (pylong.PyLong_Check(ts_obj) != 0) {
+        timestamp = @floatFromInt(pylong.PyLong_AsLong(ts_obj));
+    } else if (pyfloat.PyFloat_Check(ts_obj) != 0) {
+        timestamp = pyfloat.PyFloat_AsDouble(ts_obj);
+    } else {
+        return null;
+    }
+
+    // Convert POSIX timestamp to date components
+    const secs: i64 = @intFromFloat(timestamp);
+    var days = @divFloor(secs, 86400);
+
+    // Convert days since epoch to year/month/day
+    var year: c_int = 1970;
+    while (days >= daysInYear(year)) {
+        days -= daysInYear(year);
+        year += 1;
+    }
+    while (days < 0) {
+        year -= 1;
+        days += daysInYear(year);
+    }
+
+    var month: c_int = 1;
+    const is_leap = isLeapYear(year);
+    while (days >= daysInMonth(month, is_leap)) {
+        days -= daysInMonth(month, is_leap);
+        month += 1;
+    }
+    const day: c_int = @intCast(days + 1);
+
+    return PyDate_FromDate(year, month, day);
 }
 
 // ============================================================================

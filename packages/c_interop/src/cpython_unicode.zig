@@ -349,17 +349,204 @@ export fn PyUnicode_Concat(left: *cpython.PyObject, right: *cpython.PyObject) ca
     return result;
 }
 
-/// Format string with arguments (simplified)
+/// Format string with arguments (%-style formatting)
 ///
 /// CPython: PyObject* PyUnicode_Format(PyObject *format, PyObject *args)
 /// Returns: Formatted string or null on error
 export fn PyUnicode_Format(format: *cpython.PyObject, args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = format;
-    _ = args;
+    const fmt_str = PyUnicode_AsUTF8(format) orelse return null;
+    const fmt = std.mem.span(fmt_str);
 
-    // TODO: Implement proper string formatting
-    setTypeError("string formatting not yet implemented");
-    return null;
+    var buf: [16384]u8 = undefined;
+    var buf_idx: usize = 0;
+    var fmt_idx: usize = 0;
+    var arg_idx: isize = 0;
+
+    const tuple = @import("pyobject_tuple.zig");
+    const dict = @import("pyobject_dict.zig");
+
+    // Check if args is a tuple or dict
+    const is_tuple = tuple.PyTuple_Check(args) != 0;
+    const is_dict = dict.PyDict_Check(args) != 0;
+    const tuple_size: isize = if (is_tuple) tuple.PyTuple_Size(args) else 0;
+
+    while (fmt_idx < fmt.len and buf_idx < buf.len - 1) {
+        if (fmt[fmt_idx] == '%' and fmt_idx + 1 < fmt.len) {
+            fmt_idx += 1;
+
+            // Handle %%
+            if (fmt[fmt_idx] == '%') {
+                buf[buf_idx] = '%';
+                buf_idx += 1;
+                fmt_idx += 1;
+                continue;
+            }
+
+            // Handle %(name)s for dict formatting
+            if (fmt[fmt_idx] == '(' and is_dict) {
+                // Find closing )
+                const name_start = fmt_idx + 1;
+                var name_end = name_start;
+                while (name_end < fmt.len and fmt[name_end] != ')') {
+                    name_end += 1;
+                }
+                if (name_end >= fmt.len) break;
+
+                // Get key name and look up in dict
+                const key_slice = fmt[name_start..name_end];
+                var key_buf: [256]u8 = undefined;
+                @memcpy(key_buf[0..key_slice.len], key_slice);
+                key_buf[key_slice.len] = 0;
+                const key_obj = PyUnicode_FromStringAndSize(&key_buf, @intCast(key_slice.len));
+
+                if (key_obj) |key| {
+                    if (dict.PyDict_GetItem(args, key)) |value| {
+                        // Skip to format specifier after )
+                        fmt_idx = name_end + 1;
+                        if (fmt_idx < fmt.len) {
+                            // Get string representation of value
+                            const str_obj = cpython.PyObject_Str(value);
+                            if (str_obj) |s| {
+                                if (PyUnicode_AsUTF8(s)) |val_str| {
+                                    const val_slice = std.mem.span(val_str);
+                                    const copy_len = @min(val_slice.len, buf.len - buf_idx - 1);
+                                    @memcpy(buf[buf_idx .. buf_idx + copy_len], val_slice[0..copy_len]);
+                                    buf_idx += copy_len;
+                                }
+                                Py_DECREF(s);
+                            }
+                        }
+                        fmt_idx += 1; // Skip format char (s, d, etc.)
+                    }
+                    Py_DECREF(key);
+                }
+                continue;
+            }
+
+            // Skip flags (-, +, space, #, 0)
+            while (fmt_idx < fmt.len and (fmt[fmt_idx] == '-' or fmt[fmt_idx] == '+' or
+                fmt[fmt_idx] == ' ' or fmt[fmt_idx] == '#' or fmt[fmt_idx] == '0'))
+            {
+                fmt_idx += 1;
+            }
+
+            // Skip width
+            while (fmt_idx < fmt.len and std.ascii.isDigit(fmt[fmt_idx])) {
+                fmt_idx += 1;
+            }
+
+            // Skip precision
+            if (fmt_idx < fmt.len and fmt[fmt_idx] == '.') {
+                fmt_idx += 1;
+                while (fmt_idx < fmt.len and std.ascii.isDigit(fmt[fmt_idx])) {
+                    fmt_idx += 1;
+                }
+            }
+
+            // Get format character
+            if (fmt_idx >= fmt.len) break;
+            const format_char = fmt[fmt_idx];
+            fmt_idx += 1;
+
+            // Get argument from tuple or use args directly
+            var arg: ?*cpython.PyObject = null;
+            if (is_tuple) {
+                if (arg_idx < tuple_size) {
+                    arg = tuple.PyTuple_GetItem(args, arg_idx);
+                    arg_idx += 1;
+                }
+            } else if (arg_idx == 0) {
+                arg = args;
+                arg_idx += 1;
+            }
+
+            if (arg == null) continue;
+
+            switch (format_char) {
+                's' => {
+                    // String format
+                    const str_obj = cpython.PyObject_Str(arg.?);
+                    if (str_obj) |s| {
+                        if (PyUnicode_AsUTF8(s)) |val_str| {
+                            const val_slice = std.mem.span(val_str);
+                            const copy_len = @min(val_slice.len, buf.len - buf_idx - 1);
+                            @memcpy(buf[buf_idx .. buf_idx + copy_len], val_slice[0..copy_len]);
+                            buf_idx += copy_len;
+                        }
+                        Py_DECREF(s);
+                    }
+                },
+                'r' => {
+                    // Repr format
+                    const repr_obj = cpython.PyObject_Repr(arg.?);
+                    if (repr_obj) |r| {
+                        if (PyUnicode_AsUTF8(r)) |val_str| {
+                            const val_slice = std.mem.span(val_str);
+                            const copy_len = @min(val_slice.len, buf.len - buf_idx - 1);
+                            @memcpy(buf[buf_idx .. buf_idx + copy_len], val_slice[0..copy_len]);
+                            buf_idx += copy_len;
+                        }
+                        Py_DECREF(r);
+                    }
+                },
+                'd', 'i', 'u' => {
+                    // Integer format
+                    const pylong = @import("pyobject_long.zig");
+                    const val = pylong.PyLong_AsLong(arg.?);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "{d}", .{val}) catch break;
+                    buf_idx += result.len;
+                },
+                'x' => {
+                    // Hex format (lowercase)
+                    const pylong = @import("pyobject_long.zig");
+                    const val = pylong.PyLong_AsLong(arg.?);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "{x}", .{@as(u64, @bitCast(val))}) catch break;
+                    buf_idx += result.len;
+                },
+                'X' => {
+                    // Hex format (uppercase)
+                    const pylong = @import("pyobject_long.zig");
+                    const val = pylong.PyLong_AsLong(arg.?);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "{X}", .{@as(u64, @bitCast(val))}) catch break;
+                    buf_idx += result.len;
+                },
+                'o' => {
+                    // Octal format
+                    const pylong = @import("pyobject_long.zig");
+                    const val = pylong.PyLong_AsLong(arg.?);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "{o}", .{@as(u64, @bitCast(val))}) catch break;
+                    buf_idx += result.len;
+                },
+                'f', 'F', 'e', 'E', 'g', 'G' => {
+                    // Float format
+                    const pyfloat = @import("pyobject_float.zig");
+                    const val = pyfloat.PyFloat_AsDouble(arg.?);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "{d}", .{val}) catch break;
+                    buf_idx += result.len;
+                },
+                'c' => {
+                    // Character format
+                    const pylong = @import("pyobject_long.zig");
+                    const val = pylong.PyLong_AsLong(arg.?);
+                    if (val >= 0 and val < 256) {
+                        buf[buf_idx] = @intCast(val);
+                        buf_idx += 1;
+                    }
+                },
+                else => {
+                    // Unknown format - just copy the character
+                    buf[buf_idx] = format_char;
+                    buf_idx += 1;
+                },
+            }
+        } else {
+            buf[buf_idx] = fmt[fmt_idx];
+            buf_idx += 1;
+            fmt_idx += 1;
+        }
+    }
+
+    return PyUnicode_FromStringAndSize(&buf, @intCast(buf_idx));
 }
 
 /// Join sequence of strings with separator

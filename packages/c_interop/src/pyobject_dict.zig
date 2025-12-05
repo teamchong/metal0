@@ -239,6 +239,11 @@ fn findEntry(keys: *InternalDictKeys, key: *cpython.PyObject, hash: isize) ?usiz
 
 /// Find empty slot for insertion
 fn findEmptySlot(keys: *InternalDictKeys, hash: isize) usize {
+    return findEmptySlotInKeys(keys, hash);
+}
+
+/// Find empty slot for insertion (used during resize)
+fn findEmptySlotInKeys(keys: *InternalDictKeys, hash: isize) usize {
     const size: usize = @as(usize, 1) << @intCast(keys.dk_log2_size);
     const mask = size - 1;
     var idx = @as(usize, @intCast(@as(u64, @bitCast(@as(i64, hash))) & mask));
@@ -291,8 +296,45 @@ export fn PyDict_SetItem(obj: *cpython.PyObject, key: *cpython.PyObject, value: 
     // Need to insert new entry
     // Check if we need to resize
     if (keys.dk_usable <= 0) {
-        // TODO: Resize dict
-        return -1;
+        // Resize dict - double the size
+        const new_log2_size = keys.dk_log2_size + 1;
+        const new_keys = createKeys(new_log2_size) orelse return -1;
+
+        // Rehash all existing entries
+        const old_size: usize = @as(usize, 1) << @intCast(keys.dk_log2_size);
+        var i: usize = 0;
+        while (i < old_size) : (i += 1) {
+            if (keys.entries[i].key != null) {
+                const entry_hash = keys.entries[i].hash;
+                const new_idx = findEmptySlotInKeys(new_keys, entry_hash);
+                new_keys.entries[new_idx] = keys.entries[i];
+                new_keys.dk_nentries += 1;
+                new_keys.dk_usable -= 1;
+            }
+        }
+
+        // Free old keys and update dict
+        const old_header_size = @sizeOf(InternalDictKeys);
+        const old_entries_size = old_size * @sizeOf(DictEntry);
+        const old_total_size = old_header_size + old_entries_size;
+        const old_memory: [*]u8 = @ptrCast(@alignCast(keys));
+        allocator.free(old_memory[0..old_total_size]);
+
+        dict.ma_keys = @ptrCast(new_keys);
+
+        // Now insert the new entry using the new keys
+        const new_hash = computeHash(key);
+        const insert_idx = findEmptySlotInKeys(new_keys, new_hash);
+        new_keys.entries[insert_idx] = .{
+            .hash = new_hash,
+            .key = traits.incref(key),
+            .value = traits.incref(value),
+        };
+        new_keys.dk_usable -= 1;
+        new_keys.dk_nentries += 1;
+        dict.ma_used += 1;
+        dict._ma_watcher_tag +%= 1;
+        return 0;
     }
 
     const idx = findEmptySlot(keys, hash);

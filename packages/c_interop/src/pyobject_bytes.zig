@@ -82,6 +82,50 @@ fn bytes_item(obj: *cpython.PyObject, index: isize) callconv(.c) ?*cpython.PyObj
     return PyBytes_FromStringAndSize(@ptrCast(&data[uindex]), 1);
 }
 
+fn bytes_contains(obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) c_int {
+    const bytes_obj: *PyBytesObject = @ptrCast(@alignCast(obj));
+    const len: usize = @intCast(bytes_obj.ob_base.ob_size);
+    const data: [*]const u8 = @ptrCast(&bytes_obj.ob_sval);
+    const haystack = data[0..len];
+
+    // Check if value is an integer (single byte)
+    if (traits.isInt(value)) {
+        const byte_val = traits.externs.PyLong_AsLong(value);
+        if (byte_val < 0 or byte_val > 255) {
+            return 0; // Out of byte range
+        }
+        const needle: u8 = @intCast(byte_val);
+        // Search for single byte
+        for (haystack) |b| {
+            if (b == needle) return 1;
+        }
+        return 0;
+    }
+
+    // Check if value is bytes
+    if (PyBytes_Check(value) != 0) {
+        const value_bytes: *PyBytesObject = @ptrCast(@alignCast(value));
+        const value_len: usize = @intCast(value_bytes.ob_base.ob_size);
+        const value_data: [*]const u8 = @ptrCast(&value_bytes.ob_sval);
+        const needle = value_data[0..value_len];
+
+        if (value_len == 0) return 1; // Empty bytes is always contained
+        if (value_len > len) return 0; // Can't contain longer sequence
+
+        // Simple substring search
+        var i: usize = 0;
+        while (i + value_len <= len) : (i += 1) {
+            if (std.mem.eql(u8, haystack[i .. i + value_len], needle)) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    // Type error - wrong type for 'in' operator
+    return -1;
+}
+
 /// Sequence protocol methods table
 var bytes_as_sequence: cpython.PySequenceMethods = .{
     .sq_length = bytes_length,
@@ -89,7 +133,7 @@ var bytes_as_sequence: cpython.PySequenceMethods = .{
     .sq_repeat = bytes_repeat,
     .sq_item = bytes_item,
     .sq_ass_item = null, // Immutable
-    .sq_contains = null, // TODO
+    .sq_contains = bytes_contains,
     .sq_inplace_concat = null, // Immutable
     .sq_inplace_repeat = null, // Immutable
 };
@@ -236,9 +280,90 @@ pub export fn PyBytes_FromStringAndSize(str: ?[*]const u8, len: isize) callconv(
 }
 
 export fn PyBytes_FromFormat(format: [*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
-    // Simple implementation - just copy format string for now
-    _ = format;
-    return PyBytes_FromString("TODO: PyBytes_FromFormat");
+    const fmt = std.mem.span(format);
+    var va = @cVaStart();
+    defer @cVaEnd(&va);
+
+    var buf: [4096]u8 = undefined;
+    var buf_idx: usize = 0;
+    var fmt_idx: usize = 0;
+
+    while (fmt_idx < fmt.len and buf_idx < buf.len - 1) {
+        if (fmt[fmt_idx] == '%' and fmt_idx + 1 < fmt.len) {
+            fmt_idx += 1;
+            switch (fmt[fmt_idx]) {
+                's' => {
+                    const str = @cVaArg(&va, ?[*:0]const u8);
+                    if (str) |s| {
+                        const str_slice = std.mem.span(s);
+                        const copy_len = @min(str_slice.len, buf.len - buf_idx - 1);
+                        @memcpy(buf[buf_idx .. buf_idx + copy_len], str_slice[0..copy_len]);
+                        buf_idx += copy_len;
+                    }
+                },
+                'd', 'i' => {
+                    const val = @cVaArg(&va, c_int);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "{d}", .{val}) catch break;
+                    buf_idx += result.len;
+                },
+                'l' => {
+                    if (fmt_idx + 1 < fmt.len and (fmt[fmt_idx + 1] == 'd' or fmt[fmt_idx + 1] == 'i')) {
+                        fmt_idx += 1;
+                        const val = @cVaArg(&va, c_long);
+                        const result = std.fmt.bufPrint(buf[buf_idx..], "{d}", .{val}) catch break;
+                        buf_idx += result.len;
+                    }
+                },
+                'z' => {
+                    if (fmt_idx + 1 < fmt.len and (fmt[fmt_idx + 1] == 'd' or fmt[fmt_idx + 1] == 'u')) {
+                        fmt_idx += 1;
+                        const val = @cVaArg(&va, isize);
+                        const result = std.fmt.bufPrint(buf[buf_idx..], "{d}", .{val}) catch break;
+                        buf_idx += result.len;
+                    }
+                },
+                'u' => {
+                    const val = @cVaArg(&va, c_uint);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "{d}", .{val}) catch break;
+                    buf_idx += result.len;
+                },
+                'x' => {
+                    const val = @cVaArg(&va, c_uint);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "{x}", .{val}) catch break;
+                    buf_idx += result.len;
+                },
+                'p' => {
+                    const val = @cVaArg(&va, usize);
+                    const result = std.fmt.bufPrint(buf[buf_idx..], "0x{x}", .{val}) catch break;
+                    buf_idx += result.len;
+                },
+                'c' => {
+                    const val = @cVaArg(&va, c_int);
+                    buf[buf_idx] = @intCast(val & 0xFF);
+                    buf_idx += 1;
+                },
+                '%' => {
+                    buf[buf_idx] = '%';
+                    buf_idx += 1;
+                },
+                else => {
+                    buf[buf_idx] = '%';
+                    buf_idx += 1;
+                    if (buf_idx < buf.len - 1) {
+                        buf[buf_idx] = fmt[fmt_idx];
+                        buf_idx += 1;
+                    }
+                },
+            }
+            fmt_idx += 1;
+        } else {
+            buf[buf_idx] = fmt[fmt_idx];
+            buf_idx += 1;
+            fmt_idx += 1;
+        }
+    }
+
+    return PyBytes_FromStringAndSize(@ptrCast(&buf), @intCast(buf_idx));
 }
 
 export fn PyBytes_Concat(bytes_ptr: *?*cpython.PyObject, newpart: *cpython.PyObject) callconv(.c) void {

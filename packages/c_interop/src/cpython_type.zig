@@ -72,6 +72,90 @@ pub var PyType_Type: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
+/// PyBaseObject_Type - The base type for all objects ('object')
+pub var PyBaseObject_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined }, // Will point to &PyType_Type
+        .ob_size = 0,
+    },
+    .tp_name = "object",
+    .tp_basicsize = @intCast(@sizeOf(cpython.PyObject)),
+    .tp_itemsize = 0,
+    .tp_dealloc = null,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = object_repr,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = object_hash,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE,
+    .tp_doc = "The base class of the class hierarchy.",
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null, // object has no base
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = object_new,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};
+
+fn object_repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const unicode = @import("cpython_unicode.zig");
+    var buf: [256]u8 = undefined;
+    const type_obj = cpython.Py_TYPE(obj);
+    const name = if (type_obj.tp_name) |n| std.mem.span(n) else "object";
+    const str = std.fmt.bufPrint(&buf, "<{s} object at 0x{x}>", .{ name, @intFromPtr(obj) }) catch return null;
+    return unicode.PyUnicode_FromStringAndSize(str.ptr, @intCast(str.len));
+}
+
+fn object_hash(obj: *cpython.PyObject) callconv(.c) isize {
+    // Default hash is based on object identity (pointer)
+    return @bitCast(@as(usize, @intFromPtr(obj)) >> 4);
+}
+
+fn object_new(type_obj: *cpython.PyTypeObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    _ = args;
+    _ = kwargs;
+    // Allocate new object
+    const obj = allocator.create(cpython.PyObject) catch return null;
+    obj.* = .{
+        .ob_refcnt = 1,
+        .ob_type = type_obj,
+    };
+    return obj;
+}
+
 fn type_repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(obj));
     const unicode = @import("cpython_unicode.zig");
@@ -106,11 +190,64 @@ fn type_call(self: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython
 }
 
 fn type_new(metatype: *cpython.PyTypeObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = metatype;
-    _ = args;
     _ = kwargs;
-    // Creating new types dynamically is complex - stub for now
-    return null;
+    const pytuple = @import("pyobject_tuple.zig");
+    const pyunicode = @import("pyobject_unicode.zig");
+    const pydict = @import("pyobject_dict.zig");
+
+    // type(name, bases, dict) -> new type
+    const nargs = pytuple.PyTuple_Size(args);
+    if (nargs == 1) {
+        // type(object) -> return the object's type
+        const obj = pytuple.PyTuple_GetItem(args, 0) orelse return null;
+        const obj_type = cpython.Py_TYPE(obj);
+        Py_INCREF(@ptrCast(obj_type));
+        return @ptrCast(obj_type);
+    }
+
+    if (nargs != 3) {
+        return null;
+    }
+
+    // Get name, bases, dict
+    const name_obj = pytuple.PyTuple_GetItem(args, 0) orelse return null;
+    const bases = pytuple.PyTuple_GetItem(args, 1) orelse return null;
+    const dict = pytuple.PyTuple_GetItem(args, 2) orelse return null;
+
+    const name_str = pyunicode.PyUnicode_AsUTF8(name_obj) orelse return null;
+
+    // Allocate new type object
+    const new_type = allocator.create(cpython.PyTypeObject) catch return null;
+
+    // Initialize with defaults from metatype
+    new_type.* = metatype.*;
+
+    // Copy name
+    const name_copy = allocator.dupeZ(u8, std.mem.span(name_str)) catch {
+        allocator.destroy(new_type);
+        return null;
+    };
+    new_type.tp_name = name_copy;
+
+    // Set up base type
+    if (pytuple.PyTuple_Size(bases) > 0) {
+        const base_obj = pytuple.PyTuple_GetItem(bases, 0);
+        if (base_obj) |b| {
+            new_type.tp_base = @ptrCast(@alignCast(b));
+        }
+    }
+
+    // Copy dict
+    new_type.tp_dict = pydict.PyDict_Copy(dict);
+
+    // Set refcount
+    new_type.ob_base.ob_base.ob_refcnt = 1;
+    new_type.ob_base.ob_base.ob_type = metatype;
+
+    // Mark as heap type
+    new_type.tp_flags |= Py_TPFLAGS_HEAPTYPE;
+
+    return @ptrCast(new_type);
 }
 
 /// Check if object is a type (instance of PyType_Type or subclass)
@@ -160,8 +297,45 @@ export fn PyType_GenericAlloc(type_obj: *cpython.PyTypeObject, nitems: isize) ca
 export fn PyType_GenericNew(type_obj: *cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = args;
     _ = kwargs;
-    
+
     return PyType_GenericAlloc(type_obj, 0);
+}
+
+/// Get a builtin type by name
+/// Returns the type object for common Python builtin types
+pub fn PyType_GetBuiltinType(name: [*:0]const u8) ?*cpython.PyTypeObject {
+    const name_slice = std.mem.span(name);
+
+    // Check against known builtin type names
+    if (std.mem.eql(u8, name_slice, "type")) {
+        return &PyType_Type;
+    } else if (std.mem.eql(u8, name_slice, "object")) {
+        return &PyBaseObject_Type;
+    } else if (std.mem.eql(u8, name_slice, "int")) {
+        return @import("pyobject_long.zig").getPyLongType();
+    } else if (std.mem.eql(u8, name_slice, "str")) {
+        return @import("pyobject_unicode.zig").getPyUnicodeType();
+    } else if (std.mem.eql(u8, name_slice, "float")) {
+        return @import("pyobject_float.zig").getPyFloatType();
+    } else if (std.mem.eql(u8, name_slice, "list")) {
+        return @import("pyobject_list.zig").getPyListType();
+    } else if (std.mem.eql(u8, name_slice, "dict")) {
+        return @import("pyobject_dict.zig").getPyDictType();
+    } else if (std.mem.eql(u8, name_slice, "tuple")) {
+        return @import("pyobject_tuple.zig").getPyTupleType();
+    } else if (std.mem.eql(u8, name_slice, "bool")) {
+        return @import("pyobject_bool.zig").getPyBoolType();
+    } else if (std.mem.eql(u8, name_slice, "bytes")) {
+        return @import("pyobject_bytes.zig").getPyBytesType();
+    } else if (std.mem.eql(u8, name_slice, "set")) {
+        return @import("pyobject_set.zig").getPySetType();
+    } else if (std.mem.eql(u8, name_slice, "frozenset")) {
+        return @import("pyobject_set.zig").getPyFrozenSetType();
+    } else if (std.mem.eql(u8, name_slice, "NoneType")) {
+        return @import("pyobject_none.zig").getPyNoneType();
+    }
+
+    return null;
 }
 
 /// Check if type is subtype
@@ -180,12 +354,10 @@ export fn PyType_IsSubtype(a: *cpython.PyTypeObject, b: *cpython.PyTypeObject) c
 
 /// Get type name
 export fn PyType_GetName(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+    const pyunicode = @import("pyobject_unicode.zig");
     if (type_obj.tp_name) |name| {
-        // Create string from name
-        // TODO: Use PyUnicode_FromString
-        _ = name;
+        return pyunicode.PyUnicode_FromString(name);
     }
-    
     return null;
 }
 
@@ -196,28 +368,76 @@ export fn PyType_GetQualName(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpy
 }
 
 /// Get type module
+/// For heap types (PEP 3121), returns the module that defined this type
 export fn PyType_GetModule(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
-    _ = type_obj;
-    
-    // Return module object
-    // TODO: Look up in type's __dict__
+    const pydict = @import("pyobject_dict.zig");
+
+    // Check if type has a __dict__
+    if (type_obj.tp_dict) |dict| {
+        // Look for __module__ attribute
+        const pyunicode = @import("cpython_unicode.zig");
+        const module_name = pyunicode.PyUnicode_FromString("__module__");
+        if (module_name) |key| {
+            defer traits.decref(key);
+            if (pydict.PyDict_GetItem(dict, key)) |module_str| {
+                // module_str is the module name string (e.g., "numpy.core")
+                // We need to look up in sys.modules to get the actual module object
+                const sys = @import("cpython_sys.zig");
+                const modules = sys.PySys_GetObject("modules");
+                if (modules) |mods| {
+                    // Get the actual module from sys.modules
+                    const name_str = pyunicode.PyUnicode_AsUTF8(module_str);
+                    if (name_str) |ns| {
+                        return pydict.PyDict_GetItemString(mods, ns);
+                    }
+                }
+            }
+        }
+    }
+
+    // For non-heap types, check if ht_module is set (heap type structure)
+    if ((type_obj.tp_flags & Py_TPFLAGS_HEAPTYPE) != 0) {
+        // Cast to heap type and access ht_module
+        // HeapTypeObject has ht_module field after PyTypeObject
+        const HeapTypePtr = [*]u8;
+        const base_ptr: HeapTypePtr = @ptrCast(type_obj);
+        const module_offset = @sizeOf(cpython.PyTypeObject);
+        const module_ptr: **cpython.PyObject = @ptrCast(@alignCast(base_ptr + module_offset));
+        return module_ptr.*;
+    }
+
     return null;
 }
 
 /// Get type module state
+/// Returns the per-module state for heap types (PEP 3121)
 export fn PyType_GetModuleState(type_obj: *cpython.PyTypeObject) callconv(.c) ?*anyopaque {
-    _ = type_obj;
-    
-    // Return module state pointer
+    // First get the module
+    const module = PyType_GetModule(type_obj);
+    if (module) |mod| {
+        // Get module def from the module
+        const module_mod = @import("cpython_module.zig");
+        const def = module_mod.PyModule_GetDef(mod);
+        if (def) |d| {
+            // Get state from module
+            const state = module_mod.PyModule_GetState(mod);
+            if (state != null and d.m_size > 0) {
+                return state;
+            }
+        }
+    }
     return null;
 }
 
 /// Modified type (invalidate caches)
+/// Called when a type's __dict__ or MRO changes
 export fn PyType_Modified(type_obj: *cpython.PyTypeObject) callconv(.c) void {
-    // Increment version tag to invalidate caches
-    _ = type_obj;
-    
-    // TODO: Implement version tagging
+    // Increment version tag to invalidate attribute caches
+    type_obj.tp_version_tag +%= 1;
+
+    // Also invalidate subclasses (recursively)
+    // For now, just increment our own version tag
+    // A full implementation would walk tp_subclasses
 }
 
 /// Has feature flag

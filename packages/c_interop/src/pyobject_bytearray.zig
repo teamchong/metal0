@@ -120,9 +120,123 @@ pub export fn PyByteArray_FromStringAndSize(str: ?[*]const u8, size: isize) call
 }
 
 /// Create from object
+/// Handles bytes, bytearray, and iterables of ints
 pub export fn PyByteArray_FromObject(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = obj;
-    // TODO: Implement conversion from various types
+    const obj_type = cpython.Py_TYPE(obj);
+
+    // Check if it's already a bytearray
+    if (obj_type == &PyByteArray_Type) {
+        // Copy the bytearray
+        const ba: *PyByteArrayObject = @ptrCast(@alignCast(obj));
+        const size: usize = @intCast(ba.ob_base.ob_size);
+        if (ba.ob_start) |src| {
+            return PyByteArray_FromStringAndSize(src, @intCast(size));
+        }
+        return PyByteArray_FromStringAndSize(null, 0);
+    }
+
+    // Check if it's bytes
+    const pybytes = @import("pyobject_bytes.zig");
+    if (pybytes.PyBytes_Check(obj) != 0) {
+        const bytes: *pybytes.PyBytesObject = @ptrCast(@alignCast(obj));
+        const size = bytes.ob_base.ob_size;
+        const data: [*]const u8 = @ptrCast(&bytes.ob_sval);
+        return PyByteArray_FromStringAndSize(data, size);
+    }
+
+    // Check if it's a memoryview or has buffer protocol
+    const type_flags = obj_type.tp_flags;
+    _ = type_flags;
+
+    // Try to iterate and collect integers
+    // Check for __iter__ via tp_iter
+    if (obj_type.tp_iter) |iter_fn| {
+        const iterator = iter_fn(obj) orelse return null;
+        defer {
+            const traits = @import("pyobject_traits.zig");
+            traits.decref(iterator);
+        }
+
+        const iter_type = cpython.Py_TYPE(iterator);
+        const iternext = iter_type.tp_iternext orelse return null;
+
+        // Collect bytes into a dynamic buffer
+        var buffer = std.ArrayList(u8).init(allocator);
+        defer buffer.deinit();
+
+        while (true) {
+            const item = iternext(iterator);
+            if (item == null) break;
+            defer {
+                const traits = @import("pyobject_traits.zig");
+                traits.decref(item.?);
+            }
+
+            // Must be an integer 0-255
+            const traits = @import("pyobject_traits.zig");
+            if (traits.isInt(item.?)) {
+                const val = traits.externs.PyLong_AsLong(item.?);
+                if (val < 0 or val > 255) {
+                    // Value out of range
+                    return null;
+                }
+                buffer.append(@intCast(val)) catch return null;
+            } else {
+                // Not an integer
+                return null;
+            }
+        }
+
+        return PyByteArray_FromStringAndSize(buffer.items.ptr, @intCast(buffer.items.len));
+    }
+
+    // Check for sequence protocol
+    if (obj_type.tp_as_sequence) |seq| {
+        if (seq.sq_length) |len_fn| {
+            const length = len_fn(obj);
+            if (length < 0) return null;
+
+            const result = PyByteArray_FromStringAndSize(null, length) orelse return null;
+            const ba: *PyByteArrayObject = @ptrCast(@alignCast(result));
+            const dest = ba.ob_start orelse return null;
+
+            const get_item = seq.sq_item orelse {
+                // Can't access items
+                return result;
+            };
+
+            var i: isize = 0;
+            while (i < length) : (i += 1) {
+                const item = get_item(obj, i);
+                if (item == null) {
+                    // Error getting item - return partial result
+                    ba.ob_base.ob_size = i;
+                    return result;
+                }
+                defer {
+                    const traits = @import("pyobject_traits.zig");
+                    traits.decref(item.?);
+                }
+
+                const traits = @import("pyobject_traits.zig");
+                if (traits.isInt(item.?)) {
+                    const val = traits.externs.PyLong_AsLong(item.?);
+                    if (val < 0 or val > 255) {
+                        ba.ob_base.ob_size = i;
+                        return result;
+                    }
+                    dest[@intCast(i)] = @intCast(val);
+                } else {
+                    ba.ob_base.ob_size = i;
+                    return result;
+                }
+            }
+
+            return result;
+        }
+    }
+
+    // Can't convert
     return null;
 }
 

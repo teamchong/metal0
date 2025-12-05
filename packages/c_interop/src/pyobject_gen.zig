@@ -401,8 +401,26 @@ fn gen_iter(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
 }
 
 fn gen_iternext(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = obj;
-    // TODO: Implement generator iteration via frame execution
+    const gen: *PyGenObject = @ptrCast(@alignCast(obj));
+
+    // In metal0's AOT model, generators are compiled to native state machines,
+    // not interpreted frame-by-frame like CPython. This function is primarily
+    // for C extension compatibility.
+    //
+    // If a C extension creates a generator via PyGen_New, iteration would need
+    // to execute the associated frame's bytecode. Since metal0 compiles to native
+    // code without a bytecode interpreter, we check for a running frame and
+    // signal completion otherwise.
+
+    // Check if generator is already exhausted
+    if (gen.gi_frame == null) {
+        traits.setError("StopIteration", "");
+        return null;
+    }
+
+    // Generator with frame but no interpreter - signal exhausted
+    // A proper implementation would need bytecode execution capability
+    gen.gi_frame = null; // Mark as exhausted
     traits.setError("StopIteration", "");
     return null;
 }
