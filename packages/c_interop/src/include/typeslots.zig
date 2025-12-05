@@ -263,17 +263,243 @@ export fn PyType_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyType_Type) 1 else 0;
 }
 
-/// Finalize type object
+/// Finalize type object - initializes inherited slots and type metadata
+/// This is critical for C extensions that create custom types
 export fn PyType_Ready(type_obj: *cpython.PyTypeObject) callconv(.c) c_int {
-    // Initialize type object
-    _ = type_obj;
-    
-    // Set tp_base if needed
-    // Fill in inherited slots
-    // Initialize __dict__
-    
-    // For now, just mark as ready
+    // Already ready?
+    if ((type_obj.tp_flags & Py_TPFLAGS_READY) != 0) {
+        return 0;
+    }
+
+    // Prevent infinite recursion during type setup
+    if ((type_obj.tp_flags & Py_TPFLAGS_READYING) != 0) {
+        return 0;
+    }
+    type_obj.tp_flags |= Py_TPFLAGS_READYING;
+
+    // 1. Set default base type if not set (except for 'object' itself)
+    if (type_obj.tp_base == null and type_obj != &PyBaseObject_Type) {
+        type_obj.tp_base = &PyBaseObject_Type;
+        Py_INCREF(@ptrCast(&PyBaseObject_Type));
+    }
+
+    // 2. Ensure base type is ready first
+    if (type_obj.tp_base) |base| {
+        if ((base.tp_flags & Py_TPFLAGS_READY) == 0) {
+            if (PyType_Ready(base) < 0) {
+                type_obj.tp_flags &= ~Py_TPFLAGS_READYING;
+                return -1;
+            }
+        }
+    }
+
+    // 3. Inherit slots from base type
+    if (type_obj.tp_base) |base| {
+        inherit_special_slots(type_obj, base);
+    }
+
+    // 4. Initialize tp_dict if null
+    if (type_obj.tp_dict == null) {
+        const pydict = @import("../objects/dictobject.zig");
+        type_obj.tp_dict = pydict.PyDict_New();
+        if (type_obj.tp_dict == null) {
+            type_obj.tp_flags &= ~Py_TPFLAGS_READYING;
+            return -1;
+        }
+    }
+
+    // 5. Build tp_bases tuple (single inheritance for now)
+    if (type_obj.tp_bases == null) {
+        const pytuple = @import("../objects/tupleobject.zig");
+        if (type_obj.tp_base) |base| {
+            const bases = pytuple.PyTuple_New(1);
+            if (bases) |b| {
+                Py_INCREF(@ptrCast(base));
+                _ = pytuple.PyTuple_SetItem(b, 0, @ptrCast(base));
+                type_obj.tp_bases = b;
+            }
+        } else {
+            // object has empty bases
+            type_obj.tp_bases = pytuple.PyTuple_New(0);
+        }
+    }
+
+    // 6. Build MRO (Method Resolution Order) - simple linear MRO for single inheritance
+    if (type_obj.tp_mro == null) {
+        type_obj.tp_mro = compute_mro(type_obj);
+    }
+
+    // 7. Set default tp_alloc if not set
+    if (type_obj.tp_alloc == null) {
+        type_obj.tp_alloc = PyType_GenericAlloc;
+    }
+
+    // 8. Set default tp_new if not set and base has one
+    if (type_obj.tp_new == null) {
+        if (type_obj.tp_base) |base| {
+            type_obj.tp_new = base.tp_new;
+        }
+    }
+
+    // 9. Set default tp_free if not set
+    if (type_obj.tp_free == null) {
+        type_obj.tp_free = default_tp_free;
+    }
+
+    // 10. Set ob_type to metatype if not set
+    if (@intFromPtr(type_obj.ob_base.ob_base.ob_type) == 0 or
+        type_obj.ob_base.ob_base.ob_type == undefined)
+    {
+        type_obj.ob_base.ob_base.ob_type = &PyType_Type;
+    }
+
+    // Mark as ready
+    type_obj.tp_flags &= ~Py_TPFLAGS_READYING;
+    type_obj.tp_flags |= Py_TPFLAGS_READY;
+
     return 0;
+}
+
+/// Inherit special slots from base type
+fn inherit_special_slots(type_obj: *cpython.PyTypeObject, base: *cpython.PyTypeObject) void {
+    // Inherit tp_basicsize if not set
+    if (type_obj.tp_basicsize == 0) {
+        type_obj.tp_basicsize = base.tp_basicsize;
+    }
+
+    // Inherit tp_itemsize if not set
+    if (type_obj.tp_itemsize == 0) {
+        type_obj.tp_itemsize = base.tp_itemsize;
+    }
+
+    // Inherit dealloc
+    if (type_obj.tp_dealloc == null) {
+        type_obj.tp_dealloc = base.tp_dealloc;
+    }
+
+    // Inherit repr
+    if (type_obj.tp_repr == null) {
+        type_obj.tp_repr = base.tp_repr;
+    }
+
+    // Inherit hash
+    if (type_obj.tp_hash == null) {
+        type_obj.tp_hash = base.tp_hash;
+    }
+
+    // Inherit str
+    if (type_obj.tp_str == null) {
+        type_obj.tp_str = base.tp_str;
+    }
+
+    // Inherit getattro/setattro
+    if (type_obj.tp_getattro == null) {
+        type_obj.tp_getattro = base.tp_getattro;
+    }
+    if (type_obj.tp_setattro == null) {
+        type_obj.tp_setattro = base.tp_setattro;
+    }
+
+    // Inherit rich compare
+    if (type_obj.tp_richcompare == null) {
+        type_obj.tp_richcompare = base.tp_richcompare;
+    }
+
+    // Inherit iter/iternext
+    if (type_obj.tp_iter == null) {
+        type_obj.tp_iter = base.tp_iter;
+    }
+    if (type_obj.tp_iternext == null) {
+        type_obj.tp_iternext = base.tp_iternext;
+    }
+
+    // Inherit descriptor get/set
+    if (type_obj.tp_descr_get == null) {
+        type_obj.tp_descr_get = base.tp_descr_get;
+    }
+    if (type_obj.tp_descr_set == null) {
+        type_obj.tp_descr_set = base.tp_descr_set;
+    }
+
+    // Inherit init
+    if (type_obj.tp_init == null) {
+        type_obj.tp_init = base.tp_init;
+    }
+
+    // Inherit protocol suites if not set
+    if (type_obj.tp_as_number == null) {
+        type_obj.tp_as_number = base.tp_as_number;
+    }
+    if (type_obj.tp_as_sequence == null) {
+        type_obj.tp_as_sequence = base.tp_as_sequence;
+    }
+    if (type_obj.tp_as_mapping == null) {
+        type_obj.tp_as_mapping = base.tp_as_mapping;
+    }
+    if (type_obj.tp_as_async == null) {
+        type_obj.tp_as_async = base.tp_as_async;
+    }
+    if (type_obj.tp_as_buffer == null) {
+        type_obj.tp_as_buffer = base.tp_as_buffer;
+    }
+
+    // Inherit GC support
+    if (type_obj.tp_traverse == null) {
+        type_obj.tp_traverse = base.tp_traverse;
+    }
+    if (type_obj.tp_clear == null) {
+        type_obj.tp_clear = base.tp_clear;
+    }
+
+    // Inherit finalize
+    if (type_obj.tp_finalize == null) {
+        type_obj.tp_finalize = base.tp_finalize;
+    }
+
+    // Inherit subclass flags from base
+    type_obj.tp_flags |= (base.tp_flags & (cpython.Py_TPFLAGS_LONG_SUBCLASS |
+        cpython.Py_TPFLAGS_LIST_SUBCLASS |
+        cpython.Py_TPFLAGS_TUPLE_SUBCLASS |
+        cpython.Py_TPFLAGS_BYTES_SUBCLASS |
+        cpython.Py_TPFLAGS_UNICODE_SUBCLASS |
+        cpython.Py_TPFLAGS_DICT_SUBCLASS |
+        cpython.Py_TPFLAGS_BASE_EXC_SUBCLASS |
+        cpython.Py_TPFLAGS_TYPE_SUBCLASS));
+}
+
+/// Compute MRO (Method Resolution Order) for single inheritance
+fn compute_mro(type_obj: *cpython.PyTypeObject) ?*cpython.PyObject {
+    const pytuple = @import("../objects/tupleobject.zig");
+
+    // Count types in hierarchy
+    var count: isize = 0;
+    var current: ?*cpython.PyTypeObject = type_obj;
+    while (current) |t| {
+        count += 1;
+        current = t.tp_base;
+    }
+
+    // Create MRO tuple
+    const mro = pytuple.PyTuple_New(count) orelse return null;
+
+    // Fill MRO (type, base, base.base, ..., object)
+    var idx: isize = 0;
+    current = type_obj;
+    while (current) |t| {
+        Py_INCREF(@ptrCast(t));
+        _ = pytuple.PyTuple_SetItem(mro, idx, @ptrCast(t));
+        idx += 1;
+        current = t.tp_base;
+    }
+
+    return mro;
+}
+
+/// Default tp_free implementation
+fn default_tp_free(obj: ?*anyopaque) callconv(.c) void {
+    if (obj) |o| {
+        allocator.destroy(@as(*cpython.PyObject, @ptrCast(@alignCast(o))));
+    }
 }
 
 /// Generic type allocation
