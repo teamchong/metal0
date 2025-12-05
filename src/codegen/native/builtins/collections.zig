@@ -669,9 +669,23 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For tuples/arrays/slices, create a proper SequenceIterator
     if (arg_type == .tuple or arg_type == .list) {
-        try self.emit("runtime.iterators.iter(i64, ");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        // Check if this is an ArrayList variable (needs .items accessor)
+        const is_arraylist = if (args[0] == .name)
+            self.isArrayListVar(args[0].name.id)
+        else
+            false;
+
+        if (is_arraylist) {
+            // ArrayList variable: use .items to get slice
+            try self.emit("runtime.iterators.iter(i64, ");
+            try self.genExpr(args[0]);
+            try self.emit(".items)");
+        } else {
+            // Use runtime check to handle both ArrayList and fixed array
+            try self.emit("iter_list_blk: { const __iterable = ");
+            try self.genExpr(args[0]);
+            try self.emit("; break :iter_list_blk runtime.iterators.iter(i64, if (@hasField(@TypeOf(__iterable), \"items\")) __iterable.items else __iterable); }");
+        }
         return;
     }
 

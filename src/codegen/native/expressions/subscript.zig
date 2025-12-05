@@ -479,9 +479,12 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                             }
                             try self.emitFmt("; if (__idx >= __arr.items.len) return error.IndexError; break :arr_{d} __arr.items[__idx]; }}", .{label_id});
                         } else {
-                            // Array/slice: direct indexing (Zig provides safety in debug mode)
+                            // Unknown type: use runtime @hasField check to handle ArrayList vs array
+                            const label_id = self.block_label_counter;
+                            self.block_label_counter += 1;
+                            try self.emitFmt("arr_{d}: {{ const __s = ", .{label_id});
                             try genExpr(self, subscript.value.*);
-                            try self.emit("[");
+                            try self.emit("; const __idx = ");
                             if (needs_cast) {
                                 try self.emit("@as(usize, @intCast(");
                             }
@@ -489,7 +492,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                             if (needs_cast) {
                                 try self.emit("))");
                             }
-                            try self.emit("]");
+                            try self.emitFmt("; break :arr_{d} if (@hasField(@TypeOf(__s), \"items\")) __s.items[__idx] else __s[__idx]; }}", .{label_id});
                         }
                     }
                 }
