@@ -11,6 +11,7 @@
 /// - Zig's comptime + unused code elimination handles this
 pub const opcode = @import("opcode.zig");
 pub const compiler = @import("compiler.zig");
+pub const vm = @import("vm.zig");
 
 pub const OpCode = opcode.OpCode;
 pub const Instruction = opcode.Instruction;
@@ -19,6 +20,9 @@ pub const Program = opcode.Program;
 pub const SourceLoc = opcode.SourceLoc;
 
 pub const Compiler = compiler.Compiler;
+pub const VM = vm.VM;
+pub const VMError = vm.VMError;
+pub const StackValue = vm.StackValue;
 
 pub const serialize = opcode.serialize;
 pub const deserialize = opcode.deserialize;

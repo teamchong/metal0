@@ -230,6 +230,86 @@ pub const AsyncComplexity = enum {
     complex, // Recursive or many awaits - spawn only
 };
 
+// ============================================================================
+// Class Traits - Track class-level properties for codegen decisions
+// ============================================================================
+// These traits help codegen emit correct code for class instances,
+// especially for classes that inherit from builtin types and override methods.
+
+/// Traits computed for each class definition
+pub const ClassTraits = struct {
+    /// Class name
+    name: []const u8,
+
+    /// Base class name (if inheriting from builtin type)
+    /// e.g., "float", "int", "str", "list", "dict", "tuple"
+    builtin_base: ?[]const u8 = null,
+
+    /// Dunder methods that are explicitly overridden in this class
+    /// Used to determine if floatBuiltinCall should call __float__ vs use __base_value__
+    overridden_dunders: DunderOverrides = .{},
+
+    /// Whether this class is defined inside a function (nested class)
+    is_nested: bool = false,
+
+    /// Parent scope name (if nested) - for qualified lookup
+    parent_scope: ?[]const u8 = null,
+
+    /// Query methods
+    pub fn overrides(self: *const ClassTraits, dunder: []const u8) bool {
+        if (std.mem.eql(u8, dunder, "__float__")) return self.overridden_dunders.float;
+        if (std.mem.eql(u8, dunder, "__int__")) return self.overridden_dunders.int;
+        if (std.mem.eql(u8, dunder, "__str__")) return self.overridden_dunders.str;
+        if (std.mem.eql(u8, dunder, "__repr__")) return self.overridden_dunders.repr;
+        if (std.mem.eql(u8, dunder, "__bool__")) return self.overridden_dunders.bool_;
+        if (std.mem.eql(u8, dunder, "__index__")) return self.overridden_dunders.index;
+        if (std.mem.eql(u8, dunder, "__hash__")) return self.overridden_dunders.hash;
+        if (std.mem.eql(u8, dunder, "__len__")) return self.overridden_dunders.len;
+        if (std.mem.eql(u8, dunder, "__iter__")) return self.overridden_dunders.iter;
+        if (std.mem.eql(u8, dunder, "__next__")) return self.overridden_dunders.next;
+        if (std.mem.eql(u8, dunder, "__call__")) return self.overridden_dunders.call;
+        if (std.mem.eql(u8, dunder, "__new__")) return self.overridden_dunders.new;
+        if (std.mem.eql(u8, dunder, "__init__")) return self.overridden_dunders.init;
+        return false;
+    }
+
+    /// Check if class inherits from a numeric builtin (float, int)
+    pub fn isNumericSubclass(self: *const ClassTraits) bool {
+        if (self.builtin_base) |base| {
+            return std.mem.eql(u8, base, "float") or std.mem.eql(u8, base, "int");
+        }
+        return false;
+    }
+
+    /// Check if float() should call __float__ instead of using __base_value__
+    /// True when: inherits from float AND overrides __float__
+    pub fn floatCallsOverride(self: *const ClassTraits) bool {
+        if (self.builtin_base) |base| {
+            if (std.mem.eql(u8, base, "float")) {
+                return self.overridden_dunders.float;
+            }
+        }
+        return false;
+    }
+};
+
+/// Bitfield tracking which dunder methods are overridden
+pub const DunderOverrides = struct {
+    float: bool = false, // __float__
+    int: bool = false, // __int__
+    str: bool = false, // __str__
+    repr: bool = false, // __repr__
+    bool_: bool = false, // __bool__
+    index: bool = false, // __index__
+    hash: bool = false, // __hash__
+    len: bool = false, // __len__
+    iter: bool = false, // __iter__
+    next: bool = false, // __next__
+    call: bool = false, // __call__
+    new: bool = false, // __new__
+    init: bool = false, // __init__
+};
+
 /// Tracks list variable aliases (T = A where A is a list)
 pub const ListAlias = struct {
     alias_name: []const u8,
@@ -3162,6 +3242,137 @@ fn collectUsedVars(node: ast.Node, result: *UsedVarsSet) void {
 pub fn isVarActuallyUsed(body: []const ast.Node, var_name: []const u8) bool {
     const used = analyzeUsedVars(body);
     return used.contains(var_name);
+}
+
+// ============================================================================
+// Class Traits Analysis
+// ============================================================================
+
+/// Builtin types that can be subclassed
+const BUILTIN_BASES = [_][]const u8{ "int", "float", "str", "bytes", "list", "dict", "tuple", "set", "frozenset", "bool" };
+
+/// Check if a base name is a builtin type
+fn isBuiltinBase(name: []const u8) bool {
+    for (BUILTIN_BASES) |base| {
+        if (std.mem.eql(u8, name, base)) return true;
+    }
+    return false;
+}
+
+/// Analyze a class definition and extract its traits
+/// Used to determine how to handle instances in codegen (e.g., float() conversion)
+pub fn analyzeClassTraits(class_def: ast.Node.ClassDef, parent_scope: ?[]const u8) ClassTraits {
+    var traits = ClassTraits{
+        .name = class_def.name,
+        .is_nested = parent_scope != null,
+        .parent_scope = parent_scope,
+    };
+
+    // Check base classes for builtin types
+    for (class_def.bases) |base| {
+        if (base == .name) {
+            const base_name = base.name.id;
+            if (isBuiltinBase(base_name)) {
+                traits.builtin_base = base_name;
+                break;
+            }
+        }
+    }
+
+    // Scan class body for dunder method overrides
+    for (class_def.body) |stmt| {
+        if (stmt == .function_def) {
+            const func = stmt.function_def;
+            const method_name = func.name;
+
+            // Check for dunder methods
+            if (std.mem.eql(u8, method_name, "__float__")) {
+                traits.overridden_dunders.float = true;
+            } else if (std.mem.eql(u8, method_name, "__int__")) {
+                traits.overridden_dunders.int = true;
+            } else if (std.mem.eql(u8, method_name, "__str__")) {
+                traits.overridden_dunders.str = true;
+            } else if (std.mem.eql(u8, method_name, "__repr__")) {
+                traits.overridden_dunders.repr = true;
+            } else if (std.mem.eql(u8, method_name, "__bool__")) {
+                traits.overridden_dunders.bool_ = true;
+            } else if (std.mem.eql(u8, method_name, "__index__")) {
+                traits.overridden_dunders.index = true;
+            } else if (std.mem.eql(u8, method_name, "__hash__")) {
+                traits.overridden_dunders.hash = true;
+            } else if (std.mem.eql(u8, method_name, "__len__")) {
+                traits.overridden_dunders.len = true;
+            } else if (std.mem.eql(u8, method_name, "__iter__")) {
+                traits.overridden_dunders.iter = true;
+            } else if (std.mem.eql(u8, method_name, "__next__")) {
+                traits.overridden_dunders.next = true;
+            } else if (std.mem.eql(u8, method_name, "__call__")) {
+                traits.overridden_dunders.call = true;
+            } else if (std.mem.eql(u8, method_name, "__new__")) {
+                traits.overridden_dunders.new = true;
+            } else if (std.mem.eql(u8, method_name, "__init__")) {
+                traits.overridden_dunders.init = true;
+            }
+        }
+    }
+
+    return traits;
+}
+
+/// Analyze all classes in a module/function body and return their traits
+/// Key: class name, Value: ClassTraits
+pub fn analyzeAllClassTraits(
+    allocator: std.mem.Allocator,
+    body: []const ast.Node,
+    parent_scope: ?[]const u8,
+) !hashmap_helper.StringHashMap(ClassTraits) {
+    var result = hashmap_helper.StringHashMap(ClassTraits).init(allocator);
+
+    for (body) |stmt| {
+        switch (stmt) {
+            .class_def => |class_def| {
+                const traits = analyzeClassTraits(class_def, parent_scope);
+                try result.put(allocator, class_def.name, traits);
+
+                // Recursively analyze nested classes in class body
+                const nested = try analyzeAllClassTraits(allocator, class_def.body, class_def.name);
+                var nested_iter = nested.iterator();
+                while (nested_iter.next()) |entry| {
+                    // Use qualified name for nested classes: OuterClass.InnerClass
+                    const qualified_name = try std.fmt.allocPrint(allocator, "{s}.{s}", .{ class_def.name, entry.key_ptr.* });
+                    try result.put(allocator, qualified_name, entry.value_ptr.*);
+                }
+            },
+            .function_def => |func_def| {
+                // Also check for classes defined inside functions
+                const nested = try analyzeAllClassTraits(allocator, func_def.body, func_def.name);
+                var nested_iter = nested.iterator();
+                while (nested_iter.next()) |entry| {
+                    // Mark as nested with function scope
+                    var nested_traits = entry.value_ptr.*;
+                    nested_traits.is_nested = true;
+                    nested_traits.parent_scope = func_def.name;
+                    try result.put(allocator, entry.key_ptr.*, nested_traits);
+                }
+            },
+            .if_stmt => |if_stmt| {
+                // Check if/elif/else bodies for class definitions
+                const if_nested = try analyzeAllClassTraits(allocator, if_stmt.body, parent_scope);
+                var if_iter = if_nested.iterator();
+                while (if_iter.next()) |entry| {
+                    try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                }
+                const else_nested = try analyzeAllClassTraits(allocator, if_stmt.@"orelse", parent_scope);
+                var else_iter = else_nested.iterator();
+                while (else_iter.next()) |entry| {
+                    try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                }
+            },
+            else => {},
+        }
+    }
+
+    return result;
 }
 
 // ============================================================================

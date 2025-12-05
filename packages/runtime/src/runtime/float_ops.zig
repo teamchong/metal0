@@ -483,10 +483,27 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
         return @as(f64, first);
     }
     if (first_info == .pointer) {
-        // Check if pointer points to a struct with __base_value__ (float subclass instance)
+        // Check if pointer points to a struct
         const child_type = first_info.pointer.child;
         const child_info = @typeInfo(child_type);
         if (child_info == .@"struct") {
+            // IMPORTANT: Check __float__ FIRST - Python MRO prioritizes explicit overrides
+            // over inherited __base_value__. This is critical for subclasses like:
+            //   class Foo(float):
+            //       def __float__(self): return 42.0  # Must be called!
+            if (@hasDecl(child_type, "__float__")) {
+                const result = first.__float__();
+                const ResultType = @TypeOf(result);
+                const result_info = @typeInfo(ResultType);
+                if (result_info == .error_union) {
+                    return result catch return PythonError.ValueError;
+                }
+                if (result_info == .float or result_info == .comptime_float) {
+                    return result;
+                }
+                return @as(f64, @floatFromInt(result));
+            }
+            // Fall back to __base_value__ for float subclasses without __float__ override
             if (@hasField(child_type, "__base_value__")) {
                 const base_value = first.__base_value__;
                 const BaseType = @TypeOf(base_value);
@@ -500,19 +517,6 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
                 if (base_info == .pointer or base_info == .array) {
                     return parseFloatWithUnicode(base_value) catch return PythonError.ValueError;
                 }
-            }
-            // Check for __float__ method on pointed-to struct
-            if (@hasDecl(child_type, "__float__")) {
-                const result = first.__float__();
-                const ResultType = @TypeOf(result);
-                const result_info = @typeInfo(ResultType);
-                if (result_info == .error_union) {
-                    return result catch return PythonError.ValueError;
-                }
-                if (result_info == .float or result_info == .comptime_float) {
-                    return result;
-                }
-                return @as(f64, @floatFromInt(result));
             }
             // Check for __index__ method on pointed-to struct (returns int, convert to float)
             if (@hasDecl(child_type, "__index__")) {
@@ -986,7 +990,8 @@ pub fn toFloat(value: anytype) f64 {
         }
         // First try __float__ method
         if (@hasDecl(T, "__float__")) {
-            const float_result = value.__float__();
+            // Need to take address since __float__ might take *Self or *const Self
+            const float_result = (&value).__float__();
             const result_type = @TypeOf(float_result);
             const result_info = @typeInfo(result_type);
             if (result_info == .float) {
