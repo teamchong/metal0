@@ -66,6 +66,12 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                         try self.emit("\\\"");
                     } else if (fmt[i] == '\\') {
                         try self.emit("\\\\");
+                    } else if (fmt[i] == '\n') {
+                        try self.emit("\\n");
+                    } else if (fmt[i] == '\r') {
+                        try self.emit("\\r");
+                    } else if (fmt[i] == '\t') {
+                        try self.emit("\\t");
                     } else {
                         try self.emitFmt("{c}", .{fmt[i]});
                     }
@@ -157,6 +163,12 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                         try self.emit("\\\"");
                     } else if (fmt[i] == '\\') {
                         try self.emit("\\\\");
+                    } else if (fmt[i] == '\n') {
+                        try self.emit("\\n");
+                    } else if (fmt[i] == '\r') {
+                        try self.emit("\\r");
+                    } else if (fmt[i] == '\t') {
+                        try self.emit("\\t");
                     } else {
                         try self.emitFmt("{c}", .{fmt[i]});
                     }

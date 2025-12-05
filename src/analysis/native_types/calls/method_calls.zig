@@ -258,5 +258,38 @@ pub fn inferMethodCall(
         if (method_hash == CLOSE_HASH) return .none;
     }
 
+    // Float methods
+    if (obj_type == .float) {
+        const method_hash = fnv_hash.hash(method_name);
+        const AS_INTEGER_RATIO_HASH = comptime fnv_hash.hash("as_integer_ratio");
+        const IS_INTEGER_HASH = comptime fnv_hash.hash("is_integer");
+        const FLOOR_HASH = comptime fnv_hash.hash("__floor__");
+        const CEIL_HASH = comptime fnv_hash.hash("__ceil__");
+        const TRUNC_HASH = comptime fnv_hash.hash("__trunc__");
+        const ROUND_HASH = comptime fnv_hash.hash("__round__");
+        const HEX_HASH = comptime fnv_hash.hash("hex");
+        const CONJUGATE_HASH = comptime fnv_hash.hash("conjugate");
+
+        // as_integer_ratio returns (numerator, denominator) tuple of BigInts
+        if (method_hash == AS_INTEGER_RATIO_HASH) {
+            const tuple_types = try allocator.alloc(NativeType, 2);
+            tuple_types[0] = .bigint;
+            tuple_types[1] = .bigint;
+            return .{ .tuple = tuple_types };
+        }
+        // is_integer returns bool
+        if (method_hash == IS_INTEGER_HASH) return .bool;
+        // __floor__, __ceil__, __trunc__, __round__ return int
+        if (method_hash == FLOOR_HASH or method_hash == CEIL_HASH or
+            method_hash == TRUNC_HASH or method_hash == ROUND_HASH)
+        {
+            return .{ .int = .bounded };
+        }
+        // hex returns string
+        if (method_hash == HEX_HASH) return .{ .string = .runtime };
+        // conjugate returns float (for complex number compatibility)
+        if (method_hash == CONJUGATE_HASH) return .float;
+    }
+
     return .unknown;
 }

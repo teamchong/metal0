@@ -79,6 +79,17 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("packages/bigint/src/bigint.zig"),
     });
 
+    // Data structures module (pool, bounded_array, bump_allocator)
+    const ds_mod = b.addModule("ds", .{
+        .root_source_file = b.path("packages/ds/src/ds.zig"),
+    });
+
+    // Glob pattern matching module
+    const glob_mod = b.addModule("glob", .{
+        .root_source_file = b.path("packages/glob/src/glob.zig"),
+    });
+    glob_mod.addImport("ds", ds_mod);
+
     // Tokenizer module for BPE tokenization (GPT-4, etc.)
     const tokenizer_mod = b.addModule("tokenizer", .{
         .root_source_file = b.path("packages/tokenizer/src/tokenizer.zig"),
