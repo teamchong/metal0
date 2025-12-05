@@ -396,6 +396,21 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             };
         }
 
+        // Special case: int/comptime_int comparison
+        // Runtime i64 vs comptime_int or vice versa
+        const a_is_int = a_info == .int or a_info == .comptime_int;
+        const b_is_int = b_info == .int or b_info == .comptime_int;
+        if (a_is_int and b_is_int) {
+            return @as(i64, a) == @as(i64, b);
+        }
+
+        // Special case: float/comptime_float comparison
+        const a_is_float = a_info == .float or a_info == .comptime_float;
+        const b_is_float = b_info == .float or b_info == .comptime_float;
+        if (a_is_float and b_is_float) {
+            return @as(f64, a) == @as(f64, b);
+        }
+
         return false;
     }
 

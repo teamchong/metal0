@@ -1066,7 +1066,13 @@ pub fn toFloat(value: anytype) f64 {
             // BigInt has toFloat() that returns f64
             return (&value).toFloat();
         }
-        // First try __float__ method
+        // For float subclasses with __base_value__, use it directly to avoid
+        // infinite recursion when __float__ returns self (e.g., def __float__(self): return self)
+        // This matches Python's behavior where float subclasses use their base value
+        if (@hasField(T, "__base_value__")) {
+            return value.__base_value__;
+        }
+        // Try __float__ method for non-float-subclass types
         if (@hasDecl(T, "__float__")) {
             // Need to take address since __float__ might take *Self or *const Self
             const float_result = (&value).__float__();
@@ -1079,10 +1085,6 @@ pub fn toFloat(value: anytype) f64 {
             } else {
                 return 0.0;
             }
-        }
-        // Fall back to __base_value__ field (for float subclasses)
-        if (@hasField(T, "__base_value__")) {
-            return value.__base_value__;
         }
         // Check for value field (passthrough pattern)
         if (@hasField(T, "value")) {
