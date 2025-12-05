@@ -1085,6 +1085,18 @@ pub fn assertLessEqual(a: anytype, b: anytype) void {
 /// Assertion: assertNotEqual(a, b) - values must NOT be equal
 pub fn assertNotEqual(a: anytype, b: anytype) void {
     const A = @TypeOf(a);
+    const B = @TypeOf(b);
+
+    // Different types are never equal (for primitive types at least)
+    // This prevents comparing i64 == struct at comptime
+    if (A != B) {
+        // Types differ - not equal, assertion passes
+        if (runner.global_result) |result| {
+            result.addPass();
+        }
+        return;
+    }
+
     const a_info = @typeInfo(A);
     const equal = switch (a_info) {
         .int, .comptime_int => a == b,
