@@ -575,7 +575,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     } else {
         std.debug.print("Compiling to native binary...\n", .{});
         // Use debug mode when --debug flag is set for DWARF info in binary
-        try compiler.compileZigWithOptions(aa, zig_code, bin_path, c_libs, opts.debug);
+        // Pass PGO options for profile-guided optimization
+        try compiler.compileZigWithOptions(aa, zig_code, bin_path, c_libs, opts.debug, .{
+            .generate = opts.pgo_generate,
+            .use_profile = opts.pgo_use,
+        });
     }
 
     std.debug.print("✓ Compiled successfully to: {s}\n", .{bin_path});

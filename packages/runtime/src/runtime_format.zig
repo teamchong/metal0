@@ -584,6 +584,14 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
         const float_val: f64 = @floatCast(value);
         const prec = spec.precision orelse 6;
 
+        // Validate format type - integer presentation types are invalid for floats
+        switch (spec.fmt_type) {
+            's', 'b', 'c', 'd', 'o', 'x', 'X', 'n' => {
+                return error.ValueError;
+            },
+            else => {},
+        }
+
         // Handle special values: nan, inf, -inf
         // Sign flags apply to inf/nan: + forces +, space forces space for positive
         if (std.math.isNan(float_val)) {
@@ -606,10 +614,19 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
             }
             try buf.appendSlice(allocator, if (uppercase) "inf" else "inf");
         } else {
+            // Apply sign flag for normal floats
+            if (float_val < 0) {
+                try buf.append(allocator, '-');
+            } else if (spec.sign == .always) {
+                try buf.append(allocator, '+');
+            } else if (spec.sign == .space) {
+                try buf.append(allocator, ' ');
+            }
+
+            const abs_val = @abs(float_val);
             switch (spec.fmt_type) {
-                'e' => {
-                    // Python 'e' format: precision decimal digits after the point
-                    const abs_val = @abs(float_val);
+                'e', 'E' => {
+                    // Python 'e'/'E' format: scientific notation
                     var exp: i32 = 0;
                     var mantissa = abs_val;
                     if (abs_val >= 1.0) {
@@ -623,51 +640,30 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
                             exp -= 1;
                         }
                     }
-                    if (float_val < 0) try buf.append(allocator, '-');
                     try buf.writer(allocator).print("{d:.[1]}", .{ mantissa, prec });
-                    try buf.append(allocator, 'e');
-                    try buf.append(allocator, if (exp >= 0) '+' else '-');
-                    const abs_exp: u32 = @intCast(@abs(exp));
-                    if (abs_exp < 10) try buf.append(allocator, '0');
-                    try buf.writer(allocator).print("{d}", .{abs_exp});
-                },
-                'E' => {
-                    // Same as 'e' but uppercase
-                    const abs_val = @abs(float_val);
-                    var exp: i32 = 0;
-                    var mantissa = abs_val;
-                    if (abs_val >= 1.0) {
-                        while (mantissa >= 10.0) {
-                            mantissa /= 10.0;
-                            exp += 1;
-                        }
-                    } else if (abs_val > 0) {
-                        while (mantissa < 1.0) {
-                            mantissa *= 10.0;
-                            exp -= 1;
-                        }
-                    }
-                    if (float_val < 0) try buf.append(allocator, '-');
-                    try buf.writer(allocator).print("{d:.[1]}", .{ mantissa, prec });
-                    try buf.append(allocator, 'E');
+                    try buf.append(allocator, if (spec.fmt_type == 'E') 'E' else 'e');
                     try buf.append(allocator, if (exp >= 0) '+' else '-');
                     const abs_exp: u32 = @intCast(@abs(exp));
                     if (abs_exp < 10) try buf.append(allocator, '0');
                     try buf.writer(allocator).print("{d}", .{abs_exp});
                 },
                 '%' => {
-                    try buf.writer(allocator).print("{d:.[1]}", .{ float_val * 100.0, prec });
+                    try buf.writer(allocator).print("{d:.[1]}", .{ abs_val * 100.0, prec });
                     try buf.append(allocator, '%');
                 },
                 'f', 'F' => {
                     // Fixed point: always use precision
-                    try buf.writer(allocator).print("{d:.[1]}", .{ float_val, prec });
+                    try buf.writer(allocator).print("{d:.[1]}", .{ abs_val, prec });
                 },
                 else => {
-                    if (@mod(float_val, 1.0) == 0.0) {
-                        try buf.writer(allocator).print("{d:.1}", .{float_val});
+                    // Default / 'g' / 'G' / empty spec: use shortest representation
+                    // like repr() - minimal digits, no trailing zeros
+                    if (@mod(abs_val, 1.0) == 0.0 and abs_val < 1e15) {
+                        // Whole number: show .0
+                        try buf.writer(allocator).print("{d:.1}", .{abs_val});
                     } else {
-                        try buf.writer(allocator).print("{d:.[1]}", .{ float_val, prec });
+                        // Zig's {d} gives shortest representation
+                        try buf.writer(allocator).print("{d}", .{abs_val});
                     }
                 },
             }

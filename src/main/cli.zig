@@ -119,6 +119,8 @@ pub fn main() !void {
         try cmdBuildRuntime(allocator);
     } else if (std.mem.eql(u8, command, "setup-runtime")) {
         try cmdSetupRuntime(allocator);
+    } else if (std.mem.eql(u8, command, "profile")) {
+        try cmdProfile(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "version")) {
         cmdVersion();
     } else if (std.mem.eql(u8, command, "help")) {
@@ -681,6 +683,233 @@ fn cmdCache(allocator: std.mem.Allocator, args: []const []const u8) !void {
     }
 }
 
+/// Profile command: wrapper for system profilers and profile translation
+/// Usage:
+///   metal0 profile run ./binary         - Profile with perf (Linux) or sample (macOS)
+///   metal0 profile translate data.perf  - Convert profile to Python symbols
+///   metal0 profile show profile.json    - Show Python-level profile summary
+fn cmdProfile(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    if (args.len == 0) {
+        std.debug.print(
+            \\{s}Profile commands:{s}
+            \\
+            \\  {s}metal0 profile run <binary>{s}       Profile a compiled binary
+            \\  {s}metal0 profile translate <file>{s}   Convert perf/sample data to Python symbols
+            \\  {s}metal0 profile show <file.json>{s}   Show Python-level profile summary
+            \\
+            \\{s}Workflow:{s}
+            \\  1. Compile your Python file:     metal0 build -b app.py
+            \\  2. Profile with run subcommand:  metal0 profile run ./build/.../app
+            \\  3. Translate to Python symbols:  metal0 profile translate profile.data
+            \\  4. Rebuild with profile:         metal0 build -b app.py --pgo-use=profile.json
+            \\
+        , .{
+            Color.bold, Color.reset,
+            Color.cyan, Color.reset,
+            Color.cyan, Color.reset,
+            Color.cyan, Color.reset,
+            Color.bold, Color.reset,
+        });
+        return;
+    }
+
+    const subcmd = args[0];
+    if (std.mem.eql(u8, subcmd, "run")) {
+        try cmdProfileRun(allocator, args[1..]);
+    } else if (std.mem.eql(u8, subcmd, "translate")) {
+        try cmdProfileTranslate(allocator, args[1..]);
+    } else if (std.mem.eql(u8, subcmd, "show")) {
+        try cmdProfileShow(allocator, args[1..]);
+    } else {
+        printError("Unknown profile command: {s}", .{subcmd});
+    }
+}
+
+/// Profile run: wrapper for system profilers
+fn cmdProfileRun(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    if (args.len == 0) {
+        printError("No binary specified", .{});
+        std.debug.print("\nUsage: metal0 profile run <binary>\n", .{});
+        return;
+    }
+
+    const binary_path = args[0];
+    const builtin = @import("builtin");
+
+    // Check if binary exists
+    std.fs.cwd().access(binary_path, .{}) catch |err| {
+        printError("Cannot access binary '{s}': {any}", .{ binary_path, err });
+        return;
+    };
+
+    // Use platform-appropriate profiler
+    if (builtin.os.tag == .macos) {
+        std.debug.print("{s}Profiling with macOS sample tool...{s}\n", .{ Color.dim, Color.reset });
+        std.debug.print("  Output: profile.txt (text format)\n\n", .{});
+
+        // macOS: Use 'sample' command (built-in, no Instruments required)
+        // sample <pid|name> <duration> -file <output>
+        var child = std.process.Child.init(&[_][]const u8{
+            "sample",
+            binary_path,
+            "5", // 5 seconds of profiling
+            "-file",
+            "profile.txt",
+        }, allocator);
+        child.spawn() catch |err| {
+            printError("Failed to start profiler: {any}", .{err});
+            return;
+        };
+
+        // Also start the binary
+        var binary_child = std.process.Child.init(&[_][]const u8{binary_path}, allocator);
+        binary_child.stdin_behavior = .Inherit;
+        binary_child.stdout_behavior = .Inherit;
+        binary_child.stderr_behavior = .Inherit;
+        binary_child.spawn() catch |err| {
+            printError("Failed to run binary: {any}", .{err});
+            return;
+        };
+
+        // Wait for binary to finish
+        _ = binary_child.wait() catch {};
+        _ = child.wait() catch {};
+
+        printSuccess("Profile written to profile.txt", .{});
+        std.debug.print("Next: metal0 profile translate profile.txt\n", .{});
+    } else if (builtin.os.tag == .linux) {
+        std.debug.print("{s}Profiling with perf...{s}\n", .{ Color.dim, Color.reset });
+        std.debug.print("  Output: perf.data\n\n", .{});
+
+        // Linux: Use 'perf record'
+        const result = std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &[_][]const u8{
+                "perf",
+                "record",
+                "-g", // Call graphs
+                "-o",
+                "perf.data",
+                "--",
+                binary_path,
+            },
+        }) catch |err| {
+            printError("Failed to run perf: {any}", .{err});
+            std.debug.print("\nMake sure perf is installed: sudo apt install linux-tools-generic\n", .{});
+            return;
+        };
+        defer allocator.free(result.stdout);
+        defer allocator.free(result.stderr);
+
+        if (result.term.Exited == 0) {
+            printSuccess("Profile written to perf.data", .{});
+            std.debug.print("Next: metal0 profile translate perf.data\n", .{});
+        } else {
+            printError("perf failed: {s}", .{result.stderr});
+        }
+    } else {
+        printError("Profile run not supported on this platform", .{});
+        std.debug.print("Supported: Linux (perf), macOS (sample)\n", .{});
+    }
+}
+
+/// Profile translate: convert system profiler output to Python symbols
+fn cmdProfileTranslate(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    if (args.len == 0) {
+        printError("No profile data specified", .{});
+        std.debug.print("\nUsage: metal0 profile translate <perf.data|profile.txt>\n", .{});
+        return;
+    }
+
+    const input_path = args[0];
+
+    // Check if input exists
+    std.fs.cwd().access(input_path, .{}) catch |err| {
+        printError("Cannot access profile data '{s}': {any}", .{ input_path, err });
+        return;
+    };
+
+    // Look for debug info files
+    const dbg_files = findDebugInfoFiles(allocator) catch |err| {
+        printError("Cannot find debug info files: {any}", .{err});
+        std.debug.print("\nMake sure to compile with --debug flag first\n", .{});
+        return;
+    };
+    defer {
+        for (dbg_files) |f| allocator.free(f);
+        allocator.free(dbg_files);
+    }
+
+    if (dbg_files.len == 0) {
+        printWarn("No .metal0.dbg.json files found", .{});
+        std.debug.print("Compile with --debug to generate debug info\n", .{});
+        return;
+    }
+
+    printInfo("Found {d} debug info files", .{dbg_files.len});
+
+    // For now, just show what we'd do - actual translation is TODO
+    std.debug.print("\n{s}Profile Translation (WIP):{s}\n", .{ Color.bold, Color.reset });
+    std.debug.print("  Input: {s}\n", .{input_path});
+    std.debug.print("  Debug info files:\n", .{});
+    for (dbg_files) |f| {
+        std.debug.print("    - {s}\n", .{f});
+    }
+    std.debug.print("\n  Output: profile.json (Python-level profile)\n", .{});
+    std.debug.print("\n{s}TODO:{s} Parse profile data and translate Zig symbols to Python\n", .{ Color.yellow, Color.reset });
+}
+
+/// Profile show: display Python-level profile summary
+fn cmdProfileShow(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    _ = allocator;
+    if (args.len == 0) {
+        printError("No profile file specified", .{});
+        std.debug.print("\nUsage: metal0 profile show <profile.json>\n", .{});
+        return;
+    }
+
+    const profile_path = args[0];
+
+    // Check if file exists
+    std.fs.cwd().access(profile_path, .{}) catch |err| {
+        printError("Cannot access profile '{s}': {any}", .{ profile_path, err });
+        return;
+    };
+
+    // TODO: Parse and display profile
+    printInfo("Profile: {s}", .{profile_path});
+    std.debug.print("\n{s}TODO:{s} Parse and display Python-level profile\n", .{ Color.yellow, Color.reset });
+}
+
+/// Find all .metal0.dbg.json files in build directory
+fn findDebugInfoFiles(allocator: std.mem.Allocator) ![][]const u8 {
+    var files = std.ArrayList([]const u8){};
+    errdefer {
+        for (files.items) |f| allocator.free(f);
+        files.deinit(allocator);
+    }
+
+    // Search in build/ directory
+    var dir = std.fs.cwd().openDir("build", .{ .iterate = true }) catch {
+        return files.toOwnedSlice(allocator);
+    };
+    defer dir.close();
+
+    var walker = dir.walk(allocator) catch {
+        return files.toOwnedSlice(allocator);
+    };
+    defer walker.deinit();
+
+    while (walker.next() catch null) |entry| {
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".metal0.dbg.json")) {
+            const path = try std.fmt.allocPrint(allocator, "build/{s}", .{entry.path});
+            try files.append(allocator, path);
+        }
+    }
+
+    return files.toOwnedSlice(allocator);
+}
+
 fn cmdBuild(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var opts = CompileOptions{ .input_file = undefined, .mode = "build" };
     var input_file: ?[]const u8 = null;
@@ -706,6 +935,18 @@ fn cmdBuild(allocator: std.mem.Allocator, args: []const []const u8) !void {
             // Parse --target=<value>
             const value = arg["--target=".len..];
             opts.target = parseTarget(value);
+        } else if (std.mem.eql(u8, arg, "--pgo-generate")) {
+            opts.pgo_generate = true;
+        } else if (std.mem.startsWith(u8, arg, "--pgo-use=")) {
+            // Parse --pgo-use=<profile>
+            const value = arg["--pgo-use=".len..];
+            opts.pgo_use = value;
+        } else if (std.mem.eql(u8, arg, "--pgo-use")) {
+            // Parse --pgo-use <profile>
+            i += 1;
+            if (i < args.len) {
+                opts.pgo_use = args[i];
+            }
         } else if (!std.mem.startsWith(u8, arg, "-")) {
             if (input_file == null) input_file = arg;
         }
@@ -756,7 +997,9 @@ fn cmdRun(allocator: std.mem.Allocator, args: []const []const u8) !void {
 fn cmdRunFile(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var opts = CompileOptions{ .input_file = args[0], .mode = "run" };
 
-    for (args[1..]) |arg| {
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
         if (std.mem.eql(u8, arg, "--force") or std.mem.eql(u8, arg, "-f")) {
             opts.force = true;
         } else if (std.mem.eql(u8, arg, "--binary") or std.mem.eql(u8, arg, "-b")) {
@@ -765,6 +1008,13 @@ fn cmdRunFile(allocator: std.mem.Allocator, args: []const []const u8) !void {
             opts.debug = true;
         } else if (std.mem.eql(u8, arg, "--emit-zig")) {
             opts.emit_zig_only = true;
+        } else if (std.mem.eql(u8, arg, "--pgo-generate")) {
+            opts.pgo_generate = true;
+        } else if (std.mem.startsWith(u8, arg, "--pgo-use=")) {
+            opts.pgo_use = arg["--pgo-use=".len..];
+        } else if (std.mem.eql(u8, arg, "--pgo-use")) {
+            i += 1;
+            if (i < args.len) opts.pgo_use = args[i];
         }
     }
 
@@ -1305,12 +1555,16 @@ fn printUsage() !void {
         \\   build        Compile Python to native code
         \\   run          Compile and run a Python file
         \\   test         Run test suite
+        \\   profile      Profile and optimize (run, translate, show)
         \\   deploy       Deploy to remote server (WIP)
         \\
         \\{s}BUILD OPTIONS:{s}
-        \\   --target <t> Cross-compile target:
-        \\                native (default), wasm-browser, wasm-edge,
-        \\                linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64
+        \\   --target <t>      Cross-compile target:
+        \\                     native (default), wasm-browser, wasm-edge,
+        \\                     linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64
+        \\   --debug, -g       Emit debug info (.metal0.dbg.json)
+        \\   --pgo-generate    Build with PGO instrumentation (generates profile data)
+        \\   --pgo-use=<file>  Build optimized using profile data from <file>
         \\
         \\{s}EXAMPLES:{s}
         \\   metal0 app.py                        # Run Python file (30x faster)

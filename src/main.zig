@@ -19,6 +19,8 @@ pub const CompileOptions = struct {
     emit_zig_only: bool = false, // --emit-zig flag - generate .zig file only, no compilation
     debug: bool = false, // --debug/-g flag - emit debug info (.metal0.dbg)
     target: Target = .native, // --target flag for cross-compilation
+    pgo_generate: bool = false, // --pgo-generate flag - generate PGO instrumented binary
+    pgo_use: ?[]const u8 = null, // --pgo-use=<profile> flag - use PGO profile data
 
     pub const Target = enum {
         native, // Default: compile for current platform
