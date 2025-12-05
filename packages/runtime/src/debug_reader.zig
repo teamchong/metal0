@@ -80,12 +80,15 @@ fn parseDebugJson(allocator: std.mem.Allocator, content: []const u8) ?DebugInfo 
     errdefer mappings.deinit(allocator);
     errdefer if (source_file) |sf| allocator.free(sf);
 
-    // Find sourceFile
+    // Find sourceFile - format: "sourceFile": "/path/to/file.py"
     if (std.mem.indexOf(u8, content, "\"sourceFile\":")) |idx| {
-        const start = std.mem.indexOfPos(u8, content, idx, "\"") orelse return null;
-        const start2 = std.mem.indexOfPos(u8, content, start + 1, "\"") orelse return null;
-        const end = std.mem.indexOfPos(u8, content, start2 + 1, "\"") orelse return null;
-        source_file = allocator.dupe(u8, content[start2 + 1 .. end]) catch return null;
+        // Skip past "sourceFile": to find the value
+        const after_key = idx + 13; // len of "sourceFile":
+        // Find opening quote of value (may have whitespace)
+        const value_start = std.mem.indexOfPos(u8, content, after_key, "\"") orelse return null;
+        // Find closing quote of value
+        const value_end = std.mem.indexOfPos(u8, content, value_start + 1, "\"") orelse return null;
+        source_file = allocator.dupe(u8, content[value_start + 1 .. value_end]) catch return null;
     }
 
     // Find mappings array
@@ -179,7 +182,22 @@ pub fn printPythonError(
     message: []const u8,
     zig_line: ?u32,
 ) void {
-    const writer = std.io.getStdErr().writer();
+    // Use formatPythonError to build the message, then write to stderr
+    const formatted = formatPythonErrorTraceback(allocator, error_type, message, zig_line);
+    defer if (formatted.len > 0) allocator.free(formatted);
+
+    _ = std.posix.write(std.posix.STDERR_FILENO, formatted) catch {};
+}
+
+/// Format a Python-style traceback (internal helper)
+fn formatPythonErrorTraceback(
+    allocator: std.mem.Allocator,
+    error_type: []const u8,
+    message: []const u8,
+    zig_line: ?u32,
+) []const u8 {
+    var buf = std.ArrayList(u8){};
+    const writer = buf.writer(allocator);
 
     // Try to get debug info for Python source file
     if (getDebugInfo(allocator)) |info| {
@@ -199,6 +217,8 @@ pub fn printPythonError(
     }
 
     writer.print("{s}: {s}\n", .{ error_type, message }) catch {};
+
+    return buf.toOwnedSlice(allocator) catch "";
 }
 
 /// Format error message with Python source location (returns allocated string)

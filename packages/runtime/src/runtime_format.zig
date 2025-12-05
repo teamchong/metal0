@@ -596,13 +596,64 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
             try buf.appendSlice(allocator, inf_str);
         } else {
             switch (spec.fmt_type) {
-                'e', 'E' => try buf.writer(allocator).print("{e}", .{float_val}),
+                'e' => {
+                    // Python 'e' format: precision decimal digits after the point
+                    const abs_val = @abs(float_val);
+                    var exp: i32 = 0;
+                    var mantissa = abs_val;
+                    if (abs_val >= 1.0) {
+                        while (mantissa >= 10.0) {
+                            mantissa /= 10.0;
+                            exp += 1;
+                        }
+                    } else if (abs_val > 0) {
+                        while (mantissa < 1.0) {
+                            mantissa *= 10.0;
+                            exp -= 1;
+                        }
+                    }
+                    if (float_val < 0) try buf.append(allocator, '-');
+                    try buf.writer(allocator).print("{d:.[1]}", .{ mantissa, prec });
+                    try buf.append(allocator, 'e');
+                    try buf.append(allocator, if (exp >= 0) '+' else '-');
+                    const abs_exp: u32 = @intCast(@abs(exp));
+                    if (abs_exp < 10) try buf.append(allocator, '0');
+                    try buf.writer(allocator).print("{d}", .{abs_exp});
+                },
+                'E' => {
+                    // Same as 'e' but uppercase
+                    const abs_val = @abs(float_val);
+                    var exp: i32 = 0;
+                    var mantissa = abs_val;
+                    if (abs_val >= 1.0) {
+                        while (mantissa >= 10.0) {
+                            mantissa /= 10.0;
+                            exp += 1;
+                        }
+                    } else if (abs_val > 0) {
+                        while (mantissa < 1.0) {
+                            mantissa *= 10.0;
+                            exp -= 1;
+                        }
+                    }
+                    if (float_val < 0) try buf.append(allocator, '-');
+                    try buf.writer(allocator).print("{d:.[1]}", .{ mantissa, prec });
+                    try buf.append(allocator, 'E');
+                    try buf.append(allocator, if (exp >= 0) '+' else '-');
+                    const abs_exp: u32 = @intCast(@abs(exp));
+                    if (abs_exp < 10) try buf.append(allocator, '0');
+                    try buf.writer(allocator).print("{d}", .{abs_exp});
+                },
                 '%' => {
                     try buf.writer(allocator).print("{d:.[1]}", .{ float_val * 100.0, prec });
                     try buf.append(allocator, '%');
                 },
+                'f', 'F' => {
+                    // Fixed point: always use precision
+                    try buf.writer(allocator).print("{d:.[1]}", .{ float_val, prec });
+                },
                 else => {
-                    if (@mod(float_val, 1.0) == 0.0 and spec.fmt_type != 'f' and spec.fmt_type != 'F') {
+                    if (@mod(float_val, 1.0) == 0.0) {
                         try buf.writer(allocator).print("{d:.1}", .{float_val});
                     } else {
                         try buf.writer(allocator).print("{d:.[1]}", .{ float_val, prec });

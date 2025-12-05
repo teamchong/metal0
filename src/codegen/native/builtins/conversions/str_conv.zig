@@ -369,12 +369,12 @@ pub fn genFormat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     } else {
         // format(value, format_spec)
         // Use runtime.pyFormat for proper Python format handling
-        try self.emit("runtime.pyFormat(");
+        try self.emit("(try runtime.pyFormat(");
         try self.emit(alloc_name);
         try self.emit(", ");
         try self.genExpr(args[0]);
         try self.emit(", ");
         try self.genExpr(args[1]);
-        try self.emit(")");
+        try self.emit("))");
     }
 }

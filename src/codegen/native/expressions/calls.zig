@@ -1219,9 +1219,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Check if this is a kwarg function (needs args wrapped in PyDict)
         const is_kwarg_func = self.kwarg_functions.contains(raw_func_name);
 
-        // Add 'try' if function needs allocator or is async (both return errors)
+        // Check if function returns error union (has raise/assert/etc.)
+        const func_needs_error = self.funcNeedsErrorUnion(raw_func_name);
+
+        // Add 'try' if function needs allocator, is async, or returns error union
         // Note: kwarg functions don't need try - the block expression handles errors
-        if (user_func_needs_alloc or is_async_func) {
+        if (user_func_needs_alloc or is_async_func or func_needs_error) {
             try self.emit("try ");
         }
 

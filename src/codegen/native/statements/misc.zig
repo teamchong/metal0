@@ -316,7 +316,7 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
 
 /// Generate assert statement
 /// Transforms: assert condition or assert condition, message
-/// Into: if (!(condition)) { std.debug.panic("Assertion failed", .{}); }
+/// Into: if (!(condition)) { runtime.debug_reader.printPythonError(...); std.debug.panic(...); }
 pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenError!void {
     try self.emitIndent();
     try self.emit("if (!(");
@@ -324,15 +324,30 @@ pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenErro
     try self.emit(")) {\n");
 
     self.indent();
-    try self.emitIndent();
 
+    // Print Python-style error traceback before panic
+    try self.emitIndent();
     if (assert_node.msg) |msg| {
-        // assert x, "message" - use {any} to handle any type of message (string, int, etc.)
+        // assert x, "message"
+        try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"AssertionError\", ");
+        // Generate message expression - if it's a string literal, emit directly
+        if (msg.* == .constant and msg.constant.value == .string) {
+            try self.emit("\"");
+            try self.emit(msg.constant.value.string);
+            try self.emit("\"");
+        } else {
+            // For non-string messages, convert to string representation
+            try self.emit("\"assertion failed\"");
+        }
+        try self.emit(", @src().line);\n");
+        try self.emitIndent();
         try self.emit("std.debug.panic(\"AssertionError: {any}\", .{");
         try self.genExpr(msg.*);
         try self.emit("});\n");
     } else {
         // assert x
+        try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"AssertionError\", \"assertion failed\", @src().line);\n");
+        try self.emitIndent();
         try self.emit("std.debug.panic(\"AssertionError\", .{});\n");
     }
 
@@ -1169,8 +1184,8 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 /// Generate raise statement
 /// raise ValueError("msg") => return error.ValueError
 /// raise => return error.Exception
-/// NOTE: We use Zig errors so try/except can catch them. The error message is lost,
-/// but exception handling works correctly.
+/// NOTE: We use Zig errors so try/except can catch them.
+/// When debug info is available, prints Python-style error message before returning.
 pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!void {
     // Cannot return from defer in Zig - skip raise inside finally blocks
     // In Python, raise inside finally replaces the pending exception
@@ -1181,8 +1196,6 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         return;
     }
 
-    try self.emitIndent();
-
     if (raise_node.exc) |exc| {
         // Check if this is an exception constructor call: raise ValueError("msg")
         if (exc.* == .call) {
@@ -1191,7 +1204,18 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                 const exc_name = call.func.name.id;
                 // Check if it's a known exception type
                 if (ExceptionTypes.has(exc_name)) {
+                    // Print Python-style error message if we have a message argument
+                    if (call.args.len > 0) {
+                        try self.emitIndent();
+                        try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"");
+                        try self.emit(exc_name);
+                        try self.emit("\", ");
+                        // Generate the message argument
+                        try genRaiseMessage(self, call.args[0]);
+                        try self.emit(", @src().line);\n");
+                    }
                     // Generate: return error.ValueError
+                    try self.emitIndent();
                     try self.emit("return error.");
                     try self.emit(exc_name);
                     try self.emit(";\n");
@@ -1204,7 +1228,13 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         if (exc.* == .name) {
             const exc_name = exc.name.id;
             if (ExceptionTypes.has(exc_name)) {
+                // Print Python-style error without message
+                try self.emitIndent();
+                try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"");
+                try self.emit(exc_name);
+                try self.emit("\", \"\", @src().line);\n");
                 // Generate: return error.TypeError
+                try self.emitIndent();
                 try self.emit("return error.");
                 try self.emit(exc_name);
                 try self.emit(";\n");
@@ -1213,10 +1243,33 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
             }
         }
         // Fallback for other raise expressions - use generic error
+        try self.emitIndent();
+        try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"Exception\", \"\", @src().line);\n");
+        try self.emitIndent();
         try self.emit("return error.Exception;\n");
     } else {
         // bare raise - use generic error
+        try self.emitIndent();
+        try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"Exception\", \"\", @src().line);\n");
+        try self.emitIndent();
         try self.emit("return error.Exception;\n");
     }
     self.control_flow_terminated = true;
+}
+
+/// Generate the error message for a raise statement
+/// Handles string literals and expressions
+fn genRaiseMessage(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
+    const expressions = @import("../expressions.zig");
+    if (arg == .constant and arg.constant.value == .string) {
+        // String literal - emit directly
+        try self.emit("\"");
+        try self.emit(arg.constant.value.string);
+        try self.emit("\"");
+    } else {
+        // Expression - convert to string at runtime
+        try self.emit("runtime.pyStr(");
+        try expressions.genExpr(self, arg);
+        try self.emit(")");
+    }
 }
