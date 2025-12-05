@@ -311,19 +311,19 @@ For each module, compare against CPython and list:
 |--------|--------|-------|
 | `skipTest(reason)` | ✅ | SkipTest function |
 | `subTest(**params)` | ✅ | subTest, subTestInt |
-| `fail(msg)` | ⬜ | TODO - raise AssertionError |
-| `id()` | ⬜ | TODO - return test method name |
-| `shortDescription()` | ⬜ | TODO - return first line of docstring |
-| `maxDiff` | ⬜ | TODO - class attribute for diff limit |
+| `fail(msg)` | ✅ | runner.fail() raises AssertionError |
+| `id()` | ⬜ | Requires codegen - test method name |
+| `shortDescription()` | ⬜ | Requires codegen - docstring access |
+| `maxDiff` | ✅ | runner.maxDiff variable |
 
 #### Other unittest Classes
 
 | Class | Status | Notes |
 |-------|--------|-------|
-| `TestSuite` | ⬜ | TODO - group tests |
-| `TestLoader` | ⬜ | TODO - discover/load tests |
+| `TestSuite` | ✅ | runner.TestSuite |
+| `TestLoader` | ✅ | runner.TestLoader |
 | `TestResult` | ✅ | Full implementation |
-| `TextTestRunner` | ✅ | Via unittest.main() |
+| `TextTestRunner` | ✅ | runner.TextTestRunner |
 | `Mock` | ✅ | Mock class with call_count, return_value, side_effect |
 
 #### Decorators
@@ -333,14 +333,14 @@ For each module, compare against CPython and list:
 | `@skip(reason)` | ✅ | Via skip_reason in codegen |
 | `@skipIf(condition, reason)` | ✅ | hasSkipIfModuleIsNone |
 | `@skipUnless(condition, reason)` | ✅ | hasSkipUnlessCPythonModule |
-| `@expectedFailure` | ⬜ | TODO - mark test as expected to fail |
+| `@expectedFailure` | ⬜ | Requires codegen support |
 | `@mock.patch` | ✅ | countMockPatchDecorators |
 | `@mock.patch.object` | ✅ | |
 | `@support.cpython_only` | ✅ | hasCPythonOnlyDecorator |
 
-**Summary**: 40/50+ methods implemented (~80%)
+**Summary**: 45/50+ methods implemented (~90%)
 **Intentional Stubs**: assertWarns, assertLogs (no runtime warning/logging system yet)
-**TODO for 100% alignment**: fail(), id(), shortDescription(), maxDiff, TestSuite, TestLoader, @expectedFailure
+**Requires codegen**: id(), shortDescription(), @expectedFailure
 
 ---
 
@@ -493,10 +493,10 @@ For each module, compare against CPython and list:
 
 | Method | Status | Notes |
 |--------|--------|-------|
-| `ChainMap(*maps)` | ⬜ | TODO |
-| `new_child(m=None)` | ⬜ | TODO |
-| `maps` | ⬜ | TODO |
-| `parents` | ⬜ | TODO |
+| `ChainMap(*maps)` | ✅ | _collections.ChainMap |
+| `new_child(m=None)` | ✅ | new_child() method |
+| `maps` | ✅ | maps field |
+| `parents` | ✅ | parents() method |
 
 #### Counter
 
@@ -543,17 +543,13 @@ For each module, compare against CPython and list:
 
 | Class | Status | Notes |
 |-------|--------|-------|
-| `UserDict` | ⬜ | TODO |
-| `UserList` | ⬜ | TODO |
-| `UserString` | ⬜ | TODO |
+| `UserDict` | ✅ | _collections.UserDict |
+| `UserList` | ✅ | _collections.UserList |
+| `UserString` | ✅ | _collections.UserString |
 
-**Summary**: 4/9 classes implemented, ~60% method coverage
+**Summary**: 8/9 classes implemented, ~90% method coverage
 **Missing for 100% CPython alignment**:
-- `namedtuple` - Factory function for named tuples
-- `ChainMap` - Dict-like class for creating a single view of multiple mappings
-- `UserDict` - Wrapper around dict for easier subclassing
-- `UserList` - Wrapper around list for easier subclassing
-- `UserString` - Wrapper around str for easier subclassing
+- `namedtuple` - Factory function for named tuples (requires codegen)
 **Note**: Existing classes need full dict/list method compatibility
 
 ---
@@ -568,19 +564,19 @@ For each module, compare against CPython and list:
 |--------|--------|-------|
 | `date(year, month, day)` | ✅ | Constructor |
 | `today()` | ✅ | |
-| `fromtimestamp(ts)` | ⬜ | TODO |
+| `fromtimestamp(ts)` | ✅ | Via fromTimestamp |
 | `fromordinal(ordinal)` | ✅ | |
 | `fromisoformat(string)` | ✅ | parseIsoformat |
 | `fromisocalendar(year, week, day)` | ⬜ | TODO |
-| `replace(year, month, day)` | ⬜ | TODO |
+| `replace(year, month, day)` | ✅ | DateExt.replace |
 | `weekday()` | ✅ | |
-| `isoweekday()` | ⬜ | TODO |
-| `isocalendar()` | ⬜ | TODO |
+| `isoweekday()` | ✅ | DateExt.isoweekday |
+| `isocalendar()` | ✅ | DateExt.isocalendar |
 | `isoformat()` | ✅ | toString |
-| `strftime(format)` | ⬜ | TODO (only for datetime) |
-| `ctime()` | ⬜ | TODO |
+| `strftime(format)` | ✅ | strftime |
+| `ctime()` | ✅ | DateExt.ctime |
 | `toordinal()` | ✅ | |
-| `timetuple()` | ⬜ | TODO |
+| `timetuple()` | ✅ | DateExt.timetuple |
 | `year`, `month`, `day` | ✅ | Properties |
 
 #### time
@@ -589,42 +585,42 @@ For each module, compare against CPython and list:
 |--------|--------|-------|
 | `time(hour, min, sec, usec)` | ✅ | Constructor |
 | `fromisoformat(string)` | ✅ | parseIsoformat |
-| `replace()` | ⬜ | TODO |
-| `isoformat(timespec)` | ✅ | toString |
-| `strftime(format)` | ⬜ | TODO |
-| `utcoffset()` | ⬜ | TODO |
-| `dst()` | ⬜ | TODO |
-| `tzname()` | ⬜ | TODO |
+| `replace()` | ✅ | TimeExt.replace |
+| `isoformat(timespec)` | ✅ | toString, TimeExt.isoformat |
+| `strftime(format)` | ✅ | Via strftime |
+| `utcoffset()` | ✅ | Timezone.utcoffset |
+| `dst()` | ✅ | Timezone.dst |
+| `tzname()` | ✅ | Timezone.tzname |
 | `hour`, `minute`, `second`, `microsecond` | ✅ | Properties |
-| `tzinfo`, `fold` | ⬜ | TODO |
+| `tzinfo`, `fold` | ⬜ | fold not implemented |
 
 #### datetime
 
 | Method | Status | Notes |
 |--------|--------|-------|
-| `datetime(y,m,d,h,m,s,us)` | ✅ | Constructor |
-| `today()` | ⬜ | TODO (use now) |
+| `datetime(y,m,d,h,m,s,us)` | ✅ | Constructor, datetime() |
+| `today()` | ✅ | Via now() |
 | `now(tz)` | ✅ | |
-| `utcnow()` | ⬜ | TODO |
+| `utcnow()` | ✅ | utcnow() |
 | `fromtimestamp(ts, tz)` | ✅ | |
-| `utcfromtimestamp(ts)` | ⬜ | TODO |
+| `utcfromtimestamp(ts)` | ✅ | utcfromtimestamp() |
 | `fromisoformat(string)` | ✅ | parseIsoformat |
 | `fromisocalendar()` | ⬜ | TODO |
-| `combine(date, time)` | ⬜ | TODO |
-| `strptime(string, format)` | ⬜ | TODO |
-| `date()` | ⬜ | TODO |
-| `time()` | ⬜ | TODO |
-| `timetz()` | ⬜ | TODO |
-| `replace()` | ⬜ | TODO |
+| `combine(date, time)` | ✅ | combine() |
+| `strptime(string, format)` | ✅ | strptime() |
+| `date()` | ✅ | DatetimeExt.toDate |
+| `time()` | ✅ | DatetimeExt.toTime |
+| `timetz()` | ✅ | DatetimeExt.toTime |
+| `replace()` | ✅ | DatetimeExt.replace |
 | `astimezone(tz)` | ⬜ | TODO |
-| `utcoffset()` | ⬜ | TODO |
-| `dst()` | ⬜ | TODO |
-| `tzname()` | ⬜ | TODO |
-| `timestamp()` | ✅ | toTimestamp |
-| `timetuple()` | ⬜ | TODO |
+| `utcoffset()` | ✅ | Timezone.utcoffset |
+| `dst()` | ✅ | Timezone.dst |
+| `tzname()` | ✅ | Timezone.tzname |
+| `timestamp()` | ✅ | toTimestamp, DatetimeExt.timestamp |
+| `timetuple()` | ✅ | DatetimeExt.timetuple |
 | `weekday()` | ✅ | |
-| `isoweekday()` | ⬜ | TODO |
-| `isocalendar()` | ⬜ | TODO |
+| `isoweekday()` | ✅ | DatetimeExt.isoweekday |
+| `isocalendar()` | ✅ | DatetimeExt.isocalendar |
 | `isoformat(sep, timespec)` | ✅ | toIsoformat |
 | `ctime()` | ✅ | toCtime |
 | `strftime(format)` | ✅ | strftime |
@@ -646,27 +642,22 @@ For each module, compare against CPython and list:
 | `__abs__` | ✅ | abs |
 | `__str__` | ✅ | toString |
 | `days`, `seconds`, `microseconds` | ✅ | Properties |
-| `min`, `max`, `resolution` | ⬜ | TODO - Class attrs |
+| `min`, `max`, `resolution` | ✅ | timedelta_min/max/resolution |
 
 #### tzinfo / timezone
 
 | Class | Status | Notes |
 |-------|--------|-------|
-| `tzinfo` (abstract) | ⬜ | TODO |
-| `timezone(offset, name)` | ⬜ | TODO |
-| `timezone.utc` | ⬜ | TODO |
+| `tzinfo` (abstract) | ✅ | TzInfo struct |
+| `timezone(offset, name)` | ✅ | Timezone struct |
+| `timezone.utc` | ✅ | UTC constant |
 
-**Summary**: ~40% method coverage
-**Well-implemented**: datetime.now, timedelta arithmetic, strftime
-**Missing for 100% CPython alignment**:
-- `strptime(string, format)` - Parse string to datetime
-- `combine(date, time)` - Combine date and time objects
-- `replace(**fields)` - Return datetime with some fields replaced
-- `timezone` class - Fixed offset from UTC
-- `tzinfo` abstract base class
+**Summary**: ~85% method coverage
+**Well-implemented**: datetime.now, timedelta arithmetic, strftime, strptime, timezone
+**Remaining**:
+- `fromisocalendar()` - Create from ISO calendar
 - `astimezone(tz)` - Convert to different timezone
-- `utcnow()`, `utcfromtimestamp()` - UTC methods
-- `date()`, `time()`, `timetz()` - Extract components
+- `fold` attribute - For ambiguous times
 
 ---
 
@@ -679,57 +670,49 @@ For each module, compare against CPython and list:
 | Function | Status | Notes |
 |----------|--------|-------|
 | `loads(s)` | ✅ | Arena-allocated for speed |
-| `load(fp)` | ⬜ | TODO - file I/O |
+| `load(fp)` | ✅ | load() function |
 | `dumps(obj)` | ✅ | Fast buffer-based |
-| `dump(obj, fp)` | ⬜ | TODO - file I/O |
+| `dump(obj, fp)` | ✅ | dump() function |
 
 #### loads() Parameters
 
 | Parameter | Status | Notes |
 |-----------|--------|-------|
 | `s` (string/bytes) | ✅ | |
-| `cls=None` | ⬜ | TODO - custom decoder |
-| `object_hook=None` | ⬜ | TODO |
-| `parse_float=None` | ⬜ | TODO |
-| `parse_int=None` | ⬜ | TODO |
-| `parse_constant=None` | ⬜ | TODO |
-| `object_pairs_hook=None` | ⬜ | TODO |
+| `cls=None` | ✅ | JSONDecoder class |
+| `object_hook=None` | ✅ | JSONDecoder.object_hook |
+| `parse_float=None` | ✅ | JSONDecoder.parse_float |
+| `parse_int=None` | ✅ | JSONDecoder.parse_int |
+| `parse_constant=None` | ⬜ | Not implemented |
+| `object_pairs_hook=None` | ✅ | JSONDecoder.object_pairs_hook |
 
 #### dumps() Parameters
 
 | Parameter | Status | Notes |
 |-----------|--------|-------|
 | `obj` | ✅ | |
-| `skipkeys=False` | ⬜ | TODO |
-| `ensure_ascii=True` | ⬜ | TODO |
-| `check_circular=True` | ⬜ | TODO |
-| `allow_nan=True` | ⬜ | TODO |
-| `cls=None` | ⬜ | TODO - custom encoder |
-| `indent=None` | ⬜ | TODO - pretty print |
-| `separators=None` | ⬜ | TODO |
-| `default=None` | ⬜ | TODO - custom serializer |
-| `sort_keys=False` | ⬜ | TODO |
+| `skipkeys=False` | ✅ | JSONEncoder.skipkeys |
+| `ensure_ascii=True` | ✅ | DumpOptions.ensure_ascii |
+| `check_circular=True` | ✅ | JSONEncoder.check_circular |
+| `allow_nan=True` | ✅ | DumpOptions.allow_nan |
+| `cls=None` | ✅ | JSONEncoder class |
+| `indent=None` | ✅ | DumpOptions.indent |
+| `separators=None` | ✅ | DumpOptions.separators |
+| `default=None` | ✅ | DumpOptions.default |
+| `sort_keys=False` | ✅ | DumpOptions.sort_keys |
 
 #### Classes
 
 | Class | Status | Notes |
 |-------|--------|-------|
-| `JSONEncoder` | ⬜ | TODO |
-| `JSONDecoder` | ⬜ | TODO |
-| `JSONDecodeError` | ⬜ | TODO |
+| `JSONEncoder` | ✅ | JSONEncoder struct |
+| `JSONDecoder` | ✅ | JSONDecoder struct |
+| `JSONDecodeError` | ✅ | JSONDecodeError error set |
 
-**Summary**: 2/4 main functions, 0% parameter coverage
-**Well-implemented**: Basic loads/dumps with good performance (SIMD-accelerated)
-**Missing for 100% CPython alignment**:
-- `load(fp)` - Read from file
-- `dump(obj, fp)` - Write to file
-- `indent` parameter - Pretty printing
-- `sort_keys` parameter - Sort dict keys
-- `separators` parameter - Custom separators
-- `default` function - Handle non-serializable objects
-- `object_hook`, `object_pairs_hook` - Custom deserialization
-- `JSONEncoder`, `JSONDecoder` classes
-- `JSONDecodeError` exception
+**Summary**: 4/4 main functions, ~95% parameter coverage
+**Well-implemented**: All core features with SIMD-accelerated string escaping
+**Remaining**:
+- `parse_constant` parameter for loads()
 
 ---
 
@@ -754,7 +737,7 @@ For each module, compare against CPython and list:
 | `accumulate(iterable, func, initial)` | ✅ | genAccumulate |
 | `batched(iterable, n)` | ✅ | genBatched (3.12) |
 | `chain(*iterables)` | ✅ | genChain - concat multiple iterables |
-| `chain.from_iterable(iterable)` | ⬜ | TODO - needs method syntax |
+| `chain.from_iterable(iterable)` | ✅ | chainFromIterable, ChainFromIterableIterator |
 | `compress(data, selectors)` | ✅ | genCompress |
 | `dropwhile(predicate, iterable)` | ✅ | genDropwhile |
 | `filterfalse(predicate, iterable)` | ✅ | genFilterfalse |
@@ -775,8 +758,7 @@ For each module, compare against CPython and list:
 | `combinations(iterable, r)` | ✅ | genCombinations |
 | `combinations_with_replacement(iterable, r)` | ✅ | genCombinationsWithReplacement |
 
-**Summary**: 21/22 functions implemented (95%)
-**Missing**: chain.from_iterable (method syntax)
+**Summary**: 22/22 functions implemented (100%) ✅
 **Note**: All generate inline Zig code at compile time for zero runtime overhead
 
 ---
@@ -787,30 +769,22 @@ For each module, compare against CPython and list:
 
 | Function | Status | Notes |
 |----------|--------|-------|
-| `reduce(function, iterable, initial)` | ✅ | Modules/_functools.zig |
-| `partial(func, *args, **kwargs)` | ✅ | Basic comptime implementation |
-| `partialmethod(func, *args, **kwargs)` | ⬜ | TODO - needs class support |
+| `reduce(function, iterable, initial)` | ✅ | reduce(), reduceDynamic() |
+| `partial(func, *args, **kwargs)` | ✅ | Partial, partial1 |
+| `partialmethod(func, *args, **kwargs)` | ✅ | PartialMethod |
 | `cmp_to_key(func)` | ✅ | CmpToKey struct |
-| `lru_cache(maxsize, typed)` | ✅ | LruCache struct (basic) |
+| `lru_cache(maxsize, typed)` | ✅ | LruCache struct |
 | `cache(func)` | ✅ | Cache struct (unbounded) |
-| `cached_property(func)` | ⬜ | TODO - needs class support |
-| `total_ordering` | ⬜ | TODO - decorator |
-| `update_wrapper(wrapper, wrapped)` | ⬜ | TODO - decorator |
-| `wraps(wrapped)` | ⬜ | TODO - decorator |
-| `singledispatch(func)` | ⬜ | TODO - complex dispatch |
-| `singledispatchmethod(func)` | ⬜ | TODO |
+| `cached_property(func)` | ✅ | CachedProperty |
+| `total_ordering` | ✅ | TotalOrdering (fromLt, fromLe, fromGt, fromGe) |
+| `update_wrapper(wrapper, wrapped)` | ✅ | UpdateWrapper |
+| `wraps(wrapped)` | ✅ | wraps() function |
+| `singledispatch(func)` | ✅ | SingleDispatch |
+| `singledispatchmethod(func)` | ✅ | SingleDispatchMethod |
 | `WRAPPER_ASSIGNMENTS` | ✅ | Constant tuple |
 | `WRAPPER_UPDATES` | ✅ | Constant tuple |
 
-**Summary**: 7/14 functions implemented (50%)
-**Missing for 100% CPython alignment**:
-- `partialmethod(func, *args, **kwargs)` - Partial for methods
-- `cached_property(func)` - Cached property decorator
-- `total_ordering` - Fill in comparison methods from __eq__ and one other
-- `update_wrapper(wrapper, wrapped)` - Copy function metadata
-- `wraps(wrapped)` - Decorator version of update_wrapper
-- `singledispatch(func)` - Single-dispatch generic function
-- `singledispatchmethod(func)` - Single-dispatch for methods
+**Summary**: 14/14 functions implemented (100%) ✅
 
 ---
 
@@ -878,8 +852,8 @@ For each module, compare against CPython and list:
 | Function | Status | Notes |
 |----------|--------|-------|
 | `close(fd)` | ✅ | std.posix.close |
-| `dup(fd)` | ⬜ | TODO |
-| `dup2(fd, fd2)` | ⬜ | TODO |
+| `dup(fd)` | ✅ | dup() via std.posix.dup |
+| `dup2(fd, fd2)` | ✅ | dup2() via std.posix.dup2 |
 | `read(fd, n)` | ✅ | std.posix.read |
 | `write(fd, str)` | ✅ | std.posix.write |
 | `open(path, flags, mode)` | ✅ | std.posix.open |
@@ -898,11 +872,16 @@ For each module, compare against CPython and list:
 | `rename(src, dst)` | ✅ | std.fs.rename |
 | `rmdir(path)` | ✅ | std.fs.deleteDir |
 | `stat(path)` | ✅ | StatResult struct with mode/size/times |
-| `walk(top, topdown, onerror)` | ⬜ | TODO |
+| `walk(top, topdown, onerror)` | ✅ | Walker struct |
 | `exists(path)` | ✅ | std.fs.access |
 | `isfile(path)` | ✅ | statFile.kind == .file |
 | `isdir(path)` | ✅ | openDir succeeds |
 | `getsize(path)` | ✅ | statFile.size |
+| `symlink(src, dst)` | ✅ | symlink() |
+| `readlink(path)` | ✅ | readlink() |
+| `islink(path)` | ✅ | islink() |
+| `chmod(path, mode)` | ✅ | chmod() |
+| `truncate(path, length)` | ✅ | truncate() |
 
 #### os.path
 
@@ -924,10 +903,10 @@ For each module, compare against CPython and list:
 
 | Function | Status | Notes |
 |----------|--------|-------|
-| `environ` | ⬜ | TODO |
+| `environ` | ✅ | Environ struct (dict-like) |
 | `getenv(key, default)` | ✅ | std.posix.getenv |
-| `putenv(key, value)` | ⬜ | TODO |
-| `unsetenv(key)` | ⬜ | TODO |
+| `putenv(key, value)` | ✅ | putenv() (stub) |
+| `unsetenv(key)` | ✅ | unsetenv() (stub) |
 
 #### Process Management
 
@@ -935,9 +914,20 @@ For each module, compare against CPython and list:
 |----------|--------|-------|
 | `getpid()` | ✅ | std.os.linux.getpid (Linux only) |
 | `getppid()` | 🔄 | Linux only, returns 0 on others |
-| `system(command)` | ⬜ | TODO |
-| `fork()` | ⬜ | TODO |
-| `execv(path, args)` | ⬜ | TODO |
+| `getuid()` | ✅ | getuid() |
+| `geteuid()` | ✅ | geteuid() |
+| `getgid()` | ✅ | getgid() |
+| `getegid()` | ✅ | getegid() |
+| `system(command)` | ✅ | system() via std.process.Child |
+| `fork()` | ⬜ | Platform-specific |
+| `execv(path, args)` | ⬜ | Platform-specific |
+
+#### System Info
+
+| Function | Status | Notes |
+|----------|--------|-------|
+| `cpu_count()` | ✅ | cpu_count() |
+| `urandom(n)` | ✅ | urandom() |
 
 #### Constants
 
@@ -953,8 +943,8 @@ For each module, compare against CPython and list:
 | `devnull` | ✅ | "/dev/null" or "NUL" |
 | `name` | ✅ | "posix" or "nt" |
 
-**Summary**: 30/40+ functions implemented (~75%)
-**Missing**: walk, environ (dict), putenv, unsetenv, dup/dup2, fork, execv
+**Summary**: 45/50+ functions implemented (~90%) ✅
+**Missing**: fork, execv (platform-specific)
 **Note**: Full os.path module with all common operations
 
 ---
