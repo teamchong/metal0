@@ -318,6 +318,29 @@ fn containsBreakOrContinue(stmts: []ast.Node) bool {
     return false;
 }
 
+/// Check if statements contain a raise statement (for finally block handling)
+/// When finally contains raise, we can't use defer because defer can't return errors
+fn containsRaise(stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .raise_stmt => return true,
+            .if_stmt => |if_stmt| {
+                if (containsRaise(if_stmt.body)) return true;
+                if (containsRaise(if_stmt.else_body)) return true;
+            },
+            .for_stmt => |for_stmt| {
+                if (containsRaise(for_stmt.body)) return true;
+            },
+            .while_stmt => |while_stmt| {
+                if (containsRaise(while_stmt.body)) return true;
+            },
+            // Don't recurse into nested try/functions - their raise is local
+            else => {},
+        }
+    }
+    return false;
+}
+
 pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     // Detect optional import pattern: try: import X except: X = None
     // If module X is unavailable, mark it as skipped so functions using it are skipped
@@ -471,7 +494,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         try self.emitIndent();
         try self.emit("var ");
-        try self.emit(actual_var_name);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_var_name);
         try self.emit(": ");
         try self.emit(zig_type);
         try self.emit(" = undefined;\n");
@@ -481,7 +504,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // (e.g., else: hit_else = True when exception IS raised, else never runs).
         try self.emitIndent();
         try self.emit("_ = &");
-        try self.emit(actual_var_name);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_var_name);
         try self.emit(";\n");
 
         // Mark as hoisted so assignment generation skips declaration
@@ -903,7 +926,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
                 try self.output.writer(self.allocator).print("{s}.__captured_{s}.*", .{ self_name, var_name });
             } else {
-                try self.emit(actual_name);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
             }
             call_param_count += 1;
         }
@@ -918,7 +941,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 try self.output.writer(self.allocator).print("{s}.__captured_{s}", .{ self_name, var_name });
             } else {
                 try self.emit("&");
-                try self.emit(actual_name);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
             }
             call_param_count += 1;
         }
@@ -927,7 +950,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.emit("&");
             // Use renamed name if variable was renamed to avoid shadowing imports
             const actual_name = self.var_renames.get(hoisted.name) orelse hoisted.name;
-            try self.emit(actual_name);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
             call_param_count += 1;
         }
 
