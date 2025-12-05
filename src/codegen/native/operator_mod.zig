@@ -63,7 +63,35 @@ fn genMod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try divOp(self, args, "(runtime.builtins.OperatorMod{})", "@as(i64, 0)", "@mod(", ", ", ")");
 }
 fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try divOp(self, args, "runtime.builtins.OperatorPow{}", "@as(i64, 1)", "(std.math.powi(i64, @as(i64, ", "), @as(u32, @intCast(", "))) catch 0)");
+    if (args.len == 0) {
+        try self.emit("runtime.builtins.OperatorPow{}");
+        return;
+    }
+    if (args.len < 2) {
+        try self.emit("@as(f64, 1.0)");
+        return;
+    }
+    // Always use float pow for consistency with type inference (which returns float)
+    // This handles both int and float arguments correctly
+    const t1 = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    const t2 = self.type_inferrer.inferExpr(args[1]) catch .unknown;
+    try self.emit("std.math.pow(f64, ");
+    if (t1 == .int) {
+        try self.emit("@as(f64, @floatFromInt(");
+        try self.genExpr(args[0]);
+        try self.emit("))");
+    } else {
+        try self.genExpr(args[0]);
+    }
+    try self.emit(", ");
+    if (t2 == .int) {
+        try self.emit("@as(f64, @floatFromInt(");
+        try self.genExpr(args[1]);
+        try self.emit("))");
+    } else {
+        try self.genExpr(args[1]);
+    }
+    try self.emit(")");
 }
 fn genIdentity(self: *NativeCodegen, args: []ast.Node, comptime op: []const u8, comptime default: []const u8) CodegenError!void {
     if (args.len < 2) { try self.emit(default); return; }

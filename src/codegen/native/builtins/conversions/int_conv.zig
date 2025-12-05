@@ -127,13 +127,13 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Unknown type - check if it's an ArrayList (has .items) at compile time
         // Must check .@"struct" first since @hasField only works on struct types
         if (needs_wrap) {
-            try self.emit("if (@typeInfo(@TypeOf(__obj)) == .@\"struct\" and @hasField(@TypeOf(__obj), \"items\")) __obj.items.len else if (@TypeOf(__obj) == runtime.PyValue) __obj.pyLen() else runtime.pyLen(__obj)");
+            try self.emit("if (@typeInfo(@TypeOf(__obj)) == .array) __obj.len else if (@typeInfo(@TypeOf(__obj)) == .pointer and @typeInfo(@TypeOf(__obj)).pointer.size == .slice) __obj.len else if (@typeInfo(@TypeOf(__obj)) == .@\"struct\" and @hasField(@TypeOf(__obj), \"items\")) __obj.items.len else if (@TypeOf(__obj) == runtime.PyValue) __obj.pyLen() else runtime.pyLen(__obj)");
         } else {
             const pyobj_label_id = self.block_label_counter;
             self.block_label_counter += 1;
             try self.emitFmt("len_{d}: {{ const __tmp = ", .{pyobj_label_id});
             try self.genExpr(args[0]);
-            try self.emitFmt("; break :len_{d} if (@typeInfo(@TypeOf(__tmp)) == .@\"struct\" and @hasField(@TypeOf(__tmp), \"items\")) __tmp.items.len else if (@TypeOf(__tmp) == runtime.PyValue) __tmp.pyLen() else runtime.pyLen(__tmp); }}", .{pyobj_label_id});
+            try self.emitFmt("; break :len_{d} if (@typeInfo(@TypeOf(__tmp)) == .array) __tmp.len else if (@typeInfo(@TypeOf(__tmp)) == .pointer and @typeInfo(@TypeOf(__tmp)).pointer.size == .slice) __tmp.len else if (@typeInfo(@TypeOf(__tmp)) == .@\"struct\" and @hasField(@TypeOf(__tmp), \"items\")) __tmp.items.len else if (@TypeOf(__tmp) == runtime.PyValue) __tmp.pyLen() else runtime.pyLen(__tmp); }}", .{pyobj_label_id});
         }
     } else if (is_kwarg_param) {
         // **kwargs is a *runtime.PyObject (PyDict), use runtime.PyDict.len()

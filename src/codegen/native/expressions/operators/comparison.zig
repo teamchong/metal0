@@ -955,17 +955,22 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             const left_needs_wrap = producesBlockExpression(current_left);
             const right_needs_wrap = producesBlockExpression(compare.comparators[i]);
 
-            // Check if either side is a list/array type - use runtime.pyAnyEql for proper handling
-            const left_is_list = (current_left_type == .list or current_left_type == .array);
-            const right_is_list = (right_type == .list or right_type == .array);
-            const involves_list = left_is_list or right_is_list;
+            // Check if either side is a list/array type
+            const left_is_list = (current_left_type == .list);
+            const right_is_list = (right_type == .list);
+            const left_is_array = (current_left_type == .array);
+            const right_is_array = (right_type == .array);
 
-            // Use runtime.pyAnyEql for list/array comparisons (handles ArrayList vs fixed array)
-            // Use std.meta.eql for other non-primitive types (tuples, unknown types, etc.)
+            // Only use pyAnyEql when we have a type mismatch between list (ArrayList) and array (fixed)
+            // This is slower due to comptime type resolution, so avoid when both types match
+            const needs_cross_type_comparison = (left_is_list and right_is_array) or (left_is_array and right_is_list);
+
+            // Use runtime.pyAnyEql for cross-type list/array comparisons (handles ArrayList vs fixed array)
+            // Use std.meta.eql for same-type comparisons (faster compilation)
             if (!both_primitive and (op == .Eq or op == .NotEq)) {
                 if (op == .NotEq) try self.emit("!");
-                // Use pyAnyEql for lists to handle ArrayList vs fixed array comparison
-                if (involves_list) {
+                // Only use pyAnyEql for cross-type list comparisons to reduce comptime overhead
+                if (needs_cross_type_comparison) {
                     try self.emit("runtime.pyAnyEql(");
                 } else {
                     try self.emit("std.meta.eql(");

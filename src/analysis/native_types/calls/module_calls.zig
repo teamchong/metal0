@@ -372,16 +372,19 @@ pub fn inferModuleFunctionCall(
             const FLOORDIV_HASH = comptime fnv_hash.hash("floordiv");
             const MOD_HASH = comptime fnv_hash.hash("mod");
             const POW_HASH = comptime fnv_hash.hash("pow");
+            const IPOW_HASH = comptime fnv_hash.hash("ipow");
             const NEG_HASH = comptime fnv_hash.hash("neg");
             const ABS_HASH = comptime fnv_hash.hash("abs");
             if (func_hash == ADD_HASH or func_hash == SUB_HASH or
                 func_hash == MUL_HASH or func_hash == FLOORDIV_HASH or
-                func_hash == MOD_HASH or func_hash == POW_HASH or
+                func_hash == MOD_HASH or
                 func_hash == NEG_HASH or func_hash == ABS_HASH)
             {
                 return .{ .int = .bounded };
             }
-            if (func_hash == TRUEDIV_HASH) {
+            // pow/ipow can return int or float depending on arguments
+            // Return float as the more general type (codegen handles actual types)
+            if (func_hash == POW_HASH or func_hash == IPOW_HASH or func_hash == TRUEDIV_HASH) {
                 return .float;
             }
             return .unknown;
