@@ -1243,6 +1243,11 @@ fn valueStr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
         return pythonFloatRepr(allocator, value);
     }
 
+    // Struct with toStr method - call it
+    if (@typeInfo(T) == .@"struct" and @hasDecl(T, "toStr")) {
+        return value.toStr(allocator);
+    }
+
     // Tuple/struct - same as repr
     if (@typeInfo(T) == .@"struct") {
         return tupleRepr(allocator, value);

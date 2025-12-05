@@ -2133,6 +2133,7 @@ pub const zlib = @import("Modules/zlibmodule.zig");
 pub const hashlib = @import("Modules/_hashlib.zig");
 pub const pickle = @import("Lib/pickle.zig");
 pub const test_support = @import("runtime/test_support.zig");
+pub const list_tests = @import("runtime/list_tests.zig");
 pub const base64 = @import("Lib/base64.zig");
 pub const pylong = @import("Objects/longobject.zig");
 pub const TestBuffer = @import("runtime/testbuffer.zig");
