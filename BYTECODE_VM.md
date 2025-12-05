@@ -217,6 +217,73 @@ defer conn.close();
 return conn.execute(program);  // Sends bytecode, receives result
 ```
 
+## User-Declared Bindings (@wasm_import/@wasm_export)
+
+Instead of hardcoding all possible JS/WASI functions, users declare what they need:
+
+```python
+from metal0 import wasm_import, wasm_export
+
+@wasm_import("js")
+def fetch(url: str) -> str: ...
+
+@wasm_import("js")
+def localStorage_get(key: str) -> str: ...
+
+@wasm_export
+def process(data: str) -> list[int]:
+    result = fetch("/api/data")
+    return [ord(c) for c in result]
+```
+
+metal0 generates:
+1. **Optimized Zig externs** - Only declared functions
+2. **Minimal JS loader** - Only needed handlers
+3. **TypeScript definitions** - For IDE support
+
+### JS Runtime Usage
+
+```javascript
+import { load, registerHandlers, utils } from '@metal0/wasm-runtime';
+
+// Register handlers for your @wasm_import functions
+registerHandlers('js', {
+  fetch: async (urlPtr, urlLen) => {
+    const url = utils.readStr(urlPtr, urlLen);
+    const res = await fetch(url);
+    return utils.writeStr(await res.text());
+  },
+  localStorage_get: (keyPtr, keyLen) => {
+    const key = utils.readStr(keyPtr, keyLen);
+    return utils.writeStr(localStorage.getItem(key) || '');
+  }
+});
+
+const mod = await load('./module.wasm');
+mod.process("hello");  // Calls your @wasm_export function
+```
+
+### Type Mapping
+
+| Python Type | WASM Return | JS Encoding |
+|-------------|-------------|-------------|
+| `int` | `i64` | Direct |
+| `float` | `f64` | Direct |
+| `bool` | `i32` | 0/1 |
+| `str` | `{ptr, len}` | UTF-8 in memory |
+| `bytes` | `{ptr, len}` | Raw bytes |
+| `list[int]` | `{ptr, len}` | i64 array |
+| `dict` | `{ptr, len}` | MessagePack encoded |
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `src/analysis/wasm_bindings.zig` | Decorator detection + Zig/JS generation |
+| `src/analysis/wasi_bindings.zig` | WASI function signatures + capabilities |
+| `packages/wasm-runtime/index.js` | Generic loader with registerHandlers() |
+| `packages/wasm-runtime/index.d.ts` | TypeScript definitions |
+
 ## Testing
 
 ```bash
