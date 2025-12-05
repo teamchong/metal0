@@ -298,6 +298,11 @@ pub const NativeCodegen = struct {
     // Maps alias name -> module name (e.g., "support" -> "test.support")
     import_aliases: FnvStringMap,
 
+    // Track module-level from-import symbols (from X import Y)
+    // Maps symbol name -> void (e.g., "import_helper" -> {})
+    // Used to skip duplicate local imports that would shadow module-level ones
+    module_level_from_imports: FnvVoidMap,
+
     // Track variable mutations (for list ArrayList vs fixed array decision)
     // Maps variable name -> mutation info
     mutation_info: ?*const @import("../../../analysis/native_types/mutation_analyzer.zig").MutationMap,
@@ -643,6 +648,7 @@ pub const NativeCodegen = struct {
             .function_signatures = FnvFuncSigMap.init(allocator),
             .imported_modules = FnvVoidMap.init(allocator),
             .import_aliases = FnvStringMap.init(allocator),
+            .module_level_from_imports = FnvVoidMap.init(allocator),
             .mutation_info = null,
             .in_assert_raises_context = false,
             .control_flow_terminated = false,

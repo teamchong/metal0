@@ -143,6 +143,9 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.import_aliases);
     self.import_aliases.deinit();
 
+    // Clean up module_level_from_imports tracking
+    self.module_level_from_imports.deinit();
+
     // Clean up import registry
     self.import_registry.deinit();
     self.allocator.destroy(self.import_registry);

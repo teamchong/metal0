@@ -395,6 +395,9 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             try self.emit(name);
             try self.emit(";\n");
             try generated_symbols.put(symbol_name, {});
+
+            // Track for local import shadowing prevention
+            try self.module_level_from_imports.put(symbol_name, {});
         }
     }
 

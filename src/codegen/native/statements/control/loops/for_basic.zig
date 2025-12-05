@@ -414,8 +414,8 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             // Discard pattern or unused variable - explicitly discard the value
             try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
         } else {
-            // Check if loop variable shadows a module-level function
-            const shadows_module_func = self.module_level_funcs.contains(var_name);
+            // Check if loop variable shadows a module-level function or imported module
+            const shadows_module_func = self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
             if (shadows_module_func and !self.var_renames.contains(var_name)) {
                 const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
                 self.lambda_counter += 1;
@@ -784,6 +784,65 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         return;
     }
 
+    // Handle string iteration - Python yields single-char strings, Zig yields bytes
+    // Convert to index-based iteration that yields single-char slices
+    if (@as(std.meta.Tag(@TypeOf(iter_type)), iter_type) == .string) {
+        // Generate: { const __str = <expr>; for (0..__str.len) |__i| { const c = __str[__i..][0..1]; ... } }
+        const label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+
+        try self.emit("{\n");
+        self.indent();
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __str_{d} = ", .{label_id});
+        try self.genExpr(for_stmt.iter.*);
+        try self.emit(";\n");
+
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("for (0..__str_{d}.len) |__i_{d}| {{\n", .{ label_id, label_id });
+
+        self.indent();
+        try self.pushScope();
+
+        // Declare the loop variable as a single-char slice
+        try self.emitIndent();
+        if (!tuple_var_used) {
+            try self.emit("_ = ");
+            try self.output.writer(self.allocator).print("__str_{d}[__i_{d}..][0..1];\n", .{ label_id, label_id });
+        } else {
+            try self.emit("const ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try self.output.writer(self.allocator).print(" = __str_{d}[__i_{d}..][0..1];\n", .{ label_id, label_id });
+        }
+
+        // Register loop variable as string type (slice from indexing)
+        try self.type_inferrer.var_types.put(var_name, .{ .string = .slice });
+
+        // Track loop capture variable
+        if (tuple_var_used) {
+            try self.loop_capture_vars.put(var_name, {});
+        }
+
+        for (for_stmt.body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+
+        // Clean up
+        _ = self.loop_capture_vars.swapRemove(var_name);
+        _ = self.var_renames.swapRemove(var_name);
+
+        self.popScope();
+        self.dedent();
+
+        try self.emitIndent();
+        try self.emit("}\n");
+
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        return;
+    }
+
     // Handle PyObject iteration (e.g., from json.load() returning PyList)
     // Use while loop with runtime.PyList.getItem() since we can't use Zig for-each on PyObject
     if (iter_type == .unknown) {
@@ -840,8 +899,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         if (!tuple_var_used) {
             try self.output.writer(self.allocator).print("_ = " ++ get_item_expr ++ ";\n", .{ label_id, label_id });
         } else {
-            // Check if loop variable shadows a module-level function
-            const shadows_module_func = self.module_level_funcs.contains(var_name);
+            // Check if loop variable shadows a module-level function or imported module
+            const shadows_module_func = self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
             if (shadows_module_func and !self.var_renames.contains(var_name)) {
                 const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
                 self.lambda_counter += 1;
@@ -980,9 +1039,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Check if this variable already exists in outer scope (Python allows reusing loop vars)
     // If so, use a unique capture name to avoid Zig "capture shadows local" error
     // Also check hoisted_vars - hoisted vars are pre-declared at function start
+    // Also check imported_modules - can't shadow an imported module name
     // Use raw name for hoisted_vars check (scope_analyzer uses raw names)
     const raw_var_name = for_stmt.target.name.id;
-    const shadows_outer = self.isDeclared(raw_var_name) or self.hoisted_vars.contains(raw_var_name);
+    const shadows_outer = self.isDeclared(raw_var_name) or self.hoisted_vars.contains(raw_var_name) or self.imported_modules.contains(raw_var_name);
     const unique_capture_id = self.block_label_counter;
     if (shadows_outer) self.block_label_counter += 1;
 
@@ -1153,9 +1213,9 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // Use i64 for signed, isize for unsigned (compatible with len operations)
     const loop_type = if (needs_signed) "i64" else "isize";
 
-    // Check if loop variable would shadow an outer scope variable or module-level function
+    // Check if loop variable would shadow an outer scope variable, module-level function, or imported module
     // If so, use a unique name to avoid Zig shadowing errors
-    const shadows_outer = self.isDeclared(var_name) or self.module_level_funcs.contains(var_name);
+    const shadows_outer = self.isDeclared(var_name) or self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
     var loop_var_name = var_name;
     if (shadows_outer) {
         const unique_name = try std.fmt.allocPrint(self.allocator, "__loop_{s}_{d}", .{ var_name, self.lambda_counter });

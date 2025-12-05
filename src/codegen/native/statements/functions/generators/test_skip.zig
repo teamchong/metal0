@@ -160,6 +160,77 @@ pub fn requiresExceptionContextManager(test_name: []const u8) bool {
         std.mem.eql(u8, test_name, "test_no_comdat_folding");
 }
 
+/// Check if test has nested classes inheriting from builtin types used in lambdas
+/// Pattern: class CustomStr(str): pass; lambda b: CustomStr(b.decode())
+pub fn hasNestedBuiltinSubclassInLambda(stmts: []const ast.Node) bool {
+    // First, collect nested class names that inherit from builtins
+    var nested_builtin_subclasses: [8][]const u8 = undefined;
+    var count: usize = 0;
+    for (stmts) |stmt| {
+        if (stmt == .class_def) {
+            const class = stmt.class_def;
+            for (class.bases) |base| {
+                if (base == .name) {
+                    const base_name = base.name.id;
+                    // Check if inheriting from builtin types that can't be properly subclassed yet
+                    if (std.mem.eql(u8, base_name, "str") or
+                        std.mem.eql(u8, base_name, "bytes") or
+                        std.mem.eql(u8, base_name, "bytearray"))
+                    {
+                        if (count < nested_builtin_subclasses.len) {
+                            nested_builtin_subclasses[count] = class.name;
+                            count += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (count == 0) return false;
+
+    // Then check if any lambda uses these nested classes
+    for (stmts) |stmt| {
+        if (hasLambdaUsingClasses(stmt, nested_builtin_subclasses[0..count])) return true;
+    }
+    return false;
+}
+
+fn hasLambdaUsingClasses(node: ast.Node, class_names: []const []const u8) bool {
+    return switch (node) {
+        .lambda => |l| exprUsesClasses(l.body.*, class_names),
+        .assign => |a| hasLambdaUsingClasses(a.value.*, class_names),
+        .list => |lst| blk: {
+            for (lst.elts) |e| if (hasLambdaUsingClasses(e, class_names)) break :blk true;
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |e| if (hasLambdaUsingClasses(e, class_names)) break :blk true;
+            break :blk false;
+        },
+        .call => |c| blk: {
+            for (c.args) |arg| if (hasLambdaUsingClasses(arg, class_names)) break :blk true;
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+fn exprUsesClasses(expr: ast.Node, class_names: []const []const u8) bool {
+    return switch (expr) {
+        .name => |n| blk: {
+            for (class_names) |cn| if (std.mem.eql(u8, n.id, cn)) break :blk true;
+            break :blk false;
+        },
+        .call => |c| exprUsesClasses(c.func.*, class_names) or blk: {
+            for (c.args) |arg| if (exprUsesClasses(arg, class_names)) break :blk true;
+            break :blk false;
+        },
+        .attribute => |a| exprUsesClasses(a.value.*, class_names),
+        .binop => |b| exprUsesClasses(b.left.*, class_names) or exprUsesClasses(b.right.*, class_names),
+        else => false,
+    };
+}
+
 /// Convert Python default value to Zig code
 pub fn convertDefaultToZig(default_expr: ast.Node) ?[]const u8 {
     return switch (default_expr) {

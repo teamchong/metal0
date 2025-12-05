@@ -559,9 +559,9 @@ pub fn genFunctionSignature(
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
 
-        // Check if parameter name shadows a module-level function
+        // Check if parameter name shadows a module-level function or imported module
         // If so, we need to rename it to avoid Zig shadowing errors
-        const shadows_module_func = self.module_level_funcs.contains(arg.name);
+        const shadows_module_func = self.module_level_funcs.contains(arg.name) or self.imported_modules.contains(arg.name);
 
         // Check if parameter name shadows a sibling method in the same class
         // e.g., def __release_buffer__(self, buffer): ... where 'buffer' is also a method
@@ -591,14 +591,15 @@ pub fn genFunctionSignature(
             try self.emit("_: ");
             // Skip straight to type - no name, no suffix
         } else {
-            // Escape Zig reserved keywords (e.g., "fn" -> @"fn", "test" -> @"test")
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-
-            // Add suffix for parameters that shadow module-level functions or class methods
-            // Note: var_renames is populated in function_gen.zig AFTER the clear,
-            // so we don't need to put it here (it would be cleared anyway)
+            // Add suffix for parameters that shadow module-level functions, imported modules, or class methods
+            // When adding suffix, don't use escaped form (@"name") because @"name"__local is invalid
+            // Instead use: name__local (suffix makes it a valid non-keyword identifier)
             if (shadows_module_func or shadows_class_method) {
+                try self.emit(arg.name);
                 try self.emit("__local");
+            } else {
+                // Only escape reserved keywords if we're NOT adding a suffix
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
             }
 
             // Parameters with defaults become optional (suffix with '_param')

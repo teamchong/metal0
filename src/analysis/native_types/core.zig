@@ -203,7 +203,8 @@ pub const NativeType = union(enum) {
             .string => "[]const u8",
             .usize => "usize",
             .path => "*pathlib.Path",
-            .class_instance => |class_name| class_name,
+            // Use *runtime.PyObject for class instances to avoid forward reference issues
+            .class_instance => "*runtime.PyObject",
             else => "*runtime.PyObject",
         };
     }
@@ -286,9 +287,11 @@ pub const NativeType = union(enum) {
                 try buf.appendSlice(allocator, ") ");
                 try fn_type.return_type.toZigType(allocator, buf);
             },
-            .class_instance => |class_name| {
-                // For class instances, use the class name as the type (not pointer)
-                try buf.appendSlice(allocator, class_name);
+            .class_instance => |_| {
+                // For class instances, use *runtime.PyObject to avoid forward reference issues
+                // with local classes and to handle dynamically-created types correctly.
+                // All Python class instances are PyObjects at runtime.
+                try buf.appendSlice(allocator, "*runtime.PyObject");
             },
             .optional => |inner_type| {
                 try buf.appendSlice(allocator, "?");

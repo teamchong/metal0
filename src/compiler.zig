@@ -339,9 +339,25 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
     // Using arena so no explicit free needed, but if we returned early we'd leak
     // The arena.deinit() at function end handles cleanup
 
-    if (result.term.Exited != 0) {
-        std.debug.print("Zig compilation failed:\n{s}\n", .{result.stderr});
-        return error.ZigCompilationFailed;
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("Zig compilation failed:\n{s}\n", .{result.stderr});
+                return error.ZigCompilationFailed;
+            }
+        },
+        .Signal => |sig| {
+            std.debug.print("Zig compilation killed by signal {d}:\n{s}\n", .{ sig, result.stderr });
+            return error.ZigCompilationFailed;
+        },
+        .Stopped => |sig| {
+            std.debug.print("Zig compilation stopped by signal {d}:\n{s}\n", .{ sig, result.stderr });
+            return error.ZigCompilationFailed;
+        },
+        .Unknown => |val| {
+            std.debug.print("Zig compilation unknown termination {d}:\n{s}\n", .{ val, result.stderr });
+            return error.ZigCompilationFailed;
+        },
     }
 }
 
@@ -513,9 +529,17 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
-    if (result.term.Exited != 0) {
-        std.debug.print("Zig compilation failed:\n{s}\n", .{result.stderr});
-        return error.ZigCompilationFailed;
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("Zig compilation failed:\n{s}\n", .{result.stderr});
+                return error.ZigCompilationFailed;
+            }
+        },
+        .Signal, .Stopped, .Unknown => {
+            std.debug.print("Zig compilation terminated abnormally:\n{s}\n", .{result.stderr});
+            return error.ZigCompilationFailed;
+        },
     }
 }
 
@@ -648,9 +672,17 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
         .max_output_bytes = 10 * 1024 * 1024, // 10MB for large error output
     });
 
-    if (result.term.Exited != 0) {
-        std.debug.print("WASM compilation failed:\n{s}\n", .{result.stderr});
-        return error.WasmCompilationFailed;
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("WASM compilation failed:\n{s}\n", .{result.stderr});
+                return error.WasmCompilationFailed;
+            }
+        },
+        .Signal, .Stopped, .Unknown => {
+            std.debug.print("WASM compilation terminated abnormally:\n{s}\n", .{result.stderr});
+            return error.WasmCompilationFailed;
+        },
     }
 }
 
@@ -667,9 +699,14 @@ fn findZigBinary(allocator: std.mem.Allocator) ![]const u8 {
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
-    if (result.term.Exited == 0) {
-        const path = std.mem.trim(u8, result.stdout, " \n\r\t");
-        return try allocator.dupe(u8, path);
+    switch (result.term) {
+        .Exited => |code| {
+            if (code == 0) {
+                const path = std.mem.trim(u8, result.stdout, " \n\r\t");
+                return try allocator.dupe(u8, path);
+            }
+        },
+        .Signal, .Stopped, .Unknown => {},
     }
 
     return try allocator.dupe(u8, "zig");

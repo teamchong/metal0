@@ -231,6 +231,12 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 else
                     name;
 
+                // Skip if already declared at module level (avoids shadowing error)
+                // This happens when the same import appears both at module level and locally
+                if (self.isDeclared(alias) or self.module_level_from_imports.contains(alias)) {
+                    continue;
+                }
+
                 try self.emitIndent();
                 try self.emit("const ");
                 try self.emit(alias);

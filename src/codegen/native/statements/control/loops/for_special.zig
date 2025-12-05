@@ -111,9 +111,17 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     // Check if item variable is used in body - if item_is_tuple, we always need it for unpacking
     const item_var_used = item_is_tuple or param_analyzer.isNameUsedInBody(body, item_var);
 
+    // Check if loop variable shadows an imported module
+    const shadows_import = self.imported_modules.contains(item_var);
+    const enum_unique_capture_id = self.block_label_counter;
+    if (shadows_import and item_var_used) self.block_label_counter += 1;
+
     try self.emit(") |");
     if (!item_var_used) {
         try self.emit("_");
+    } else if (shadows_import) {
+        // Use unique capture name to avoid shadowing module import
+        try self.output.writer(self.allocator).print("__loop_{s}_{d}__", .{ item_var, enum_unique_capture_id });
     } else {
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), item_var);
     }
@@ -123,6 +131,13 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
 
     // Push new scope for loop body
     try self.pushScope();
+
+    // If we used a unique capture name due to shadowing, add var_renames for body generation
+    if (shadows_import and item_var_used) {
+        // Register the renamed variable so body uses __loop_X_N__ instead of X
+        const renamed = try std.fmt.allocPrint(self.allocator, "__loop_{s}_{d}__", .{ item_var, enum_unique_capture_id });
+        try self.var_renames.put(item_var, renamed);
+    }
 
     // Generate: const idx = __enum_idx_N;
     try self.emitIndent();
@@ -170,6 +185,11 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
 
     // Pop scope when exiting loop
     self.popScope();
+
+    // Clean up var_renames for shadowed imports
+    if (shadows_import and item_var_used) {
+        _ = self.var_renames.swapRemove(item_var);
+    }
 
     self.dedent();
     try self.emitIndent();

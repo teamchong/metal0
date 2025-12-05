@@ -20,6 +20,17 @@ fn pythonEql(a: anytype, b: anytype) bool {
     return std.meta.eql(a, b);
 }
 
+/// Helper to compare two elements - handles slices (which don't support == operator)
+fn elemEql(a: anytype, b: anytype) bool {
+    const T = @TypeOf(a);
+    const info = @typeInfo(T);
+    // For slices, use std.mem.eql
+    if (info == .pointer and info.pointer.size == .slice) {
+        return std.mem.eql(info.pointer.child, a, b);
+    }
+    return a == b;
+}
+
 /// Helper to compare two ArrayList instances element by element
 fn equalArrayList(a: anytype, b: anytype) bool {
     // Check length first
@@ -607,14 +618,14 @@ pub fn assertEqual(a: anytype, b: anytype) void {
         if (a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity") and b_info == .array) {
             if (a.items.len != b.len) break :blk false;
             for (a.items, 0..) |a_elem, i| {
-                if (a_elem != b[i]) break :blk false;
+                if (!elemEql(a_elem, b[i])) break :blk false;
             }
             break :blk true;
         }
         if (b_info == .@"struct" and @hasField(B, "items") and @hasField(B, "capacity") and a_info == .array) {
             if (b.items.len != a.len) break :blk false;
             for (b.items, 0..) |b_elem, i| {
-                if (b_elem != a[i]) break :blk false;
+                if (!elemEql(b_elem, a[i])) break :blk false;
             }
             break :blk true;
         }
@@ -625,7 +636,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (a.items.len != b_fields.len) break :blk false;
             inline for (b_fields, 0..) |field, i| {
                 const b_elem = @field(b, field.name);
-                if (a.items[i] != b_elem) break :blk false;
+                if (!elemEql(a.items[i], b_elem)) break :blk false;
             }
             break :blk true;
         }
@@ -634,7 +645,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (b.items.len != a_fields.len) break :blk false;
             inline for (a_fields, 0..) |field, i| {
                 const a_elem = @field(a, field.name);
-                if (b.items[i] != a_elem) break :blk false;
+                if (!elemEql(b.items[i], a_elem)) break :blk false;
             }
             break :blk true;
         }
