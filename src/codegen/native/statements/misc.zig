@@ -1387,8 +1387,8 @@ fn genRaiseMessage(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
         try self.emit("\"");
     } else {
         // Expression - convert to string at runtime
-        try self.emit("runtime.pyStr(");
+        try self.emit("(try runtime.builtins.pyStr(__global_allocator, ");
         try expressions.genExpr(self, arg);
-        try self.emit(")");
+        try self.emit("))");
     }
 }

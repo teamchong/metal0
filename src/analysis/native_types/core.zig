@@ -138,6 +138,9 @@ pub const NativeType = union(enum) {
     re_match: void, // re.Match - result of re.search/re.match
     re_pattern: void, // re.Pattern - compiled regex pattern
 
+    // Iterator types
+    list_iterator: void, // iter() on list - SequenceIterator(i64)
+
     /// Check if this is a simple type (int, bigint, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
     /// (workaround for semantic analyzer false positives)
@@ -344,6 +347,8 @@ pub const NativeType = union(enum) {
             // re module types
             .re_match => try buf.appendSlice(allocator, "*runtime.re.PyMatch"),
             .re_pattern => try buf.appendSlice(allocator, "*runtime.PyObject"),
+            // Iterator types
+            .list_iterator => try buf.appendSlice(allocator, "runtime.iterators.SequenceIterator(i64)"),
         }
     }
 

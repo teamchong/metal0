@@ -1899,6 +1899,7 @@ pub const classInstanceNe = builtins.classInstanceNe;
 pub const PyPowResult = builtins.PyPowResult;
 pub const pyPow = builtins.pyPow;
 pub const PyBytes = builtins.PyBytes;
+pub const pyStr = builtins.pyStr;
 
 /// Get Python type name for type() builtin
 /// Handles special cases like PyPowResult which can be float or complex

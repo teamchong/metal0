@@ -48,11 +48,14 @@ fn isNameUsedInStmtWithConfig(stmt: ast.Node, name: []const u8, config: Analysis
             if (config.skip_super_calls and isSuperMethodCall(assign.value.*)) return false;
 
             if (config.only_field_assignments) {
-                // Only check self.field = value assignments
+                // Only check obj.field = value assignments where obj is any simple name
+                // In __new__, the instance variable can be named "self", "obj", etc.
+                // e.g., obj = super().__new__(cls, msg, excs); obj.code = code
                 for (assign.targets) |target| {
                     if (target == .attribute) {
                         const attr = target.attribute;
-                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                        // Accept any simple name as the instance (self, obj, etc.)
+                        if (attr.value.* == .name) {
                             return isNameUsedInExpr(assign.value.*, name);
                         }
                     }
