@@ -1913,6 +1913,7 @@ pub const floatBuiltinCall = float_ops.floatBuiltinCall;
 pub const floatBuiltinCallBytes = float_ops.floatBuiltinCallBytes;
 pub const boolBuiltinCall = float_ops.boolBuiltinCall;
 pub const parseFloatWithUnicode = float_ops.parseFloatWithUnicode;
+pub const parseFloatStr = float_ops.parseFloatStr;
 
 /// Type builtin wrappers - simple functions that return a truthy []const u8
 /// Used when types are stored as first-class values in lists
