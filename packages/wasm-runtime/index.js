@@ -28,6 +28,11 @@ const writeStr = s => {
   return { ptr, len: b.length };
 };
 
+// Eval worker state for bytecode execution
+const workers = new Map();
+let nextWorkerId = 0;
+let wasmModule = null; // Cached compiled module for viral spawning
+
 // Default handlers registry - user can add custom handlers
 const handlers = {
   js: {
@@ -45,6 +50,76 @@ const handlers = {
       const res = await fetch(url);
       const text = await res.text();
       return writeStr(text);
+    },
+
+    // Eval worker functions (for bytecode VM in browser)
+    spawnEvalWorker: (bytecodePtr, bytecodeLen, constantsPtr, constantsLen) => {
+      const id = nextWorkerId++;
+      const bytecode = new Uint8Array(m.buffer, bytecodePtr, bytecodeLen).slice();
+
+      // Create worker with same WASM module (viral spawning)
+      const workerCode = `
+        let wasmInstance;
+        self.onmessage = async (e) => {
+          const { module, bytecode } = e.data;
+          wasmInstance = await WebAssembly.instantiate(module, {
+            env: { memory: new WebAssembly.Memory({ initial: 256 }) }
+          });
+          const result = wasmInstance.exports.worker_execute_bytecode(
+            bytecode.byteOffset, bytecode.length
+          );
+          self.postMessage({ id: ${id}, result });
+        };
+      `;
+      const blob = new Blob([workerCode], { type: 'application/javascript' });
+      const worker = new Worker(URL.createObjectURL(blob));
+
+      workers.set(id, { worker, done: false, result: null });
+
+      worker.onmessage = (e) => {
+        const state = workers.get(e.data.id);
+        if (state) {
+          state.done = true;
+          state.result = e.data.result;
+        }
+      };
+
+      worker.postMessage({ module: wasmModule, bytecode });
+      return id;
+    },
+
+    isWorkerDone: (id) => {
+      const state = workers.get(id);
+      return state ? state.done : true;
+    },
+
+    getWorkerResult: (id) => {
+      const state = workers.get(id);
+      if (state && state.done) {
+        workers.delete(id);
+        return state.result;
+      }
+      return 0;
+    },
+
+    waitWorkerResult: (id) => {
+      // Note: True blocking not possible in browser JS
+      // This busy-waits which is not ideal but matches the sync API
+      const state = workers.get(id);
+      if (!state) return 0;
+      // For proper async, use isWorkerDone + getWorkerResult in a loop
+      while (!state.done) { /* spin */ }
+      const result = state.result;
+      workers.delete(id);
+      return result;
+    },
+
+    cancelWorker: (id) => {
+      const state = workers.get(id);
+      if (state) {
+        state.worker.terminate();
+        workers.delete(id);
+      }
     },
   },
 
@@ -103,6 +178,7 @@ export async function load(source, customHandlers = {}) {
 
   // Compile and instantiate
   const compiled = await WebAssembly.compile(binary);
+  wasmModule = compiled; // Cache for viral spawning in Web Workers
   const instance = await WebAssembly.instantiate(compiled, proxyImports);
 
   w = instance.exports;
