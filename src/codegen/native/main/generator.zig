@@ -229,8 +229,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     }
 
     // PHASE 3.7.1: Emit import aliases (import X as Y -> const Y = @"X";)
+    // Skip C extension modules - they don't have Zig aliases, they're called via c_interop
     for (self.import_aliases.keys()) |alias| {
         const module_name = self.import_aliases.get(alias).?;
+        // Skip C extension modules - they are loaded at runtime via c_interop.callModuleFunction
+        if (self.isCExtensionModule(module_name) or self.isCExtensionModule(alias)) {
+            continue;
+        }
         try self.emit("const ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias);
         try self.emit(" = ");
