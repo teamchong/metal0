@@ -228,21 +228,40 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         // Handle 'in' operator for lists
         else if (op == .In or op == .NotIn) {
             if (right_type == .list) {
-                // List membership check: std.mem.indexOfScalar(T, slice, value) != null
+                // List membership check using runtime.pyContains for Python semantics
+                // Handles NaN identity: NaN in [NaN] == True
                 const elem_type = right_type.list.*;
                 const type_str = elem_type.toSimpleZigType();
 
-                try self.emit("(std.mem.indexOfScalar(");
-                try self.emit(type_str);
-                try self.emit(", ");
-                try genExpr(self, compare.comparators[i]); // list/slice
-                try self.emit(", ");
-                try genExpr(self, current_left); // item to search for
+                // For list literals, we need to wrap in a block to access .items
+                const is_literal = compare.comparators[i] == .list;
 
-                if (op == .In) {
-                    try self.emit(") != null)");
+                if (is_literal) {
+                    // Wrap the whole thing in a block
+                    const list_check_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.output.writer(self.allocator).print("(in_{d}: {{ const __list = ", .{list_check_id});
+                    try genExpr(self, compare.comparators[i]); // list literal
+                    if (op == .In) {
+                        try self.output.writer(self.allocator).print("; break :in_{d} runtime.pyContains({s}, __list.items, ", .{ list_check_id, type_str });
+                    } else {
+                        try self.output.writer(self.allocator).print("; break :in_{d} !runtime.pyContains({s}, __list.items, ", .{ list_check_id, type_str });
+                    }
+                    try genExpr(self, current_left); // item to search for
+                    try self.emit("); })");
                 } else {
-                    try self.emit(") == null)");
+                    // For variables, .items access works directly
+                    if (op == .In) {
+                        try self.emit("(runtime.pyContains(");
+                    } else {
+                        try self.emit("(!runtime.pyContains(");
+                    }
+                    try self.emit(type_str);
+                    try self.emit(", ");
+                    try genExpr(self, compare.comparators[i]); // list variable
+                    try self.emit(".items, ");
+                    try genExpr(self, current_left); // item to search for
+                    try self.emit("))");
                 }
             } else if (right_type == .dict) {
                 // Dict key check: dict.contains(key)

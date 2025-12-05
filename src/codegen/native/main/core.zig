@@ -563,6 +563,11 @@ pub const NativeCodegen = struct {
     // Maps identifier name -> Python line number
     token_lines: ?std.StringHashMap(u32),
 
+    // Keyword occurrence counters for debug line mapping
+    // Track how many times we've processed each keyword type during codegen
+    keyword_raise_count: u32,
+    keyword_assert_count: u32,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -700,6 +705,8 @@ pub const NativeCodegen = struct {
             .zig_line_counter = 1,
             .tokens = null,
             .token_lines = null,
+            .keyword_raise_count = 0,
+            .keyword_assert_count = 0,
         };
         return self;
     }
@@ -761,6 +768,46 @@ pub const NativeCodegen = struct {
             if (self.getPythonLineForName(name)) |py_line| {
                 self.recordLineMapping(py_line);
             }
+        }
+    }
+
+    /// Get Python line number for a specific keyword token type
+    /// Searches through tokens to find the Nth occurrence of a keyword
+    /// If occurrence is 0, returns the first occurrence
+    pub fn getPythonLineForKeyword(self: *NativeCodegen, comptime keyword: @import("../../../lexer.zig").TokenType, occurrence: usize) ?u32 {
+        if (self.tokens) |toks| {
+            var count: usize = 0;
+            for (toks) |tok| {
+                if (tok.type == keyword) {
+                    if (count == occurrence) {
+                        return @intCast(tok.line);
+                    }
+                    count += 1;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// Record line mapping for raise statement and increment counter
+    pub fn recordRaiseLineMapping(self: *NativeCodegen) void {
+        if (self.debug_writer != null) {
+            const lexer = @import("../../../lexer.zig");
+            if (self.getPythonLineForKeyword(lexer.TokenType.Raise, self.keyword_raise_count)) |py_line| {
+                self.recordLineMapping(py_line);
+            }
+            self.keyword_raise_count += 1;
+        }
+    }
+
+    /// Record line mapping for assert statement and increment counter
+    pub fn recordAssertLineMapping(self: *NativeCodegen) void {
+        if (self.debug_writer != null) {
+            const lexer = @import("../../../lexer.zig");
+            if (self.getPythonLineForKeyword(lexer.TokenType.Assert, self.keyword_assert_count)) |py_line| {
+                self.recordLineMapping(py_line);
+            }
+            self.keyword_assert_count += 1;
         }
     }
 

@@ -106,7 +106,9 @@ fn parseDebugJson(allocator: std.mem.Allocator, content: []const u8) ?DebugInfo 
             // Parse pyLine
             var py_line: u32 = 0;
             if (std.mem.indexOf(u8, obj, "\"pyLine\":")) |py_idx| {
-                const num_start = py_idx + 9; // len of "pyLine":
+                var num_start = py_idx + 9; // len of "pyLine":
+                // Skip whitespace after colon
+                while (num_start < obj.len and (obj[num_start] == ' ' or obj[num_start] == '\t')) : (num_start += 1) {}
                 var num_end = num_start;
                 while (num_end < obj.len and (obj[num_end] >= '0' and obj[num_end] <= '9')) : (num_end += 1) {}
                 py_line = std.fmt.parseInt(u32, obj[num_start..num_end], 10) catch 0;
@@ -115,7 +117,9 @@ fn parseDebugJson(allocator: std.mem.Allocator, content: []const u8) ?DebugInfo 
             // Parse zigLine
             var zig_line: u32 = 0;
             if (std.mem.indexOf(u8, obj, "\"zigLine\":")) |zig_idx| {
-                const num_start = zig_idx + 10; // len of "zigLine":
+                var num_start = zig_idx + 10; // len of "zigLine":
+                // Skip whitespace after colon
+                while (num_start < obj.len and (obj[num_start] == ' ' or obj[num_start] == '\t')) : (num_start += 1) {}
                 var num_end = num_start;
                 while (num_end < obj.len and (obj[num_end] >= '0' and obj[num_end] <= '9')) : (num_end += 1) {}
                 zig_line = std.fmt.parseInt(u32, obj[num_start..num_end], 10) catch 0;
