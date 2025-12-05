@@ -815,6 +815,9 @@ fn cmdProfileRun(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
 /// Profile translate: convert system profiler output to Python symbols
 fn cmdProfileTranslate(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    const profile_mod = @import("../profile/translator.zig");
+    const profile_format = @import("../profile/format.zig");
+
     if (args.len == 0) {
         printError("No profile data specified", .{});
         std.debug.print("\nUsage: metal0 profile translate <perf.data|profile.txt>\n", .{});
@@ -848,20 +851,107 @@ fn cmdProfileTranslate(allocator: std.mem.Allocator, args: []const []const u8) !
 
     printInfo("Found {d} debug info files", .{dbg_files.len});
 
-    // For now, just show what we'd do - actual translation is TODO
-    std.debug.print("\n{s}Profile Translation (WIP):{s}\n", .{ Color.bold, Color.reset });
-    std.debug.print("  Input: {s}\n", .{input_path});
-    std.debug.print("  Debug info files:\n", .{});
-    for (dbg_files) |f| {
-        std.debug.print("    - {s}\n", .{f});
+    // Initialize translator
+    var translator = profile_mod.Translator.init(allocator);
+    defer translator.deinit();
+
+    // Load all debug info files
+    for (dbg_files) |dbg_path| {
+        translator.loadDebugInfo(dbg_path) catch |err| {
+            printWarn("Failed to load {s}: {any}", .{ dbg_path, err });
+        };
     }
-    std.debug.print("\n  Output: profile.json (Python-level profile)\n", .{});
-    std.debug.print("\n{s}TODO:{s} Parse profile data and translate Zig symbols to Python\n", .{ Color.yellow, Color.reset });
+
+    // Read profile data
+    const profile_file = std.fs.cwd().openFile(input_path, .{}) catch |err| {
+        printError("Cannot open profile data: {any}", .{err});
+        return;
+    };
+    defer profile_file.close();
+
+    const profile_content = profile_file.readToEndAlloc(allocator, 50 * 1024 * 1024) catch |err| {
+        printError("Cannot read profile data: {any}", .{err});
+        return;
+    };
+    defer allocator.free(profile_content);
+
+    // Detect profile format and parse
+    const builtin = @import("builtin");
+    const samples = blk: {
+        if (builtin.os.tag == .macos or std.mem.indexOf(u8, input_path, "sample") != null or
+            std.mem.indexOf(u8, input_path, ".txt") != null)
+        {
+            printInfo("Parsing macOS sample format...", .{});
+            break :blk translator.parseMacOSSample(profile_content) catch |err| {
+                printError("Failed to parse sample output: {any}", .{err});
+                return;
+            };
+        } else {
+            printInfo("Parsing Linux perf format...", .{});
+            break :blk translator.parsePerfScript(profile_content) catch |err| {
+                printError("Failed to parse perf output: {any}", .{err});
+                return;
+            };
+        }
+    };
+    defer {
+        for (samples) |s| {
+            allocator.free(s.symbol);
+            for (s.stack) |frame| allocator.free(frame);
+            allocator.free(s.stack);
+        }
+        allocator.free(samples);
+    }
+
+    printInfo("Parsed {d} samples", .{samples.len});
+
+    // Get source file from first debug info
+    var source_file: []const u8 = "unknown";
+    var dbg_iter = translator.debug_infos.valueIterator();
+    if (dbg_iter.next()) |info| {
+        source_file = info.source_file;
+    }
+
+    // Translate to Python profile
+    var profile = translator.translateToProfile(samples, source_file) catch |err| {
+        printError("Failed to translate profile: {any}", .{err});
+        return;
+    };
+    defer profile.deinit(allocator);
+
+    // Write output
+    const output_path = "profile.json";
+    profile_format.writeJson(allocator, profile, output_path) catch |err| {
+        printError("Failed to write profile: {any}", .{err});
+        return;
+    };
+
+    printSuccess("Profile written to {s}", .{output_path});
+    std.debug.print("\n{s}Summary:{s}\n", .{ Color.bold, Color.reset });
+    std.debug.print("  Total samples: {d}\n", .{profile.total_samples});
+    std.debug.print("  Functions: {d}\n", .{profile.functions.len});
+    std.debug.print("  Hot functions (>5%%): {d}\n", .{profile.hot_functions.len});
+
+    if (profile.hot_functions.len > 0) {
+        std.debug.print("\n{s}Hot functions:{s}\n", .{ Color.bold, Color.reset });
+        for (profile.functions) |func| {
+            if (func.hot) {
+                std.debug.print("  {s}{s}{s} ({d:.1}%% - {d} samples)\n", .{
+                    Color.yellow,
+                    func.name,
+                    Color.reset,
+                    func.percentage,
+                    func.samples,
+                });
+            }
+        }
+    }
+
+    std.debug.print("\nNext: metal0 build -b <file.py> --pgo-use={s}\n", .{output_path});
 }
 
 /// Profile show: display Python-level profile summary
 fn cmdProfileShow(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    _ = allocator;
     if (args.len == 0) {
         printError("No profile file specified", .{});
         std.debug.print("\nUsage: metal0 profile show <profile.json>\n", .{});
@@ -876,9 +966,96 @@ fn cmdProfileShow(allocator: std.mem.Allocator, args: []const []const u8) !void 
         return;
     };
 
-    // TODO: Parse and display profile
-    printInfo("Profile: {s}", .{profile_path});
-    std.debug.print("\n{s}TODO:{s} Parse and display Python-level profile\n", .{ Color.yellow, Color.reset });
+    // Read and parse profile JSON
+    const file = std.fs.cwd().openFile(profile_path, .{}) catch |err| {
+        printError("Cannot open profile: {any}", .{err});
+        return;
+    };
+    defer file.close();
+
+    const content = file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch |err| {
+        printError("Cannot read profile: {any}", .{err});
+        return;
+    };
+    defer allocator.free(content);
+
+    // Simple JSON display (parse key values)
+    std.debug.print("\n{s}Profile: {s}{s}\n\n", .{ Color.bold, profile_path, Color.reset });
+
+    // Extract and display summary
+    if (extractJsonStringValue(content, "\"sourceFile\":")) |source| {
+        std.debug.print("Source: {s}\n", .{source});
+    }
+    if (extractJsonNumberValue(content, "\"totalSamples\":")) |samples| {
+        std.debug.print("Total samples: {d}\n", .{samples});
+    }
+
+    // Display hot functions
+    if (std.mem.indexOf(u8, content, "\"hotFunctions\":")) |_| {
+        std.debug.print("\n{s}Hot functions (>5%%):{s}\n", .{ Color.bold, Color.reset });
+
+        // Find functions array
+        if (std.mem.indexOf(u8, content, "\"functions\":")) |funcs_start| {
+            var pos = funcs_start;
+            var count: usize = 0;
+
+            while (std.mem.indexOf(u8, content[pos..], "\"hot\": true")) |hot_pos| {
+                // Find this function's details
+                const search_start = pos + hot_pos;
+
+                // Look backwards for function name
+                var name_search = search_start;
+                while (name_search > 0 and content[name_search] != '{') : (name_search -= 1) {}
+
+                if (name_search > 0) {
+                    const func_obj = content[name_search..search_start + 20];
+                    if (extractJsonStringValue(func_obj, "\"name\":")) |name| {
+                        const percentage = extractJsonNumberValue(func_obj, "\"percentage\":") orelse 0;
+                        const samples_val = extractJsonNumberValue(func_obj, "\"samples\":") orelse 0;
+
+                        std.debug.print("  {s}{s}{s} ({d}%% - {d} samples)\n", .{
+                            Color.yellow,
+                            name,
+                            Color.reset,
+                            percentage,
+                            samples_val,
+                        });
+                        count += 1;
+                    }
+                }
+
+                pos = search_start + 10;
+                if (count >= 10) break; // Limit output
+            }
+
+            if (count == 0) {
+                std.debug.print("  (no hot functions found)\n", .{});
+            }
+        }
+    }
+
+    std.debug.print("\nUse --pgo-use={s} when rebuilding to optimize hot paths.\n", .{profile_path});
+}
+
+fn extractJsonStringValue(content: []const u8, key: []const u8) ?[]const u8 {
+    const key_pos = std.mem.indexOf(u8, content, key) orelse return null;
+    const after_key = content[key_pos + key.len ..];
+    const quote1 = std.mem.indexOf(u8, after_key, "\"") orelse return null;
+    const quote2 = std.mem.indexOf(u8, after_key[quote1 + 1 ..], "\"") orelse return null;
+    return after_key[quote1 + 1 .. quote1 + 1 + quote2];
+}
+
+fn extractJsonNumberValue(content: []const u8, key: []const u8) ?i64 {
+    const key_pos = std.mem.indexOf(u8, content, key) orelse return null;
+    const after_key = std.mem.trim(u8, content[key_pos + key.len ..], " ");
+
+    var end: usize = 0;
+    while (end < after_key.len) : (end += 1) {
+        const c = after_key[end];
+        if (c == ',' or c == '}' or c == ' ' or c == '\n' or c == '\r' or c == '.') break;
+    }
+
+    return std.fmt.parseInt(i64, after_key[0..end], 10) catch null;
 }
 
 /// Find all .metal0.dbg.json files in build directory
