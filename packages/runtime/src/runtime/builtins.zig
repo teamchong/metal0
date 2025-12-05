@@ -1180,8 +1180,14 @@ fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
     }
 
     // String - wrap in quotes with proper escaping
+    // Handle both slices ([]const u8) and pointer-to-arrays (*const [N]u8, *const [N:0]u8)
     if (T == []const u8 or T == []u8) {
         return stringRepr(allocator, value);
+    }
+    if (comptime isStringPointer(T)) {
+        // Convert pointer-to-array to slice
+        const slice: []const u8 = value;
+        return stringRepr(allocator, slice);
     }
 
     // Bool - Python True/False
@@ -1298,6 +1304,22 @@ fn valueStr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
 fn isSlice(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => |p| p.size == .slice,
+        else => false,
+    };
+}
+
+/// Helper to check if type is a pointer to u8 array (string literal type)
+/// Matches *const [N]u8, *const [N:0]u8, *[N]u8, *[N:0]u8
+fn isStringPointer(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| blk: {
+            if (p.size != .one) break :blk false;
+            const child = p.child;
+            break :blk switch (@typeInfo(child)) {
+                .array => |arr| arr.child == u8,
+                else => false,
+            };
+        },
         else => false,
     };
 }
