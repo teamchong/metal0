@@ -372,6 +372,30 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             return true;
         }
 
+        // Special case: PyValue vs primitive type - unwrap PyValue and compare
+        const a_is_pyvalue = A == PyValue;
+        const b_is_pyvalue = B == PyValue;
+        if (a_is_pyvalue and !b_is_pyvalue) {
+            // Unwrap PyValue and compare with b
+            return switch (a) {
+                .int => |v| if (b_info == .comptime_int or b_info == .int) v == @as(i64, b) else false,
+                .float => |v| if (b_info == .comptime_float or b_info == .float) v == @as(f64, b) else false,
+                .bool => |v| if (B == bool) v == b else false,
+                .string => |v| if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) std.mem.eql(u8, v, b) else false,
+                else => false,
+            };
+        }
+        if (b_is_pyvalue and !a_is_pyvalue) {
+            // Unwrap PyValue and compare with a
+            return switch (b) {
+                .int => |v| if (a_info == .comptime_int or a_info == .int) @as(i64, a) == v else false,
+                .float => |v| if (a_info == .comptime_float or a_info == .float) @as(f64, a) == v else false,
+                .bool => |v| if (A == bool) a == v else false,
+                .string => |v| if (a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8) std.mem.eql(u8, a, v) else false,
+                else => false,
+            };
+        }
+
         return false;
     }
 

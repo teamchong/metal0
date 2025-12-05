@@ -692,17 +692,15 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // - written_outer_vars: passed as pointer (*i64)
         // - declared_vars: passed as pointer (*i64)
         var param_count: usize = 0;
+        // Parameters use helper_id suffix to avoid shadowing in nested try blocks
         for (read_only_vars.items) |var_name| {
             if (param_count > 0) try self.emit(", ");
-            try self.emit("p_");
-            try self.emit(var_name);
-            try self.emit(": anytype");
+            try self.output.writer(self.allocator).print("p_{s}_{d}: anytype", .{ var_name, helper_id });
             param_count += 1;
         }
         for (written_outer_vars.items) |var_name| {
             if (param_count > 0) try self.emit(", ");
-            try self.emit("p_");
-            try self.emit(var_name);
+            try self.output.writer(self.allocator).print("p_{s}_{d}", .{ var_name, helper_id });
             // Special case: __gen_result is always std.ArrayListUnmanaged(runtime.PyValue)
             // This is a codegen-generated variable, not user-defined, so type inference won't find it
             if (std.mem.eql(u8, var_name, "__gen_result")) {
@@ -730,10 +728,19 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             param_count += 1;
         }
         for (declared_vars.items) |hoisted| {
+            // Exception names only need to be passed if they're used in the try body
+            // (e.g., nested try blocks where inner handlers use the variable).
+            // If not used, the exception name is only assigned in the catch block (outside run()).
+            if (hoisted.is_exception_name) {
+                const is_used_in_try = variable_usage.isNameUsedInBody(try_node.body, hoisted.name);
+                if (!is_used_in_try) continue; // Skip - only assigned in catch block
+                if (param_count > 0) try self.emit(", ");
+                try self.output.writer(self.allocator).print("p_{s}_{d}: *[]const u8", .{ hoisted.name, helper_id });
+                param_count += 1;
+                continue;
+            }
             if (param_count > 0) try self.emit(", ");
-            try self.emit("p_");
-            try self.emit(hoisted.name);
-            // Infer type directly from the RHS expression
+            try self.output.writer(self.allocator).print("p_{s}_{d}", .{ hoisted.name, helper_id });
             const var_type = self.type_inferrer.inferExpr(hoisted.value) catch null;
             var zig_type = if (var_type) |vt| blk: {
                 break :blk try self.nativeTypeToZigType(vt);
@@ -772,24 +779,16 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // Create aliases for read-only captured variables (by value)
         for (read_only_vars.items) |var_name| {
             try self.emitIndent();
-            try self.emit("const __local_");
-            try self.emit(var_name);
-            try self.emit(": @TypeOf(p_");
-            try self.emit(var_name);
-            try self.emit(") = p_");
-            try self.emit(var_name);
-            try self.emit(";\n");
+            try self.output.writer(self.allocator).print("const __local_{s}_{d}: @TypeOf(p_{s}_{d}) = p_{s}_{d};\n", .{ var_name, helper_id, var_name, helper_id, var_name, helper_id });
 
             // Always emit discard using runtime.discard() to prevent "unused local constant"
             // errors while avoiding "pointless discard of local constant" issues
             try self.emitIndent();
-            try self.emit("runtime.discard(__local_");
-            try self.emit(var_name);
-            try self.emit(");\n");
+            try self.output.writer(self.allocator).print("runtime.discard(__local_{s}_{d});\n", .{ var_name, helper_id });
 
             // Add to rename map
             var buf = std.ArrayListUnmanaged(u8){};
-            try buf.writer(self.allocator).print("__local_{s}", .{var_name});
+            try buf.writer(self.allocator).print("__local_{s}_{d}", .{ var_name, helper_id });
             const renamed = try buf.toOwnedSlice(self.allocator);
             try self.var_renames.put(var_name, renamed);
         }
@@ -803,7 +802,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (std.mem.eql(u8, var_name, "__gen_result")) {
                 // Add to rename map to use dereferenced pointer (no discard needed)
                 var buf = std.ArrayListUnmanaged(u8){};
-                try buf.writer(self.allocator).print("p_{s}.*", .{var_name});
+                try buf.writer(self.allocator).print("p_{s}_{d}.*", .{ var_name, helper_id });
                 const renamed = try buf.toOwnedSlice(self.allocator);
                 try self.var_renames.put(var_name, renamed);
                 continue;
@@ -824,14 +823,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // Suppress unused parameter warning only if var is NOT used anywhere in try structure
             if (!is_used_in_try_body and !is_used_in_finally and !is_used_in_handlers and !is_used_in_else) {
                 try self.emitIndent();
-                try self.emit("_ = p_");
-                try self.emit(var_name);
-                try self.emit(";\n");
+                try self.output.writer(self.allocator).print("_ = p_{s}_{d};\n", .{ var_name, helper_id });
             }
 
             // Add to rename map to use dereferenced pointer
             var buf = std.ArrayListUnmanaged(u8){};
-            try buf.writer(self.allocator).print("p_{s}.*", .{var_name});
+            try buf.writer(self.allocator).print("p_{s}_{d}.*", .{ var_name, helper_id });
             const renamed = try buf.toOwnedSlice(self.allocator);
             try self.var_renames.put(var_name, renamed);
         }
@@ -858,17 +855,19 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // Check if variable is used in the try block body
             const is_used_in_try_body = variable_usage.isNameUsedInBody(try_node.body, hoisted.name);
 
-            // Suppress unused parameter warning only if var is NOT used in try block
+            // Exception names not used in try body are skipped (no parameter)
+            if (hoisted.is_exception_name and !is_used_in_try_body) continue;
+
+            // Suppress unused parameter warning only if var is NOT used in try body
+            // Use runtime.discard() to suppress both "unused" and "pointless discard" errors
             if (!is_used_in_try_body) {
                 try self.emitIndent();
-                try self.emit("_ = p_");
-                try self.emit(hoisted.name);
-                try self.emit(";\n");
+                try self.output.writer(self.allocator).print("runtime.discard(p_{s}_{d});\n", .{ hoisted.name, helper_id });
             }
 
             // Add to rename map to use dereferenced pointer
             var buf = std.ArrayListUnmanaged(u8){};
-            try buf.writer(self.allocator).print("p_{s}.*", .{hoisted.name});
+            try buf.writer(self.allocator).print("p_{s}_{d}.*", .{ hoisted.name, helper_id });
             const renamed = try buf.toOwnedSlice(self.allocator);
             try self.var_renames.put(hoisted.name, renamed);
         }
@@ -982,6 +981,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             call_param_count += 1;
         }
         for (declared_vars.items) |hoisted| {
+            // Exception names not used in try body are skipped (not passed as parameter)
+            if (hoisted.is_exception_name) {
+                const is_used_in_try = variable_usage.isNameUsedInBody(try_node.body, hoisted.name);
+                if (!is_used_in_try) continue;
+            }
             if (call_param_count > 0) try self.emit(", ");
             try self.emit("&");
             // Use renamed name if variable was renamed to avoid shadowing imports
@@ -1072,7 +1076,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         // not just the error type name
                         if (is_already_declared) {
                             // Assign to the existing hoisted variable
-                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
+                            // Check for rename (e.g., p_e.* for hoisted exception names passed as pointers)
+                            if (self.var_renames.get(exc_name)) |renamed| {
+                                try self.emit(renamed);
+                            } else {
+                                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
+                            }
                             try self.emit(" = runtime.getExceptionStr();\n");
                         } else {
                             // Declare new const
@@ -1120,7 +1129,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         // not just the error type name
                         if (is_already_declared) {
                             // Assign to the existing hoisted variable
-                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
+                            // Check for rename (e.g., p_e.* for hoisted exception names passed as pointers)
+                            if (self.var_renames.get(exc_name)) |renamed| {
+                                try self.emit(renamed);
+                            } else {
+                                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
+                            }
                             try self.emit(" = runtime.getExceptionStr();\n");
                         } else {
                             // Declare new const
