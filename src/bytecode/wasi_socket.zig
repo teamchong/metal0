@@ -22,15 +22,15 @@ const VMError = vm.VMError;
 pub const is_wasm_edge = builtin.cpu.arch.isWasm() and
     builtin.os.tag == .wasi;
 
-/// WASI socket path for metal0 eval server
-const EVAL_SOCKET_PATH = "/tmp/metal0-eval.sock";
+/// WASI socket path for metal0 server
+const EVAL_SOCKET_PATH = "/tmp/metal0-server.sock";
 
 /// Connection state for WASI socket communication
 pub const WasiConnection = struct {
     fd: std.posix.fd_t,
     allocator: std.mem.Allocator,
 
-    /// Connect to eval server
+    /// Connect to server
     pub fn connect(allocator: std.mem.Allocator) VMError!WasiConnection {
         if (!is_wasm_edge) {
             return error.NotImplemented;
@@ -109,7 +109,7 @@ pub const WasiConnection = struct {
     }
 };
 
-/// Execute bytecode via WASI socket to eval server
+/// Execute bytecode via WASI socket to server
 pub fn executeWasiEdge(
     allocator: std.mem.Allocator,
     program: *const Program,
@@ -232,7 +232,7 @@ pub fn serializeResult(allocator: std.mem.Allocator, value: StackValue) ![]u8 {
     return result.toOwnedSlice();
 }
 
-/// Eval server for handling WASI socket connections
+/// Server for handling WASI socket connections
 /// Run this as a separate process to handle eval() requests
 pub const EvalServer = struct {
     allocator: std.mem.Allocator,

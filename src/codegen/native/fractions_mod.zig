@@ -16,6 +16,19 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(FractionStruct);
-    if (args.len == 1) { try self.emit(".init("); try self.genExpr(args[0]); try self.emit(", 1)"); }
-    else if (args.len >= 2) { try self.emit(".init("); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[1]); try self.emit(")"); }
+    if (args.len == 0) {
+        // Type reference only (R = fractions.Fraction) - just emit the type
+        // The caller (assign.zig) should handle emitting "const R = " prefix
+        return;
+    } else if (args.len == 1) {
+        try self.emit(".init(");
+        try self.genExpr(args[0]);
+        try self.emit(", 1)");
+    } else if (args.len >= 2) {
+        try self.emit(".init(");
+        try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit(")");
+    }
 }

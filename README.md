@@ -315,17 +315,106 @@ export interface Tokenizer {
 ## eval()/exec() Architecture
 
 ```
-eval("x + 1")  ──►  metal0 Parser  ──►  Bytecode Compiler  ──►  Stack VM
-                         │                     │
-                         │              ┌──────┴──────┐
-                         ▼              ▼             ▼
-                   (reuse existing)  Native      Browser WASM
-                   src/parser/       Binary      (Web Worker)
+                    ┌─────────────────────────────────────┐
+                    │         eval()/exec() entry         │
+                    └─────────────────┬───────────────────┘
+                                      │
+                    ┌─────────────────▼───────────────────┐
+                    │    metal0 Parser + Type Inferrer    │
+                    │    (REUSE existing src/parser/)     │
+                    └─────────────────┬───────────────────┘
+                                      │
+                    ┌─────────────────▼───────────────────┐
+                    │         Bytecode Compiler           │
+                    │      src/bytecode/compiler.zig      │
+                    └─────────────────┬───────────────────┘
+                                      │
+              ┌───────────────────────┼───────────────────────┐
+              │                       │                       │
+    ┌─────────▼─────────┐   ┌─────────▼─────────┐   ┌─────────▼─────────┐
+    │   Native Binary   │   │   Browser WASM    │   │   WasmEdge WASI   │
+    │   (stack-based)   │   │   (Web Worker)    │   │   (WASI sockets)  │
+    │     vm.zig        │   │  wasm_worker.zig  │   │  wasi_socket.zig  │
+    └───────────────────┘   └───────────────────┘   └───────────────────┘
 ```
 
-- **Native**: Full speed stack-based VM
-- **Browser WASM**: Same bytecode, spawns Web Workers for isolation
-- **WasmEdge**: WASI sockets for subprocess-like behavior
+**Comptime Target Selection:**
+```zig
+pub const target: Target = comptime blk: {
+    if (builtin.target.isWasm()) {
+        if (builtin.os.tag == .wasi) break :blk .wasm_edge;
+        break :blk .wasm_browser;
+    }
+    break :blk .native;
+};
+```
+
+### Browser WASM: Immer-Style Runtime
+
+For browser targets, eval() uses the same 773-byte Immer-style runtime with Web Worker isolation:
+
+```javascript
+import { load, registerHandlers } from '@metal0/wasm-runtime';
+
+// Register handlers for @wasm_import decorators
+registerHandlers('js', {
+  fetch: async (urlPtr, urlLen) => { /* ... */ },
+  localStorage_get: (keyPtr, keyLen) => { /* ... */ }
+});
+
+// Eval spawns isolated Web Workers using cached WASM module
+const mod = await load('./module.wasm');
+const result = await mod.eval("1 + 2");  // Returns 3
+```
+
+**Web Worker Isolation:**
+- Simple expressions run inline
+- Complex code spawns Web Worker for security
+- Cached WASM module enables "viral spawning" - workers share compiled module
+
+### WasmEdge WASI: Server-Side Eval
+
+For server-side WASM (WasmEdge), eval() communicates via WASI sockets:
+
+```bash
+# Start server
+metal0 server --vm-module metal0_vm.wasm
+
+# Test with Python client
+python3 -c "
+import socket, struct
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.connect('/tmp/metal0-server.sock')
+bytecode = b'\\x01\\x02\\x03\\x04'
+sock.send(struct.pack('<I', len(bytecode)) + bytecode)
+print('Response:', sock.recv(13).hex())
+"
+```
+
+Each request runs in a fresh WASM instance for security isolation.
+
+**Benefits:**
+- Fresh WASM instance per request (security isolation)
+- Unix socket communication
+- Requires `WASMEDGE_DIR` environment variable
+
+### User-Declared Bindings
+
+Instead of hardcoding JS/WASI functions, declare what you need:
+
+```python
+from metal0 import wasm_import, wasm_export
+
+@wasm_import("js")
+def fetch(url: str) -> str: ...
+
+@wasm_export
+def process(data: str) -> list[int]:
+    result = fetch("/api/data")
+    return [ord(c) for c in result]
+```
+
+metal0 generates optimized Zig externs and minimal JS loader - only declared functions included.
 
 See [BYTECODE_VM.md](BYTECODE_VM.md) for full design.
 

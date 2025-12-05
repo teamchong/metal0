@@ -379,6 +379,19 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
             }
 
+            // Handle type alias assignments: R = fractions.Fraction, D = decimal.Decimal
+            // These need `const R = type` not `var R = type` or `R = type`
+            if (self.type_alias_vars.contains(var_name)) {
+                try self.emitIndent();
+                try self.emit("const ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                try self.emit(" = ");
+                try self.genExpr(assign.value.*);
+                try self.emit(";\n");
+                try self.declareVar(var_name);
+                continue;
+            }
+
             // Rename 'self' to '__self' inside nested class methods to avoid
             // shadowing the outer function's 'self' parameter
             // e.g., inside StrWithStr.__new__: self = str.__new__(cls, "") -> __self = ...

@@ -493,7 +493,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 5.5: Generate module-level allocator (only if needed)
     if (analysis.needs_allocator) {
         try self.emit("\n// Module-level allocator for async functions and f-strings\n");
-        try self.emit("// Debug/WASM: GPA instance (release uses c_allocator, no instance needed)\n");
+        try self.emit("// Browser WASM: FixedBufferAllocator (no std.Thread), Native: GPA\n");
+        try self.emit("const __is_freestanding = @import(\"builtin\").os.tag == .freestanding;\n");
+        try self.emit("// Freestanding uses fixed buffer (64KB), native uses GPA\n");
+        try self.emit("var __wasm_buffer: [64 * 1024]u8 = undefined;\n");
+        try self.emit("var __fba = std.heap.FixedBufferAllocator.init(&__wasm_buffer);\n");
         try self.emit("var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true, .thread_safe = true }){};\n");
         try self.emit("var __global_allocator: std.mem.Allocator = undefined;\n");
         try self.emit("var __allocator_initialized: bool = false;\n");
@@ -683,6 +687,39 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
             // Skip pre-declaring csv module results - they're anonymous iterator structs
             if (is_csv_call) {
+                continue;
+            }
+
+            // Check if this variable is assigned a type alias (e.g., R = fractions.Fraction)
+            // Type aliases need `const R = type` not `var R: SomeType = undefined`
+            var is_type_alias = false;
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            // Check if RHS is a module.Type pattern (fractions.Fraction, decimal.Decimal, etc.)
+                            if (assign.value.* == .attribute) {
+                                const attr = assign.value.attribute;
+                                if (attr.value.* == .name) {
+                                    const module_name = attr.value.name.id;
+                                    const attr_name = attr.attr;
+                                    // Known type exports from modules
+                                    if (std.mem.eql(u8, module_name, "fractions") and std.mem.eql(u8, attr_name, "Fraction")) {
+                                        is_type_alias = true;
+                                    } else if (std.mem.eql(u8, module_name, "decimal") and std.mem.eql(u8, attr_name, "Decimal")) {
+                                        is_type_alias = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Skip pre-declaring type aliases - they'll be emitted as const at assignment
+            if (is_type_alias) {
+                try self.type_alias_vars.put(try self.allocator.dupe(u8, var_name), {});
                 continue;
             }
 
@@ -956,7 +993,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emitIndent();
         try self.emit("const allocator = blk: {\n");
         try self.emitIndent();
-        try self.emit("    if (comptime allocator_helper.useFastAllocator()) {\n");
+        try self.emit("    if (comptime __is_freestanding) {\n");
+        try self.emitIndent();
+        try self.emit("        // Browser WASM: FixedBufferAllocator (no std.Thread)\n");
+        try self.emitIndent();
+        try self.emit("        break :blk __fba.allocator();\n");
+        try self.emitIndent();
+        try self.emit("    } else if (comptime allocator_helper.useFastAllocator()) {\n");
         try self.emitIndent();
         try self.emit("        // Release mode: use c_allocator, OS reclaims at exit\n");
         try self.emitIndent();
@@ -964,7 +1007,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emitIndent();
         try self.emit("    } else {\n");
         try self.emitIndent();
-        try self.emit("        // Debug/WASM: use GPA for leak detection\n");
+        try self.emit("        // Debug: use GPA for leak detection\n");
         try self.emitIndent();
         try self.emit("        break :blk __gpa.allocator();\n");
         try self.emitIndent();
@@ -981,9 +1024,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emitIndent();
         try self.emit("__sys_argv = blk: {\n");
         try self.emitIndent();
-        try self.emit("    // In shared library mode, std.os.argv may be invalid\n");
+        try self.emit("    // In shared library mode or WASM, std.os.argv is invalid\n");
         try self.emitIndent();
-        try self.emit("    if (comptime @import(\"builtin\").output_mode == .Exe) {\n");
+        try self.emit("    const builtin = @import(\"builtin\");\n");
+        try self.emitIndent();
+        try self.emit("    const is_wasm = builtin.os.tag == .wasi or builtin.os.tag == .freestanding;\n");
+        try self.emitIndent();
+        try self.emit("    if (comptime builtin.output_mode == .Exe and !is_wasm) {\n");
         try self.emitIndent();
         try self.emit("        const os_args = std.os.argv;\n");
         try self.emitIndent();

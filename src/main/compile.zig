@@ -519,7 +519,8 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
     // Set mode: shared library (.so) = module mode, binary/run/wasm = script mode
     // WASM needs script mode (with main/_start entry point)
-    if (!opts.binary and !opts.wasm and std.mem.eql(u8, opts.mode, "build")) {
+    const is_wasm_target = opts.wasm or opts.target == .wasm_browser or opts.target == .wasm_edge;
+    if (!opts.binary and !is_wasm_target and std.mem.eql(u8, opts.mode, "build")) {
         native_gen.mode = .module;
         native_gen.module_name = output.getBaseName(opts.input_file);
     }
@@ -550,10 +551,10 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     const c_libs = try native_gen.c_libraries.toOwnedSlice(aa);
 
     // Compile to WASM, shared library (.so), or binary
-    if (opts.wasm) {
-        std.debug.print("Compiling to WebAssembly...\n", .{});
+    if (is_wasm_target) {
+        std.debug.print("Compiling to WebAssembly ({s})...\n", .{@tagName(opts.target)});
         const wasm_path = try output.getWasmOutputPath(aa, opts.input_file, opts.output_file);
-        try compiler.compileWasm(aa, zig_code, wasm_path);
+        try compiler.compileWasmWithTarget(aa, zig_code, wasm_path, opts.target);
         std.debug.print("✓ Compiled successfully to: {s}\n", .{wasm_path});
 
         // Generate TypeScript definitions (module-specific)

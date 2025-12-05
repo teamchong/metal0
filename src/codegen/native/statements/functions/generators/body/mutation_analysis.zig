@@ -8,17 +8,44 @@ const hashmap_helper = @import("hashmap_helper");
 /// Check if a method mutates self (assigns to self.field or self.field[key])
 /// Also returns true if method returns self (needed for nested classes where returning self
 /// requires mutable pointer since return type is *@This() not *const @This())
+/// EXCEPTION: Type conversion methods (__float__, __int__, __bool__, etc.) don't need
+/// mutable self even if they return self, because their return type is not self-referential.
 pub fn methodMutatesSelf(method: ast.Node.FunctionDef) bool {
+    // Type conversion dunder methods should never require mutable self
+    // even if they "return self" - because the return type is the converted type, not Self
+    const is_type_conversion_dunder = isTypeConversionDunder(method.name);
+
     for (method.body) |stmt| {
         if (stmtMutatesSelf(stmt)) return true;
         // Check if method returns self - this requires mutable self for nested classes
-        if (stmt == .return_stmt) {
+        // UNLESS it's a type conversion method (return type is not Self)
+        if (!is_type_conversion_dunder and stmt == .return_stmt) {
             if (stmt.return_stmt.value) |val| {
                 if (val.* == .name and std.mem.eql(u8, val.name.id, "self")) {
                     return true;
                 }
             }
         }
+    }
+    return false;
+}
+
+/// Dunder methods that perform type conversion - return type is NOT self
+fn isTypeConversionDunder(method_name: []const u8) bool {
+    const type_conversion_dunders = [_][]const u8{
+        "__float__",
+        "__int__",
+        "__bool__",
+        "__str__",
+        "__repr__",
+        "__bytes__",
+        "__complex__",
+        "__index__",
+        "__hash__",
+        "__len__",
+    };
+    for (type_conversion_dunders) |dunder| {
+        if (std.mem.eql(u8, method_name, dunder)) return true;
     }
     return false;
 }

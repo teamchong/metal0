@@ -49,16 +49,16 @@ pub fn TupleImpl(comptime Config: type) type {
         }
 
         /// Get item at index (immutable access)
-        pub fn get(self: *const Self, index: usize) ?Config.ItemType {
-            if (index >= self.size) return null;
-            return self.items[index];
+        pub fn get(self: *const Self, idx: usize) ?Config.ItemType {
+            if (idx >= self.size) return null;
+            return self.items[idx];
         }
 
         /// Set item at index (only during construction!)
         /// NOTE: This should only be called before tuple is "frozen"
-        pub fn setUnchecked(self: *Self, index: usize, item: Config.ItemType) void {
-            if (index < self.size) {
-                self.items[index] = Config.retainItem(item);
+        pub fn setUnchecked(self: *Self, idx: usize, item: Config.ItemType) void {
+            if (idx < self.size) {
+                self.items[idx] = Config.retainItem(item);
             }
         }
 

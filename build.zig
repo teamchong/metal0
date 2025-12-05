@@ -141,6 +141,40 @@ pub fn build(b: *std.Build) void {
     c_interop_mod.addImport("runtime", runtime);
     c_interop_mod.addImport("collections", collections);
 
+    // WasmEdge bindings for server (optional - only linked if WASMEDGE_DIR is set)
+    const wasmedge_mod = b.createModule(.{
+        .root_source_file = b.path("packages/wasmedge/wasmedge.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    // Try to find WasmEdge from environment
+    const wasmedge_dir = std.process.getEnvVarOwned(b.allocator, "WASMEDGE_DIR") catch null;
+    if (wasmedge_dir) |dir| {
+        defer b.allocator.free(dir);
+        wasmedge_mod.addIncludePath(.{ .cwd_relative = b.fmt("{s}/include", .{dir}) });
+        wasmedge_mod.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{dir}) });
+        wasmedge_mod.linkSystemLibrary("wasmedge", .{});
+    }
+
+    // Unified metal0 module - mirrors Python's "from metal0 import ..."
+    const metal0_mod = b.createModule(.{
+        .root_source_file = b.path("packages/metal0.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    metal0_mod.addImport("runtime", runtime);
+    metal0_mod.addImport("collections", collections);
+    metal0_mod.addImport("wasmedge", wasmedge_mod);
+    metal0_mod.addImport("c_interop", c_interop_mod);
+    metal0_mod.addImport("json", json_mod);
+    metal0_mod.addImport("h2", h2_mod);
+    metal0_mod.addImport("regex", regex_mod);
+    metal0_mod.addImport("bigint", bigint_mod);
+    metal0_mod.addImport("tokenizer", tokenizer_mod);
+    metal0_mod.addImport("pkg", pkg_mod);
+    metal0_mod.addImport("ds", ds_mod);
+    metal0_mod.addImport("glob", glob_mod);
+
     // Main metal0 compiler executable
     const exe = b.addExecutable(.{
         .name = "metal0",
@@ -162,6 +196,8 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("pkg", pkg_mod);
     exe.root_module.addImport("function_traits", function_traits);
     exe.root_module.addImport("debug_info", debug_info_mod);
+    exe.root_module.addImport("wasmedge", wasmedge_mod);
+    exe.root_module.addImport("metal0", metal0_mod);
     exe.linkLibC();
 
     b.installArtifact(exe);

@@ -6,6 +6,7 @@ const pylist = @import("../pylist.zig");
 const pystring = @import("../pystring.zig");
 const pytuple = @import("../pytuple.zig");
 const dict_module = @import("../dict.zig");
+const pycomplex = @import("../pycomplex.zig");
 const BigInt = @import("bigint").BigInt;
 
 const PyObject = runtime_core.PyObject;
@@ -15,8 +16,117 @@ const PyList = pylist.PyList;
 const PyString = pystring.PyString;
 const PyTuple = pytuple.PyTuple;
 const PyDict = dict_module.PyDict;
+const PyComplex = pycomplex.PyComplex;
 const incref = runtime_core.incref;
 const decref = runtime_core.decref;
+
+/// Result type for pow() that can be either float or complex
+/// Python: pow(negative, non_integer) returns complex
+pub const PyPowResult = union(enum) {
+    float_val: f64,
+    complex_val: struct { real: f64, imag: f64 },
+
+    /// Check if this is a float result
+    pub fn isFloat(self: PyPowResult) bool {
+        return self == .float_val;
+    }
+
+    /// Check if this is a complex result
+    pub fn isComplex(self: PyPowResult) bool {
+        return self == .complex_val;
+    }
+
+    /// Get the float value (panics if complex)
+    pub fn asFloat(self: PyPowResult) f64 {
+        return self.float_val;
+    }
+
+    /// Get as f64 - returns float value or NaN for complex
+    pub fn toFloat(self: PyPowResult) f64 {
+        return switch (self) {
+            .float_val => |v| v,
+            .complex_val => std.math.nan(f64), // complex can't be converted to float
+        };
+    }
+
+    /// Get the complex value as (real, imag) tuple
+    pub fn asComplex(self: PyPowResult) struct { real: f64, imag: f64 } {
+        return self.complex_val;
+    }
+
+    /// Get the type name for type() builtin
+    pub fn typeName(self: PyPowResult) []const u8 {
+        return switch (self) {
+            .float_val => "float",
+            .complex_val => "complex",
+        };
+    }
+
+    /// Check if this is NaN (only possible for float variant)
+    pub fn isNan(self: PyPowResult) bool {
+        return switch (self) {
+            .float_val => |v| std.math.isNan(v),
+            .complex_val => |c| std.math.isNan(c.real) or std.math.isNan(c.imag),
+        };
+    }
+
+    /// Check if this is infinite
+    pub fn isInf(self: PyPowResult) bool {
+        return switch (self) {
+            .float_val => |v| std.math.isInf(v),
+            .complex_val => |c| std.math.isInf(c.real) or std.math.isInf(c.imag),
+        };
+    }
+
+    /// Equality comparison with f64
+    pub fn eql(self: PyPowResult, other: f64) bool {
+        return switch (self) {
+            .float_val => |v| v == other,
+            .complex_val => false, // complex != float
+        };
+    }
+
+    /// Equality comparison with another PyPowResult
+    pub fn eqlResult(self: PyPowResult, other: PyPowResult) bool {
+        return switch (self) {
+            .float_val => |v| switch (other) {
+                .float_val => |ov| v == ov,
+                .complex_val => false,
+            },
+            .complex_val => |c| switch (other) {
+                .float_val => false,
+                .complex_val => |oc| c.real == oc.real and c.imag == oc.imag,
+            },
+        };
+    }
+};
+
+/// Compute pow with complex number support
+/// Returns float for most cases, complex when base < 0 and exp is non-integer
+pub fn pyPow(base: f64, exp: f64) PythonError!PyPowResult {
+    // Python: 0.0 ** negative raises ZeroDivisionError
+    if (base == 0.0 and exp < 0.0) {
+        return PythonError.ZeroDivisionError;
+    }
+
+    // Check if exponent is an integer
+    const exp_is_int = exp == @trunc(exp);
+
+    // If base is negative and exponent is non-integer, we need complex math
+    if (base < 0.0 and !exp_is_int and !std.math.isNan(exp) and !std.math.isInf(exp)) {
+        // Use complex exponentiation: (-a)^b = e^(b * ln(-a)) = e^(b * (ln(|a|) + i*pi))
+        // = e^(b*ln(|a|)) * e^(i*b*pi) = |a|^b * (cos(b*pi) + i*sin(b*pi))
+        const abs_base = @abs(base);
+        const magnitude = std.math.pow(f64, abs_base, exp);
+        const angle = exp * std.math.pi;
+        const real = magnitude * @cos(angle);
+        const imag = magnitude * @sin(angle);
+        return PyPowResult{ .complex_val = .{ .real = real, .imag = imag } };
+    }
+
+    // Normal float pow
+    return PyPowResult{ .float_val = std.math.pow(f64, base, exp) };
+}
 
 /// Create a list of integers from start to stop with step
 pub fn range(allocator: std.mem.Allocator, start: i64, stop: i64, step: i64) !*PyObject {
@@ -1473,19 +1583,39 @@ pub const isinstance = struct {
 /// operator.mod callable - Python modulo operation
 /// Called as: OperatorMod{}.call(a, b) where self is ignored
 /// Named 'call' to match callable_vars system
+/// NOTE: Python uses floored division mod: a % b = a - floor(a/b) * b
+/// This is different from C's fmod/Zig's @rem (truncated division)
+/// Example: (-1.0) % 1.0 = 0.0 in Python, but fmod(-1.0, 1.0) = -0.0
 pub const OperatorMod = struct {
     pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
         const T = @TypeOf(a);
         const BT = @TypeOf(b);
-        // For floats, use @rem (Zig's floating-point remainder)
-        // For ints, use @mod
+        // For floats, use Python's floored modulo: a - floor(a/b) * b
         if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
-            return @rem(a, if (@typeInfo(BT) == .float) b else @as(T, @floatFromInt(b)));
+            const bf: T = if (@typeInfo(BT) == .float) b else @as(T, @floatFromInt(b));
+            return pyFloatMod(a, bf);
         } else if (@typeInfo(BT) == .float or @typeInfo(BT) == .comptime_float) {
-            return @rem(@as(BT, @floatFromInt(a)), b);
+            return pyFloatMod(@as(BT, @floatFromInt(a)), b);
         } else {
             return @mod(a, b);
         }
+    }
+
+    /// Python floored modulo for floats: a % b = a - floor(a/b) * b
+    fn pyFloatMod(a: anytype, b: anytype) @TypeOf(a) {
+        const T = @TypeOf(a);
+        // Python's floored division mod
+        const quotient = @floor(a / b);
+        const result = a - quotient * b;
+        // Handle sign of zero result to match Python behavior
+        // When result is zero, Python preserves sign based on operand signs
+        // -1.0 % 1.0 = 0.0 (not -0.0), but 1.0 % -1.0 = -0.0
+        if (result == 0.0) {
+            // If b is negative, result should be -0.0
+            // If b is positive, result should be 0.0
+            return if (b < 0.0) -@as(T, 0.0) else @as(T, 0.0);
+        }
+        return result;
     }
 };
 
@@ -1493,8 +1623,9 @@ pub const OperatorMod = struct {
 /// Called as: OperatorPow{}.call(a, b) where self is ignored
 /// Named 'call' to match callable_vars system
 /// Python: 0.0 ** negative raises ZeroDivisionError
+/// Python: pow(negative, non_integer) returns complex
 pub const OperatorPow = struct {
-    pub fn call(_: @This(), a: anytype, b: anytype) PythonError!f64 {
+    pub fn call(_: @This(), a: anytype, b: anytype) PythonError!PyPowResult {
         const af: f64 = switch (@typeInfo(@TypeOf(a))) {
             .float, .comptime_float => @as(f64, a),
             .int, .comptime_int => @as(f64, @floatFromInt(a)),
@@ -1505,11 +1636,7 @@ pub const OperatorPow = struct {
             .int, .comptime_int => @as(f64, @floatFromInt(b)),
             else => 0.0,
         };
-        // Python: 0.0 ** negative raises ZeroDivisionError
-        if (af == 0.0 and bf < 0.0) {
-            return PythonError.ZeroDivisionError;
-        }
-        return std.math.pow(f64, af, bf);
+        return pyPow(af, bf);
     }
 };
 
@@ -1796,20 +1923,26 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
             return bankersRound(value);
         } else if (digits > 0) {
             // Round to ndigits decimal places using banker's rounding
-            // For large numbers, check if they already have fewer decimals
+            // For very large ndigits (> 308), the precision requested exceeds f64's
+            // ~15-17 significant digits, so just return the original value unchanged.
+            // Python: round(123.456, 324) == 123.456
+            if (digits > 308) {
+                return value;
+            }
             const multiplier = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(digits)));
-            // Check if the value is already at the requested precision
-            // by comparing original with rounded-then-restored value
+            // Check for multiplier overflow (shouldn't happen with digits <= 308)
+            if (std.math.isInf(multiplier)) {
+                return value; // Can't round further than f64 precision
+            }
             const scaled = value * multiplier;
-            // Check for overflow
+            // Check for overflow in scaled value
             if (std.math.isInf(scaled)) {
-                return PythonError.OverflowError;
+                return value; // Value too large to scale, return unchanged
             }
             const rounded_scaled = bankersRound(scaled);
             const result = rounded_scaled / multiplier;
             // For very large numbers, avoid precision loss by checking if
             // the original value fits in the precision requested
-            // If the difference is very small (floating point epsilon), use original
             const diff = @abs(result - value);
             const epsilon = @abs(value) * 1e-14; // relative tolerance
             if (diff < epsilon) {
@@ -1818,10 +1951,17 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
             return result;
         } else {
             // Negative ndigits - round to tens, hundreds, etc.
+            // For very negative ndigits (< -308), the scale exceeds f64 range.
+            // Python: round(123.456, -309) == 0.0 (preserves sign for -0.0)
+            if (digits < -308) {
+                // Result would be 0.0 (or -0.0 for negative values)
+                return if (value < 0) -0.0 else 0.0;
+            }
             const multiplier = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(-digits)));
-            // Check for overflow - if multiplier is inf, result will overflow
+            // Check for multiplier overflow
             if (std.math.isInf(multiplier)) {
-                return PythonError.OverflowError;
+                // Scale too large - result rounds to zero
+                return if (value < 0) -0.0 else 0.0;
             }
             const scaled = value / multiplier;
             const result = bankersRound(scaled) * multiplier;
