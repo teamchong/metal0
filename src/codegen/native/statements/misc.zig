@@ -322,15 +322,27 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
 
 /// Generate assert statement
 /// Transforms: assert condition or assert condition, message
-/// Into: if (!(condition)) { runtime.debug_reader.printPythonError(...); std.debug.panic(...); }
+/// Into: if (!runtime.toBool(condition)) { runtime.debug_reader.printPythonError(...); std.debug.panic(...); }
 pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenError!void {
     // Record line mapping for debug info (maps Python assert line -> Zig line)
     self.recordAssertLineMapping();
 
+    // Check if condition is a simple bool type that doesn't need toBool wrapper
+    const cond_type = self.inferExprScoped(assert_node.condition.*) catch .unknown;
+    const is_simple_bool = cond_type == .bool;
+
     try self.emitIndent();
-    try self.emit("if (!(");
-    try self.genExpr(assert_node.condition.*);
-    try self.emit(")) {\n");
+    if (is_simple_bool) {
+        // Direct negation for bool expressions
+        try self.emit("if (!(");
+        try self.genExpr(assert_node.condition.*);
+        try self.emit(")) {\n");
+    } else {
+        // Use runtime.toBool for proper Python truthiness (lists, strings, etc.)
+        try self.emit("if (!runtime.toBool(");
+        try self.genExpr(assert_node.condition.*);
+        try self.emit(")) {\n");
+    }
 
     self.indent();
 
