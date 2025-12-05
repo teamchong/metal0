@@ -399,7 +399,9 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Infer element type from argument
     const arg_type = try self.inferExprScoped(args[0]);
-    const elem_zig_type: []const u8 = switch (@as(std.meta.Tag(@TypeOf(arg_type)), arg_type)) {
+    const arg_tag = @as(std.meta.Tag(@TypeOf(arg_type)), arg_type);
+    const is_bytes = arg_tag == .bytes;
+    const elem_zig_type: []const u8 = switch (arg_tag) {
         .string, .bytes => "u8", // Strings/bytes are []const u8 or PyBytes (element is u8)
         .list => blk: {
             // Get element type from list
@@ -417,17 +419,28 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   const _slice = if (@typeInfo(@TypeOf(_input)) == .array) &_input else _input;
     //   var copy = try allocator.dupe(elem_type, _slice);
     //   std.mem.reverse(elem_type, copy);
-    //   break :blk copy;
+    //   break :blk copy;  // or PyBytes.init(copy) for bytes
     // }
 
     try self.emit("blk: {\n");
     try self.emit("const _rev_input = ");
     try self.genExpr(args[0]);
     try self.emit(";\n");
-    try self.emit("const _rev_slice = if (@typeInfo(@TypeOf(_rev_input)) == .array) @as([]const @typeInfo(@TypeOf(_rev_input)).array.child, &_rev_input) else _rev_input;\n");
+    // Handle PyBytes struct (has .data field), arrays, and slices
+    try self.emit("const _rev_slice = blk2: {\n");
+    try self.emit("    const T = @TypeOf(_rev_input);\n");
+    try self.emit("    if (@typeInfo(T) == .@\"struct\" and @hasField(T, \"data\")) break :blk2 _rev_input.data\n");
+    try self.emit("    else if (@typeInfo(T) == .array) break :blk2 @as([]const @typeInfo(T).array.child, &_rev_input)\n");
+    try self.emit("    else break :blk2 _rev_input;\n");
+    try self.emit("};\n");
     try self.emitFmt("const __reversed_copy = try {s}.dupe({s}, _rev_slice);\n", .{ alloc_name, elem_zig_type });
     try self.emitFmt("std.mem.reverse({s}, __reversed_copy);\n", .{elem_zig_type});
-    try self.emit("break :blk __reversed_copy;\n");
+    if (is_bytes) {
+        // Wrap result in PyBytes for bytes input
+        try self.emit("break :blk runtime.builtins.PyBytes.init(__reversed_copy);\n");
+    } else {
+        try self.emit("break :blk __reversed_copy;\n");
+    }
     try self.emit("}");
 }
 

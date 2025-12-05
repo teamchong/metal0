@@ -109,6 +109,7 @@ pub const PyPowResult = union(enum) {
 
 /// PyBytes - Wrapper for Python bytes type
 /// Preserves type information for repr() to correctly output b'...' format
+/// Supports all operations that []const u8 supports via wrapper methods
 pub const PyBytes = struct {
     data: []const u8,
 
@@ -116,8 +117,49 @@ pub const PyBytes = struct {
         return PyBytes{ .data = data };
     }
 
-    /// Get the underlying data
+    /// Get the underlying data slice
     pub fn slice(self: PyBytes) []const u8 {
+        return self.data;
+    }
+
+    /// Length of the bytes
+    pub fn len(self: PyBytes) usize {
+        return self.data.len;
+    }
+
+    /// Concatenate two PyBytes (allocates)
+    pub fn concat(allocator: std.mem.Allocator, a: PyBytes, b: PyBytes) !PyBytes {
+        const result = try allocator.alloc(u8, a.data.len + b.data.len);
+        @memcpy(result[0..a.data.len], a.data);
+        @memcpy(result[a.data.len..], b.data);
+        return PyBytes{ .data = result };
+    }
+
+    /// Repeat bytes n times (allocates)
+    pub fn repeat(allocator: std.mem.Allocator, self: PyBytes, n: usize) !PyBytes {
+        if (n == 0) return PyBytes{ .data = "" };
+        const result = try allocator.alloc(u8, self.data.len * n);
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            @memcpy(result[i * self.data.len .. (i + 1) * self.data.len], self.data);
+        }
+        return PyBytes{ .data = result };
+    }
+
+    /// Slice bytes [start:end]
+    pub fn sliceRange(self: PyBytes, start: usize, end: usize) PyBytes {
+        const actual_end = @min(end, self.data.len);
+        const actual_start = @min(start, actual_end);
+        return PyBytes{ .data = self.data[actual_start..actual_end] };
+    }
+
+    /// Index into bytes
+    pub fn get(self: PyBytes, index: usize) u8 {
+        return self.data[index];
+    }
+
+    /// Iterator support
+    pub fn iterator(self: PyBytes) []const u8 {
         return self.data;
     }
 };

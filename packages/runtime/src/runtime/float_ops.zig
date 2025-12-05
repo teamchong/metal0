@@ -539,6 +539,10 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
     // Handle custom classes - check dunder methods FIRST, then fall back to base value
     // In Python, __float__() takes precedence over inherited float value
     if (first_info == .@"struct") {
+        // Check for PyBytes (has .data field with []const u8) - parse as float
+        if (@hasField(FirstType, "data") and @TypeOf(@field(first, "data")) == []const u8) {
+            return parseFloatWithUnicode(first.data) catch return PythonError.ValueError;
+        }
         // Check for BigInt's toFloat() method (returns f64 directly)
         // BigInt.toFloat takes *const Self, so we need to take address
         if (@hasDecl(FirstType, "toFloat") and @hasField(FirstType, "managed")) {

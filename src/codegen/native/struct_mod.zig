@@ -59,7 +59,9 @@ pub fn genUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return;
     const fmt_str = getFormatStr(args[0]);
     try self.emit("struct_unpack_blk: { const _fmt = "); try self.genExpr(args[0]);
-    try self.emit("; const _data = "); try self.genExpr(args[1]); try self.emit("; _ = _fmt; ");
+    try self.emit("; const _raw_data = "); try self.genExpr(args[1]);
+    // Handle PyBytes (has .data field) vs raw slice
+    try self.emit("; const _data = if (@TypeOf(_raw_data) == runtime.builtins.PyBytes) _raw_data.data else _raw_data; _ = _fmt; ");
     if (fmt_str) |fmt| {
         try self.emit("var _pos: usize = 0; ");
         for (fmt, 0..) |c, i| {
