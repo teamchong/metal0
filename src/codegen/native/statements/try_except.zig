@@ -262,9 +262,9 @@ fn findMutatingMethodCalls(expr: ast.Node, vars: *FnvVoidMap) !void {
     }
 }
 
-/// Find all variables locally declared within statements (for-loop targets only)
+/// Find all variables locally declared within statements (for-loop targets, imports)
 /// These are variables that should NOT be captured from outer scope
-/// NOTE: We only track for-loop targets here, NOT assignment targets,
+/// NOTE: We only track for-loop targets and imports here, NOT assignment targets,
 /// because assignments might be reassigning outer variables
 fn findLocallyDeclaredVars(stmts: []ast.Node, vars: *FnvVoidMap) !void {
     for (stmts) |stmt| {
@@ -292,6 +292,26 @@ fn findLocallyDeclaredVars(stmts: []ast.Node, vars: *FnvVoidMap) !void {
             },
             .while_stmt => |while_stmt| {
                 try findLocallyDeclaredVars(while_stmt.body, vars);
+            },
+            // Import statements introduce new variables - they're locally declared
+            // e.g., `import numpy` creates variable `numpy`
+            // e.g., `from os import path` creates variable `path`
+            // e.g., `import numpy as np` creates variable `np`
+            .import_stmt => |import_stmt| {
+                // Use asname if present, otherwise module name
+                const var_name = import_stmt.asname orelse import_stmt.module;
+                try vars.put(var_name, {});
+            },
+            .import_from => |import_from| {
+                // Each imported name creates a variable
+                for (import_from.names, 0..) |name, i| {
+                    // Use asname if present, otherwise the imported name
+                    const var_name = if (i < import_from.asnames.len and import_from.asnames[i] != null)
+                        import_from.asnames[i].?
+                    else
+                        name;
+                    try vars.put(var_name, {});
+                }
             },
             else => {},
         }
@@ -858,13 +878,19 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         const saved_control_flow_terminated = self.control_flow_terminated;
         self.control_flow_terminated = false;
 
+        // Set inside_try_body = true so that error-returning builtins (like float())
+        // use 'try' instead of 'catch 0.0', allowing errors to propagate to handlers
+        const saved_inside_try_body = self.inside_try_body;
+        self.inside_try_body = true;
+
         // Generate try block body with renamed variables
         for (try_node.body) |stmt| {
             try self.generateStmt(stmt);
         }
 
-        // Restore control_flow_terminated IMMEDIATELY after try body
+        // Restore inside_try_body and control_flow_terminated IMMEDIATELY after try body
         // Must do this before generating else/finally/handlers since they need accurate state
+        self.inside_try_body = saved_inside_try_body;
         self.control_flow_terminated = saved_control_flow_terminated;
 
         // Clear rename map after generating body and free allocated strings
@@ -1019,19 +1045,22 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 // If handler has "as name", always assign the exception variable
                 // It might be used in the handler body OR after the try/except block
                 if (handler.name) |exc_name| {
-                    // Check if this name was already hoisted as a var
-                    const is_hoisted = blk: {
+                    // Check if this name was already hoisted as a var (this try block)
+                    const is_hoisted_this_block = blk: {
                         for (declared_vars.items) |hoisted| {
                             if (std.mem.eql(u8, hoisted.name, exc_name)) break :blk true;
                         }
                         break :blk false;
                     };
+                    // Also check if already declared from a previous try block or other scope
+                    const is_already_declared = is_hoisted_this_block or self.hoisted_vars.contains(exc_name) or self.isDeclared(exc_name);
+
                     // Only emit if used in handler body OR hoisted (used elsewhere)
-                    if (is_hoisted or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
+                    if (is_already_declared or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
                         try self.emitIndent();
                         // Use runtime.getExceptionStr() to get the actual exception message
                         // not just the error type name
-                        if (is_hoisted) {
+                        if (is_already_declared) {
                             // Assign to the existing hoisted variable
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
                             try self.emit(" = runtime.getExceptionStr();\n");
@@ -1064,19 +1093,22 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 // If handler has "as name", always assign the exception variable
                 // It might be used in the handler body OR after the try/except block
                 if (handler.name) |exc_name| {
-                    // Check if this name was already hoisted as a var
-                    const is_hoisted = blk: {
+                    // Check if this name was already hoisted as a var (this try block)
+                    const is_hoisted_this_block = blk: {
                         for (declared_vars.items) |hoisted| {
                             if (std.mem.eql(u8, hoisted.name, exc_name)) break :blk true;
                         }
                         break :blk false;
                     };
+                    // Also check if already declared from a previous try block or other scope
+                    const is_already_declared = is_hoisted_this_block or self.hoisted_vars.contains(exc_name) or self.isDeclared(exc_name);
+
                     // Only emit if used in handler body OR hoisted (used elsewhere)
-                    if (is_hoisted or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
+                    if (is_already_declared or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
                         try self.emitIndent();
                         // Use runtime.getExceptionStr() to get the actual exception message
                         // not just the error type name
-                        if (is_hoisted) {
+                        if (is_already_declared) {
                             // Assign to the existing hoisted variable
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
                             try self.emit(" = runtime.getExceptionStr();\n");
