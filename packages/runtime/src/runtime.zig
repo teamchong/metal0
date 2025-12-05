@@ -51,6 +51,9 @@ pub const calendar = @import("Lib/calendar.zig");
 /// Export os module
 pub const os = @import("Lib/os.zig");
 
+/// Export itertools module
+pub const itertools = @import("Lib/itertools.zig");
+
 /// Export ctypes FFI module
 pub const ctypes = @import("Modules/_ctypes.zig");
 
@@ -652,6 +655,7 @@ pub fn pyToInt(value: anytype) PythonError!i64 {
             // Use pre-computed messages for each type since Zig can't concat runtime strings
             const msg = switch (value) {
                 .string => "'str' object cannot be interpreted as an integer",
+                .bytes => "'bytes' object cannot be interpreted as an integer",
                 .float => "'float' object cannot be interpreted as an integer",
                 .bool => "'bool' object cannot be interpreted as an integer",
                 .none => "'NoneType' object cannot be interpreted as an integer",

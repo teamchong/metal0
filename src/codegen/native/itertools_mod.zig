@@ -120,7 +120,17 @@ pub fn genCount(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("; break :count_blk .{ .start = _start, .step = _step }; }");
 }
 
-pub const genIslice = h.wrap2("islice_blk: { const _iter = ", "; const _stop = @as(usize, @intCast(", ")); var _result = std.ArrayList(i64){}; for (_iter.items[0..@min(_stop, _iter.items.len)]) |item| { _result.append(__global_allocator, item) catch continue; } break :islice_blk _result; }", "std.ArrayList(i64){}");
+pub fn genIslice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) {
+        try self.emit("std.ArrayList(i64){}");
+        return;
+    }
+    try self.emit("islice_blk: { const _iter = ");
+    try emitIter(self, args[0]);
+    try self.emit("; const _stop = @as(usize, @intCast(");
+    try self.genExpr(args[1]);
+    try self.emit(")); var _result = std.ArrayList(@TypeOf(_iter[0])){}; for (_iter[0..@min(_stop, _iter.len)]) |item| { _result.append(__global_allocator, item) catch continue; } break :islice_blk _result; }");
+}
 
 pub fn genZipLongest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("std.ArrayList(struct { @\"0\": i64 }){}"); return; }

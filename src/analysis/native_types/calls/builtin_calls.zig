@@ -140,6 +140,24 @@ pub fn inferBuiltinCall(
         return .{ .string = .runtime };
     }
 
+    // memoryview() builtin - returns bytes (view into buffer)
+    const MEMORYVIEW_HASH = comptime fnv_hash.hash("memoryview");
+    if (fnv_hash.hash(func_name) == MEMORYVIEW_HASH) {
+        return .bytes;
+    }
+
+    // bytes() builtin - returns bytes
+    const BYTES_HASH = comptime fnv_hash.hash("bytes");
+    if (fnv_hash.hash(func_name) == BYTES_HASH) {
+        return .bytes;
+    }
+
+    // bytearray() builtin - returns bytes
+    const BYTEARRAY_HASH = comptime fnv_hash.hash("bytearray");
+    if (fnv_hash.hash(func_name) == BYTEARRAY_HASH) {
+        return .bytes;
+    }
+
     // dict() builtin - returns dict type
     const DICT_BUILTIN_HASH = comptime fnv_hash.hash("dict");
     if (fnv_hash.hash(func_name) == DICT_BUILTIN_HASH) {
@@ -292,6 +310,12 @@ pub fn inferBuiltinCall(
             if (@as(std.meta.Tag(NativeType), arg_type) == .tuple) {
                 const elem_ptr = try allocator.create(NativeType);
                 elem_ptr.* = .pyvalue;
+                return .{ .list = elem_ptr };
+            }
+            // If arg is a deque (from itertools), list() returns list of i64
+            if (@as(std.meta.Tag(NativeType), arg_type) == .deque) {
+                const elem_ptr = try allocator.create(NativeType);
+                elem_ptr.* = .{ .int = .bounded };
                 return .{ .list = elem_ptr };
             }
             // For iterables, return list of unknown element type
