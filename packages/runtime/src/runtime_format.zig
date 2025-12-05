@@ -602,7 +602,7 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
             } else if (spec.sign == .space) {
                 try buf.append(allocator, ' ');
             }
-            try buf.appendSlice(allocator, if (uppercase) "nan" else "nan");
+            try buf.appendSlice(allocator, if (uppercase) "NAN" else "nan");
         } else if (std.math.isInf(float_val)) {
             const uppercase = spec.fmt_type == 'F' or spec.fmt_type == 'E';
             if (float_val < 0) {
@@ -612,7 +612,7 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
             } else if (spec.sign == .space) {
                 try buf.append(allocator, ' ');
             }
-            try buf.appendSlice(allocator, if (uppercase) "inf" else "inf");
+            try buf.appendSlice(allocator, if (uppercase) "INF" else "inf");
         } else {
             // Apply sign flag for normal floats
             if (float_val < 0) {

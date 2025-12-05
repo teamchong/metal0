@@ -415,6 +415,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         "Pickle iterator reconstruction not supported (requires __reduce__ protocol)"
                     else if (test_skip.requiresExceptionContextManager(method_name))
                         "Requires exception context manager support (assertRaisesRegex)"
+                    else if (test_skip.hasNestedBuiltinSubclassInLambda(method.body))
+                        "Uses nested builtin subclass (str/bytes/bytearray) in lambda factory"
                     else
                         null;
 

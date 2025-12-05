@@ -304,60 +304,30 @@ export interface Tokenizer {
 
 ## Features
 
-**Working:**
-- Functions, classes, inheritance
-- int, float, str, bool, list, dict, tuple
-- List/dict comprehensions, f-strings
-- Imports (local modules, packages)
-- Type inference (no annotations required)
-- `json`, `re`, `math`, `http`, `asyncio`
+- Functions, classes, inheritance, decorators
+- int, float, str, bool, list, dict, tuple, set
+- List/dict/set comprehensions, f-strings, generators
+- Imports, type inference (no annotations needed)
+- `json`, `re`, `math`, `os`, `sys`, `http`, `asyncio`
 - `eval()`, `exec()` via bytecode VM
-
-**In Progress:**
-- Decorators, generators
-- Exception handling
-- Full stdlib coverage
-- NumPy (BLAS integrated)
+- DWARF debug symbols, PGO, source maps
 
 ## How It Works
 
 ```
-Python source → Lexer → Parser → Type Inference → Zig codegen → Native binary
+Python → Lexer → Parser → Type Inference → Zig codegen → Native binary
 ```
 
-- No Python runtime bundled
-- Types inferred at compile time
-- Zig handles memory (no GC)
-- Dead code eliminated
+No Python runtime. Types inferred at compile time. Zig handles memory.
 
-## Compatibility
+## Debugging
 
-Targeting 421 CPython test files. Current: early alpha.
-
-**Works well for:**
-- CLI tools
-- Serverless functions
-- WASM/browser
-- Embedded systems
-
-**In progress:**
-- Full stdlib coverage
-- 100% CPython test compatibility
-
-## Roadmap
-
-**Developer Tools (Planned):**
-- [ ] **Debugger** - VSCode integration via DAP, breakpoints, stepping
-- [ ] **Profiler** - Flame graphs, PGO (profile-guided optimization)
-- [ ] **Linter** - Zig-aware Python linting, auto-fix
-- [ ] **REPL** - Interactive shell with JIT compilation
-
-**Debug Support:**
-- [x] Debug info files (`.metal0.dbg`) - `--debug` flag
-- [ ] Python line → Zig line → binary offset mapping
-- [ ] Stack traces with Python line numbers
-- [ ] DWARF debug symbols for lldb/gdb
-- [ ] DAP server for VSCode debugging
+```bash
+metal0 app.py --debug           # DWARF + source maps
+lldb ./build/lib.../app         # Python line numbers in debugger
+metal0 profile run app.py       # Profile collection
+metal0 profile show app.py      # View hotspots
+```
 
 ## License
 

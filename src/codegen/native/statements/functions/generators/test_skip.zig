@@ -169,18 +169,16 @@ pub fn hasNestedBuiltinSubclassInLambda(stmts: []const ast.Node) bool {
     for (stmts) |stmt| {
         if (stmt == .class_def) {
             const class = stmt.class_def;
-            for (class.bases) |base| {
-                if (base == .name) {
-                    const base_name = base.name.id;
-                    // Check if inheriting from builtin types that can't be properly subclassed yet
-                    if (std.mem.eql(u8, base_name, "str") or
-                        std.mem.eql(u8, base_name, "bytes") or
-                        std.mem.eql(u8, base_name, "bytearray"))
-                    {
-                        if (count < nested_builtin_subclasses.len) {
-                            nested_builtin_subclasses[count] = class.name;
-                            count += 1;
-                        }
+            // bases is []const []const u8 (array of strings)
+            for (class.bases) |base_name| {
+                // Check if inheriting from builtin types that can't be properly subclassed yet
+                if (std.mem.eql(u8, base_name, "str") or
+                    std.mem.eql(u8, base_name, "bytes") or
+                    std.mem.eql(u8, base_name, "bytearray"))
+                {
+                    if (count < nested_builtin_subclasses.len) {
+                        nested_builtin_subclasses[count] = class.name;
+                        count += 1;
                     }
                 }
             }
