@@ -1746,6 +1746,9 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
             // TypeError for non-integer ndigits types (float, complex, string, etc.)
             if (@typeInfo(NdigitsT) == .float) {
                 return PythonError.TypeError;
+            } else if (NdigitsT == bool) {
+                // Python treats bool as int: True=1, False=0
+                break :blk @as(i64, @intFromBool(ndigits));
             } else if (@typeInfo(NdigitsT) == .int or @typeInfo(NdigitsT) == .comptime_int) {
                 break :blk @as(i64, @intCast(ndigits));
             } else if (@typeInfo(NdigitsT) == .@"struct") {

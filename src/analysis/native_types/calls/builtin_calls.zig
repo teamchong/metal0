@@ -106,6 +106,34 @@ pub fn inferBuiltinCall(
         return .{ .int = .bounded };
     }
 
+    // Special case: round() - returns int if no ndigits, float if ndigits provided
+    const ROUND_HASH = comptime fnv_hash.hash("round");
+    if (fnv_hash.hash(func_name) == ROUND_HASH) {
+        // round(x) or round(x, None) → int
+        // round(x, ndigits) → float (when ndigits is not None)
+        if (call.args.len <= 1) {
+            // No ndigits or ndigits not provided
+            return .{ .int = .bounded };
+        }
+        // Check if second arg is None
+        const ndigits_arg = call.args[1];
+        if (ndigits_arg == .constant and ndigits_arg.constant.value == .none) {
+            return .{ .int = .bounded };
+        }
+        // Also check for keyword arg ndigits=None
+        for (call.keyword_args) |kwarg| {
+            if (std.mem.eql(u8, kwarg.name, "ndigits")) {
+                if (kwarg.value == .constant and kwarg.value.constant.value == .none) {
+                    return .{ .int = .bounded };
+                }
+                // ndigits provided and not None → float
+                return .float;
+            }
+        }
+        // ndigits provided as positional arg and not None → float
+        return .float;
+    }
+
     // dict() builtin - returns dict type
     const DICT_BUILTIN_HASH = comptime fnv_hash.hash("dict");
     if (fnv_hash.hash(func_name) == DICT_BUILTIN_HASH) {
