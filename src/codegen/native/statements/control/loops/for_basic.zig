@@ -423,6 +423,22 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             }
             const actual_name = self.var_renames.get(var_name) orelse var_name;
 
+            // Check if the renamed name contains a dot (capture struct access like __cap_foo.bar)
+            // If so, this is for reading captured vars, not for declaring new locals.
+            // For declarations, use a sanitized name with dots replaced by underscores.
+            const decl_name = blk: {
+                if (std.mem.indexOfScalar(u8, actual_name, '.')) |_| {
+                    // Contains dot - sanitize for declaration
+                    var buf = try self.allocator.alloc(u8, actual_name.len);
+                    for (actual_name, 0..) |c, idx| {
+                        buf[idx] = if (c == '.') '_' else c;
+                    }
+                    break :blk buf;
+                } else {
+                    break :blk actual_name;
+                }
+            };
+
             // Check if variable is hoisted (used after loop) - use assignment not declaration
             // Also check if reassigned later in the loop body - need `var` not `const`
             const is_hoisted = self.hoisted_vars.contains(var_name);
@@ -430,13 +446,13 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
             if (is_hoisted) {
                 // Already declared at function level - just assign
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
             } else if (is_reassigned) {
                 try self.emit("var ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
             } else {
                 try self.emit("const ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
             }
             try self.output.writer(self.allocator).print(" = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
 
@@ -908,13 +924,28 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             }
             const actual_name = self.var_renames.get(var_name) orelse var_name;
 
+            // Check if the renamed name contains a dot (capture struct access like __cap_foo.bar)
+            // If so, sanitize for declaration (replace dots with underscores)
+            const decl_name = blk: {
+                if (std.mem.indexOfScalar(u8, actual_name, '.')) |_| {
+                    // Contains dot - sanitize for declaration
+                    var buf = try self.allocator.alloc(u8, actual_name.len);
+                    for (actual_name, 0..) |c, idx| {
+                        buf[idx] = if (c == '.') '_' else c;
+                    }
+                    break :blk buf;
+                } else {
+                    break :blk actual_name;
+                }
+            };
+
             // Check if variable is hoisted (used after loop) - use assignment not const
             if (self.hoisted_vars.contains(var_name)) {
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
                 try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id });
             } else {
                 try self.emit("const ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
                 try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id });
             }
         }

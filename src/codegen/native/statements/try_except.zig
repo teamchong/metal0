@@ -512,9 +512,22 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             actual_var_name = renamed;
         }
 
+        // If rename ends with ".*", this variable is already a pointer parameter in an enclosing
+        // TryHelper. Skip local declaration - it will be accessed through the pointer.
+        if (std.mem.endsWith(u8, actual_var_name, ".*")) {
+            continue;
+        }
+
+        // Strip ".*" suffix if present - the rename is for pointer access, not declaration.
+        // e.g., "p_sys_exception.*" should become "p_sys_exception" for declaration.
+        const decl_var_name = if (std.mem.endsWith(u8, actual_var_name, ".*"))
+            actual_var_name[0 .. actual_var_name.len - 2]
+        else
+            actual_var_name;
+
         try self.emitIndent();
         try self.emit("var ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_var_name);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_var_name);
         try self.emit(": ");
         try self.emit(zig_type);
         try self.emit(" = undefined;\n");
@@ -524,7 +537,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // (e.g., else: hit_else = True when exception IS raised, else never runs).
         try self.emitIndent();
         try self.emit("_ = &");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_var_name);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_var_name);
         try self.emit(";\n");
 
         // Mark as hoisted so assignment generation skips declaration

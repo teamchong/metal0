@@ -85,6 +85,21 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             // If so, this is a pointer assignment inside a try block helper - no const/var prefix needed
             const is_pointer_deref = std.mem.endsWith(u8, actual_name, ".*");
 
+            // Check if the renamed name contains a dot (capture struct access like __cap_foo.bar)
+            // If so, sanitize for declaration (replace dots with underscores)
+            const decl_name = blk: {
+                if (!is_pointer_deref and std.mem.indexOfScalar(u8, actual_name, '.') != null) {
+                    // Contains dot - sanitize for declaration
+                    var buf = try self.allocator.alloc(u8, actual_name.len);
+                    for (actual_name, 0..) |c, idx| {
+                        buf[idx] = if (c == '.') '_' else c;
+                    }
+                    break :blk buf;
+                } else {
+                    break :blk actual_name;
+                }
+            };
+
             try self.emitIndent();
             if (is_first_assignment and !is_pointer_deref) {
                 try self.emit("const ");
@@ -94,7 +109,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             if (is_pointer_deref) {
                 try self.emit(actual_name);
             } else {
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), decl_name);
             }
             if (is_list_type) {
                 // Use .items[i] for ArrayLists: __unpack_tmp_N.items[i]
@@ -106,7 +121,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
 
             // Track for potential discard emission (avoid unused variable errors in Zig)
             if (is_first_assignment and !is_pointer_deref) {
-                try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, actual_name));
+                try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, decl_name));
             }
         } else if (target == .subscript) {
             // Handle subscript targets: rshape[n], lslices[n] = big, small
@@ -256,6 +271,21 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             // If so, this is a pointer assignment inside a try block helper - no const/var prefix needed
             const is_pointer_deref = std.mem.endsWith(u8, actual_name, ".*");
 
+            // Check if the renamed name contains a dot (capture struct access like __cap_foo.bar)
+            // If so, sanitize for declaration (replace dots with underscores)
+            const decl_name2 = blk: {
+                if (!is_pointer_deref and std.mem.indexOfScalar(u8, actual_name, '.') != null) {
+                    // Contains dot - sanitize for declaration
+                    var buf = try self.allocator.alloc(u8, actual_name.len);
+                    for (actual_name, 0..) |c, idx| {
+                        buf[idx] = if (c == '.') '_' else c;
+                    }
+                    break :blk buf;
+                } else {
+                    break :blk actual_name;
+                }
+            };
+
             try self.emitIndent();
             if (is_first_assignment and !is_pointer_deref) {
                 try self.emit("const ");
@@ -265,7 +295,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             if (is_pointer_deref) {
                 try self.emit(actual_name);
             } else {
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), decl_name2);
             }
             if (is_list_type) {
                 // Use .items[i] for ArrayLists: __unpack_tmp_N.items[i]
@@ -277,7 +307,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
 
             // Track for potential discard emission (avoid unused variable errors in Zig)
             if (is_first_assignment and !is_pointer_deref) {
-                try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, actual_name));
+                try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, decl_name2));
             }
         } else if (target == .subscript) {
             // Handle subscript targets: rshape[n], lslices[n] = big, small
