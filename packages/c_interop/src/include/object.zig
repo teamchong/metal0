@@ -1,11 +1,16 @@
 /// CPython-Compatible Object Layout
 ///
-/// This file defines ALL PyObject types with EXACT CPython 3.12+ binary layout
+/// This file defines ALL PyObject types with EXACT CPython binary layout
 /// so external C extensions (numpy, pandas, etc.) can use them.
 ///
+/// Supports: Python 3.10, 3.11, 3.12, 3.13
 /// Reference: cpython/Include/object.h, cpython/Include/cpython/*.h
 
 const std = @import("std");
+const version = @import("version.zig");
+
+/// Current Python version for struct layouts
+pub const PYTHON_VERSION = version.PYTHON_VERSION;
 
 /// ============================================================================
 /// CPYTHON 3.12+ OBJECT LAYOUT (Binary Compatible - 64-bit little-endian)
@@ -228,8 +233,9 @@ pub const Py_TPFLAGS_DICT_SUBCLASS: c_ulong = 1 << 29;
 pub const Py_TPFLAGS_BASE_EXC_SUBCLASS: c_ulong = 1 << 30;
 pub const Py_TPFLAGS_TYPE_SUBCLASS: c_ulong = 1 << 31;
 
-/// PyTypeObject - EXACT CPython 3.12 layout
-/// This struct MUST match CPython exactly for binary compatibility!
+/// PyTypeObject - Version-specific layout
+/// - 3.12+: Has tp_watched and tp_versions_used fields
+/// - 3.10-3.11: Ends at tp_vectorcall
 pub const PyTypeObject = extern struct {
     // PyObject_VAR_HEAD
     ob_base: PyVarObject, // 24 bytes
@@ -308,9 +314,10 @@ pub const PyTypeObject = extern struct {
     tp_finalize: destructor,
     tp_vectorcall: vectorcallfunc,
 
-    // Added in 3.12
-    tp_watched: u8,
-    tp_versions_used: u16,
+    // Added in 3.12 - conditional fields
+    // For 3.10-3.11 compatibility, these are always present but ignored
+    tp_watched: u8 = 0,
+    tp_versions_used: u16 = 0,
 };
 
 /// ============================================================================
@@ -345,24 +352,13 @@ pub const PyModuleDef = extern struct {
 };
 
 /// ============================================================================
-/// PYLONGOBJECT - EXACT CPYTHON 3.12 LAYOUT (Bigint)
+/// PYLONGOBJECT - Version-specific layouts
 /// ============================================================================
 ///
-/// CPython 3.12 uses a compact representation for small integers.
-/// The lv_tag encodes sign and number of digits.
+/// Python 3.12+: Uses lv_tag encoding (sign + digit count packed)
+/// Python 3.10-3.11: Uses ob_size in PyVarObject header
 ///
-/// Layout from cpython/Include/cpython/longintrepr.h:
-/// ```c
-/// typedef struct _PyLongValue {
-///     uintptr_t lv_tag; /* Number of digits, sign and flags */
-///     digit ob_digit[1];
-/// } _PyLongValue;
-///
-/// struct _longobject {
-///     PyObject_HEAD
-///     _PyLongValue long_value;
-/// };
-/// ```
+/// Layout from cpython/Include/cpython/longintrepr.h
 
 /// digit type for bigint - 30 bits per digit on 64-bit platforms
 pub const digit = u32;
@@ -377,17 +373,60 @@ pub const PyLong_MASK: digit = PyLong_BASE - 1;
 pub const _PyLong_SIGN_MASK: usize = 3;
 pub const _PyLong_NON_SIZE_BITS: u5 = 3;
 
-/// _PyLongValue - Internal long value structure
+/// _PyLongValue - Internal long value structure (3.12+ only)
 pub const _PyLongValue = extern struct {
     lv_tag: usize, // Number of digits, sign and flags
     ob_digit: [1]digit, // Flexible array member - at least 1 digit always allocated
 };
 
 /// PyLongObject - Python int (arbitrary precision)
-/// EXACT match to CPython 3.12 layout
-pub const PyLongObject = extern struct {
-    ob_base: PyObject, // 16 bytes
-    long_value: _PyLongValue, // lv_tag + ob_digit[1]
+/// Version-specific layout:
+/// - 3.12+: PyObject + _PyLongValue (lv_tag encoding)
+/// - 3.10-3.11: PyVarObject + ob_digit (ob_size encoding)
+pub const PyLongObject = if (version.hasLvTag(PYTHON_VERSION))
+    // Python 3.12+ layout
+    extern struct {
+        ob_base: PyObject, // 16 bytes
+        long_value: _PyLongValue, // lv_tag + ob_digit[1]
+
+        // 3.12+ helpers
+        pub fn isNegative(self: *const @This()) bool {
+            return (self.long_value.lv_tag & _PyLong_SIGN_MASK) == 2;
+        }
+        pub fn isZero(self: *const @This()) bool {
+            return (self.long_value.lv_tag & _PyLong_SIGN_MASK) == 1;
+        }
+        pub fn digitCount(self: *const @This()) usize {
+            return self.long_value.lv_tag >> _PyLong_NON_SIZE_BITS;
+        }
+    }
+else
+    // Python 3.10-3.11 layout
+    extern struct {
+        ob_base: PyVarObject, // 24 bytes (includes ob_size for digit count + sign)
+        ob_digit: [1]digit, // Flexible array
+
+        // 3.10-3.11 helpers (ob_size encodes sign + count)
+        pub fn isNegative(self: *const @This()) bool {
+            return self.ob_base.ob_size < 0;
+        }
+        pub fn isZero(self: *const @This()) bool {
+            return self.ob_base.ob_size == 0;
+        }
+        pub fn digitCount(self: *const @This()) usize {
+            const size = self.ob_base.ob_size;
+            return @intCast(if (size < 0) -size else size);
+        }
+    };
+
+/// Unified PyLongObject access (works across versions)
+pub const PyLongObject_312 = extern struct {
+    ob_base: PyObject,
+    long_value: _PyLongValue,
+};
+pub const PyLongObject_310 = extern struct {
+    ob_base: PyVarObject,
+    ob_digit: [1]digit,
 };
 
 /// ============================================================================
@@ -504,12 +543,40 @@ pub const PyTupleObject = extern struct {
 pub const PyDictKeysObject = opaque {};
 pub const PyDictValues = opaque {};
 
-pub const PyDictObject = extern struct {
-    ob_base: PyObject, // 16 bytes (NOT PyVarObject!)
-    ma_used: isize, // Number of items in dictionary
-    _ma_watcher_tag: u64, // Internal: watchers, mutation counter, unique id
-    ma_keys: ?*PyDictKeysObject, // Keys storage
-    ma_values: ?*PyDictValues, // Values storage (NULL for combined table)
+/// PyDictObject - Version-specific layout
+/// - 3.12+: Has _ma_watcher_tag field (48 bytes)
+/// - 3.10-3.11: No watcher tag (40 bytes)
+pub const PyDictObject = if (version.hasDictWatcher(PYTHON_VERSION))
+    // Python 3.12+ layout with watcher tag
+    extern struct {
+        ob_base: PyObject, // 16 bytes (NOT PyVarObject!)
+        ma_used: isize, // Number of items in dictionary
+        _ma_watcher_tag: u64, // Internal: watchers, mutation counter, unique id
+        ma_keys: ?*PyDictKeysObject, // Keys storage
+        ma_values: ?*PyDictValues, // Values storage (NULL for combined table)
+    }
+else
+    // Python 3.10-3.11 layout without watcher tag
+    extern struct {
+        ob_base: PyObject, // 16 bytes
+        ma_used: isize, // Number of items in dictionary
+        ma_keys: ?*PyDictKeysObject, // Keys storage
+        ma_values: ?*PyDictValues, // Values storage (NULL for combined table)
+    };
+
+/// Explicit versioned types for cross-version access
+pub const PyDictObject_312 = extern struct {
+    ob_base: PyObject,
+    ma_used: isize,
+    _ma_watcher_tag: u64,
+    ma_keys: ?*PyDictKeysObject,
+    ma_values: ?*PyDictValues,
+};
+pub const PyDictObject_310 = extern struct {
+    ob_base: PyObject,
+    ma_used: isize,
+    ma_keys: ?*PyDictKeysObject,
+    ma_values: ?*PyDictValues,
 };
 
 /// ============================================================================
@@ -721,21 +788,28 @@ pub inline fn Py_SIZE(ob: *PyVarObject) isize {
     return ob.ob_size;
 }
 
-/// PyLong helpers
+/// PyLong helpers - version-aware
+/// These use the struct's built-in methods which are version-specific
 pub inline fn _PyLong_IsCompact(op: *const PyLongObject) bool {
-    return op.long_value.lv_tag < (2 << _PyLong_NON_SIZE_BITS);
+    if (version.hasLvTag(PYTHON_VERSION)) {
+        return op.long_value.lv_tag < (2 << _PyLong_NON_SIZE_BITS);
+    } else {
+        // 3.10-3.11: compact if |ob_size| <= 1
+        const size = op.ob_base.ob_size;
+        return size >= -1 and size <= 1;
+    }
 }
 
 pub inline fn _PyLong_IsNegative(op: *const PyLongObject) bool {
-    return (op.long_value.lv_tag & _PyLong_SIGN_MASK) == 2;
+    return op.isNegative();
 }
 
 pub inline fn _PyLong_IsZero(op: *const PyLongObject) bool {
-    return (op.long_value.lv_tag & _PyLong_SIGN_MASK) == 1;
+    return op.isZero();
 }
 
 pub inline fn _PyLong_DigitCount(op: *const PyLongObject) usize {
-    return op.long_value.lv_tag >> _PyLong_NON_SIZE_BITS;
+    return op.digitCount();
 }
 
 // ============================================================================
@@ -757,9 +831,12 @@ comptime {
     if (@sizeOf(PyListObject) != 40) {
         @compileError("PyListObject size mismatch! Expected 40 bytes");
     }
-    // PyDictObject: ob_base(16) + ma_used(8) + _ma_watcher_tag(8) + ma_keys(8) + ma_values(8) = 48 bytes
-    if (@sizeOf(PyDictObject) != 48) {
-        @compileError("PyDictObject size mismatch! Expected 48 bytes");
+    // PyDictObject: version-specific
+    // - 3.12+: ob_base(16) + ma_used(8) + _ma_watcher_tag(8) + ma_keys(8) + ma_values(8) = 48 bytes
+    // - 3.10-3.11: ob_base(16) + ma_used(8) + ma_keys(8) + ma_values(8) = 40 bytes
+    const expected_dict_size: usize = if (version.hasDictWatcher(PYTHON_VERSION)) 48 else 40;
+    if (@sizeOf(PyDictObject) != expected_dict_size) {
+        @compileError("PyDictObject size mismatch!");
     }
 }
 
@@ -789,10 +866,18 @@ test "PyListObject layout" {
 test "PyDictObject layout" {
     try std.testing.expectEqual(@as(usize, 0), @offsetOf(PyDictObject, "ob_base"));
     try std.testing.expectEqual(@as(usize, 16), @offsetOf(PyDictObject, "ma_used"));
-    try std.testing.expectEqual(@as(usize, 24), @offsetOf(PyDictObject, "_ma_watcher_tag"));
-    try std.testing.expectEqual(@as(usize, 32), @offsetOf(PyDictObject, "ma_keys"));
-    try std.testing.expectEqual(@as(usize, 40), @offsetOf(PyDictObject, "ma_values"));
-    try std.testing.expectEqual(@as(usize, 48), @sizeOf(PyDictObject));
+    if (version.hasDictWatcher(PYTHON_VERSION)) {
+        // 3.12+ layout with watcher tag
+        try std.testing.expectEqual(@as(usize, 24), @offsetOf(PyDictObject, "_ma_watcher_tag"));
+        try std.testing.expectEqual(@as(usize, 32), @offsetOf(PyDictObject, "ma_keys"));
+        try std.testing.expectEqual(@as(usize, 40), @offsetOf(PyDictObject, "ma_values"));
+        try std.testing.expectEqual(@as(usize, 48), @sizeOf(PyDictObject));
+    } else {
+        // 3.10-3.11 layout without watcher tag
+        try std.testing.expectEqual(@as(usize, 24), @offsetOf(PyDictObject, "ma_keys"));
+        try std.testing.expectEqual(@as(usize, 32), @offsetOf(PyDictObject, "ma_values"));
+        try std.testing.expectEqual(@as(usize, 40), @sizeOf(PyDictObject));
+    }
 }
 
 test "PyFloatObject layout" {

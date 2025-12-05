@@ -348,14 +348,28 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         const b_is_array = b_info == .array;
 
         if (a_is_arraylist and b_is_array) {
-            // ArrayList vs fixed array: compare items
-            const ElemT = std.meta.Elem(@TypeOf(a.items));
-            return pySliceEql(ElemT, a.items, &b);
+            // ArrayList vs fixed array: compare items as slices
+            // Only compare if element types match
+            const AElem = std.meta.Elem(@TypeOf(a.items));
+            const BElem = b_info.array.child;
+            if (AElem != BElem) return false;
+            if (a.items.len != b.len) return false;
+            for (a.items, 0..) |item, idx| {
+                if (!std.meta.eql(item, b[idx])) return false;
+            }
+            return true;
         }
         if (a_is_array and b_is_arraylist) {
-            // Fixed array vs ArrayList: compare items
-            const ElemT = std.meta.Elem(@TypeOf(b.items));
-            return pySliceEql(ElemT, &a, b.items);
+            // Fixed array vs ArrayList: compare items as slices
+            // Only compare if element types match
+            const AElem = a_info.array.child;
+            const BElem = std.meta.Elem(@TypeOf(b.items));
+            if (AElem != BElem) return false;
+            if (a.len != b.items.len) return false;
+            for (b.items, 0..) |item, idx| {
+                if (!std.meta.eql(a[idx], item)) return false;
+            }
+            return true;
         }
 
         return false;

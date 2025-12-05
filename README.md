@@ -333,7 +333,7 @@ Python script imports numpy → metal0 detects C extension → dlopen() at runti
                                                PyObject* with CPython 3.12-compatible memory layout
 ```
 
-metal0 exports **997 CPython C API functions** with **100% binary compatibility**:
+metal0 exports **997 CPython C API functions** with **100% binary compatibility** for Python 3.10, 3.11, 3.12, and 3.13:
 
 | Category | Functions | Examples |
 |----------|-----------|----------|
@@ -350,7 +350,7 @@ metal0 exports **997 CPython C API functions** with **100% binary compatibility*
 
 **Key Features:**
 - **Pure Zig** - No CPython linking, all functions implemented natively
-- **CPython 3.12 layout** - Exact struct layouts verified at compile time
+- **Multi-version** - Supports Python 3.10, 3.11, 3.12, 3.13 struct layouts
 - **PEP 384** - Full stable ABI support with `PyType_FromSpec` heap types
 - **Thread-safe** - Thread-local exception state, atomic interrupt flags
 - **Small int cache** - Pre-allocated integers -5 to 256 (like CPython)
