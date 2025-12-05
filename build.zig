@@ -110,6 +110,17 @@ pub fn build(b: *std.Build) void {
     function_traits.addImport("ast", ast);
     function_traits.addImport("hashmap_helper", hashmap_helper);
 
+    // Debug info module for debugger support (external debug symbols like .pdb/.dSYM)
+    const debug_info_mod = b.addModule("debug_info", .{
+        .root_source_file = b.path("src/debug/debug_info.zig"),
+    });
+
+    // Source map module (re-exports debug_info for convenience)
+    const source_map_mod = b.addModule("source_map", .{
+        .root_source_file = b.path("src/debug/source_map.zig"),
+    });
+    _ = source_map_mod;
+
     // Module dependencies
     runtime.addImport("hashmap_helper", hashmap_helper);
     runtime.addImport("json_simd", json_simd);
@@ -148,6 +159,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("c_interop", c_interop_mod);
     exe.root_module.addImport("pkg", pkg_mod);
     exe.root_module.addImport("function_traits", function_traits);
+    exe.root_module.addImport("debug_info", debug_info_mod);
     exe.linkLibC();
 
     b.installArtifact(exe);

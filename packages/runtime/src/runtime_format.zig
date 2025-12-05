@@ -572,7 +572,7 @@ pub fn pyMod(allocator: std.mem.Allocator, left: anytype, right: anytype) ![]con
 }
 
 /// Python string formatting helper - "format" % value
-fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anytype) ![]const u8 {
+pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anytype) ![]const u8 {
     const F = @TypeOf(format);
     const V = @TypeOf(value);
 

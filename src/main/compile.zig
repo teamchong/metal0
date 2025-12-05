@@ -19,6 +19,7 @@ const import_resolver = @import("../import_resolver.zig");
 const import_scanner = @import("../import_scanner.zig");
 const import_registry = @import("../codegen/native/import_registry.zig");
 const build_dirs = @import("../build_dirs.zig");
+const debug_info = @import("debug_info");
 
 // Submodules
 const cache = @import("compile/cache.zig");
@@ -376,6 +377,13 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         return;
     }
 
+    // PHASE 0: Initialize debug info writer (if --debug flag set)
+    var debug_writer: ?debug_info.DebugInfoWriter = if (opts.debug)
+        debug_info.DebugInfoWriter.init(aa, opts.input_file, source)
+    else
+        null;
+    defer if (debug_writer) |*dw| dw.deinit();
+
     // PHASE 1: Lexer - Tokenize source code
     std.debug.print("Lexing...\n", .{});
     var lex = try lexer.Lexer.init(aa, source);
@@ -393,6 +401,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     if (tree != .module) {
         std.debug.print("Error: Expected module, got {s}\n", .{@tagName(tree)});
         return error.InvalidAST;
+    }
+
+    // PHASE 2.1: Collect debug symbols from AST (if --debug flag set)
+    if (debug_writer) |*dw| {
+        try collectDebugSymbols(dw, tree.module, tokens);
     }
 
     // PHASE 2.3: Import Dependency Scanning
@@ -516,6 +529,12 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // Set source file path for import resolution
     native_gen.setSourceFilePath(opts.input_file);
 
+    // Pass debug writer and tokens to codegen (if --debug flag set)
+    if (debug_writer) |*dw| {
+        native_gen.setDebugWriter(dw);
+        native_gen.setTokens(tokens);
+    }
+
     // Mark failed modules as skipped so functions using them are skipped entirely
     for (failed_modules.keys()) |module_name| {
         try native_gen.markSkippedModule(module_name);
@@ -562,11 +581,97 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // Update cache with new hash
     try cache.updateCache(aa, source, bin_path);
 
+    // Write debug info file (if --debug flag set)
+    if (debug_writer) |*dw| {
+        const debug_path = try std.fmt.allocPrint(aa, "{s}.metal0.dbg", .{bin_path});
+        try dw.writeBinary(debug_path);
+        std.debug.print("✓ Debug info written to: {s}\n", .{debug_path});
+
+        // Also write JSON version for human inspection
+        const json_path = try std.fmt.allocPrint(aa, "{s}.metal0.dbg.json", .{bin_path});
+        var json_buf = std.ArrayList(u8){};
+        defer json_buf.deinit(aa);
+        try dw.writeJson(json_buf.writer(aa));
+
+        const json_file = try std.fs.cwd().createFile(json_path, .{});
+        defer json_file.close();
+        try json_file.writeAll(json_buf.items);
+        std.debug.print("✓ Debug info (JSON) written to: {s}\n", .{json_path});
+    }
+
     // Run if mode is "run"
     if (std.mem.eql(u8, opts.mode, "run")) {
         std.debug.print("\n", .{});
         // Native codegen always produces binaries
         var child = std.process.Child.init(&[_][]const u8{bin_path}, allocator);
         _ = try child.spawnAndWait();
+    }
+}
+
+/// Collect debug symbols from AST
+/// Walks the AST and records function/class definitions with their source locations
+fn collectDebugSymbols(dw: *debug_info.DebugInfoWriter, module: ast.Node.Module, tokens: []const lexer.Token) !void {
+    // Find line numbers for each statement by scanning tokens
+    // Since AST doesn't store line info, we find tokens by name matching
+
+    // Create a token index for quick name lookup
+    var token_lines = std.StringHashMap(u32).init(dw.allocator);
+    defer token_lines.deinit();
+
+    // First pass: collect all identifier tokens with their line numbers
+    for (tokens) |tok| {
+        if (tok.type == .Ident or tok.type == .Def or tok.type == .Class) {
+            // Store the line for this identifier
+            // Note: this is imperfect but gives us approximate locations
+            try token_lines.put(tok.lexeme, @intCast(tok.line));
+        }
+    }
+
+    // Second pass: walk AST and record symbols
+    var stmt_index: u32 = 0;
+    for (module.body) |stmt| {
+        stmt_index += 1;
+
+        switch (stmt) {
+            .function_def => |func| {
+                const line = token_lines.get(func.name) orelse 1;
+                _ = try dw.addSymbol(func.name, .function, debug_info.SourceLoc.single(line, 1));
+            },
+            .class_def => |class| {
+                const line = token_lines.get(class.name) orelse 1;
+                const class_idx = try dw.addSymbol(class.name, .class, debug_info.SourceLoc.single(line, 1));
+
+                // Record methods within class
+                try dw.enterScope(class_idx);
+                for (class.body) |class_stmt| {
+                    if (class_stmt == .function_def) {
+                        const method = class_stmt.function_def;
+                        const method_line = token_lines.get(method.name) orelse line;
+                        _ = try dw.addSymbol(method.name, .method, debug_info.SourceLoc.single(method_line, 1));
+                    }
+                }
+                dw.exitScope();
+            },
+            .assign => {
+                // Record top-level variable assignments
+                for (stmt.assign.targets) |target| {
+                    if (target == .name) {
+                        const line = token_lines.get(target.name.id) orelse 1;
+                        _ = try dw.addSymbol(target.name.id, .variable, debug_info.SourceLoc.single(line, 1));
+                    }
+                }
+            },
+            .import_stmt => |imp| {
+                const line = token_lines.get(imp.module) orelse 1;
+                _ = try dw.addSymbol(imp.module, .import, debug_info.SourceLoc.single(line, 1));
+            },
+            else => {},
+        }
+
+        // Record statement location (approximate)
+        const approx_line: u32 = @intCast(@min(stmt_index, tokens.len));
+        if (approx_line > 0 and approx_line <= tokens.len) {
+            try dw.recordStmt(debug_info.SourceLoc.single(@intCast(tokens[approx_line - 1].line), 1));
+        }
     }
 }
