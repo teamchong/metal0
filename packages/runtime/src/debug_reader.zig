@@ -76,8 +76,8 @@ fn parseDebugJson(allocator: std.mem.Allocator, content: []const u8) ?DebugInfo 
     // Format: { "sourceFile": "...", "mappings": [{"pyLine": N, "zigLine": M}, ...] }
 
     var source_file: ?[]const u8 = null;
-    var mappings = std.ArrayList(CodeMapping).init(allocator);
-    errdefer mappings.deinit();
+    var mappings = std.ArrayList(CodeMapping){};
+    errdefer mappings.deinit(allocator);
     errdefer if (source_file) |sf| allocator.free(sf);
 
     // Find sourceFile
@@ -119,7 +119,7 @@ fn parseDebugJson(allocator: std.mem.Allocator, content: []const u8) ?DebugInfo 
             }
 
             if (py_line > 0 and zig_line > 0) {
-                mappings.append(CodeMapping{ .py_line = py_line, .zig_line = zig_line }) catch {};
+                mappings.append(allocator, CodeMapping{ .py_line = py_line, .zig_line = zig_line }) catch {};
             }
 
             pos = obj_end + 1;
@@ -130,7 +130,7 @@ fn parseDebugJson(allocator: std.mem.Allocator, content: []const u8) ?DebugInfo 
 
     return DebugInfo{
         .source_file = source_file.?,
-        .mappings = mappings.toOwnedSlice() catch return null,
+        .mappings = mappings.toOwnedSlice(allocator) catch return null,
         .allocator = allocator,
     };
 }
@@ -168,6 +168,63 @@ pub fn getSourceFile(allocator: std.mem.Allocator) ?[]const u8 {
         return info.source_file;
     }
     return null;
+}
+
+/// Print a Python-style error message with source location
+/// Format: File "filename.py", line N, in <module>
+///         ErrorType: message
+pub fn printPythonError(
+    allocator: std.mem.Allocator,
+    error_type: []const u8,
+    message: []const u8,
+    zig_line: ?u32,
+) void {
+    const writer = std.io.getStdErr().writer();
+
+    // Try to get debug info for Python source file
+    if (getDebugInfo(allocator)) |info| {
+        const py_line = if (zig_line) |zl| info.zigToPythonLine(zl) else null;
+
+        writer.print("Traceback (most recent call last):\n", .{}) catch {};
+        if (py_line) |line| {
+            writer.print("  File \"{s}\", line {d}\n", .{ info.source_file, line }) catch {};
+        } else {
+            writer.print("  File \"{s}\"\n", .{info.source_file}) catch {};
+        }
+    } else {
+        writer.print("Traceback (most recent call last):\n", .{}) catch {};
+        if (zig_line) |zl| {
+            writer.print("  <compiled code>, zig line {d}\n", .{zl}) catch {};
+        }
+    }
+
+    writer.print("{s}: {s}\n", .{ error_type, message }) catch {};
+}
+
+/// Format error message with Python source location (returns allocated string)
+pub fn formatPythonError(
+    allocator: std.mem.Allocator,
+    error_type: []const u8,
+    message: []const u8,
+    zig_line: ?u32,
+) []const u8 {
+    var buf = std.ArrayList(u8){};
+    const writer = buf.writer(allocator);
+
+    // Try to get debug info for Python source file
+    if (getDebugInfo(allocator)) |info| {
+        const py_line = if (zig_line) |zl| info.zigToPythonLine(zl) else null;
+
+        if (py_line) |line| {
+            writer.print("{s} (File \"{s}\", line {d}): {s}", .{ error_type, info.source_file, line, message }) catch {};
+        } else {
+            writer.print("{s} (File \"{s}\"): {s}", .{ error_type, info.source_file, message }) catch {};
+        }
+    } else {
+        writer.print("{s}: {s}", .{ error_type, message }) catch {};
+    }
+
+    return buf.toOwnedSlice(allocator) catch error_type;
 }
 
 test "parse debug json" {

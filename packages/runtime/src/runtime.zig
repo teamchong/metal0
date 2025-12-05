@@ -77,6 +77,9 @@ pub const AnyClosure5 = closure_impl.AnyClosure5;
 pub const AnyClosure6 = closure_impl.AnyClosure6;
 pub const AnyClosure7 = closure_impl.AnyClosure7;
 
+/// Debug info reader for Python line number translation
+pub const debug_reader = @import("debug_reader.zig");
+
 /// Export TypeFactory for first-class types (classes as values)
 pub const type_factory = @import("type_factory.zig");
 pub const TypeFactory = type_factory.TypeFactory;

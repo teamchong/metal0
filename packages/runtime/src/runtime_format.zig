@@ -17,6 +17,90 @@ pub const PyDict = dict_module.PyDict;
 const runtime = @import("runtime.zig");
 pub const PyObject = runtime.PyObject;
 
+// ============================================================================
+// CANONICAL PYTHON FLOAT FORMATTER
+// This is THE source of truth for all Python float formatting.
+// All other float formatting functions should delegate to this.
+// ============================================================================
+
+/// Options for Python float formatting
+pub const PyFloatFormatOptions = struct {
+    /// Sign handling: none (default), plus (+), or space ( )
+    sign: enum { none, plus, space } = .none,
+    /// Precision (digits after decimal). null = auto
+    precision: ?u32 = null,
+    /// Format type
+    format_type: enum { general, fixed, scientific, repr } = .general,
+};
+
+/// Canonical Python float formatter - handles NaN, inf, sign flags, precision
+/// ALL other float formatters should call this function.
+pub fn formatPythonFloat(allocator: std.mem.Allocator, value: f64, options: PyFloatFormatOptions) ![]const u8 {
+    var result = std.ArrayList(u8){};
+    errdefer result.deinit(allocator);
+
+    // Handle NaN - Python convention: NaN is always "nan" (never "-nan")
+    // Sign flags apply: %+f → "+nan", % f → " nan", %f → "nan"
+    if (std.math.isNan(value)) {
+        switch (options.sign) {
+            .plus => try result.append(allocator, '+'),
+            .space => try result.append(allocator, ' '),
+            .none => {},
+        }
+        try result.appendSlice(allocator, "nan");
+        return result.toOwnedSlice(allocator);
+    }
+
+    // Handle infinity
+    if (std.math.isInf(value)) {
+        if (value < 0) {
+            try result.appendSlice(allocator, "-inf");
+        } else {
+            switch (options.sign) {
+                .plus => try result.append(allocator, '+'),
+                .space => try result.append(allocator, ' '),
+                .none => {},
+            }
+            try result.appendSlice(allocator, "inf");
+        }
+        return result.toOwnedSlice(allocator);
+    }
+
+    // Normal float - apply sign flag for non-negative values
+    if (value >= 0) {
+        switch (options.sign) {
+            .plus => try result.append(allocator, '+'),
+            .space => try result.append(allocator, ' '),
+            .none => {},
+        }
+    }
+
+    // Format the number based on format type
+    switch (options.format_type) {
+        .repr, .general => {
+            // Python repr/general: minimal representation
+            if (@mod(value, 1.0) == 0.0 and @abs(value) < 1e15) {
+                // Whole number: force .0 to match Python behavior
+                try result.writer(allocator).print("{d:.1}", .{value});
+            } else {
+                try result.writer(allocator).print("{d}", .{value});
+            }
+        },
+        .fixed => {
+            // Fixed-point notation
+            const prec = options.precision orelse 6;
+            try result.writer(allocator).print("{d:.[1]}", .{ value, prec });
+        },
+        .scientific => {
+            // Scientific notation
+            const prec = options.precision orelse 6;
+            try result.writer(allocator).print("{e:.[1]}", .{ value, prec });
+        },
+    }
+
+    return result.toOwnedSlice(allocator);
+}
+
 /// Format any value for Python-style printing (booleans as True/False)
 /// This function is a no-op at runtime - it's just for compile-time type checking
 /// For bool: returns "True" or "False"
@@ -42,24 +126,9 @@ pub inline fn formatUnknown(value: anytype) @TypeOf(value) {
 
 /// Format float value for printing (Python-style: always show .0 for whole numbers)
 /// Examples: 25.0 -> "25.0", 3.14159 -> "3.14159"
+/// Delegates to formatPythonFloat with default options.
 pub fn formatFloat(value: f64, allocator: std.mem.Allocator) ![]const u8 {
-    // Handle special values first (Python convention: nan never has sign)
-    if (std.math.isNan(value)) {
-        return try allocator.dupe(u8, "nan");
-    }
-    if (std.math.isInf(value)) {
-        return try allocator.dupe(u8, if (value < 0) "-inf" else "inf");
-    }
-
-    var buf = std.ArrayList(u8){};
-    if (@mod(value, 1.0) == 0.0) {
-        // Whole number: force .0 to match Python behavior
-        try buf.writer(allocator).print("{d:.1}", .{value});
-    } else {
-        // Has decimals: show all significant digits
-        try buf.writer(allocator).print("{d}", .{value});
-    }
-    return try buf.toOwnedSlice(allocator);
+    return formatPythonFloat(allocator, value, .{});
 }
 
 /// Format PyObject as string for printing
@@ -651,29 +720,13 @@ pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anyt
                 }
                 i = j + 1;
             } else if (spec == 'f' or spec == 'e' or spec == 'g') {
-                // Float format - handle NaN, inf specially for Python compatibility
+                // Float format - use canonical formatter
                 if (@typeInfo(V) == .float or @typeInfo(V) == .comptime_float) {
-                    if (std.math.isNan(value)) {
-                        // NaN is always positive in Python formatting
-                        if (sign_flag == '+') try result.append(allocator, '+');
-                        if (sign_flag == ' ') try result.append(allocator, ' ');
-                        try result.appendSlice(allocator, "nan");
-                    } else if (std.math.isInf(value)) {
-                        if (value < 0) {
-                            try result.appendSlice(allocator, "-inf");
-                        } else {
-                            if (sign_flag == '+') try result.append(allocator, '+');
-                            if (sign_flag == ' ') try result.append(allocator, ' ');
-                            try result.appendSlice(allocator, "inf");
-                        }
-                    } else {
-                        // Normal float
-                        if (sign_flag == '+' and value >= 0) try result.append(allocator, '+');
-                        if (sign_flag == ' ' and value >= 0) try result.append(allocator, ' ');
-                        const val_str = try formatFloat(value, allocator);
-                        defer allocator.free(val_str);
-                        try result.appendSlice(allocator, val_str);
-                    }
+                    const sign_opt: PyFloatFormatOptions.sign = if (sign_flag == '+') .plus else if (sign_flag == ' ') .space else .none;
+                    const format_opt: PyFloatFormatOptions.format_type = if (spec == 'e') .scientific else if (spec == 'f') .fixed else .general;
+                    const val_str = try formatPythonFloat(allocator, value, .{ .sign = sign_opt, .format_type = format_opt });
+                    defer allocator.free(val_str);
+                    try result.appendSlice(allocator, val_str);
                 } else if (@typeInfo(V) == .int or @typeInfo(V) == .comptime_int) {
                     if (sign_flag == '+' and value >= 0) try result.append(allocator, '+');
                     if (sign_flag == ' ' and value >= 0) try result.append(allocator, ' ');
