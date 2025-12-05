@@ -15,7 +15,7 @@ fn isBuiltinTypeName(name: []const u8) bool {
         "slice",         "property",            "classmethod",        "staticmethod",   "super",             "Exception",       "BaseException",       "TypeError",
         "ValueError",    "KeyError",            "IndexError",         "AttributeError", "RuntimeError",      "StopIteration",   "GeneratorExit",       "AssertionError",
         "ImportError",   "ModuleNotFoundError", "LookupError",        "OSError",        "FileNotFoundError", "PermissionError", "NotImplementedError", "ZeroDivisionError",
-        "OverflowError", "RecursionError",      "DeprecationWarning", "UserWarning",    "SyntaxWarning",     "Warning",
+        "OverflowError", "RecursionError",      "DeprecationWarning", "UserWarning",    "SyntaxWarning",     "Warning",         "ExceptionGroup",      "BaseExceptionGroup",
     };
     for (builtin_types) |t| {
         if (std.mem.eql(u8, name, t)) return true;

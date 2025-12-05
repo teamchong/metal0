@@ -411,3 +411,127 @@ pub const UnicodeDecodeError = struct {
 pub const UnicodeEncodeError = struct {
     pub const name = "UnicodeEncodeError";
 };
+
+/// BaseExceptionGroup - groups multiple exceptions together (Python 3.11+)
+/// Can contain any BaseException subclasses
+pub const BaseExceptionGroup = struct {
+    pub const __name__ = "BaseExceptionGroup";
+    pub const name = "BaseExceptionGroup";
+    message: []const u8,
+    exceptions: []const PyValue,
+    allocator: std.mem.Allocator,
+
+    const Self = @This();
+
+    pub fn init(allocator: std.mem.Allocator, message: anytype, exceptions: anytype) !*Self {
+        const self = try allocator.create(Self);
+        const msg = switch (@TypeOf(message)) {
+            []const u8 => message,
+            else => if (@hasDecl(@TypeOf(message), "__str__"))
+                try message.__str__(allocator)
+            else
+                "",
+        };
+        // Convert exceptions to PyValue slice
+        const exc_slice = switch (@TypeOf(exceptions)) {
+            []const PyValue => exceptions,
+            else => blk: {
+                const exc_copy = try allocator.alloc(PyValue, exceptions.len);
+                for (exceptions, 0..) |exc, i| {
+                    exc_copy[i] = PyValue.from(exc);
+                }
+                break :blk exc_copy;
+            },
+        };
+        self.* = .{
+            .message = msg,
+            .exceptions = exc_slice,
+            .allocator = allocator,
+        };
+        return self;
+    }
+
+    pub fn __str__(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
+        return try std.fmt.allocPrint(allocator, "{s} ({d} sub-exception(s))", .{ self.message, self.exceptions.len });
+    }
+
+    pub fn __repr__(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
+        return try std.fmt.allocPrint(allocator, "BaseExceptionGroup('{s}', [{d} exceptions])", .{ self.message, self.exceptions.len });
+    }
+
+    /// Return a subgroup of exceptions matching the given type
+    pub fn subgroup(self: *const Self, match_type: anytype) ?*Self {
+        _ = match_type;
+        // For now, return self - full implementation would filter by type
+        return @constCast(self);
+    }
+
+    /// Split the group into matching and non-matching subgroups
+    pub fn split(self: *const Self, match_type: anytype) struct { ?*Self, ?*Self } {
+        _ = match_type;
+        // For now, return (self, null) - full implementation would split by type
+        return .{ @constCast(self), null };
+    }
+};
+
+/// ExceptionGroup - groups multiple Exception subclasses together (Python 3.11+)
+/// Can only contain Exception subclasses (not BaseException)
+pub const ExceptionGroup = struct {
+    pub const __name__ = "ExceptionGroup";
+    pub const name = "ExceptionGroup";
+    message: []const u8,
+    exceptions: []const PyValue,
+    allocator: std.mem.Allocator,
+
+    const Self = @This();
+
+    pub fn init(allocator: std.mem.Allocator, message: anytype, exceptions: anytype) !*Self {
+        const self = try allocator.create(Self);
+        const msg = switch (@TypeOf(message)) {
+            []const u8 => message,
+            else => if (@hasDecl(@TypeOf(message), "__str__"))
+                try message.__str__(allocator)
+            else
+                "",
+        };
+        // Convert exceptions to PyValue slice
+        const exc_slice = switch (@TypeOf(exceptions)) {
+            []const PyValue => exceptions,
+            else => blk: {
+                const exc_copy = try allocator.alloc(PyValue, exceptions.len);
+                for (exceptions, 0..) |exc, i| {
+                    exc_copy[i] = PyValue.from(exc);
+                }
+                break :blk exc_copy;
+            },
+        };
+        self.* = .{
+            .message = msg,
+            .exceptions = exc_slice,
+            .allocator = allocator,
+        };
+        return self;
+    }
+
+    pub fn __str__(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
+        return try std.fmt.allocPrint(allocator, "{s} ({d} sub-exception(s))", .{ self.message, self.exceptions.len });
+    }
+
+    pub fn __repr__(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
+        return try std.fmt.allocPrint(allocator, "ExceptionGroup('{s}', [{d} exceptions])", .{ self.message, self.exceptions.len });
+    }
+
+    /// Return a subgroup of exceptions matching the given type
+    pub fn subgroup(self: *const Self, match_type: anytype) ?*Self {
+        _ = match_type;
+        // For now, return self - full implementation would filter by type
+        return @constCast(self);
+    }
+
+    /// Split the group into matching and non-matching subgroups
+    pub fn split(self: *const Self, match_type: anytype) struct { ?*Self, ?*Self } {
+        _ = match_type;
+        // For now, return (self, null) - full implementation would split by type
+        return .{ @constCast(self), null };
+    }
+};

@@ -59,6 +59,8 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "KeyboardInterrupt", h.err("KeyboardInterrupt") }, .{ "NotImplementedError", h.err("NotImplementedError") }, .{ "IndentationError", h.err("IndentationError") }, .{ "TabError", h.err("TabError") },
     .{ "SyntaxError", h.err("SyntaxError") }, .{ "UnicodeError", h.err("UnicodeError") }, .{ "UnicodeDecodeError", h.err("UnicodeDecodeError") }, .{ "UnicodeEncodeError", h.err("UnicodeEncodeError") },
     .{ "UnicodeTranslateError", h.err("UnicodeTranslateError") }, .{ "BufferError", h.err("BufferError") },
+    // Exception groups (Python 3.11+)
+    .{ "ExceptionGroup", h.err("ExceptionGroup") }, .{ "BaseExceptionGroup", h.err("BaseExceptionGroup") },
     // Warnings
     .{ "Warning", h.err("Warning") }, .{ "UserWarning", h.err("UserWarning") }, .{ "DeprecationWarning", h.err("DeprecationWarning") }, .{ "PendingDeprecationWarning", h.err("PendingDeprecationWarning") },
     .{ "SyntaxWarning", h.err("SyntaxWarning") }, .{ "RuntimeWarning", h.err("RuntimeWarning") }, .{ "FutureWarning", h.err("FutureWarning") }, .{ "ImportWarning", h.err("ImportWarning") },
