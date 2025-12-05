@@ -1034,7 +1034,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emitIndent();
         try self.emit("        const os_args = std.os.argv;\n");
         try self.emitIndent();
-        try self.emit("        var argv_list = std.ArrayList([]const u8){};\n");
+        try self.emit("        var argv_list = std.ArrayListUnmanaged([]const u8){};\n");
         try self.emitIndent();
         try self.emit("        for (os_args) |arg| argv_list.append(allocator, std.mem.span(arg)) catch continue;\n");
         try self.emitIndent();

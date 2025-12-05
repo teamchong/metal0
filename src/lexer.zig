@@ -108,16 +108,21 @@ pub const TokenType = enum {
 
 pub const FStringPart = union(enum) {
     literal: []const u8,
-    expr: []const u8,
+    expr: struct {
+        text: []const u8,
+        debug_text: ?[]const u8 = null, // For f"{x=}" stores "x="
+    },
     format_expr: struct {
         expr: []const u8,
         format_spec: []const u8,
         conversion: ?u8 = null, // 'r', 's', or 'a' for !r, !s, !a
+        debug_text: ?[]const u8 = null, // For f"{x=:...}" stores "x="
     },
     // Expression with conversion but no format spec (e.g., {x!r})
     conv_expr: struct {
         expr: []const u8,
         conversion: u8, // 'r', 's', or 'a'
+        debug_text: ?[]const u8 = null, // For f"{x=!r}" stores "x="
     },
 };
 
