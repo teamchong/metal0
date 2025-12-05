@@ -1146,8 +1146,12 @@ pub fn assertIs(a: anytype, b: anytype) void {
             break :blk @intFromPtr(a) == @intFromPtr(b);
         }
 
-        // Same primitive type - compare values (for bool, int, etc.)
+        // Same type - compare values
+        // Use std.meta.eql for structs (they don't support == in Zig)
         if (A == B) {
+            if (a_info == .@"struct") {
+                break :blk std.meta.eql(a, b);
+            }
             break :blk a == b;
         }
 
@@ -1172,16 +1176,17 @@ pub fn assertIs(a: anytype, b: anytype) void {
             break :blk false;
         }
 
-        // PickleValue compared with bool - extract bool from PickleValue
+        // PickleValue (union) compared with bool - extract bool from PickleValue
         // This handles pickle.loads() is True/False
         // Guard with @typeInfo check since @hasField doesn't work on all types (e.g., null)
-        if (@typeInfo(A) == .@"struct" and @hasField(A, "bool") and B == bool) {
+        // PickleValue is a union(enum), so check for .@"union" instead of .@"struct"
+        if (@typeInfo(A) == .@"union" and @hasField(A, "bool") and B == bool) {
             if (a == .bool) {
                 break :blk a.bool == b;
             }
             break :blk false;
         }
-        if (@typeInfo(B) == .@"struct" and @hasField(B, "bool") and A == bool) {
+        if (@typeInfo(B) == .@"union" and @hasField(B, "bool") and A == bool) {
             if (b == .bool) {
                 break :blk a == b.bool;
             }
