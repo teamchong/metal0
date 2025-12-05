@@ -535,7 +535,10 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
             }
         }
         // Otherwise treat as string
-        return parseFloatWithUnicode(first) catch return PythonError.ValueError;
+        return parseFloatWithUnicode(first) catch {
+            exceptions.setFloatConversionErrorStr(first);
+            return PythonError.ValueError;
+        };
     }
     // Handle custom classes - check dunder methods FIRST, then fall back to base value
     // In Python, __float__() takes precedence over inherited float value
@@ -543,7 +546,7 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
         // Check for PyBytes (has .data field with []const u8) - parse as float
         if (@hasField(FirstType, "data") and @TypeOf(@field(first, "data")) == []const u8) {
             return parseFloatWithUnicode(first.data) catch {
-                exceptions.setExceptionMessage("could not convert string to float");
+                exceptions.setFloatConversionError(first.data);
                 return PythonError.ValueError;
             };
         }

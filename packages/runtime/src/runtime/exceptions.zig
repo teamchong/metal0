@@ -19,6 +19,9 @@ pub const PythonError = error{
 threadlocal var last_exception_message: ?[]const u8 = null;
 threadlocal var last_exception_type: ?[]const u8 = null;
 
+/// Thread-local buffer for formatted exception messages (e.g., with repr values)
+threadlocal var exception_message_buffer: [512]u8 = undefined;
+
 /// Set the last exception message (call before returning an error)
 pub fn setExceptionMessage(msg: []const u8) void {
     last_exception_message = msg;
@@ -54,6 +57,62 @@ pub fn getExceptionStr() []const u8 {
 pub fn clearException() void {
     last_exception_message = null;
     last_exception_type = null;
+}
+
+/// Set exception message with bytes repr formatted into the message
+/// Format: "could not convert string to float: b'...'"
+pub fn setFloatConversionError(bytes_data: []const u8) void {
+    var stream = std.io.fixedBufferStream(&exception_message_buffer);
+    const writer = stream.writer();
+
+    writer.writeAll("could not convert string to float: b'") catch return;
+
+    // Write bytes repr (escape non-printable chars)
+    for (bytes_data) |byte| {
+        if (byte >= 0x20 and byte < 0x7f and byte != '\'' and byte != '\\') {
+            writer.writeByte(byte) catch return;
+        } else {
+            // Use \xNN format for non-printable bytes
+            writer.print("\\x{x:0>2}", .{byte}) catch return;
+        }
+    }
+
+    writer.writeAll("'") catch return;
+
+    last_exception_message = exception_message_buffer[0..stream.pos];
+}
+
+/// Set exception message with string repr formatted into the message
+/// Format: "could not convert string to float: '...'"
+pub fn setFloatConversionErrorStr(str_data: []const u8) void {
+    var stream = std.io.fixedBufferStream(&exception_message_buffer);
+    const writer = stream.writer();
+
+    writer.writeAll("could not convert string to float: '") catch return;
+
+    // Write string repr (escape non-printable chars)
+    for (str_data) |byte| {
+        if (byte >= 0x20 and byte < 0x7f and byte != '\'' and byte != '\\') {
+            writer.writeByte(byte) catch return;
+        } else if (byte == '\\') {
+            writer.writeAll("\\\\") catch return;
+        } else if (byte == '\'') {
+            writer.writeAll("\\'") catch return;
+        } else if (byte == '\n') {
+            writer.writeAll("\\n") catch return;
+        } else if (byte == '\r') {
+            writer.writeAll("\\r") catch return;
+        } else if (byte == '\t') {
+            writer.writeAll("\\t") catch return;
+        } else {
+            // Use \xNN format for non-printable bytes
+            writer.print("\\x{x:0>2}", .{byte}) catch return;
+        }
+    }
+
+    writer.writeAll("'") catch return;
+
+    last_exception_message = exception_message_buffer[0..stream.pos];
 }
 
 /// Python exception type enum - integer values that can be stored in lists/tuples
