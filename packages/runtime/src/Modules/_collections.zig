@@ -124,8 +124,25 @@ pub fn Deque(comptime T: type) type {
         }
 
         /// Return the index of the first occurrence of value
+        /// index(x[, start[, stop]]) - search within [start, stop)
         pub fn index(self: Self, value: T) ?usize {
-            for (self.items.items, 0..) |item, i| {
+            return self.indexRange(value, 0, null);
+        }
+
+        /// index with start parameter
+        pub fn indexStart(self: Self, value: T, start: usize) ?usize {
+            return self.indexRange(value, start, null);
+        }
+
+        /// index with start and stop parameters
+        pub fn indexRange(self: Self, value: T, start: usize, stop: ?usize) ?usize {
+            const items_len = self.items.items.len;
+            const actual_start = @min(start, items_len);
+            const actual_stop = if (stop) |s| @min(s, items_len) else items_len;
+
+            if (actual_start >= actual_stop) return null;
+
+            for (self.items.items[actual_start..actual_stop], actual_start..) |item, i| {
                 if (item == value) return i;
             }
             return null;
@@ -268,6 +285,65 @@ pub fn DefaultDict(comptime K: type, comptime V: type) type {
         /// Iterator over values
         pub fn values(self: Self) std.AutoHashMap(K, V).ValueIterator {
             return self.map.valueIterator();
+        }
+
+        /// Iterator over key-value pairs
+        pub fn items(self: *Self) std.AutoHashMap(K, V).Iterator {
+            return self.map.iterator();
+        }
+
+        /// Get value with default fallback (without creating entry)
+        pub fn getWithDefault(self: Self, key: K, default: V) V {
+            return self.map.get(key) orelse default;
+        }
+
+        /// setdefault(key, default) - Get value, or set and return default if missing
+        pub fn setdefault(self: *Self, key: K, default: V) !V {
+            if (self.map.get(key)) |v| {
+                return v;
+            }
+            try self.map.put(key, default);
+            return default;
+        }
+
+        /// pop(key) - Remove and return value for key
+        pub fn pop(self: *Self, key: K) ?V {
+            if (self.map.fetchRemove(key)) |kv| {
+                return kv.value;
+            }
+            return null;
+        }
+
+        /// popWithDefault(key, default) - Remove and return value, or default if missing
+        pub fn popWithDefault(self: *Self, key: K, default: V) V {
+            if (self.map.fetchRemove(key)) |kv| {
+                return kv.value;
+            }
+            return default;
+        }
+
+        /// update(other) - Update with key-value pairs from another map
+        pub fn update(self: *Self, other: *const std.AutoHashMap(K, V)) !void {
+            var it = other.iterator();
+            while (it.next()) |entry| {
+                try self.map.put(entry.key_ptr.*, entry.value_ptr.*);
+            }
+        }
+
+        /// copy() - Return a shallow copy
+        pub fn copyDict(self: Self) !Self {
+            var new = Self.init(self.allocator);
+            var it = self.map.iterator();
+            while (it.next()) |entry| {
+                try new.map.put(entry.key_ptr.*, entry.value_ptr.*);
+            }
+            new.default_factory = self.default_factory;
+            return new;
+        }
+
+        /// __len__ / len()
+        pub fn len(self: Self) usize {
+            return self.map.count();
         }
     };
 }
@@ -442,6 +518,77 @@ pub fn OrderedDict(comptime K: type, comptime V: type) type {
             }
             try self.put(key, default);
             return default;
+        }
+
+        /// values() - Return ordered values
+        pub fn values(self: Self, allocator: Allocator) ![]V {
+            var result = try allocator.alloc(V, self.order.items.len);
+            for (self.order.items, 0..) |key, i| {
+                result[i] = self.map.get(key) orelse continue;
+            }
+            return result;
+        }
+
+        /// items() - Return ordered key-value pairs
+        pub fn items(self: Self, allocator: Allocator) ![]struct { key: K, value: V } {
+            var result = try allocator.alloc(struct { key: K, value: V }, self.order.items.len);
+            for (self.order.items, 0..) |key, i| {
+                result[i] = .{ .key = key, .value = self.map.get(key) orelse continue };
+            }
+            return result;
+        }
+
+        /// contains / __contains__ - Check if key exists
+        pub fn contains(self: Self, key: K) bool {
+            return self.map.contains(key);
+        }
+
+        /// update(other) - Update with key-value pairs from another OrderedDict
+        pub fn update(self: *Self, other: *const Self) !void {
+            for (other.order.items) |key| {
+                if (other.map.get(key)) |value| {
+                    try self.put(key, value);
+                }
+            }
+        }
+
+        /// len() / __len__ - Return number of items
+        pub fn len(self: Self) usize {
+            return self.order.items.len;
+        }
+
+        /// pop(key) - Remove and return value for key
+        pub fn pop(self: *Self, key: K) ?V {
+            if (self.map.fetchRemove(key)) |kv| {
+                // Remove from order list
+                for (self.order.items, 0..) |k, i| {
+                    if (k == key) {
+                        _ = self.order.orderedRemove(i);
+                        break;
+                    }
+                }
+                return kv.value;
+            }
+            return null;
+        }
+
+        /// popWithDefault(key, default) - Remove and return value, or default if missing
+        pub fn popWithDefault(self: *Self, key: K, default: V) V {
+            return self.pop(key) orelse default;
+        }
+
+        /// getWithDefault(key, default) - Get value or default (without inserting)
+        pub fn getWithDefault(self: Self, key: K, default: V) V {
+            return self.map.get(key) orelse default;
+        }
+
+        /// fromkeys(keys, value) - Create OrderedDict from keys with same value
+        pub fn fromkeys(allocator: Allocator, key_list: []const K, value: V) !Self {
+            var od = Self.init(allocator);
+            for (key_list) |key| {
+                try od.put(key, value);
+            }
+            return od;
         }
     };
 }

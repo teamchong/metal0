@@ -322,13 +322,54 @@ pub const Timedelta = struct {
         };
     }
 
-    /// Create timedelta with all components
+    /// Create timedelta with all components (basic)
     pub fn init(days: i64, seconds: i64, microseconds: i64) Timedelta {
-        return Timedelta{
-            .days = days,
-            .seconds = seconds,
-            .microseconds = microseconds,
-        };
+        return normalize(days, seconds, microseconds);
+    }
+
+    /// Create timedelta with all Python parameters:
+    /// timedelta(days=0, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0, weeks=0)
+    /// All arguments are converted to days, seconds, microseconds internally
+    pub fn create(
+        days: i64,
+        seconds: i64,
+        microseconds: i64,
+        milliseconds: i64,
+        minutes: i64,
+        hours: i64,
+        weeks: i64,
+    ) Timedelta {
+        // Convert everything to the base units
+        const total_days = days + weeks * 7;
+        const total_seconds = seconds + minutes * 60 + hours * 3600;
+        const total_microseconds = microseconds + milliseconds * 1000;
+
+        return normalize(total_days, total_seconds, total_microseconds);
+    }
+
+    /// Create from weeks
+    pub fn fromWeeks(weeks: i64) Timedelta {
+        return Timedelta{ .days = weeks * 7, .seconds = 0, .microseconds = 0 };
+    }
+
+    /// Create from hours
+    pub fn fromHours(hours: i64) Timedelta {
+        return normalize(0, hours * 3600, 0);
+    }
+
+    /// Create from minutes
+    pub fn fromMinutes(minutes: i64) Timedelta {
+        return normalize(0, minutes * 60, 0);
+    }
+
+    /// Create from seconds
+    pub fn fromSeconds(seconds: i64) Timedelta {
+        return normalize(0, seconds, 0);
+    }
+
+    /// Create from milliseconds
+    pub fn fromMilliseconds(milliseconds: i64) Timedelta {
+        return normalize(0, 0, milliseconds * 1000);
     }
 
     /// Total seconds in the timedelta

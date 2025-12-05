@@ -54,17 +54,13 @@ pub fn chdir(dir_path: []const u8) !void {
 }
 
 /// Get process ID
-pub fn getpid() i32 {
-    return @intCast(std.os.linux.getpid());
+pub fn getpid() std.posix.pid_t {
+    return std.posix.system.getpid();
 }
 
 /// Get parent process ID
-pub fn getppid() i32 {
-    if (builtin.os.tag == .linux) {
-        return @intCast(std.os.linux.getppid());
-    }
-    // macOS/BSD
-    return 0; // TODO: implement for other platforms
+pub fn getppid() std.posix.pid_t {
+    return std.posix.system.getppid();
 }
 
 // ============================================================================
