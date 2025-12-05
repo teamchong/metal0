@@ -302,6 +302,97 @@ pub fn pyTupleEql(a: anytype, b: @TypeOf(a)) bool {
     return std.meta.eql(a, b);
 }
 
+/// Python-style generic equality for any two types
+/// If types differ, returns false (Python semantics for `==` with different types)
+/// If types match, uses pyAnyEqlSameType for proper comparison
+pub fn pyAnyEql(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+
+    // Different types are never equal in Python (for most cases)
+    if (A != B) {
+        // Special case: optional types - unwrap and compare
+        if (@typeInfo(A) == .optional) {
+            if (a) |unwrapped_a| {
+                return pyAnyEql(unwrapped_a, b);
+            }
+            return false;
+        }
+        if (@typeInfo(B) == .optional) {
+            if (b) |unwrapped_b| {
+                return pyAnyEql(a, unwrapped_b);
+            }
+            return false;
+        }
+        return false;
+    }
+
+    return pyAnyEqlSameType(A, a, b);
+}
+
+/// Python-style generic equality for any type (same type required)
+/// Handles: lists (ArrayList), tuples (structs), sets (AutoHashMap with void value), dicts (AutoHashMap)
+/// Uses NaN identity semantics for floats
+fn pyAnyEqlSameType(comptime T: type, a: T, b: T) bool {
+    const info = @typeInfo(T);
+
+    // ArrayList (Python list) - compare items with NaN semantics
+    if (info == .@"struct" and @hasField(T, "items") and @hasField(T, "capacity")) {
+        const ItemT = std.meta.Elem(@TypeOf(a.items));
+        return pySliceEql(ItemT, a.items, b.items);
+    }
+
+    // AutoHashMap (Python set or dict) - compare by count and key/value match
+    if (info == .@"struct" and @hasField(T, "entries") and @hasDecl(T, "count")) {
+        if (a.count() != b.count()) return false;
+        var it = a.iterator();
+        while (it.next()) |entry| {
+            if (!b.contains(entry.key_ptr.*)) return false;
+            // For dicts, also compare values
+            if (@hasDecl(T, "get")) {
+                const ValT = @TypeOf(entry.value_ptr.*);
+                if (ValT != void) {
+                    // This is a dict (value type is not void)
+                    if (b.get(entry.key_ptr.*)) |bv| {
+                        if (!std.meta.eql(entry.value_ptr.*, bv)) return false;
+                    } else {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    // Tuples/structs - use pyTupleEql for NaN semantics
+    if (info == .@"struct") {
+        return pyTupleEql(a, b);
+    }
+
+    // Arrays - use pyTupleEql which handles arrays
+    if (info == .array) {
+        return pyTupleEql(a, b);
+    }
+
+    // Floats - handle NaN identity
+    if (info == .float) {
+        const a_nan = std.math.isNan(a);
+        const b_nan = std.math.isNan(b);
+        if (a_nan and b_nan) return true;
+        if (a_nan or b_nan) return false;
+        return a == b;
+    }
+
+    // Slices
+    if (info == .pointer and info.pointer.size == .slice) {
+        const ElemT = std.meta.Elem(T);
+        return pySliceEql(ElemT, a, b);
+    }
+
+    // Fallback to std.meta.eql
+    return std.meta.eql(a, b);
+}
+
 /// Convert ArrayList or other container types to a slice for iteration
 /// This is a comptime function that normalizes different container types to slices
 pub inline fn iterSlice(value: anytype) IterSliceType(@TypeOf(value)) {

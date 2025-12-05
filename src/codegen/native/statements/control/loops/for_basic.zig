@@ -656,6 +656,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             try self.generateStmt(stmt);
         }
 
+        // Emit discards for unused variables inside inline for before scope exits
+        // This is critical because inline for body is comptime-unrolled and each
+        // iteration needs its own discard handling
+        try self.emitScopedDiscards();
+
         self.popScope();
 
         // Remove any pending_discards that were added during the inline for body

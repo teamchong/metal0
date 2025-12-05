@@ -102,7 +102,13 @@ pub fn setupRuntimeFiles(allocator: std.mem.Allocator) !void {
 }
 
 /// Compile Zig source code to native binary
+/// When debug_mode is true, compiles with -ODebug for DWARF debug info
 pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, c_libraries: []const []const u8) !void {
+    return compileZigWithOptions(allocator, zig_code, output_path, c_libraries, false);
+}
+
+/// Compile Zig source code to native binary with debug option
+pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, c_libraries: []const []const u8, debug_mode: bool) !void {
     // Use arena for all intermediate allocations
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -250,8 +256,14 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
     // Add main source file
     try args.append(aa, tmp_path);
 
-    try args.append(aa, "-OReleaseFast");
-    try args.append(aa, "-fno-stack-check"); // ~1.08x speedup
+    // Use debug mode for DWARF info, release for performance
+    if (debug_mode) {
+        try args.append(aa, "-ODebug");
+        // Keep stack checks in debug mode for better debugging
+    } else {
+        try args.append(aa, "-OReleaseFast");
+        try args.append(aa, "-fno-stack-check"); // ~1.08x speedup
+    }
     // LTO disabled: requires LLD linker which isn't always available
     // try args.append(aa, "-flto"); // Link-time optimization ~1.05x speedup
     try args.append(aa, "-lc");
