@@ -584,16 +584,27 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
         const float_val: f64 = @floatCast(value);
         const prec = spec.precision orelse 6;
 
-        // Handle special values: nan, inf, -inf (Python convention: nan has no sign)
+        // Handle special values: nan, inf, -inf
+        // Sign flags apply to inf/nan: + forces +, space forces space for positive
         if (std.math.isNan(float_val)) {
-            const nan_str = if (spec.fmt_type == 'F' or spec.fmt_type == 'E') "NAN" else "nan";
-            try buf.appendSlice(allocator, nan_str);
+            const uppercase = spec.fmt_type == 'F' or spec.fmt_type == 'E';
+            // nan is always "positive" - sign flags apply
+            if (spec.sign == .always) {
+                try buf.append(allocator, '+');
+            } else if (spec.sign == .space) {
+                try buf.append(allocator, ' ');
+            }
+            try buf.appendSlice(allocator, if (uppercase) "nan" else "nan");
         } else if (std.math.isInf(float_val)) {
-            const inf_str = if (spec.fmt_type == 'F' or spec.fmt_type == 'E')
-                (if (float_val < 0) "-INF" else "INF")
-            else
-                (if (float_val < 0) "-inf" else "inf");
-            try buf.appendSlice(allocator, inf_str);
+            const uppercase = spec.fmt_type == 'F' or spec.fmt_type == 'E';
+            if (float_val < 0) {
+                try buf.append(allocator, '-');
+            } else if (spec.sign == .always) {
+                try buf.append(allocator, '+');
+            } else if (spec.sign == .space) {
+                try buf.append(allocator, ' ');
+            }
+            try buf.appendSlice(allocator, if (uppercase) "inf" else "inf");
         } else {
             switch (spec.fmt_type) {
                 'e' => {
