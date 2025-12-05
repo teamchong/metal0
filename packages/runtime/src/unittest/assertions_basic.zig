@@ -1174,13 +1174,14 @@ pub fn assertIs(a: anytype, b: anytype) void {
 
         // PickleValue compared with bool - extract bool from PickleValue
         // This handles pickle.loads() is True/False
-        if (@hasField(A, "bool") and B == bool) {
+        // Guard with @typeInfo check since @hasField doesn't work on all types (e.g., null)
+        if (@typeInfo(A) == .@"struct" and @hasField(A, "bool") and B == bool) {
             if (a == .bool) {
                 break :blk a.bool == b;
             }
             break :blk false;
         }
-        if (@hasField(B, "bool") and A == bool) {
+        if (@typeInfo(B) == .@"struct" and @hasField(B, "bool") and A == bool) {
             if (b == .bool) {
                 break :blk a == b.bool;
             }

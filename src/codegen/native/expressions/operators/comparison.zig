@@ -879,12 +879,25 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try self.emit(") != @TypeOf(null))");
                 }
             } else {
-                // Use runtime.bigIntCompare for safe comparison
-                try self.emit("runtime.bigIntCompare(");
-                try genExpr(self, current_left);
-                try self.emit(", ");
-                try genExpr(self, compare.comparators[i]);
-                try self.emit(BigIntCompOps.get(@tagName(op)) orelse ", .eq)");
+                // Unknown types - use runtime.pyAnyEql for Python semantics
+                // This handles lists (ArrayList), tuples (structs), sets, dicts, and primitives
+                // with proper NaN identity semantics
+                if (op == .Eq or op == .NotEq) {
+                    if (op == .NotEq) {
+                        try self.emit("!");
+                    }
+                    try self.emit("runtime.pyAnyEql(");
+                    try genExpr(self, current_left);
+                    try self.emit(", ");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(")");
+                } else {
+                    // For <, >, <=, >= with unknown types, fall back to direct comparison
+                    // This may fail at Zig compile time if types don't support ordering
+                    try genExpr(self, current_left);
+                    try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
+                    try genExpr(self, compare.comparators[i]);
+                }
             }
         } else {
             // Regular comparisons for non-strings

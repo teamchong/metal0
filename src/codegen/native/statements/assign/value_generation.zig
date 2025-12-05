@@ -103,6 +103,11 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 // Use comptime type dispatch for PyValue from generators
                 try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
             }
+
+            // Track for potential discard emission (avoid unused variable errors in Zig)
+            if (is_first_assignment and !is_pointer_deref) {
+                try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, actual_name));
+            }
         } else if (target == .subscript) {
             // Handle subscript targets: rshape[n], lslices[n] = big, small
             // Generate: target[idx] = __unpack_tmp_N.@"i";
@@ -268,6 +273,11 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             } else {
                 // Use comptime type dispatch for PyValue from generators
                 try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
+            }
+
+            // Track for potential discard emission (avoid unused variable errors in Zig)
+            if (is_first_assignment and !is_pointer_deref) {
+                try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, actual_name));
             }
         } else if (target == .subscript) {
             // Handle subscript targets: rshape[n], lslices[n] = big, small
