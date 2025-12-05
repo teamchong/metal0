@@ -722,14 +722,21 @@ fn formatSignificantFigures(allocator: std.mem.Allocator, value: f64, sig_figs: 
 /// Applies format_spec to value and returns formatted string
 pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anytype) ![]const u8 {
     const spec_str: []const u8 = if (@TypeOf(format_spec) == []const u8) format_spec else @as([]const u8, format_spec);
-    const spec = parseFormatSpec(spec_str);
+    var spec = parseFormatSpec(spec_str);
 
     const T = @TypeOf(value);
     var buf = std.ArrayList(u8){};
 
     // Format the value based on type
     if (T == []const u8 or T == [:0]const u8) {
-        // String formatting
+        // String formatting - Python defaults to left alignment for strings
+        // Check if no explicit alignment was given (spec still has default .right)
+        // by checking if the format spec doesn't start with an alignment char
+        if (spec_str.len == 0 or (spec_str[0] != '<' and spec_str[0] != '>' and spec_str[0] != '^' and spec_str[0] != '=' and
+            (spec_str.len < 2 or (spec_str[1] != '<' and spec_str[1] != '>' and spec_str[1] != '^' and spec_str[1] != '='))))
+        {
+            spec.alignment = .left;
+        }
         var str = value;
         if (spec.precision) |p| {
             if (p < str.len) str = str[0..p];
@@ -1029,7 +1036,12 @@ pub fn pyMod(allocator: std.mem.Allocator, left: anytype, right: anytype) ![]con
 pub fn pyFloatMod(a: f64, b: f64) f64 {
     // Python's floored modulo: a - floor(a/b) * b
     // This ensures the result has the same sign as the divisor
-    return a - @floor(a / b) * b;
+    const result = a - @floor(a / b) * b;
+    // Handle sign of zero: when result is 0, it should have the sign of divisor
+    if (result == 0.0) {
+        return if (b < 0.0) -@as(f64, 0.0) else @as(f64, 0.0);
+    }
+    return result;
 }
 
 /// Python's floored floor division for floats: a // b = floor(a / b)
