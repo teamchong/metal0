@@ -599,16 +599,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try findWrittenVarsInStmts(try_node.else_body, &written_vars);
         try findWrittenVarsInStmts(try_node.finalbody, &written_vars);
 
-        // Find variables actually referenced in try block body AND handlers
+        // Find variables actually referenced in try block body (and nested try handlers)
+        // NOTE: Do NOT include try_node.handlers here! The handler body is generated in the
+        // outer catch block, NOT inside the TryHelper.run() function. Only the try body
+        // (which may contain nested try blocks with their own handlers) runs inside run().
+        // Similarly for else_body and finalbody - they run outside the TryHelper struct.
         var referenced_vars = FnvVoidMap.init(self.allocator);
         defer referenced_vars.deinit();
         try findReferencedVarsInStmts(try_node.body, &referenced_vars, self.allocator);
-        // Also check handlers, else_body, and finalbody for references
-        for (try_node.handlers) |handler| {
-            try findReferencedVarsInStmts(handler.body, &referenced_vars, self.allocator);
-        }
-        try findReferencedVarsInStmts(try_node.else_body, &referenced_vars, self.allocator);
-        try findReferencedVarsInStmts(try_node.finalbody, &referenced_vars, self.allocator);
 
         // Find locally declared variables (including for-loop targets) - these should NOT be captured
         var locally_declared = FnvVoidMap.init(self.allocator);
@@ -1138,14 +1136,24 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         break :blk false;
                     };
                     // Also check if already declared from a previous try block or other scope
-                    const is_already_declared = is_hoisted_this_block or self.hoisted_vars.contains(exc_name) or self.isDeclared(exc_name);
+                    // BUT: if we're inside a TryHelper (nested try) and the variable was declared
+                    // OUTSIDE the TryHelper, we can't access it due to Zig namespace boundaries.
+                    // In that case, treat it as a new local variable.
+                    const was_declared_elsewhere = self.hoisted_vars.contains(exc_name) or self.isDeclared(exc_name);
+
+                    // Check if we can actually access this variable:
+                    // - is_hoisted_this_block: hoisted by THIS try block, passed as pointer param - ACCESSIBLE
+                    // - was_declared_elsewhere: if we have a rename (p_X_N.*), it was passed as pointer - ACCESSIBLE
+                    //   otherwise, it's outside our TryHelper namespace - NOT ACCESSIBLE
+                    const has_pointer_rename = if (self.var_renames.get(exc_name)) |renamed| std.mem.endsWith(u8, renamed, ".*") else false;
+                    const is_accessible = is_hoisted_this_block or (was_declared_elsewhere and has_pointer_rename);
 
                     // Only emit if used in handler body OR hoisted (used elsewhere)
-                    if (is_already_declared or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
+                    if (is_accessible or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
                         try self.emitIndent();
                         // Use runtime.getExceptionStr() to get the actual exception message
                         // not just the error type name
-                        if (is_already_declared) {
+                        if (is_accessible) {
                             // Assign to the existing hoisted variable
                             // Check for rename (e.g., p_e.* for hoisted exception names passed as pointers)
                             if (self.var_renames.get(exc_name)) |renamed| {
@@ -1155,10 +1163,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                             }
                             try self.emit(" = runtime.getExceptionStr();\n");
                         } else {
-                            // Declare new const
+                            // Declare new const - either not declared elsewhere, or declared but not accessible
+                            // Use scoped name to avoid shadowing outer variables with the same name
+                            const scoped_name = try std.fmt.allocPrint(self.allocator, "__exc_{s}_{d}", .{ exc_name, helper_id });
                             try self.emit("const ");
-                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
+                            try self.emit(scoped_name);
                             try self.emit(": []const u8 = runtime.getExceptionStr();\n");
+                            // Add to var_renames so handler body references use the scoped name
+                            try self.var_renames.put(exc_name, scoped_name);
                         }
                     }
                 }
@@ -1191,14 +1203,24 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         break :blk false;
                     };
                     // Also check if already declared from a previous try block or other scope
-                    const is_already_declared = is_hoisted_this_block or self.hoisted_vars.contains(exc_name) or self.isDeclared(exc_name);
+                    // BUT: if we're inside a TryHelper (nested try) and the variable was declared
+                    // OUTSIDE the TryHelper, we can't access it due to Zig namespace boundaries.
+                    // In that case, treat it as a new local variable.
+                    const was_declared_elsewhere = self.hoisted_vars.contains(exc_name) or self.isDeclared(exc_name);
+
+                    // Check if we can actually access this variable:
+                    // - is_hoisted_this_block: hoisted by THIS try block, passed as pointer param - ACCESSIBLE
+                    // - was_declared_elsewhere: if we have a rename (p_X_N.*), it was passed as pointer - ACCESSIBLE
+                    //   otherwise, it's outside our TryHelper namespace - NOT ACCESSIBLE
+                    const has_pointer_rename = if (self.var_renames.get(exc_name)) |renamed| std.mem.endsWith(u8, renamed, ".*") else false;
+                    const is_accessible = is_hoisted_this_block or (was_declared_elsewhere and has_pointer_rename);
 
                     // Only emit if used in handler body OR hoisted (used elsewhere)
-                    if (is_already_declared or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
+                    if (is_accessible or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
                         try self.emitIndent();
                         // Use runtime.getExceptionStr() to get the actual exception message
                         // not just the error type name
-                        if (is_already_declared) {
+                        if (is_accessible) {
                             // Assign to the existing hoisted variable
                             // Check for rename (e.g., p_e.* for hoisted exception names passed as pointers)
                             if (self.var_renames.get(exc_name)) |renamed| {
@@ -1208,10 +1230,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                             }
                             try self.emit(" = runtime.getExceptionStr();\n");
                         } else {
-                            // Declare new const
+                            // Declare new const - either not declared elsewhere, or declared but not accessible
+                            // Use scoped name to avoid shadowing outer variables with the same name
+                            const scoped_name = try std.fmt.allocPrint(self.allocator, "__exc_{s}_{d}", .{ exc_name, helper_id });
                             try self.emit("const ");
-                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
+                            try self.emit(scoped_name);
                             try self.emit(": []const u8 = runtime.getExceptionStr();\n");
+                            // Add to var_renames so handler body references use the scoped name
+                            try self.var_renames.put(exc_name, scoped_name);
                         }
                     }
                 }

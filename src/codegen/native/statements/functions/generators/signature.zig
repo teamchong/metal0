@@ -584,7 +584,11 @@ pub fn genFunctionSignature(
 
         // Check if parameter name shadows a module-level function or imported module
         // If so, we need to rename it to avoid Zig shadowing errors
-        const shadows_module_func = self.module_level_funcs.contains(arg.name) or self.imported_modules.contains(arg.name);
+        // Also check zig_keywords.wouldShadowModule for common Python stdlib modules that
+        // get aliased at module level (e.g., `const types = std;`)
+        const shadows_module_func = self.module_level_funcs.contains(arg.name) or
+            self.imported_modules.contains(arg.name) or
+            zig_keywords.wouldShadowModule(arg.name);
 
         // Check if parameter name shadows a sibling method in the same class
         // e.g., def __release_buffer__(self, buffer): ... where 'buffer' is also a method

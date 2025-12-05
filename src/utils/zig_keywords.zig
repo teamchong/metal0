@@ -152,16 +152,45 @@ const shadowing_method_names = std.StaticStringMap(void).initComptime(.{
     .{ "decode", {} },
 });
 
+/// Module names that parameters should not shadow
+/// These are module-level imports that would cause Zig "parameter shadows declaration" errors
+/// if used as function parameter names
+const shadowing_module_names = std.StaticStringMap(void).initComptime(.{
+    .{ "types", {} }, // Python `types` module becomes `const types = std;`
+    .{ "collections", {} }, // Python `collections` module
+    .{ "std", {} }, // Zig std library
+    .{ "runtime", {} }, // metal0 runtime
+    .{ "unittest", {} }, // unittest module
+    .{ "os", {} }, // os module
+    .{ "sys", {} }, // sys module
+    .{ "math", {} }, // math module
+    .{ "json", {} }, // json module
+    .{ "re", {} }, // re module
+    .{ "io", {} }, // io module
+    .{ "copy", {} }, // copy module (also in method names)
+    .{ "functools", {} }, // functools module
+    .{ "itertools", {} }, // itertools module
+    .{ "operator", {} }, // operator module
+    .{ "string", {} }, // string module
+    .{ "time", {} }, // time module
+    .{ "random", {} }, // random module
+});
+
 /// Check if a parameter name would shadow a common method name
 pub fn wouldShadowMethod(name: []const u8) bool {
     return shadowing_method_names.has(name);
 }
 
-/// Write parameter name, adding _arg suffix if it would shadow a method
+/// Check if a parameter name would shadow a module-level import
+pub fn wouldShadowModule(name: []const u8) bool {
+    return shadowing_module_names.has(name);
+}
+
+/// Write parameter name, adding _arg suffix if it would shadow a method or module
 pub fn writeParamName(writer: anytype, name: []const u8) !void {
     if (isZigKeyword(name)) {
         try writer.print("@\"{s}\"", .{name});
-    } else if (wouldShadowMethod(name)) {
+    } else if (wouldShadowMethod(name) or wouldShadowModule(name)) {
         try writer.print("{s}_arg", .{name});
     } else {
         try writer.writeAll(name);
