@@ -630,8 +630,34 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // (otherwise it would be in declared_var_set or locally_declared)
             // If it's only read, we need to verify it exists in some tracking mechanism
             if (written_vars.contains(name)) {
-                // Variable is written in try block and not locally declared - it's an outer variable
-                try written_outer_vars.append(self.allocator, name);
+                // Variable is written in try block and not locally declared
+                // Check if it actually exists in outer scope - if not, it needs to be hoisted
+                // Also check var_renames - if variable has a rename, it exists (from outer helper)
+                // Note: var_types and lifetimes are NOT checked here because they contain semantic info
+                // but don't guarantee the variable was actually declared (e.g., unused var optimization may skip it)
+                const exists_in_outer = self.isDeclared(name) or
+                    self.func_local_vars.contains(name) or
+                    self.hoisted_vars.contains(name) or
+                    self.forward_declared_vars.contains(name) or
+                    self.var_renames.contains(name);
+
+                if (exists_in_outer) {
+                    // Variable exists in outer scope - pass as pointer
+                    try written_outer_vars.append(self.allocator, name);
+                } else {
+                    // Variable doesn't exist yet - needs to be hoisted/declared
+                    // Add to declared_vars so it gets declared before the try block
+                    // Check if not already in declared_var_set to avoid duplicates
+                    if (!declared_var_set.contains(name)) {
+                        try declared_vars.append(self.allocator, .{
+                            .name = name,
+                            // Use a None constant as the value - type will be inferred as optional
+                            .value = .{ .constant = .{ .value = .{ .none = {} } } },
+                            .is_exception_name = false,
+                        });
+                        try declared_var_set.put(name, {});
+                    }
+                }
             } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.nested_class_names.contains(name) or self.func_local_vars.contains(name) or self.hoisted_vars.contains(name) or self.forward_declared_vars.contains(name)) {
                 // Variable is only read and we can verify it exists - capture as read-only
                 // Note: nested_class_names tracks classes defined inside methods (like for-loop bodies)
@@ -728,12 +754,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             param_count += 1;
         }
         for (declared_vars.items) |hoisted| {
-            // Exception names only need to be passed if they're used in the try body
-            // (e.g., nested try blocks where inner handlers use the variable).
-            // If not used, the exception name is only assigned in the catch block (outside run()).
+            // Exception names are ALWAYS passed as parameters because they are assigned
+            // in the catch block which is INSIDE the helper struct's run() function.
+            // The assignment `e = runtime.getExceptionStr()` happens in the catch handler,
+            // which requires the pointer parameter to access the outer variable.
             if (hoisted.is_exception_name) {
-                const is_used_in_try = variable_usage.isNameUsedInBody(try_node.body, hoisted.name);
-                if (!is_used_in_try) continue; // Skip - only assigned in catch block
                 if (param_count > 0) try self.emit(", ");
                 try self.output.writer(self.allocator).print("p_{s}_{d}: *[]const u8", .{ hoisted.name, helper_id });
                 param_count += 1;
@@ -868,8 +893,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // Check if variable is used in the try block body
             const is_used_in_try_body = variable_usage.isNameUsedInBody(try_node.body, hoisted.name);
 
-            // Exception names not used in try body are skipped (no parameter)
-            if (hoisted.is_exception_name and !is_used_in_try_body) continue;
+            // Exception names are assigned in the catch handler, so we ALWAYS need the rename
+            // even if not used in try body (the assignment itself uses the renamed pointer)
+            // DON'T skip exception names - they always need the rename to be set
 
             // Suppress unused parameter warning only if var is NOT used in try body
             // Use runtime.discard() to suppress both "unused" and "pointless discard" errors
@@ -1000,11 +1026,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             call_param_count += 1;
         }
         for (declared_vars.items) |hoisted| {
-            // Exception names not used in try body are skipped (not passed as parameter)
-            if (hoisted.is_exception_name) {
-                const is_used_in_try = variable_usage.isNameUsedInBody(try_node.body, hoisted.name);
-                if (!is_used_in_try) continue;
-            }
+            // Exception names are ALWAYS passed as parameter since they're assigned in catch handlers
+            // The assignment `e = runtime.getExceptionStr()` needs the pointer to work
+            // Don't skip exception names - they need the parameter for the assignment
             if (call_param_count > 0) try self.emit(", ");
             try self.emit("&");
             // Use renamed name if variable was renamed to avoid shadowing imports

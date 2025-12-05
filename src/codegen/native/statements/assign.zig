@@ -727,9 +727,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // EXCEPTION: At module level (current_function_name == null), never skip - module vars
             // might be used in class methods or functions, which lifetime analysis doesn't scan
             // Also don't skip if var is used in eval/exec strings (dynamic usage)
+            // Also don't skip chained assignments (a = b = c = None) - all targets need declaration
+            // since they might be used in try blocks where the helper struct needs them as parameters
             const at_module_level = self.current_function_name == null;
             const is_eval_var = self.isEvalStringVar(original_var_name);
-            if (is_first_assignment and !at_module_level and !is_eval_var and self.isVarUnused(original_var_name)) {
+            const is_chained_assignment = assign.targets.len > 1;
+            if (is_first_assignment and !at_module_level and !is_eval_var and !is_chained_assignment and self.isVarUnused(original_var_name)) {
                 // Check if value expression has side effects
                 // Simple name/constant references have no side effects - skip entirely
                 // Calls, list/dict literals with calls, etc. have side effects - execute them
@@ -739,8 +742,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 };
 
                 if (!has_side_effects) {
-                    // No side effects - skip the entire statement
-                    return;
+                    // No side effects - skip this target but continue to next
+                    // (chained assignment: a = b = c = None processes each target)
+                    continue;
                 }
 
                 if (value_type == .unknown) {
@@ -754,8 +758,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.genExpr(assign.value.*);
                     try self.emit(";\n");
                 }
-                // Don't declare - variable doesn't exist
-                return;
+                // Don't declare - variable doesn't exist, but continue to next target
+                continue;
             }
 
             if (is_first_assignment) {
