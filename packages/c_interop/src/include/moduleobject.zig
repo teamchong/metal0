@@ -1,0 +1,562 @@
+/// CPython Module System
+///
+/// Implements PyModule_* functions for creating and managing Python modules.
+/// This is critical for loading C extensions like NumPy.
+///
+/// NOTE: pyobject_module.zig has the CPython 3.12 struct layout (PyModuleObject with md_token).
+/// This file uses the older/simpler layout (with md_def) used by many C extensions.
+
+const std = @import("std");
+const cpython = @import("object.zig");
+const traits = @import("../objects/typetraits.zig");
+
+const allocator = std.heap.c_allocator;
+
+/// ============================================================================
+/// MODULE TYPE OBJECTS
+/// ============================================================================
+
+/// PyModuleObject - Python module object
+/// NOTE: This is the older/simpler layout used by many C extensions.
+/// pyobject_module.zig has the full CPython 3.12 layout.
+pub const PyModuleObject = extern struct {
+    ob_base: cpython.PyObject,
+    md_dict: ?*cpython.PyObject,
+    md_def: ?*PyModuleDef,
+    md_state: ?*anyopaque,
+    md_weaklist: ?*cpython.PyObject,
+    md_name: ?*cpython.PyObject,
+};
+
+/// PyModuleDef_Base - Module definition base
+pub const PyModuleDef_Base = extern struct {
+    ob_base: cpython.PyObject,
+    m_init: ?*const fn () callconv(.c) ?*cpython.PyObject,
+    m_index: isize,
+    m_copy: ?*cpython.PyObject,
+};
+
+/// PyModuleDef - Module definition structure
+///
+/// CPython layout:
+/// ```c
+/// typedef struct PyModuleDef {
+///     PyModuleDef_Base m_base;
+///     const char *m_name;
+///     const char *m_doc;
+///     Py_ssize_t m_size;
+///     PyMethodDef *m_methods;
+///     struct PyModuleDef_Slot *m_slots;
+///     traverseproc m_traverse;
+///     inquiry m_clear;
+///     freefunc m_free;
+/// } PyModuleDef;
+/// ```
+pub const PyModuleDef = extern struct {
+    m_base: PyModuleDef_Base,
+    m_name: [*:0]const u8,
+    m_doc: ?[*:0]const u8,
+    m_size: isize,
+    m_methods: ?[*]PyMethodDef,
+    m_slots: ?*anyopaque,
+    m_traverse: ?*anyopaque,
+    m_clear: ?*anyopaque,
+    m_free: ?*anyopaque,
+};
+
+/// PyMethodDef - Method definition
+///
+/// CPython layout:
+/// ```c
+/// typedef struct PyMethodDef {
+///     const char *ml_name;
+///     PyCFunction ml_meth;
+///     int ml_flags;
+///     const char *ml_doc;
+/// } PyMethodDef;
+/// ```
+pub const PyMethodDef = extern struct {
+    ml_name: ?[*:0]const u8,
+    ml_meth: ?PyCFunction,
+    ml_flags: c_int,
+    ml_doc: ?[*:0]const u8,
+};
+
+/// PyCFunction - C function pointer type
+pub const PyCFunction = *const fn (?*cpython.PyObject, ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject;
+
+/// Method flags
+pub const METH_VARARGS: c_int = 0x0001;
+pub const METH_KEYWORDS: c_int = 0x0002;
+pub const METH_NOARGS: c_int = 0x0004;
+pub const METH_O: c_int = 0x0008;
+
+/// ============================================================================
+/// TYPE OBJECTS
+/// ============================================================================
+
+fn module_dealloc(obj: *cpython.PyObject) callconv(.c) void {
+    const module: *PyModuleObject = @ptrCast(@alignCast(obj));
+
+    // Call module's m_free if defined
+    if (module.md_def) |def| {
+        if (def.m_free) |free_fn| {
+            const free_func: *const fn (*cpython.PyObject) callconv(.c) void = @ptrCast(free_fn);
+            free_func(obj);
+        }
+    }
+
+    // Decref the dict
+    if (module.md_dict) |dict| {
+        traits.decref(dict);
+    }
+
+    // Decref the name
+    if (module.md_name) |name| {
+        traits.decref(name);
+    }
+
+    // Free the state if allocated
+    if (module.md_state != null and module.md_def != null) {
+        if (module.md_def.?.m_size > 0) {
+            allocator.free(@as([*]u8, @ptrCast(module.md_state.?))[0..@intCast(module.md_def.?.m_size)]);
+        }
+    }
+
+    // Free the module object itself
+    allocator.destroy(module);
+}
+
+pub var PyModule_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "module",
+    .tp_basicsize = @sizeOf(PyModuleObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = module_dealloc,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_HAVE_GC | cpython.Py_TPFLAGS_BASETYPE,
+    .tp_doc = "module(name, doc=None)",
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = @offsetOf(PyModuleObject, "md_weaklist"),
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = @offsetOf(PyModuleObject, "md_dict"),
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};
+
+pub var PyModuleDef_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "moduledef",
+    .tp_basicsize = @sizeOf(PyModuleDef),
+    .tp_itemsize = 0,
+    .tp_dealloc = null,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT,
+    .tp_doc = null,
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};
+
+/// ============================================================================
+/// MODULE CREATION FUNCTIONS
+/// ============================================================================
+
+/// Create module from definition (Python 3 API)
+///
+/// CPython: PyObject* PyModule_Create2(struct PyModuleDef *def, int module_api_version)
+export fn PyModule_Create2(def: *PyModuleDef, api_version: c_int) callconv(.c) ?*cpython.PyObject {
+    _ = api_version; // TODO: Validate API version
+
+    // Allocate module object
+    const module = allocator.create(PyModuleObject) catch return null;
+
+    module.ob_base.ob_refcnt = 1;
+    module.ob_base.ob_type = &PyModule_Type;
+
+    // Create module dict
+    const dict = PyDict_New();
+    if (dict == null) {
+        allocator.destroy(module);
+        return null;
+    }
+
+    module.md_dict = dict;
+    module.md_def = def;
+    module.md_state = null;
+    module.md_weaklist = null;
+    module.md_name = null;
+
+    // Add __name__
+    const name_obj = PyUnicode_FromString(def.m_name);
+    if (name_obj) |name| {
+        _ = PyDict_SetItemString(dict.?, "__name__", name);
+        module.md_name = name;
+    }
+
+    // Add __doc__
+    if (def.m_doc) |doc| {
+        const doc_obj = PyUnicode_FromString(doc);
+        if (doc_obj) |d| {
+            _ = PyDict_SetItemString(dict.?, "__doc__", d);
+            traits.decref(d);
+        }
+    }
+
+    // Add methods
+    if (def.m_methods) |methods| {
+        var i: usize = 0;
+        while (methods[i].ml_name != null) : (i += 1) {
+            const method = &methods[i];
+            const func = PyCFunction_NewEx(method, @ptrCast(module), null);
+            if (func) |f| {
+                _ = PyDict_SetItemString(dict.?, method.ml_name.?, f);
+                traits.decref(f);
+            }
+        }
+    }
+
+    return @ptrCast(&module.ob_base);
+}
+
+/// Get module dictionary
+///
+/// CPython: PyObject* PyModule_GetDict(PyObject *module)
+export fn PyModule_GetDict(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const mod: *PyModuleObject = @ptrCast(@alignCast(module));
+    return mod.md_dict;
+}
+
+/// Get module name (returns borrowed reference)
+///
+/// CPython: const char* PyModule_GetName(PyObject *module)
+export fn PyModule_GetName(module: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
+    const mod: *PyModuleObject = @ptrCast(@alignCast(module));
+
+    if (mod.md_name) |name| {
+        return PyUnicode_AsUTF8(name);
+    }
+
+    return null;
+}
+
+/// Get module filename
+///
+/// CPython: const char* PyModule_GetFilename(PyObject *module)
+export fn PyModule_GetFilename(module: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
+    const mod = @as(*PyModuleObject, @ptrCast(module));
+
+    if (mod.md_dict) |dict| {
+        const filename = PyDict_GetItemString(dict, "__file__");
+        if (filename) |f| {
+            return PyUnicode_AsUTF8(f);
+        }
+    }
+
+    return null;
+}
+
+/// Add object to module (steals reference on success)
+///
+/// CPython: int PyModule_AddObject(PyObject *module, const char *name, PyObject *value)
+export fn PyModule_AddObject(module: *cpython.PyObject, name: [*:0]const u8, obj: *cpython.PyObject) callconv(.c) c_int {
+    const mod = @as(*PyModuleObject, @ptrCast(module));
+
+    if (mod.md_dict) |dict| {
+        const result = PyDict_SetItemString(dict, name, obj);
+        if (result == 0) {
+            // Success - steal reference
+            traits.decref(obj);
+        }
+        return result;
+    }
+
+    return -1;
+}
+
+/// Add object to module (keeps reference)
+///
+/// CPython: int PyModule_AddObjectRef(PyObject *module, const char *name, PyObject *value)
+export fn PyModule_AddObjectRef(module: *cpython.PyObject, name: [*:0]const u8, obj: *cpython.PyObject) callconv(.c) c_int {
+    const mod = @as(*PyModuleObject, @ptrCast(module));
+
+    if (mod.md_dict) |dict| {
+        return PyDict_SetItemString(dict, name, obj);
+    }
+
+    return -1;
+}
+
+/// Add integer constant to module
+///
+/// CPython: int PyModule_AddIntConstant(PyObject *module, const char *name, long value)
+export fn PyModule_AddIntConstant(module: *cpython.PyObject, name: [*:0]const u8, value: c_long) callconv(.c) c_int {
+    const int_obj = PyLong_FromLong(value);
+    if (int_obj == null) return -1;
+
+    const result = PyModule_AddObject(module, name, int_obj.?);
+    if (result != 0) {
+        traits.decref(int_obj.?);
+    }
+
+    return result;
+}
+
+/// Add string constant to module
+///
+/// CPython: int PyModule_AddStringConstant(PyObject *module, const char *name, const char *value)
+export fn PyModule_AddStringConstant(module: *cpython.PyObject, name: [*:0]const u8, value: [*:0]const u8) callconv(.c) c_int {
+    const str_obj = PyUnicode_FromString(value);
+    if (str_obj == null) return -1;
+
+    const result = PyModule_AddObject(module, name, str_obj.?);
+    if (result != 0) {
+        traits.decref(str_obj.?);
+    }
+
+    return result;
+}
+
+/// Add type to module
+///
+/// CPython: int PyModule_AddType(PyObject *module, PyTypeObject *type)
+export fn PyModule_AddType(module: *cpython.PyObject, type_obj: *cpython.PyTypeObject) callconv(.c) c_int {
+    const type_name = std.mem.span(type_obj.tp_name);
+
+    // Find last component of dotted name
+    var name_start: usize = 0;
+    if (std.mem.lastIndexOf(u8, type_name, ".")) |dot_idx| {
+        name_start = dot_idx + 1;
+    }
+
+    const short_name = type_name[name_start..];
+
+    // Add to module (need null-terminated string)
+    var name_buf: [256]u8 = undefined;
+    if (short_name.len >= name_buf.len) return -1;
+
+    @memcpy(name_buf[0..short_name.len], short_name);
+    name_buf[short_name.len] = 0;
+
+    return PyModule_AddObjectRef(module, @ptrCast(&name_buf), @ptrCast(&type_obj.ob_base.ob_base));
+}
+
+/// Set module docstring
+///
+/// CPython: int PyModule_SetDocString(PyObject *module, const char *doc)
+export fn PyModule_SetDocString(module: *cpython.PyObject, doc: [*:0]const u8) callconv(.c) c_int {
+    const mod = @as(*PyModuleObject, @ptrCast(module));
+
+    if (mod.md_dict) |dict| {
+        const doc_obj = PyUnicode_FromString(doc);
+        if (doc_obj) |d| {
+            const result = PyDict_SetItemString(dict, "__doc__", d);
+            traits.decref(d);
+            return result;
+        }
+    }
+
+    return -1;
+}
+
+/// Get module state
+///
+/// CPython: void* PyModule_GetState(PyObject *module)
+export fn PyModule_GetState(module: *cpython.PyObject) callconv(.c) ?*anyopaque {
+    const mod: *PyModuleObject = @ptrCast(@alignCast(module));
+    return mod.md_state;
+}
+
+/// Get module definition
+///
+/// CPython: struct PyModuleDef* PyModule_GetDef(PyObject *module)
+export fn PyModule_GetDef(module: *cpython.PyObject) callconv(.c) ?*PyModuleDef {
+    const mod: *PyModuleObject = @ptrCast(@alignCast(module));
+    return mod.md_def;
+}
+
+/// Check if object is a module
+export fn PyModule_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+    return if (cpython.Py_TYPE(obj) == &PyModule_Type) 1 else 0;
+}
+
+/// Check if object is exactly a module (not subclass)
+export fn PyModule_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+    return if (cpython.Py_TYPE(obj) == &PyModule_Type) 1 else 0;
+}
+
+/// Initialize module definition
+///
+/// CPython: PyObject* PyModuleDef_Init(struct PyModuleDef *def)
+export fn PyModuleDef_Init(def: *PyModuleDef) callconv(.c) ?*cpython.PyObject {
+    // Initialize m_base
+    def.m_base.ob_base = .{
+        .ob_refcnt = 1,
+        .ob_type = &PyModuleDef_Type,
+    };
+    def.m_base.m_init = null;
+    def.m_base.m_index = 0;
+    def.m_base.m_copy = null;
+
+    return @ptrCast(&def.m_base.ob_base);
+}
+
+/// ============================================================================
+/// PyState Module API - Module registration with interpreter state
+/// ============================================================================
+
+// Global module registry (simple array for now)
+var module_registry: [256]?*cpython.PyObject = [_]?*cpython.PyObject{null} ** 256;
+var next_module_index: usize = 0;
+
+/// Add a module to the interpreter state's list of modules
+/// Returns module index on success, -1 on error
+export fn PyState_AddModule(module: *cpython.PyObject, def: *PyModuleDef) callconv(.c) c_int {
+    if (next_module_index >= module_registry.len) return -1;
+
+    // Store module at the def's index (or assign one)
+    if (def.m_base.m_index == 0) {
+        def.m_base.m_index = @intCast(next_module_index);
+        next_module_index += 1;
+    }
+
+    const idx: usize = @intCast(def.m_base.m_index);
+    if (idx >= module_registry.len) return -1;
+
+    module_registry[idx] = traits.incref(module);
+    return 0;
+}
+
+/// Find a module by its definition
+/// Returns the module or null if not found
+export fn PyState_FindModule(def: *PyModuleDef) callconv(.c) ?*cpython.PyObject {
+    if (def.m_base.m_index <= 0) return null;
+
+    const idx: usize = @intCast(def.m_base.m_index);
+    if (idx >= module_registry.len) return null;
+
+    return module_registry[idx];
+}
+
+/// Remove a module from the interpreter state
+/// Returns 0 on success, -1 on error
+export fn PyState_RemoveModule(def: *PyModuleDef) callconv(.c) c_int {
+    if (def.m_base.m_index <= 0) return -1;
+
+    const idx: usize = @intCast(def.m_base.m_index);
+    if (idx >= module_registry.len) return -1;
+
+    if (module_registry[idx]) |mod| {
+        traits.decref(mod);
+        module_registry[idx] = null;
+    }
+
+    return 0;
+}
+
+/// ============================================================================
+/// HELPER FUNCTIONS (Pure Zig implementations - NO extern declarations)
+/// ============================================================================
+
+// Use centralized pure Zig implementations from traits.externs
+const PyDict_New = traits.externs.PyDict_New;
+const PyDict_SetItemString = traits.externs.PyDict_SetItemString;
+const PyDict_GetItemString = traits.externs.PyDict_GetItemString;
+const PyUnicode_FromString = traits.externs.PyUnicode_FromString;
+const PyUnicode_AsUTF8 = traits.externs.PyUnicode_AsUTF8;
+const PyLong_FromLong = traits.externs.PyLong_FromLong;
+const PyCFunction_NewEx = traits.externs.PyCFunction_NewEx;
+
+// ============================================================================
+// TESTS
+// ============================================================================
+
+test "PyModuleDef layout" {
+    // Verify sizes match CPython expectations
+    try std.testing.expect(@sizeOf(PyModuleObject) > 0);
+    try std.testing.expect(@sizeOf(PyModuleDef) > 0);
+    try std.testing.expect(@sizeOf(PyMethodDef) > 0);
+}

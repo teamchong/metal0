@@ -80,7 +80,7 @@ pub inline fn getPostObjectData(comptime T: type, obj: anytype, base_size: usize
 // TYPE OBJECT BUILDER
 // ============================================================================
 
-const cpython = @import("cpython_object.zig");
+const cpython = @import("include/object.zig");
 
 /// Configuration for building a PyTypeObject
 pub const TypeObjectConfig = struct {

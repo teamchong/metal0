@@ -979,7 +979,19 @@ pub fn assertEqual(a: anytype, b: anytype) void {
     };
 
     if (!equal) {
-        std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
+        // Print strings with {s} format, other types with {any}
+        // Check if types are slices of u8 (strings)
+        const a_is_string = comptime isStringType(A);
+        const b_is_string = comptime isStringType(B);
+        if (a_is_string and b_is_string) {
+            std.debug.print("AssertionError: '{s}' != '{s}'\n", .{ a, b });
+        } else if (a_is_string) {
+            std.debug.print("AssertionError: '{s}' != {any}\n", .{ a, b });
+        } else if (b_is_string) {
+            std.debug.print("AssertionError: {any} != '{s}'\n", .{ a, b });
+        } else {
+            std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
+        }
         if (runner.global_result) |result| {
             result.addFail("assertEqual failed") catch {};
         }
@@ -1054,6 +1066,7 @@ pub fn assertIsNone(value: anytype) void {
     const runtime = @import("../runtime.zig");
     const T = @TypeOf(value);
     const is_none = switch (@typeInfo(T)) {
+        .null => true, // Zig's null literal type
         .optional => value == null,
         .pointer => |ptr| blk: {
             // Check if it's a PyObject pointer
@@ -1457,6 +1470,7 @@ pub fn assertIsNot(a: anytype, b: anytype) void {
 pub fn assertIsNotNone(value: anytype) void {
     const T = @TypeOf(value);
     const is_none = switch (@typeInfo(T)) {
+        .null => true, // Zig's null literal type
         .optional => value == null,
         .pointer => |ptr| blk: {
             // Check if it's a PyMatch pointer (has is_match field)

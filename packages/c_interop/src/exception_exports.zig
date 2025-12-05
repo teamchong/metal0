@@ -7,8 +7,8 @@
 ///
 /// Import this file to get all exception functionality!
 
-const pyobject_exceptions = @import("pyobject_exceptions.zig");
-const cpython = @import("cpython_object.zig");
+const pyobject_exceptions = @import("objects/exceptions.zig");
+const cpython = @import("include/object.zig");
 
 // Re-export PyErr_* functions
 pub const PyErr_SetString = pyobject_exceptions.PyErr_SetString;
@@ -37,4 +37,4 @@ pub const Py_INCREF = cpython.Py_INCREF;
 pub const Py_DECREF = cpython.Py_DECREF;
 
 // Re-export PyUnicode_FromString (needed for PyErr_SetString)
-pub const PyUnicode_FromString = @import("cpython_unicode.zig").PyUnicode_FromString;
+pub const PyUnicode_FromString = @import("include/unicodeobject.zig").PyUnicode_FromString;

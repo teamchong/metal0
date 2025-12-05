@@ -4,13 +4,14 @@
 /// This is metal0's DROP-IN REPLACEMENT for libpython - we provide the C API ourselves.
 const std = @import("std");
 
-// CPython stdlib wrappers
-pub const sqlite3 = @import("src/sqlite3.zig");
-pub const zlib = @import("src/zlib.zig");
-pub const ssl = @import("src/ssl.zig");
+// CPython stdlib wrappers (in modules/)
+pub const sqlite3 = @import("src/modules/sqlite3.zig");
+pub const zlib = @import("src/modules/zlib.zig");
+pub const ssl = @import("src/modules/ssl.zig");
 
 // CPython C API - our own implementation (drop-in replacement for libpython)
-pub const cpython = @import("src/cpython_object.zig");
+// File structure mirrors CPython's Include/, Objects/, Modules/, Python/ directories
+pub const cpython = @import("src/include/object.zig");
 
 // ============================================================================
 // CPYTHON EXPORTS - Force inclusion of all CPython API symbols
@@ -19,54 +20,54 @@ pub const cpython = @import("src/cpython_object.zig");
 // By referencing them here, we prevent Zig from dead-code eliminating them.
 
 pub const cpython_exports = struct {
-    // Core modules with export fn declarations
-    pub const argparse = @import("src/cpython_argparse.zig");
-    pub const refcount = @import("src/cpython_refcount.zig");
-    pub const buffer = @import("src/cpython_buffer.zig");
-    pub const datetime = @import("src/cpython_datetime.zig");
-    pub const descr = @import("src/cpython_descr.zig");
-    pub const eval = @import("src/cpython_eval.zig");
-    pub const file = @import("src/cpython_file.zig");
-    pub const import_ = @import("src/cpython_import.zig");
-    pub const init = @import("src/cpython_init.zig");
-    pub const misc = @import("src/cpython_misc.zig"); // Memory, capsule, attribute access
-    pub const module = @import("src/cpython_module.zig");
-    pub const number = @import("src/cpython_number.zig");
-    pub const sequence = @import("src/cpython_sequence.zig");
-    pub const slice = @import("src/cpython_slice.zig");
-    pub const sys = @import("src/cpython_sys.zig");
-    pub const type_ = @import("src/cpython_type.zig");
-    pub const unicode = @import("src/cpython_unicode.zig");
-    pub const weakref = @import("src/cpython_weakref.zig");
-    pub const mapping = @import("src/cpython_mapping.zig");
-    pub const object_protocol = @import("src/cpython_object_protocol.zig");
-    pub const codecs = @import("src/cpython_codecs.zig");
-    pub const context = @import("src/cpython_context.zig");
-    pub const gc = @import("src/cpython_gc.zig");
-    pub const iterator = @import("src/cpython_iterator.zig");
-    pub const call = @import("src/cpython_call.zig");
-    pub const structseq = @import("src/cpython_structseq.zig");
+    // Include/ - Core API modules (mirrors CPython Include/)
+    pub const argparse = @import("src/include/modsupport.zig");
+    pub const refcount = @import("src/include/refcount.zig");
+    pub const buffer = @import("src/include/buffer.zig");
+    pub const datetime = @import("src/include/datetime.zig");
+    pub const descr = @import("src/include/descrobject.zig");
+    pub const eval = @import("src/include/ceval.zig");
+    pub const file = @import("src/include/fileobject.zig");
+    pub const import_ = @import("src/include/import.zig");
+    pub const init = @import("src/python/pylifecycle.zig");
+    pub const misc = @import("src/include/pymisc.zig"); // Memory, capsule, attribute access
+    pub const module = @import("src/include/moduleobject.zig");
+    pub const number = @import("src/include/number.zig");
+    pub const sequence = @import("src/include/sequence.zig");
+    pub const slice = @import("src/include/sliceobject.zig");
+    pub const sys = @import("src/python/sysmodule.zig");
+    pub const type_ = @import("src/include/typeslots.zig");
+    pub const unicode = @import("src/include/unicodeobject.zig");
+    pub const weakref = @import("src/include/weakrefobject.zig");
+    pub const mapping = @import("src/include/mapping.zig");
+    pub const object_protocol = @import("src/include/abstract.zig");
+    pub const codecs = @import("src/include/codecs.zig");
+    pub const context = @import("src/include/context.zig");
+    pub const gc = @import("src/include/objimpl.zig");
+    pub const iterator = @import("src/include/iterobject.zig");
+    pub const call = @import("src/include/call.zig");
+    pub const structseq = @import("src/include/structseq.zig");
 
-    // PyObject type modules
-    pub const pylong = @import("src/pyobject_long.zig");
-    pub const pyfloat = @import("src/pyobject_float.zig");
-    pub const pylist = @import("src/pyobject_list.zig");
-    pub const pytuple = @import("src/pyobject_tuple.zig");
-    pub const pydict = @import("src/pyobject_dict.zig");
-    pub const pybytes = @import("src/pyobject_bytes.zig");
-    pub const pyset = @import("src/pyobject_set.zig");
-    pub const pybool = @import("src/pyobject_bool.zig");
-    pub const pynone = @import("src/pyobject_none.zig");
-    pub const pycomplex = @import("src/pyobject_complex.zig");
-    pub const pyunicode = @import("src/pyobject_unicode.zig");
-    pub const pyiter = @import("src/pyobject_iter.zig");
-    pub const pymethod = @import("src/pyobject_method.zig");
-    pub const pymodule = @import("src/pyobject_module.zig");
-    pub const pyslice = @import("src/pyobject_slice.zig");
+    // Objects/ - PyObject type implementations (mirrors CPython Objects/)
+    pub const pylong = @import("src/objects/longobject.zig");
+    pub const pyfloat = @import("src/objects/floatobject.zig");
+    pub const pylist = @import("src/objects/listobject.zig");
+    pub const pytuple = @import("src/objects/tupleobject.zig");
+    pub const pydict = @import("src/objects/dictobject.zig");
+    pub const pybytes = @import("src/objects/bytesobject.zig");
+    pub const pyset = @import("src/objects/setobject.zig");
+    pub const pybool = @import("src/objects/boolobject.zig");
+    pub const pynone = @import("src/objects/noneobject.zig");
+    pub const pycomplex = @import("src/objects/complexobject.zig");
+    pub const pyunicode = @import("src/objects/unicodeobject.zig");
+    pub const pyiter = @import("src/objects/iterobject.zig");
+    pub const pymethod = @import("src/objects/methodobject.zig");
+    pub const pymodule = @import("src/objects/moduleobject.zig");
+    pub const pyslice = @import("src/objects/sliceobject.zig");
 
     // Exception types and PyErr_* functions
-    pub const exceptions = @import("src/pyobject_exceptions.zig");
-    pub const traits = @import("src/pyobject_traits.zig");
+    pub const exceptions = @import("src/objects/exceptions.zig");
+    pub const traits = @import("src/objects/typetraits.zig");
 
     // Generic CPython API exports (for ALL C extensions)
     pub const api = @import("src/cpython_api.zig");

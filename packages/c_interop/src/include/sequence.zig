@@ -1,0 +1,418 @@
+/// CPython Sequence Protocol Implementation
+///
+/// This implements the sequence protocol for list-like operations.
+/// Critical for NumPy array indexing and slicing.
+
+const std = @import("std");
+const cpython = @import("object.zig");
+const traits = @import("../objects/typetraits.zig");
+
+/// Check if object is a sequence
+export fn PySequence_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+    return if (traits.isSequence(obj)) 1 else 0;
+}
+
+/// Get sequence length
+export fn PySequence_Size(obj: *cpython.PyObject) callconv(.c) isize {
+    if (traits.getLength(obj)) |len| {
+        return len;
+    }
+    traits.setError("TypeError", "object has no len()");
+    return -1;
+}
+
+/// Alias for PySequence_Size
+export fn PySequence_Length(obj: *cpython.PyObject) callconv(.c) isize {
+    return PySequence_Size(obj);
+}
+
+/// Concatenate sequences
+export fn PySequence_Concat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const type_obj = cpython.Py_TYPE(a);
+
+    if (type_obj.tp_as_sequence) |seq_procs| {
+        if (seq_procs.sq_concat) |concat_func| {
+            return concat_func(a, b);
+        }
+    }
+
+    traits.setError("TypeError", "object can't be concatenated");
+    return null;
+}
+
+/// Repeat sequence
+export fn PySequence_Repeat(obj: *cpython.PyObject, count: isize) callconv(.c) ?*cpython.PyObject {
+    const type_obj = cpython.Py_TYPE(obj);
+
+    if (type_obj.tp_as_sequence) |seq_procs| {
+        if (seq_procs.sq_repeat) |repeat_func| {
+            return repeat_func(obj, count);
+        }
+    }
+
+    traits.setError("TypeError", "object can't be repeated");
+    return null;
+}
+
+/// Get item by index
+export fn PySequence_GetItem(obj: *cpython.PyObject, i: isize) callconv(.c) ?*cpython.PyObject {
+    if (traits.getItem(obj, i)) |item| {
+        return item;
+    }
+    traits.setError("TypeError", "object does not support indexing");
+    return null;
+}
+
+/// Set item by index
+export fn PySequence_SetItem(obj: *cpython.PyObject, i: isize, value: *cpython.PyObject) callconv(.c) c_int {
+    if (traits.setItem(obj, i, value)) {
+        return 0;
+    }
+    traits.setError("TypeError", "object does not support item assignment");
+    return -1;
+}
+
+/// Delete item by index
+export fn PySequence_DelItem(obj: *cpython.PyObject, i: isize) callconv(.c) c_int {
+    const type_obj = cpython.Py_TYPE(obj);
+
+    if (type_obj.tp_as_sequence) |seq_procs| {
+        if (seq_procs.sq_ass_item) |ass_item_func| {
+            return ass_item_func(obj, i, null);
+        }
+    }
+
+    traits.setError("TypeError", "object doesn't support item deletion");
+    return -1;
+}
+
+/// Get slice [i:j]
+export fn PySequence_GetSlice(obj: *cpython.PyObject, i: isize, j: isize) callconv(.c) ?*cpython.PyObject {
+    const list = @import("../objects/listobject.zig");
+    const tuple = @import("../objects/tupleobject.zig");
+
+    // Normalize indices
+    const len = PySequence_Size(obj);
+    if (len < 0) return null;
+
+    var start = i;
+    var stop = j;
+
+    // Handle negative indices
+    if (start < 0) start += len;
+    if (stop < 0) stop += len;
+
+    // Clamp to bounds
+    if (start < 0) start = 0;
+    if (stop > len) stop = len;
+    if (start > stop) start = stop;
+
+    const slice_len = stop - start;
+
+    // Check if it's a list
+    if (traits.isList(obj)) {
+        const result = list.PyList_New(slice_len);
+        if (result == null) return null;
+
+        var idx: isize = 0;
+        while (idx < slice_len) : (idx += 1) {
+            if (list.PyList_GetItem(obj, start + idx)) |item| {
+                _ = traits.incref(item);
+                _ = list.PyList_SetItem(result.?, idx, item);
+            }
+        }
+        return result;
+    }
+
+    // Check if it's a tuple
+    if (traits.isTuple(obj)) {
+        const result = tuple.PyTuple_New(slice_len);
+        if (result == null) return null;
+
+        var idx: isize = 0;
+        while (idx < slice_len) : (idx += 1) {
+            if (tuple.PyTuple_GetItem(obj, start + idx)) |item| {
+                _ = traits.incref(item);
+                _ = tuple.PyTuple_SetItem(result.?, idx, item);
+            }
+        }
+        return result;
+    }
+
+    // Generic fallback using sequence protocol
+    const result = list.PyList_New(slice_len);
+    if (result == null) return null;
+
+    var idx: isize = 0;
+    while (idx < slice_len) : (idx += 1) {
+        if (PySequence_GetItem(obj, start + idx)) |item| {
+            _ = list.PyList_SetItem(result.?, idx, item);
+        }
+    }
+    return result;
+}
+
+/// Set slice [i:j] = v
+export fn PySequence_SetSlice(obj: *cpython.PyObject, i: isize, j: isize, value: *cpython.PyObject) callconv(.c) c_int {
+    const list = @import("../objects/listobject.zig");
+
+    // Only lists support slice assignment
+    if (traits.isList(obj)) {
+        return list.PyList_SetSlice(obj, i, j, value);
+    }
+
+    traits.setError("TypeError", "object does not support slice assignment");
+    return -1;
+}
+
+/// Delete slice [i:j]
+export fn PySequence_DelSlice(obj: *cpython.PyObject, i: isize, j: isize) callconv(.c) c_int {
+    const list = @import("../objects/listobject.zig");
+
+    // Only lists support slice deletion
+    if (traits.isList(obj)) {
+        return list.PyList_SetSlice(obj, i, j, null);
+    }
+
+    traits.setError("TypeError", "object does not support slice deletion");
+    return -1;
+}
+
+/// Check if item is in sequence
+export fn PySequence_Contains(obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) c_int {
+    const type_obj = cpython.Py_TYPE(obj);
+
+    if (type_obj.tp_as_sequence) |seq_procs| {
+        if (seq_procs.sq_contains) |contains_func| {
+            return contains_func(obj, value);
+        }
+    }
+
+    // Fallback: Linear search
+    const len = PySequence_Size(obj);
+    if (len < 0) return -1;
+
+    var i: isize = 0;
+    while (i < len) : (i += 1) {
+        const item = PySequence_GetItem(obj, i);
+        if (item == null) return -1;
+        defer traits.decref(item);
+
+        // Compare (simplified - pointer equality)
+        if (item.? == value) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+/// Count occurrences of value
+export fn PySequence_Count(obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) isize {
+    const len = PySequence_Size(obj);
+    if (len < 0) return -1;
+
+    var count: isize = 0;
+    var i: isize = 0;
+    while (i < len) : (i += 1) {
+        const item = PySequence_GetItem(obj, i);
+        if (item == null) return -1;
+        defer traits.decref(item);
+
+        // Compare (simplified - pointer equality)
+        if (item.? == value) {
+            count += 1;
+        }
+    }
+
+    return count;
+}
+
+/// Find first index of value
+export fn PySequence_Index(obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) isize {
+    const len = PySequence_Size(obj);
+    if (len < 0) return -1;
+
+    var i: isize = 0;
+    while (i < len) : (i += 1) {
+        const item = PySequence_GetItem(obj, i);
+        if (item == null) return -1;
+        defer traits.decref(item);
+
+        // Compare (simplified - pointer equality)
+        if (item.? == value) {
+            return i;
+        }
+    }
+
+    traits.setError("ValueError", "value not in sequence");
+    return -1;
+}
+
+/// Convert sequence to list
+export fn PySequence_List(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const list = @import("../objects/listobject.zig");
+
+    // If already a list, return a copy
+    if (traits.isList(obj)) {
+        const len = list.PyList_Size(obj);
+        const result = list.PyList_New(len);
+        if (result == null) return null;
+
+        var i: isize = 0;
+        while (i < len) : (i += 1) {
+            if (list.PyList_GetItem(obj, i)) |item| {
+                _ = traits.incref(item);
+                _ = list.PyList_SetItem(result.?, i, item);
+            }
+        }
+        return result;
+    }
+
+    // Generic sequence conversion
+    const len = PySequence_Size(obj);
+    if (len < 0) return null;
+
+    const result = list.PyList_New(len);
+    if (result == null) return null;
+
+    var i: isize = 0;
+    while (i < len) : (i += 1) {
+        if (PySequence_GetItem(obj, i)) |item| {
+            _ = list.PyList_SetItem(result.?, i, item);
+        }
+    }
+    return result;
+}
+
+/// Convert sequence to tuple
+export fn PySequence_Tuple(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const tuple = @import("../objects/tupleobject.zig");
+    const list = @import("../objects/listobject.zig");
+
+    // If already a tuple, incref and return
+    if (traits.isTuple(obj)) {
+        return traits.incref(obj);
+    }
+
+    // If it's a list, convert directly
+    if (traits.isList(obj)) {
+        return list.PyList_AsTuple(obj);
+    }
+
+    // Generic sequence conversion
+    const len = PySequence_Size(obj);
+    if (len < 0) return null;
+
+    const result = tuple.PyTuple_New(len);
+    if (result == null) return null;
+
+    var i: isize = 0;
+    while (i < len) : (i += 1) {
+        if (PySequence_GetItem(obj, i)) |item| {
+            _ = tuple.PyTuple_SetItem(result.?, i, item);
+        }
+    }
+    return result;
+}
+
+/// Fast sequence (for iteration)
+/// Returns a list or tuple view of the sequence (for fast item access)
+export fn PySequence_Fast(obj: *cpython.PyObject, message: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+    // If already list or tuple, just incref and return
+    if (traits.isList(obj) or traits.isTuple(obj)) {
+        return traits.incref(obj);
+    }
+
+    // Otherwise, convert to list
+    const result = PySequence_List(obj);
+    if (result == null) {
+        traits.setError("TypeError", message);
+    }
+    return result;
+}
+
+/// Get item from fast sequence (no bounds checking)
+export fn PySequence_Fast_GET_ITEM(obj: *cpython.PyObject, i: isize) callconv(.c) ?*cpython.PyObject {
+    const list = @import("../objects/listobject.zig");
+    const tuple = @import("../objects/tupleobject.zig");
+
+    // Direct access for list/tuple (no bounds checking per CPython spec)
+    if (traits.isList(obj)) {
+        return list.PyList_GetItem(obj, i);
+    }
+    if (traits.isTuple(obj)) {
+        return tuple.PyTuple_GetItem(obj, i);
+    }
+
+    return PySequence_GetItem(obj, i);
+}
+
+/// Get size of fast sequence
+export fn PySequence_Fast_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
+    const list = @import("../objects/listobject.zig");
+    const tuple = @import("../objects/tupleobject.zig");
+
+    if (traits.isList(obj)) {
+        return list.PyList_Size(obj);
+    }
+    if (traits.isTuple(obj)) {
+        return tuple.PyTuple_Size(obj);
+    }
+
+    return PySequence_Size(obj);
+}
+
+/// Get underlying array of fast sequence (for direct pointer access)
+export fn PySequence_Fast_ITEMS(obj: *cpython.PyObject) callconv(.c) ?[*]*cpython.PyObject {
+    const list = @import("../objects/listobject.zig");
+    const tuple = @import("../objects/tupleobject.zig");
+
+    if (traits.isList(obj)) {
+        const list_obj: *list.PyListObject = @ptrCast(@alignCast(obj));
+        return list_obj.ob_item;
+    }
+    if (traits.isTuple(obj)) {
+        const tuple_obj: *tuple.PyTupleObject = @ptrCast(@alignCast(obj));
+        return @ptrCast(&tuple_obj.ob_item);
+    }
+
+    return null;
+}
+
+/// In-place concatenate
+export fn PySequence_InPlaceConcat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const type_obj = cpython.Py_TYPE(a);
+    
+    if (type_obj.tp_as_sequence) |seq_procs| {
+        if (seq_procs.sq_inplace_concat) |concat_func| {
+            return concat_func(a, b);
+        }
+    }
+    
+    // Fallback to regular concat
+    return PySequence_Concat(a, b);
+}
+
+/// In-place repeat
+export fn PySequence_InPlaceRepeat(obj: *cpython.PyObject, count: isize) callconv(.c) ?*cpython.PyObject {
+    const type_obj = cpython.Py_TYPE(obj);
+    
+    if (type_obj.tp_as_sequence) |seq_procs| {
+        if (seq_procs.sq_inplace_repeat) |repeat_func| {
+            return repeat_func(obj, count);
+        }
+    }
+    
+    // Fallback to regular repeat
+    return PySequence_Repeat(obj, count);
+}
+
+// Tests
+test "PySequence function exports" {
+    // Verify functions exist
+    _ = PySequence_Check;
+    _ = PySequence_Size;
+    _ = PySequence_GetItem;
+    _ = PySequence_Contains;
+}

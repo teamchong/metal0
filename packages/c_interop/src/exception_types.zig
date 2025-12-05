@@ -8,7 +8,7 @@
 /// Key insight: All exceptions share the same base pattern, we just
 /// configure which extra fields each type needs at comptime.
 const std = @import("std");
-const cpython = @import("cpython_object.zig");
+const cpython = @import("include/object.zig");
 
 // Type aliases
 const PyObject = cpython.PyObject;

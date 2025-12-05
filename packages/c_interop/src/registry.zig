@@ -65,7 +65,7 @@ pub fn getSupportedPackages(allocator: std.mem.Allocator) ![]const []const u8 {
 
 /// PyObject traits - systematic solutions for recurring patterns
 /// Usage: const traits = @import("c_interop").traits;
-pub const traits = @import("pyobject_traits.zig");
+pub const traits = @import("objects/typetraits.zig");
 
 /// Optimization helpers - pointer casts, type builders
 pub const helpers = @import("optimization_helpers.zig");
@@ -74,18 +74,18 @@ pub const helpers = @import("optimization_helpers.zig");
 // Re-export PyObject modules for complete C API coverage
 // ============================================================================
 
-pub const cell = @import("pyobject_cell.zig");
-pub const gen = @import("pyobject_gen.zig");
-pub const frame = @import("pyobject_frame.zig");
-pub const file = @import("cpython_file.zig");
-pub const datetime = @import("cpython_datetime.zig");
-pub const cpython_import = @import("cpython_import.zig");
+pub const cell = @import("objects/cellobject.zig");
+pub const gen = @import("objects/genobject.zig");
+pub const frame = @import("objects/frameobject.zig");
+pub const file = @import("include/fileobject.zig");
+pub const datetime = @import("include/datetime.zig");
+pub const cpython_import = @import("include/import.zig");
 
 // ============================================================================
 // Generic C Extension Module Calls
 // ============================================================================
 
-const cpython = @import("cpython_object.zig");
+const cpython = @import("include/object.zig");
 
 /// Call a function on a C extension module (e.g., numpy.array, pandas.DataFrame)
 ///

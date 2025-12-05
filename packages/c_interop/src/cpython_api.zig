@@ -11,28 +11,31 @@
 /// 4. Singletons (_Py_TrueStruct, _Py_FalseStruct, _Py_NoneStruct)
 
 const std = @import("std");
-const cpython = @import("cpython_object.zig");
+const cpython = @import("include/object.zig");
 
-// Import all modules that have exports
-const pylong = @import("pyobject_long.zig");
-const pyfloat = @import("pyobject_float.zig");
-const pybool = @import("pyobject_bool.zig");
-const pybytes = @import("pyobject_bytes.zig");
-const pyunicode = @import("pyobject_unicode.zig");
-const pylist = @import("pyobject_list.zig");
-const pytuple = @import("pyobject_tuple.zig");
-const pydict = @import("pyobject_dict.zig");
-const pyset = @import("pyobject_set.zig");
-const pynone = @import("pyobject_none.zig");
-const pycomplex = @import("pyobject_complex.zig");
-const pyiter = @import("pyobject_iter.zig");
-const pyslice = @import("pyobject_slice.zig");
-const pymethod = @import("pyobject_method.zig");
-const exceptions = @import("pyobject_exceptions.zig");
-const misc = @import("cpython_misc.zig");
-const unicode = @import("cpython_unicode.zig");
-const type_ = @import("cpython_type.zig");
-const traits = @import("pyobject_traits.zig");
+// Import all modules that have exports (using new CPython-mirrored structure)
+// Objects (packages/c_interop/src/objects/)
+const pylong = @import("objects/longobject.zig");
+const pyfloat = @import("objects/floatobject.zig");
+const pybool = @import("objects/boolobject.zig");
+const pybytes = @import("objects/bytesobject.zig");
+const pyunicode = @import("objects/unicodeobject.zig");
+const pylist = @import("objects/listobject.zig");
+const pytuple = @import("objects/tupleobject.zig");
+const pydict = @import("objects/dictobject.zig");
+const pyset = @import("objects/setobject.zig");
+const pynone = @import("objects/noneobject.zig");
+const pycomplex = @import("objects/complexobject.zig");
+const pyiter = @import("objects/iterobject.zig");
+const pyslice = @import("objects/sliceobject.zig");
+const pymethod = @import("objects/methodobject.zig");
+const exceptions = @import("objects/exceptions.zig");
+const traits = @import("objects/typetraits.zig");
+
+// Include (packages/c_interop/src/include/)
+const misc = @import("include/pymisc.zig");
+const unicode = @import("include/unicodeobject.zig");
+const type_ = @import("include/typeslots.zig");
 
 // ============================================================================
 // TYPE OBJECT EXPORTS
@@ -591,7 +594,7 @@ export fn _get_PyDictProxy_Type() callconv(.c) *cpython.PyTypeObject {
 
 // MemoryView type export
 export fn _get_PyMemoryView_Type() callconv(.c) *cpython.PyTypeObject {
-    const buffer = @import("cpython_buffer.zig");
+    const buffer = @import("include/buffer.zig");
     return &buffer.PyMemoryView_Type;
 }
 
@@ -885,7 +888,7 @@ export fn PyABIInfo_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 // --- PyArg_* Functions ---
 // Note: PyArg_ParseTuple and Py_BuildValue are in cpython_argparse.zig
 
-const argparse = @import("cpython_argparse.zig");
+const argparse = @import("include/modsupport.zig");
 
 export fn PyArg_Parse(args: *cpython.PyObject, format: [*:0]const u8, ...) callconv(.C) c_int {
     // Single argument parse - use same logic as ParseTuple
@@ -1326,7 +1329,7 @@ export fn PyEval_EvalCodeEx(co: *cpython.PyObject, globals: *cpython.PyObject, l
     _ = closure;
 
     // Use the eval implementation from cpython_eval.zig
-    const eval_mod = @import("cpython_eval.zig");
+    const eval_mod = @import("include/ceval.zig");
     return eval_mod.PyEval_EvalCode(co, globals, locals orelse globals);
 }
 
@@ -1352,7 +1355,7 @@ export fn PyExceptionClass_Name(exc: *cpython.PyObject) callconv(.c) [*:0]const 
 // --- PyImport_* Functions ---
 
 export fn PyImport_AddModuleRef(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    const import_mod = @import("cpython_import.zig");
+    const import_mod = @import("include/import.zig");
     const module = import_mod.PyImport_ImportModule(name);
     if (module) |m| {
         traits.incref(m);
@@ -1362,8 +1365,8 @@ export fn PyImport_AddModuleRef(name: [*:0]const u8) callconv(.c) ?*cpython.PyOb
 
 export fn PyImport_ExecCodeModuleObject(name: *cpython.PyObject, co: *cpython.PyObject, pathname: *cpython.PyObject, cpathname: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = cpathname;
-    const import_mod = @import("cpython_import.zig");
-    const module_mod = @import("cpython_module.zig");
+    const import_mod = @import("include/import.zig");
+    const module_mod = @import("include/moduleobject.zig");
 
     // Get module name as C string
     const name_str = pyunicode.PyUnicode_AsUTF8(name) orelse return null;
@@ -1378,7 +1381,7 @@ export fn PyImport_ExecCodeModuleObject(name: *cpython.PyObject, co: *cpython.Py
     // Execute the code object in the module's namespace
     const dict = module_mod.PyModule_GetDict(module);
     if (dict) |d| {
-        const eval_mod = @import("cpython_eval.zig");
+        const eval_mod = @import("include/ceval.zig");
         _ = eval_mod.PyEval_EvalCode(co, d, d);
     }
 
@@ -1425,7 +1428,7 @@ export fn PyImport_ImportModuleLevelObject(name: *cpython.PyObject, globals: ?*c
     _ = level;
     // Get module name as C string and import
     if (pyunicode.PyUnicode_AsUTF8(name)) |cname| {
-        const import_mod = @import("cpython_import.zig");
+        const import_mod = @import("include/import.zig");
         return import_mod.PyImport_ImportModule(cname);
     }
     return null;
@@ -1514,7 +1517,7 @@ export fn PyLong_GetInfo() callconv(.c) ?*cpython.PyObject {
 // --- PyMapping_* New Functions ---
 
 export fn PyMapping_GetOptionalItem(obj: *cpython.PyObject, key: *cpython.PyObject, result: *?*cpython.PyObject) callconv(.c) c_int {
-    const mapping = @import("cpython_mapping.zig");
+    const mapping = @import("include/mapping.zig");
     const tp = cpython.Py_TYPE(obj);
     if (tp.tp_as_mapping) |m| {
         if (m.mp_subscript) |subscript| {
@@ -1531,19 +1534,19 @@ export fn PyMapping_GetOptionalItem(obj: *cpython.PyObject, key: *cpython.PyObje
 }
 
 export fn PyMapping_GetOptionalItemString(obj: *cpython.PyObject, key: [*:0]const u8, result: *?*cpython.PyObject) callconv(.c) c_int {
-    const mapping = @import("cpython_mapping.zig");
+    const mapping = @import("include/mapping.zig");
     const item = mapping.PyMapping_GetItemString(obj, key);
     result.* = item;
     return if (item != null) 1 else 0;
 }
 
 export fn PyMapping_HasKeyStringWithError(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) c_int {
-    const mapping = @import("cpython_mapping.zig");
+    const mapping = @import("include/mapping.zig");
     return mapping.PyMapping_HasKeyString(obj, key);
 }
 
 export fn PyMapping_HasKeyWithError(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
-    const mapping = @import("cpython_mapping.zig");
+    const mapping = @import("include/mapping.zig");
     return mapping.PyMapping_HasKey(obj, key);
 }
 
@@ -1576,12 +1579,12 @@ export fn PyMember_SetOne(obj: [*]u8, member: *const cpython.PyMemberDef, value:
 // --- PyModule_* New Functions ---
 
 export fn PyModule_Add(module: *cpython.PyObject, name: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
-    const module_mod = @import("cpython_module.zig");
+    const module_mod = @import("include/moduleobject.zig");
     return module_mod.PyModule_AddObject(module, name, value);
 }
 
 export fn PyModule_AddFunctions(module: *cpython.PyObject, methods: [*]const cpython.PyMethodDef) callconv(.c) c_int {
-    const module_mod = @import("cpython_module.zig");
+    const module_mod = @import("include/moduleobject.zig");
     var i: usize = 0;
     // Iterate through null-terminated method array
     while (methods[i].ml_name != null) : (i += 1) {
@@ -1601,7 +1604,7 @@ export fn PyModule_Exec(module: *cpython.PyObject, def: *cpython.PyModuleDef) ca
 }
 
 export fn PyModule_ExecDef(module: *cpython.PyObject, def: *cpython.PyModuleDef) callconv(.c) c_int {
-    const module_mod = @import("cpython_module.zig");
+    const module_mod = @import("include/moduleobject.zig");
 
     // Add methods if provided
     if (def.m_methods) |methods| {
@@ -1652,7 +1655,7 @@ export fn PyModule_ExecDef(module: *cpython.PyObject, def: *cpython.PyModuleDef)
 
 export fn PyModule_FromSlotsAndSpec(def: *cpython.PyModuleDef, spec: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = spec;
-    const module_mod = @import("cpython_module.zig");
+    const module_mod = @import("include/moduleobject.zig");
     // Create module from def
     const module = module_mod.PyModule_Create2(def, 1013) orelse return null;
     // Execute module def
@@ -1669,7 +1672,7 @@ export fn PyModule_GetFilenameObject(module: *cpython.PyObject) callconv(.c) ?*c
 }
 
 export fn PyModule_GetNameObject(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const module_mod = @import("cpython_module.zig");
+    const module_mod = @import("include/moduleobject.zig");
     const name = module_mod.PyModule_GetName(module);
     if (name) |n| {
         return pyunicode.PyUnicode_FromString(n);
@@ -1691,12 +1694,12 @@ export fn PyModule_GetToken(module: *cpython.PyObject) callconv(.c) ?*anyopaque 
 
 export fn PyObject_CallFunctionObjArgs(callable: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Varargs - just call with no args for now
-    const call = @import("cpython_call.zig");
+    const call = @import("include/call.zig");
     return call.PyObject_CallNoArgs(callable);
 }
 
 export fn PyObject_CallMethodObjArgs(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const call = @import("cpython_call.zig");
+    const call = @import("include/call.zig");
     return call.PyObject_CallMethodNoArgs(obj, name);
 }
 
@@ -1705,7 +1708,7 @@ export fn PyObject_DelAttr(obj: *cpython.PyObject, name: *cpython.PyObject) call
 }
 
 export fn PyObject_DelItemString(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) c_int {
-    const mapping = @import("cpython_mapping.zig");
+    const mapping = @import("include/mapping.zig");
     return mapping.PyMapping_DelItemString(obj, key);
 }
 
@@ -1802,7 +1805,7 @@ export fn PyOS_setsig(sig: c_int, handler: ?*const fn (c_int) callconv(.c) void)
 // --- PySequence_* ---
 
 export fn PySequence_In(seq: *cpython.PyObject, obj: *cpython.PyObject) callconv(.c) c_int {
-    const sequence = @import("cpython_sequence.zig");
+    const sequence = @import("include/sequence.zig");
     return sequence.PySequence_Contains(seq, obj);
 }
 

@@ -1,0 +1,472 @@
+/// PyFunctionObject - EXACT CPython 3.12 memory layout
+///
+/// Reference: cpython/Include/cpython/funcobject.h
+
+const std = @import("std");
+const cpython = @import("../include/object.zig");
+const traits = @import("typetraits.zig");
+
+const allocator = std.heap.c_allocator;
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+/// PyFunctionObject - EXACT CPython layout
+pub const PyFunctionObject = extern struct {
+    ob_base: cpython.PyObject, // 16 bytes
+    func_globals: ?*cpython.PyObject,
+    func_builtins: ?*cpython.PyObject,
+    func_name: ?*cpython.PyObject,
+    func_qualname: ?*cpython.PyObject,
+    func_code: ?*cpython.PyObject, // Code object
+    func_defaults: ?*cpython.PyObject, // NULL or tuple
+    func_kwdefaults: ?*cpython.PyObject, // NULL or dict
+    func_closure: ?*cpython.PyObject, // NULL or tuple of cells
+    func_doc: ?*cpython.PyObject, // __doc__
+    func_dict: ?*cpython.PyObject, // __dict__
+    func_weakreflist: ?*cpython.PyObject,
+    func_module: ?*cpython.PyObject, // __module__
+    func_annotations: ?*cpython.PyObject, // Annotations dict
+    func_annotate: ?*cpython.PyObject, // Callable to fill annotations
+    func_typeparams: ?*cpython.PyObject, // Tuple of type vars
+    vectorcall: cpython.vectorcallfunc,
+    func_version: u32,
+    _pad: [4]u8 = undefined, // Alignment padding
+};
+
+/// PyFrameConstructor - frame constructor
+pub const PyFrameConstructor = extern struct {
+    fc_globals: ?*cpython.PyObject,
+    fc_builtins: ?*cpython.PyObject,
+    fc_name: ?*cpython.PyObject,
+    fc_qualname: ?*cpython.PyObject,
+    fc_code: ?*cpython.PyObject,
+    fc_defaults: ?*cpython.PyObject,
+    fc_kwdefaults: ?*cpython.PyObject,
+    fc_closure: ?*cpython.PyObject,
+};
+
+// ============================================================================
+// TYPE OBJECTS
+// ============================================================================
+
+pub var PyFunction_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "function",
+    .tp_basicsize = @sizeOf(PyFunctionObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = function_dealloc,
+    .tp_vectorcall_offset = @offsetOf(PyFunctionObject, "vectorcall"),
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_HAVE_GC,
+    .tp_doc = null,
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = @offsetOf(PyFunctionObject, "func_weakreflist"),
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = @offsetOf(PyFunctionObject, "func_dict"),
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};
+
+pub var PyClassMethod_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "classmethod",
+    .tp_basicsize = @sizeOf(cpython.PyObject) + @sizeOf(?*cpython.PyObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = null,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE | cpython.Py_TPFLAGS_HAVE_GC,
+    .tp_doc = "classmethod(function) -> method",
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};
+
+pub var PyStaticMethod_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "staticmethod",
+    .tp_basicsize = @sizeOf(cpython.PyObject) + @sizeOf(?*cpython.PyObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = null,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE | cpython.Py_TPFLAGS_HAVE_GC,
+    .tp_doc = "staticmethod(function) -> method",
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};
+
+// ============================================================================
+// API FUNCTIONS
+// ============================================================================
+
+/// Create function from code and globals
+pub export fn PyFunction_New(code: *cpython.PyObject, globals: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    return PyFunction_NewWithQualName(code, globals, null);
+}
+
+/// Create function with qualified name
+pub export fn PyFunction_NewWithQualName(code: *cpython.PyObject, globals: *cpython.PyObject, qualname: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const obj = allocator.create(PyFunctionObject) catch return null;
+
+    obj.ob_base.ob_refcnt = 1;
+    obj.ob_base.ob_type = &PyFunction_Type;
+    obj.func_globals = traits.incref(globals);
+    obj.func_builtins = null;
+    obj.func_name = null;
+    obj.func_qualname = traits.incref(qualname);
+    obj.func_code = traits.incref(code);
+    obj.func_defaults = null;
+    obj.func_kwdefaults = null;
+    obj.func_closure = null;
+    obj.func_doc = null;
+    obj.func_dict = null;
+    obj.func_weakreflist = null;
+    obj.func_module = null;
+    obj.func_annotations = null;
+    obj.func_annotate = null;
+    obj.func_typeparams = null;
+    obj.vectorcall = null;
+    obj.func_version = 0;
+
+    return @ptrCast(&obj.ob_base);
+}
+
+/// Get code object
+pub export fn PyFunction_GetCode(op: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(op));
+    return f.func_code;
+}
+
+/// Get globals dict
+pub export fn PyFunction_GetGlobals(op: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(op));
+    return f.func_globals;
+}
+
+/// Get module
+pub export fn PyFunction_GetModule(op: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(op));
+    return f.func_module;
+}
+
+/// Get defaults
+pub export fn PyFunction_GetDefaults(op: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(op));
+    return f.func_defaults;
+}
+
+/// Set defaults
+pub export fn PyFunction_SetDefaults(op: *cpython.PyObject, defaults: ?*cpython.PyObject) callconv(.c) c_int {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(op));
+    traits.decref(f.func_defaults);
+    f.func_defaults = traits.incref(defaults);
+    return 0;
+}
+
+/// Get kwdefaults
+pub export fn PyFunction_GetKwDefaults(op: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(op));
+    return f.func_kwdefaults;
+}
+
+/// Set kwdefaults
+pub export fn PyFunction_SetKwDefaults(op: *cpython.PyObject, kwdefaults: ?*cpython.PyObject) callconv(.c) c_int {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(op));
+    traits.decref(f.func_kwdefaults);
+    f.func_kwdefaults = traits.incref(kwdefaults);
+    return 0;
+}
+
+/// Get closure
+pub export fn PyFunction_GetClosure(op: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(op));
+    return f.func_closure;
+}
+
+/// Set closure
+pub export fn PyFunction_SetClosure(op: *cpython.PyObject, closure: ?*cpython.PyObject) callconv(.c) c_int {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(op));
+    traits.decref(f.func_closure);
+    f.func_closure = traits.incref(closure);
+    return 0;
+}
+
+/// Get annotations
+pub export fn PyFunction_GetAnnotations(op: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(op));
+    return f.func_annotations;
+}
+
+/// Set annotations
+pub export fn PyFunction_SetAnnotations(op: *cpython.PyObject, annotations: ?*cpython.PyObject) callconv(.c) c_int {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(op));
+    traits.decref(f.func_annotations);
+    f.func_annotations = traits.incref(annotations);
+    return 0;
+}
+
+/// Type check
+pub export fn PyFunction_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+    return if (cpython.Py_TYPE(obj) == &PyFunction_Type) 1 else 0;
+}
+
+/// Classmethod wrapper object
+pub const PyClassMethodObject = extern struct {
+    ob_base: cpython.PyObject,
+    cm_callable: ?*cpython.PyObject,
+    cm_dict: ?*cpython.PyObject,
+};
+
+/// Staticmethod wrapper object
+pub const PyStaticMethodObject = extern struct {
+    ob_base: cpython.PyObject,
+    sm_callable: ?*cpython.PyObject,
+    sm_dict: ?*cpython.PyObject,
+};
+
+fn classmethod_get(self: *cpython.PyObject, obj: ?*cpython.PyObject, owner: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const cm: *PyClassMethodObject = @ptrCast(@alignCast(self));
+    const callable = cm.cm_callable orelse return null;
+
+    // Get the class - either from owner or from obj's type
+    const cls: *cpython.PyObject = if (owner) |o|
+        @ptrCast(o)
+    else if (obj) |o|
+        @ptrCast(cpython.Py_TYPE(o))
+    else
+        return null;
+
+    // Return bound method with class as first argument
+    const pymethod = @import("methodobject.zig");
+    return pymethod.PyMethod_New(callable, cls);
+}
+
+fn staticmethod_get(self: *cpython.PyObject, obj: ?*cpython.PyObject, owner: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    _ = obj;
+    _ = owner;
+    const sm: *PyStaticMethodObject = @ptrCast(@alignCast(self));
+    const callable = sm.sm_callable orelse return null;
+
+    // Return the callable unchanged (not bound)
+    return traits.incref(callable);
+}
+
+fn classmethod_dealloc(obj: *cpython.PyObject) callconv(.c) void {
+    const cm: *PyClassMethodObject = @ptrCast(@alignCast(obj));
+    if (cm.cm_callable) |c| traits.decref(c);
+    if (cm.cm_dict) |d| traits.decref(d);
+    allocator.destroy(cm);
+}
+
+fn staticmethod_dealloc(obj: *cpython.PyObject) callconv(.c) void {
+    const sm: *PyStaticMethodObject = @ptrCast(@alignCast(obj));
+    if (sm.sm_callable) |c| traits.decref(c);
+    if (sm.sm_dict) |d| traits.decref(d);
+    allocator.destroy(sm);
+}
+
+pub var PyClassMethod_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "classmethod",
+    .tp_basicsize = @sizeOf(PyClassMethodObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = classmethod_dealloc,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE,
+    .tp_descr_get = classmethod_get,
+};
+
+pub var PyStaticMethod_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "staticmethod",
+    .tp_basicsize = @sizeOf(PyStaticMethodObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = staticmethod_dealloc,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE,
+    .tp_descr_get = staticmethod_get,
+};
+
+/// Create classmethod
+pub export fn PyClassMethod_New(callable: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const cm = allocator.create(PyClassMethodObject) catch return null;
+    cm.* = .{
+        .ob_base = .{
+            .ob_refcnt = 1,
+            .ob_type = &PyClassMethod_Type,
+        },
+        .cm_callable = traits.incref(callable),
+        .cm_dict = null,
+    };
+    return @ptrCast(cm);
+}
+
+/// Create staticmethod
+pub export fn PyStaticMethod_New(callable: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const sm = allocator.create(PyStaticMethodObject) catch return null;
+    sm.* = .{
+        .ob_base = .{
+            .ob_refcnt = 1,
+            .ob_type = &PyStaticMethod_Type,
+        },
+        .sm_callable = traits.incref(callable),
+        .sm_dict = null,
+    };
+    return @ptrCast(sm);
+}
+
+// ============================================================================
+// INTERNAL FUNCTIONS
+// ============================================================================
+
+fn function_dealloc(obj: *cpython.PyObject) callconv(.c) void {
+    const f: *PyFunctionObject = @ptrCast(@alignCast(obj));
+
+    traits.decref(f.func_globals);
+    traits.decref(f.func_builtins);
+    traits.decref(f.func_name);
+    traits.decref(f.func_qualname);
+    traits.decref(f.func_code);
+    traits.decref(f.func_defaults);
+    traits.decref(f.func_kwdefaults);
+    traits.decref(f.func_closure);
+    traits.decref(f.func_doc);
+    traits.decref(f.func_dict);
+    traits.decref(f.func_module);
+    traits.decref(f.func_annotations);
+    traits.decref(f.func_annotate);
+    traits.decref(f.func_typeparams);
+
+    allocator.destroy(f);
+}
