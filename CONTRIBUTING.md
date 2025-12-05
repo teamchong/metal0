@@ -35,24 +35,121 @@ This is actually a great time to contribute - your input can shape the project's
 
 ## Development Setup
 
+### Prerequisites
+
+- **Zig 0.15.x** - Install from [ziglang.org/download](https://ziglang.org/download/)
+  - The project tracks Zig master; currently tested with **0.15.2**
+  - Zig 0.14.x may work but is not guaranteed
+- **macOS or Linux** - Windows support is limited
+- **hyperfine** (optional) - For running benchmarks (`brew install hyperfine`)
+
+### Building
+
 ```bash
 # Clone and build
 git clone https://github.com/paiml/metal0
 cd metal0
-make install
 
-# Run tests
-make test-unit        # Fast unit tests
-make test             # Full test suite
-
-# Build after changes
+# Debug build (fast iteration)
 zig build
+# or
+make build
+
+# Release build + install to ~/.local/bin
+make install
 ```
 
-### Prerequisites
+### Running Tests
 
-- **Zig 0.14.0** - Install from [ziglang.org](https://ziglang.org/download/)
-- **macOS or Linux** - Windows support is limited
+The **Makefile is the source of truth** for test commands:
+
+```bash
+# Quick validation (recommended during development)
+make test              # Runs: build + test-unit
+
+# Individual test suites
+make test-unit         # Unit tests via `metal0 test tests/unit`
+make test-integration  # Integration tests via `metal0 test tests/integration`
+make test-cpython      # CPython compatibility tests
+
+# Everything (slow)
+make test-all          # Runs: test-unit + test-integration + test-cpython
+```
+
+To run a specific Python file:
+```bash
+./zig-out/bin/metal0 path/to/test.py           # Compile and run
+./zig-out/bin/metal0 build path/to/test.py     # Compile only
+```
+
+### Debugging
+
+```bash
+# View generated Zig code (useful for debugging codegen issues)
+cat .metal0/cache/metal0_main_*.zig
+
+# The cache directory contains intermediate artifacts
+ls .metal0/cache/
+```
+
+## Architecture Overview
+
+metal0 is an ahead-of-time compiler that translates Python source to Zig, then compiles to native code.
+
+```
+Python source → Lexer → Parser → AST → Analysis → Codegen → Zig source → Native binary
+```
+
+### Directory Structure
+
+```
+src/
+├── lexer/              # Python tokenization (lexer.zig)
+├── parser/             # AST generation from tokens
+├── ast/                # AST node definitions
+├── analysis/           # Type inference, semantic analysis, lifetime tracking
+│   └── native_types/   # Type system for native codegen
+├── codegen/
+│   └── native/         # Python AST → Zig code generation (the big one)
+│       ├── expressions/    # Expression codegen (binops, calls, etc.)
+│       ├── statements/     # Statement codegen (if, for, try, etc.)
+│       ├── builtins/       # Built-in function implementations
+│       └── main/           # Codegen entry point and state
+├── bytecode/           # (Experimental) Bytecode compiler/VM for WASM target
+├── main/               # CLI entry point, compiler orchestration
+└── compiler.zig        # Top-level compilation pipeline
+
+packages/
+└── runtime/            # Zig runtime library
+    └── src/
+        ├── runtime.zig     # Main runtime exports
+        ├── runtime/        # Core runtime (builtins, exceptions, types)
+        ├── Objects/        # Python object implementations
+        ├── Python/         # Python-specific utilities (formatter, etc.)
+        └── Lib/            # Standard library implementations (unittest, etc.)
+
+tests/
+├── unit/               # Unit tests (fast, isolated)
+├── integration/        # Integration tests
+└── cpython/            # CPython compatibility tests (test_*.py from CPython)
+```
+
+### Key Modules
+
+| Module | Purpose |
+|--------|---------|
+| `src/codegen/native/` | The heart of the compiler - translates Python AST to Zig |
+| `src/analysis/` | Type inference and semantic analysis |
+| `packages/runtime/` | Runtime library linked into compiled binaries |
+| `src/bytecode/` | Experimental bytecode VM (for WASM, not primary target) |
+
+### Compilation Flow
+
+1. **Lexer** (`src/lexer/`) - Tokenizes Python source
+2. **Parser** (`src/parser/`) - Builds AST from tokens
+3. **Analysis** (`src/analysis/`) - Type inference, scope analysis
+4. **Codegen** (`src/codegen/native/`) - Generates Zig source code
+5. **Zig compiler** - Compiles generated Zig to native binary
 
 ## Submitting Changes
 
@@ -79,33 +176,6 @@ test: Add regression test for issue #123
 - Zig code is auto-formatted on commit (via pre-commit hook)
 - Keep functions focused and reasonably sized
 - Comments for non-obvious logic
-
-## Testing
-
-```bash
-# Run a specific Python file through metal0
-./zig-out/bin/metal0 path/to/test.py
-
-# Run CPython compatibility tests
-./zig-out/bin/metal0 tests/cpython/test_exceptions.py
-
-# Check generated Zig code (useful for debugging)
-cat .metal0/cache/metal0_main_*.zig
-```
-
-## Architecture Overview
-
-```
-src/
-├── lexer/          # Python tokenization
-├── parser/         # AST generation
-├── analysis/       # Type inference, semantic analysis
-├── codegen/native/ # Python AST → Zig code generation
-└── main/           # CLI, compiler orchestration
-
-packages/runtime/   # Zig runtime library (Python builtins, types)
-tests/cpython/      # CPython compatibility tests
-```
 
 ## Getting Help
 
