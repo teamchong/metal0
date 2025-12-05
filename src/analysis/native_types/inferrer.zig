@@ -60,6 +60,7 @@ pub const TypeInferrer = struct {
     class_fields: FnvClassMap, // class_name -> field types
     func_return_types: FnvHashMap, // function_name -> return type
     class_constructor_args: FnvArgsMap, // class_name -> constructor arg types
+    function_call_args: FnvArgsMap, // function_name -> call arg types (for regular functions)
     ctypes_functions: hashmap_helper.StringHashMap(CTypesFuncInfo), // ctypes function tracking
     from_imports: hashmap_helper.StringHashMap([]const u8), // from-import tracking: symbol -> module (e.g., "datetime" -> "datetime")
 
@@ -77,6 +78,7 @@ pub const TypeInferrer = struct {
             .class_fields = FnvClassMap.init(allocator),
             .func_return_types = FnvHashMap.init(allocator),
             .class_constructor_args = FnvArgsMap.init(allocator),
+            .function_call_args = FnvArgsMap.init(allocator),
             .ctypes_functions = hashmap_helper.StringHashMap(CTypesFuncInfo).init(allocator),
             .from_imports = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
@@ -95,6 +97,7 @@ pub const TypeInferrer = struct {
         self.scoped_var_types.deinit();
         self.func_return_types.deinit();
         self.class_constructor_args.deinit();
+        self.function_call_args.deinit();
         self.ctypes_functions.deinit();
         self.from_imports.deinit();
 
@@ -315,65 +318,70 @@ pub const TypeInferrer = struct {
         }
     }
 
-    /// Check if a call is a class constructor and store arg types
+    /// Check if a call is a class constructor or function and store arg types
     fn checkConstructorCall(self: *TypeInferrer, call: ast.Node.Call, arena_alloc: std.mem.Allocator) InferError!void {
         if (call.func.* == .name) {
             const func_name = call.func.name.id;
-            // Class names often start with uppercase, but we also accept lowercase
-            // (Python allows lowercase class names, e.g., nested classes in tests)
-            // We check for uppercase OR if the name is not a known builtin function
+            // Class names start with uppercase (Python convention)
+            // Lowercase names are regular functions
             const is_likely_class = func_name.len > 0 and
-                (std.ascii.isUpper(func_name[0]) or
-                // Lowercase names that look like class names (not common builtins)
-                !isCommonBuiltin(func_name));
+                std.ascii.isUpper(func_name[0]) and
+                !isCommonBuiltin(func_name);
+
+            // Infer types of all arguments (positional + keyword)
+            const total_args = call.args.len + call.keyword_args.len;
+            if (total_args == 0) return; // No args to track
+
+            const arg_types = try arena_alloc.alloc(NativeType, total_args);
+
+            // Positional args first
+            for (call.args, 0..) |arg, i| {
+                arg_types[i] = try expressions.inferExpr(
+                    arena_alloc,
+                    &self.var_types,
+                    &self.class_fields,
+                    &self.func_return_types,
+                    arg,
+                );
+            }
+
+            // Keyword args after positional
+            for (call.keyword_args, 0..) |kwarg, i| {
+                arg_types[call.args.len + i] = try expressions.inferExpr(
+                    arena_alloc,
+                    &self.var_types,
+                    &self.class_fields,
+                    &self.func_return_types,
+                    kwarg.value,
+                );
+            }
+
+            // Store in appropriate map based on whether it looks like a class
             if (is_likely_class) {
-                // Infer types of all arguments (positional + keyword)
-                const total_args = call.args.len + call.keyword_args.len;
-                const arg_types = try arena_alloc.alloc(NativeType, total_args);
-
-                // Positional args first
-                for (call.args, 0..) |arg, i| {
-                    arg_types[i] = try expressions.inferExpr(
-                        arena_alloc,
-                        &self.var_types,
-                        &self.class_fields,
-                        &self.func_return_types,
-                        arg,
-                    );
-                }
-
-                // Keyword args after positional
-                for (call.keyword_args, 0..) |kwarg, i| {
-                    arg_types[call.args.len + i] = try expressions.inferExpr(
-                        arena_alloc,
-                        &self.var_types,
-                        &self.class_fields,
-                        &self.func_return_types,
-                        kwarg.value,
-                    );
-                }
-
                 try self.class_constructor_args.put(func_name, arg_types);
+            } else {
+                // Regular function call - track for parameter type inference
+                try self.function_call_args.put(func_name, arg_types);
+            }
 
-                // Also store keyword arg name -> type mapping for name-based lookup
-                // Widen types if there are multiple calls with different types
-                for (call.keyword_args) |kwarg| {
-                    const kwarg_type = try expressions.inferExpr(
-                        arena_alloc,
-                        &self.var_types,
-                        &self.class_fields,
-                        &self.func_return_types,
-                        kwarg.value,
-                    );
-                    // Store as "ClassName.param_name" -> type
-                    const key = try std.fmt.allocPrint(arena_alloc, "{s}.{s}", .{ func_name, kwarg.name });
-                    // Widen with existing type if present
-                    if (self.var_types.get(key)) |existing| {
-                        const widened = existing.widen(kwarg_type);
-                        try self.var_types.put(key, widened);
-                    } else {
-                        try self.var_types.put(key, kwarg_type);
-                    }
+            // Also store keyword arg name -> type mapping for name-based lookup
+            // Widen types if there are multiple calls with different types
+            for (call.keyword_args) |kwarg| {
+                const kwarg_type = try expressions.inferExpr(
+                    arena_alloc,
+                    &self.var_types,
+                    &self.class_fields,
+                    &self.func_return_types,
+                    kwarg.value,
+                );
+                // Store as "FuncName.param_name" -> type
+                const key = try std.fmt.allocPrint(arena_alloc, "{s}.{s}", .{ func_name, kwarg.name });
+                // Widen with existing type if present
+                if (self.var_types.get(key)) |existing| {
+                    const widened = existing.widen(kwarg_type);
+                    try self.var_types.put(key, widened);
+                } else {
+                    try self.var_types.put(key, kwarg_type);
                 }
             }
         }

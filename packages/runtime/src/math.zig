@@ -121,8 +121,25 @@ pub fn trunc(x: f64) f64 {
     return @trunc(x);
 }
 
+/// Python-style banker's rounding (round half to even)
 pub fn round(x: f64) f64 {
-    return @round(x);
+    const floored = @floor(x);
+    const frac = x - floored;
+
+    if (frac < 0.5) {
+        return floored;
+    } else if (frac > 0.5) {
+        return floored + 1.0;
+    } else {
+        // Exactly 0.5 - round to even
+        const floored_int: i64 = @intFromFloat(floored);
+        const is_even = @rem(if (floored_int < 0) -floored_int else floored_int, 2) == 0;
+        if (is_even) {
+            return floored;
+        } else {
+            return floored + 1.0;
+        }
+    }
 }
 
 pub fn fabs(x: f64) f64 {
