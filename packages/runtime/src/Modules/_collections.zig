@@ -649,6 +649,499 @@ pub fn _count_elements(comptime T: type, counter: *Counter(T), iterable: []const
 }
 
 // ============================================================================
+// ChainMap - Dict-like class for creating a single view of multiple mappings
+// ============================================================================
+
+/// ChainMap(*maps) -> ChainMap that groups multiple dicts together
+/// Lookups search the underlying mappings successively until a key is found
+pub fn ChainMap(comptime K: type, comptime V: type) type {
+    return struct {
+        maps: std.ArrayList(*std.AutoHashMap(K, V)),
+        allocator: Allocator,
+
+        const Self = @This();
+
+        pub fn init(allocator: Allocator) Self {
+            return .{
+                .maps = std.ArrayList(*std.AutoHashMap(K, V)).init(allocator),
+                .allocator = allocator,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.maps.deinit();
+        }
+
+        /// Add a new mapping at the front
+        pub fn addMap(self: *Self, map: *std.AutoHashMap(K, V)) !void {
+            try self.maps.insert(0, map);
+        }
+
+        /// Get value from first map that contains key
+        pub fn get(self: Self, key: K) ?V {
+            for (self.maps.items) |map| {
+                if (map.get(key)) |v| return v;
+            }
+            return null;
+        }
+
+        /// Check if key exists in any map
+        pub fn contains(self: Self, key: K) bool {
+            for (self.maps.items) |map| {
+                if (map.contains(key)) return true;
+            }
+            return false;
+        }
+
+        /// Put key/value in the first (child) map
+        pub fn put(self: *Self, key: K, value: V) !void {
+            if (self.maps.items.len > 0) {
+                try self.maps.items[0].put(key, value);
+            }
+        }
+
+        /// Remove key from the first (child) map
+        pub fn remove(self: *Self, key: K) bool {
+            if (self.maps.items.len > 0) {
+                return self.maps.items[0].remove(key);
+            }
+            return false;
+        }
+
+        /// Return a new ChainMap with a new map followed by all previous maps
+        pub fn new_child(self: *Self, child: ?*std.AutoHashMap(K, V)) !Self {
+            var new = Self.init(self.allocator);
+            if (child) |c| {
+                try new.maps.append(c);
+            } else {
+                const new_map = try self.allocator.create(std.AutoHashMap(K, V));
+                new_map.* = std.AutoHashMap(K, V).init(self.allocator);
+                try new.maps.append(new_map);
+            }
+            for (self.maps.items) |map| {
+                try new.maps.append(map);
+            }
+            return new;
+        }
+
+        /// Return a new ChainMap containing all maps except the first
+        pub fn parents(self: *Self) !Self {
+            var new = Self.init(self.allocator);
+            if (self.maps.items.len > 1) {
+                for (self.maps.items[1..]) |map| {
+                    try new.maps.append(map);
+                }
+            }
+            return new;
+        }
+
+        /// Get count of unique keys across all maps
+        pub fn count(self: Self) usize {
+            var seen = std.AutoHashMap(K, void).init(self.allocator);
+            defer seen.deinit();
+            for (self.maps.items) |map| {
+                var it = map.keyIterator();
+                while (it.next()) |key| {
+                    seen.put(key.*, {}) catch {};
+                }
+            }
+            return seen.count();
+        }
+    };
+}
+
+// ============================================================================
+// UserDict - Wrapper around dict for easier subclassing
+// ============================================================================
+
+/// UserDict - A wrapper around dictionary objects for easier subclassing
+pub fn UserDict(comptime K: type, comptime V: type) type {
+    return struct {
+        data: std.AutoHashMap(K, V),
+        allocator: Allocator,
+
+        const Self = @This();
+
+        pub fn init(allocator: Allocator) Self {
+            return .{
+                .data = std.AutoHashMap(K, V).init(allocator),
+                .allocator = allocator,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.data.deinit();
+        }
+
+        pub fn get(self: Self, key: K) ?V {
+            return self.data.get(key);
+        }
+
+        pub fn put(self: *Self, key: K, value: V) !void {
+            try self.data.put(key, value);
+        }
+
+        pub fn remove(self: *Self, key: K) bool {
+            return self.data.remove(key);
+        }
+
+        pub fn contains(self: Self, key: K) bool {
+            return self.data.contains(key);
+        }
+
+        pub fn count(self: Self) usize {
+            return self.data.count();
+        }
+
+        pub fn clear(self: *Self) void {
+            self.data.clearRetainingCapacity();
+        }
+
+        pub fn keys(self: Self) std.AutoHashMap(K, V).KeyIterator {
+            return self.data.keyIterator();
+        }
+
+        pub fn values(self: Self) std.AutoHashMap(K, V).ValueIterator {
+            return self.data.valueIterator();
+        }
+
+        pub fn iterator(self: Self) std.AutoHashMap(K, V).Iterator {
+            return self.data.iterator();
+        }
+
+        /// Copy the UserDict
+        pub fn copy(self: *Self) !Self {
+            var new = Self.init(self.allocator);
+            var it = self.data.iterator();
+            while (it.next()) |entry| {
+                try new.data.put(entry.key_ptr.*, entry.value_ptr.*);
+            }
+            return new;
+        }
+
+        /// Update with entries from another map
+        pub fn update(self: *Self, other: anytype) !void {
+            var it = other.iterator();
+            while (it.next()) |entry| {
+                try self.data.put(entry.key_ptr.*, entry.value_ptr.*);
+            }
+        }
+
+        /// Get with default value
+        pub fn getOrDefault(self: Self, key: K, default: V) V {
+            return self.data.get(key) orelse default;
+        }
+
+        /// setdefault - get or insert default
+        pub fn setdefault(self: *Self, key: K, default: V) !V {
+            const entry = try self.data.getOrPut(key);
+            if (!entry.found_existing) {
+                entry.value_ptr.* = default;
+            }
+            return entry.value_ptr.*;
+        }
+
+        /// pop - remove and return value
+        pub fn pop(self: *Self, key: K, default: ?V) ?V {
+            if (self.data.fetchRemove(key)) |kv| {
+                return kv.value;
+            }
+            return default;
+        }
+
+        /// popitem - remove and return arbitrary (key, value) pair
+        pub fn popitem(self: *Self) ?struct { K, V } {
+            var it = self.data.iterator();
+            if (it.next()) |entry| {
+                const key = entry.key_ptr.*;
+                const value = entry.value_ptr.*;
+                _ = self.data.remove(key);
+                return .{ key, value };
+            }
+            return null;
+        }
+    };
+}
+
+// ============================================================================
+// UserList - Wrapper around list for easier subclassing
+// ============================================================================
+
+/// UserList - A wrapper around list objects for easier subclassing
+pub fn UserList(comptime T: type) type {
+    return struct {
+        data: std.ArrayList(T),
+        allocator: Allocator,
+
+        const Self = @This();
+
+        pub fn init(allocator: Allocator) Self {
+            return .{
+                .data = std.ArrayList(T).init(allocator),
+                .allocator = allocator,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.data.deinit();
+        }
+
+        pub fn append(self: *Self, value: T) !void {
+            try self.data.append(value);
+        }
+
+        pub fn extend(self: *Self, values: []const T) !void {
+            try self.data.appendSlice(values);
+        }
+
+        pub fn insert(self: *Self, idx: usize, value: T) !void {
+            try self.data.insert(idx, value);
+        }
+
+        pub fn pop(self: *Self) ?T {
+            return self.data.popOrNull();
+        }
+
+        pub fn remove(self: *Self, value: T) !void {
+            for (self.data.items, 0..) |item, i| {
+                if (item == value) {
+                    _ = self.data.orderedRemove(i);
+                    return;
+                }
+            }
+            return error.ValueError;
+        }
+
+        pub fn clear(self: *Self) void {
+            self.data.clearRetainingCapacity();
+        }
+
+        pub fn len(self: Self) usize {
+            return self.data.items.len;
+        }
+
+        pub fn get(self: Self, idx: usize) ?T {
+            if (idx >= self.data.items.len) return null;
+            return self.data.items[idx];
+        }
+
+        pub fn set(self: *Self, idx: usize, value: T) !void {
+            if (idx >= self.data.items.len) return error.IndexError;
+            self.data.items[idx] = value;
+        }
+
+        pub fn index(self: Self, value: T) ?usize {
+            for (self.data.items, 0..) |item, i| {
+                if (item == value) return i;
+            }
+            return null;
+        }
+
+        pub fn count(self: Self, value: T) usize {
+            var c: usize = 0;
+            for (self.data.items) |item| {
+                if (item == value) c += 1;
+            }
+            return c;
+        }
+
+        pub fn reverse(self: *Self) void {
+            std.mem.reverse(T, self.data.items);
+        }
+
+        pub fn sort(self: *Self) void {
+            std.mem.sort(T, self.data.items, {}, std.sort.asc(T));
+        }
+
+        pub fn copy(self: *Self) !Self {
+            var new = Self.init(self.allocator);
+            try new.data.appendSlice(self.data.items);
+            return new;
+        }
+
+        pub fn items(self: Self) []const T {
+            return self.data.items;
+        }
+    };
+}
+
+// ============================================================================
+// UserString - Wrapper around string for easier subclassing
+// ============================================================================
+
+/// UserString - A wrapper around string objects for easier subclassing
+pub const UserString = struct {
+    data: []const u8,
+    allocator: Allocator,
+    owned: bool = false,
+
+    const Self = @This();
+
+    pub fn init(allocator: Allocator, str: []const u8) Self {
+        return .{
+            .data = str,
+            .allocator = allocator,
+            .owned = false,
+        };
+    }
+
+    pub fn initOwned(allocator: Allocator, str: []const u8) !Self {
+        const owned_str = try allocator.dupe(u8, str);
+        return .{
+            .data = owned_str,
+            .allocator = allocator,
+            .owned = true,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        if (self.owned) {
+            self.allocator.free(@constCast(self.data));
+        }
+    }
+
+    pub fn len(self: Self) usize {
+        return self.data.len;
+    }
+
+    pub fn get(self: Self, index: usize) ?u8 {
+        if (index >= self.data.len) return null;
+        return self.data[index];
+    }
+
+    pub fn slice(self: Self, start: usize, end: usize) []const u8 {
+        const s = @min(start, self.data.len);
+        const e = @min(end, self.data.len);
+        return self.data[s..e];
+    }
+
+    pub fn contains(self: Self, substr: []const u8) bool {
+        return std.mem.indexOf(u8, self.data, substr) != null;
+    }
+
+    pub fn startswith(self: Self, prefix: []const u8) bool {
+        return std.mem.startsWith(u8, self.data, prefix);
+    }
+
+    pub fn endswith(self: Self, suffix: []const u8) bool {
+        return std.mem.endsWith(u8, self.data, suffix);
+    }
+
+    pub fn find(self: Self, substr: []const u8) ?usize {
+        return std.mem.indexOf(u8, self.data, substr);
+    }
+
+    pub fn rfind(self: Self, substr: []const u8) ?usize {
+        return std.mem.lastIndexOf(u8, self.data, substr);
+    }
+
+    pub fn count(self: Self, substr: []const u8) usize {
+        var c: usize = 0;
+        var i: usize = 0;
+        while (std.mem.indexOfPos(u8, self.data, i, substr)) |pos| {
+            c += 1;
+            i = pos + substr.len;
+        }
+        return c;
+    }
+
+    pub fn upper(self: *Self) !Self {
+        var result = try self.allocator.alloc(u8, self.data.len);
+        for (self.data, 0..) |c, i| {
+            result[i] = std.ascii.toUpper(c);
+        }
+        return .{
+            .data = result,
+            .allocator = self.allocator,
+            .owned = true,
+        };
+    }
+
+    pub fn lower(self: *Self) !Self {
+        var result = try self.allocator.alloc(u8, self.data.len);
+        for (self.data, 0..) |c, i| {
+            result[i] = std.ascii.toLower(c);
+        }
+        return .{
+            .data = result,
+            .allocator = self.allocator,
+            .owned = true,
+        };
+    }
+
+    pub fn strip(self: Self) []const u8 {
+        return std.mem.trim(u8, self.data, " \t\n\r");
+    }
+
+    pub fn lstrip(self: Self) []const u8 {
+        return std.mem.trimLeft(u8, self.data, " \t\n\r");
+    }
+
+    pub fn rstrip(self: Self) []const u8 {
+        return std.mem.trimRight(u8, self.data, " \t\n\r");
+    }
+
+    pub fn isalpha(self: Self) bool {
+        if (self.data.len == 0) return false;
+        for (self.data) |c| {
+            if (!std.ascii.isAlphabetic(c)) return false;
+        }
+        return true;
+    }
+
+    pub fn isdigit(self: Self) bool {
+        if (self.data.len == 0) return false;
+        for (self.data) |c| {
+            if (!std.ascii.isDigit(c)) return false;
+        }
+        return true;
+    }
+
+    pub fn isalnum(self: Self) bool {
+        if (self.data.len == 0) return false;
+        for (self.data) |c| {
+            if (!std.ascii.isAlphanumeric(c)) return false;
+        }
+        return true;
+    }
+
+    pub fn isspace(self: Self) bool {
+        if (self.data.len == 0) return false;
+        for (self.data) |c| {
+            if (!std.ascii.isWhitespace(c)) return false;
+        }
+        return true;
+    }
+
+    pub fn replace(self: *Self, old: []const u8, new: []const u8) !Self {
+        var result = std.ArrayList(u8).init(self.allocator);
+        defer result.deinit();
+
+        var i: usize = 0;
+        while (i < self.data.len) {
+            if (i + old.len <= self.data.len and std.mem.eql(u8, self.data[i .. i + old.len], old)) {
+                try result.appendSlice(new);
+                i += old.len;
+            } else {
+                try result.append(self.data[i]);
+                i += 1;
+            }
+        }
+
+        const owned = try self.allocator.dupe(u8, result.items);
+        return .{
+            .data = owned,
+            .allocator = self.allocator,
+            .owned = true,
+        };
+    }
+
+    pub fn toString(self: Self) []const u8 {
+        return self.data;
+    }
+};
+
+// ============================================================================
 // Tests
 // ============================================================================
 

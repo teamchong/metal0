@@ -326,6 +326,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("test.support.script_helper", .zig_runtime, "runtime.test_support.script_helper", null);
     try registry.register("test.support.hashlib_helper", .zig_runtime, "runtime.test_support.hashlib_helper", null);
     try registry.register("test.support.numbers", .zig_runtime, "runtime.test_support.numbers", null);
+    try registry.register("test.list_tests", .zig_runtime, "runtime.list_tests", null);
 
     // metal0 native libraries (Zig implementations exposed to Python)
     // Usage: from metal0 import tokenizer

@@ -533,6 +533,25 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 current_left_type == .dict or right_type == .dict or
                 current_left_type == .set or right_type == .set;
 
+            // Special case: if both sides are literals (not variables), they are NEVER the same
+            // identity, since each literal creates a new object in Python.
+            // [] is [] -> False, {} is {} -> False, etc.
+            const left_is_literal = current_left == .list or current_left == .dict or current_left == .set;
+            const right_is_literal = compare.comparators[i] == .list or compare.comparators[i] == .dict or compare.comparators[i] == .set;
+            if (left_is_literal and right_is_literal) {
+                // Two distinct literals = two distinct objects
+                if (op == .Is) {
+                    try self.emit("false");
+                } else {
+                    try self.emit("true");
+                }
+                // Close the paren for chained comparisons
+                if (is_chained) {
+                    try self.emit(")");
+                }
+                continue;
+            }
+
             // Class instances: with heap allocation, both sides are already pointers
             // Direct pointer comparison works for identity semantics
             const is_class_instance = current_left_type == .class_instance or right_type == .class_instance;
@@ -553,32 +572,45 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // For ArrayList aliases, the alias is a pointer (*ArrayList), so &alias gives **ArrayList
                 // For regular variables, &x gives *type
                 // We need to compare the actual addresses
+                // Use a block to handle type mismatches (different types = different identity)
                 const left_is_alias = if (current_left == .name) self.isArrayListAlias(current_left.name.id) else false;
                 const right_is_alias = if (compare.comparators[i] == .name) self.isArrayListAlias(compare.comparators[i].name.id) else false;
 
-                try self.emit("(");
-                // For alias: use alias directly (it's already *ArrayList pointing to x)
-                // For regular: use &x to get pointer
+                // Use a block to handle potential type mismatches at comptime
+                const block_id = self.block_label_counter;
+                self.block_label_counter += 1;
+                try self.output.writer(self.allocator).print("(is_blk_{d}: {{\n", .{block_id});
+                try self.emit("const __is_left = ");
                 if (left_is_alias) {
-                    // Alias pointer - use directly
                     try genExpr(self, current_left);
                 } else {
                     try self.emit("&");
                     try genExpr(self, current_left);
                 }
-                if (op == .Is) {
-                    try self.emit(" == ");
-                } else {
-                    try self.emit(" != ");
-                }
+                try self.emit(";\n");
+                try self.emit("const __is_right = ");
                 if (right_is_alias) {
-                    // Alias pointer - use directly
                     try genExpr(self, compare.comparators[i]);
                 } else {
                     try self.emit("&");
                     try genExpr(self, compare.comparators[i]);
                 }
-                try self.emit(")");
+                try self.emit(";\n");
+                // Type check at comptime - different types means different identity
+                try self.emit("if (@TypeOf(__is_left) != @TypeOf(__is_right)) {\n");
+                if (op == .Is) {
+                    try self.output.writer(self.allocator).print("break :is_blk_{d} false;\n", .{block_id});
+                } else {
+                    try self.output.writer(self.allocator).print("break :is_blk_{d} true;\n", .{block_id});
+                }
+                try self.emit("}\n");
+                // Same type - compare pointers
+                if (op == .Is) {
+                    try self.output.writer(self.allocator).print("break :is_blk_{d} __is_left == __is_right;\n", .{block_id});
+                } else {
+                    try self.output.writer(self.allocator).print("break :is_blk_{d} __is_left != __is_right;\n", .{block_id});
+                }
+                try self.emit("})");
             } else {
                 // Check if either side is a tuple (struct types don't support ==)
                 const left_is_tuple = (@as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .tuple or current_left == .tuple);
