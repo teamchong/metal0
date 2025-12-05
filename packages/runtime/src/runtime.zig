@@ -1754,6 +1754,42 @@ pub const operatorGt = builtins.operatorGt;
 pub const operatorGe = builtins.operatorGe;
 pub const classInstanceEq = builtins.classInstanceEq;
 pub const classInstanceNe = builtins.classInstanceNe;
+pub const PyPowResult = builtins.PyPowResult;
+pub const pyPow = builtins.pyPow;
+
+/// Get Python type name for type() builtin
+/// Handles special cases like PyPowResult which can be float or complex
+pub fn pyTypeName(comptime T: type, value: T) []const u8 {
+    // Special handling for PyPowResult - check which variant it is
+    if (T == PyPowResult) {
+        return value.typeName();
+    }
+
+    // Map Zig types to Python type names
+    const info = @typeInfo(T);
+    if (info == .float or info == .comptime_float) {
+        return "float";
+    }
+    if (info == .int or info == .comptime_int) {
+        return "int";
+    }
+    if (info == .bool) {
+        return "bool";
+    }
+    if (T == []const u8 or T == []u8) {
+        return "str";
+    }
+
+    // For structs, check if it has a Python type name
+    if (info == .@"struct") {
+        if (@hasDecl(T, "__name__")) {
+            return T.__name__;
+        }
+    }
+
+    // Default: use Zig type name
+    return @typeName(T);
+}
 
 // Import and re-export float operations
 pub const float_ops = @import("runtime/float_ops.zig");
