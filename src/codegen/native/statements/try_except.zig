@@ -235,6 +235,10 @@ fn findWrittenVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap) !void {
                 // Also check else block and except handlers
                 try findWrittenVarsInStmts(try_stmt.else_body, vars);
                 for (try_stmt.handlers) |handler| {
+                    // The exception name in "except E as e:" is a write - e is assigned
+                    if (handler.name) |exc_name| {
+                        try vars.put(exc_name, {});
+                    }
                     try findWrittenVarsInStmts(handler.body, vars);
                 }
                 try findWrittenVarsInStmts(try_stmt.finalbody, vars);
@@ -580,15 +584,31 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try declared_var_set.put(hoisted.name, {});
         }
 
-        // Find variables that are WRITTEN in try block body
+        // Find variables that are WRITTEN in try block body AND handlers
+        // (handlers run inside the TryHelper struct too, so their writes need params)
         var written_vars = FnvVoidMap.init(self.allocator);
         defer written_vars.deinit();
         try findWrittenVarsInStmts(try_node.body, &written_vars);
+        // Also check handlers - e.g., "except E as e: x = foo()" writes to x
+        // NOTE: Don't add the current try block's exception names here - they're already hoisted
+        // via declared_vars (lines 448-471). Only check the handler BODIES for additional writes.
+        for (try_node.handlers) |handler| {
+            try findWrittenVarsInStmts(handler.body, &written_vars);
+        }
+        // Also check else_body and finalbody
+        try findWrittenVarsInStmts(try_node.else_body, &written_vars);
+        try findWrittenVarsInStmts(try_node.finalbody, &written_vars);
 
-        // Find variables actually referenced in try block body (not just declared)
+        // Find variables actually referenced in try block body AND handlers
         var referenced_vars = FnvVoidMap.init(self.allocator);
         defer referenced_vars.deinit();
         try findReferencedVarsInStmts(try_node.body, &referenced_vars, self.allocator);
+        // Also check handlers, else_body, and finalbody for references
+        for (try_node.handlers) |handler| {
+            try findReferencedVarsInStmts(handler.body, &referenced_vars, self.allocator);
+        }
+        try findReferencedVarsInStmts(try_node.else_body, &referenced_vars, self.allocator);
+        try findReferencedVarsInStmts(try_node.finalbody, &referenced_vars, self.allocator);
 
         // Find locally declared variables (including for-loop targets) - these should NOT be captured
         var locally_declared = FnvVoidMap.init(self.allocator);
@@ -802,14 +822,16 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         }
 
         // Create aliases for read-only captured variables (by value)
+        // Note: Use 'var' instead of 'const' because some types like iterators need mutable access
+        // even though they appear "read-only" in Python (e.g., next(it) mutates the iterator)
         for (read_only_vars.items) |var_name| {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("const __local_{s}_{d}: @TypeOf(p_{s}_{d}) = p_{s}_{d};\n", .{ var_name, helper_id, var_name, helper_id, var_name, helper_id });
+            try self.output.writer(self.allocator).print("var __local_{s}_{d}: @TypeOf(p_{s}_{d}) = p_{s}_{d};\n", .{ var_name, helper_id, var_name, helper_id, var_name, helper_id });
 
-            // Always emit discard using runtime.discard() to prevent "unused local constant"
-            // errors while avoiding "pointless discard of local constant" issues
+            // Always emit discard using runtime.discard() to prevent "unused local variable"
+            // errors while avoiding "pointless discard of local variable" issues
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("runtime.discard(__local_{s}_{d});\n", .{ var_name, helper_id });
+            try self.output.writer(self.allocator).print("runtime.discard(&__local_{s}_{d});\n", .{ var_name, helper_id });
 
             // Add to rename map
             var buf = std.ArrayListUnmanaged(u8){};

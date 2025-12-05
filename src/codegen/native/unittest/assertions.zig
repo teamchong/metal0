@@ -6,6 +6,7 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const parent = @import("../expressions.zig");
 const shared = @import("../shared_maps.zig");
 const PyToZigTypes = shared.PyTypeToZig;
+const zig_keywords = @import("zig_keywords");
 
 /// Check if a name is a Python builtin type name (not a user variable)
 fn isBuiltinTypeName(name: []const u8) bool {
@@ -499,7 +500,8 @@ pub fn genAssertIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
             try self.emit("runtime.unittest.assertIsInstance(");
             try parent.genExpr(self, args[0]);
             try self.emit(", ");
-            try self.emit(type_var);
+            // Escape Zig keywords like "struct" when used as variable names
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), type_var);
             try self.emit(".__name__)");
             return;
         }

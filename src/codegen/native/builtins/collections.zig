@@ -717,6 +717,14 @@ pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
+    // For list_iterator (SequenceIterator), call .next() directly
+    if (arg_type == .list_iterator) {
+        try self.emit("(");
+        try self.genExpr(args[0]);
+        try self.emit(".next() catch |err| switch (err) { error.StopIteration => @panic(\"StopIteration\") })");
+        return;
+    }
+
     // For StringIterator and other stateful iterators, pass pointer for mutation
     // The runtime.builtins.next() returns an error union, wrap with try/catch
     // Use catch to convert StopIteration/TypeError to panic (matches Python semantics)

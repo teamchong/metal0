@@ -1037,19 +1037,42 @@ pub fn genInitMethodFromNew(
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
     try usage_analysis.analyzeFunctionLocalUses(self, new_method);
 
+    // Find the variable name used to receive super().__new__() result
+    // Common patterns: obj = super().__new__(cls, ...) or self = super().__new__(cls, ...)
+    var instance_var_name: []const u8 = "self"; // default fallback
+    for (new_method.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                // Check if RHS is super().__new__() call
+                if (assign.value.* == .call) {
+                    const call = assign.value.call;
+                    if (call.func.* == .attribute) {
+                        const attr = call.func.attribute;
+                        if (std.mem.eql(u8, attr.attr, "__new__")) {
+                            // Found it! Get the variable name
+                            instance_var_name = assign.targets[0].name.id;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // First pass: generate non-field statements from __new__ body
-    // Skip super().__new__() calls and return statements
+    // Skip super().__new__() calls, instance var assignments, and return statements
     for (new_method.body) |stmt| {
         const is_field_assign = blk: {
             if (stmt == .assign) {
                 const assign = stmt.assign;
                 if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
                     const attr = assign.targets[0].attribute;
-                    // Check for self.x = ... (where self might be named differently)
+                    // Check for obj.x = ... where obj is the instance variable
                     if (attr.value.* == .name) {
                         const target_name = attr.value.name.id;
-                        // In __new__, 'self' is typically assigned from super().__new__()
-                        if (std.mem.eql(u8, target_name, "self")) {
+                        // Match against the detected instance variable name (obj, self, etc.)
+                        if (std.mem.eql(u8, target_name, instance_var_name)) {
                             break :blk true;
                         }
                     }
@@ -1059,16 +1082,18 @@ pub fn genInitMethodFromNew(
         };
 
         const is_super_new_or_return = blk: {
-            // Skip: self = super().__new__(cls, arg)
+            // Skip: obj = super().__new__(cls, arg) or self = super().__new__(...)
             if (stmt == .assign) {
                 const assign = stmt.assign;
                 if (assign.targets.len > 0 and assign.targets[0] == .name) {
-                    if (std.mem.eql(u8, assign.targets[0].name.id, "self")) {
+                    const var_name = assign.targets[0].name.id;
+                    // Skip assignment to instance variable (obj = super().__new__(...))
+                    if (std.mem.eql(u8, var_name, instance_var_name)) {
                         break :blk true;
                     }
                 }
             }
-            // Skip: return self
+            // Skip: return obj or return self
             if (stmt == .return_stmt) {
                 break :blk true;
             }
@@ -1123,7 +1148,8 @@ pub fn genInitMethodFromNew(
                     const assign = stmt.assign;
                     if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
                         const attr = assign.targets[0].attribute;
-                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                        // Use detected instance variable name (obj, self, etc.)
+                        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, instance_var_name)) {
                             if (std.mem.eql(u8, attr.attr, field.name)) {
                                 break true;
                             }
@@ -1139,13 +1165,14 @@ pub fn genInitMethodFromNew(
         }
     }
 
-    // Second pass: extract field assignments from __new__ body (self.x = value)
+    // Second pass: extract field assignments from __new__ body (obj.x = value or self.x = value)
     for (new_method.body) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
             if (assign.targets.len > 0 and assign.targets[0] == .attribute) {
                 const attr = assign.targets[0].attribute;
-                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                // Use detected instance variable name (obj, self, etc.)
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, instance_var_name)) {
                     const field_name = attr.attr;
 
                     try self.emitIndent();
@@ -1214,6 +1241,15 @@ pub fn genClassMethods(
     }
     defer self.current_class_parent = prev_parent;
 
+    // Check if __init__ exists - if not, __new__ is used to generate init() and shouldn't be emitted as a method
+    var has_init = false;
+    for (class.body) |stmt| {
+        if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, "__init__")) {
+            has_init = true;
+            break;
+        }
+    }
+
     // In Python, methods can be "overridden" within the same class (e.g., @property + @foo.setter)
     // Zig doesn't allow duplicate struct member names, so we find the LAST occurrence of each method
     // and only generate that one (Python semantics: later definition shadows earlier ones)
@@ -1237,6 +1273,8 @@ pub fn genClassMethods(
         if (stmt == .function_def) {
             const method = stmt.function_def;
             if (std.mem.eql(u8, method.name, "__init__")) continue;
+            // Skip __new__ if there's no __init__ - __new__ was used to generate init()
+            if (std.mem.eql(u8, method.name, "__new__") and !has_init) continue;
 
             // Skip if this is not the last occurrence of this method name
             if (last_method_indices.get(method.name)) |last_idx| {

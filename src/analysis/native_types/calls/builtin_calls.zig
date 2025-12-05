@@ -388,6 +388,21 @@ pub fn inferBuiltinCall(
         return .{ .int = .bounded };
     }
 
+    // iter() builtin - returns list_iterator
+    const ITER_HASH = comptime fnv_hash.hash("iter");
+    if (func_hash == ITER_HASH) {
+        return .list_iterator;
+    }
+
+    // next() builtin - returns element type based on iterator type
+    const NEXT_HASH = comptime fnv_hash.hash("next");
+    if (func_hash == NEXT_HASH and call.args.len > 0) {
+        const iter_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+        if (iter_type == .list_iterator) {
+            return .{ .int = .bounded }; // SequenceIterator(i64).next() returns i64
+        }
+    }
+
     // Exception constructors - RuntimeError, ValueError, TypeError, etc.
     const exception_types = [_][]const u8{
         "Exception",
