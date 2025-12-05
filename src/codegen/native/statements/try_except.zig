@@ -793,6 +793,19 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.var_renames.put(var_name, renamed);
         }
 
+        // Save any existing renames for written_outer_vars before overwriting
+        // This is critical for nested try blocks - the outer try's renames must be preserved
+        var saved_written_outer_renames = std.ArrayListUnmanaged(struct { name: []const u8, rename: []const u8 }){};
+        defer saved_written_outer_renames.deinit(self.allocator);
+        for (written_outer_vars.items) |var_name| {
+            if (self.var_renames.get(var_name)) |existing_rename| {
+                try saved_written_outer_renames.append(self.allocator, .{
+                    .name = var_name,
+                    .rename = try self.allocator.dupe(u8, existing_rename),
+                });
+            }
+        }
+
         // Create aliases for written outer variables (dereference pointers)
         // Check if each variable is used in the try body OR in the finally block
         // If not used in either, suppress the unused parameter warning
@@ -927,6 +940,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // Restore saved read_only_vars renames (e.g., function param x -> __p_x_0)
         // These are needed for the TryHelper call to use the correct parameter name
         for (saved_read_only_renames.items) |saved| {
+            try self.var_renames.put(saved.name, saved.rename);
+        }
+
+        // Restore saved written_outer_vars renames (needed for nested try blocks)
+        // This ensures outer try's renames are preserved when inner try clears its own
+        for (saved_written_outer_renames.items) |saved| {
             try self.var_renames.put(saved.name, saved.rename);
         }
 
