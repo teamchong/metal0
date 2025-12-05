@@ -638,11 +638,11 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         else if ((@as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .tuple or current_left == .tuple) and
             (@as(std.meta.Tag(@TypeOf(right_type)), right_type) == .tuple or compare.comparators[i] == .tuple))
         {
-            // Use std.meta.eql for deep comparison of tuples
+            // Use runtime.pyTupleEql for Python semantics (NaN identity)
             if (op == .NotEq) {
                 try self.emit("!");
             }
-            try self.emit("std.meta.eql(");
+            try self.emit("runtime.pyTupleEql(");
             try genExpr(self, current_left);
             try self.emit(", ");
             try genExpr(self, compare.comparators[i]);
@@ -698,15 +698,25 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         else if ((current_left_type == .list or current_left == .list) and
             (right_type == .list or compare.comparators[i] == .list))
         {
-            // Use std.meta.eql for deep comparison
+            // Use runtime.pySliceEql for Python semantics (NaN identity)
             // Need to wrap block expressions in parentheses
             const left_needs_wrap = current_left == .list;
             const right_needs_wrap = compare.comparators[i] == .list;
 
+            // Get element type for pySliceEql
+            const elem_type_str: []const u8 = if (current_left_type == .list)
+                current_left_type.list.toSimpleZigType()
+            else if (right_type == .list)
+                right_type.list.toSimpleZigType()
+            else
+                "f64";
+
             if (op == .NotEq) {
                 try self.emit("!");
             }
-            try self.emit("std.meta.eql(");
+            try self.emit("runtime.pySliceEql(");
+            try self.emit(elem_type_str);
+            try self.emit(", ");
             if (left_needs_wrap) {
                 try self.emit("(");
                 try genExpr(self, current_left);

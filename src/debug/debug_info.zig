@@ -13,6 +13,9 @@
 ///
 const std = @import("std");
 
+// Re-export DWARF emitter for convenience
+pub const dwarf = @import("dwarf_emitter.zig");
+
 /// Source location in Python file
 pub const SourceLoc = struct {
     line: u32, // 1-indexed

@@ -597,6 +597,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         defer json_file.close();
         try json_file.writeAll(json_buf.items);
         std.debug.print("✓ Debug info (JSON) written to: {s}\n", .{json_path});
+
+        // Generate DWARF .debug_line section for debugger support
+        const dwarf_path = try std.fmt.allocPrint(aa, "{s}.debug_line", .{bin_path});
+        try debug_info.dwarf.writeDwarfToFile(aa, dwarf_path, dw.source_file, dw.mappings.items);
+        std.debug.print("✓ DWARF debug_line written to: {s}\n", .{dwarf_path});
     }
 
     // Run if mode is "run"
