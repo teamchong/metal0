@@ -59,6 +59,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "KeyboardInterrupt", h.err("KeyboardInterrupt") }, .{ "NotImplementedError", h.err("NotImplementedError") }, .{ "IndentationError", h.err("IndentationError") }, .{ "TabError", h.err("TabError") },
     .{ "SyntaxError", h.err("SyntaxError") }, .{ "UnicodeError", h.err("UnicodeError") }, .{ "UnicodeDecodeError", h.err("UnicodeDecodeError") }, .{ "UnicodeEncodeError", h.err("UnicodeEncodeError") },
     .{ "UnicodeTranslateError", h.err("UnicodeTranslateError") }, .{ "BufferError", h.err("BufferError") },
+    // Additional exceptions
+    .{ "BlockingIOError", h.err("BlockingIOError") }, .{ "UnboundLocalError", h.err("UnboundLocalError") },
+    .{ "WindowsError", h.err("OSError") },  // WindowsError is an alias for OSError
+    .{ "InterruptedError", h.err("InterruptedError") }, .{ "ChildProcessError", h.err("ChildProcessError") },
+    .{ "ProcessLookupError", h.err("ProcessLookupError") }, .{ "EnvironmentError", h.err("OSError") },  // EnvironmentError is an alias for OSError
     // Exception groups (Python 3.11+)
     .{ "ExceptionGroup", h.err("ExceptionGroup") }, .{ "BaseExceptionGroup", h.err("BaseExceptionGroup") },
     // Warnings

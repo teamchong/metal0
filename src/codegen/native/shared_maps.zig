@@ -88,6 +88,14 @@ pub const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
     .{ "BufferError", {} },     .{ "ConnectionError", {} },   .{ "TimeoutError", {} },
     .{ "ArithmeticError", {} }, .{ "EOFError", {} },          .{ "GeneratorExit", {} },
     .{ "SystemExit", {} },      .{ "KeyboardInterrupt", {} }, .{ "SyntaxError", {} },
+    .{ "IndentationError", {} }, .{ "TabError", {} },         .{ "BlockingIOError", {} },
+    .{ "UnboundLocalError", {} }, .{ "WindowsError", {} },    .{ "UnicodeTranslateError", {} },
+    .{ "InterruptedError", {} }, .{ "ChildProcessError", {} }, .{ "ProcessLookupError", {} },
+    .{ "FloatingPointError", {} }, .{ "EnvironmentError", {} }, .{ "FileExistsError", {} },
+    .{ "IsADirectoryError", {} }, .{ "NotADirectoryError", {} },
+    // OSError subclasses (network)
+    .{ "BrokenPipeError", {} }, .{ "ConnectionAbortedError", {} },
+    .{ "ConnectionRefusedError", {} }, .{ "ConnectionResetError", {} },
     // Exception groups (Python 3.11+)
     .{ "ExceptionGroup", {} },  .{ "BaseExceptionGroup", {} },
     // Warning types (used in assertWarns contexts)
