@@ -1209,10 +1209,16 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
         return; // Invalid range() call
     }
 
-    // Wrap range loop in block scope to prevent variable shadowing
-    try self.emitIndent();
-    try self.emit("{\n");
-    self.indent();
+    // Check if the loop variable is hoisted (used after the loop ends at function level)
+    // Also check if it's declared in current scope (might be re-used in handler body)
+    // If so, we don't wrap in block scope and use assignment instead of declaration
+    const is_hoisted = self.hoisted_vars.contains(var_name);
+    const is_declared = self.isDeclared(var_name);
+
+    // Don't wrap in block scope - Python for-loop variables persist after the loop
+    // The block wrapper was causing issues when the variable is used after the loop
+    // within the same parent scope (e.g., inside an except handler)
+    // Shadowing is handled separately via unique names
 
     // Determine if we need signed type (start or stop can be negative)
     // Check if start value is a negative literal
@@ -1255,19 +1261,35 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
         loop_var_name = unique_name;
     }
 
-    // Generate initialization (always declare as new variable in block scope)
+    // Generate initialization
+    // If hoisted or already declared, variable already exists - just assign
+    // Otherwise, declare as new variable
     try self.emitIndent();
-    try self.emit("var ");
-    try self.emit(loop_var_name);
-    try self.emit(": ");
-    try self.emit(loop_type);
-    try self.emit(" = ");
-    if (start_expr) |start| {
-        try self.genExpr(start);
+    if (is_hoisted or is_declared) {
+        // Variable already exists - assign with cast to match the existing type
+        try self.emit(loop_var_name);
+        try self.emit(" = @as(@TypeOf(");
+        try self.emit(loop_var_name);
+        try self.emit("), @intCast(");
+        if (start_expr) |start| {
+            try self.genExpr(start);
+        } else {
+            try self.emit("0");
+        }
+        try self.emit("));\n");
     } else {
-        try self.emit("0");
+        try self.emit("var ");
+        try self.emit(loop_var_name);
+        try self.emit(": ");
+        try self.emit(loop_type);
+        try self.emit(" = ");
+        if (start_expr) |start| {
+            try self.genExpr(start);
+        } else {
+            try self.emit("0");
+        }
+        try self.emit(";\n");
     }
-    try self.emit(";\n");
 
     // Generate while loop
     try self.emitIndent();
@@ -1320,8 +1342,6 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     try self.emitIndent();
     try self.emit("}\n");
 
-    // Close block scope
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
+    // No block scope to close - we removed the wrapper to allow loop variable
+    // to persist after the loop (Python semantics)
 }
