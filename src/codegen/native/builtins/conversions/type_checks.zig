@@ -11,10 +11,14 @@ const PythonBuiltinTypes = shared.PythonBuiltinTypes;
 /// For 3 args: Dynamically creates a class (uses runtime.DynamicClass)
 pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 1) {
-        // Generate: @typeName(@TypeOf(obj))
-        try self.emit("@typeName(@TypeOf(");
+        // Generate: runtime.pyTypeName(@TypeOf(obj), obj)
+        // This handles PyPowResult (returns "float" or "complex" based on variant)
+        // and other special types that need runtime type name resolution
+        try self.emit("runtime.pyTypeName(@TypeOf(");
         try self.genExpr(args[0]);
-        try self.emit("))");
+        try self.emit("), ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
     } else if (args.len == 3) {
         // 3-argument form: type(name, bases, dict) - dynamic class creation
         // Generate: runtime.dynamicType(name, bases, dict)

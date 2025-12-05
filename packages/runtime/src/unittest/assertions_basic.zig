@@ -404,6 +404,21 @@ fn isStringType(comptime T: type) bool {
     return false;
 }
 
+/// Helper to compare two float values, handling special cases (inf, nan)
+fn floatsEqual(a: f64, b: f64) bool {
+    // Handle infinity: inf == inf, -inf == -inf
+    if (std.math.isInf(a) and std.math.isInf(b)) {
+        return (a > 0) == (b > 0); // Same sign infinity
+    }
+    // NaN is never equal to anything
+    if (std.math.isNan(a) or std.math.isNan(b)) {
+        return false;
+    }
+    // Regular float comparison with tolerance
+    const diff = if (a > b) a - b else b - a;
+    return diff < 0.0001;
+}
+
 /// Helper to compare two values of potentially different but compatible types
 fn equalValues(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
@@ -446,8 +461,43 @@ fn equalValues(a: anytype, b: anytype) bool {
 
     // Float type coercion - comptime_float vs f64/f32
     if (comptime (a_info == .float or a_info == .comptime_float) and (b_info == .float or b_info == .comptime_float)) {
-        const diff = if (a > b) a - b else b - a;
-        return diff < 0.0001;
+        return floatsEqual(@as(f64, a), @as(f64, b));
+    }
+
+    // PyPowResult vs float comparison - extract float_val
+    if (comptime a_info == .@"union" and @hasField(A, "float_val") and @hasField(A, "complex_val")) {
+        // a is PyPowResult
+        switch (a) {
+            .float_val => |fv| {
+                if (comptime b_info == .float or b_info == .comptime_float) {
+                    return floatsEqual(fv, b);
+                }
+            },
+            .complex_val => |cv| {
+                if (cv.imag == 0.0) {
+                    if (comptime b_info == .float or b_info == .comptime_float) {
+                        return floatsEqual(cv.real, b);
+                    }
+                }
+            },
+        }
+    }
+    if (comptime b_info == .@"union" and @hasField(B, "float_val") and @hasField(B, "complex_val")) {
+        // b is PyPowResult
+        switch (b) {
+            .float_val => |fv| {
+                if (comptime a_info == .float or a_info == .comptime_float) {
+                    return floatsEqual(a, fv);
+                }
+            },
+            .complex_val => |cv| {
+                if (cv.imag == 0.0) {
+                    if (comptime a_info == .float or a_info == .comptime_float) {
+                        return floatsEqual(a, cv.real);
+                    }
+                }
+            },
+        }
     }
 
     // BigInt vs i64 comparison - convert BigInt to i64 if possible
@@ -534,6 +584,30 @@ pub fn assertEqual(a: anytype, b: anytype) void {
     if (B == *runtime.PyObject) {
         const py_val = runtime.pyObjectToValue(b);
         return assertEqual(a, py_val);
+    }
+
+    // Unwrap PyPowResult unions - extract float_val for comparison
+    if (A == runtime.PyPowResult) {
+        switch (a) {
+            .float_val => |fv| return assertEqual(fv, b),
+            .complex_val => |cv| {
+                // For complex, only equal to another complex or a real number if imag is 0
+                if (cv.imag == 0.0) {
+                    return assertEqual(cv.real, b);
+                }
+                // Complex with non-zero imag part - compare as struct
+            },
+        }
+    }
+    if (B == runtime.PyPowResult) {
+        switch (b) {
+            .float_val => |fv| return assertEqual(a, fv),
+            .complex_val => |cv| {
+                if (cv.imag == 0.0) {
+                    return assertEqual(a, cv.real);
+                }
+            },
+        }
     }
 
     const equal = blk: {

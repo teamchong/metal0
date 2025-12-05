@@ -180,20 +180,76 @@ pub fn lcm(a: i64, b: i64) i64 {
 }
 
 /// Comparison and testing
-pub fn isnan(x: f64) bool {
-    return std.math.isNan(x);
+/// Handles both f64 and PyPowResult types
+pub fn isnan(x: anytype) bool {
+    const T = @TypeOf(x);
+    if (T == f64 or T == f32) {
+        return std.math.isNan(x);
+    }
+    // Handle PyPowResult via its isNan method
+    if (@hasDecl(T, "isNan")) {
+        return x.isNan();
+    }
+    // For structs with float_val field (PyPowResult union)
+    if (@typeInfo(T) == .@"union" and @hasField(T, "float_val")) {
+        return x.isNan();
+    }
+    return false;
 }
 
-pub fn isinf(x: f64) bool {
-    return std.math.isInf(x);
+pub fn isinf(x: anytype) bool {
+    const T = @TypeOf(x);
+    if (T == f64 or T == f32) {
+        return std.math.isInf(x);
+    }
+    // Handle PyPowResult via its isInf method
+    if (@hasDecl(T, "isInf")) {
+        return x.isInf();
+    }
+    // For structs with float_val field (PyPowResult union)
+    if (@typeInfo(T) == .@"union" and @hasField(T, "float_val")) {
+        return x.isInf();
+    }
+    return false;
 }
 
-pub fn isfinite(x: f64) bool {
-    return std.math.isFinite(x);
+pub fn isfinite(x: anytype) bool {
+    const T = @TypeOf(x);
+    if (T == f64 or T == f32) {
+        return std.math.isFinite(x);
+    }
+    // For PyPowResult, check both isNan and isInf
+    if (@hasDecl(T, "isNan") and @hasDecl(T, "isInf")) {
+        return !x.isNan() and !x.isInf();
+    }
+    return true;
 }
 
-pub fn copysign(x: f64, y: f64) f64 {
-    return std.math.copysign(x, y);
+pub fn copysign(x: anytype, y: anytype) f64 {
+    const X = @TypeOf(x);
+    const Y = @TypeOf(y);
+
+    // Convert x to f64
+    const xf: f64 = if (X == f64)
+        x
+    else if (@hasDecl(X, "toFloat"))
+        x.toFloat()
+    else if (@typeInfo(X) == .@"union" and @hasField(X, "float_val"))
+        x.toFloat()
+    else
+        @as(f64, x);
+
+    // Convert y to f64
+    const yf: f64 = if (Y == f64)
+        y
+    else if (@hasDecl(Y, "toFloat"))
+        y.toFloat()
+    else if (@typeInfo(Y) == .@"union" and @hasField(Y, "float_val"))
+        y.toFloat()
+    else
+        @as(f64, y);
+
+    return std.math.copysign(xf, yf);
 }
 
 /// Conversion

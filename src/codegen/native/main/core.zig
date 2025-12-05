@@ -534,6 +534,10 @@ pub const NativeCodegen = struct {
     // These need special for-loop handling: while (iter.next()) |row| instead of for (iter) |row|
     csv_iterators: FnvVoidMap,
 
+    // Track type alias variables (e.g., R = fractions.Fraction, D = decimal.Decimal)
+    // These are emitted as `const R = type` not pre-declared as variables
+    type_alias_vars: FnvVoidMap,
+
     // Function traits call graph for unified analysis (built lazily on first generate())
     // Query via function_traits.isPure(), .needsAllocator(), .canUseTCO(), etc.
     call_graph: ?function_traits.CallGraph,
@@ -702,6 +706,7 @@ pub const NativeCodegen = struct {
             .callable_global_vars = FnvVoidMap.init(allocator),
             .import_module_vars = FnvVoidMap.init(allocator),
             .csv_iterators = FnvVoidMap.init(allocator),
+            .type_alias_vars = FnvVoidMap.init(allocator),
             .forward_declared_vars = FnvVoidMap.init(allocator),
             .call_graph = null,
             .generic_type_params = FnvVoidMap.init(allocator),

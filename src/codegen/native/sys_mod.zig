@@ -10,7 +10,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "platform", h.c("blk: { const _b = @import(\"builtin\"); break :blk switch (_b.os.tag) { .linux => \"linux\", .macos => \"darwin\", .windows => \"win32\", .freebsd => \"freebsd\", else => \"unknown\" }; }") },
     .{ "version", h.c("\"3.12.0 (metal0 compiled)\"") },
     .{ "version_info", h.c(".{ .major = 3, .minor = 12, .micro = 0, .releaselevel = \"final\", .serial = 0 }") },
-    .{ "executable", h.c("blk: { const _args = std.os.argv; if (_args.len > 0) break :blk std.mem.span(_args[0]); break :blk \"\"; }") },
+    .{ "executable", h.c("blk: { const _b = @import(\"builtin\"); const _is_wasm = _b.os.tag == .wasi or _b.os.tag == .freestanding; if (comptime _is_wasm) break :blk \"\"; const _args = std.os.argv; if (_args.len > 0) break :blk std.mem.span(_args[0]); break :blk \"\"; }") },
     .{ "stdin", h.c("(try runtime.PyFile.create(__global_allocator, std.fs.File{ .handle = std.posix.STDIN_FILENO }, \"r\"))") }, .{ "stdout", h.c("(try runtime.PyFile.create(__global_allocator, std.fs.File{ .handle = std.posix.STDOUT_FILENO }, \"w\"))") }, .{ "stderr", h.c("(try runtime.PyFile.create(__global_allocator, std.fs.File{ .handle = std.posix.STDERR_FILENO }, \"w\"))") },
     .{ "maxsize", h.c("@as(i128, std.math.maxInt(i64))") },
     .{ "byteorder", h.c("blk: { const _native = @import(\"builtin\").cpu.arch.endian(); break :blk if (_native == .little) \"little\" else \"big\"; }") },

@@ -1,6 +1,11 @@
 /// metal0 Runtime Library
 /// Core runtime support for compiled Python code
 const std = @import("std");
+const builtin = @import("builtin");
+
+/// Browser WASM (freestanding) has no threading or OS support
+pub const is_freestanding = builtin.os.tag == .freestanding;
+
 const hashmap_helper = @import("hashmap_helper");
 const pyint = @import("pyint.zig");
 const pyfloat = @import("pyfloat.zig");
@@ -2047,10 +2052,12 @@ const dict_module = @import("dict.zig");
 pub const PyDict = dict_module.PyDict;
 
 // HTTP, async, JSON, regex, sys, and dynamic execution modules
-pub const http = @import("http.zig");
-pub const async_runtime = @import("async.zig");
-pub const asyncio = @import("asyncio.zig");
-pub const parallel = @import("parallel.zig");
+// HTTP uses pool.zig/server.zig which have Mutex - not available on freestanding
+pub const http = if (is_freestanding) void else @import("http.zig");
+// Async modules require threading (not available on freestanding)
+pub const async_runtime = if (is_freestanding) void else @import("async.zig");
+pub const asyncio = if (is_freestanding) void else @import("asyncio.zig");
+pub const parallel = if (is_freestanding) void else @import("parallel.zig");
 pub const io = @import("io.zig");
 pub const json = @import("json.zig");
 pub const re = @import("re.zig");
@@ -2061,8 +2068,9 @@ pub const math = @import("math.zig");
 pub const unittest = @import("unittest.zig");
 pub const pathlib = @import("pathlib.zig");
 pub const datetime = @import("datetime.zig");
-pub const eval_module = @import("eval.zig");
-pub const exec_module = @import("exec.zig");
+// eval/exec use eval_cache which has Thread.Mutex - not available on freestanding
+pub const eval_module = if (is_freestanding) void else @import("eval.zig");
+pub const exec_module = if (is_freestanding) void else @import("exec.zig");
 pub const gzip = @import("gzip");
 pub const zlib = @import("zlib.zig");
 pub const hashlib = @import("hashlib.zig");
@@ -2073,28 +2081,30 @@ pub const pylong = @import("pylong.zig");
 pub const TestBuffer = @import("testbuffer.zig");
 
 // Green thread runtime (real M:N scheduler) - use module imports to avoid conflicts with h2
-pub const GreenThread = @import("green_thread").GreenThread;
-pub const Scheduler = @import("scheduler").Scheduler;
-pub var scheduler: Scheduler = undefined;
+// Conditional on non-freestanding targets (browser WASM doesn't support threads)
+pub const GreenThread = if (is_freestanding) void else @import("green_thread").GreenThread;
+pub const Scheduler = if (is_freestanding) void else @import("scheduler").Scheduler;
+pub var scheduler: if (is_freestanding) void else Scheduler = if (is_freestanding)
+{} else undefined;
 pub var scheduler_initialized = false;
 
-// Netpoller for async I/O and timers
-pub const netpoller = @import("netpoller");
+// Netpoller for async I/O and timers (not available on freestanding)
+pub const netpoller = if (is_freestanding) void else @import("netpoller");
 
-// Export convenience functions
-pub const httpGet = http.getAsPyString;
-pub const httpGetResponse = http.getAsResponse;
-pub const sleep = async_runtime.sleep;
-pub const now = async_runtime.now;
+// Export convenience functions (some require threading)
+pub const httpGet = if (is_freestanding) void else http.getAsPyString;
+pub const httpGetResponse = if (is_freestanding) void else http.getAsResponse;
+pub const sleep = if (is_freestanding) void else async_runtime.sleep;
+pub const now = if (is_freestanding) void else async_runtime.now;
 pub const jsonLoads = json.loads;
 pub const jsonDumps = json.dumps;
 pub const reCompile = re.compile;
 pub const reSearch = re.search;
 pub const reMatch = re.match;
 
-// Dynamic execution exports
-pub const eval = eval_module.eval;
-pub const exec = exec_module.exec;
+// Dynamic execution exports (require threading via eval_cache)
+pub const eval = if (is_freestanding) void else eval_module.eval;
+pub const exec = if (is_freestanding) void else exec_module.exec;
 pub const compile_builtin = @import("compile.zig").compile_builtin;
 pub const dynamic_import = @import("dynamic_import.zig").dynamic_import;
 

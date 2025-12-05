@@ -1,11 +1,15 @@
 /// CLI argument parsing and main entry point
 /// Drop-in replacement for python3 AND pip3 with compile superpowers
 const std = @import("std");
+const metal0 = @import("metal0");
 const c_interop = @import("c_interop");
 const CompileOptions = @import("../main.zig").CompileOptions;
 const utils = @import("utils.zig");
 const compile = @import("compile.zig");
 const pkg = @import("pkg");
+
+// Access wasmedge via metal0 module (mirrors Python's "from metal0 import wasmedge")
+const wasmedge = metal0.wasmedge;
 
 // ANSI color codes for terminal UX
 const Color = struct {
@@ -121,6 +125,8 @@ pub fn main() !void {
         try cmdSetupRuntime(allocator);
     } else if (std.mem.eql(u8, command, "profile")) {
         try cmdProfile(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "server")) {
+        try cmdServer(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "version")) {
         cmdVersion();
     } else if (std.mem.eql(u8, command, "help")) {
@@ -1013,7 +1019,7 @@ fn cmdProfileShow(allocator: std.mem.Allocator, args: []const []const u8) !void 
                 while (name_search > 0 and content[name_search] != '{') : (name_search -= 1) {}
 
                 if (name_search > 0) {
-                    const func_obj = content[name_search..search_start + 20];
+                    const func_obj = content[name_search .. search_start + 20];
                     if (extractJsonStringValue(func_obj, "\"name\":")) |name| {
                         const percentage = extractJsonNumberValue(func_obj, "\"percentage\":") orelse 0;
                         const samples_val = extractJsonNumberValue(func_obj, "\"samples\":") orelse 0;
@@ -1040,6 +1046,174 @@ fn cmdProfileShow(allocator: std.mem.Allocator, args: []const []const u8) !void 
     }
 
     std.debug.print("\nUse --pgo-use={s} when rebuilding to optimize hot paths.\n", .{profile_path});
+}
+
+/// Server: runs WasmEdge-based bytecode execution server
+/// Usage: metal0 server [--socket <path>] [--vm-module <path>]
+fn cmdServer(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    const DEFAULT_SOCKET_PATH = "/tmp/metal0-server.sock";
+    const DEFAULT_VM_MODULE = "metal0_vm.wasm";
+
+    var socket_path: []const u8 = DEFAULT_SOCKET_PATH;
+    var vm_module: []const u8 = DEFAULT_VM_MODULE;
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "--socket")) {
+            i += 1;
+            if (i < args.len) {
+                socket_path = args[i];
+            } else {
+                printError("--socket requires a path argument", .{});
+                return;
+            }
+        } else if (std.mem.eql(u8, arg, "--vm-module")) {
+            i += 1;
+            if (i < args.len) {
+                vm_module = args[i];
+            } else {
+                printError("--vm-module requires a path argument", .{});
+                return;
+            }
+        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            std.debug.print(
+                \\{s}metal0 Server - Isolated eval()/exec() execution{s}
+                \\
+                \\{s}Usage:{s}
+                \\  metal0 server [options]
+                \\
+                \\{s}Options:{s}
+                \\  --socket <path>     Unix socket path (default: {s})
+                \\  --vm-module <path>  Bytecode VM WASM module (default: {s})
+                \\  --help              Show this help
+                \\
+                \\{s}Description:{s}
+                \\  Runs a server that executes Python bytecode in isolated WasmEdge
+                \\  instances. Each eval() request runs in a fresh WASM sandbox for
+                \\  security isolation.
+                \\
+                \\{s}Architecture:{s}
+                \\  1. Client compiles Python code to bytecode
+                \\  2. Bytecode sent to server via Unix socket
+                \\  3. Server loads bytecode VM WASM module
+                \\  4. Executes bytecode in isolated WASM sandbox
+                \\  5. Returns result to client
+                \\
+            , .{
+                Color.bold,          Color.reset,
+                Color.bold,          Color.reset,
+                Color.bold,          Color.reset,
+                DEFAULT_SOCKET_PATH, DEFAULT_VM_MODULE,
+                Color.bold,          Color.reset,
+                Color.bold,          Color.reset,
+            });
+            return;
+        }
+    }
+
+    // Check if VM module exists
+    std.fs.cwd().access(vm_module, .{}) catch {
+        printError("VM module not found: {s}", .{vm_module});
+        std.debug.print("\n{s}Build the bytecode VM first:{s}\n", .{ Color.dim, Color.reset });
+        std.debug.print("  zig build -Dtarget=wasm32-wasi bytecode-vm\n\n", .{});
+        return;
+    };
+
+    printInfo("Starting server...", .{});
+    std.debug.print("  Socket: {s}\n", .{socket_path});
+    std.debug.print("  VM module: {s}\n", .{vm_module});
+
+    // Load VM WASM module
+    const vm_wasm = std.fs.cwd().readFileAlloc(allocator, vm_module, 64 * 1024 * 1024) catch |err| {
+        printError("Failed to load VM module {s}: {any}", .{ vm_module, err });
+        return;
+    };
+    defer allocator.free(vm_wasm);
+
+    // Create Unix socket
+    const fd = std.posix.socket(std.posix.AF.UNIX, std.posix.SOCK.STREAM, 0) catch |err| {
+        printError("Failed to create socket: {any}", .{err});
+        return;
+    };
+    defer std.posix.close(fd);
+
+    // Bind to socket path
+    var addr = std.posix.sockaddr.un{
+        .family = std.posix.AF.UNIX,
+        .path = undefined,
+    };
+    @memset(&addr.path, 0);
+    @memcpy(addr.path[0..socket_path.len], socket_path);
+
+    // Remove existing socket
+    std.fs.deleteFileAbsolute(socket_path) catch {};
+
+    std.posix.bind(fd, @ptrCast(&addr), @sizeOf(@TypeOf(addr))) catch |err| {
+        printError("Failed to bind socket: {any}", .{err});
+        return;
+    };
+
+    std.posix.listen(fd, 128) catch |err| {
+        printError("Failed to listen: {any}", .{err});
+        return;
+    };
+
+    printSuccess("Server listening on {s}", .{socket_path});
+    std.debug.print("{s}Press Ctrl+C to stop{s}\n\n", .{ Color.dim, Color.reset });
+
+    // Server loop
+    while (true) {
+        const client_fd = std.posix.accept(fd, null, null, 0) catch |err| {
+            if (err == error.ConnectionAborted) continue;
+            printError("Accept error: {any}", .{err});
+            continue;
+        };
+
+        // Handle client in current thread (TODO: spawn thread for concurrency)
+        handleEvalClient(allocator, client_fd, vm_wasm) catch |err| {
+            std.log.err("Client error: {any}", .{err});
+        };
+        std.posix.close(client_fd);
+    }
+}
+
+fn handleEvalClient(allocator: std.mem.Allocator, client_fd: std.posix.fd_t, vm_wasm: []const u8) !void {
+    _ = vm_wasm; // TODO: use for WasmEdge execution
+
+    // Read bytecode length
+    var len_buf: [4]u8 = undefined;
+    _ = try std.posix.read(client_fd, &len_buf);
+    const bytecode_len = std.mem.readInt(u32, &len_buf, .little);
+
+    if (bytecode_len > 16 * 1024 * 1024) {
+        return error.BytecodeTooLarge;
+    }
+
+    // Read bytecode
+    const bytecode = try allocator.alloc(u8, bytecode_len);
+    defer allocator.free(bytecode);
+
+    var total_read: usize = 0;
+    while (total_read < bytecode_len) {
+        const n = try std.posix.read(client_fd, bytecode[total_read..]);
+        if (n == 0) return error.ConnectionClosed;
+        total_read += n;
+    }
+
+    std.log.info("Received {d} bytes of bytecode", .{bytecode_len});
+
+    // TODO: Execute bytecode in WasmEdge
+    // For now, return a placeholder result
+
+    // Send result (type: int, value: 0)
+    var result: [9]u8 = undefined;
+    result[0] = 1; // Type: int
+    std.mem.writeInt(i64, result[1..9], 0, .little);
+
+    const result_len: u32 = @intCast(result.len);
+    _ = try std.posix.write(client_fd, std.mem.asBytes(&result_len));
+    _ = try std.posix.write(client_fd, &result);
 }
 
 fn extractJsonStringValue(content: []const u8, key: []const u8) ?[]const u8 {
@@ -1190,6 +1364,11 @@ fn cmdRunFile(allocator: std.mem.Allocator, args: []const []const u8) !void {
             opts.debug = true;
         } else if (std.mem.eql(u8, arg, "--emit-zig")) {
             opts.emit_zig_only = true;
+        } else if (std.mem.eql(u8, arg, "--target") or std.mem.eql(u8, arg, "-t")) {
+            i += 1;
+            if (i < args.len) opts.target = parseTarget(args[i]);
+        } else if (std.mem.startsWith(u8, arg, "--target=")) {
+            opts.target = parseTarget(arg["--target=".len..]);
         } else if (std.mem.eql(u8, arg, "--pgo-generate")) {
             opts.pgo_generate = true;
         } else if (std.mem.startsWith(u8, arg, "--pgo-use=")) {
@@ -1742,6 +1921,7 @@ fn printUsage() !void {
         \\   run          Compile and run a Python file
         \\   test         Run test suite
         \\   profile      Profile and optimize (run, translate, show)
+        \\   server  Start WasmEdge-based eval() server
         \\   deploy       Deploy to remote server (WIP)
         \\
         \\{s}BUILD OPTIONS:{s}

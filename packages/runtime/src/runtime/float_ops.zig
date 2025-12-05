@@ -12,6 +12,7 @@ pub const PythonError = error{
     TypeError,
     KeyError,
     OverflowError,
+    OutOfMemory, // Python's MemoryError
     Exception, // Generic exception catch-all
 };
 

@@ -578,9 +578,10 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             try genExpr(self, binop.left.*);
             try self.emit("; const _rhs = ");
             try genExpr(self, binop.right.*);
-            try self.output.writer(self.allocator).print("; break :mul_{d} if (@TypeOf(_lhs) == []const u8) runtime.strRepeat(", .{label_id});
+            // For string * n with n < 0, return empty string; for numeric types, just multiply
+            try self.output.writer(self.allocator).print("; break :mul_{d} if (@TypeOf(_lhs) == []const u8) (if (_rhs < 0) \"\" else runtime.strRepeat(", .{label_id});
             try self.emit(alloc_name);
-            try self.emit(", _lhs, @as(usize, @intCast(_rhs))) else _lhs * _rhs; }");
+            try self.emit(", _lhs, @as(usize, @intCast(_rhs)))) else _lhs * _rhs; }");
             return;
         }
         // n * str -> repeat string n times

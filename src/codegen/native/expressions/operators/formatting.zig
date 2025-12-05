@@ -60,7 +60,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                         'x' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
                         'X' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
                         'o' => try self.emit("{s}"), // Use {s} for octal - formatInt returns string
-                        'r' => try self.emit("{any}"),
+                        'r' => try self.emit("{s}"), // Use {s} for repr - pyRepr returns string
                         '%' => try self.emit("%"),
                         else => {
                             try self.emitFmt("{c}", .{fmt[i]});
@@ -115,6 +115,11 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                             } else {
                                 try self.emit(", .octal)");
                             }
+                        } else if (spec == 'r') {
+                            // For %r, wrap in runtime.pyRepr for Python repr() output
+                            try self.emitFmt("(runtime.builtins.pyRepr({s}, ", .{alloc_name});
+                            try genExpr(self, tuple.elts[elem_idx]);
+                            try self.emit(") catch unreachable)");
                         } else {
                             try genExpr(self, tuple.elts[elem_idx]);
                         }
@@ -153,7 +158,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                         'x' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
                         'X' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
                         'o' => try self.emit("{s}"), // Use {s} for octal - formatInt returns string
-                        'r' => try self.emit("{any}"),
+                        'r' => try self.emit("{s}"), // Use {s} for repr - pyRepr returns string
                         '%' => try self.emit("%"),
                         else => {
                             try self.emitFmt("{c}", .{fmt[i]});
@@ -206,6 +211,11 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                 } else {
                     try genExpr(self, binop.right.*);
                 }
+            } else if (format_spec == 'r') {
+                // For %r, wrap in runtime.pyRepr for Python repr() output
+                try self.emitFmt("(runtime.builtins.pyRepr({s}, ", .{alloc_name});
+                try genExpr(self, binop.right.*);
+                try self.emit(") catch unreachable)");
             } else {
                 try genExpr(self, binop.right.*);
             }

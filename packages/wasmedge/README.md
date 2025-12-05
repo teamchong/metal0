@@ -1,6 +1,6 @@
 # WasmEdge Zig Bindings
 
-Zig bindings for [WasmEdge](https://wasmedge.org/) runtime.
+Zig bindings for [WasmEdge](https://wasmedge.org/) runtime, integrated into metal0 for eval()/exec() support.
 
 ## Installation
 
@@ -25,9 +25,16 @@ cmake --install build --prefix ~/.local
 export WASMEDGE_DIR=~/.local
 ```
 
+## Building metal0 with WasmEdge
+
+Set `WASMEDGE_DIR` when building:
+```bash
+WASMEDGE_DIR=~/.wasmedge zig build
+```
+
 ## Updating WasmEdge
 
-This package uses system-installed WasmEdge via pkg-config or `WASMEDGE_DIR`.
+This package uses system-installed WasmEdge via `WASMEDGE_DIR`.
 
 To update:
 ```bash
@@ -43,8 +50,11 @@ cd WasmEdge && git pull && cmake --build build && cmake --install build
 
 ## Usage
 
+The wasmedge module is available via the unified metal0 module (mirrors Python's `from metal0 import wasmedge`):
+
 ```zig
-const wasmedge = @import("wasmedge");
+const metal0 = @import("metal0");
+const wasmedge = metal0.wasmedge;
 
 pub fn main() !void {
     // Create VM with WASI support
@@ -60,7 +70,7 @@ pub fn main() !void {
     try vm.runFromFile(
         "module.wasm",
         "add",
-        &.{ wasmedge.Value.i32(1), wasmedge.Value.i32(2) },
+        &.{ wasmedge.Value.fromI32(1), wasmedge.Value.fromI32(2) },
         &results,
     );
 
@@ -68,34 +78,16 @@ pub fn main() !void {
 }
 ```
 
-## For metal0 eval() Support
+## Server
 
-The eval server uses WasmEdge to execute bytecode in isolated WASM instances:
+The server is integrated as a metal0 subcommand:
 
-```zig
-const wasmedge = @import("wasmedge");
-const bytecode = @import("bytecode");
+```bash
+# Start server
+metal0 server --socket /tmp/metal0-server.sock --vm-module metal0_vm.wasm
 
-pub fn executeInWasm(program: *const bytecode.Program) !bytecode.StackValue {
-    var vm = try wasmedge.VM.create();
-    defer vm.destroy();
-
-    // Load the bytecode VM WASM module
-    try vm.loadFromFile("metal0_vm.wasm");
-    try vm.validate();
-    try vm.instantiate();
-
-    // Serialize bytecode and pass to WASM
-    const bc_bytes = try bytecode.serialize(program);
-    defer allocator.free(bc_bytes);
-
-    // Execute
-    var results: [1]wasmedge.Value = undefined;
-    try vm.execute("execute_bytecode", &.{
-        wasmedge.Value.i32(@intCast(@intFromPtr(bc_bytes.ptr))),
-        wasmedge.Value.i32(@intCast(bc_bytes.len)),
-    }, &results);
-
-    return bytecode.deserializeResult(results[0].getI64());
-}
+# Show help
+metal0 server --help
 ```
+
+The server executes Python bytecode in isolated WASM instances for security.

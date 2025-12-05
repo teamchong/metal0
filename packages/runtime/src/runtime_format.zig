@@ -532,6 +532,91 @@ fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, int_s
     return result.toOwnedSlice(allocator);
 }
 
+/// Format a float with a specific number of significant figures (like Python's 'g' format)
+/// format(123.456, '.4') -> '123.5' (4 significant figures)
+/// Format float with significant figures (for precision-only format like ".4")
+/// Python's precision-only format: use scientific if integer digits > precision
+/// Otherwise use fixed-point showing precision total digits (preserving trailing zeros)
+fn formatSignificantFigures(allocator: std.mem.Allocator, value: f64, sig_figs: usize) ![]const u8 {
+    if (sig_figs == 0) return "";
+
+    // Handle zero specially
+    if (value == 0.0) {
+        return "0.0";
+    }
+
+    var buf = std.ArrayList(u8){};
+    errdefer buf.deinit(allocator);
+
+    const abs_val = @abs(value);
+    // Find the order of magnitude (number of integer digits - 1)
+    const log10_val = std.math.log10(abs_val);
+    const exp: i32 = @intFromFloat(@floor(log10_val));
+    const int_digits = exp + 1;
+
+    // Python's rule for precision-only format:
+    // - Use scientific notation if int_digits >= precision (e.g., 1234.56 with .4 -> 1.235e+03)
+    // - Use scientific notation if exp < -4 (e.g., 0.00001 with .4 -> 1e-05)
+    // - Otherwise use fixed-point format
+    if (int_digits >= @as(i32, @intCast(sig_figs)) or exp < -4) {
+        // Scientific notation: mantissa is in [1, 10)
+        var mantissa = abs_val;
+        var actual_exp: i32 = 0;
+        if (abs_val >= 1.0) {
+            while (mantissa >= 10.0) {
+                mantissa /= 10.0;
+                actual_exp += 1;
+            }
+        } else if (abs_val > 0) {
+            while (mantissa < 1.0) {
+                mantissa *= 10.0;
+                actual_exp -= 1;
+            }
+        }
+        // Format with sig_figs - 1 decimal places (one digit before decimal)
+        const decimal_places = if (sig_figs > 0) sig_figs - 1 else 0;
+        try buf.writer(allocator).print("{d:.[1]}", .{ mantissa, decimal_places });
+        // Remove trailing zeros and possibly the decimal point
+        const result = buf.items;
+        if (std.mem.indexOfScalar(u8, result, '.')) |dot_pos| {
+            var end = result.len;
+            while (end > dot_pos + 1 and result[end - 1] == '0') {
+                end -= 1;
+            }
+            if (end == dot_pos + 1) {
+                end = dot_pos;
+            }
+            buf.shrinkRetainingCapacity(end);
+        }
+        try buf.append(allocator, 'e');
+        try buf.append(allocator, if (actual_exp >= 0) '+' else '-');
+        const abs_exp: u32 = @intCast(@abs(actual_exp));
+        if (abs_exp < 10) try buf.append(allocator, '0');
+        try buf.writer(allocator).print("{d}", .{abs_exp});
+    } else {
+        // Fixed-point format
+        // Calculate decimal places needed for sig_figs significant figures
+        const decimal_places: usize = if (int_digits >= @as(i32, @intCast(sig_figs)))
+            0
+        else
+            @intCast(@as(i32, @intCast(sig_figs)) - int_digits);
+
+        try buf.writer(allocator).print("{d:.[1]}", .{ abs_val, decimal_places });
+
+        // Remove trailing zeros but keep at least one decimal place for floats
+        const result = buf.items;
+        if (std.mem.indexOfScalar(u8, result, '.')) |dot_pos| {
+            var end = result.len;
+            while (end > dot_pos + 2 and result[end - 1] == '0') {
+                end -= 1;
+            }
+            buf.shrinkRetainingCapacity(end);
+        }
+    }
+
+    return buf.toOwnedSlice(allocator);
+}
+
 /// Python format(value, format_spec) builtin
 /// Applies format_spec to value and returns formatted string
 pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anytype) ![]const u8 {
@@ -759,9 +844,15 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
                     try buf.writer(allocator).print("{d:.[1]}", .{ abs_val, prec });
                 },
                 else => {
-                    // Default / 'g' / 'G' / empty spec: use shortest representation
-                    // like repr() - minimal digits, no trailing zeros
-                    if (@mod(abs_val, 1.0) == 0.0 and abs_val < 1e15) {
+                    // Default / 'g' / 'G' / empty spec: general format with significant figures
+                    // Python's 'g' format: use shortest of 'e' or 'f', with significant figures = precision
+                    // format(123.456, '.4') -> '123.5' (4 significant figures)
+                    if (spec.precision != null) {
+                        // Use precision as significant figures count
+                        const sig_figs = spec.precision.?;
+                        const formatted_str = try formatSignificantFigures(allocator, abs_val, sig_figs);
+                        try buf.appendSlice(allocator, formatted_str);
+                    } else if (@mod(abs_val, 1.0) == 0.0 and abs_val < 1e15) {
                         // Whole number: show .0
                         try buf.writer(allocator).print("{d:.1}", .{abs_val});
                     } else {

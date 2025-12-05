@@ -543,8 +543,17 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     }
 }
 
-/// Compile Zig source code to WASM binary
+/// Compile Zig source code to WASM binary with target selection
+pub fn compileWasmWithTarget(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, target: @import("main.zig").CompileOptions.Target) !void {
+    return compileWasmInternal(allocator, zig_code, output_path, target);
+}
+
+/// Compile Zig source code to WASM binary (legacy - uses wasm32-wasi)
 pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
+    return compileWasmInternal(allocator, zig_code, output_path, .wasm_edge);
+}
+
+fn compileWasmInternal(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, target: @import("main.zig").CompileOptions.Target) !void {
     // Use arena for all intermediate allocations
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -654,11 +663,25 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
     // Add main source file
     try args.append(aa, tmp_path);
 
-    // WASM target: wasm32-wasi (supports print via fd_write, DCE removes if unused)
+    // WASM target selection
     try args.append(aa, "-target");
-    try args.append(aa, "wasm32-wasi");
-
-    try args.append(aa, "-OReleaseSmall"); // Size optimization for WASM
+    switch (target) {
+        .wasm_browser => {
+            // Browser: freestanding (no WASI), smallest size
+            try args.append(aa, "wasm32-freestanding");
+            try args.append(aa, "-OReleaseSmall");
+        },
+        .wasm_edge => {
+            // WasmEdge/WASI: supports fd_write for print, etc.
+            try args.append(aa, "wasm32-wasi");
+            try args.append(aa, "-OReleaseFast"); // Fast for edge compute
+        },
+        else => {
+            // Default to WASI for compatibility
+            try args.append(aa, "wasm32-wasi");
+            try args.append(aa, "-OReleaseSmall");
+        },
+    }
     try args.append(aa, "-fno-stack-check");
     // Note: -flto not supported for WASM target
 
