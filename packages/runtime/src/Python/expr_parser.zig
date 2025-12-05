@@ -438,7 +438,10 @@ pub const ExprParser = struct {
                     }
                 }
                 // Strip underscores from numeric literals (Python 3.6+)
-                const clean = stripUnderscores(num_text) catch return ParseError.OutOfMemory;
+                const clean = stripUnderscores(num_text) catch |err| return switch (err) {
+                    error.OutOfMemory => ParseError.OutOfMemory,
+                    error.InvalidNumber => ParseError.InvalidNumber,
+                };
                 // Check if it's a float (has decimal point)
                 const is_float = std.mem.indexOfScalar(u8, clean, '.') != null or
                     std.mem.indexOfScalar(u8, clean, 'e') != null or
@@ -491,7 +494,10 @@ pub const ExprParser = struct {
                 const text = self.getText(self.current);
                 // Strip trailing 'j' or 'J'
                 const num_text = text[0 .. text.len - 1];
-                const clean = stripUnderscores(num_text) catch return ParseError.OutOfMemory;
+                const clean = stripUnderscores(num_text) catch |err| return switch (err) {
+                    error.OutOfMemory => ParseError.OutOfMemory,
+                    error.InvalidNumber => ParseError.InvalidNumber,
+                };
                 // Parse imaginary part as float
                 const imag = std.fmt.parseFloat(f64, clean) catch return ParseError.InvalidNumber;
                 const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
@@ -547,11 +553,42 @@ pub const ExprParser = struct {
     }
 };
 
+/// Validate underscore placement in Python numeric literal
+/// Returns error.InvalidNumber if:
+/// - starts with underscore
+/// - ends with underscore
+/// - has consecutive underscores
+/// - underscore adjacent to . or e/E without digit in between
+fn validateNumericUnderscores(s: []const u8) error{InvalidNumber}!void {
+    if (s.len == 0) return;
+    // Can't start with underscore
+    if (s[0] == '_') return error.InvalidNumber;
+    // Can't end with underscore
+    if (s[s.len - 1] == '_') return error.InvalidNumber;
+    // Check for consecutive underscores and underscore adjacent to special chars
+    var prev: u8 = 0;
+    for (s) |c| {
+        if (c == '_') {
+            // Consecutive underscores
+            if (prev == '_') return error.InvalidNumber;
+            // Underscore after . or e/E
+            if (prev == '.' or prev == 'e' or prev == 'E') return error.InvalidNumber;
+        } else if (c == '.' or c == 'e' or c == 'E') {
+            // These chars after underscore is invalid
+            if (prev == '_') return error.InvalidNumber;
+        }
+        prev = c;
+    }
+}
+
 /// Strip underscores from numeric literal (Python 3.6+ feature)
 /// Uses a static buffer to avoid allocation and lifetime issues
 var strip_buf: [64]u8 = undefined;
 
-fn stripUnderscores(input: []const u8) error{OutOfMemory}![]const u8 {
+fn stripUnderscores(input: []const u8) error{ OutOfMemory, InvalidNumber }![]const u8 {
+    // First validate underscore placement
+    try validateNumericUnderscores(input);
+
     // Fast path: no underscores
     if (std.mem.indexOfScalar(u8, input, '_') == null) {
         return input;
