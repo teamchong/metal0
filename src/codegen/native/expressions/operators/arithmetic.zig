@@ -766,8 +766,18 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             try self.emit(")");
             return;
         }
-        // Numeric modulo - use @mod for Python semantics (sign follows divisor)
+        // Numeric modulo - use @mod for integers, pyFloatMod for floats
         const right_type = try self.inferExprScoped(binop.right.*);
+        // For floats, use Python's floored modulo (result has same sign as divisor)
+        if (left_type == .float or right_type == .float) {
+            try self.emit("runtime.pyFloatMod(");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+            return;
+        }
+        // For integers, use @mod (Zig's @mod already has Python semantics for ints)
         try self.emit("@mod(");
         if (left_type == .bool) {
             try self.emit("@as(i64, @intFromBool(");
