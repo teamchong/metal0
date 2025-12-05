@@ -165,6 +165,9 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (arg_type == .pyobject) {
             has_pyobject = true;
         }
+        if (arg_type == .bytes) {
+            has_unknown = true; // bytes needs complex printing path like unknown
+        }
     }
 
     // Check for sqlite types that need special handling
@@ -204,6 +207,11 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try genPrintTuple(self, arg, arg_type);
         } else if (arg_type == .dict) {
             try genPrintDict(self, arg);
+        } else if (arg_type == .bytes) {
+            // PyBytes - print with b'...' repr format
+            try self.emit("std.debug.print(\"{s}\", .{runtime.builtins.bytesRepr(__global_allocator, (");
+            try self.genExpr(arg);
+            try self.emit(").data) catch \"<bytes>\"});\n");
         } else if (arg_type == .unknown) {
             // Unknown types - use runtime printer
             try self.emit("runtime.printPyObject(");

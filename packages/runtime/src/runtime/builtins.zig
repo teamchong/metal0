@@ -2481,6 +2481,9 @@ fn printValueToList(output: *std.ArrayList(u8), value: anytype, allocator: std.m
 
     if (T == []const u8 or T == []u8) {
         output.appendSlice(allocator, value) catch {};
+    } else if (T == PyBytes) {
+        // PyBytes: print as b'...' repr format
+        output.appendSlice(allocator, bytesRepr(value.data)) catch {};
     } else if (info == .int or info == .comptime_int) {
         var buf: [32]u8 = undefined;
         const int_len = std.fmt.formatIntBuf(&buf, value, 10, .lower, .{});
