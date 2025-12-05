@@ -1238,6 +1238,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Handle attribute assignment (self.x = value or obj.y = value)
             const attr = target.attribute;
 
+            // Check for __code__ assignment - this is a no-op since we compile to native code
+            // Python: f.__code__ = f.__code__.replace(co_linetable=...)
+            if (std.mem.eql(u8, attr.attr, "__code__")) {
+                try self.emitIndent();
+                try self.emit("// __code__ assignment is a no-op in compiled code\n");
+                return;
+            }
+
             // Check for ctypes argtypes/restype assignment: strlen.argtypes = [...], strlen.restype = c_int
             if (attr.value.* == .name) {
                 const var_name = attr.value.name.id;

@@ -292,9 +292,61 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
                         try self.genExpr(idx.*);
                         try self.emit(");\n");
                     },
-                    .slice => {
-                        // del list[a:b] - slice deletion not supported in AOT
-                        try self.emit("// del slice (not supported in AOT)\n");
+                    .slice => |slice| {
+                        // del list[a:b] - delete elements from a to b
+                        // Use replaceRange with empty slice to remove elements
+                        try self.emit("{\n");
+                        self.indent();
+
+                        // Get list reference - handle ArrayList aliases
+                        try self.emitIndent();
+                        try self.emit("const __list = ");
+                        if (sub.value.* == .name) {
+                            const var_name = sub.value.name.id;
+                            if (self.isArrayListAlias(var_name)) {
+                                // Alias is already a pointer, just use it directly
+                                try self.genExpr(sub.value.*);
+                            } else {
+                                // Regular ArrayList, take address
+                                try self.emit("&");
+                                try self.genExpr(sub.value.*);
+                            }
+                        } else {
+                            try self.emit("&");
+                            try self.genExpr(sub.value.*);
+                        }
+                        try self.emit(";\n");
+
+                        // Calculate start index
+                        try self.emitIndent();
+                        if (slice.lower) |lower| {
+                            try self.emit("const __start: usize = @intCast(");
+                            try self.genExpr(lower.*);
+                            try self.emit(");\n");
+                        } else {
+                            try self.emit("const __start: usize = 0;\n");
+                        }
+
+                        // Calculate end index
+                        try self.emitIndent();
+                        if (slice.upper) |upper| {
+                            try self.emit("const __end: usize = @intCast(");
+                            try self.genExpr(upper.*);
+                            try self.emit(");\n");
+                        } else {
+                            try self.emit("const __end: usize = __list.items.len;\n");
+                        }
+
+                        // Replace slice with empty slice to delete elements
+                        // replaceRange(allocator, start, length, replacement)
+                        try self.emitIndent();
+                        try self.emit("const __empty: [0]@TypeOf(__list.items[0]) = .{};\n");
+                        try self.emitIndent();
+                        try self.emit("__list.replaceRange(__global_allocator, __start, __end - __start, &__empty) catch {};\n");
+
+                        self.dedent();
+                        try self.emitIndent();
+                        try self.emit("}\n");
                     },
                 }
             },

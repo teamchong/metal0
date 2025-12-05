@@ -2694,3 +2694,33 @@ pub const dict = struct {
         }
     }{};
 };
+
+/// Code object stub - represents Python function bytecode
+/// This is a minimal implementation for compatibility with code that accesses __code__
+pub const CodeObject = struct {
+    co_filename: []const u8 = "",
+    co_name: []const u8 = "",
+    co_lineno: i64 = 0,
+    co_linetable: []const u8 = "",
+    co_argcount: i64 = 0,
+
+    /// Create a code object from another, replacing specified attributes
+    /// Python: code.replace(co_linetable=..., co_filename=..., etc.)
+    pub fn replace(self: *const CodeObject, kwargs: anytype) CodeObject {
+        var result = self.*;
+        inline for (@typeInfo(@TypeOf(kwargs)).@"struct".fields) |field| {
+            if (comptime std.mem.eql(u8, field.name, "co_linetable")) {
+                result.co_linetable = @field(kwargs, "co_linetable");
+            } else if (comptime std.mem.eql(u8, field.name, "co_filename")) {
+                result.co_filename = @field(kwargs, "co_filename");
+            } else if (comptime std.mem.eql(u8, field.name, "co_name")) {
+                result.co_name = @field(kwargs, "co_name");
+            } else if (comptime std.mem.eql(u8, field.name, "co_lineno")) {
+                result.co_lineno = @field(kwargs, "co_lineno");
+            } else if (comptime std.mem.eql(u8, field.name, "co_argcount")) {
+                result.co_argcount = @field(kwargs, "co_argcount");
+            }
+        }
+        return result;
+    }
+};
