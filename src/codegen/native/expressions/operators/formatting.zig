@@ -22,6 +22,18 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
 
+    // If format string is a variable (not literal), use runtime formatting
+    // This must be checked BEFORE creating the buffer/writer
+    if (format_str == null) {
+        try self.emitFmt("fmt_{d}: {{\n", .{label_id});
+        try self.emitFmt("break :fmt_{d} try runtime.pyStringFormat({s}, ", .{ label_id, alloc_name });
+        try genExpr(self, binop.left.*);
+        try self.emit(", ");
+        try genExpr(self, binop.right.*);
+        try self.emit(");\n}");
+        return;
+    }
+
     // Use unique buf AND writer names to avoid shadowing in nested format expressions
     // e.g., "%s" % repr(x) where repr(x) generates another format block
     try self.emitFmt("fmt_{d}: {{\n", .{label_id});
@@ -112,12 +124,8 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                 }
             }
             try self.emit("}) catch unreachable;\n");
-        } else {
-            // Format string is a variable - use runtime formatting
-            try self.emitFmt("__writer_{d}.print(\"{{any}}\", .{{", .{label_id});
-            try genExpr(self, binop.right.*);
-            try self.emit("}) catch unreachable;\n");
         }
+        // Note: else case (variable format string) is handled early with return
     } else {
         // Single format argument: "%d" % n
         if (format_str) |fmt| {
@@ -202,12 +210,8 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                 try genExpr(self, binop.right.*);
             }
             try self.emit("}) catch unreachable;\n");
-        } else {
-            // Format string is a variable
-            try self.emitFmt("__writer_{d}.print(\"{{any}}\", .{{", .{label_id});
-            try genExpr(self, binop.right.*);
-            try self.emit("}) catch unreachable;\n");
         }
+        // Note: else case (variable format string) is handled early with return
     }
 
     // Use catch unreachable since print/toOwnedSlice won't fail with valid allocator in most cases

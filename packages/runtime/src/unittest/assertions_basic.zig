@@ -461,6 +461,27 @@ fn equalValues(a: anytype, b: anytype) bool {
         }
     }
 
+    // Tuple comparison - compare element by element with type coercion
+    // Handles (BigInt, BigInt) vs (i64, i64) and similar cases
+    if (comptime a_info == .@"struct" and b_info == .@"struct") {
+        const a_fields = a_info.@"struct".fields;
+        const b_fields = b_info.@"struct".fields;
+        // Check if both are tuple-like (anonymous structs with @"0", @"1", etc. fields)
+        if (a_fields.len == b_fields.len and a_fields.len > 0) {
+            const is_a_tuple = comptime a_fields[0].name[0] == '0' or (a_fields[0].name.len > 0 and std.mem.eql(u8, a_fields[0].name, "0"));
+            const is_b_tuple = comptime b_fields[0].name[0] == '0' or (b_fields[0].name.len > 0 and std.mem.eql(u8, b_fields[0].name, "0"));
+            if (is_a_tuple and is_b_tuple) {
+                // Both are tuples, compare element by element
+                inline for (0..a_fields.len) |i| {
+                    const a_val = @field(a, a_fields[i].name);
+                    const b_val = @field(b, b_fields[i].name);
+                    if (!equalValues(a_val, b_val)) return false;
+                }
+                return true;
+            }
+        }
+    }
+
     return false;
 }
 
@@ -861,6 +882,11 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                     break :blk false;
                 }
             }
+        }
+
+        // Try equalValues for struct-to-struct comparison (handles BigInt tuples vs int tuples)
+        if (a_info == .@"struct" and b_info == .@"struct") {
+            break :blk equalValues(a, b);
         }
 
         // Incompatible types - always false

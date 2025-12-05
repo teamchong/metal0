@@ -579,12 +579,54 @@ pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anyt
     // Get format string as slice
     const format_str: []const u8 = if (F == []const u8 or F == [:0]const u8) format else @as([]const u8, format);
 
-    // Simple implementation - just substitute %s, %d, %f patterns
+    // Parse Python format specs: %[flags][width][.precision]conversion
+    // flags: +, -, space, #, 0
+    // width: digits
+    // precision: .digits
+    // conversion: s, d, i, f, e, g, x, X, o, r, %
     var result = std.ArrayList(u8){};
     var i: usize = 0;
     while (i < format_str.len) {
         if (format_str[i] == '%' and i + 1 < format_str.len) {
-            const spec = format_str[i + 1];
+            // Parse format spec starting after %
+            var j = i + 1;
+            var sign_flag: u8 = 0; // '+', ' ', or 0 for none
+
+            // Skip flags: +, -, space, #, 0
+            while (j < format_str.len) {
+                const c = format_str[j];
+                if (c == '+' or c == ' ') {
+                    sign_flag = c;
+                    j += 1;
+                } else if (c == '-' or c == '#' or c == '0') {
+                    j += 1;
+                } else {
+                    break;
+                }
+            }
+
+            // Skip width (digits)
+            while (j < format_str.len and std.ascii.isDigit(format_str[j])) {
+                j += 1;
+            }
+
+            // Skip precision (.digits)
+            if (j < format_str.len and format_str[j] == '.') {
+                j += 1;
+                while (j < format_str.len and std.ascii.isDigit(format_str[j])) {
+                    j += 1;
+                }
+            }
+
+            // Now j points to the conversion character
+            if (j >= format_str.len) {
+                // Malformed - just copy
+                try result.append(allocator, format_str[i]);
+                i += 1;
+                continue;
+            }
+
+            const spec = format_str[j];
             if (spec == 's') {
                 // String format
                 if (V == []const u8 or V == [:0]const u8) {
@@ -592,35 +634,60 @@ pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anyt
                 } else {
                     try result.writer(allocator).print("{any}", .{value});
                 }
-                i += 2;
+                i = j + 1;
             } else if (spec == 'd' or spec == 'i') {
                 // Integer format
                 if (@typeInfo(V) == .int or @typeInfo(V) == .comptime_int) {
+                    if (sign_flag == '+' and value >= 0) try result.append(allocator, '+');
+                    if (sign_flag == ' ' and value >= 0) try result.append(allocator, ' ');
                     try result.writer(allocator).print("{d}", .{value});
                 } else if (@typeInfo(V) == .float or @typeInfo(V) == .comptime_float) {
-                    try result.writer(allocator).print("{d}", .{@as(i64, @intFromFloat(value))});
+                    const int_val = @as(i64, @intFromFloat(value));
+                    if (sign_flag == '+' and int_val >= 0) try result.append(allocator, '+');
+                    if (sign_flag == ' ' and int_val >= 0) try result.append(allocator, ' ');
+                    try result.writer(allocator).print("{d}", .{int_val});
                 } else {
                     try result.writer(allocator).print("{any}", .{value});
                 }
-                i += 2;
+                i = j + 1;
             } else if (spec == 'f' or spec == 'e' or spec == 'g') {
-                // Float format
+                // Float format - handle NaN, inf specially for Python compatibility
                 if (@typeInfo(V) == .float or @typeInfo(V) == .comptime_float) {
-                    const val_str = try formatFloat(value, allocator);
-                    defer allocator.free(val_str);
-                    try result.appendSlice(allocator, val_str);
+                    if (std.math.isNan(value)) {
+                        // NaN is always positive in Python formatting
+                        if (sign_flag == '+') try result.append(allocator, '+');
+                        if (sign_flag == ' ') try result.append(allocator, ' ');
+                        try result.appendSlice(allocator, "nan");
+                    } else if (std.math.isInf(value)) {
+                        if (value < 0) {
+                            try result.appendSlice(allocator, "-inf");
+                        } else {
+                            if (sign_flag == '+') try result.append(allocator, '+');
+                            if (sign_flag == ' ') try result.append(allocator, ' ');
+                            try result.appendSlice(allocator, "inf");
+                        }
+                    } else {
+                        // Normal float
+                        if (sign_flag == '+' and value >= 0) try result.append(allocator, '+');
+                        if (sign_flag == ' ' and value >= 0) try result.append(allocator, ' ');
+                        const val_str = try formatFloat(value, allocator);
+                        defer allocator.free(val_str);
+                        try result.appendSlice(allocator, val_str);
+                    }
                 } else if (@typeInfo(V) == .int or @typeInfo(V) == .comptime_int) {
+                    if (sign_flag == '+' and value >= 0) try result.append(allocator, '+');
+                    if (sign_flag == ' ' and value >= 0) try result.append(allocator, ' ');
                     try result.writer(allocator).print("{d}.0", .{value});
                 } else {
                     try result.writer(allocator).print("{any}", .{value});
                 }
-                i += 2;
+                i = j + 1;
             } else if (spec == '%') {
                 // Escaped %
                 try result.append(allocator, '%');
-                i += 2;
+                i = j + 1;
             } else {
-                // Unknown spec - just copy
+                // Unknown spec - just copy the % and continue
                 try result.append(allocator, format_str[i]);
                 i += 1;
             }

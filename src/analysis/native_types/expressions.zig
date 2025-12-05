@@ -765,6 +765,11 @@ fn inferBinOpWithInferrer(
         }
     }
 
+    // String formatting: str % value → runtime string (Python % formatting)
+    if (binop.op == .Mod and left_tag == .string) {
+        return .{ .string = .runtime }; // String formatting produces runtime string
+    }
+
     // Type promotion: int + float → float
     if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult or binop.op == .Div) {
         // Class instances with dunder methods may return class type, not float
