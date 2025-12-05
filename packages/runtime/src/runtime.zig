@@ -624,6 +624,15 @@ pub fn toBool(value: anytype) bool {
             const len = value.__len__() catch return false;
             return len > 0;
         }
+        // Check for .items field (ArrayListUnmanaged, etc.) - empty list is falsy
+        if (@hasField(T, "items")) {
+            return value.items.len > 0;
+        }
+    }
+
+    // Handle arrays (fixed-size arrays) - empty is falsy, non-empty is truthy
+    if (info == .array) {
+        return info.array.len > 0;
     }
 
     // Default: truthy for everything else (non-empty types)

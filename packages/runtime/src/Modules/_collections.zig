@@ -380,6 +380,69 @@ pub fn OrderedDict(comptime K: type, comptime V: type) type {
             self.map.clearRetainingCapacity();
             self.order.clearRetainingCapacity();
         }
+
+        /// __reversed__ - Return reversed iterator over keys
+        pub fn reversed(self: Self) ReversedIterator {
+            return ReversedIterator.init(self);
+        }
+
+        const ReversedIterator = struct {
+            order_items: []const K,
+            index: usize,
+
+            fn init(od: OrderedDict(K, V)) ReversedIterator {
+                return .{
+                    .order_items = od.order.items,
+                    .index = od.order.items.len,
+                };
+            }
+
+            pub fn next(self: *ReversedIterator) ?K {
+                if (self.index == 0) return null;
+                self.index -= 1;
+                return self.order_items[self.index];
+            }
+        };
+
+        /// __eq__ - Compare two OrderedDicts for equality
+        /// Two OrderedDicts are equal if they have the same keys in the same order with same values
+        pub fn eql(self: Self, other: Self) bool {
+            // Check length first
+            if (self.order.items.len != other.order.items.len) return false;
+
+            // Check keys are in same order and values match
+            for (self.order.items, 0..) |key, i| {
+                // Keys must be in same order
+                if (other.order.items[i] != key) return false;
+
+                // Values must be equal
+                const self_val = self.map.get(key);
+                const other_val = other.map.get(key);
+                if (self_val == null or other_val == null) return false;
+                if (self_val.? != other_val.?) return false;
+            }
+            return true;
+        }
+
+        /// Copy the OrderedDict
+        pub fn copy(self: *Self) !Self {
+            var new = Self.init(self.allocator);
+            for (self.order.items) |key| {
+                if (self.map.get(key)) |value| {
+                    try new.put(key, value);
+                }
+            }
+            return new;
+        }
+
+        /// setdefault - get or insert default
+        pub fn setdefault(self: *Self, key: K, default: V) !V {
+            if (self.map.get(key)) |v| {
+                return v;
+            }
+            try self.put(key, default);
+            return default;
+        }
     };
 }
 
@@ -631,6 +694,26 @@ pub fn Counter(comptime T: type) type {
                 if (neg > 0) {
                     try result.counts.put(entry.key_ptr.*, neg);
                 }
+            }
+            return result;
+        }
+
+        /// fromkeys(iterable[, v]) - Create Counter from keys with specified count
+        /// In Python: Counter.fromkeys(['a', 'b'], 0) creates Counter({'a': 0, 'b': 0})
+        pub fn fromkeys(allocator: Allocator, keys_iter: []const T, value: i64) !Self {
+            var result = Self.init(allocator);
+            for (keys_iter) |key| {
+                try result.counts.put(key, value);
+            }
+            return result;
+        }
+
+        /// copy - Return a shallow copy of the counter
+        pub fn copyCounter(self: Self, allocator: Allocator) !Self {
+            var result = Self.init(allocator);
+            var it = self.counts.iterator();
+            while (it.next()) |entry| {
+                try result.counts.put(entry.key_ptr.*, entry.value_ptr.*);
             }
             return result;
         }
@@ -1140,6 +1223,186 @@ pub const UserString = struct {
         return self.data;
     }
 };
+
+// ============================================================================
+// namedtuple - Factory function for creating tuple subclasses with named fields
+// ============================================================================
+
+/// NamedTuple - Runtime representation of a namedtuple
+/// This provides the base functionality for namedtuple instances at runtime.
+/// The actual namedtuple factory is handled by codegen which creates specialized types.
+pub fn NamedTuple(comptime field_count: usize) type {
+    return struct {
+        _fields: [field_count][]const u8,
+        _values: [field_count]i64, // Using i64 for generic value storage
+        _typename: []const u8,
+
+        const Self = @This();
+
+        pub fn init(typename: []const u8, field_names: [field_count][]const u8, values: [field_count]i64) Self {
+            return .{
+                ._fields = field_names,
+                ._values = values,
+                ._typename = typename,
+            };
+        }
+
+        /// Get field value by index
+        pub fn get(self: Self, index: usize) ?i64 {
+            if (index >= field_count) return null;
+            return self._values[index];
+        }
+
+        /// Get field value by name
+        pub fn getByName(self: Self, name: []const u8) ?i64 {
+            for (self._fields, 0..) |field, i| {
+                if (std.mem.eql(u8, field, name)) {
+                    return self._values[i];
+                }
+            }
+            return null;
+        }
+
+        /// Get field index by name
+        pub fn fieldIndex(self: Self, name: []const u8) ?usize {
+            for (self._fields, 0..) |field, i| {
+                if (std.mem.eql(u8, field, name)) {
+                    return i;
+                }
+            }
+            return null;
+        }
+
+        /// _asdict() - Return a new dict mapping field names to values
+        pub fn _asdict(self: Self, allocator: Allocator) !std.StringHashMap(i64) {
+            var dict = std.StringHashMap(i64).init(allocator);
+            for (self._fields, 0..) |field, i| {
+                try dict.put(field, self._values[i]);
+            }
+            return dict;
+        }
+
+        /// _replace(**kwargs) - Return new instance with specified fields replaced
+        pub fn _replace(self: Self, replacements: anytype) Self {
+            var new_values = self._values;
+            inline for (std.meta.fields(@TypeOf(replacements))) |field| {
+                const idx = self.fieldIndex(field.name);
+                if (idx) |i| {
+                    new_values[i] = @field(replacements, field.name);
+                }
+            }
+            return .{
+                ._fields = self._fields,
+                ._values = new_values,
+                ._typename = self._typename,
+            };
+        }
+
+        /// _make(iterable) - Make a new instance from existing sequence/iterable
+        pub fn _make(typename: []const u8, field_names: [field_count][]const u8, values: []const i64) !Self {
+            if (values.len != field_count) return error.ValueError;
+            var arr: [field_count]i64 = undefined;
+            for (values, 0..) |v, i| {
+                arr[i] = v;
+            }
+            return Self.init(typename, field_names, arr);
+        }
+
+        /// __len__ - Return number of fields
+        pub fn len(_: Self) usize {
+            return field_count;
+        }
+
+        /// __iter__ - Iterate over values (for tuple iteration)
+        pub fn iter(self: *const Self) NamedTupleIterator {
+            return NamedTupleIterator.init(self);
+        }
+
+        const NamedTupleIterator = struct {
+            nt: *const Self,
+            index: usize,
+
+            fn init(nt: *const Self) NamedTupleIterator {
+                return .{ .nt = nt, .index = 0 };
+            }
+
+            pub fn next(it: *NamedTupleIterator) ?i64 {
+                if (it.index >= field_count) return null;
+                const value = it.nt._values[it.index];
+                it.index += 1;
+                return value;
+            }
+        };
+
+        /// __eq__ - Compare two namedtuples
+        pub fn eql(self: Self, other: Self) bool {
+            if (!std.mem.eql(u8, self._typename, other._typename)) return false;
+            for (self._values, 0..) |v, i| {
+                if (v != other._values[i]) return false;
+            }
+            return true;
+        }
+
+        /// __hash__ - Hash the namedtuple (based on values)
+        pub fn hash(self: Self) u64 {
+            var h: u64 = 0;
+            for (self._values) |v| {
+                h = h *% 31 +% @as(u64, @bitCast(v));
+            }
+            return h;
+        }
+
+        /// _fields - Return tuple of field names
+        pub fn fields(self: Self) [field_count][]const u8 {
+            return self._fields;
+        }
+
+        /// _field_defaults - Return dict of default values (empty for base)
+        pub fn _field_defaults(_: Self) std.StringHashMap(i64) {
+            return std.StringHashMap(i64).init(std.heap.page_allocator);
+        }
+    };
+}
+
+/// Helper to create a namedtuple factory at comptime
+/// Usage: const Point = namedtupleFactory("Point", .{"x", "y"});
+pub fn namedtupleFactory(comptime typename: []const u8, comptime field_names: anytype) type {
+    const field_count = field_names.len;
+
+    return struct {
+        data: NamedTuple(field_count),
+
+        const Self = @This();
+        pub const _typename = typename;
+        pub const _fields = field_names;
+
+        pub fn init(values: [field_count]i64) Self {
+            return .{
+                .data = NamedTuple(field_count).init(typename, field_names, values),
+            };
+        }
+
+        pub fn get(self: Self, index: usize) ?i64 {
+            return self.data.get(index);
+        }
+
+        pub fn getByName(self: Self, name: []const u8) ?i64 {
+            return self.data.getByName(name);
+        }
+
+        pub fn _asdict(self: Self, allocator: Allocator) !std.StringHashMap(i64) {
+            return self.data._asdict(allocator);
+        }
+
+        pub fn len(_: Self) usize {
+            return field_count;
+        }
+
+        pub fn eql(self: Self, other: Self) bool {
+            return self.data.eql(other.data);
+        }
+    };
+}
 
 // ============================================================================
 // Tests
