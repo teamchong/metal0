@@ -17,6 +17,22 @@ pub const PythonError = error{
     Exception, // Generic exception catch-all
 };
 
+/// Python floored modulo for floats: a % b = a - floor(a/b) * b
+/// Result has the same sign as the divisor (b)
+pub inline fn pyFloatMod(a: anytype, b: anytype) f64 {
+    const af: f64 = numToFloat(a);
+    const bf: f64 = numToFloat(b);
+    // Python's floored division mod
+    const quotient = @floor(af / bf);
+    const result = af - quotient * bf;
+    // Handle sign of zero result to match Python behavior
+    if (result == 0.0) {
+        // If b is negative, result should be -0.0; if positive, 0.0
+        return if (bf < 0.0) -@as(f64, 0.0) else @as(f64, 0.0);
+    }
+    return result;
+}
+
 /// Convert any numeric type to f64 (simple version for mixed arithmetic)
 pub inline fn numToFloat(value: anytype) f64 {
     const T = @TypeOf(value);
