@@ -224,7 +224,7 @@ pub fn collectUsesInNode(self: *NativeCodegen, node: ast.Node) !void {
         .fstring => |fstr| {
             for (fstr.parts) |part| {
                 switch (part) {
-                    .expr => |expr| try collectUsesInNode(self, expr.*),
+                    .expr => |e| try collectUsesInNode(self, e.node.*),
                     .format_expr => |fmt| try collectUsesInNode(self, fmt.expr.*),
                     .conv_expr => |conv| try collectUsesInNode(self, conv.expr.*),
                     .literal => {},

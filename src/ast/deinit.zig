@@ -280,9 +280,9 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
         .fstring => |f| {
             for (f.parts) |*part| {
                 switch (part.*) {
-                    .expr => |expr| {
-                        deinit(expr, allocator);
-                        allocator.destroy(expr);
+                    .expr => |e| {
+                        deinit(e.node, allocator);
+                        allocator.destroy(e.node);
                     },
                     .format_expr => |fe| {
                         deinit(fe.expr, allocator);

@@ -88,6 +88,7 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
             var in_triple: bool = false; // Track if we're in a triple-quoted string
             var has_format_spec = false;
             var has_conversion = false;
+            var has_debug_equals = false; // For f"{x=}" self-documenting expressions
             var conversion_char: u8 = 0;
             var expr_end: usize = 0;
             var format_spec_start: usize = 0;
@@ -177,9 +178,20 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
                     if (paren_depth > 0) paren_depth -= 1;
                     _ = self.advance();
                     continue;
+                } else if (c == '=' and brace_depth == 1 and bracket_depth == 0 and paren_depth == 0 and !has_debug_equals and !has_conversion and !has_format_spec) {
+                    // Self-documenting expression f"{x=}" - check next char
+                    const next_char = self.peekAhead(1);
+                    if (next_char == '!' or next_char == ':' or next_char == '}' or next_char == null) {
+                        has_debug_equals = true;
+                        expr_end = self.current;
+                        _ = self.advance(); // consume '='
+                        continue;
+                    }
+                    // Otherwise it's part of expression (e.g., f"{x==y}")
+                    _ = self.advance();
                 } else if (c == '!' and brace_depth == 1 and bracket_depth == 0 and paren_depth == 0 and !has_conversion and !has_format_spec) {
                     // Conversion specifier !r, !s, or !a
-                    expr_end = self.current;
+                    if (!has_debug_equals) expr_end = self.current;
                     _ = self.advance(); // consume '!'
                     const conv = self.peek();
                     if (conv == 'r' or conv == 's' or conv == 'a') {
@@ -191,7 +203,7 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
                 } else if (c == ':' and brace_depth == 1 and bracket_depth == 0 and paren_depth == 0 and !has_format_spec) {
                     // Format specifier
                     has_format_spec = true;
-                    if (!has_conversion) {
+                    if (!has_conversion and !has_debug_equals) {
                         expr_end = self.current;
                     }
                     _ = self.advance(); // consume ':'
@@ -256,11 +268,20 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
                     const expr_text = self.source[expr_start..expr_end];
                     const format_spec = self.source[format_spec_start..self.current];
 
+                    // Build debug_text "expr=" if has_debug_equals
+                    const debug_text: ?[]const u8 = if (has_debug_equals) blk: {
+                        var dbg = std.ArrayList(u8){};
+                        dbg.appendSlice(self.allocator, expr_text) catch break :blk null;
+                        dbg.append(self.allocator, '=') catch break :blk null;
+                        break :blk dbg.toOwnedSlice(self.allocator) catch null;
+                    } else null;
+
                     try parts.append(self.allocator, .{
                         .format_expr = .{
                             .expr = expr_text,
                             .format_spec = format_spec,
                             .conversion = if (has_conversion) conversion_char else null,
+                            .debug_text = debug_text,
                         },
                     });
 
@@ -271,17 +292,30 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
             }
 
             if (!has_format_spec) {
-                if (!has_conversion) {
+                if (!has_conversion and !has_debug_equals) {
                     expr_end = self.current;
                 }
                 const expr_text = self.source[expr_start..expr_end];
+
+                // Build debug_text "expr=" if has_debug_equals
+                const debug_text: ?[]const u8 = if (has_debug_equals) blk: {
+                    var dbg = std.ArrayList(u8){};
+                    dbg.appendSlice(self.allocator, expr_text) catch break :blk null;
+                    dbg.append(self.allocator, '=') catch break :blk null;
+                    break :blk dbg.toOwnedSlice(self.allocator) catch null;
+                } else null;
+
                 if (has_conversion) {
                     try parts.append(self.allocator, .{ .conv_expr = .{
                         .expr = expr_text,
                         .conversion = conversion_char,
+                        .debug_text = debug_text,
                     } });
                 } else {
-                    try parts.append(self.allocator, .{ .expr = expr_text });
+                    try parts.append(self.allocator, .{ .expr = .{
+                        .text = expr_text,
+                        .debug_text = debug_text,
+                    } });
                 }
             }
 
@@ -290,6 +324,15 @@ pub fn tokenizeFString(self: *Lexer, start: usize, start_column: usize, is_raw: 
             }
 
             literal_start = self.current;
+        } else if (self.peek() == '}' and self.peekAhead(1) == '}') {
+            // Handle escaped closing brace }} -> single }
+            if (self.current > literal_start) {
+                const literal_text = self.source[literal_start..self.current];
+                try parts.append(self.allocator, .{ .literal = literal_text });
+            }
+            _ = self.advance(); // consume first '}'
+            _ = self.advance(); // consume second '}'
+            literal_start = self.current - 1; // Include single '}'
         } else if (self.peek() == '\\' and !is_raw) {
             // Backslash handling in non-raw f-strings:
             // - \{ and \} - backslash is literal, brace should still be processed

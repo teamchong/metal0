@@ -214,7 +214,7 @@ pub fn isNameUsedInExpr(expr: ast.Node, name: []const u8) bool {
             for (fstr.parts) |part| {
                 switch (part) {
                     .expr => |e| {
-                        if (isNameUsedInExpr(e.*, name)) return true;
+                        if (isNameUsedInExpr(e.node.*, name)) return true;
                     },
                     .format_expr => |fe| {
                         if (isNameUsedInExpr(fe.expr.*, name)) return true;

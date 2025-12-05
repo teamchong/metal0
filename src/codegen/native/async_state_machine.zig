@@ -722,7 +722,7 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
                     .expr => |e| {
                         if (!first) try self.emit(", ");
                         first = false;
-                        try genExprInFrame(self, e.*, frame_fields);
+                        try genExprInFrame(self, e.node.*, frame_fields);
                     },
                     .format_expr => |fe| {
                         if (!first) try self.emit(", ");

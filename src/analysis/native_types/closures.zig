@@ -93,8 +93,11 @@ fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), alloc
         },
         .fstring => |f| {
             for (f.parts) |part| {
-                if (part == .expr) {
-                    try findUsedVars(part.expr.*, vars, allocator);
+                switch (part) {
+                    .expr => |e| try findUsedVars(e.node.*, vars, allocator),
+                    .format_expr => |fe| try findUsedVars(fe.expr.*, vars, allocator),
+                    .conv_expr => |ce| try findUsedVars(ce.expr.*, vars, allocator),
+                    .literal => {},
                 }
             }
         },

@@ -378,8 +378,8 @@ fn parseFString(self: *Parser) ParseError!ast.Node {
         for (parts_list.items) |*part| {
             switch (part.*) {
                 .expr => |e| {
-                    e.deinit(self.allocator);
-                    self.allocator.destroy(e);
+                    e.node.deinit(self.allocator);
+                    self.allocator.destroy(e.node);
                 },
                 .format_expr => |fe| {
                     fe.expr.deinit(self.allocator);
@@ -459,9 +459,12 @@ fn parseFString(self: *Parser) ParseError!ast.Node {
 fn convertFStringPart(self: *Parser, lexer_part: lexer.FStringPart) ParseError!ast.FStringPart {
     switch (lexer_part) {
         .literal => |lit| return .{ .literal = lit },
-        .expr => |expr_text| {
-            const expr_ptr = try parseEmbeddedExpr(self, expr_text);
-            return .{ .expr = expr_ptr };
+        .expr => |e| {
+            const expr_ptr = try parseEmbeddedExpr(self, e.text);
+            return .{ .expr = .{
+                .node = expr_ptr,
+                .debug_text = e.debug_text,
+            } };
         },
         .format_expr => |fe| {
             const expr_ptr = try parseEmbeddedExpr(self, fe.expr);
@@ -472,6 +475,7 @@ fn convertFStringPart(self: *Parser, lexer_part: lexer.FStringPart) ParseError!a
                 .format_spec = fe.format_spec,
                 .format_spec_parts = format_spec_parts,
                 .conversion = fe.conversion,
+                .debug_text = fe.debug_text,
             } };
         },
         .conv_expr => |ce| {
@@ -479,6 +483,7 @@ fn convertFStringPart(self: *Parser, lexer_part: lexer.FStringPart) ParseError!a
             return .{ .conv_expr = .{
                 .expr = expr_ptr,
                 .conversion = ce.conversion,
+                .debug_text = ce.debug_text,
             } };
         },
     }
