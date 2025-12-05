@@ -251,6 +251,15 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         }
     }
 
+    // Check if this is a __code__ attribute access on a function
+    // Python functions have a __code__ attribute that returns the code object
+    // Since we compile to native code, we return a stub CodeObject
+    if (std.mem.eql(u8, attr.attr, "__code__")) {
+        // Return a stub code object
+        try self.emit("runtime.builtins.CodeObject{}");
+        return;
+    }
+
     // Check if this is a file property access
     const value_type = try self.type_inferrer.inferExpr(attr.value.*);
     if (value_type == .file) {

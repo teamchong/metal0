@@ -228,11 +228,20 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         }
         // Handle 'in' operator for lists
         else if (op == .In or op == .NotIn) {
-            if (right_type == .list) {
+            // Check for ArrayList: type == .list OR tracked as ArrayList variable via isArrayListVar
+            const right_is_arraylist_var = compare.comparators[i] == .name and
+                self.isArrayListVar(compare.comparators[i].name.id);
+            if (right_type == .list or right_is_arraylist_var) {
                 // List membership check using runtime.pyContains for Python semantics
                 // Handles NaN identity: NaN in [NaN] == True
-                const elem_type = right_type.list.*;
-                const type_str = elem_type.toSimpleZigType();
+                // Get element type - handle both .list and .array (for ArrayList vars with wrong inference)
+                const type_str: []const u8 = if (right_type == .list)
+                    right_type.list.*.toSimpleZigType()
+                else if (right_type == .array)
+                    right_type.array.element_type.toSimpleZigType()
+                else
+                    // For ArrayList vars with unknown type, infer from item being searched
+                    current_left_type.toSimpleZigType();
 
                 // For list literals, we need to wrap in a block to access .items
                 const is_literal = compare.comparators[i] == .list;
@@ -728,16 +737,24 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             try self.output.writer(self.allocator).print("break :dict_cmp_{d} __all_match; }}", .{dict_label});
         }
         // Handle list comparisons (ArrayList structs don't support ==)
-        else if ((current_left_type == .list or current_left == .list) and
-            (right_type == .list or compare.comparators[i] == .list))
+        // Also handles cross-type comparison: ArrayList (.list) vs fixed array (.array) literal
+        // Check for ArrayList by: type == .list, AST node == .list, OR isArrayListVar (runtime tracking)
+        else if ((current_left_type == .list or current_left == .list or
+            (current_left == .name and self.isArrayListVar(current_left.name.id))) and
+            (right_type == .list or compare.comparators[i] == .list or right_type == .array))
         {
             // Use runtime.pySliceEql for Python semantics (NaN identity)
             // Constant list literals become arrays in Zig → use & to get slice
             // List with variables become ArrayList → use .items
             const left_is_literal = current_left == .list;
             const right_is_literal = compare.comparators[i] == .list;
-            const left_is_array = left_is_literal and collections.isComptimeConstant(current_left);
-            const right_is_array = right_is_literal and collections.isComptimeConstant(compare.comparators[i]);
+            // Check if side is a fixed array (comptime constant list literal OR .array type from inference)
+            // BUT exclude ArrayList variables (tracked by isArrayListVar) - they should use .items
+            const left_is_arraylist_var = current_left == .name and self.isArrayListVar(current_left.name.id);
+            const left_is_array = ((left_is_literal and collections.isComptimeConstant(current_left)) or
+                (current_left_type == .array)) and !left_is_arraylist_var;
+            const right_is_array = (right_is_literal and collections.isComptimeConstant(compare.comparators[i])) or
+                (right_type == .array);
 
             // Get element type for pySliceEql
             // First try type info, then fall back to inferring from literals
@@ -745,6 +762,10 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 current_left_type.list.*.toSimpleZigType()
             else if (right_type == .list)
                 right_type.list.*.toSimpleZigType()
+            else if (current_left_type == .array)
+                current_left_type.array.element_type.toSimpleZigType()
+            else if (right_type == .array)
+                right_type.array.element_type.toSimpleZigType()
             else if (left_is_literal and current_left.list.elts.len > 0) blk: {
                 const first_elem = current_left.list.elts[0];
                 const inferred = self.type_inferrer.inferExpr(first_elem) catch break :blk "f64";
