@@ -14,6 +14,11 @@ pub const Datetime = struct {
     minute: u8,
     second: u8,
     microsecond: u32,
+    /// fold attribute - disambiguates wall times during DST transitions
+    /// 0 = first occurrence (before DST transition)
+    /// 1 = second occurrence (after DST transition)
+    /// See: https://docs.python.org/3/library/datetime.html#datetime.datetime.fold
+    fold: u1 = 0,
 
     /// Create datetime.datetime.now() using local time
     pub fn now() Datetime {
@@ -267,6 +272,8 @@ pub const Time = struct {
     minute: u8,
     second: u8,
     microsecond: u32,
+    /// fold attribute - disambiguates wall times during DST transitions
+    fold: u1 = 0,
 
     /// Convert to string: HH:MM:SS.ffffff
     pub fn toString(self: Time, allocator: std.mem.Allocator) ![]const u8 {

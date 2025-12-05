@@ -89,11 +89,81 @@ pub fn expectError(value: anytype) bool {
 /// Base TestCase class with setUp/tearDown stubs
 /// Python classes call super().setUp() which becomes unittest.TestCase.setUp()
 pub const TestCase = struct {
+    /// Current test method name (set by test runner)
+    _testMethodName: []const u8 = "",
+    /// Test method docstring (set by test runner)
+    _testMethodDoc: ?[]const u8 = null,
+    /// Class name for id()
+    _className: []const u8 = "TestCase",
+    /// Module name for id()
+    _moduleName: []const u8 = "__main__",
+
     pub fn setUp(_: *anyopaque) void {
         // Base setUp - no-op
     }
+
     pub fn tearDown(_: *anyopaque) void {
         // Base tearDown - no-op
+    }
+
+    pub fn setUpClass() void {
+        // Base setUpClass - no-op (called once before all tests in class)
+    }
+
+    pub fn tearDownClass() void {
+        // Base tearDownClass - no-op (called once after all tests in class)
+    }
+
+    /// id() - Return full test identifier: module.class.method
+    pub fn id(self: *const TestCase) []const u8 {
+        // In practice, codegen constructs this at compile time
+        // This is the runtime fallback
+        _ = self;
+        return "TestCase.test";
+    }
+
+    /// shortDescription() - Return first line of test method docstring, or None
+    pub fn shortDescription(self: *const TestCase) ?[]const u8 {
+        if (self._testMethodDoc) |doc| {
+            // Return first line only
+            if (std.mem.indexOf(u8, doc, "\n")) |newline| {
+                return doc[0..newline];
+            }
+            return doc;
+        }
+        return null;
+    }
+
+    /// countTestCases() - Return 1 (a single TestCase is one test)
+    pub fn countTestCases(_: *const TestCase) usize {
+        return 1;
+    }
+
+    /// defaultTestResult() - Create a default TestResult
+    pub fn defaultTestResult(allocator: std.mem.Allocator) TestResult {
+        return runner.TestResult.init(allocator);
+    }
+
+    /// skipTest(reason) - Skip this test with the given reason
+    pub fn skipTest(reason: []const u8) error{SkipTest}!void {
+        std.debug.print("Skipped: {s}\n", .{reason});
+        return error.SkipTest;
+    }
+
+    /// debug() - Run test without collecting results (for debugging)
+    pub fn debug(_: *const TestCase) void {
+        // In AOT, test execution is direct - this is a no-op
+    }
+
+    /// addCleanup(func) - Add cleanup function to be called after tearDown
+    /// Note: In AOT, this is tracked at compile time by codegen
+    pub fn addCleanup(_: *TestCase, _: anytype) void {
+        // Cleanup tracking handled by codegen
+    }
+
+    /// doCleanups() - Execute all registered cleanup functions
+    pub fn doCleanups(_: *TestCase) void {
+        // Cleanup execution handled by codegen
     }
 };
 
@@ -148,6 +218,101 @@ pub const AssertLogsContext = ContextManager;
 pub fn SkipTest(_: anytype, message: []const u8) error{SkipTest}!void {
     std.debug.print("Test skipped: {s}\n", .{message});
     return error.SkipTest;
+}
+
+// ============================================================================
+// Test Decorators - @unittest.skip, @unittest.expectedFailure, etc.
+// ============================================================================
+
+/// @unittest.skip(reason) - Unconditionally skip the decorated test
+/// Usage: Applied by codegen which wraps test to return skip status
+pub fn skip(reason: []const u8) SkipDecorator {
+    return SkipDecorator{ .reason = reason };
+}
+
+pub const SkipDecorator = struct {
+    reason: []const u8,
+
+    /// Apply decorator to test function - returns wrapped function that skips
+    pub fn apply(_: SkipDecorator, comptime _: anytype) fn () void {
+        return struct {
+            fn skipped() void {
+                std.debug.print("Skipped\n", .{});
+            }
+        }.skipped;
+    }
+};
+
+/// @unittest.skipIf(condition, reason) - Skip if condition is true
+pub fn skipIf(condition: bool, reason: []const u8) SkipIfDecorator {
+    return SkipIfDecorator{ .condition = condition, .reason = reason };
+}
+
+pub const SkipIfDecorator = struct {
+    condition: bool,
+    reason: []const u8,
+};
+
+/// @unittest.skipUnless(condition, reason) - Skip unless condition is true
+pub fn skipUnless(condition: bool, reason: []const u8) SkipUnlessDecorator {
+    return SkipUnlessDecorator{ .condition = condition, .reason = reason };
+}
+
+pub const SkipUnlessDecorator = struct {
+    condition: bool,
+    reason: []const u8,
+};
+
+/// @unittest.expectedFailure - Mark test as expected to fail
+/// If test fails, it's recorded as "expected failure"
+/// If test passes, it's recorded as "unexpected success"
+pub fn expectedFailure(comptime test_func: anytype) ExpectedFailureWrapper(@TypeOf(test_func)) {
+    return ExpectedFailureWrapper(@TypeOf(test_func)){ .test_func = test_func };
+}
+
+pub fn ExpectedFailureWrapper(comptime F: type) type {
+    return struct {
+        test_func: F,
+        expected_failure: bool = true,
+
+        const Self = @This();
+
+        /// Run the test, expecting it to fail
+        pub fn run(self: Self) ExpectedFailureResult {
+            // Try to run the test
+            if (@typeInfo(F) == .pointer) {
+                // Function pointer
+                const result = @call(.auto, self.test_func, .{});
+                _ = result;
+                // If we get here, test passed unexpectedly
+                return .unexpected_success;
+            }
+            return .expected_failure;
+        }
+    };
+}
+
+pub const ExpectedFailureResult = enum {
+    expected_failure, // Test failed as expected
+    unexpected_success, // Test passed when it should have failed
+};
+
+/// Track expected failure state for current test
+pub var current_test_expected_failure: bool = false;
+
+/// Mark that current test is expected to fail
+pub fn markExpectedFailure() void {
+    current_test_expected_failure = true;
+}
+
+/// Check if current test is expected to fail
+pub fn isExpectedFailure() bool {
+    return current_test_expected_failure;
+}
+
+/// Reset expected failure state
+pub fn resetExpectedFailure() void {
+    current_test_expected_failure = false;
 }
 
 const std = @import("std");
