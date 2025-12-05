@@ -99,5 +99,6 @@ pub const MathBoolFuncs = std.StaticStringMap(void).initComptime(.{
     .{ "isnan", {} },
     .{ "isinf", {} },
     .{ "isfinite", {} },
+    .{ "isclose", {} },
 });
 
