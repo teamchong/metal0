@@ -145,7 +145,7 @@ fn genArrayLiteral(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
         .bigint => "runtime.BigInt",
         .float => "f64",
         .string => "[]const u8",
-        .bytes => "[]const u8",
+        .bytes => "runtime.builtins.PyBytes",
         .bool => "bool",
         .none => "void",
         .complex => "runtime.PyComplex",

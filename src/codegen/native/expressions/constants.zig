@@ -45,10 +45,11 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
             try self.emit("\"");
         },
         .bytes => |s| {
-            // Bytes content already has quotes stripped by parser
-            try self.emit("\"");
+            // Bytes content: use runtime helper to preserve Python bytes type
+            // This enables repr() to correctly output b'...' format
+            try self.emit("runtime.builtins.bytesLiteral(\"");
             try emitZigStringContent(self, s, StringContext.bytes);
-            try self.emit("\"");
+            try self.emit("\")");
         },
     }
 }

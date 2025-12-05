@@ -781,7 +781,8 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         } else if (listcomp.elt.* == .constant) {
             // Constant element
             switch (listcomp.elt.constant.value) {
-                .string, .bytes => break :blk "[]const u8",
+                .string => break :blk "[]const u8",
+                .bytes => break :blk "runtime.builtins.PyBytes",
                 .bool => break :blk "bool",
                 .float => break :blk "f64",
                 else => {},

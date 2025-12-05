@@ -63,6 +63,7 @@ pub const NativeType = union(enum) {
     float: void, // f64
     bool: void, // bool
     string: StringKind, // []const u8 - tracks allocation/optimization hint
+    bytes: void, // runtime.builtins.PyBytes - Python bytes type (preserves type info for repr)
     complex: void, // runtime.PyComplex - complex number
 
     // Composites
@@ -201,6 +202,7 @@ pub const NativeType = union(enum) {
             .float => "f64",
             .bool => "bool",
             .string => "[]const u8",
+            .bytes => "runtime.builtins.PyBytes",
             .usize => "usize",
             .path => "*pathlib.Path",
             // Use *runtime.PyObject for class instances to avoid forward reference issues
@@ -227,6 +229,7 @@ pub const NativeType = union(enum) {
             .float => try buf.appendSlice(allocator, "f64"),
             .bool => try buf.appendSlice(allocator, "bool"),
             .string => try buf.appendSlice(allocator, "[]const u8"),
+            .bytes => try buf.appendSlice(allocator, "runtime.builtins.PyBytes"),
             .complex => try buf.appendSlice(allocator, "runtime.PyComplex"),
             .array => |arr| {
                 const len_str = try std.fmt.allocPrint(allocator, "[{d}]", .{arr.length});

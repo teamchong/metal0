@@ -554,7 +554,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     if (is_wasm_target) {
         std.debug.print("Compiling to WebAssembly ({s})...\n", .{@tagName(opts.target)});
         const wasm_path = try output.getWasmOutputPath(aa, opts.input_file, opts.output_file);
-        try compiler.compileWasmWithTarget(aa, zig_code, wasm_path, opts.target);
+        try compiler.compileWasmWithTarget(aa, zig_code, wasm_path, opts.target, &.{});
         std.debug.print("✓ Compiled successfully to: {s}\n", .{wasm_path});
 
         // Generate TypeScript definitions (module-specific)

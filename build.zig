@@ -47,7 +47,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const gzip_module = b.addModule("gzip", .{
-        .root_source_file = b.path("packages/runtime/src/gzip/gzip.zig"),
+        .root_source_file = b.path("packages/runtime/src/Modules/gzip/gzip.zig"),
     });
     gzip_module.addIncludePath(b.path("vendor/libdeflate"));
 
@@ -241,27 +241,27 @@ pub fn build(b: *std.Build) void {
 
     // Green thread runtime modules
     const green_thread_module = b.createModule(.{
-        .root_source_file = b.path("packages/runtime/src/green_thread.zig"),
+        .root_source_file = b.path("packages/runtime/src/runtime/green_thread.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     const work_queue_module = b.createModule(.{
-        .root_source_file = b.path("packages/runtime/src/work_queue.zig"),
+        .root_source_file = b.path("packages/runtime/src/runtime/work_queue.zig"),
         .target = target,
         .optimize = optimize,
     });
     work_queue_module.addImport("green_thread", green_thread_module);
 
     const netpoller_module = b.createModule(.{
-        .root_source_file = b.path("packages/runtime/src/netpoller.zig"),
+        .root_source_file = b.path("packages/runtime/src/runtime/netpoller.zig"),
         .target = target,
         .optimize = optimize,
     });
     netpoller_module.addImport("green_thread", green_thread_module);
 
     const scheduler_module = b.createModule(.{
-        .root_source_file = b.path("packages/runtime/src/scheduler.zig"),
+        .root_source_file = b.path("packages/runtime/src/runtime/scheduler.zig"),
         .target = target,
         .optimize = optimize,
     });

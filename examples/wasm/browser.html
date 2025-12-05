@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>metal0 WASM Browser Example</title>
+    <style>
+        body { font-family: system-ui; max-width: 800px; margin: 40px auto; padding: 0 20px; }
+        h1 { color: #333; }
+        .output { background: #f5f5f5; padding: 15px; border-radius: 8px; font-family: monospace; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>metal0 WASM Browser Example</h1>
+    <p>This example demonstrates loading Python compiled to WASM in the browser.</p>
+
+    <h2>Build Instructions</h2>
+    <pre>
+# Compile Python to WASM
+metal0 build --target wasm-browser math.py
+
+# Start a local server (WASM requires HTTP, not file://)
+python3 -m http.server 8080
+
+# Open http://localhost:8080/browser.html
+    </pre>
+
+    <h2>Test Results</h2>
+    <div id="output" class="output">Loading...</div>
+
+    <script type="module">
+        // Immer-style runtime (773 bytes minified)
+        // This generic runtime works with ANY metal0 WASM module
+        const E = new TextEncoder();
+        let w, m, p, M = 1 << 20;
+        const g = () => new Uint8Array(m.buffer, p, M);
+        const x = a => {
+            if (typeof a !== 'string') return [typeof a === 'number' ? BigInt(a) : a];
+            const b = E.encode(a);
+            const u = g();
+            u.set(b);
+            return [p, b.length];
+        };
+
+        async function load(s) {
+            const b = typeof s === 'string' ? await fetch(s).then(r => r.arrayBuffer()) : s;
+            w = (await WebAssembly.instantiate(await WebAssembly.compile(b), {})).exports;
+            m = w.memory;
+            if (w.alloc) { p = w.alloc(M); }
+            return new Proxy({}, {
+                get: (_, n) => typeof w[n] === 'function' ? (...a) => w[n](...a.flatMap(x)) : w[n]
+            });
+        }
+
+        // Test the module
+        const out = document.getElementById('output');
+        try {
+            const mod = await load('./math.wasm');
+
+            let html = '';
+
+            // Test add
+            const sum = mod.add(3, 4);
+            html += `<p>add(3, 4) = ${sum}</p>`;
+
+            // Test multiply
+            const product = mod.multiply(5, 6);
+            html += `<p>multiply(5, 6) = ${product}</p>`;
+
+            // Test square
+            const sq = mod.square(8);
+            html += `<p>square(8) = ${sq}</p>`;
+
+            // Test max_of
+            const max = mod.max_of(10, 25);
+            html += `<p>max_of(10, 25) = ${max}</p>`;
+
+            // Test abs_val
+            const abs = mod.abs_val(-42);
+            html += `<p>abs_val(-42) = ${abs}</p>`;
+
+            html += '<p class="success">All tests passed!</p>';
+            out.innerHTML = html;
+        } catch (e) {
+            out.innerHTML = `<p class="error">Error: ${e.message}</p><pre>${e.stack}</pre>`;
+            console.error(e);
+        }
+    </script>
+</body>
+</html>

@@ -265,7 +265,8 @@ pub fn inferFallbackType(init: ?*const ast.Node, source: scope_analyzer.EscapedS
             .constant => |c| switch (c.value) {
                 .int => "i64",
                 .float => "f64",
-                .string, .bytes => "[]const u8",
+                .string => "[]const u8",
+                .bytes => "runtime.builtins.PyBytes",
                 .bool => "bool",
                 .none => "?*anyopaque",
                 else => "runtime.PyValue",

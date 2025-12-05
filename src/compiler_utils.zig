@@ -68,6 +68,15 @@ pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"runtime.zig\")", "@import(\"../runtime.zig\")");
                 // Patch bigint module import for files in runtime/ subdirectory
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"bigint\")", "@import(\"../bigint.zig\")");
+
+                // Patch green_thread/scheduler/work_queue/netpoller module imports
+                // These are in the runtime/ directory, so files in runtime/ need file imports
+                if (std.mem.startsWith(u8, dir_name, "runtime")) {
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"green_thread\")", "@import(\"green_thread.zig\")");
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"work_queue\")", "@import(\"work_queue.zig\")");
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"scheduler\")", "@import(\"scheduler.zig\")");
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"netpoller\")", "@import(\"netpoller.zig\")");
+                }
                 // Patch json_simd module - different depths need different paths
                 // Files in json/ need simd/dispatch.zig
                 // Files in json/parse/ or json/parse_direct/ need ../simd/dispatch.zig
@@ -112,10 +121,10 @@ pub fn copyRuntimeFile(allocator: std.mem.Allocator, filename: []const u8, build
     try dst_file.writeAll(content);
 }
 
-/// Copy JSON SIMD files from shared/json/simd to cache/json/simd
+/// Copy JSON SIMD files from shared/json/simd to cache/Lib/json/simd
 pub fn copyJsonSimd(allocator: std.mem.Allocator, build_dir: []const u8) !void {
     const src_dir_path = "packages/shared/json/simd";
-    const dst_dir_path = try std.fmt.allocPrint(allocator, "{s}/json/simd", .{build_dir});
+    const dst_dir_path = try std.fmt.allocPrint(allocator, "{s}/Lib/json/simd", .{build_dir});
     defer allocator.free(dst_dir_path);
 
     // Create destination directory
@@ -200,17 +209,23 @@ pub fn copyCInteropDir(allocator: std.mem.Allocator, build_dir: []const u8) !voi
 pub fn copySrcUtilsDir(allocator: std.mem.Allocator, build_dir: []const u8) !void {
     const src_dir_path = "src/utils";
 
-    // Copy to main build dir
+    // Copy to main build dir and all subdirectories that might need utils/
+    // (CPython-mirrored structure - files import ../utils/ or utils/ depending on depth)
     const dst_paths = [_][]const u8{
         try std.fmt.allocPrint(allocator, "{s}/utils", .{build_dir}),
-        try std.fmt.allocPrint(allocator, "{s}/http/utils", .{build_dir}),
-        try std.fmt.allocPrint(allocator, "{s}/json/utils", .{build_dir}),
+        try std.fmt.allocPrint(allocator, "{s}/Lib/utils", .{build_dir}),
+        try std.fmt.allocPrint(allocator, "{s}/Lib/http/utils", .{build_dir}),
+        try std.fmt.allocPrint(allocator, "{s}/Lib/json/utils", .{build_dir}),
+        try std.fmt.allocPrint(allocator, "{s}/Objects/utils", .{build_dir}),
+        try std.fmt.allocPrint(allocator, "{s}/Python/utils", .{build_dir}),
+        try std.fmt.allocPrint(allocator, "{s}/Modules/utils", .{build_dir}),
+        try std.fmt.allocPrint(allocator, "{s}/runtime/utils", .{build_dir}),
     };
     defer for (dst_paths) |path| allocator.free(path);
 
     for (dst_paths) |dst_dir_path| {
-        // Create destination directory
-        std.fs.cwd().makeDir(dst_dir_path) catch |err| {
+        // Create destination directory (use makePath to create parent dirs)
+        std.fs.cwd().makePath(dst_dir_path) catch |err| {
             if (err != error.PathAlreadyExists) return err;
         };
 

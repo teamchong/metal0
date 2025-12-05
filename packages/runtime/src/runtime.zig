@@ -7,67 +7,67 @@ const builtin = @import("builtin");
 pub const is_freestanding = builtin.os.tag == .freestanding;
 
 const hashmap_helper = @import("hashmap_helper");
-const pyint = @import("pyint.zig");
-const pyfloat = @import("pyfloat.zig");
-const pybool = @import("pybool.zig");
-const pylist = @import("pylist.zig");
-pub const pystring = @import("pystring.zig");
-const pytuple = @import("pytuple.zig");
-const pyfile = @import("pyfile.zig");
+const pyint = @import("Objects/intobject.zig");
+const pyfloat = @import("Objects/floatobject.zig");
+const pybool = @import("Objects/boolobject.zig");
+const pylist = @import("Objects/listobject.zig");
+pub const pystring = @import("Objects/unicodeobject.zig");
+const pytuple = @import("Objects/tupleobject.zig");
+const pyfile = @import("Objects/fileobject.zig");
 
 /// BigInt for arbitrary precision integers (Python int semantics)
 pub const bigint = @import("bigint");
 pub const BigInt = bigint.BigInt;
 
 /// Export string utilities for native codegen
-pub const string_utils = @import("string_utils.zig");
+pub const string_utils = @import("runtime/string_utils.zig");
 
 /// Export _string module (formatter_parser, etc.)
-pub const _string = @import("_string.zig");
+pub const _string = @import("Modules/_string.zig");
 
 /// Export C accelerator modules
-pub const _functools = @import("_functools.zig");
-pub const _operator = @import("_operator.zig");
-pub const _collections = @import("_collections.zig");
-pub const _bisect = @import("_bisect.zig");
-pub const _heapq = @import("_heapq.zig");
-pub const _struct = @import("_struct.zig");
-pub const _random = @import("_random.zig");
-pub const _pickle = @import("_pickle.zig");
+pub const _functools = @import("Modules/_functools.zig");
+pub const _operator = @import("Modules/_operator.zig");
+pub const _collections = @import("Modules/_collections.zig");
+pub const _bisect = @import("Modules/_bisect.zig");
+pub const _heapq = @import("Modules/_heapq.zig");
+pub const _struct = @import("Modules/_struct.zig");
+pub const _random = @import("Modules/_random.zig");
+pub const _pickle = @import("Modules/_pickle.zig");
 
 /// Export AST executor for eval() support
-pub const ast_executor = @import("ast_executor.zig");
+pub const ast_executor = @import("Python/ast_executor.zig");
 
 /// Export iterators (TupleIterator, ListIterator, ReversedIterator)
-pub const iterators = @import("iterators.zig");
+pub const iterators = @import("Python/iterobject.zig");
 pub const TupleIterator = iterators.TupleIterator;
 pub const ListIterator = iterators.ListIterator;
 pub const ReversedIterator = iterators.ReversedIterator;
 pub const SequenceIterator = iterators.SequenceIterator;
 
 /// Export calendar module
-pub const calendar = @import("calendar.zig");
+pub const calendar = @import("Lib/calendar.zig");
 
 /// Export ctypes FFI module
-pub const ctypes = @import("ctypes.zig");
+pub const ctypes = @import("Modules/_ctypes.zig");
 
 /// Export typing module types
-pub const typing = @import("typing.zig");
+pub const typing = @import("Lib/typing.zig");
 
 /// Export dynamic attribute access stubs
-const dynamic_attrs = @import("dynamic_attrs.zig");
+const dynamic_attrs = @import("runtime/dynamic_attrs.zig");
 
 /// Export PyValue for dynamic attributes
-pub const PyValue = @import("py_value.zig").PyValue;
+pub const PyValue = @import("Objects/object.zig").PyValue;
 
 /// Export comptime type inference helpers
-const comptime_helpers = @import("comptime_helpers.zig");
+const comptime_helpers = @import("runtime/comptime_helpers.zig");
 pub const InferListType = comptime_helpers.InferListType;
 pub const createListComptime = comptime_helpers.createListComptime;
 pub const InferDictValueType = comptime_helpers.InferDictValueType;
 
 /// Export comptime closure helpers
-pub const closure_impl = @import("closure_impl.zig");
+pub const closure_impl = @import("runtime/closure_impl.zig");
 pub const Closure0 = closure_impl.Closure0;
 pub const Closure1 = closure_impl.Closure1;
 pub const Closure2 = closure_impl.Closure2;
@@ -83,15 +83,15 @@ pub const AnyClosure6 = closure_impl.AnyClosure6;
 pub const AnyClosure7 = closure_impl.AnyClosure7;
 
 /// Debug info reader for Python line number translation
-pub const debug_reader = @import("debug_reader.zig");
+pub const debug_reader = @import("runtime/debug_reader.zig");
 
 /// Export TypeFactory for first-class types (classes as values)
-pub const type_factory = @import("type_factory.zig");
+pub const type_factory = @import("runtime/type_factory.zig");
 pub const TypeFactory = type_factory.TypeFactory;
 pub const AnyTypeFactory = type_factory.AnyTypeFactory;
 
 /// Export format utilities from runtime_format.zig
-const runtime_format = @import("runtime_format.zig");
+const runtime_format = @import("Python/formatter.zig");
 pub const formatAny = runtime_format.formatAny;
 pub const formatUnknown = runtime_format.formatUnknown;
 pub const formatFloat = runtime_format.formatFloat;
@@ -2097,37 +2097,37 @@ pub const PyTuple = pytuple.PyTuple;
 pub const PyString = pystring.PyString;
 
 // Import PyDict from separate file
-const dict_module = @import("dict.zig");
+const dict_module = @import("Objects/dictobject.zig");
 pub const PyDict = dict_module.PyDict;
 
 // HTTP, async, JSON, regex, sys, and dynamic execution modules
 // HTTP uses pool.zig/server.zig which have Mutex - not available on freestanding
-pub const http = if (is_freestanding) void else @import("http.zig");
+pub const http = if (is_freestanding) void else @import("Lib/http.zig");
 // Async modules require threading (not available on freestanding)
-pub const async_runtime = if (is_freestanding) void else @import("async.zig");
-pub const asyncio = if (is_freestanding) void else @import("asyncio.zig");
-pub const parallel = if (is_freestanding) void else @import("parallel.zig");
-pub const io = @import("io.zig");
-pub const json = @import("json.zig");
-pub const re = @import("re.zig");
-pub const tokenizer = @import("tokenizer.zig");
-pub const sys = @import("sys.zig");
-pub const time = @import("time.zig");
-pub const math = @import("math.zig");
-pub const unittest = @import("unittest.zig");
-pub const pathlib = @import("pathlib.zig");
-pub const datetime = @import("datetime.zig");
+pub const async_runtime = if (is_freestanding) void else @import("Lib/async.zig");
+pub const asyncio = if (is_freestanding) void else @import("Lib/asyncio.zig");
+pub const parallel = if (is_freestanding) void else @import("runtime/parallel.zig");
+pub const io = @import("Lib/io.zig");
+pub const json = @import("Lib/json.zig");
+pub const re = @import("Lib/re.zig");
+pub const tokenizer = @import("runtime/tokenizer.zig");
+pub const sys = @import("Lib/sys.zig");
+pub const time = @import("Lib/time.zig");
+pub const math = @import("Lib/math.zig");
+pub const unittest = @import("Lib/unittest.zig");
+pub const pathlib = @import("Lib/pathlib.zig");
+pub const datetime = @import("Lib/datetime.zig");
 // eval/exec use eval_cache which has Thread.Mutex - not available on freestanding
-pub const eval_module = if (is_freestanding) void else @import("eval.zig");
-pub const exec_module = if (is_freestanding) void else @import("exec.zig");
+pub const eval_module = if (is_freestanding) void else @import("Python/ceval.zig");
+pub const exec_module = if (is_freestanding) void else @import("Python/pythonrun.zig");
 pub const gzip = @import("gzip");
-pub const zlib = @import("zlib.zig");
-pub const hashlib = @import("hashlib.zig");
-pub const pickle = @import("pickle.zig");
-pub const test_support = @import("test_support.zig");
-pub const base64 = @import("base64.zig");
-pub const pylong = @import("pylong.zig");
-pub const TestBuffer = @import("testbuffer.zig");
+pub const zlib = @import("Modules/zlibmodule.zig");
+pub const hashlib = @import("Modules/_hashlib.zig");
+pub const pickle = @import("Lib/pickle.zig");
+pub const test_support = @import("runtime/test_support.zig");
+pub const base64 = @import("Lib/base64.zig");
+pub const pylong = @import("Objects/longobject.zig");
+pub const TestBuffer = @import("runtime/testbuffer.zig");
 
 // Green thread runtime (real M:N scheduler) - use module imports to avoid conflicts with h2
 // Conditional on non-freestanding targets (browser WASM doesn't support threads)
@@ -2154,11 +2154,11 @@ pub const reMatch = re.match;
 // Dynamic execution exports (require threading via eval_cache)
 pub const eval = if (is_freestanding) void else eval_module.eval;
 pub const exec = if (is_freestanding) void else exec_module.exec;
-pub const compile_builtin = @import("compile.zig").compile_builtin;
-pub const dynamic_import = @import("dynamic_import.zig").dynamic_import;
+pub const compile_builtin = @import("Python/ast.zig").compile_builtin;
+pub const dynamic_import = @import("runtime/dynamic_import.zig").dynamic_import;
 
 // Bytecode execution (for comptime eval)
-pub const bytecode = @import("bytecode.zig");
+pub const bytecode = @import("Python/compile.zig");
 pub const BytecodeProgram = bytecode.BytecodeProgram;
 pub const BytecodeVM = bytecode.VM;
 

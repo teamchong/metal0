@@ -1,12 +1,12 @@
 /// Built-in Python functions implemented in Zig
 const std = @import("std");
 const runtime_core = @import("../runtime.zig");
-const pyint = @import("../pyint.zig");
-const pylist = @import("../pylist.zig");
-const pystring = @import("../pystring.zig");
-const pytuple = @import("../pytuple.zig");
-const dict_module = @import("../dict.zig");
-const pycomplex = @import("../pycomplex.zig");
+const pyint = @import("../Objects/intobject.zig");
+const pylist = @import("../Objects/listobject.zig");
+const pystring = @import("../Objects/unicodeobject.zig");
+const pytuple = @import("../Objects/tupleobject.zig");
+const dict_module = @import("../Objects/dictobject.zig");
+const pycomplex = @import("../Objects/complexobject.zig");
 const BigInt = @import("bigint").BigInt;
 
 const PyObject = runtime_core.PyObject;
@@ -100,6 +100,75 @@ pub const PyPowResult = union(enum) {
         };
     }
 };
+
+// =============================================================================
+// LITERAL HELPERS - Hide type mapping complexity from codegen
+// These functions provide a clean interface for creating Python literals
+// Codegen calls these helpers instead of directly constructing types
+// =============================================================================
+
+/// PyBytes - Wrapper for Python bytes type
+/// Preserves type information for repr() to correctly output b'...' format
+pub const PyBytes = struct {
+    data: []const u8,
+
+    pub fn init(data: []const u8) PyBytes {
+        return PyBytes{ .data = data };
+    }
+
+    /// Get the underlying data
+    pub fn slice(self: PyBytes) []const u8 {
+        return self.data;
+    }
+};
+
+/// Create a bytes literal - preserves Python bytes type for repr()
+/// Usage in codegen: runtime.builtins.bytesLiteral("...")
+pub fn bytesLiteral(data: []const u8) PyBytes {
+    return PyBytes.init(data);
+}
+
+/// Create a string literal - returns raw slice (no wrapper needed for strings)
+/// Usage in codegen: runtime.strLiteral("...")
+/// This is identity function but provides consistent API with bytesLiteral
+pub fn strLiteral(data: []const u8) []const u8 {
+    return data;
+}
+
+/// Format bytes as Python bytes repr: b'...' with non-printable bytes escaped
+/// Examples: b'hello' -> "b'hello'", b'\xa0' -> "b'\\xa0'"
+pub fn bytesRepr(allocator: std.mem.Allocator, data: []const u8) ![]const u8 {
+    var buf = std.ArrayList(u8){};
+    errdefer buf.deinit(allocator);
+
+    try buf.appendSlice(allocator, "b'");
+
+    for (data) |byte| {
+        if (byte >= 0x20 and byte < 0x7f and byte != '\\' and byte != '\'') {
+            // Printable ASCII (except backslash and quote)
+            try buf.append(allocator, byte);
+        } else if (byte == '\\') {
+            try buf.appendSlice(allocator, "\\\\");
+        } else if (byte == '\'') {
+            try buf.appendSlice(allocator, "\\'");
+        } else if (byte == '\n') {
+            try buf.appendSlice(allocator, "\\n");
+        } else if (byte == '\r') {
+            try buf.appendSlice(allocator, "\\r");
+        } else if (byte == '\t') {
+            try buf.appendSlice(allocator, "\\t");
+        } else {
+            // Non-printable: escape as \xNN
+            try buf.appendSlice(allocator, "\\x");
+            const hex_chars = "0123456789abcdef";
+            try buf.append(allocator, hex_chars[byte >> 4]);
+            try buf.append(allocator, hex_chars[byte & 0xf]);
+        }
+    }
+
+    try buf.append(allocator, '\'');
+    return buf.toOwnedSlice(allocator);
+}
 
 /// Compute pow with complex number support
 /// Returns float for most cases, complex when base < 0 and exp is non-integer
@@ -997,6 +1066,11 @@ fn pythonFloatRepr(allocator: std.mem.Allocator, value: f64) ![]const u8 {
 /// Convert a value to its repr string (for tuple elements)
 fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
     const T = @TypeOf(value);
+
+    // PyBytes - format as b'...' with non-printable bytes escaped
+    if (T == PyBytes) {
+        return bytesRepr(allocator, value.data);
+    }
 
     // String - wrap in quotes
     if (T == []const u8 or T == []u8) {

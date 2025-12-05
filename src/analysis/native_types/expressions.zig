@@ -665,7 +665,7 @@ fn inferConstant(value: ast.Value) InferError!NativeType {
         .bigint => .bigint, // Large integers are BigInt
         .float => .float,
         .string => .{ .string = .literal }, // String literals are compile-time constants
-        .bytes => .{ .string = .literal }, // Bytes literals are also []const u8
+        .bytes => .bytes, // Bytes literals use PyBytes wrapper for type preservation
         .bool => .bool,
         .none => .none,
         .complex => .complex, // Complex number literals

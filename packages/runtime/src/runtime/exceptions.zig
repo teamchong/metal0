@@ -1,6 +1,6 @@
 /// Python exception types
 const std = @import("std");
-const PyValue = @import("../py_value.zig").PyValue;
+const PyValue = @import("../Objects/object.zig").PyValue;
 
 /// Python exception types mapped to Zig errors
 pub const PythonError = error{

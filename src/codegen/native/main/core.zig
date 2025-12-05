@@ -486,6 +486,15 @@ pub const NativeCodegen = struct {
     // When true, yield statements append to __gen_result ArrayList
     in_generator_function: bool,
 
+    // Track if we're inside a try block body
+    // When true, error-returning builtins use 'try' instead of 'catch default'
+    // This allows errors to propagate to except handlers
+    inside_try_body: bool,
+
+    // True when targeting WASM browser (freestanding) mode
+    // Used to skip exports for non-main functions
+    target_wasm_browser: bool,
+
     // Track skipped modules (external modules not found in registry)
     // Maps module name -> void (e.g., "pytest" -> {})
     // Used to skip code that references these modules
@@ -697,6 +706,8 @@ pub const NativeCodegen = struct {
             .current_function_name = null,
             .current_function_body = null,
             .in_generator_function = false,
+            .inside_try_body = false,
+            .target_wasm_browser = false,
             .skipped_modules = FnvVoidMap.init(allocator),
             .skipped_functions = FnvVoidMap.init(allocator),
             .c_extension_modules = FnvStringMap.init(allocator),

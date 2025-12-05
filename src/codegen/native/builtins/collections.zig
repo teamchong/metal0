@@ -400,7 +400,7 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Infer element type from argument
     const arg_type = try self.inferExprScoped(args[0]);
     const elem_zig_type: []const u8 = switch (@as(std.meta.Tag(@TypeOf(arg_type)), arg_type)) {
-        .string => "u8", // Strings/bytes are []const u8
+        .string, .bytes => "u8", // Strings/bytes are []const u8 or PyBytes (element is u8)
         .list => blk: {
             // Get element type from list
             var type_buf = std.ArrayList(u8){};
