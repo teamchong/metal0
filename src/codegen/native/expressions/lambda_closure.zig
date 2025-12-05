@@ -472,6 +472,12 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
                 try self.emit("runtime.builtins.boolType");
                 return;
             }
+            // Check for builtin functions (isinstance, len, etc.) - need runtime.builtins prefix
+            if (shared.PythonBuiltinNames.has(n.id)) {
+                try self.emit("runtime.builtins.");
+                try self.emit(n.id);
+                return;
+            }
             // Not captured, use directly
             try self.emit(n.id);
         },

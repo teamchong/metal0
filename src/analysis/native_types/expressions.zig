@@ -597,6 +597,41 @@ pub fn inferExprWithInferrer(
             elem_ptr.* = elem_type;
             break :blk .{ .set = elem_ptr };
         },
+        .genexp => |ge| blk: {
+            // Generator expressions are treated as list comprehensions (eager evaluation)
+            // First, type the loop variables from generators so they're available for elt inference
+            for (ge.generators) |gen| {
+                if (gen.target.* == .name) {
+                    // Check if iterator is range() - gives i64 loop variable
+                    if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
+                        const func_name = gen.iter.call.func.name.id;
+                        if (std.mem.eql(u8, func_name, "range")) {
+                            try var_types.put(gen.target.name.id, .{ .int = .bounded });
+                        }
+                    }
+                    // Check if iterator is a list/array variable - loop var gets element type
+                    if (gen.iter.* == .name) {
+                        const iter_name = gen.iter.name.id;
+                        if (var_types.get(iter_name)) |iter_type| {
+                            const elem_type: NativeType = switch (iter_type) {
+                                .list => |elem| elem.*,
+                                .array => |arr| arr.element_type.*,
+                                else => NativeType{ .int = .bounded },
+                            };
+                            try var_types.put(gen.target.name.id, elem_type);
+                        }
+                    }
+                }
+            }
+
+            // Infer element type from the generator expression
+            const elem_type = try inferExpr(allocator, var_types, class_fields, func_return_types, ge.elt.*);
+
+            // Generator expressions produce ArrayList(T) (evaluated eagerly in AOT compilation)
+            const elem_ptr = try allocator.create(NativeType);
+            elem_ptr.* = elem_type;
+            break :blk .{ .list = elem_ptr };
+        },
         .tuple => |t| blk: {
             // Infer types of all tuple elements
             var elem_types = try allocator.alloc(NativeType, t.elts.len);

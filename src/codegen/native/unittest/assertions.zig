@@ -10,13 +10,13 @@ const zig_keywords = @import("zig_keywords");
 
 /// Check if a name is a Python builtin type name (not a user variable)
 fn isBuiltinTypeName(name: []const u8) bool {
+    // Use shared RuntimeExceptions map for comprehensive exception coverage
+    if (shared.RuntimeExceptions.has(name)) return true;
+
     const builtin_types = [_][]const u8{
-        "int",           "float",               "str",                "bool",           "list",              "dict",            "set",                 "tuple",
-        "type",          "object",              "bytes",              "bytearray",      "frozenset",         "range",           "complex",             "memoryview",
-        "slice",         "property",            "classmethod",        "staticmethod",   "super",             "Exception",       "BaseException",       "TypeError",
-        "ValueError",    "KeyError",            "IndexError",         "AttributeError", "RuntimeError",      "StopIteration",   "GeneratorExit",       "AssertionError",
-        "ImportError",   "ModuleNotFoundError", "LookupError",        "OSError",        "FileNotFoundError", "PermissionError", "NotImplementedError", "ZeroDivisionError",
-        "OverflowError", "RecursionError",      "DeprecationWarning", "UserWarning",    "SyntaxWarning",     "Warning",         "ExceptionGroup",      "BaseExceptionGroup",
+        "int",      "float",      "str",         "bool",       "list",       "dict",      "set",         "tuple",
+        "type",     "object",     "bytes",       "bytearray",  "frozenset",  "range",     "complex",     "memoryview",
+        "slice",    "property",   "classmethod", "staticmethod", "super",
     };
     for (builtin_types) |t| {
         if (std.mem.eql(u8, name, t)) return true;
