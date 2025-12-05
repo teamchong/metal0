@@ -391,7 +391,9 @@ pub fn InferDictValueType(comptime TupleType: type) type {
     comptime var has_float = false;
     comptime var has_string = false;
     comptime var has_tuple = false;
+    comptime var has_array = false;
     comptime var tuple_type: ?type = null;
+    comptime var array_type: ?type = null;
 
     inline for (fields) |field| {
         const KV = field.type;
@@ -408,6 +410,10 @@ pub fn InferDictValueType(comptime TupleType: type) type {
         if (v_info == .@"struct" and v_info.@"struct".is_tuple) {
             has_tuple = true;
             tuple_type = V;
+        } else if (v_info == .array) {
+            // Array type (e.g., [3]i64 from list literal [1, 2, 3])
+            has_array = true;
+            array_type = V;
         } else if (V == f64 or V == f32 or V == f16 or V == comptime_float) {
             has_float = true;
         } else if (V == []const u8 or V == []u8 or isStringLiteral(V)) {
@@ -415,8 +421,10 @@ pub fn InferDictValueType(comptime TupleType: type) type {
         }
     }
 
-    // Type promotion hierarchy - tuples take precedence
-    if (has_tuple) {
+    // Type promotion hierarchy - arrays and tuples take precedence
+    if (has_array) {
+        result_type = array_type.?;
+    } else if (has_tuple) {
         result_type = tuple_type.?;
     } else if (has_string) {
         result_type = []const u8;

@@ -33,6 +33,25 @@ pub fn hasClassmethodDecorator(decorators: []const ast.Node) bool {
     return false;
 }
 
+/// Get type from call site argument types (for functions without annotations)
+/// Returns allocated Zig type string if found, null otherwise
+fn getTypeFromCallSiteOrScope(self: *NativeCodegen, func: ast.Node.FunctionDef, arg: ast.Arg, param_idx: usize) CodegenError!?[]const u8 {
+    // Try function_call_args first (more accurate than default i64)
+    if (self.type_inferrer.function_call_args.get(func.name)) |call_arg_types| {
+        if (param_idx < call_arg_types.len) {
+            const call_type = call_arg_types[param_idx];
+            const call_type_tag = @as(std.meta.Tag(@TypeOf(call_type)), call_type);
+            if (call_type_tag != .unknown and call_type_tag != .int) {
+                // Found non-default type from call site
+                return try self.nativeTypeToZigType(call_type);
+            }
+        }
+    }
+    // Not found in call args
+    _ = arg;
+    return null;
+}
+
 /// Known Zig primitive types for return type validation (O(1) lookup)
 const KnownZigTypes = std.StaticStringMap(void).initComptime(.{
     .{ "i64", {} }, .{ "i32", {} }, .{ "i8", {} }, .{ "u8", {} }, .{ "u16", {} },
@@ -522,8 +541,12 @@ pub fn genFunctionSignature(
     // Generate function signature: fn name(param: type, ...) return_type {
     // Rename "main" to "__user_main" to avoid conflict with entry point
     // Use "inline fn" if function has type-check parameters for comptime branch pruning
+    // Use "export fn" for WASM browser targets (expose to JavaScript)
     if (has_type_check_param) {
         try self.emit("inline fn ");
+    } else if (self.target_wasm_browser and !std.mem.eql(u8, func.name, "main")) {
+        // Export functions for WASM (except main which becomes _start)
+        try self.emit("export fn ");
     } else {
         try self.emit("fn ");
     }
@@ -678,6 +701,10 @@ pub fn genFunctionSignature(
             // Store in scoped_var_types with function name as scope key
             const scoped_key = try std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ func.name, arg.name });
             try self.type_inferrer.scoped_var_types.put(scoped_key, .{ .string = .literal });
+        } else if (try getTypeFromCallSiteOrScope(self, func, arg, i)) |zig_type| {
+            defer self.allocator.free(zig_type);
+            if (arg.default != null) try self.emit("?");
+            try self.emit(zig_type);
         } else if (self.getVarTypeInScope(func.name, arg.name)) |var_type| {
             // Use scoped type inference for function parameters
             // This avoids type pollution from variables with same name in other scopes
@@ -719,7 +746,7 @@ pub fn genFunctionSignature(
                 try self.emit("?i64");
             }
         } else {
-            // No type hint, no inference, no default - default to i64
+            // No type hint, no inference, no default, no call site - default to i64
             try self.emit("i64");
         }
     }
