@@ -312,6 +312,23 @@ export interface Tokenizer {
 - `eval()`, `exec()` via bytecode VM
 - DWARF debug symbols, PGO, source maps
 
+## eval()/exec() Architecture
+
+```
+eval("x + 1")  ──►  metal0 Parser  ──►  Bytecode Compiler  ──►  Stack VM
+                         │                     │
+                         │              ┌──────┴──────┐
+                         ▼              ▼             ▼
+                   (reuse existing)  Native      Browser WASM
+                   src/parser/       Binary      (Web Worker)
+```
+
+- **Native**: Full speed stack-based VM
+- **Browser WASM**: Same bytecode, spawns Web Workers for isolation
+- **WasmEdge**: WASI sockets for subprocess-like behavior
+
+See [BYTECODE_VM.md](BYTECODE_VM.md) for full design.
+
 ## How It Works
 
 ```
