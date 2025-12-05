@@ -234,6 +234,71 @@ pub fn pyCount(comptime T: type, slice: []const T, value: T) usize {
     return count;
 }
 
+/// Python-style slice equality
+/// Handles NaN specially: two NaN values are considered equal (identity semantics)
+pub fn pySliceEql(comptime T: type, a: []const T, b: []const T) bool {
+    if (a.len != b.len) return false;
+    // For floats, use NaN-aware comparison
+    if (@typeInfo(T) == .float) {
+        for (a, b) |a_item, b_item| {
+            const a_nan = std.math.isNan(a_item);
+            const b_nan = std.math.isNan(b_item);
+            // Both NaN -> equal (identity), otherwise use value comparison
+            if (a_nan and b_nan) continue;
+            if (a_nan or b_nan) return false; // One NaN, one not
+            if (a_item != b_item) return false;
+        }
+        return true;
+    }
+    // For other types, use standard equality
+    return std.mem.eql(T, a, b);
+}
+
+/// Python-style tuple/array equality
+/// Handles NaN specially: two NaN values are considered equal (identity semantics)
+pub fn pyTupleEql(a: anytype, b: @TypeOf(a)) bool {
+    const T = @TypeOf(a);
+    const info = @typeInfo(T);
+
+    // Handle arrays
+    if (info == .array) {
+        const ElemT = info.array.child;
+        if (@typeInfo(ElemT) == .float) {
+            for (a, b) |a_item, b_item| {
+                const a_nan = std.math.isNan(a_item);
+                const b_nan = std.math.isNan(b_item);
+                if (a_nan and b_nan) continue;
+                if (a_nan or b_nan) return false;
+                if (a_item != b_item) return false;
+            }
+            return true;
+        }
+    }
+
+    // Handle structs (tuples are anonymous structs in Zig)
+    if (info == .@"struct") {
+        inline for (info.@"struct".fields) |field| {
+            const a_field = @field(a, field.name);
+            const b_field = @field(b, field.name);
+            const FieldT = field.type;
+
+            if (@typeInfo(FieldT) == .float) {
+                const a_nan = std.math.isNan(a_field);
+                const b_nan = std.math.isNan(b_field);
+                if (a_nan and b_nan) continue;
+                if (a_nan or b_nan) return false;
+                if (a_field != b_field) return false;
+            } else {
+                if (!std.meta.eql(a_field, b_field)) return false;
+            }
+        }
+        return true;
+    }
+
+    // Fallback to standard equality
+    return std.meta.eql(a, b);
+}
+
 /// Convert ArrayList or other container types to a slice for iteration
 /// This is a comptime function that normalizes different container types to slices
 pub inline fn iterSlice(value: anytype) IterSliceType(@TypeOf(value)) {
