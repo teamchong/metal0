@@ -531,26 +531,24 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.hoisted_vars.put(var_name, {});
     }
 
-    // Wrap in block for defer scope
+    // Get unique ID for this try block (used for variable names)
+    const helper_id = self.try_helper_counter;
+    self.try_helper_counter += 1;
+
+    // Wrap in block for scope
     try self.emitIndent();
     try self.emit("{\n");
     self.indent();
 
-    // Generate finally as defer
-    if (try_node.finalbody.len > 0) {
+    // If we have a finally block, declare pending exception variable
+    // This tracks exceptions that need to be re-thrown after finally runs
+    const has_finally = try_node.finalbody.len > 0;
+    if (has_finally) {
         try self.emitIndent();
-        try self.emit("defer {\n");
-        self.indent();
-        // Set inside_defer flag so generated code uses 'catch {}' instead of 'try'
-        const saved_inside_defer = self.inside_defer;
-        self.inside_defer = true;
-        defer self.inside_defer = saved_inside_defer;
-        for (try_node.finalbody) |stmt| {
-            try self.generateStmt(stmt);
-        }
-        self.dedent();
+        try self.output.writer(self.allocator).print("var __pending_exception_{d}: ?anyerror = null;\n", .{helper_id});
+        // Suppress "never mutated" warning - may not be mutated if all exceptions are caught
         try self.emitIndent();
-        try self.emit("}\n");
+        try self.output.writer(self.allocator).print("_ = &__pending_exception_{d};\n", .{helper_id});
     }
 
     // Generate try block with exception handling
@@ -668,8 +666,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         }
 
         // Create helper function with unique name to avoid shadowing in nested try blocks
-        const helper_id = self.try_helper_counter;
-        self.try_helper_counter += 1;
+        // Note: helper_id is already declared at the start of genTry
 
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __TryHelper_{d} = struct {{\n", .{helper_id});
@@ -1142,7 +1139,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 try self.emit("} else {\n");
                 self.indent();
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("return {s};\n", .{err_var});
+                // If there's a finally block, store exception instead of returning immediately
+                // This allows finally to run before the exception is propagated
+                if (has_finally) {
+                    try self.output.writer(self.allocator).print("__pending_exception_{d} = {s};\n", .{ helper_id, err_var });
+                } else {
+                    try self.output.writer(self.allocator).print("return {s};\n", .{err_var});
+                }
                 self.dedent();
                 try self.emitIndent();
                 try self.emit("}\n");
@@ -1183,6 +1186,54 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 try self.generateStmt(stmt);
             }
         }
+    }
+
+    // Generate finally block (always executes after try/except/else)
+    // Uses a labeled block to allow raise statements to break out with an error
+    if (has_finally) {
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __finally_err_{d}: ?anyerror = __finally_blk_{d}: {{\n", .{ helper_id, helper_id });
+        self.indent();
+
+        // Save and set finally block context
+        const saved_inside_finally = self.inside_finally_block;
+        const saved_finally_id = self.current_finally_id;
+        const saved_inside_defer = self.inside_defer;
+        self.inside_finally_block = true;
+        self.current_finally_id = @intCast(helper_id);
+        self.inside_defer = true; // Still suppress 'try' in finally (use catch {} for non-raise calls)
+
+        // Reset control_flow_terminated before generating finally body
+        const saved_control_flow = self.control_flow_terminated;
+        self.control_flow_terminated = false;
+
+        for (try_node.finalbody) |stmt| {
+            try self.generateStmt(stmt);
+        }
+
+        // Check if finally body terminated (e.g., via raise)
+        const finally_terminated = self.control_flow_terminated;
+
+        // Restore context
+        self.inside_finally_block = saved_inside_finally;
+        self.current_finally_id = saved_finally_id;
+        self.inside_defer = saved_inside_defer;
+        self.control_flow_terminated = saved_control_flow;
+
+        // Default: no exception raised in finally (only if not already terminated)
+        if (!finally_terminated) {
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("break :__finally_blk_{d} null;\n", .{helper_id});
+        }
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("};\n");
+
+        // Propagate exceptions: finally exception takes precedence over pending exception
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("if (__finally_err_{d}) |fe| return fe;\n", .{helper_id});
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("if (__pending_exception_{d}) |pe| return pe;\n", .{helper_id});
     }
 
     self.dedent();

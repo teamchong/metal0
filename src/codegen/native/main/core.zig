@@ -469,6 +469,14 @@ pub const NativeCodegen = struct {
     // In defer blocks, 'try' is not allowed, so we use 'catch {}' instead
     inside_defer: bool,
 
+    // True when generating code inside a finally block that can capture exceptions
+    // When true, raise statements break out of the finally block with an error
+    inside_finally_block: bool,
+
+    // Current finally block ID for unique label names
+    // Used for break :__finally_blk_N error.SomeException
+    current_finally_id: u32,
+
     // True when generating code inside a nested function/closure body
     // When true, isDeclared() only checks current scope, not parent function scopes
     // This ensures variables from outer function that weren't captured are treated as undeclared
@@ -702,6 +710,8 @@ pub const NativeCodegen = struct {
             .inside_method_with_self = false,
             .current_scope_id = 0,
             .inside_defer = false,
+            .inside_finally_block = false,
+            .current_finally_id = 0,
             .inside_nested_function = false,
             .current_function_name = null,
             .current_function_body = null,

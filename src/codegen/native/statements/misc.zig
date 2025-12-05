@@ -1202,6 +1202,21 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
     try self.emit("}\n");
 }
 
+/// Extract exception type name from an expression
+/// Handles both direct name (ValueError) and call (ValueError("msg"))
+fn getExceptionName(exc: *const ast.Node) []const u8 {
+    switch (exc.*) {
+        .call => |call| {
+            if (call.func.* == .name) {
+                return call.func.name.id;
+            }
+            return "Exception";
+        },
+        .name => |n| return n.id,
+        else => return "Exception",
+    }
+}
+
 /// Generate raise statement
 /// raise ValueError("msg") => return error.ValueError
 /// raise => return error.Exception
@@ -1211,12 +1226,40 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
     // Record line mapping for debug info (maps Python raise line -> Zig line)
     self.recordRaiseLineMapping();
 
-    // Cannot return from defer in Zig - skip raise inside finally blocks
-    // In Python, raise inside finally replaces the pending exception
-    // In our generated code, the exception will propagate after defer completes
+    // Inside finally block: break out of the labeled block with the error
+    // This allows the exception to be captured and propagated after finally completes
+    if (self.inside_finally_block) {
+        if (raise_node.exc) |exc| {
+            // Extract exception type name from the raise expression
+            const exc_name = getExceptionName(exc);
+            // Print Python-style error message if we have one
+            if (exc.* == .call) {
+                const call = exc.call;
+                if (call.args.len > 0) {
+                    try self.emitIndent();
+                    try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"");
+                    try self.emit(exc_name);
+                    try self.emit("\", ");
+                    try genRaiseMessage(self, call.args[0]);
+                    try self.emit(", @src().line);\n");
+                }
+            }
+            // Break out of finally block with the error
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("break :__finally_blk_{d} error.{s};\n", .{ self.current_finally_id, exc_name });
+        } else {
+            // Bare raise - re-raise the current exception (use generic error)
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("break :__finally_blk_{d} error.Exception;\n", .{self.current_finally_id});
+        }
+        self.control_flow_terminated = true;
+        return;
+    }
+
+    // Inside defer but not finally block (legacy path) - skip raise
     if (self.inside_defer) {
         try self.emitIndent();
-        try self.emit("// raise inside finally - error propagates after defer\n");
+        try self.emit("// raise inside defer - cannot propagate\n");
         return;
     }
 
