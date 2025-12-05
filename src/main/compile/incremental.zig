@@ -85,9 +85,17 @@ pub fn buildRuntimeArchive(allocator: std.mem.Allocator) !void {
         .argv = args.items,
     });
 
-    if (result.term.Exited != 0) {
-        std.debug.print("Runtime archive build failed:\n{s}\n", .{result.stderr});
-        return error.RuntimeArchiveBuildFailed;
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("Runtime archive build failed:\n{s}\n", .{result.stderr});
+                return error.RuntimeArchiveBuildFailed;
+            }
+        },
+        else => {
+            std.debug.print("Runtime archive build terminated abnormally:\n{s}\n", .{result.stderr});
+            return error.RuntimeArchiveBuildFailed;
+        },
     }
 }
 
@@ -226,9 +234,17 @@ fn compileToObjectInternal(allocator: std.mem.Allocator, zig_path: []const u8, m
         return err;
     };
 
-    if (result.term.Exited != 0) {
-        std.debug.print("Compile failed for {s}: {s}\n", .{ zig_path, result.stderr });
-        return error.ZigCompilationFailed;
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("Compile failed for {s}: {s}\n", .{ zig_path, result.stderr });
+                return error.ZigCompilationFailed;
+            }
+        },
+        else => {
+            std.debug.print("Compile terminated abnormally for {s}: {s}\n", .{ zig_path, result.stderr });
+            return error.ZigCompilationFailed;
+        },
     }
 }
 
@@ -290,9 +306,17 @@ pub fn compileToObject(allocator: std.mem.Allocator, zig_source: []const u8, mod
         .argv = args.items,
     });
 
-    if (result.term.Exited != 0) {
-        std.debug.print("Zig compilation failed:\n{s}\n", .{result.stderr});
-        return error.ZigCompilationFailed;
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("Zig compilation failed:\n{s}\n", .{result.stderr});
+                return error.ZigCompilationFailed;
+            }
+        },
+        else => {
+            std.debug.print("Zig compilation terminated abnormally:\n{s}\n", .{result.stderr});
+            return error.ZigCompilationFailed;
+        },
     }
 }
 
@@ -339,9 +363,17 @@ pub fn linkBinary(allocator: std.mem.Allocator, module_name: []const u8, output_
         .argv = args.items,
     });
 
-    if (result.term.Exited != 0) {
-        std.debug.print("Link failed:\n{s}\n", .{result.stderr});
-        return error.LinkFailed;
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("Link failed:\n{s}\n", .{result.stderr});
+                return error.LinkFailed;
+            }
+        },
+        else => {
+            std.debug.print("Link terminated abnormally:\n{s}\n", .{result.stderr});
+            return error.LinkFailed;
+        },
     }
 }
 

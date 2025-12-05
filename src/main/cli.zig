@@ -801,11 +801,16 @@ fn cmdProfileRun(allocator: std.mem.Allocator, args: []const []const u8) !void {
         defer allocator.free(result.stdout);
         defer allocator.free(result.stderr);
 
-        if (result.term.Exited == 0) {
-            printSuccess("Profile written to perf.data", .{});
-            std.debug.print("Next: metal0 profile translate perf.data\n", .{});
-        } else {
-            printError("perf failed: {s}", .{result.stderr});
+        switch (result.term) {
+            .Exited => |code| {
+                if (code == 0) {
+                    printSuccess("Profile written to perf.data", .{});
+                    std.debug.print("Next: metal0 profile translate perf.data\n", .{});
+                } else {
+                    printError("perf failed: {s}", .{result.stderr});
+                }
+            },
+            else => printError("perf terminated abnormally: {s}", .{result.stderr}),
         }
     } else {
         printError("Profile run not supported on this platform", .{});
@@ -1552,7 +1557,11 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         allocator.free(result.stdout); // Free immediately, don't defer
         allocator.free(result.stderr);
 
-        if (result.term == .Exited and result.term.Exited == 0) {
+        const success = switch (result.term) {
+            .Exited => |code| code == 0,
+            else => false,
+        };
+        if (success) {
             compile_ok += 1;
             try bin_paths.append(allocator, bin_path);
         } else {

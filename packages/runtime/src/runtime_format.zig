@@ -293,7 +293,8 @@ pub fn printValue(value: anytype) void {
     }
 }
 
-/// Python format spec: [[fill]align][sign][#][0][width][,][.precision][type]
+/// Python format spec: [[fill]align][sign][#][0][width][grouping][.precision][type]
+/// Grouping can be ',' or '_' for thousands separator
 const FormatSpec = struct {
     fill: u8 = ' ',
     alignment: enum { left, right, center, sign_aware } = .right,
@@ -301,7 +302,7 @@ const FormatSpec = struct {
     alternate: bool = false,
     zero_pad: bool = false,
     width: ?usize = null,
-    grouping: bool = false,
+    grouping_char: ?u8 = null, // ',' or '_' for thousands separator
     precision: ?usize = null,
     fmt_type: u8 = 0, // 0 = default, 's', 'd', 'b', 'o', 'x', 'X', 'e', 'E', 'f', 'F', 'g', 'G', '%', 'c', 'n'
 };
@@ -377,9 +378,9 @@ fn parseFormatSpec(spec: []const u8) FormatSpec {
         result.width = std.fmt.parseInt(usize, spec[width_start..i], 10) catch null;
     }
 
-    // Grouping: comma
-    if (i < spec.len and spec[i] == ',') {
-        result.grouping = true;
+    // Grouping: comma or underscore for thousands separator
+    if (i < spec.len and (spec[i] == ',' or spec[i] == '_')) {
+        result.grouping_char = spec[i];
         i += 1;
     }
 
@@ -424,6 +425,59 @@ fn applyPadding(allocator: std.mem.Allocator, content: []const u8, spec: FormatS
             try result.appendSlice(allocator, content);
             try result.appendNTimes(allocator, spec.fill, right_pad);
         },
+    }
+
+    return result.toOwnedSlice(allocator);
+}
+
+/// Add thousands grouping separator to a number string
+/// e.g., "123456.789" with '_' -> "123_456.789"
+fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, sep: u8) ![]const u8 {
+    // Find the decimal point (or end of string for integers)
+    var decimal_pos: usize = num_str.len;
+    var start_pos: usize = 0;
+    for (num_str, 0..) |c, i| {
+        if (c == '.') {
+            decimal_pos = i;
+            break;
+        }
+        // Skip sign at the start
+        if (i == 0 and (c == '-' or c == '+' or c == ' ')) {
+            start_pos = 1;
+        }
+    }
+
+    const int_part = num_str[start_pos..decimal_pos];
+    if (int_part.len <= 3) {
+        // No grouping needed
+        return try allocator.dupe(u8, num_str);
+    }
+
+    var result = std.ArrayList(u8){};
+
+    // Copy sign if present
+    if (start_pos > 0) {
+        try result.append(allocator, num_str[0]);
+    }
+
+    // Add digits with separators
+    const num_groups = (int_part.len + 2) / 3;
+    const first_group_len = int_part.len - (num_groups - 1) * 3;
+
+    // First group (may be less than 3 digits)
+    try result.appendSlice(allocator, int_part[0..first_group_len]);
+
+    // Remaining groups (exactly 3 digits each)
+    var pos: usize = first_group_len;
+    while (pos < int_part.len) {
+        try result.append(allocator, sep);
+        try result.appendSlice(allocator, int_part[pos .. pos + 3]);
+        pos += 3;
+    }
+
+    // Copy decimal part if present
+    if (decimal_pos < num_str.len) {
+        try result.appendSlice(allocator, num_str[decimal_pos..]);
     }
 
     return result.toOwnedSlice(allocator);
@@ -673,7 +727,13 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
         try buf.writer(allocator).print("{any}", .{value});
     }
 
-    return applyPadding(allocator, buf.items, spec);
+    // Apply thousands grouping if specified
+    var formatted = buf.items;
+    if (spec.grouping_char) |sep| {
+        formatted = try addThousandsGrouping(allocator, buf.items, sep);
+    }
+
+    return applyPadding(allocator, formatted, spec);
 }
 
 /// Python % operator - runtime dispatch for string formatting vs numeric modulo
