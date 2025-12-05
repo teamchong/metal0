@@ -1030,7 +1030,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emitIndent();
         try self.emit("    const is_wasm = builtin.os.tag == .wasi or builtin.os.tag == .freestanding;\n");
         try self.emitIndent();
-        try self.emit("    if (comptime builtin.output_mode == .Exe and !is_wasm) {\n");
+        try self.emit("    const is_lib = builtin.output_mode == .Lib or builtin.link_mode == .dynamic;\n");
+        try self.emitIndent();
+        try self.emit("    if (comptime builtin.output_mode == .Exe and !is_wasm and !is_lib) {\n");
         try self.emitIndent();
         try self.emit("        const os_args = std.os.argv;\n");
         try self.emitIndent();
