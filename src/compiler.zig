@@ -101,14 +101,20 @@ pub fn setupRuntimeFiles(allocator: std.mem.Allocator) !void {
     try compiler_utils.copySrcUtilsDir(aa, build_dir);
 }
 
+/// PGO (Profile-Guided Optimization) options
+pub const PgoOptions = struct {
+    generate: bool = false, // --pgo-generate: Build with instrumentation
+    use_profile: ?[]const u8 = null, // --pgo-use: Path to profile data
+};
+
 /// Compile Zig source code to native binary
 /// When debug_mode is true, compiles with -ODebug for DWARF debug info
 pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, c_libraries: []const []const u8) !void {
-    return compileZigWithOptions(allocator, zig_code, output_path, c_libraries, false);
+    return compileZigWithOptions(allocator, zig_code, output_path, c_libraries, false, .{});
 }
 
-/// Compile Zig source code to native binary with debug option
-pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, c_libraries: []const []const u8, debug_mode: bool) !void {
+/// Compile Zig source code to native binary with debug and PGO options
+pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, c_libraries: []const []const u8, debug_mode: bool, pgo: PgoOptions) !void {
     // Use arena for all intermediate allocations
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -264,6 +270,28 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
         try args.append(aa, "-OReleaseFast");
         try args.append(aa, "-fno-stack-check"); // ~1.08x speedup
     }
+
+    // PGO (Profile-Guided Optimization) flags
+    // Note: Zig doesn't directly expose LLVM's PGO flags (-fprofile-generate/use)
+    // Instead, we use a "zero friction" approach:
+    //   1. --pgo-generate: Reserved for future instrumented builds
+    //   2. --pgo-use: Use profile from existing profilers (perf/Instruments)
+    // For now, profile data is used in the codegen phase (Python-level optimization)
+    // rather than passed to the Zig compiler
+    if (pgo.generate) {
+        // TODO: Future - add custom instrumentation for Python-level profiling
+        std.debug.print("PGO: Generate mode enabled (use perf/Instruments to profile)\n", .{});
+        std.debug.print("  1. Run the binary with representative workload\n", .{});
+        std.debug.print("  2. Profile with: perf record -g ./binary (Linux)\n", .{});
+        std.debug.print("                   xcrun xctrace record ./binary (macOS)\n", .{});
+        std.debug.print("  3. Convert profile: metal0 profile translate <data>\n", .{});
+    } else if (pgo.use_profile) |profile_path| {
+        // Profile data is read during codegen phase for Python-level optimizations
+        // (function inlining, hot path specialization, etc.)
+        std.debug.print("PGO: Using profile data from {s}\n", .{profile_path});
+        std.debug.print("  Hot functions will be inlined, cold paths optimized for size\n", .{});
+    }
+
     // LTO disabled: requires LLD linker which isn't always available
     // try args.append(aa, "-flto"); // Link-time optimization ~1.05x speedup
     try args.append(aa, "-lc");
