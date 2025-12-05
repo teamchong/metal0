@@ -83,6 +83,7 @@ pub fn setupRuntimeFiles(allocator: std.mem.Allocator) !void {
 
     // Copy individual runtime files
     try compiler_utils.copyRuntimeFile(aa, "calendar.zig", build_dir);
+    try compiler_utils.copyRuntimeFile(aa, "debug_reader.zig", build_dir);
 
     // Copy JSON SIMD files from shared/json/simd
     try compiler_utils.copyJsonSimd(aa, build_dir);
@@ -168,6 +169,7 @@ pub fn compileZig(allocator: std.mem.Allocator, zig_code: []const u8, output_pat
 
     // Copy individual runtime files
     try compiler_utils.copyRuntimeFile(aa, "calendar.zig", build_dir);
+    try compiler_utils.copyRuntimeFile(aa, "debug_reader.zig", build_dir);
 
     // Copy JSON SIMD files from shared/json/simd
     try compiler_utils.copyJsonSimd(aa, build_dir);
@@ -341,6 +343,7 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
 
     // Copy individual runtime files
     try compiler_utils.copyRuntimeFile(allocator, "calendar.zig", build_dir);
+    try compiler_utils.copyRuntimeFile(allocator, "debug_reader.zig", build_dir);
 
     // Copy JSON SIMD files from shared/json/simd
     try compiler_utils.copyJsonSimd(allocator, build_dir);
@@ -543,6 +546,7 @@ pub fn compileWasm(allocator: std.mem.Allocator, zig_code: []const u8, output_pa
 
     // Copy individual runtime files
     try compiler_utils.copyRuntimeFile(aa, "calendar.zig", build_dir);
+    try compiler_utils.copyRuntimeFile(aa, "debug_reader.zig", build_dir);
 
     // Copy JSON SIMD files from shared/json/simd
     try compiler_utils.copyJsonSimd(aa, build_dir);
