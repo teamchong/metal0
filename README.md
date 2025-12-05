@@ -240,18 +240,25 @@ Requires: Zig 0.15.2+
 ## Usage
 
 ```bash
-metal0 app.py              # compile and run
-metal0 build app.py        # compile only
-metal0 build --binary app.py  # standalone executable
-metal0 --force app.py      # ignore cache
+metal0 app.py                       # compile and run
+metal0 build app.py                 # compile only
+metal0 build --binary app.py        # standalone executable
+metal0 --force app.py               # ignore cache
+metal0 --target wasm-browser app.py # browser WASM (freestanding)
+metal0 --target wasm-edge app.py    # WasmEdge/WASI WASM
+metal0 server                       # start eval server
 ```
 
-## WASM Compilation
+## WASM Targets
 
-Compile Python to WebAssembly with Immer-style JS runtime and auto-generated TypeScript definitions:
+| Target | Platform | Allocator | Features |
+|--------|----------|-----------|----------|
+| `wasm-browser` | Browser (freestanding) | FixedBuffer 64KB | No threads, smallest size |
+| `wasm-edge` | WasmEdge/WASI | GPA | fd_write, WASI sockets |
 
 ```bash
-metal0 build --target wasm-browser app.py
+metal0 --target wasm-browser app.py  # Browser WASM
+metal0 --target wasm-edge app.py     # WasmEdge/WASI
 # Outputs: app.wasm + app.d.ts
 ```
 
@@ -415,8 +422,6 @@ def process(data: str) -> list[int]:
 ```
 
 metal0 generates optimized Zig externs and minimal JS loader - only declared functions included.
-
-See [BYTECODE_VM.md](BYTECODE_VM.md) for full design.
 
 ## How It Works
 
