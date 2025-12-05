@@ -59,7 +59,12 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8) CodegenError!
     // Note: anytype can only be used in function params, not struct fields.
     if (self.closure_vars.contains(var_name)) {
         try self.emit(": @TypeOf(");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        // Check if variable was renamed (e.g., nested function `raiseVE` -> `__local_raiseVE_10`)
+        if (self.var_renames.get(var_name)) |renamed| {
+            try self.emit(renamed);
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        }
         try self.emit(")");
         return;
     }
