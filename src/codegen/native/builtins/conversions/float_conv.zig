@@ -4,6 +4,25 @@ const ast = @import("ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 
+/// Generate the error handling suffix for failable float operations.
+/// Inside try blocks, use "try" to propagate errors to handlers.
+/// Otherwise, use "catch 0.0" to silently handle errors.
+fn emitFloatErrorHandling(self: *NativeCodegen, expr_start: []const u8, expr_end: []const u8) CodegenError!void {
+    if (self.inside_try_body) {
+        // Inside try block - propagate errors up
+        try self.emit("(try ");
+        try self.emit(expr_start);
+        try self.emit(expr_end);
+        try self.emit(")");
+    } else {
+        // Outside try block - catch and return default
+        try self.emit("(");
+        try self.emit(expr_start);
+        try self.emit(expr_end);
+        try self.emit(" catch 0.0)");
+    }
+}
+
 /// Check if a string is a special float literal (case-insensitive)
 /// Returns the corresponding Zig constant or null if not a special literal
 fn getSpecialFloatLiteral(str: []const u8) ?[]const u8 {
@@ -90,9 +109,15 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             } else |_| {}
         }
         // For non-literal strings, use runtime.parseFloatWithUnicode (handles Unicode digits)
-        try self.emit("(runtime.parseFloatWithUnicode(");
-        try self.genExpr(args[0]);
-        try self.emit(") catch 0.0)");
+        if (self.inside_try_body) {
+            try self.emit("(try runtime.parseFloatWithUnicode(");
+            try self.genExpr(args[0]);
+            try self.emit("))");
+        } else {
+            try self.emit("(runtime.parseFloatWithUnicode(");
+            try self.genExpr(args[0]);
+            try self.emit(") catch 0.0)");
+        }
         return;
     }
 
@@ -102,9 +127,15 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // If this is a variable, be cautious - type inference may be wrong for loop vars
         // Use runtime fallback instead which handles all types
         if (args[0] == .name) {
-            try self.emit("(runtime.floatBuiltinCall(");
-            try self.genExpr(args[0]);
-            try self.emit(", .{}) catch 0.0)");
+            if (self.inside_try_body) {
+                try self.emit("(try runtime.floatBuiltinCall(");
+                try self.genExpr(args[0]);
+                try self.emit(", .{}))");
+            } else {
+                try self.emit("(runtime.floatBuiltinCall(");
+                try self.genExpr(args[0]);
+                try self.emit(", .{}) catch 0.0)");
+            }
             return;
         }
         try self.emit("@as(f64, @floatFromInt(");
@@ -142,22 +173,40 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // __float__ returns f64 - signature varies (some take allocator, some don't)
     // Use runtime.floatBuiltinCall which handles both cases via @hasDecl
     if (has_magic_method and args[0] == .name) {
-        try self.emit("(runtime.floatBuiltinCall(");
-        try self.genExpr(args[0]);
-        try self.emit(", .{}) catch 0.0)");
+        if (self.inside_try_body) {
+            try self.emit("(try runtime.floatBuiltinCall(");
+            try self.genExpr(args[0]);
+            try self.emit(", .{}))");
+        } else {
+            try self.emit("(runtime.floatBuiltinCall(");
+            try self.genExpr(args[0]);
+            try self.emit(", .{}) catch 0.0)");
+        }
         return;
     }
 
     // For strings, use runtime.parseFloatWithUnicode (handles Unicode digits)
     if (arg_type == .string) {
-        try self.emit("(runtime.parseFloatWithUnicode(");
-        try self.genExpr(args[0]);
-        try self.emit(") catch 0.0)");
+        if (self.inside_try_body) {
+            try self.emit("(try runtime.parseFloatWithUnicode(");
+            try self.genExpr(args[0]);
+            try self.emit("))");
+        } else {
+            try self.emit("(runtime.parseFloatWithUnicode(");
+            try self.genExpr(args[0]);
+            try self.emit(") catch 0.0)");
+        }
         return;
     }
 
     // Generic fallback for unknown types - use runtime.floatBuiltinCall which handles all types
-    try self.emit("(runtime.floatBuiltinCall(");
-    try self.genExpr(args[0]);
-    try self.emit(", .{}) catch 0.0)");
+    if (self.inside_try_body) {
+        try self.emit("(try runtime.floatBuiltinCall(");
+        try self.genExpr(args[0]);
+        try self.emit(", .{}))");
+    } else {
+        try self.emit("(runtime.floatBuiltinCall(");
+        try self.genExpr(args[0]);
+        try self.emit(", .{}) catch 0.0)");
+    }
 }

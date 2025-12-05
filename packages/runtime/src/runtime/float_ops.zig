@@ -3,6 +3,7 @@
 const std = @import("std");
 const bigint = @import("bigint");
 const BigInt = bigint.BigInt;
+const exceptions = @import("exceptions.zig");
 
 /// Python error types
 pub const PythonError = error{
@@ -541,7 +542,10 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
     if (first_info == .@"struct") {
         // Check for PyBytes (has .data field with []const u8) - parse as float
         if (@hasField(FirstType, "data") and @TypeOf(@field(first, "data")) == []const u8) {
-            return parseFloatWithUnicode(first.data) catch return PythonError.ValueError;
+            return parseFloatWithUnicode(first.data) catch {
+                exceptions.setExceptionMessage("could not convert string to float");
+                return PythonError.ValueError;
+            };
         }
         // Check for BigInt's toFloat() method (returns f64 directly)
         // BigInt.toFloat takes *const Self, so we need to take address
