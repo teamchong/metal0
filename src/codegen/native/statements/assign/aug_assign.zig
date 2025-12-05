@@ -159,7 +159,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
             // Create new slice content (repeated)
             try self.emitIndent();
-            try self.emit("var __new_items = std.ArrayList(@TypeOf(__list.items[0])){};\n");
+            try self.emit("var __new_items = std.ArrayListUnmanaged(@TypeOf(__list.items[0])){};\n");
             try self.emitIndent();
             try self.emit("for (0..__repeat_count) |_| {\n");
             self.indent();
@@ -185,7 +185,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         } else if (aug.op == .Add) {
             // x[start:end] += [items] - extend the slice with items
             try self.emitIndent();
-            try self.emit("var __new_items = std.ArrayList(@TypeOf(__list.items[0])){};\n");
+            try self.emit("var __new_items = std.ArrayListUnmanaged(@TypeOf(__list.items[0])){};\n");
 
             // First add original slice items
             try self.emitIndent();

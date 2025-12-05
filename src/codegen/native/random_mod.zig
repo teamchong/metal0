@@ -7,7 +7,7 @@ const NativeCodegen = h.NativeCodegen;
 
 const prng = "var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); const _r = _prng.random(); ";
 const randintBody = "); " ++ prng ++ "break :blk a + @as(i64, @intCast(_r.int(u64) % @as(u64, @intCast(b - a + 1)))); }";
-const sampleBody = "); " ++ prng ++ "var res: std.ArrayList(@TypeOf(__sample_seq[0])) = .{}; var idx: std.ArrayList(usize) = .{}; for (__sample_seq, 0..) |_, i| idx.append(__global_allocator, i) catch continue; _r.shuffle(usize, idx.items); for (idx.items[0..@min(k, idx.items.len)]) |i| res.append(__global_allocator, __sample_seq[i]) catch continue; break :__sample_blk res.items; }";
+const sampleBody = "); " ++ prng ++ "var res: std.ArrayListUnmanaged(@TypeOf(__sample_seq[0])) = .{}; var idx: std.ArrayListUnmanaged(usize) = .{}; for (__sample_seq, 0..) |_, i| idx.append(__global_allocator, i) catch continue; _r.shuffle(usize, idx.items); for (idx.items[0..@min(k, idx.items.len)]) |i| res.append(__global_allocator, __sample_seq[i]) catch continue; break :__sample_blk res.items; }";
 const uniformBody = "; " ++ prng ++ "const rv = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :blk a + (b - a) * rv; }";
 const gaussBody = "; " ++ prng ++ "const u1 = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); const u2 = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :blk mu + sigma * @sqrt(-2.0 * @log(u1)) * @cos(2.0 * std.math.pi * u2); }";
 
@@ -67,7 +67,7 @@ fn genChoices(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
     try self.emit("__choices_blk: { const __choices_seq = "); try self.genExpr(args[0]); try self.emit("; const k: usize = ");
     if (args.len > 1) { try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit(")"); } else try self.emit("1");
-    try self.emit("; " ++ prng ++ "var res: std.ArrayList(@TypeOf(__choices_seq[0])) = .{}; var i: usize = 0; while (i < k) : (i += 1) res.append(__global_allocator, __choices_seq[_prng.random().int(usize) % __choices_seq.len]) catch continue; break :__choices_blk res.items; }");
+    try self.emit("; " ++ prng ++ "var res: std.ArrayListUnmanaged(@TypeOf(__choices_seq[0])) = .{}; var i: usize = 0; while (i < k) : (i += 1) res.append(__global_allocator, __choices_seq[_prng.random().int(usize) % __choices_seq.len]) catch continue; break :__choices_blk res.items; }");
 }
 
 /// gammavariate(alpha, beta) - Gamma distribution

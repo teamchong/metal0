@@ -175,12 +175,12 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
             // Check if function_traits analysis determined this list needs PyValue type
             // (will be assigned heterogeneous types later via += or append)
             if (self.varNeedsPyValue(target_name)) {
-                try self.emit("std.ArrayList(runtime.PyValue){}");
+                try self.emit("std.ArrayListUnmanaged(runtime.PyValue){}");
                 return;
             }
 
             // Look up the inferred type for this variable
-            var type_buf = std.ArrayList(u8){};
+            var type_buf = std.ArrayListUnmanaged(u8){};
             defer type_buf.deinit(self.allocator);
             const var_type = self.type_inferrer.getScopedVar(target_name) orelse
                 self.type_inferrer.var_types.get(target_name);
@@ -188,14 +188,14 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
                 vt.toZigType(self.allocator, &type_buf) catch {};
                 if (type_buf.items.len > 0) {
                     // Check if it's a string list (PyObject = strings in our context)
-                    if (std.mem.indexOf(u8, type_buf.items, "std.ArrayList(*runtime.PyObject)") != null or
-                        std.mem.indexOf(u8, type_buf.items, "std.ArrayList([]const u8)") != null)
+                    if (std.mem.indexOf(u8, type_buf.items, "std.ArrayListUnmanaged(*runtime.PyObject)") != null or
+                        std.mem.indexOf(u8, type_buf.items, "std.ArrayListUnmanaged([]const u8)") != null)
                     {
-                        try self.emit("std.ArrayList([]const u8){}");
+                        try self.emit("std.ArrayListUnmanaged([]const u8){}");
                         return;
                     }
                     // Use the inferred type directly if it's an ArrayList
-                    if (std.mem.startsWith(u8, type_buf.items, "std.ArrayList(")) {
+                    if (std.mem.startsWith(u8, type_buf.items, "std.ArrayListUnmanaged(")) {
                         try self.emit(type_buf.items);
                         try self.emit("{}");
                         return;
@@ -204,7 +204,7 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
             }
         }
         // Default to i64 for empty lists without type context
-        try self.emit("std.ArrayList(i64){}");
+        try self.emit("std.ArrayListUnmanaged(i64){}");
         return;
     }
 
@@ -267,7 +267,7 @@ fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     try self.emitIndent();
     try self.emit("var ");
     try self.emit(list_var);
-    try self.emit(" = std.ArrayList(T){};\n");
+    try self.emit(" = std.ArrayListUnmanaged(T){};\n");
 
     // Inline loop - unrolled at Zig compile time!
     try self.emitIndent();
@@ -390,7 +390,7 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 
     try self.emit("var ");
     try self.emit(list_var);
-    try self.emit(" = std.ArrayList(");
+    try self.emit(" = std.ArrayListUnmanaged(");
     try elem_type.toZigType(self.allocator, &self.output);
     try self.emit("){};\n");
 

@@ -148,7 +148,7 @@ fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     } else {
         try self.emit("const _dir_path = \".\"; ");
     }
-    try self.emit("var _entries: std.ArrayList([]const u8) = .{}; var _dir = std.fs.cwd().openDir(_dir_path, .{ .iterate = true }) catch break :os_listdir_blk _entries; defer _dir.close(); var _iter = _dir.iterate(); while (_iter.next() catch null) |entry| { const _name = __global_allocator.dupe(u8, entry.name) catch continue; _entries.append(__global_allocator, _name) catch continue; } break :os_listdir_blk _entries; }");
+    try self.emit("var _entries: std.ArrayListUnmanaged([]const u8) = .{}; var _dir = std.fs.cwd().openDir(_dir_path, .{ .iterate = true }) catch break :os_listdir_blk _entries; defer _dir.close(); var _iter = _dir.iterate(); while (_iter.next() catch null) |entry| { const _name = __global_allocator.dupe(u8, entry.name) catch continue; _entries.append(__global_allocator, _name) catch continue; } break :os_listdir_blk _entries; }");
 }
 
 fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -270,7 +270,7 @@ fn genWalk(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
     try self.emit("os_walk_blk: { const _root = ");
     try self.genExpr(args[0]);
-    try self.emit("; var _results: std.ArrayList(struct { []const u8, std.ArrayList([]const u8), std.ArrayList([]const u8) }) = .{}; var _dirs: std.ArrayList([]const u8) = .{}; _dirs.append(__global_allocator, _root) catch {}; while (_dirs.items.len > 0) { const _cur = _dirs.pop(); var _subdirs: std.ArrayList([]const u8) = .{}; var _files: std.ArrayList([]const u8) = .{}; var _dir = std.fs.cwd().openDir(_cur, .{ .iterate = true }) catch continue; defer _dir.close(); var _it = _dir.iterate(); while (_it.next() catch null) |_e| { const _name = __global_allocator.dupe(u8, _e.name) catch continue; if (_e.kind == .directory) { _subdirs.append(__global_allocator, _name) catch continue; const _full = std.fs.path.join(__global_allocator, &.{_cur, _name}) catch continue; _dirs.append(__global_allocator, _full) catch continue; } else { _files.append(__global_allocator, _name) catch continue; } } _results.append(__global_allocator, .{ _cur, _subdirs, _files }) catch continue; } break :os_walk_blk _results; }");
+    try self.emit("; var _results: std.ArrayListUnmanaged(struct { []const u8, std.ArrayListUnmanaged([]const u8), std.ArrayListUnmanaged([]const u8) }) = .{}; var _dirs: std.ArrayListUnmanaged([]const u8) = .{}; _dirs.append(__global_allocator, _root) catch {}; while (_dirs.items.len > 0) { const _cur = _dirs.pop(); var _subdirs: std.ArrayListUnmanaged([]const u8) = .{}; var _files: std.ArrayListUnmanaged([]const u8) = .{}; var _dir = std.fs.cwd().openDir(_cur, .{ .iterate = true }) catch continue; defer _dir.close(); var _it = _dir.iterate(); while (_it.next() catch null) |_e| { const _name = __global_allocator.dupe(u8, _e.name) catch continue; if (_e.kind == .directory) { _subdirs.append(__global_allocator, _name) catch continue; const _full = std.fs.path.join(__global_allocator, &.{_cur, _name}) catch continue; _dirs.append(__global_allocator, _full) catch continue; } else { _files.append(__global_allocator, _name) catch continue; } } _results.append(__global_allocator, .{ _cur, _subdirs, _files }) catch continue; } break :os_walk_blk _results; }");
 }
 
 fn genScandir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -282,7 +282,7 @@ fn genScandir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     } else {
         try self.emit("const _dir_path = \".\"; ");
     }
-    try self.emit("const DirEntry = struct { name: []const u8, path: []const u8, is_dir: bool, is_file: bool }; var _entries: std.ArrayList(DirEntry) = .{}; var _dir = std.fs.cwd().openDir(_dir_path, .{ .iterate = true }) catch break :os_scandir_blk _entries; defer _dir.close(); var _iter = _dir.iterate(); while (_iter.next() catch null) |entry| { const _name = __global_allocator.dupe(u8, entry.name) catch continue; const _path = std.fs.path.join(__global_allocator, &.{_dir_path, _name}) catch continue; _entries.append(__global_allocator, .{ .name = _name, .path = _path, .is_dir = entry.kind == .directory, .is_file = entry.kind == .file }) catch continue; } break :os_scandir_blk _entries; }");
+    try self.emit("const DirEntry = struct { name: []const u8, path: []const u8, is_dir: bool, is_file: bool }; var _entries: std.ArrayListUnmanaged(DirEntry) = .{}; var _dir = std.fs.cwd().openDir(_dir_path, .{ .iterate = true }) catch break :os_scandir_blk _entries; defer _dir.close(); var _iter = _dir.iterate(); while (_iter.next() catch null) |entry| { const _name = __global_allocator.dupe(u8, entry.name) catch continue; const _path = std.fs.path.join(__global_allocator, &.{_dir_path, _name}) catch continue; _entries.append(__global_allocator, .{ .name = _name, .path = _path, .is_dir = entry.kind == .directory, .is_file = entry.kind == .file }) catch continue; } break :os_scandir_blk _entries; }");
 }
 
 fn genSymlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

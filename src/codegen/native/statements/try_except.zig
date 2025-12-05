@@ -386,12 +386,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         value: ast.Node, // The RHS expression for type inference
         is_exception_name: bool = false, // true if this is an "except X as name" variable
     };
-    var declared_vars = std.ArrayList(HoistedVar){};
+    var declared_vars = std.ArrayListUnmanaged(HoistedVar){};
     defer declared_vars.deinit(self.allocator);
 
     // Helper to add variable if not already declared
     const addVarIfNeeded = struct {
-        fn add(list: *std.ArrayList(HoistedVar), codegen: *NativeCodegen, var_name: []const u8, value: ast.Node) !void {
+        fn add(list: *std.ArrayListUnmanaged(HoistedVar), codegen: *NativeCodegen, var_name: []const u8, value: ast.Node) !void {
             // Only hoist if not already declared in scope or previously hoisted
             if (!codegen.isDeclared(var_name) and !codegen.hoisted_vars.contains(var_name)) {
                 // Check if already in list
@@ -405,7 +405,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
     // Recursively collect assigned variables from try body (including nested if/for/while)
     const collectAssignedVarsRecursive = struct {
-        fn collect(stmts: []ast.Node, list: *std.ArrayList(HoistedVar), codegen: *NativeCodegen, addFn: anytype) !void {
+        fn collect(stmts: []ast.Node, list: *std.ArrayListUnmanaged(HoistedVar), codegen: *NativeCodegen, addFn: anytype) !void {
             for (stmts) |stmt| {
                 switch (stmt) {
                     .assign => |assign| {
@@ -556,11 +556,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     // Generate try block with exception handling
     if (try_node.handlers.len > 0) {
         // Collect read-only captured variables (not written in try block)
-        var read_only_vars = std.ArrayList([]const u8){};
+        var read_only_vars = std.ArrayListUnmanaged([]const u8){};
         defer read_only_vars.deinit(self.allocator);
 
         // Collect written variables from outer scope (need pointers)
-        var written_outer_vars = std.ArrayList([]const u8){};
+        var written_outer_vars = std.ArrayListUnmanaged([]const u8){};
         defer written_outer_vars.deinit(self.allocator);
 
         var declared_var_set = FnvVoidMap.init(self.allocator);
@@ -693,10 +693,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (param_count > 0) try self.emit(", ");
             try self.emit("p_");
             try self.emit(var_name);
-            // Special case: __gen_result is always std.ArrayList(runtime.PyValue)
+            // Special case: __gen_result is always std.ArrayListUnmanaged(runtime.PyValue)
             // This is a codegen-generated variable, not user-defined, so type inference won't find it
             if (std.mem.eql(u8, var_name, "__gen_result")) {
-                try self.emit(": *std.ArrayList(runtime.PyValue)");
+                try self.emit(": *std.ArrayListUnmanaged(runtime.PyValue)");
                 param_count += 1;
                 continue;
             }
@@ -748,7 +748,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         // Save any existing renames for read_only_vars before overwriting
         // (e.g., function param `x` -> `__p_x_0` needs to be restored after try block)
-        var saved_read_only_renames = std.ArrayList(struct { name: []const u8, rename: []const u8 }){};
+        var saved_read_only_renames = std.ArrayListUnmanaged(struct { name: []const u8, rename: []const u8 }){};
         defer saved_read_only_renames.deinit(self.allocator);
         for (read_only_vars.items) |var_name| {
             if (self.var_renames.get(var_name)) |existing_rename| {
@@ -778,7 +778,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.emit(");\n");
 
             // Add to rename map
-            var buf = std.ArrayList(u8){};
+            var buf = std.ArrayListUnmanaged(u8){};
             try buf.writer(self.allocator).print("__local_{s}", .{var_name});
             const renamed = try buf.toOwnedSlice(self.allocator);
             try self.var_renames.put(var_name, renamed);
@@ -792,7 +792,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // It's a codegen-generated variable not visible in the AST, so skip usage check
             if (std.mem.eql(u8, var_name, "__gen_result")) {
                 // Add to rename map to use dereferenced pointer (no discard needed)
-                var buf = std.ArrayList(u8){};
+                var buf = std.ArrayListUnmanaged(u8){};
                 try buf.writer(self.allocator).print("p_{s}.*", .{var_name});
                 const renamed = try buf.toOwnedSlice(self.allocator);
                 try self.var_renames.put(var_name, renamed);
@@ -820,7 +820,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
 
             // Add to rename map to use dereferenced pointer
-            var buf = std.ArrayList(u8){};
+            var buf = std.ArrayListUnmanaged(u8){};
             try buf.writer(self.allocator).print("p_{s}.*", .{var_name});
             const renamed = try buf.toOwnedSlice(self.allocator);
             try self.var_renames.put(var_name, renamed);
@@ -828,7 +828,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         // Save any existing import-shadowing renames for hoisted vars before overwriting
         // (we'll restore them after generating the helper body)
-        var saved_hoisted_renames = std.ArrayList(struct { name: []const u8, rename: []const u8 }){};
+        var saved_hoisted_renames = std.ArrayListUnmanaged(struct { name: []const u8, rename: []const u8 }){};
         defer saved_hoisted_renames.deinit(self.allocator);
         for (declared_vars.items) |hoisted| {
             if (self.var_renames.get(hoisted.name)) |existing_rename| {
@@ -857,7 +857,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
 
             // Add to rename map to use dereferenced pointer
-            var buf = std.ArrayList(u8){};
+            var buf = std.ArrayListUnmanaged(u8){};
             try buf.writer(self.allocator).print("p_{s}.*", .{hoisted.name});
             const renamed = try buf.toOwnedSlice(self.allocator);
             try self.var_renames.put(hoisted.name, renamed);

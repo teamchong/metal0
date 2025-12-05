@@ -50,7 +50,7 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // split(separator) or split(separator, maxsplit)
     try self.emit("blk: {\n");
-    try self.emit("    var _split_result = std.ArrayList([]const u8){};\n");
+    try self.emit("    var _split_result = std.ArrayListUnmanaged([]const u8){};\n");
     try self.emit("    var _split_iter = std.mem.splitSequence(u8, ");
     try self.genExpr(obj);
     try self.emit(", ");
@@ -178,7 +178,7 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
         try self.genExpr(args[2]);
         try self.emit("));\n");
         try self.emit("    if (_repl_count == 0) break :blk _repl_text;\n");
-        try self.emit("    var _repl_result = std.ArrayList(u8){};\n");
+        try self.emit("    var _repl_result = std.ArrayListUnmanaged(u8){};\n");
         try self.emit("    var _repl_pos: usize = 0;\n");
         try self.emit("    while (_repl_pos < _repl_text.len and _repl_count > 0) {\n");
         try self.emit("        if (std.mem.indexOf(u8, _repl_text[_repl_pos..], _repl_old)) |idx| {\n");
@@ -441,7 +441,7 @@ pub fn genSplitlines(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
         try self.emit("    const _keepends = false;\n");
     }
 
-    try self.emit("    var _result = std.ArrayList([]const u8){};\n");
+    try self.emit("    var _result = std.ArrayListUnmanaged([]const u8){};\n");
     try self.emit("    var _start: usize = 0;\n");
     try self.emit("    var _i: usize = 0;\n");
     try self.emit("    while (_i < _text.len) {\n");
@@ -573,7 +573,7 @@ pub fn genRsplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.emit("    const _sep = ");
         try self.genExpr(args[0]);
         try self.emit(";\n");
-        try self.emit("    var _result = std.ArrayList([]const u8){};\n");
+        try self.emit("    var _result = std.ArrayListUnmanaged([]const u8){};\n");
 
         if (args.len >= 2) {
             try self.emit("    const _maxsplit = @as(usize, @intCast(");

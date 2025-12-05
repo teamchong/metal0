@@ -549,7 +549,7 @@ pub fn genIntersectionUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.No
 
     // Collect keys to remove (can't modify while iterating)
     try self.emitIndent();
-    try self.emit("var __to_remove = std.ArrayList(@TypeOf(");
+    try self.emit("var __to_remove = std.ArrayListUnmanaged(@TypeOf(");
     try emitObjExpr(self, obj);
     try self.emit(".iterator().next().?.key_ptr.*)){};\n");
 
@@ -662,12 +662,12 @@ pub fn genSymmetricDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: [
 
     // Collect keys to remove (in both sets)
     try self.emitIndent();
-    try self.emit("var __to_remove = std.ArrayList(@TypeOf(");
+    try self.emit("var __to_remove = std.ArrayListUnmanaged(@TypeOf(");
     try emitObjExpr(self, obj);
     try self.emit(".iterator().next().?.key_ptr.*)){};\n");
 
     try self.emitIndent();
-    try self.emit("var __to_add = std.ArrayList(@TypeOf(");
+    try self.emit("var __to_add = std.ArrayListUnmanaged(@TypeOf(");
     try emitObjExpr(self, obj);
     try self.emit(".iterator().next().?.key_ptr.*)){};\n");
 

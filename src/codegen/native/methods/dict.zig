@@ -98,7 +98,7 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     }
 
     try self.emitIndent();
-    try self.emit("var _keys_list = std.ArrayList([]const u8){};\n");
+    try self.emit("var _keys_list = std.ArrayListUnmanaged([]const u8){};\n");
 
     try self.emitIndent();
     try self.emit("for (");
@@ -154,7 +154,7 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     }
 
     try self.emitIndent();
-    try self.emit("var _values_list = std.ArrayList(");
+    try self.emit("var _values_list = std.ArrayListUnmanaged(");
     try val_type.toZigType(self.allocator, &self.output);
     try self.emit("){};\n");
 
@@ -212,7 +212,7 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     }
 
     try self.emitIndent();
-    try self.emit("var _items_list = std.ArrayList(std.meta.Tuple(&[_]type{[]const u8, ");
+    try self.emit("var _items_list = std.ArrayListUnmanaged(std.meta.Tuple(&[_]type{[]const u8, ");
     try val_type.toZigType(self.allocator, &self.output);
     try self.emit("})){};\n");
 

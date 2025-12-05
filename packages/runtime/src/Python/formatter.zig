@@ -42,7 +42,7 @@ pub const PyFloatFormatOptions = struct {
 /// Canonical Python float formatter - handles NaN, inf, sign flags, precision
 /// ALL other float formatters should call this function.
 pub fn formatPythonFloat(allocator: std.mem.Allocator, value: f64, options: PyFloatFormatOptions) ![]const u8 {
-    var result = std.ArrayList(u8){};
+    var result = std.ArrayListUnmanaged(u8){};
     errdefer result.deinit(allocator);
 
     // Handle NaN - Python convention: NaN is always "nan" (never "-nan")
@@ -148,7 +148,7 @@ pub fn formatPyObject(obj: *PyObject, allocator: std.mem.Allocator) ![]const u8 
         },
         .int => blk: {
             const int_data: *PyInt = @ptrCast(@alignCast(obj.data));
-            var buf = std.ArrayList(u8){};
+            var buf = std.ArrayListUnmanaged(u8){};
             try buf.writer(allocator).print("{d}", .{int_data.value});
             break :blk try buf.toOwnedSlice(allocator);
         },
@@ -163,7 +163,7 @@ pub fn formatPyObject(obj: *PyObject, allocator: std.mem.Allocator) ![]const u8 
         },
         .dict => blk: {
             const dict_data: *PyDict = @ptrCast(@alignCast(obj.data));
-            var buf = std.ArrayList(u8){};
+            var buf = std.ArrayListUnmanaged(u8){};
             try buf.appendSlice(allocator, "{");
 
             var it = dict_data.map.iterator();
@@ -204,7 +204,7 @@ pub fn formatPyObject(obj: *PyObject, allocator: std.mem.Allocator) ![]const u8 
 /// Supports both StringHashMap and ArrayList(KV) for dict comprehensions
 /// ArrayList preserves insertion order (Python 3.7+ behavior)
 pub fn PyDict_AsString(dict: anytype, allocator: std.mem.Allocator) ![]const u8 {
-    var buf = std.ArrayList(u8){};
+    var buf = std.ArrayListUnmanaged(u8){};
     try buf.appendSlice(allocator, "{");
 
     const T = @TypeOf(dict);
@@ -421,7 +421,7 @@ fn applyPadding(allocator: std.mem.Allocator, content: []const u8, spec: FormatS
     if (content.len >= width) return allocator.dupe(u8, content);
 
     const padding = width - content.len;
-    var result = std.ArrayList(u8){};
+    var result = std.ArrayListUnmanaged(u8){};
 
     switch (spec.alignment) {
         .left => {
@@ -469,7 +469,7 @@ fn applyZeroPaddingWithGrouping(allocator: std.mem.Allocator, content: []const u
     }
 
     // Extract integer digits (without sign and separators)
-    var int_digits = std.ArrayList(u8){};
+    var int_digits = std.ArrayListUnmanaged(u8){};
     for (content[sign_end..decimal_pos]) |c| {
         if (c != sep) {
             try int_digits.append(allocator, c);
@@ -499,7 +499,7 @@ fn applyZeroPaddingWithGrouping(allocator: std.mem.Allocator, content: []const u
     }
 
     // Now build the result with the calculated zeros
-    var all_int_digits = std.ArrayList(u8){};
+    var all_int_digits = std.ArrayListUnmanaged(u8){};
     var z: usize = 0;
     while (z < zeros_to_add) : (z += 1) {
         try all_int_digits.append(allocator, '0');
@@ -507,7 +507,7 @@ fn applyZeroPaddingWithGrouping(allocator: std.mem.Allocator, content: []const u
     try all_int_digits.appendSlice(allocator, int_digits.items);
 
     // Build result with grouping
-    var result = std.ArrayList(u8){};
+    var result = std.ArrayListUnmanaged(u8){};
 
     // Copy sign if present
     if (sign_end > 0) {
@@ -568,7 +568,7 @@ fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, int_s
     // The actual end of the numeric part we group
     const numeric_end = exponent_pos;
 
-    var result = std.ArrayList(u8){};
+    var result = std.ArrayListUnmanaged(u8){};
 
     // Copy sign if present
     if (start_pos > 0) {
@@ -646,7 +646,7 @@ fn formatSignificantFigures(allocator: std.mem.Allocator, value: f64, sig_figs: 
         return "0.0";
     }
 
-    var buf = std.ArrayList(u8){};
+    var buf = std.ArrayListUnmanaged(u8){};
     errdefer buf.deinit(allocator);
 
     const abs_val = @abs(value);
@@ -725,7 +725,7 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
     var spec = parseFormatSpec(spec_str);
 
     const T = @TypeOf(value);
-    var buf = std.ArrayList(u8){};
+    var buf = std.ArrayListUnmanaged(u8){};
 
     // Format the value based on type
     if (T == []const u8 or T == [:0]const u8) {
@@ -1009,7 +1009,7 @@ pub fn pyMod(allocator: std.mem.Allocator, left: anytype, right: anytype) ![]con
     } else if (@typeInfo(L) == .int or @typeInfo(L) == .comptime_int) {
         // Numeric modulo - return result as string for consistency
         const result = @rem(left, right);
-        var buf = std.ArrayList(u8){};
+        var buf = std.ArrayListUnmanaged(u8){};
         try buf.writer(allocator).print("{d}", .{result});
         return buf.toOwnedSlice(allocator);
     } else if (@typeInfo(L) == .float or @typeInfo(L) == .comptime_float) {
@@ -1063,7 +1063,7 @@ pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anyt
     // width: digits
     // precision: .digits
     // conversion: s, d, i, f, e, g, x, X, o, r, %
-    var result = std.ArrayList(u8){};
+    var result = std.ArrayListUnmanaged(u8){};
     var i: usize = 0;
     while (i < format_str.len) {
         if (format_str[i] == '%' and i + 1 < format_str.len) {

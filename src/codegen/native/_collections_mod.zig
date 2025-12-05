@@ -13,5 +13,5 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { var d = std.ArrayList(@TypeOf("); try self.genExpr(args[0]); try self.emit("[0])).init(__global_allocator); d.appendSlice("); try self.genExpr(args[0]); try self.emit(") catch {}; break :blk .{ .items = d.items, .maxlen = null }; }"); } else { try self.emit(".{ .items = &[_]@TypeOf(0){}, .maxlen = null }"); }
+    if (args.len > 0) { try self.emit("blk: { var d = std.ArrayListUnmanaged(@TypeOf("); try self.genExpr(args[0]); try self.emit("[0])).init(__global_allocator); d.appendSlice("); try self.genExpr(args[0]); try self.emit(") catch {}; break :blk .{ .items = d.items, .maxlen = null }; }"); } else { try self.emit(".{ .items = &[_]@TypeOf(0){}, .maxlen = null }"); }
 }

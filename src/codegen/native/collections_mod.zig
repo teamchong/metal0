@@ -100,7 +100,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "namedtuple", genNamedtuple },
     .{ "ChainMap", genChainMap },
     .{ "UserDict", h.discard("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)") },
-    .{ "UserList", h.discard("std.ArrayList(*runtime.PyObject){}") },
+    .{ "UserList", h.discard("std.ArrayListUnmanaged(*runtime.PyObject){}") },
     .{ "UserString", h.pass("\"\"") },
 });
 
@@ -114,8 +114,8 @@ pub const genCounter = h.wrap(
 
 pub const genDeque = h.wrap(
     "deque_blk: { const _iter_raw = ",
-    "; const _iterable = runtime.iterSlice(_iter_raw); var _deque = std.ArrayList(@TypeOf(_iterable[0])){}; for (_iterable) |item| { _deque.append(__global_allocator, item) catch continue; } break :deque_blk _deque; }",
-    "std.ArrayList(i64){}",
+    "; const _iterable = runtime.iterSlice(_iter_raw); var _deque = std.ArrayListUnmanaged(@TypeOf(_iterable[0])){}; for (_iterable) |item| { _deque.append(__global_allocator, item) catch continue; } break :deque_blk _deque; }",
+    "std.ArrayListUnmanaged(i64){}",
 );
 
 /// Generate code for collections.namedtuple(typename, field_names)
@@ -161,10 +161,10 @@ pub fn genNamedtuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// A ChainMap groups multiple dicts into a single view
 pub fn genChainMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("chainmap_blk: { var _maps = std.ArrayList(hashmap_helper.StringHashMap(*runtime.PyObject)){}; break :chainmap_blk _maps; }");
+        try self.emit("chainmap_blk: { var _maps = std.ArrayListUnmanaged(hashmap_helper.StringHashMap(*runtime.PyObject)){}; break :chainmap_blk _maps; }");
         return;
     }
-    try self.emit("chainmap_blk: { var _maps = std.ArrayList(@TypeOf(");
+    try self.emit("chainmap_blk: { var _maps = std.ArrayListUnmanaged(@TypeOf(");
     try self.genExpr(args[0]);
     try self.emit(")){}; ");
     for (args) |arg| {

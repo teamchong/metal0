@@ -341,7 +341,7 @@ fn generateBodyForTypeCheck(
 /// Pattern: if not isint(param): raise TypeError  OR  if not isinstance(param, type): raise TypeError
 /// Returns the checks found and the index of the first non-type-check statement
 pub fn detectTypeCheckRaisePatterns(body: []ast.Node, anytype_params: anytype, allocator: std.mem.Allocator) !struct { checks: []TypeCheckInfo, start_idx: usize } {
-    var checks = std.ArrayList(TypeCheckInfo){};
+    var checks = std.ArrayListUnmanaged(TypeCheckInfo){};
     var idx: usize = 0;
 
     while (idx < body.len) : (idx += 1) {
@@ -694,7 +694,7 @@ pub fn genFunctionBody(
         // For generators, initialize __gen_result ArrayList before body
         if (self.in_generator_function) {
             try self.emitIndent();
-            try self.emit("var __gen_result = std.ArrayList(runtime.PyValue){};\n");
+            try self.emit("var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
             // Suppress unused warning in case function terminates early (e.g., raise before yield)
             try self.emitIndent();
             try self.emit("_ = &__gen_result;\n");
@@ -726,7 +726,7 @@ pub fn genFunctionBody(
         // For generators, initialize __gen_result ArrayList before body
         if (self.in_generator_function) {
             try self.emitIndent();
-            try self.emit("var __gen_result = std.ArrayList(runtime.PyValue){};\n");
+            try self.emit("var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
             // Suppress unused warning in case function terminates early (e.g., raise before yield)
             try self.emitIndent();
             try self.emit("_ = &__gen_result;\n");
@@ -1077,7 +1077,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Condition: We're inside a parent function (func_local_uses has entries from parent scope)
     // AND we're in a nested class (class_nesting_depth > 1, since 1 = regular class method)
     const is_nested_class_in_function = self.func_local_uses.count() > 0 and self.class_nesting_depth > 1;
-    var saved_hoisted_keys = std.ArrayList([]const u8){};
+    var saved_hoisted_keys = std.ArrayListUnmanaged([]const u8){};
     if (is_nested_class_in_function) {
         var iter = self.hoisted_vars.iterator();
         while (iter.next()) |entry| {
@@ -1210,7 +1210,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
 
     // Track parameters that were renamed to avoid method shadowing (e.g., init -> init_arg)
     // We'll restore these when exiting the method
-    var renamed_params = std.ArrayList([]const u8){};
+    var renamed_params = std.ArrayListUnmanaged([]const u8){};
     defer renamed_params.deinit(self.allocator);
 
     // Declare method parameters in the scope (skip 'self')
@@ -1360,7 +1360,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // For generator methods, initialize __gen_result ArrayList before body
         if (is_generator_method) {
             try self.emitIndent();
-            try self.emit("var __gen_result = std.ArrayList(runtime.PyValue){};\n");
+            try self.emit("var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
             try self.emitIndent();
             try self.emit("_ = &__gen_result;\n");
         }

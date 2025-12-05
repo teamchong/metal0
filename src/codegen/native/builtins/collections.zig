@@ -93,7 +93,7 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("const __enum_slice = __enum_iterable;\n");
     }
     try self.emitIndent();
-    try self.emit("var __enum_result = std.ArrayList(std.meta.Tuple(&[_]type{i64, @TypeOf(__enum_slice[0])})){};\n");
+    try self.emit("var __enum_result = std.ArrayListUnmanaged(std.meta.Tuple(&[_]type{i64, @TypeOf(__enum_slice[0])})){};\n");
     try self.emitIndent();
     try self.emit("var __enum_idx: i64 = ");
     if (start) |s| {
@@ -124,7 +124,7 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Note: zip() in for-loops is optimized by for_special.zig
 pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        try self.emit("std.ArrayList(struct{}){}");
+        try self.emit("std.ArrayListUnmanaged(struct{}){}");
         return;
     }
 
@@ -159,7 +159,7 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Create result list - use anytype tuple struct
     try self.emitIndent();
-    try self.emit("var __zip_result = std.ArrayList(struct { ");
+    try self.emit("var __zip_result = std.ArrayListUnmanaged(struct { ");
     for (0..args.len) |i| {
         if (i > 0) try self.emit(", ");
         try self.output.writer(self.allocator).print("@\"{d}\": @TypeOf(__zip_arg_{d}[0])", .{ i, i });
@@ -405,7 +405,7 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         .string, .bytes => "u8", // Strings/bytes are []const u8 or PyBytes (element is u8)
         .list => blk: {
             // Get element type from list
-            var type_buf = std.ArrayList(u8){};
+            var type_buf = std.ArrayListUnmanaged(u8){};
             try arg_type.list.*.toZigType(self.allocator, &type_buf);
             break :blk try type_buf.toOwnedSlice(self.allocator);
         },
@@ -473,7 +473,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.emit("__map_blk: {\n");
                 self.indent();
                 try self.emitIndent();
-                try self.emit("var __map_result = std.ArrayList([]const u8){};\n");
+                try self.emit("var __map_result = std.ArrayListUnmanaged([]const u8){};\n");
                 try self.emitIndent();
                 try self.emit("const __map_iterable = ");
                 try self.genExpr(iterable);
@@ -510,7 +510,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("__map_blk: {\n");
             self.indent();
             try self.emitIndent();
-            try self.emitFmt("var __map_result = std.ArrayList({s}){{}};\n", .{result_type});
+            try self.emitFmt("var __map_result = std.ArrayListUnmanaged({s}){{}};\n", .{result_type});
             try self.emitIndent();
             try self.emit("const __map_iterable = ");
             try self.genExpr(iterable);
@@ -543,7 +543,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const lambda = func.lambda;
         // Infer result type from lambda body
         const result_type = self.type_inferrer.inferExpr(lambda.body.*) catch .unknown;
-        var type_buf = std.ArrayList(u8){};
+        var type_buf = std.ArrayListUnmanaged(u8){};
         defer type_buf.deinit(self.allocator);
         try result_type.toZigType(self.allocator, &type_buf);
         const zig_result_type = type_buf.items;
@@ -551,7 +551,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("(__map_blk: {\n");
         self.indent();
         try self.emitIndent();
-        try self.emitFmt("var __map_result = std.ArrayList({s}){{}};\n", .{zig_result_type});
+        try self.emitFmt("var __map_result = std.ArrayListUnmanaged({s}){{}};\n", .{zig_result_type});
         try self.emitIndent();
         try self.emit("const __map_iterable = ");
         try self.genExpr(iterable);
@@ -612,7 +612,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(func);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var __map_result = std.ArrayList(@TypeOf(__map_func(__map_slice[0]))){};\n");
+    try self.emit("var __map_result = std.ArrayListUnmanaged(@TypeOf(__map_func(__map_slice[0]))){};\n");
     try self.emitIndent();
     try self.emit("for (__map_slice) |__map_item| {\n");
     self.indent();

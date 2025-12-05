@@ -291,7 +291,7 @@ fn genExprWithSubs(
                     try self.emit(")}");
                 } else {
                     // General case: generate list with substitution
-                    try self.emit("blk: { var _bytes_list = std.ArrayList(u8){}; ");
+                    try self.emit("blk: { var _bytes_list = std.ArrayListUnmanaged(u8){}; ");
                     if (c.args[0] == .list) {
                         for (c.args[0].list.elts) |elt| {
                             try self.emit("try _bytes_list.append(__global_allocator, @intCast(");
@@ -358,7 +358,7 @@ fn genExprWithSubs(
             try self.output.writer(self.allocator).print("{d}: {{\n", .{list_id});
             self.indent();
             try self.emitIndent();
-            try self.emit("var _list = std.ArrayList(i64){};\n");
+            try self.emit("var _list = std.ArrayListUnmanaged(i64){};\n");
             for (l.elts) |elt| {
                 try self.emitIndent();
                 try self.emit("try _list.append(__global_allocator, ");
@@ -597,7 +597,7 @@ fn genSimdListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, simd: func
 
     // Convert to ArrayList for compatibility
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("var __list = std.ArrayList(i64){{}};\n", .{});
+    try self.output.writer(self.allocator).print("var __list = std.ArrayListUnmanaged(i64){{}};\n", .{});
     try self.emitIndent();
     try self.output.writer(self.allocator).print("try __list.appendSlice(__global_allocator, &__result);\n", .{});
     try self.emitIndent();
@@ -666,7 +666,7 @@ fn genParallelListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, parall
 
     // Convert to ArrayList for compatibility
     try self.emitIndent();
-    try self.emit("var __list = std.ArrayList(i64){};\n");
+    try self.emit("var __list = std.ArrayListUnmanaged(i64){};\n");
     try self.emitIndent();
     try self.emit("__list.items = __slice;\n");
     try self.emitIndent();
@@ -728,7 +728,7 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
             const iter_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
             if (iter_type == .pyvalue) {
                 // PyValue iteration - emit empty PyValue list directly
-                try self.emit("std.ArrayList(runtime.PyValue){}\n");
+                try self.emit("std.ArrayListUnmanaged(runtime.PyValue){}\n");
                 return;
             }
         }
@@ -745,7 +745,7 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         if (listcomp.elt.* == .tuple) {
             // Tuple element like (a,) - need to infer types of each element
             const tuple = listcomp.elt.tuple;
-            var type_buf = std.ArrayList(u8){};
+            var type_buf = std.ArrayListUnmanaged(u8){};
             const writer = type_buf.writer(self.allocator);
             writer.writeAll("struct { ") catch {};
             for (tuple.elts, 0..) |elt, idx| {
@@ -811,9 +811,9 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
         break :blk "i64";
     };
 
-    // Generate: var __comp_result_N = std.ArrayList(ElementType){};
+    // Generate: var __comp_result_N = std.ArrayListUnmanaged(ElementType){};
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("var __comp_result_{d} = std.ArrayList(", .{label_id});
+    try self.output.writer(self.allocator).print("var __comp_result_{d} = std.ArrayListUnmanaged(", .{label_id});
     try self.emit(element_type);
     try self.emit("){};\n");
 
@@ -1184,9 +1184,9 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
     // Determine element type from the expression being yielded
     const elem_type = getGenExpElementType(genexp.elt.*);
 
-    // Generate: var __comp_result_N = std.ArrayList(<elem_type>){};
+    // Generate: var __comp_result_N = std.ArrayListUnmanaged(<elem_type>){};
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("var __comp_result_{d} = std.ArrayList({s}){{}};\n", .{ label_id, elem_type });
+    try self.output.writer(self.allocator).print("var __comp_result_{d} = std.ArrayListUnmanaged({s}){{}};\n", .{ label_id, elem_type });
 
     // Generate nested loops for each generator
     for (genexp.generators, 0..) |gen, gen_idx| {

@@ -13,7 +13,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // list() with no args returns empty list
     // Default to i64 element type since it's the most common case
     if (args.len == 0) {
-        try self.emit("std.ArrayList(i64){}");
+        try self.emit("std.ArrayListUnmanaged(i64){}");
         return;
     }
 
@@ -68,7 +68,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Handle this specially to avoid type-checking issues with .* on non-pointers
     if (is_dict_attr) {
         // _raw_iterable is a pointer to the dict - iterate directly via pointer
-        try self.emit("var _list = std.ArrayList([]const u8){};\n");
+        try self.emit("var _list = std.ArrayListUnmanaged([]const u8){};\n");
         try self.emit("for (_raw_iterable.keys()) |_key| {\n");
         try self.emitFmt("try _list.append({s}, _key);\n", .{alloc_name});
         try self.emit("}\n");
@@ -114,7 +114,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("const _is_tuple = _pointed_type_info == .@\"struct\" and _pointed_type_info.@\"struct\".is_tuple;\n");
     // Handle dict by iterating keys
     try self.emit("if (_is_dict) {\n");
-    try self.emit("var _list = std.ArrayList([]const u8){};\n");
+    try self.emit("var _list = std.ArrayListUnmanaged([]const u8){};\n");
     try self.emit("for (_iterable.keys()) |_key| {\n");
     try self.emitFmt("try _list.append({s}, _key);\n", .{alloc_name});
     try self.emit("}\n");
@@ -125,7 +125,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("const _ElemType = if (_is_tuple) runtime.PyValue else blk: { ");
     try self.emit("const __slice_info = if (_pointed_type_info == .@\"struct\" and @hasField(if (_is_ptr) _type_info.pointer.child else _IterType, \"items\")) @typeInfo(@TypeOf(_iterable.items)) else if (_pointed_type_info == .pointer) _pointed_type_info else @typeInfo(_IterType); ");
     try self.emit("break :blk if (__slice_info == .pointer and __slice_info.pointer.size == .slice) __slice_info.pointer.child else if (__slice_info == .array) __slice_info.array.child else runtime.PyValue; };\n");
-    try self.emit("var _list = std.ArrayList(_ElemType){};\n");
+    try self.emit("var _list = std.ArrayListUnmanaged(_ElemType){};\n");
     try self.emit("if (_is_tuple) {\n");
     try self.emit("inline for (0.._pointed_type_info.@\"struct\".fields.len) |_i| {\n");
     try self.emitFmt("try _list.append({s}, try runtime.PyValue.fromAlloc({s}, _iterable[_i]));\n", .{ alloc_name, alloc_name });

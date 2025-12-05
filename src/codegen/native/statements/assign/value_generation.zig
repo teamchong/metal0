@@ -413,7 +413,7 @@ pub fn emitVarDeclaration(
     // This checks both module-level analysis AND function-local mutations
     const is_mutated = self.isVarMutated(var_name);
 
-    // Check if value type is deque - deques need var because std.ArrayList methods (append, etc.)
+    // Check if value type is deque - deques need var because std.ArrayListUnmanaged methods (append, etc.)
     // take *Self, not self pointer. Unlike hashmaps which use *Self parameters and can be const.
     // NOTE: counter/hash_object/defaultdict use hashmaps which take *Self in method signatures,
     // so they can be const unless reassigned (like dicts). Only deque needs var for ArrayList API.
@@ -518,9 +518,9 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
         // Variable already has a type - use .{} to inherit the declared type instead of creating a new struct type
         try self.emit(".{};\n");
     } else {
-        try self.emit("std.ArrayList(");
+        try self.emit("std.ArrayListUnmanaged(");
         // Generate element type, converting PyObject to []const u8 for string lists
-        var type_buf = std.ArrayList(u8){};
+        var type_buf = std.ArrayListUnmanaged(u8){};
         defer type_buf.deinit(self.allocator);
         try elem_type.toZigType(self.allocator, &type_buf);
         const type_str = if (std.mem.eql(u8, type_buf.items, "*runtime.PyObject"))
@@ -632,7 +632,7 @@ fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: anytype) 
 /// Generate string concatenation with multiple parts
 pub fn genStringConcat(self: *NativeCodegen, assign: ast.Node.Assign, var_name: []const u8, is_first_assignment: bool) CodegenError!void {
     // Collect all parts of the concatenation
-    var parts = std.ArrayList(ast.Node){};
+    var parts = std.ArrayListUnmanaged(ast.Node){};
     defer parts.deinit(self.allocator);
 
     try helpers.flattenConcat(self, assign.value.*, &parts);

@@ -180,10 +180,45 @@ pub fn strLiteral(data: []const u8) []const u8 {
 /// Format bytes as Python bytes repr: b'...' with non-printable bytes escaped
 /// Examples: b'hello' -> "b'hello'", b'\xa0' -> "b'\\xa0'"
 pub fn bytesRepr(allocator: std.mem.Allocator, data: []const u8) ![]const u8 {
-    var buf = std.ArrayList(u8){};
+    var buf = std.ArrayListUnmanaged(u8){};
     errdefer buf.deinit(allocator);
 
     try buf.appendSlice(allocator, "b'");
+
+    for (data) |byte| {
+        if (byte >= 0x20 and byte < 0x7f and byte != '\\' and byte != '\'') {
+            // Printable ASCII (except backslash and quote)
+            try buf.append(allocator, byte);
+        } else if (byte == '\\') {
+            try buf.appendSlice(allocator, "\\\\");
+        } else if (byte == '\'') {
+            try buf.appendSlice(allocator, "\\'");
+        } else if (byte == '\n') {
+            try buf.appendSlice(allocator, "\\n");
+        } else if (byte == '\r') {
+            try buf.appendSlice(allocator, "\\r");
+        } else if (byte == '\t') {
+            try buf.appendSlice(allocator, "\\t");
+        } else {
+            // Non-printable: escape as \xNN
+            try buf.appendSlice(allocator, "\\x");
+            const hex_chars = "0123456789abcdef";
+            try buf.append(allocator, hex_chars[byte >> 4]);
+            try buf.append(allocator, hex_chars[byte & 0xf]);
+        }
+    }
+
+    try buf.append(allocator, '\'');
+    return buf.toOwnedSlice(allocator);
+}
+
+/// Python string repr - wraps in quotes and escapes non-printable characters
+/// Unlike bytesRepr, this handles UTF-8 sequences and escapes them as \xNN
+pub fn stringRepr(allocator: std.mem.Allocator, data: []const u8) ![]const u8 {
+    var buf = std.ArrayListUnmanaged(u8){};
+    errdefer buf.deinit(allocator);
+
+    try buf.append(allocator, '\'');
 
     for (data) |byte| {
         if (byte >= 0x20 and byte < 0x7f and byte != '\\' and byte != '\'') {
@@ -1014,7 +1049,7 @@ pub fn tupleRepr(allocator: std.mem.Allocator, tup: anytype) ![]const u8 {
     // Empty tuple
     if (num_fields == 0) return "()";
 
-    var result = std.ArrayList(u8){};
+    var result = std.ArrayListUnmanaged(u8){};
     errdefer result.deinit(allocator);
 
     try result.append(allocator, '(');
@@ -1059,7 +1094,7 @@ fn pythonFloatRepr(allocator: std.mem.Allocator, value: f64) ![]const u8 {
         // 1. Explicit + sign for positive exponents
         // 2. At least 2 digits in exponent (e.g., e-05 not e-5)
         const formatted = try std.fmt.allocPrint(allocator, "{e}", .{value});
-        var result = std.ArrayList(u8){};
+        var result = std.ArrayListUnmanaged(u8){};
         var i: usize = 0;
         while (i < formatted.len) : (i += 1) {
             try result.append(allocator, formatted[i]);
@@ -1109,7 +1144,7 @@ fn pythonFloatRepr(allocator: std.mem.Allocator, value: f64) ![]const u8 {
 
     // If no decimal, add ".0" suffix for integer-valued floats
     if (!has_decimal and !has_exponent) {
-        var result = std.ArrayList(u8){};
+        var result = std.ArrayListUnmanaged(u8){};
         try result.appendSlice(allocator, formatted);
         try result.appendSlice(allocator, ".0");
         allocator.free(formatted);
@@ -1144,13 +1179,9 @@ fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
         return bytesRepr(allocator, value.data);
     }
 
-    // String - wrap in quotes
+    // String - wrap in quotes with proper escaping
     if (T == []const u8 or T == []u8) {
-        var buf = std.ArrayList(u8){};
-        try buf.append(allocator, '\'');
-        try buf.appendSlice(allocator, value);
-        try buf.append(allocator, '\'');
-        return buf.toOwnedSlice(allocator);
+        return stringRepr(allocator, value);
     }
 
     // Bool - Python True/False
@@ -1186,7 +1217,7 @@ fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
 fn sliceAsTupleRepr(allocator: std.mem.Allocator, slice: anytype) ![]const u8 {
     if (slice.len == 0) return "()";
 
-    var result = std.ArrayList(u8){};
+    var result = std.ArrayListUnmanaged(u8){};
     errdefer result.deinit(allocator);
 
     try result.append(allocator, '(');
@@ -2488,7 +2519,7 @@ pub fn breakpoint() void {
 /// print(*args) - print values to stdout with space separator and newline
 pub fn print(allocator: std.mem.Allocator, args: anytype) void {
     // Build the output string first, then write to stdout
-    var output = std.ArrayList(u8){};
+    var output = std.ArrayListUnmanaged(u8){};
     defer output.deinit(allocator);
 
     const ArgsType = @TypeOf(args);
@@ -2510,7 +2541,7 @@ pub fn print(allocator: std.mem.Allocator, args: anytype) void {
     _ = std.posix.write(std.posix.STDOUT_FILENO, output.items) catch {};
 }
 
-fn printValueToList(output: *std.ArrayList(u8), value: anytype, allocator: std.mem.Allocator) void {
+fn printValueToList(output: *std.ArrayListUnmanaged(u8), value: anytype, allocator: std.mem.Allocator) void {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
 

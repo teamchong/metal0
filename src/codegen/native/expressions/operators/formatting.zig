@@ -37,7 +37,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     // Use unique buf AND writer names to avoid shadowing in nested format expressions
     // e.g., "%s" % repr(x) where repr(x) generates another format block
     try self.emitFmt("fmt_{d}: {{\n", .{label_id});
-    try self.emitFmt("var __fmt_buf_{d} = std.ArrayList(u8){{}};\n", .{label_id});
+    try self.emitFmt("var __fmt_buf_{d} = std.ArrayListUnmanaged(u8){{}};\n", .{label_id});
     try self.emitFmt("const __writer_{d} = __fmt_buf_{d}.writer({s});\n", .{ label_id, label_id, alloc_name });
 
     // Check if right side is a tuple (multiple values)

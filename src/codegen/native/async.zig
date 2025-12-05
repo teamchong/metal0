@@ -91,7 +91,7 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     if (self.anyAsyncHasIO()) { // State machine for I/O operations
         // State machine: poll all frames concurrently using netpoller
         try self.emit("__gather_blk: {\n");
-        try self.emit("    var __results: std.ArrayList(i64) = .{};\n");
+        try self.emit("    var __results: std.ArrayListUnmanaged(i64) = .{};\n");
 
         // Handle starred expression (asyncio.gather(*tasks))
         if (args.len == 1 and args[0] == .starred) {
@@ -128,7 +128,7 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     } else {
         // Thread-based approach
         try self.emit("__gather_blk: {\n");
-        try self.emit("    var __threads: std.ArrayList(*runtime.GreenThread) = .{};\n");
+        try self.emit("    var __threads: std.ArrayListUnmanaged(*runtime.GreenThread) = .{};\n");
         try self.emit("    defer __threads.deinit(__global_allocator);\n");
 
         // Handle starred expression (asyncio.gather(*tasks))
@@ -149,7 +149,7 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
         }
 
         // Wait for all and collect results
-        try self.emit("    var __results: std.ArrayList(i64) = .{};\n");
+        try self.emit("    var __results: std.ArrayListUnmanaged(i64) = .{};\n");
         try self.emit("    for (__threads.items) |__t| {\n");
         try self.emit("        runtime.scheduler.wait(__t);\n");
         try self.emit("        if (__t.result) |__r| {\n");

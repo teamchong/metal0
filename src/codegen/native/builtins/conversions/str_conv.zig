@@ -283,7 +283,7 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const repr_num_label_id = self.block_label_counter;
         self.block_label_counter += 1;
         try self.emitFmt("repr_num_{d}: {{\n", .{repr_num_label_id});
-        try self.emitFmt("var __repr_num_buf_{d} = std.ArrayList(u8){{}};\n", .{repr_num_label_id});
+        try self.emitFmt("var __repr_num_buf_{d} = std.ArrayListUnmanaged(u8){{}};\n", .{repr_num_label_id});
         try self.emitFmt("try __repr_num_buf_{d}.writer({s}).print(\"{{}}\", .{{", .{ repr_num_label_id, alloc_name });
         try self.genExpr(args[0]);
         try self.emit("});\n");
@@ -307,7 +307,7 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const repr_num_label_id = self.block_label_counter;
         self.block_label_counter += 1;
         try self.emitFmt("repr_num_{d}: {{\n", .{repr_num_label_id});
-        try self.emitFmt("var __repr_num_buf_{d} = std.ArrayList(u8){{}};\n", .{repr_num_label_id});
+        try self.emitFmt("var __repr_num_buf_{d} = std.ArrayListUnmanaged(u8){{}};\n", .{repr_num_label_id});
         try self.emitFmt("try __repr_num_buf_{d}.appendSlice({s}, try (", .{ repr_num_label_id, alloc_name });
         try self.genExpr(args[0]);
         try self.emitFmt(").toDecimalString({s}));\n", .{alloc_name});

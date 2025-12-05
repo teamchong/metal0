@@ -64,7 +64,7 @@ const AwaitType = enum {
 
 /// Analyze an async function to find all await points
 pub fn findAwaitPoints(allocator: std.mem.Allocator, body: []ast.Node) ![]AwaitPoint {
-    var points = std.ArrayList(AwaitPoint){};
+    var points = std.ArrayListUnmanaged(AwaitPoint){};
     errdefer points.deinit(allocator);
 
     var index: usize = 0;
@@ -78,7 +78,7 @@ pub fn findAwaitPoints(allocator: std.mem.Allocator, body: []ast.Node) ![]AwaitP
 fn findAwaitPointsInNode(
     allocator: std.mem.Allocator,
     node: ast.Node,
-    points: *std.ArrayList(AwaitPoint),
+    points: *std.ArrayListUnmanaged(AwaitPoint),
     index: *usize,
 ) !void {
     switch (node) {
@@ -176,7 +176,7 @@ fn getAssignTarget(targets: []ast.Node) ?[]const u8 {
 
 /// Find all local variable assignments in function body
 fn findLocalVariables(allocator: std.mem.Allocator, body: []ast.Node) ![]const []const u8 {
-    var vars = std.ArrayList([]const u8){};
+    var vars = std.ArrayListUnmanaged([]const u8){};
     errdefer vars.deinit(allocator);
 
     for (body) |stmt| {
@@ -186,7 +186,7 @@ fn findLocalVariables(allocator: std.mem.Allocator, body: []ast.Node) ![]const [
     return vars.toOwnedSlice(allocator);
 }
 
-fn findVarsInNode(allocator: std.mem.Allocator, node: ast.Node, vars: *std.ArrayList([]const u8)) !void {
+fn findVarsInNode(allocator: std.mem.Allocator, node: ast.Node, vars: *std.ArrayListUnmanaged([]const u8)) !void {
     switch (node) {
         .assign => |assign| {
             // Don't include await results - those are handled separately
@@ -349,11 +349,11 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
             if (std.mem.eql(u8, var_name, "tasks")) {
                 // Use the actual callee name from list comprehension
                 if (tasks_callee) |callee| {
-                    try self.emit(": std.ArrayList(*");
+                    try self.emit(": std.ArrayListUnmanaged(*");
                     try self.emit(callee);
                     try self.emit("_Frame) = .{},\n");
                 } else {
-                    try self.emit(": std.ArrayList(*anyopaque) = .{},\n");
+                    try self.emit(": std.ArrayListUnmanaged(*anyopaque) = .{},\n");
                 }
             } else if (std.mem.eql(u8, var_name, "start") or std.mem.eql(u8, var_name, "elapsed") or std.mem.eql(u8, var_name, "end")) {
                 try self.emit(": f64 = 0,\n");
@@ -369,7 +369,7 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
             if (point.target_var) |var_name| {
                 try self.emit("    ");
                 try self.emit(var_name);
-                try self.emit(": std.ArrayList(i64) = .{},\n");
+                try self.emit(": std.ArrayListUnmanaged(i64) = .{},\n");
             }
         }
     }
@@ -422,7 +422,7 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
 
 fn genStateHandlers(self: *NativeCodegen, func: ast.Node.FunctionDef, await_points: []const AwaitPoint, local_vars: []const []const u8, tasks_callee: ?[]const u8) CodegenError!void {
     // Collect frame field names for variable remapping
-    var frame_fields = std.ArrayList([]const u8){};
+    var frame_fields = std.ArrayListUnmanaged([]const u8){};
     defer frame_fields.deinit(self.allocator);
 
     // Parameters are frame fields
@@ -816,7 +816,7 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
                     }
                 }
                 try self.emit("comp_blk: {\n");
-                try self.emit("    var __comp_result = std.ArrayList(*");
+                try self.emit("    var __comp_result = std.ArrayListUnmanaged(*");
                 try self.emit(fn_name);
                 try self.emit("_Frame){};\n");
                 // Generate for loop
@@ -958,7 +958,7 @@ fn genAwaitCheck(self: *NativeCodegen, point: AwaitPoint, await_points: []const 
             if (point.target_var) |var_name| {
                 try self.emit("            frame.");
                 try self.emit(var_name);
-                try self.emit(" = std.ArrayList(i64){};\n");
+                try self.emit(" = std.ArrayListUnmanaged(i64){};\n");
                 try self.emit("            frame.");
                 try self.emit(var_name);
                 try self.emit(".ensureTotalCapacity(__global_allocator, frame.tasks.items.len) catch unreachable;\n");
@@ -1140,7 +1140,7 @@ fn genSyncFunction(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenErro
 /// Find variables that are mutated in the function body
 /// A variable is mutated if it has method calls on it or augmented assignments
 fn findMutatedVars(allocator: std.mem.Allocator, body: []ast.Node) ![]const []const u8 {
-    var mutated = std.ArrayList([]const u8){};
+    var mutated = std.ArrayListUnmanaged([]const u8){};
     errdefer mutated.deinit(allocator);
 
     for (body) |stmt| {
@@ -1150,7 +1150,7 @@ fn findMutatedVars(allocator: std.mem.Allocator, body: []ast.Node) ![]const []co
     return mutated.toOwnedSlice(allocator);
 }
 
-fn findMutatedInNode(allocator: std.mem.Allocator, node: ast.Node, mutated: *std.ArrayList([]const u8)) !void {
+fn findMutatedInNode(allocator: std.mem.Allocator, node: ast.Node, mutated: *std.ArrayListUnmanaged([]const u8)) !void {
     switch (node) {
         .expr_stmt => |expr| {
             // Check for method calls: var.method()

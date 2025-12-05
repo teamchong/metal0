@@ -37,7 +37,7 @@ pub fn genFileClose(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 pub fn genFileReadline(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // size parameter ignored for now
     try self.emit("readline_blk: { const _f = "); try self.genExpr(obj);
-    try self.emit("; var _line: std.ArrayList(u8) = .{}; const _reader = _f.file.reader(); ");
+    try self.emit("; var _line: std.ArrayListUnmanaged(u8) = .{}; const _reader = _f.file.reader(); ");
     try self.emit("while (_reader.readByte()) |c| { _line.append(__global_allocator, c) catch break; if (c == '\\n') break; } else |_| {} ");
     try self.emit("break :readline_blk _line.items; }");
 }
@@ -46,8 +46,8 @@ pub fn genFileReadline(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 pub fn genFileReadlines(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit("readlines_blk: { const _f = "); try self.genExpr(obj);
-    try self.emit("; var _lines: std.ArrayList([]const u8) = .{}; const _reader = _f.file.reader(); ");
-    try self.emit("while (true) { var _line: std.ArrayList(u8) = .{}; var _got_data = false; ");
+    try self.emit("; var _lines: std.ArrayListUnmanaged([]const u8) = .{}; const _reader = _f.file.reader(); ");
+    try self.emit("while (true) { var _line: std.ArrayListUnmanaged(u8) = .{}; var _got_data = false; ");
     try self.emit("while (_reader.readByte()) |c| { _got_data = true; _line.append(__global_allocator, c) catch break; if (c == '\\n') break; } else |_| {} ");
     try self.emit("if (!_got_data) break; _lines.append(__global_allocator, _line.items) catch continue; } ");
     try self.emit("break :readlines_blk _lines.items; }");

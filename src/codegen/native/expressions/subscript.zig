@@ -549,7 +549,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.emit("if (__step > 0) @as(i64, @intCast(__s.len)) else -1");
                     }
 
-                    try self.emitFmt("; var __result = std.ArrayList(u8){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(__global_allocator, __s[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(__global_allocator, __s[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(__global_allocator); }}", .{label_id});
+                    try self.emitFmt("; var __result = std.ArrayListUnmanaged(u8){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(__global_allocator, __s[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(__global_allocator, __s[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(__global_allocator); }}", .{label_id});
                 } else if (value_type == .list) {
                     // List slicing with step (supports negative step for reverse iteration)
                     // Get element type to generate proper ArrayList
@@ -581,7 +581,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.emit("if (__step > 0) @as(i64, @intCast(__s.items.len)) else -1");
                     }
 
-                    try self.emit("; var __result = std.ArrayList(");
+                    try self.emit("; var __result = std.ArrayListUnmanaged(");
 
                     // Generate element type
                     try elem_type.toZigType(self.allocator, &self.output);
@@ -621,7 +621,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
                     // For tuple step slicing, we need runtime array conversion
                     // This is a simplified version that works for common cases
-                    try self.emitFmt("; var __result = std.ArrayList(@TypeOf(__s.@\"0\")){{}}; var __i: i64 = if (__step > 0) @intCast(__start) else @intCast(__start); const __end_i64: i64 = if (__step > 0) @intCast(__end) else -1; while (if (__step > 0) __i < __end_i64 else __i > __end_i64) : (__i += __step) {{ const __idx: usize = @intCast(__i); inline for (std.meta.fields(@TypeOf(__s)), 0..) |f, fi| {{ if (fi == __idx) try __result.append(__global_allocator, @field(__s, f.name)); }} }} break :slice_{d} __result; }}", .{label_id});
+                    try self.emitFmt("; var __result = std.ArrayListUnmanaged(@TypeOf(__s.@\"0\")){{}}; var __i: i64 = if (__step > 0) @intCast(__start) else @intCast(__start); const __end_i64: i64 = if (__step > 0) @intCast(__end) else -1; while (if (__step > 0) __i < __end_i64 else __i > __end_i64) : (__i += __step) {{ const __idx: usize = @intCast(__i); inline for (std.meta.fields(@TypeOf(__s)), 0..) |f, fi| {{ if (fi == __idx) try __result.append(__global_allocator, @field(__s, f.name)); }} }} break :slice_{d} __result; }}", .{label_id});
                 } else {
                     // Unknown type - treat as generic slice (like raw []T)
                     const label_id = self.block_label_counter;
@@ -650,7 +650,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.emit("if (__step > 0) @as(i64, @intCast(__s.len)) else -1");
                     }
 
-                    try self.emitFmt("; var __result = std.ArrayList(@TypeOf(__s[0])){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(__global_allocator, __s[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(__global_allocator, __s[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(__global_allocator); }}", .{label_id});
+                    try self.emitFmt("; var __result = std.ArrayListUnmanaged(@TypeOf(__s[0])){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(__global_allocator, __s[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(__global_allocator, __s[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(__global_allocator); }}", .{label_id});
                 }
             } else if (needs_len) {
                 // Need length for upper bound - use block expression with bounds checking
