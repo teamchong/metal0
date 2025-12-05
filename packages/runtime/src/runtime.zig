@@ -321,22 +321,43 @@ pub fn pyTupleEql(a: anytype, b: @TypeOf(a)) bool {
 pub fn pyAnyEql(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
+    const a_info = @typeInfo(A);
+    const b_info = @typeInfo(B);
 
     // Different types are never equal in Python (for most cases)
     if (A != B) {
         // Special case: optional types - unwrap and compare
-        if (@typeInfo(A) == .optional) {
+        if (a_info == .optional) {
             if (a) |unwrapped_a| {
                 return pyAnyEql(unwrapped_a, b);
             }
             return false;
         }
-        if (@typeInfo(B) == .optional) {
+        if (b_info == .optional) {
             if (b) |unwrapped_b| {
                 return pyAnyEql(a, unwrapped_b);
             }
             return false;
         }
+
+        // Special case: ArrayList vs fixed array - compare as slices
+        // This handles `x == [1,2,3]` where x is an ArrayList after mutation
+        const a_is_arraylist = a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity");
+        const b_is_arraylist = b_info == .@"struct" and @hasField(B, "items") and @hasField(B, "capacity");
+        const a_is_array = a_info == .array;
+        const b_is_array = b_info == .array;
+
+        if (a_is_arraylist and b_is_array) {
+            // ArrayList vs fixed array: compare items
+            const ElemT = std.meta.Elem(@TypeOf(a.items));
+            return pySliceEql(ElemT, a.items, &b);
+        }
+        if (a_is_array and b_is_arraylist) {
+            // Fixed array vs ArrayList: compare items
+            const ElemT = std.meta.Elem(@TypeOf(b.items));
+            return pySliceEql(ElemT, &a, b.items);
+        }
+
         return false;
     }
 

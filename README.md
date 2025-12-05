@@ -333,7 +333,7 @@ Python script imports numpy → metal0 detects C extension → dlopen() at runti
                                                PyObject* with CPython 3.12-compatible memory layout
 ```
 
-metal0 exports **1,073 CPython C API functions** (99.9% coverage):
+metal0 exports **997 CPython C API functions** with **100% binary compatibility**:
 
 | Category | Functions | Examples |
 |----------|-----------|----------|
@@ -346,10 +346,12 @@ metal0 exports **1,073 CPython C API functions** (99.9% coverage):
 | Buffer Protocol | 15+ | `PyBuffer_GetPointer`, `PyMemoryView_FromBuffer` |
 | Iterator Protocol | 10+ | `PyIter_Next`, `PyObject_GetIter` |
 | Codec APIs | 50+ | `PyCodec_Encode`, `PyUnicode_DecodeUTF8` |
+| Type Creation | 33 | `PyType_Ready`, `PyType_FromSpec`, `PyType_GenericAlloc` |
 
 **Key Features:**
 - **Pure Zig** - No CPython linking, all functions implemented natively
-- **CPython 3.12 layout** - Exact struct layouts (`PyLongObject`, `PyListObject`, etc.)
+- **CPython 3.12 layout** - Exact struct layouts verified at compile time
+- **PEP 384** - Full stable ABI support with `PyType_FromSpec` heap types
 - **Thread-safe** - Thread-local exception state, atomic interrupt flags
 - **Small int cache** - Pre-allocated integers -5 to 256 (like CPython)
 
@@ -383,10 +385,14 @@ metal0 examples/c_extensions/numpy_example.py --force
 ### Implementation
 
 ```zig
-// packages/c_interop/src/cpython_api.zig - 1062 exported functions
+// packages/c_interop/src/cpython_api.zig - 997 exported functions
 export fn PyList_New(size: isize) ?*cpython.PyObject { ... }
 export fn PyDict_SetItem(dict: *cpython.PyObject, key: *cpython.PyObject, value: *cpython.PyObject) c_int { ... }
 export fn Py_INCREF(obj: *cpython.PyObject) void { ... }
+
+// Type creation (PEP 384 stable ABI)
+export fn PyType_FromSpec(spec: *cpython.PyType_Spec) ?*cpython.PyObject { ... }
+export fn PyType_Ready(type_obj: *cpython.PyTypeObject) c_int { ... }
 
 // Type object getters (can't export var in Zig)
 export fn _metal0_get_PyType_Type() *cpython.PyTypeObject { ... }
