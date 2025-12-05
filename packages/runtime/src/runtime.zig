@@ -285,9 +285,12 @@ pub fn pyTupleEql(a: anytype, b: @TypeOf(a)) bool {
             if (@typeInfo(FieldT) == .float) {
                 const a_nan = std.math.isNan(a_field);
                 const b_nan = std.math.isNan(b_field);
-                if (a_nan and b_nan) continue;
-                if (a_nan or b_nan) return false;
-                if (a_field != b_field) return false;
+                // Both NaN -> equal (identity), skip to next field
+                // Only one NaN or different values -> not equal
+                if (!(a_nan and b_nan)) {
+                    if (a_nan or b_nan) return false;
+                    if (a_field != b_field) return false;
+                }
             } else {
                 if (!std.meta.eql(a_field, b_field)) return false;
             }

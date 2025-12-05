@@ -11,6 +11,7 @@ const producesBlockExpression = expressions.producesBlockExpression;
 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
 const shared = @import("../../shared_maps.zig");
 const CompOpStrings = shared.CompOpStrings;
+const collections = @import("../collections.zig");
 
 /// Check if expression is a string constant (NOT bytes)
 fn isStringConstant(expr: ast.Node) bool {
@@ -699,16 +700,28 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             (right_type == .list or compare.comparators[i] == .list))
         {
             // Use runtime.pySliceEql for Python semantics (NaN identity)
-            // Need to wrap block expressions in parentheses
-            const left_needs_wrap = current_left == .list;
-            const right_needs_wrap = compare.comparators[i] == .list;
+            // Constant list literals become arrays in Zig → use & to get slice
+            // List with variables become ArrayList → use .items
+            const left_is_literal = current_left == .list;
+            const right_is_literal = compare.comparators[i] == .list;
+            const left_is_array = left_is_literal and collections.isComptimeConstant(current_left);
+            const right_is_array = right_is_literal and collections.isComptimeConstant(compare.comparators[i]);
 
             // Get element type for pySliceEql
+            // First try type info, then fall back to inferring from literals
             const elem_type_str: []const u8 = if (current_left_type == .list)
-                current_left_type.list.toSimpleZigType()
+                current_left_type.list.*.toSimpleZigType()
             else if (right_type == .list)
-                right_type.list.toSimpleZigType()
-            else
+                right_type.list.*.toSimpleZigType()
+            else if (left_is_literal and current_left.list.elts.len > 0) blk: {
+                const first_elem = current_left.list.elts[0];
+                const inferred = self.type_inferrer.inferExpr(first_elem) catch break :blk "f64";
+                break :blk inferred.toSimpleZigType();
+            } else if (right_is_literal and compare.comparators[i].list.elts.len > 0) blk: {
+                const first_elem = compare.comparators[i].list.elts[0];
+                const inferred = self.type_inferrer.inferExpr(first_elem) catch break :blk "f64";
+                break :blk inferred.toSimpleZigType();
+            } else
                 "f64";
 
             if (op == .NotEq) {
@@ -717,20 +730,38 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             try self.emit("runtime.pySliceEql(");
             try self.emit(elem_type_str);
             try self.emit(", ");
-            if (left_needs_wrap) {
+
+            // Left operand
+            if (left_is_array) {
+                // Constant array literal: use & to get slice
+                try self.emit("&(");
+                try genExpr(self, current_left);
+                try self.emit(")");
+            } else if (left_is_literal) {
+                // List with variables → ArrayList block: use .items
                 try self.emit("(");
                 try genExpr(self, current_left);
                 try self.emit(").items");
             } else {
+                // ArrayList variable: use .items
                 try genExpr(self, current_left);
                 try self.emit(".items");
             }
             try self.emit(", ");
-            if (right_needs_wrap) {
+
+            // Right operand
+            if (right_is_array) {
+                // Constant array literal: use & to get slice
+                try self.emit("&(");
+                try genExpr(self, compare.comparators[i]);
+                try self.emit(")");
+            } else if (right_is_literal) {
+                // List with variables → ArrayList block: use .items
                 try self.emit("(");
                 try genExpr(self, compare.comparators[i]);
                 try self.emit(").items");
             } else {
+                // ArrayList variable: use .items
                 try genExpr(self, compare.comparators[i]);
                 try self.emit(".items");
             }
