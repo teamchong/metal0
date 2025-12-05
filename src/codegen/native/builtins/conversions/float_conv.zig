@@ -108,9 +108,10 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 return;
             } else |_| {}
         }
-        // For non-literal strings, use runtime.parseFloatWithUnicode (handles Unicode digits)
+        // For non-literal strings, use runtime float parsing (handles Unicode digits)
         if (self.inside_try_body) {
-            try self.emit("(try runtime.parseFloatWithUnicode(");
+            // Use parseFloatStr which sets proper error message for except handlers
+            try self.emit("(try runtime.parseFloatStr(");
             try self.genExpr(args[0]);
             try self.emit("))");
         } else {

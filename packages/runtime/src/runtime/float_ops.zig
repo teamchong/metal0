@@ -761,6 +761,15 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
     return true;
 }
 
+/// Parse float string with error message (for use in except handlers)
+/// Sets the proper Python error message before returning
+pub fn parseFloatStr(str: []const u8) !f64 {
+    return parseFloatWithUnicode(str) catch {
+        exceptions.setFloatConversionErrorStr(str);
+        return error.ValueError;
+    };
+}
+
 /// Parse float string with Unicode digit support (Python-compatible)
 /// Handles Arabic-Indic digits (\u0660-\u0669), Extended Arabic-Indic (\u06F0-\u06F9),
 /// Devanagari (\u0966-\u096F), and other Unicode digit ranges
