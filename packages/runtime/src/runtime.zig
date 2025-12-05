@@ -48,6 +48,9 @@ pub const SequenceIterator = iterators.SequenceIterator;
 /// Export calendar module
 pub const calendar = @import("Lib/calendar.zig");
 
+/// Export os module
+pub const os = @import("Lib/os.zig");
+
 /// Export ctypes FFI module
 pub const ctypes = @import("Modules/_ctypes.zig");
 
