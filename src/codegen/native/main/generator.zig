@@ -351,9 +351,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         } else if (stmt == .import_from) {
             try statements.genImportFrom(self, stmt.import_from);
         } else if (stmt == .class_def) {
+            // Record debug line mapping for class definitions
+            self.recordLineMappingForName(stmt.class_def.name);
             try statements.genClassDef(self, stmt.class_def);
             try self.emit("\n");
         } else if (stmt == .function_def) {
+            // Record debug line mapping for function definitions
+            self.recordLineMappingForName(stmt.function_def.name);
             if (self.mode == .module) {
                 // In module mode, make functions pub
                 try self.emitIndent();
@@ -1220,11 +1224,15 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .try_stmt => |try_node| try statements.genTry(self, try_node),
         .raise_stmt => |raise_node| try statements.genRaise(self, raise_node),
         .class_def => |class| {
+            // Record debug line mapping for class definitions
+            self.recordLineMappingForName(class.name);
             // Skip if this class was hoisted to struct level (for return type visibility)
             if (self.hoisted_local_classes.contains(class.name)) return;
             try statements.genClassDef(self, class);
         },
         .function_def => |func| {
+            // Record debug line mapping for function definitions
+            self.recordLineMappingForName(func.name);
             // Only use nested function generation for truly nested functions
             if (func.is_nested) {
                 try statements.genNestedFunctionDef(self, func);

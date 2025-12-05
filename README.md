@@ -344,6 +344,21 @@ Targeting 421 CPython test files. Current: early alpha.
 - Full stdlib coverage
 - 100% CPython test compatibility
 
+## Roadmap
+
+**Developer Tools (Planned):**
+- [ ] **Debugger** - VSCode integration via DAP, breakpoints, stepping
+- [ ] **Profiler** - Flame graphs, PGO (profile-guided optimization)
+- [ ] **Linter** - Zig-aware Python linting, auto-fix
+- [ ] **REPL** - Interactive shell with JIT compilation
+
+**Debug Support:**
+- [x] Debug info files (`.metal0.dbg`) - `--debug` flag
+- [ ] Python line → Zig line → binary offset mapping
+- [ ] Stack traces with Python line numbers
+- [ ] DWARF debug symbols for lldb/gdb
+- [ ] DAP server for VSCode debugging
+
 ## License
 
 Apache 2.0

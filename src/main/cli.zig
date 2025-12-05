@@ -692,6 +692,8 @@ fn cmdBuild(allocator: std.mem.Allocator, args: []const []const u8) !void {
             opts.binary = true;
         } else if (std.mem.eql(u8, arg, "--force") or std.mem.eql(u8, arg, "-f")) {
             opts.force = true;
+        } else if (std.mem.eql(u8, arg, "--debug") or std.mem.eql(u8, arg, "-g")) {
+            opts.debug = true;
         } else if (std.mem.eql(u8, arg, "--emit-zig")) {
             opts.emit_zig_only = true;
         } else if (std.mem.eql(u8, arg, "--target") or std.mem.eql(u8, arg, "-t")) {
@@ -759,6 +761,8 @@ fn cmdRunFile(allocator: std.mem.Allocator, args: []const []const u8) !void {
             opts.force = true;
         } else if (std.mem.eql(u8, arg, "--binary") or std.mem.eql(u8, arg, "-b")) {
             opts.binary = true;
+        } else if (std.mem.eql(u8, arg, "--debug") or std.mem.eql(u8, arg, "-g")) {
+            opts.debug = true;
         } else if (std.mem.eql(u8, arg, "--emit-zig")) {
             opts.emit_zig_only = true;
         }

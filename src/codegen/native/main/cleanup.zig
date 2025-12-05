@@ -240,6 +240,11 @@ pub fn deinit(self: *NativeCodegen) void {
     }
     self.ctypes_functions.deinit();
 
+    // Clean up token_lines hashmap (if it was built lazily)
+    if (self.token_lines) |*tl| {
+        tl.deinit();
+    }
+
     self.allocator.destroy(self);
 }
 

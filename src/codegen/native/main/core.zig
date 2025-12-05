@@ -15,6 +15,7 @@ const MethodInfo = symbol_table_mod.MethodInfo;
 const import_registry = @import("../import_registry.zig");
 const fnv_hash = @import("fnv_hash");
 const cleanup = @import("cleanup.zig");
+const debug_info = @import("debug_info");
 
 const hashmap_helper = @import("hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
@@ -546,6 +547,22 @@ pub const NativeCodegen = struct {
     // Maps variable name -> CTypesFuncInfo (e.g., "strlen" -> { lib: "libc", func: "strlen", argtypes: [...], restype: "c_size_t" })
     ctypes_functions: hashmap_helper.StringHashMap(CTypesFuncInfo),
 
+    // Debug info writer (optional, only set when --debug flag is used)
+    // Used to record Python line -> Zig line mappings for stack traces and debugging
+    debug_writer: ?*debug_info.DebugInfoWriter,
+
+    // Current Zig line number being generated (tracked for debug info)
+    // Incremented each time a newline is emitted
+    zig_line_counter: u32,
+
+    // Token array from lexer (optional, for looking up Python line numbers)
+    // Used during debug info generation to find source lines for statements
+    tokens: ?[]const @import("../../../lexer.zig").Token,
+
+    // Token line lookup map (built lazily when needed for debug info)
+    // Maps identifier name -> Python line number
+    token_lines: ?std.StringHashMap(u32),
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -679,6 +696,10 @@ pub const NativeCodegen = struct {
             .generic_type_params = FnvVoidMap.init(allocator),
             .generic_classes = hashmap_helper.StringHashMap(usize).init(allocator),
             .ctypes_functions = hashmap_helper.StringHashMap(CTypesFuncInfo).init(allocator),
+            .debug_writer = null,
+            .zig_line_counter = 1,
+            .tokens = null,
+            .token_lines = null,
         };
         return self;
     }
@@ -689,6 +710,58 @@ pub const NativeCodegen = struct {
 
     pub fn setSourceFilePath(self: *NativeCodegen, path: []const u8) void {
         self.source_file_path = path;
+    }
+
+    /// Set debug info writer for recording Python->Zig line mappings
+    pub fn setDebugWriter(self: *NativeCodegen, writer: *debug_info.DebugInfoWriter) void {
+        self.debug_writer = writer;
+    }
+
+    /// Set tokens array for Python line number lookup during debug info generation
+    pub fn setTokens(self: *NativeCodegen, toks: []const @import("../../../lexer.zig").Token) void {
+        self.tokens = toks;
+    }
+
+    /// Get the Python line number for an identifier by looking it up in tokens
+    /// Returns null if not found or if tokens are not available
+    pub fn getPythonLineForName(self: *NativeCodegen, name: []const u8) ?u32 {
+        // Build token line map lazily on first use
+        if (self.token_lines == null) {
+            if (self.tokens) |toks| {
+                self.token_lines = std.StringHashMap(u32).init(self.allocator);
+                const lexer_mod = @import("../../../lexer.zig");
+                for (toks) |tok| {
+                    // Store all identifiers with their line numbers
+                    // (def/class names, variable names, function calls, etc.)
+                    if (tok.type == lexer_mod.TokenType.Ident) {
+                        // Store first occurrence of each identifier
+                        if (!self.token_lines.?.contains(tok.lexeme)) {
+                            self.token_lines.?.put(tok.lexeme, @intCast(tok.line)) catch continue;
+                        }
+                    }
+                }
+            } else {
+                return null;
+            }
+        }
+
+        return self.token_lines.?.get(name);
+    }
+
+    /// Record a Python line -> Zig line mapping (if debug info is enabled)
+    pub fn recordLineMapping(self: *NativeCodegen, py_line: u32) void {
+        if (self.debug_writer) |dw| {
+            dw.recordMapping(py_line, self.zig_line_counter) catch {};
+        }
+    }
+
+    /// Record a line mapping by looking up the Python line for an identifier
+    pub fn recordLineMappingForName(self: *NativeCodegen, name: []const u8) void {
+        if (self.debug_writer != null) {
+            if (self.getPythonLineForName(name)) |py_line| {
+                self.recordLineMapping(py_line);
+            }
+        }
     }
 
     /// Intern a string literal and return its index
@@ -1044,11 +1117,25 @@ pub const NativeCodegen = struct {
     // Helper functions - public for use by statements.zig and expressions.zig
     pub fn emit(self: *NativeCodegen, s: []const u8) CodegenError!void {
         try self.output.appendSlice(self.allocator, s);
+        // Track newlines for debug info (Zig line counting)
+        for (s) |c| {
+            if (c == '\n') {
+                self.zig_line_counter += 1;
+            }
+        }
     }
 
     /// Emit formatted string
     pub fn emitFmt(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+        const start_len = self.output.items.len;
         try self.output.writer(self.allocator).print(fmt, args);
+        // Track newlines for debug info (Zig line counting)
+        const new_content = self.output.items[start_len..];
+        for (new_content) |c| {
+            if (c == '\n') {
+                self.zig_line_counter += 1;
+            }
+        }
     }
 
     pub fn emitIndent(self: *NativeCodegen) CodegenError!void {

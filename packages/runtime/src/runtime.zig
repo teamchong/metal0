@@ -92,6 +92,7 @@ pub const PyDict_AsString = runtime_format.PyDict_AsString;
 pub const printValue = runtime_format.printValue;
 pub const pyFormat = runtime_format.pyFormat;
 pub const pyMod = runtime_format.pyMod;
+pub const pyStringFormat = runtime_format.pyStringFormat;
 
 /// Export exception types from runtime/exceptions.zig
 pub const exceptions = @import("runtime/exceptions.zig");
