@@ -176,12 +176,21 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     }
                 }
                 // Generate code that raises TypeError
-                try self.emitIndent();
-                try self.emit("return error.TypeError; // type '");
-                try self.emit(base);
-                try self.emit("' is not an acceptable base type\n");
-                // Mark control flow as terminated so subsequent code isn't generated
-                self.control_flow_terminated = true;
+                // At module level, we can't use 'return' - use @compileError instead
+                if (self.inside_nested_function or self.current_function_name != null) {
+                    try self.emitIndent();
+                    try self.emit("return error.TypeError; // type '");
+                    try self.emit(base);
+                    try self.emit("' is not an acceptable base type\n");
+                    // Mark control flow as terminated so subsequent code isn't generated
+                    self.control_flow_terminated = true;
+                } else {
+                    // Module level: use compile error to indicate unsupported feature
+                    try self.emitIndent();
+                    try self.emit("@compileError(\"Cannot subclass '");
+                    try self.emit(base);
+                    try self.emit("' - metaclasses are not supported\");\n");
+                }
                 return;
             }
         }

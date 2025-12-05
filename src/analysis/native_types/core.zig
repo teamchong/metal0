@@ -97,6 +97,7 @@ pub const NativeType = union(enum) {
     unknown: void, // Fallback to PyObject* (should be rare)
     path: void, // pathlib.Path
     usize_slice: void, // []const usize - used for slices
+    slice: *const NativeType, // []const T - runtime-sized slice (from list * runtime_n)
     stringio: void, // io.StringIO in-memory text stream
     bytesio: void, // io.BytesIO in-memory binary stream
     file: void, // File object from open()
@@ -305,6 +306,10 @@ pub const NativeType = union(enum) {
             .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .path => try buf.appendSlice(allocator, "*pathlib.Path"),
             .usize_slice => try buf.appendSlice(allocator, "[]const usize"),
+            .slice => |elem_type| {
+                try buf.appendSlice(allocator, "[]const ");
+                try elem_type.toZigType(allocator, buf);
+            },
             .stringio => try buf.appendSlice(allocator, "*runtime.io.StringIO"),
             .bytesio => try buf.appendSlice(allocator, "*runtime.io.BytesIO"),
             .file => try buf.appendSlice(allocator, "*runtime.PyObject"),

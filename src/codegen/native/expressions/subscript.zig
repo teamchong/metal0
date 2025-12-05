@@ -229,8 +229,13 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             const is_counter = (value_type == .counter);
             const is_unknown_pyobject = (value_type == .unknown);
 
+            // Check if value type is a slice (e.g., from [0] * n with runtime n)
+            const is_slice = (value_type == .slice);
+
             // Check if this variable is tracked as ArrayList (may have .array type but be ArrayList due to mutations)
+            // Note: Skip if type is .slice - slices use direct indexing, not .items
             const is_tracked_arraylist_early = blk: {
+                if (is_slice) break :blk false; // Slices are not ArrayLists
                 if (subscript.value.* == .name) {
                     break :blk self.isArrayListVar(subscript.value.name.id);
                 }
@@ -442,8 +447,16 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         // Positive index
                         const needs_cast = (index_type == .int);
 
+                        // Get value type to check for slice
+                        const val_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
+                        const val_is_slice = (val_type == .slice);
+
                         // Check if this is an ArrayList (need .items[idx])
+                        // Note: Skip if type is .slice - slices use direct indexing
                         const is_arraylist = blk: {
+                            if (val_is_slice) break :blk false; // Slices are not ArrayLists
+                            // Also check if type is .list - which means ArrayList in Zig
+                            if (val_type == .list) break :blk true; // ArrayList confirmed by type inference
                             if (subscript.value.* == .name) {
                                 break :blk self.isArrayListVar(subscript.value.name.id);
                             }

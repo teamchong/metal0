@@ -785,12 +785,32 @@ fn inferBinOpWithInferrer(
         if ((left_is_bytes and right_is_numeric) or (left_is_numeric and right_is_bytes)) {
             return .bytes; // Bytes repetition produces bytes
         }
-        // List repetition: [a, b] * n or n * [a, b] → list with same element type
+        // List repetition: [a, b] * n or n * [a, b] → list/slice with same element type
+        // If multiplier is runtime (not constant), result is a slice (from sliceRepeatDynamic)
+        // If multiplier is compile-time constant, result keeps array type (can compute size)
         if (left_is_list and right_is_numeric) {
-            return left_type; // Preserve list's element type
+            const multiplier_is_constant = binop.right.* == .constant;
+            if (!multiplier_is_constant) {
+                // Runtime multiplier - sliceRepeatDynamic returns []const T
+                const elem_type = if (left_tag == .array)
+                    left_type.array.element_type
+                else
+                    left_type.list; // list -> *const NativeType
+                return .{ .slice = elem_type };
+            }
+            return left_type; // Preserve list's element type for constant multiplier
         }
         if (left_is_numeric and right_is_list) {
-            return right_type; // Preserve list's element type
+            const multiplier_is_constant = binop.left.* == .constant;
+            if (!multiplier_is_constant) {
+                // Runtime multiplier - sliceRepeatDynamic returns []const T
+                const elem_type = if (right_tag == .array)
+                    right_type.array.element_type
+                else
+                    right_type.list;
+                return .{ .slice = elem_type };
+            }
+            return right_type; // Preserve list's element type for constant multiplier
         }
     }
 
