@@ -134,6 +134,12 @@ pub fn inferBuiltinCall(
         return .float;
     }
 
+    // format() builtin - returns string
+    const FORMAT_HASH = comptime fnv_hash.hash("format");
+    if (fnv_hash.hash(func_name) == FORMAT_HASH) {
+        return .{ .string = .runtime };
+    }
+
     // dict() builtin - returns dict type
     const DICT_BUILTIN_HASH = comptime fnv_hash.hash("dict");
     if (fnv_hash.hash(func_name) == DICT_BUILTIN_HASH) {
