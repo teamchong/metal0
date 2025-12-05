@@ -624,10 +624,10 @@ fn parseFormatSpecParts(self: *Parser, format_spec: []const u8) ParseError!?[]as
 }
 
 fn parseEmbeddedExpr(self: *Parser, expr_text: []const u8) ParseError!*ast.Node {
-    var expr_lexer = try lexer.Lexer.init(self.allocator, expr_text);
+    var expr_lexer = lexer.Lexer.init(self.allocator, expr_text) catch return error.InvalidCharacter;
     defer expr_lexer.deinit();
 
-    const raw_tokens = try expr_lexer.tokenize();
+    const raw_tokens = expr_lexer.tokenize() catch return error.InvalidCharacter;
     defer lexer.freeTokens(self.allocator, raw_tokens);
 
     // Filter out Newline/Indent/Dedent tokens - in f-string expressions these are irrelevant
