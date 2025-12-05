@@ -199,6 +199,22 @@ pub fn istype(comptime T: type, comptime type_name: []const u8) bool {
 /// This is a no-op function that accepts any value
 pub inline fn discard(_: anytype) void {}
 
+/// Python-style containment check for slices
+/// Handles NaN specially: both sides being NaN counts as a match (identity semantics)
+pub fn pyContains(comptime T: type, slice: []const T, value: T) bool {
+    // For floats, check NaN identity
+    if (@typeInfo(T) == .float) {
+        const value_is_nan = std.math.isNan(value);
+        for (slice) |item| {
+            if (value_is_nan and std.math.isNan(item)) return true;
+            if (item == value) return true;
+        }
+        return false;
+    }
+    // For other types, use standard equality
+    return std.mem.indexOfScalar(T, slice, value) != null;
+}
+
 /// Convert ArrayList or other container types to a slice for iteration
 /// This is a comptime function that normalizes different container types to slices
 pub inline fn iterSlice(value: anytype) IterSliceType(@TypeOf(value)) {

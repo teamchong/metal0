@@ -318,6 +318,9 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
 /// Transforms: assert condition or assert condition, message
 /// Into: if (!(condition)) { runtime.debug_reader.printPythonError(...); std.debug.panic(...); }
 pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenError!void {
+    // Record line mapping for debug info (maps Python assert line -> Zig line)
+    self.recordAssertLineMapping();
+
     try self.emitIndent();
     try self.emit("if (!(");
     try self.genExpr(assert_node.condition.*);
@@ -1187,6 +1190,9 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 /// NOTE: We use Zig errors so try/except can catch them.
 /// When debug info is available, prints Python-style error message before returning.
 pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!void {
+    // Record line mapping for debug info (maps Python raise line -> Zig line)
+    self.recordRaiseLineMapping();
+
     // Cannot return from defer in Zig - skip raise inside finally blocks
     // In Python, raise inside finally replaces the pending exception
     // In our generated code, the exception will propagate after defer completes
