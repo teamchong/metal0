@@ -312,6 +312,31 @@ export interface Tokenizer {
 - `eval()`, `exec()` via bytecode VM
 - DWARF debug symbols, PGO, source maps
 
+## eval()/exec() Architecture: Unified VM
+
+```
+                    ┌─────────────────────────────────────┐
+                    │         eval()/exec() entry         │
+                    └─────────────────┬───────────────────┘
+                                      │
+                    ┌─────────────────▼───────────────────┐
+                    │    metal0 Parser + Type Inferrer    │
+                    │    (REUSE existing src/parser/)     │
+                    └─────────────────┬───────────────────┘
+                                      │
+                    ┌─────────────────▼───────────────────┐
+                    │         Bytecode Compiler           │
+                    │    (New: src/bytecode/compiler.zig) │
+                    └─────────────────┬───────────────────┘
+                                      │
+              ┌───────────────────────┼───────────────────────┐
+              │                       │                       │
+    ┌─────────▼─────────┐   ┌─────────▼─────────┐   ┌─────────▼─────────┐
+    │   Native Binary   │   │   Browser WASM    │   │   WasmEdge WASI   │
+    │   (stack-based)   │   │   (Web Worker)    │   │   (WASI sockets)  │
+    └───────────────────┘   └───────────────────┘   └───────────────────┘
+```
+
 ## How It Works
 
 ```
