@@ -23,14 +23,20 @@ pub const PyObject = runtime.PyObject;
 // All other float formatting functions should delegate to this.
 // ============================================================================
 
+/// Sign handling for float formatting
+pub const FloatSignOption = enum { none, plus, space };
+
+/// Format type for float formatting
+pub const FloatFormatType = enum { general, fixed, scientific, repr };
+
 /// Options for Python float formatting
 pub const PyFloatFormatOptions = struct {
     /// Sign handling: none (default), plus (+), or space ( )
-    sign: enum { none, plus, space } = .none,
+    sign: FloatSignOption = .none,
     /// Precision (digits after decimal). null = auto
     precision: ?u32 = null,
     /// Format type
-    format_type: enum { general, fixed, scientific, repr } = .general,
+    format_type: FloatFormatType = .general,
 };
 
 /// Canonical Python float formatter - handles NaN, inf, sign flags, precision
@@ -722,8 +728,8 @@ pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anyt
             } else if (spec == 'f' or spec == 'e' or spec == 'g') {
                 // Float format - use canonical formatter
                 if (@typeInfo(V) == .float or @typeInfo(V) == .comptime_float) {
-                    const sign_opt: PyFloatFormatOptions.sign = if (sign_flag == '+') .plus else if (sign_flag == ' ') .space else .none;
-                    const format_opt: PyFloatFormatOptions.format_type = if (spec == 'e') .scientific else if (spec == 'f') .fixed else .general;
+                    const sign_opt: FloatSignOption = if (sign_flag == '+') .plus else if (sign_flag == ' ') .space else .none;
+                    const format_opt: FloatFormatType = if (spec == 'e') .scientific else if (spec == 'f') .fixed else .general;
                     const val_str = try formatPythonFloat(allocator, value, .{ .sign = sign_opt, .format_type = format_opt });
                     defer allocator.free(val_str);
                     try result.appendSlice(allocator, val_str);
