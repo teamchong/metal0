@@ -1164,22 +1164,24 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
         .Not => {
             // Python `not x` semantics depend on type:
             // - strings: empty string is falsy -> x.len == 0
-            // - lists: empty list is falsy -> x.items.len == 0
+            // - lists: empty list is falsy -> x.items.len == 0 (also .array type)
             // - tuples: empty tuple is falsy -> struct fields.len == 0
             // - int/float: 0 is falsy -> x == 0
             // - bool: just negate
             const operand_type = try self.inferExprScoped(unaryop.operand.*);
-            if (@as(std.meta.Tag(@TypeOf(operand_type)), operand_type) == .string) {
+            const operand_tag = @as(std.meta.Tag(@TypeOf(operand_type)), operand_type);
+            if (operand_tag == .string) {
                 // not string -> string.len == 0
                 try self.emit("(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit(").len == 0");
-            } else if (operand_type == .list) {
-                // not list -> list.items.len == 0
-                try self.emit("(");
+            } else if (operand_tag == .list or operand_tag == .array) {
+                // not list/array -> use runtime.toBool for proper truthiness
+                // (handles both ArrayListUnmanaged and fixed arrays)
+                try self.emit("!runtime.toBool(");
                 try genExpr(self, unaryop.operand.*);
-                try self.emit(").items.len == 0");
-            } else if (@as(std.meta.Tag(@TypeOf(operand_type)), operand_type) == .tuple) {
+                try self.emit(")");
+            } else if (operand_tag == .tuple) {
                 // not tuple -> check if tuple is empty via comptime struct fields
                 try self.emit("(@typeInfo(@TypeOf(");
                 try genExpr(self, unaryop.operand.*);
@@ -1190,8 +1192,14 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
             } else if (unaryop.operand.* == .tuple) {
                 // Non-empty tuple literal - always false (not (1,2) == false)
                 try self.emit("false");
-            } else {
+            } else if (operand_tag == .bool or operand_tag == .int or operand_tag == .float) {
+                // Simple bool/int/float - direct negation works
                 try self.emit("!(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(")");
+            } else {
+                // Unknown/complex types - use runtime.toBool for proper truthiness
+                try self.emit("!runtime.toBool(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit(")");
             }

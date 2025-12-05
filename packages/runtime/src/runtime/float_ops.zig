@@ -707,6 +707,10 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
                 if (len < 0) return PythonError.ValueError;
                 return len > 0;
             }
+            // Check for .items field (ArrayListUnmanaged, etc.) - empty list is falsy
+            if (@hasField(ChildType, "items")) {
+                return first.items.len > 0;
+            }
             // Fall back to __base_value__ for subclasses of builtin types
             if (@hasField(ChildType, "__base_value__")) {
                 const base_value = first.__base_value__;
@@ -744,6 +748,10 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
             const len = try first.__len__();
             if (len < 0) return PythonError.ValueError;
             return len > 0;
+        }
+        // Check for .items field (ArrayListUnmanaged, etc.) - empty list is falsy
+        if (@hasField(FirstType, "items")) {
+            return first.items.len > 0;
         }
         // Fall back to __base_value__ for subclasses of builtin types (int, str, etc.)
         if (@hasField(FirstType, "__base_value__")) {
