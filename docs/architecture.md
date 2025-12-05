@@ -334,11 +334,4 @@ Here's how `print(sum([1, 2, 3]))` flows through the compiler:
 - **Zig compilation errors:** The line numbers in errors reference the generated file
 - **AST debugging:** Add `std.debug.print` in parser to dump nodes
 - **Type inference:** Check `type_inferrer.var_types` contents
-
-## Known Limitations
-
-- No support for `async`/`await`
-- Limited metaclass support
-- No `__slots__`
-- Subset of standard library
-- No dynamic code execution (`eval`, `exec`)
+- **Python debugger:** metal0 supports debugging with standard Python toolchains (e.g., VSCode debugger)
