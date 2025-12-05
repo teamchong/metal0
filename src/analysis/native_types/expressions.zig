@@ -768,11 +768,14 @@ fn inferBinOpWithInferrer(
 
     // String repetition: str * int or int * str → runtime string
     // Bytes repetition: bytes * int or int * bytes → bytes
+    // List repetition: list * int or int * list → list (same element type)
     if (binop.op == .Mult) {
         const left_is_string = left_tag == .string;
         const right_is_string = right_tag == .string;
         const left_is_bytes = left_tag == .bytes;
         const right_is_bytes = right_tag == .bytes;
+        const left_is_list = left_tag == .list or left_tag == .array;
+        const right_is_list = right_tag == .list or right_tag == .array;
         const left_is_numeric = left_tag == .int or left_tag == .usize;
         const right_is_numeric = right_tag == .int or right_tag == .usize;
 
@@ -781,6 +784,13 @@ fn inferBinOpWithInferrer(
         }
         if ((left_is_bytes and right_is_numeric) or (left_is_numeric and right_is_bytes)) {
             return .bytes; // Bytes repetition produces bytes
+        }
+        // List repetition: [a, b] * n or n * [a, b] → list with same element type
+        if (left_is_list and right_is_numeric) {
+            return left_type; // Preserve list's element type
+        }
+        if (left_is_numeric and right_is_list) {
+            return right_type; // Preserve list's element type
         }
     }
 
