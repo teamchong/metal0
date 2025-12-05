@@ -162,10 +162,11 @@ fn findUsedVarsInStmt(node: ast.Node, vars: *hashmap_helper.StringHashMap(void),
                 try findUsedVarsInStmt(stmt, vars, allocator);
             }
         },
-        .function_def => |f| {
-            for (f.body) |stmt| {
-                try findUsedVarsInStmt(stmt, vars, allocator);
-            }
+        .function_def => {
+            // Don't recurse into nested function bodies - they have their own scope.
+            // Variables used inside nested functions are NOT used by the parent function,
+            // they're captured by the nested function's closure (handled separately).
+            // We only note the function name itself is being defined (which is a local).
         },
         .assert_stmt => |a| {
             try findUsedVars(a.condition.*, vars, allocator);
@@ -238,10 +239,8 @@ fn findLocalVarsInStmt(stmt: ast.Node, vars: *hashmap_helper.StringHashMap(void)
             }
         },
         .for_stmt => |f| {
-            // For loop target is a local variable
-            if (f.target.* == .name) {
-                try vars.put(f.target.name.id, {});
-            }
+            // For loop target is a local variable (handles tuple unpacking like 'for e, tbs in ...')
+            try collectTargetVars(f.target.*, vars);
             // Recurse into for loop body
             try findLocalVarsInStmts(f.body, vars);
             if (f.orelse_body) |orelse_body| {
