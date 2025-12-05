@@ -965,6 +965,13 @@ pub fn len(obj: anytype) usize {
         } else if (child_info == .@"struct" and @hasDecl(Child, "len")) {
             return obj.len;
         }
+    } else if (@typeInfo(T) == .@"struct") {
+        // Handle struct types like std.ArrayListUnmanaged directly (not pointer)
+        if (@hasField(T, "items")) {
+            return obj.items.len;
+        } else if (@hasDecl(T, "len")) {
+            return obj.len();
+        }
     } else if (@typeInfo(T) == .array) {
         return @typeInfo(T).array.len;
     }
@@ -2126,33 +2133,22 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
             // Round to nearest integer using banker's rounding (round half to even)
             return bankersRound(value);
         } else if (digits > 0) {
-            // Round to ndigits decimal places using banker's rounding
-            // For very large ndigits (> 308), the precision requested exceeds f64's
-            // ~15-17 significant digits, so just return the original value unchanged.
+            // Round to ndigits decimal places using string-based approach
+            // This matches Python's behavior which uses dtoa.c for correct rounding
+            // For very large ndigits (> 17), f64 precision is exceeded, return unchanged
             // Python: round(123.456, 324) == 123.456
-            if (digits > 308) {
+            if (digits > 17) {
                 return value;
             }
-            const multiplier = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(digits)));
-            // Check for multiplier overflow (shouldn't happen with digits <= 308)
-            if (std.math.isInf(multiplier)) {
-                return value; // Can't round further than f64 precision
-            }
-            const scaled = value * multiplier;
-            // Check for overflow in scaled value
-            if (std.math.isInf(scaled)) {
-                return value; // Value too large to scale, return unchanged
-            }
-            const rounded_scaled = bankersRound(scaled);
-            const result = rounded_scaled / multiplier;
-            // For very large numbers, avoid precision loss by checking if
-            // the original value fits in the precision requested
-            const diff = @abs(result - value);
-            const epsilon = @abs(value) * 1e-14; // relative tolerance
-            if (diff < epsilon) {
-                return value;
-            }
-            return result;
+
+            // Use string formatting and parsing for correct rounding
+            // This avoids floating-point precision issues with scale-round-unscale
+            var buf: [64]u8 = undefined;
+            const prec: usize = @intCast(digits);
+            const formatted = std.fmt.bufPrint(&buf, "{d:.[1]}", .{ value, prec }) catch {
+                return value; // Fallback on format error
+            };
+            return std.fmt.parseFloat(f64, formatted) catch value;
         } else {
             // Negative ndigits - round to tens, hundreds, etc.
             // For very negative ndigits (< -308), the scale exceeds f64 range.
