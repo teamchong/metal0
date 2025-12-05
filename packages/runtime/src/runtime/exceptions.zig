@@ -146,11 +146,13 @@ pub const ExceptionTypeId = enum(i64) {
     UnicodeDecodeError = -1000026,
     UnicodeEncodeError = -1000027,
     BlockingIOError = -1000028,
+    Exception = -1000029,
+    BaseException = -1000030,
     _,
 
     /// Check if an i64 value represents an exception type
     pub fn isExceptionType(value: i64) bool {
-        return value <= -1000001 and value >= -1000028;
+        return value <= -1000001 and value >= -1000030;
     }
 };
 
