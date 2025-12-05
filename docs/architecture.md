@@ -296,10 +296,6 @@ Here's how `print(sum([1, 2, 3]))` flows through the compiler:
    -> Native binary
 ```
 
-## Debugging Tips
+## Debugging
 
-- **View generated Zig:** Check `.metal0/cache/metal0_main_*.zig`
-- **Zig compilation errors:** The line numbers in errors reference the generated file
-- **AST debugging:** Add `std.debug.print` in parser to dump nodes
-- **Type inference:** Check `type_inferrer.var_types` contents
-- **Python debugger:** metal0 supports debugging with standard Python toolchains (e.g., VSCode debugger)
+metal0 supports standard Python toolchains for debugging (e.g., VSCode debugger).
