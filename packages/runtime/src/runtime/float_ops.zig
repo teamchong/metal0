@@ -560,8 +560,9 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
     // In Python, __float__() takes precedence over inherited float value
     if (first_info == .@"struct") {
         // Check for PyBytes (has .data field with []const u8) - parse as float
+        // IMPORTANT: bytes use ASCII-only parsing, NOT Unicode digit conversion
         if (@hasField(FirstType, "data") and @TypeOf(@field(first, "data")) == []const u8) {
-            return parseFloatWithUnicode(first.data) catch {
+            return parseFloatBytes(first.data) catch {
                 exceptions.setFloatConversionError(first.data);
                 return PythonError.ValueError;
             };
@@ -778,6 +779,37 @@ pub fn parseFloatStr(str: []const u8) !f64 {
     };
 }
 
+/// Parse float from bytes (ASCII only - no Unicode digit conversion)
+/// Python's float(bytes) only accepts ASCII digits and whitespace
+pub fn parseFloatBytes(data: []const u8) !f64 {
+    // Trim ASCII whitespace only
+    var start: usize = 0;
+    var end: usize = data.len;
+    while (start < end and (data[start] == ' ' or data[start] == '\t' or
+        data[start] == '\n' or data[start] == '\r' or
+        data[start] == 0x0B or data[start] == 0x0C)) {
+        start += 1;
+    }
+    while (end > start and (data[end - 1] == ' ' or data[end - 1] == '\t' or
+        data[end - 1] == '\n' or data[end - 1] == '\r' or
+        data[end - 1] == 0x0B or data[end - 1] == 0x0C)) {
+        end -= 1;
+    }
+    if (start >= end) return error.InvalidFloat;
+
+    const trimmed = data[start..end];
+
+    // Check for non-ASCII bytes
+    for (trimmed) |byte| {
+        if (byte >= 0x80) {
+            return error.InvalidFloat;
+        }
+    }
+
+    // Now parse with standard Zig parseFloat (ASCII only)
+    return std.fmt.parseFloat(f64, trimmed) catch error.InvalidFloat;
+}
+
 /// Parse float string with Unicode digit support (Python-compatible)
 /// Handles Arabic-Indic digits (\u0660-\u0669), Extended Arabic-Indic (\u06F0-\u06F9),
 /// Devanagari (\u0966-\u096F), and other Unicode digit ranges
@@ -856,8 +888,9 @@ pub fn parseFloatWithUnicode(str: []const u8) !f64 {
             buf[buf_len] = '.';
             buf_len += 1;
         } else {
-            // Skip other Unicode characters (whitespace was already trimmed)
-            // This allows things like EM SPACE around the number
+            // Any other Unicode character (non-digit, non-whitespace) is invalid
+            // Python's float() only accepts ASCII digits, Unicode digits, and whitespace
+            return error.InvalidFloat;
         }
 
         i += cp_len;

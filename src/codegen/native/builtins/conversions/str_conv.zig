@@ -278,17 +278,14 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     } else false;
 
-    // For integers, use inline formatting
+    // For integers, use pyRepr which handles anytype params correctly
+    // (closures generate anytype parameters whose actual type may differ from inference)
     if (arg_type == .int) {
-        const repr_num_label_id = self.block_label_counter;
-        self.block_label_counter += 1;
-        try self.emitFmt("repr_num_{d}: {{\n", .{repr_num_label_id});
-        try self.emitFmt("var __repr_num_buf_{d} = std.ArrayListUnmanaged(u8){{}};\n", .{repr_num_label_id});
-        try self.emitFmt("try __repr_num_buf_{d}.writer({s}).print(\"{{}}\", .{{", .{ repr_num_label_id, alloc_name });
+        try self.emit("(try runtime.builtins.pyRepr(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
         try self.genExpr(args[0]);
-        try self.emit("});\n");
-        try self.emitFmt("break :repr_num_{d} try __repr_num_buf_{d}.toOwnedSlice({s});\n", .{ repr_num_label_id, repr_num_label_id, alloc_name });
-        try self.emit("}");
+        try self.emit("))");
         return;
     }
 

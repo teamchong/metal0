@@ -187,20 +187,19 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             try self.emitIndent();
             try self.emit("};\n");
 
-            // Spawn the test using metal0 scheduler (thread pool for CPU-bound tests)
+            // Run the test sequentially to avoid green-thread TLS race conditions with exception messages
+            // (Exception messages are stored in OS-thread-local storage, but green threads share the same OS thread)
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("_ = try runtime.scheduler.spawn(TestCtx{d}.run, .{{ .result = &test_results[{d}], .instance = &_test_instance_{s}, .allocator = __global_allocator }});\n", .{ global_test_idx, global_test_idx, class_info.class_name });
+            try self.output.writer(self.allocator).print("var __test_ctx_{d} = TestCtx{d}{{ .result = &test_results[{d}], .instance = &_test_instance_{s}, .allocator = __global_allocator }};\n", .{ global_test_idx, global_test_idx, global_test_idx, class_info.class_name });
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("TestCtx{d}.run(&__test_ctx_{d});\n", .{ global_test_idx, global_test_idx });
 
             global_test_idx += 1;
         }
     }
     try self.emit("\n");
 
-    // Wait for all tests to complete
-    try self.emitIndent();
-    try self.emit("runtime.scheduler.waitAll();\n\n");
-
-    // Print results
+    // Print results (tests already ran sequentially above)
     try self.emitIndent();
     try self.emit("// Print results\n");
     try self.emitIndent();
