@@ -587,6 +587,21 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
             }
         }
     }
+    // Handle tagged unions (like PyValue)
+    if (first_info == .@"union" and first_info.@"union".tag_type != null) {
+        // Check for toFloat method (PyValue has this)
+        if (@hasDecl(FirstType, "toFloat")) {
+            if (first.toFloat()) |val| {
+                return val;
+            }
+        }
+        // Check for toInt method and convert to float
+        if (@hasDecl(FirstType, "toInt")) {
+            if (first.toInt()) |val| {
+                return @as(f64, @floatFromInt(val));
+            }
+        }
+    }
 
     return PythonError.TypeError;
 }

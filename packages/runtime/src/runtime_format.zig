@@ -302,8 +302,9 @@ const FormatSpec = struct {
     alternate: bool = false,
     zero_pad: bool = false,
     width: ?usize = null,
-    grouping_char: ?u8 = null, // ',' or '_' for thousands separator
+    grouping_char: ?u8 = null, // ',' or '_' for integer part thousands separator
     precision: ?usize = null,
+    decimal_grouping_char: ?u8 = null, // ',' or '_' for decimal part grouping
     fmt_type: u8 = 0, // 0 = default, 's', 'd', 'b', 'o', 'x', 'X', 'e', 'E', 'f', 'F', 'g', 'G', '%', 'c', 'n'
 };
 
@@ -394,6 +395,12 @@ fn parseFormatSpec(spec: []const u8) FormatSpec {
         }
     }
 
+    // Decimal grouping: comma or underscore after precision, before type
+    if (i < spec.len and (spec[i] == ',' or spec[i] == '_')) {
+        result.decimal_grouping_char = spec[i];
+        i += 1;
+    }
+
     // Type: single character at end
     if (i < spec.len) {
         result.fmt_type = spec[i];
@@ -431,8 +438,14 @@ fn applyPadding(allocator: std.mem.Allocator, content: []const u8, spec: FormatS
 }
 
 /// Add thousands grouping separator to a number string
-/// e.g., "123456.789" with '_' -> "123_456.789"
-fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, sep: u8) ![]const u8 {
+/// e.g., "123456.789" with int_sep='_', dec_sep=null -> "123_456.789"
+/// e.g., "123456.789" with int_sep=null, dec_sep='_' -> "123456.789_" (every 3 digits in decimal part)
+/// e.g., "123456.789123" with int_sep='_', dec_sep='_' -> "123_456.789_123"
+fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, int_sep: ?u8, dec_sep: ?u8) ![]const u8 {
+    if (int_sep == null and dec_sep == null) {
+        return try allocator.dupe(u8, num_str);
+    }
+
     // Find the decimal point (or end of string for integers)
     var decimal_pos: usize = num_str.len;
     var start_pos: usize = 0;
@@ -447,12 +460,6 @@ fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, sep: 
         }
     }
 
-    const int_part = num_str[start_pos..decimal_pos];
-    if (int_part.len <= 3) {
-        // No grouping needed
-        return try allocator.dupe(u8, num_str);
-    }
-
     var result = std.ArrayList(u8){};
 
     // Copy sign if present
@@ -460,24 +467,54 @@ fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, sep: 
         try result.append(allocator, num_str[0]);
     }
 
-    // Add digits with separators
-    const num_groups = (int_part.len + 2) / 3;
-    const first_group_len = int_part.len - (num_groups - 1) * 3;
+    const int_part = num_str[start_pos..decimal_pos];
 
-    // First group (may be less than 3 digits)
-    try result.appendSlice(allocator, int_part[0..first_group_len]);
+    // Add integer part with grouping
+    if (int_sep) |sep| {
+        if (int_part.len > 3) {
+            const num_groups = (int_part.len + 2) / 3;
+            const first_group_len = int_part.len - (num_groups - 1) * 3;
 
-    // Remaining groups (exactly 3 digits each)
-    var pos: usize = first_group_len;
-    while (pos < int_part.len) {
-        try result.append(allocator, sep);
-        try result.appendSlice(allocator, int_part[pos .. pos + 3]);
-        pos += 3;
+            // First group (may be less than 3 digits)
+            try result.appendSlice(allocator, int_part[0..first_group_len]);
+
+            // Remaining groups (exactly 3 digits each)
+            var pos: usize = first_group_len;
+            while (pos < int_part.len) {
+                try result.append(allocator, sep);
+                try result.appendSlice(allocator, int_part[pos .. pos + 3]);
+                pos += 3;
+            }
+        } else {
+            try result.appendSlice(allocator, int_part);
+        }
+    } else {
+        try result.appendSlice(allocator, int_part);
     }
 
-    // Copy decimal part if present
+    // Copy decimal part with grouping if present
     if (decimal_pos < num_str.len) {
-        try result.appendSlice(allocator, num_str[decimal_pos..]);
+        try result.append(allocator, '.'); // Add the decimal point
+        const dec_part = num_str[decimal_pos + 1 ..]; // Skip the '.'
+
+        if (dec_sep) |sep| {
+            if (dec_part.len > 3) {
+                // Add groups of 3 from the LEFT (after decimal point)
+                var pos: usize = 0;
+                while (pos < dec_part.len) {
+                    if (pos > 0) {
+                        try result.append(allocator, sep);
+                    }
+                    const end = @min(pos + 3, dec_part.len);
+                    try result.appendSlice(allocator, dec_part[pos..end]);
+                    pos = end;
+                }
+            } else {
+                try result.appendSlice(allocator, dec_part);
+            }
+        } else {
+            try result.appendSlice(allocator, dec_part);
+        }
     }
 
     return result.toOwnedSlice(allocator);
@@ -728,9 +765,9 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec: anyty
     }
 
     // Apply thousands grouping if specified
-    var formatted = buf.items;
-    if (spec.grouping_char) |sep| {
-        formatted = try addThousandsGrouping(allocator, buf.items, sep);
+    var formatted: []const u8 = buf.items;
+    if (spec.grouping_char != null or spec.decimal_grouping_char != null) {
+        formatted = try addThousandsGrouping(allocator, buf.items, spec.grouping_char, spec.decimal_grouping_char);
     }
 
     return applyPadding(allocator, formatted, spec);
