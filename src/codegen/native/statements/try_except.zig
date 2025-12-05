@@ -614,6 +614,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         var locally_declared = FnvVoidMap.init(self.allocator);
         defer locally_declared.deinit();
         try findLocallyDeclaredVars(try_node.body, &locally_declared);
+        // Also check handlers, else_body, and finalbody for local declarations
+        for (try_node.handlers) |handler| {
+            try findLocallyDeclaredVars(handler.body, &locally_declared);
+        }
+        try findLocallyDeclaredVars(try_node.else_body, &locally_declared);
+        try findLocallyDeclaredVars(try_node.finalbody, &locally_declared);
 
         // Categorize variables:
         // 1. declared_vars: first declared in try block (hoisted, passed as pointer)
