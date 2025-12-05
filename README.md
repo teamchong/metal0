@@ -379,15 +379,15 @@ const result = await mod.eval("1 + 2");  // Returns 3
 - Complex code spawns Web Worker for security
 - Cached WASM module enables "viral spawning" - workers share compiled module
 
-### WasmEdge WASI: Server-Side Eval
+### WasmEdge WASI: Server-Side Eval (WIP)
 
-For server-side WASM (WasmEdge), eval() communicates via WASI sockets:
+> **Note:** Server-side eval execution is work in progress. The server currently accepts connections but bytecode execution is not yet implemented.
 
 ```bash
-# Start server
+# Start server (requires metal0_vm.wasm)
 metal0 server --vm-module metal0_vm.wasm
 
-# Test with Python client
+# Test socket connection
 python3 -c "
 import socket, struct
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -398,12 +398,10 @@ print('Response:', sock.recv(13).hex())
 "
 ```
 
-Each request runs in a fresh WASM instance for security isolation.
-
-**Benefits:**
+**Planned architecture:**
 - Fresh WASM instance per request (security isolation)
 - Unix socket communication
-- Requires `WASMEDGE_DIR` environment variable
+- Bytecode VM execution in WasmEdge sandbox
 
 ### User-Declared Bindings
 
