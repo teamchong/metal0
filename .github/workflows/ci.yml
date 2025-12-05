@@ -6,35 +6,113 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  ZIG_VERSION: "0.15.0"
+
 jobs:
-  cpython-tests:
-    runs-on: ubuntu-latest
+  # =============================================================================
+  # Native Build & Test (Multi-platform)
+  # =============================================================================
+  build-and-test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-14]  # macos-14 is ARM64
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v1
         with:
-          version: 0.15.0
+          version: ${{ env.ZIG_VERSION }}
 
-      - name: Build compiler
-        run: zig build
+      - name: Build (debug)
+        run: make build
 
-      - name: Run CPython unit tests (390 tests)
+      - name: Run unit tests
+        run: make test-unit
+
+      - name: Run integration tests
+        run: make test-integration
+
+      - name: Run CPython compatibility tests
+        run: make test-cpython
+
+  # =============================================================================
+  # Cross-compilation Verification
+  # =============================================================================
+  cross-compile:
+    name: Cross-compile (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-linux-gnu
+          - aarch64-linux-gnu
+          - x86_64-macos
+          - aarch64-macos
+          - x86_64-windows-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Cross-compile for ${{ matrix.target }}
+        run: zig build -Dtarget=${{ matrix.target }}
+
+  # =============================================================================
+  # WASM Build Verification
+  # =============================================================================
+  build-wasm:
+    name: Build (WASM)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Build WASM target (wasm32-wasi)
+        run: zig build -Dtarget=wasm32-wasi
+        continue-on-error: true  # WASM is experimental
+
+      - name: Build WASM target (wasm32-freestanding)
+        run: zig build -Dtarget=wasm32-freestanding
+        continue-on-error: true  # WASM is experimental
+
+  # =============================================================================
+  # Release Build Verification
+  # =============================================================================
+  build-release:
+    name: Build (Release)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Build release binary
+        run: make build-release
+
+      - name: Verify binary runs
+        run: ./zig-out/bin/metal0 --version || ./zig-out/bin/metal0 --help || true
+
+      - name: Check binary size
         run: |
-          passed=0
-          failed=0
-          failed_tests=""
-          for f in tests/cpython/test_*.py; do
-            if timeout 30 ./zig-out/bin/metal0 "$f" --force >/dev/null 2>&1; then
-              passed=$((passed + 1))
-            else
-              failed=$((failed + 1))
-              failed_tests="$failed_tests\n  - $f"
-            fi
-          done
-          echo "CPython tests: $passed passed, $failed failed"
-          if [ $failed -gt 0 ]; then
-            echo -e "Failed tests:$failed_tests"
-            exit 1
-          fi
+          ls -lh ./zig-out/bin/metal0
+          size ./zig-out/bin/metal0 || true

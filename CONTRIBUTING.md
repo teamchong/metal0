@@ -61,7 +61,7 @@ make install
 
 ### Running Tests
 
-The **Makefile is the source of truth** for test commands:
+The **Makefile is the single entry point** for all commands:
 
 ```bash
 # Quick validation (recommended during development)
@@ -74,13 +74,29 @@ make test-cpython      # CPython compatibility tests
 
 # Everything (slow)
 make test-all          # Runs: test-unit + test-integration + test-cpython
+
+# Run a single CPython test
+make test-cpython-one TEST=bool    # Runs tests/cpython/test_bool.py
 ```
 
-To run a specific Python file:
+To run a specific Python file directly:
 ```bash
 ./zig-out/bin/metal0 path/to/test.py           # Compile and run
 ./zig-out/bin/metal0 build path/to/test.py     # Compile only
 ```
+
+### Continuous Integration
+
+All PRs run through GitHub Actions (`.github/workflows/ci.yml`):
+
+| Job | Description |
+|-----|-------------|
+| **Test (ubuntu/macos/macos-arm)** | Full test suite on Linux x64, macOS x64, macOS ARM64 |
+| **Cross-compile** | Verify builds for linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64 |
+| **Build (WASM)** | Verify wasm32-wasi and wasm32-freestanding targets (experimental) |
+| **Build (Release)** | Verify optimized release build |
+
+CI runs `make test-unit`, `make test-integration`, and `make test-cpython` on all native platforms.
 
 ### Debugging
 
