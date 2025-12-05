@@ -492,6 +492,19 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             return;
         }
 
+        // Check for bytes concatenation: bytes + bytes
+        if (left_type == .bytes or right_type == .bytes) {
+            const alloc_name = "__global_allocator";
+            try self.emit("try runtime.builtins.PyBytes.concat(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+            return;
+        }
+
         // Check for list concatenation: list + list or array + array
         // Also check AST nodes for list literals since type inference may return .unknown
         if (left_type == .list or right_type == .list or
@@ -564,6 +577,32 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             try genExpr(self, binop.left.*);
             try self.emit(", @as(usize, @intCast(");
             try genExpr(self, binop.right.*);
+            try self.emit(")))");
+            return;
+        }
+
+        // bytes * n -> repeat bytes n times
+        if (left_type == .bytes and (right_type == .int or right_type == .unknown)) {
+            const alloc_name = "__global_allocator";
+            try self.emit("try runtime.builtins.PyBytes.repeat(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try genExpr(self, binop.left.*);
+            try self.emit(", @as(usize, @intCast(");
+            try genExpr(self, binop.right.*);
+            try self.emit(")))");
+            return;
+        }
+
+        // n * bytes -> repeat bytes n times
+        if (right_type == .bytes and (left_type == .int or left_type == .unknown)) {
+            const alloc_name = "__global_allocator";
+            try self.emit("try runtime.builtins.PyBytes.repeat(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(", @as(usize, @intCast(");
+            try genExpr(self, binop.left.*);
             try self.emit(")))");
             return;
         }

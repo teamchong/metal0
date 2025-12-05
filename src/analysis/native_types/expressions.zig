@@ -200,6 +200,7 @@ pub fn inferExprWithInferrer(
                 .index => |idx| {
                     // Single index access
                     // string[i] -> u8 (but we treat as string for printing)
+                    // bytes[i] -> u8 (integer)
                     // list[i] -> element type
                     // dict[key] -> value type
                     // tuple[i] -> element type at index i
@@ -207,6 +208,9 @@ pub fn inferExprWithInferrer(
                         // String indexing returns a single character
                         // For now, treat as string for simplicity
                         break :blk .{ .string = .slice };
+                    } else if (obj_type == .bytes) {
+                        // Bytes indexing returns a single byte (u8/int)
+                        break :blk .{ .int = .bounded };
                     } else if (obj_type == .array) {
                         break :blk obj_type.array.element_type.*;
                     } else if (obj_type == .list) {
@@ -235,10 +239,14 @@ pub fn inferExprWithInferrer(
                 .slice => {
                     // Slice access always returns same type as container
                     // string[1:4] -> string
+                    // bytes[1:4] -> bytes
                     // array[1:4] -> slice (converted to list)
                     // list[1:4] -> list
                     if (obj_type == .string) {
                         break :blk .{ .string = .slice };
+                    } else if (obj_type == .bytes) {
+                        // Bytes slicing returns bytes
+                        break :blk .bytes;
                     } else if (obj_type == .array) {
                         // Array slices become lists (dynamic)
                         break :blk .{ .list = obj_type.array.element_type };
@@ -665,7 +673,7 @@ fn inferConstant(value: ast.Value) InferError!NativeType {
         .bigint => .bigint, // Large integers are BigInt
         .float => .float,
         .string => .{ .string = .literal }, // String literals are compile-time constants
-        .bytes => .bytes, // Bytes literals use PyBytes wrapper for type preservation
+        .bytes => .bytes, // Bytes literals use PyBytes wrapper
         .bool => .bool,
         .none => .none,
         .complex => .complex, // Complex number literals
@@ -753,15 +761,26 @@ fn inferBinOpWithInferrer(
         return .{ .string = .runtime }; // Concatenation produces runtime string
     }
 
+    // Bytes concatenation: bytes + bytes → bytes
+    if (binop.op == .Add and (left_tag == .bytes or right_tag == .bytes)) {
+        return .bytes; // Bytes concatenation produces bytes
+    }
+
     // String repetition: str * int or int * str → runtime string
+    // Bytes repetition: bytes * int or int * bytes → bytes
     if (binop.op == .Mult) {
         const left_is_string = left_tag == .string;
         const right_is_string = right_tag == .string;
+        const left_is_bytes = left_tag == .bytes;
+        const right_is_bytes = right_tag == .bytes;
         const left_is_numeric = left_tag == .int or left_tag == .usize;
         const right_is_numeric = right_tag == .int or right_tag == .usize;
 
         if ((left_is_string and right_is_numeric) or (left_is_numeric and right_is_string)) {
             return .{ .string = .runtime }; // String repetition produces runtime string
+        }
+        if ((left_is_bytes and right_is_numeric) or (left_is_numeric and right_is_bytes)) {
+            return .bytes; // Bytes repetition produces bytes
         }
     }
 

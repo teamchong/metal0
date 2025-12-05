@@ -8,6 +8,7 @@ pub const PyValue = union(enum) {
     int: i64,
     float: f64,
     string: []const u8,
+    bytes: @import("../runtime/builtins.zig").PyBytes, // Python bytes type
     bool: bool,
     none: void,
     list: []const PyValue,
@@ -25,6 +26,7 @@ pub const PyValue = union(enum) {
             .int => |v| try writer.print("{d}", .{v}),
             .float => |v| try writer.print("{d}", .{v}),
             .string => |v| try writer.print("{s}", .{v}),
+            .bytes => |v| try writer.print("{s}", .{v.data}),
             .bool => |v| try writer.print("{}", .{v}),
             .none => try writer.writeAll("None"),
             .list => |items| {

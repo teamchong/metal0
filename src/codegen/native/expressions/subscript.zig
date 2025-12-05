@@ -101,12 +101,18 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     const is_tuple = base_tag == .tuple;
                     const is_pyvalue = base_tag == .pyvalue;
                     const is_unknown = base_tag == .unknown;
+                    const is_bytes = base_tag == .bytes;
                     const index_tag = @as(std.meta.Tag(@TypeOf(index_type)), index_type);
                     const is_int_index = (index_tag == .int) or (index_tag == .usize);
 
                     if (is_tuple and index == .constant and index.constant.value == .int) {
                         // Tuple indexing with constant integer: __base.@"0"
                         try self.output.writer(self.allocator).print("__base.@\"{d}\"", .{index.constant.value.int});
+                    } else if (is_bytes and is_int_index) {
+                        // Bytes indexing: use .get() method
+                        try self.emit("__base.get(@as(usize, @intCast(");
+                        try genExpr(self, index);
+                        try self.emit(")))");
                     } else if ((is_unknown or is_pyvalue) and is_int_index) {
                         // Unknown type or PyValue with int index - use PyValue.pyAt() method
                         // This handles PyValue containing tuple/list uniformly
@@ -132,31 +138,56 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             },
             .slice => |slice| {
                 // Slice access on temp variable
-                try self.emit("__base[");
-                if (slice.lower) |lower| {
-                    const needs_cast = blk: {
-                        const lt = self.type_inferrer.inferExpr(lower.*) catch .unknown;
-                        break :blk (lt == .int);
-                    };
-                    if (needs_cast) try self.emit("@as(usize, @intCast(");
-                    try genExpr(self, lower.*);
-                    if (needs_cast) try self.emit("))");
+                // Check if base is bytes type - use .sliceRange() method
+                const base_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
+                const is_bytes = (@as(std.meta.Tag(@TypeOf(base_type)), base_type) == .bytes);
+
+                if (is_bytes) {
+                    // Bytes slicing: __base.sliceRange(start, end)
+                    try self.emit("__base.sliceRange(");
+                    if (slice.lower) |lower| {
+                        try self.emit("@as(usize, @intCast(");
+                        try genExpr(self, lower.*);
+                        try self.emit("))");
+                    } else {
+                        try self.emit("0");
+                    }
+                    try self.emit(", ");
+                    if (slice.upper) |upper| {
+                        try self.emit("@as(usize, @intCast(");
+                        try genExpr(self, upper.*);
+                        try self.emit("))");
+                    } else {
+                        try self.emit("__base.len()");
+                    }
+                    try self.emit(")");
                 } else {
-                    try self.emit("0");
+                    try self.emit("__base[");
+                    if (slice.lower) |lower| {
+                        const needs_cast = blk: {
+                            const lt = self.type_inferrer.inferExpr(lower.*) catch .unknown;
+                            break :blk (lt == .int);
+                        };
+                        if (needs_cast) try self.emit("@as(usize, @intCast(");
+                        try genExpr(self, lower.*);
+                        if (needs_cast) try self.emit("))");
+                    } else {
+                        try self.emit("0");
+                    }
+                    try self.emit("..");
+                    if (slice.upper) |upper| {
+                        const needs_cast = blk: {
+                            const ut = self.type_inferrer.inferExpr(upper.*) catch .unknown;
+                            break :blk (ut == .int);
+                        };
+                        if (needs_cast) try self.emit("@as(usize, @intCast(");
+                        try genExpr(self, upper.*);
+                        if (needs_cast) try self.emit("))");
+                    } else {
+                        try self.emit("__base.len");
+                    }
+                    try self.emit("]");
                 }
-                try self.emit("..");
-                if (slice.upper) |upper| {
-                    const needs_cast = blk: {
-                        const ut = self.type_inferrer.inferExpr(upper.*) catch .unknown;
-                        break :blk (ut == .int);
-                    };
-                    if (needs_cast) try self.emit("@as(usize, @intCast(");
-                    try genExpr(self, upper.*);
-                    if (needs_cast) try self.emit("))");
-                } else {
-                    try self.emit("__base.len");
-                }
-                try self.emit("]");
             },
         }
         try self.emit("; }");
@@ -354,6 +385,19 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     }
                     try self.emitFmt("; if (__idx >= __s.items.len) return error.IndexError; break :idx_{d} __s.items[__idx]; }}", .{label_id});
                 }
+            } else if (value_type == .bytes) {
+                // Bytes indexing: PyBytes uses .get() method, returns u8
+                const needs_cast = (index_type == .int);
+                try genExpr(self, subscript.value.*);
+                try self.emit(".get(");
+                if (needs_cast) {
+                    try self.emit("@as(usize, @intCast(");
+                }
+                try genExpr(self, subscript.slice.index.*);
+                if (needs_cast) {
+                    try self.emit("))");
+                }
+                try self.emit(")");
             } else {
                 // Array/slice/string indexing: a[b]
                 const is_string = (value_type == .string);
@@ -444,6 +488,36 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
             const has_step = slice_range.step != null;
             const needs_len = slice_range.upper == null;
+
+            // Handle bytes slicing: PyBytes uses .sliceRange() method
+            if (value_type == .bytes) {
+                const label_id = self.block_label_counter;
+                self.block_label_counter += 1;
+                try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
+                try genExpr(self, subscript.value.*);
+                try self.emit("; const __start: usize = ");
+
+                if (slice_range.lower) |lower| {
+                    try self.emit("@as(usize, @intCast(");
+                    try genExpr(self, lower.*);
+                    try self.emit("))");
+                } else {
+                    try self.emit("0");
+                }
+
+                try self.emit("; const __end: usize = ");
+
+                if (slice_range.upper) |upper| {
+                    try self.emit("@as(usize, @intCast(");
+                    try genExpr(self, upper.*);
+                    try self.emit("))");
+                } else {
+                    try self.emit("__s.len()");
+                }
+
+                try self.emitFmt("; break :slice_{d} __s.sliceRange(__start, __end); }}", .{label_id});
+                return;
+            }
 
             if (has_step) {
                 // With step: use slice with step calculation
