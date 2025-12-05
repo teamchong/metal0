@@ -296,38 +296,6 @@ Here's how `print(sum([1, 2, 3]))` flows through the compiler:
    -> Native binary
 ```
 
-## Contributing to Specific Areas
-
-### Adding a New Builtin Function
-
-1. Add to `src/codegen/native/builtins_mod.zig` (Funcs map)
-2. Implement in `src/codegen/native/builtins.zig` or `builtins/collections.zig`
-3. Add runtime support in `packages/runtime/src/runtime/builtins.zig` if needed
-4. Add type inference in `src/analysis/native_types/calls/builtin_calls.zig`
-
-### Adding a New String Method
-
-1. Add to `packages/runtime/src/Python/pyStr.zig`
-2. Add codegen dispatch in `src/codegen/native/expressions/method_calls/string_methods.zig`
-3. Add type inference for return type
-
-### Fixing a Code Generation Bug
-
-1. Create a minimal Python test case
-2. Run `metal0 <file.py>` and examine `.metal0/cache/metal0_main_*.zig`
-3. Identify the incorrect Zig output
-4. Trace back through codegen to find the responsible code
-5. Common locations:
-   - `expressions.zig` for expression issues
-   - `statements/` for statement issues
-   - `try_except.zig` for exception handling
-
-### Adding Exception Type Support
-
-1. Add to `src/codegen/native/builtins_mod.zig` (Funcs map with `h.err()`)
-2. Add to `src/codegen/native/shared_maps.zig` (RuntimeExceptions)
-3. Add to `packages/runtime/src/runtime/exceptions.zig` if needed
-
 ## Debugging Tips
 
 - **View generated Zig:** Check `.metal0/cache/metal0_main_*.zig`
