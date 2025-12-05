@@ -10,12 +10,15 @@
 /// - Only included in binary if eval()/exec() are called
 /// - Zig's comptime + unused code elimination handles this
 pub const opcode = @import("opcode.zig");
+pub const compiler = @import("compiler.zig");
 
 pub const OpCode = opcode.OpCode;
 pub const Instruction = opcode.Instruction;
 pub const Value = opcode.Value;
 pub const Program = opcode.Program;
 pub const SourceLoc = opcode.SourceLoc;
+
+pub const Compiler = compiler.Compiler;
 
 pub const serialize = opcode.serialize;
 pub const deserialize = opcode.deserialize;
