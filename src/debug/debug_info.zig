@@ -16,6 +16,9 @@ const std = @import("std");
 // Re-export DWARF emitter for convenience
 pub const dwarf = @import("dwarf_emitter.zig");
 
+// Re-export DAP server
+pub const dap = @import("dap_server.zig");
+
 /// Source location in Python file
 pub const SourceLoc = struct {
     line: u32, // 1-indexed
@@ -174,14 +177,21 @@ pub const DebugInfoWriter = struct {
 
     /// Add a symbol (function, class, variable, etc.)
     pub fn addSymbol(self: *DebugInfoWriter, name: []const u8, kind: SymbolKind, loc: SourceLoc) !u32 {
+        return self.addSymbolWithType(name, kind, loc, null);
+    }
+
+    /// Add a symbol with optional type hint
+    pub fn addSymbolWithType(self: *DebugInfoWriter, name: []const u8, kind: SymbolKind, loc: SourceLoc, type_hint: ?[]const u8) !u32 {
         const index: u32 = @intCast(self.symbols.items.len);
         const name_copy = try self.allocator.dupe(u8, name);
+        const type_copy = if (type_hint) |th| try self.allocator.dupe(u8, th) else null;
 
         try self.symbols.append(self.allocator, .{
             .name = name_copy,
             .kind = kind,
             .loc = loc,
             .parent = if (self.scope_stack.items.len > 0) self.scope_stack.getLast() else null,
+            .type_hint = type_copy,
         });
 
         return index;
@@ -324,6 +334,9 @@ pub const DebugInfoWriter = struct {
             try writer.print("\"line\": {d}, \"column\": {d}", .{ sym.loc.line, sym.loc.column });
             if (sym.parent) |p| {
                 try writer.print(", \"parent\": {d}", .{p});
+            }
+            if (sym.type_hint) |th| {
+                try writer.print(", \"type\": \"{s}\"", .{th});
             }
             try writer.writeAll("}");
             if (i < self.symbols.items.len - 1) try writer.writeAll(",");

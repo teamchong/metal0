@@ -20,6 +20,7 @@ const import_scanner = @import("../import_scanner.zig");
 const import_registry = @import("../codegen/native/import_registry.zig");
 const build_dirs = @import("../build_dirs.zig");
 const debug_info = @import("debug_info");
+const zig_keywords = @import("zig_keywords");
 
 // Submodules
 const cache = @import("compile/cache.zig");
@@ -573,7 +574,8 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         try compiler.compileZigSharedLib(aa, zig_code, bin_path, c_libs);
     } else {
         std.debug.print("Compiling to native binary...\n", .{});
-        try compiler.compileZig(aa, zig_code, bin_path, c_libs);
+        // Use debug mode when --debug flag is set for DWARF info in binary
+        try compiler.compileZigWithOptions(aa, zig_code, bin_path, c_libs, opts.debug);
     }
 
     std.debug.print("✓ Compiled successfully to: {s}\n", .{bin_path});
@@ -602,6 +604,13 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         const dwarf_path = try std.fmt.allocPrint(aa, "{s}.debug_line", .{bin_path});
         try debug_info.dwarf.writeDwarfToFile(aa, dwarf_path, dw.source_file, dw.mappings.items);
         std.debug.print("✓ DWARF debug_line written to: {s}\n", .{dwarf_path});
+
+        // Generate DWARF .debug_info sections for local variables
+        const dwarf_info_path = try std.fmt.allocPrint(aa, "{s}.dwarf", .{bin_path});
+        const func_infos = try collectDwarfFunctionInfo(aa, dw);
+        const var_infos = try collectDwarfGlobalVars(aa, dw);
+        try debug_info.dwarf.writeDwarfInfoToFiles(aa, dwarf_info_path, dw.source_file, func_infos, var_infos);
+        std.debug.print("✓ DWARF debug_info written to: {s}.debug_info\n", .{dwarf_info_path});
     }
 
     // Run if mode is "run"
@@ -640,7 +649,29 @@ fn collectDebugSymbols(dw: *debug_info.DebugInfoWriter, module: ast.Node.Module,
         switch (stmt) {
             .function_def => |func| {
                 const line = token_lines.get(func.name) orelse 1;
-                _ = try dw.addSymbol(func.name, .function, debug_info.SourceLoc.single(line, 1));
+                const fn_idx = try dw.addSymbol(func.name, .function, debug_info.SourceLoc.single(line, 1));
+
+                // Record parameters within function scope
+                try dw.enterScope(fn_idx);
+                for (func.args) |arg| {
+                    const param_name = arg.name;
+                    const param_line = token_lines.get(param_name) orelse line;
+                    // Include type annotation if present
+                    _ = try dw.addSymbolWithType(param_name, .parameter, debug_info.SourceLoc.single(param_line, 1), arg.type_annotation);
+                }
+
+                // Record local variables from function body
+                for (func.body) |body_stmt| {
+                    if (body_stmt == .assign) {
+                        for (body_stmt.assign.targets) |target| {
+                            if (target == .name) {
+                                const var_line = token_lines.get(target.name.id) orelse line;
+                                _ = try dw.addSymbol(target.name.id, .variable, debug_info.SourceLoc.single(var_line, 1));
+                            }
+                        }
+                    }
+                }
+                dw.exitScope();
             },
             .class_def => |class| {
                 const line = token_lines.get(class.name) orelse 1;
@@ -652,7 +683,17 @@ fn collectDebugSymbols(dw: *debug_info.DebugInfoWriter, module: ast.Node.Module,
                     if (class_stmt == .function_def) {
                         const method = class_stmt.function_def;
                         const method_line = token_lines.get(method.name) orelse line;
-                        _ = try dw.addSymbol(method.name, .method, debug_info.SourceLoc.single(method_line, 1));
+                        const method_idx = try dw.addSymbol(method.name, .method, debug_info.SourceLoc.single(method_line, 1));
+
+                        // Record method parameters
+                        try dw.enterScope(method_idx);
+                        for (method.args) |arg| {
+                            const param_name = arg.name;
+                            const param_line = token_lines.get(param_name) orelse method_line;
+                            // Include type annotation if present
+                            _ = try dw.addSymbolWithType(param_name, .parameter, debug_info.SourceLoc.single(param_line, 1), arg.type_annotation);
+                        }
+                        dw.exitScope();
                     }
                 }
                 dw.exitScope();
@@ -679,4 +720,98 @@ fn collectDebugSymbols(dw: *debug_info.DebugInfoWriter, module: ast.Node.Module,
             try dw.recordStmt(debug_info.SourceLoc.single(@intCast(tokens[approx_line - 1].line), 1));
         }
     }
+}
+
+/// Convert debug symbols to DWARF function info
+/// Extracts function definitions from the collected symbols for .debug_info generation
+fn collectDwarfFunctionInfo(allocator: std.mem.Allocator, dw: *debug_info.DebugInfoWriter) ![]const debug_info.dwarf.FunctionInfo {
+    var functions = std.ArrayList(debug_info.dwarf.FunctionInfo){};
+
+    // Track current function for nesting parameters/variables
+    var current_func: ?*debug_info.dwarf.FunctionInfo = null;
+    var current_func_vars = std.ArrayList(debug_info.dwarf.VariableInfo){};
+
+    for (dw.symbols.items) |sym| {
+        switch (sym.kind) {
+            .function, .method => {
+                // Finish previous function if any
+                if (current_func) |func| {
+                    var f = func.*;
+                    f.variables = current_func_vars.toOwnedSlice(allocator) catch &[_]debug_info.dwarf.VariableInfo{};
+                    functions.append(allocator, f) catch {};
+                    current_func_vars = std.ArrayList(debug_info.dwarf.VariableInfo){};
+                }
+
+                // Start new function
+                try functions.append(allocator, .{
+                    .name = sym.name,
+                    .line = sym.loc.line,
+                    .end_line = sym.loc.end_line,
+                });
+                current_func = &functions.items[functions.items.len - 1];
+            },
+            .parameter => {
+                // Add parameter to current function
+                // Map Python name to Zig identifier (escape keywords)
+                const zig_name = try zig_keywords.escapeIfKeyword(allocator, sym.name);
+                try current_func_vars.append(allocator, .{
+                    .name = sym.name,
+                    .zig_name = zig_name,
+                    .type_name = sym.type_hint orelse "PyValue",
+                    .line = sym.loc.line,
+                    .is_parameter = true,
+                });
+            },
+            .variable => {
+                // Check if this is a local variable (has parent function)
+                if (sym.parent != null and current_func != null) {
+                    // Map Python name to Zig identifier (escape keywords)
+                    const zig_name = try zig_keywords.escapeIfKeyword(allocator, sym.name);
+                    try current_func_vars.append(allocator, .{
+                        .name = sym.name,
+                        .zig_name = zig_name,
+                        .type_name = sym.type_hint orelse "PyValue",
+                        .line = sym.loc.line,
+                        .is_parameter = false,
+                    });
+                }
+            },
+            else => {},
+        }
+    }
+
+    // Finish last function if any
+    if (current_func) |func| {
+        var f = func.*;
+        f.variables = current_func_vars.toOwnedSlice(allocator) catch &[_]debug_info.dwarf.VariableInfo{};
+        // Update in place
+        if (functions.items.len > 0) {
+            functions.items[functions.items.len - 1] = f;
+        }
+    }
+
+    return functions.toOwnedSlice(allocator);
+}
+
+/// Collect global variables from debug symbols
+/// Extracts top-level variable assignments for .debug_info generation
+fn collectDwarfGlobalVars(allocator: std.mem.Allocator, dw: *debug_info.DebugInfoWriter) ![]const debug_info.dwarf.VariableInfo {
+    var globals = std.ArrayList(debug_info.dwarf.VariableInfo){};
+
+    for (dw.symbols.items) |sym| {
+        // Global variables have no parent (top-level scope)
+        if (sym.kind == .variable and sym.parent == null) {
+            // Map Python name to Zig identifier (escape keywords)
+            const zig_name = try zig_keywords.escapeIfKeyword(allocator, sym.name);
+            try globals.append(allocator, .{
+                .name = sym.name,
+                .zig_name = zig_name,
+                .type_name = sym.type_hint orelse "PyValue",
+                .line = sym.loc.line,
+                .is_parameter = false,
+            });
+        }
+    }
+
+    return globals.toOwnedSlice(allocator);
 }

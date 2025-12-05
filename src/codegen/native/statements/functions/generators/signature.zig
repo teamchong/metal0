@@ -584,25 +584,29 @@ pub fn genFunctionSignature(
         const is_used_directly = if (is_generator) true else param_analyzer.isNameUsedInBody(func.body, arg.name);
         const is_captured = self.isVarCapturedByAnyNestedClass(arg.name);
         const is_used = is_used_directly or is_captured or shadows_module_func or shadows_class_method;
+
+        // For unused parameters, use "_" (anonymous) instead of "_name" in Zig 0.15+
+        // "_name" still triggers unused warnings - only "_" fully ignores
         if (!is_used) {
-            try self.emit("_");
-        }
+            try self.emit("_: ");
+            // Skip straight to type - no name, no suffix
+        } else {
+            // Escape Zig reserved keywords (e.g., "fn" -> @"fn", "test" -> @"test")
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
 
-        // Escape Zig reserved keywords (e.g., "fn" -> @"fn", "test" -> @"test")
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            // Add suffix for parameters that shadow module-level functions or class methods
+            // Note: var_renames is populated in function_gen.zig AFTER the clear,
+            // so we don't need to put it here (it would be cleared anyway)
+            if (shadows_module_func or shadows_class_method) {
+                try self.emit("__local");
+            }
 
-        // Add suffix for parameters that shadow module-level functions or class methods
-        // Note: var_renames is populated in function_gen.zig AFTER the clear,
-        // so we don't need to put it here (it would be cleared anyway)
-        if (shadows_module_func or shadows_class_method) {
-            try self.emit("__local");
+            // Parameters with defaults become optional (suffix with '_param')
+            if (arg.default != null) {
+                try self.emit("_param");
+            }
+            try self.emit(": ");
         }
-
-        // Parameters with defaults become optional (suffix with '_param')
-        if (arg.default != null) {
-            try self.emit("_param");
-        }
-        try self.emit(": ");
 
         // Check if this parameter is used as a function (called or returned - decorator pattern)
         // For decorators, use anytype to accept any function type
