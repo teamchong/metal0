@@ -382,6 +382,13 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
                 .float => |v| if (b_info == .comptime_float or b_info == .float) v == @as(f64, b) else false,
                 .bool => |v| if (B == bool) v == b else false,
                 .string => |v| if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) std.mem.eql(u8, v, b) else false,
+                .list => |list| if (b_info == .array) blk: {
+                    if (list.len != b.len) break :blk false;
+                    for (list, 0..) |elem, i| {
+                        if (!pyAnyEql(elem, b[i])) break :blk false;
+                    }
+                    break :blk true;
+                } else false,
                 else => false,
             };
         }
@@ -392,6 +399,13 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
                 .float => |v| if (a_info == .comptime_float or a_info == .float) @as(f64, a) == v else false,
                 .bool => |v| if (A == bool) a == v else false,
                 .string => |v| if (a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8) std.mem.eql(u8, a, v) else false,
+                .list => |list| if (a_info == .array) blk: {
+                    if (a.len != list.len) break :blk false;
+                    for (a, 0..) |elem, i| {
+                        if (!pyAnyEql(elem, list[i])) break :blk false;
+                    }
+                    break :blk true;
+                } else false,
                 else => false,
             };
         }
@@ -1990,8 +2004,14 @@ pub const IntegerRatioResult = float_ops.IntegerRatioResult;
 pub const floatHex = float_ops.floatHex;
 pub const floatToHex = float_ops.floatToHex;
 pub const floatFloor = float_ops.floatFloor;
+pub const floatFloorBig = float_ops.floatFloorBig;
+pub const floatFloorAny = float_ops.floatFloorAny;
 pub const floatCeil = float_ops.floatCeil;
+pub const floatCeilBig = float_ops.floatCeilBig;
+pub const floatCeilAny = float_ops.floatCeilAny;
 pub const floatTrunc = float_ops.floatTrunc;
+pub const IntResult = float_ops.IntResult;
+pub const FloorCeilResult = float_ops.FloorCeilResult;
 pub const floatRound = float_ops.floatRound;
 pub const floatBuiltinCall = float_ops.floatBuiltinCall;
 pub const floatBuiltinCallBytes = float_ops.floatBuiltinCallBytes;
@@ -2749,6 +2769,39 @@ pub fn concatRuntime(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyVa
         const b_slice = iterSlice(b);
         for (b_slice) |item| {
             try result.append(allocator, try PyValue.fromAlloc(allocator, item));
+        }
+    }
+
+    return PyValue{ .list = result.items };
+}
+
+/// Python list repetition: [1, 2] * 3 = [1, 2, 1, 2, 1, 2]
+/// Returns a new list with elements repeated n times
+pub fn repeatRuntime(allocator: std.mem.Allocator, a: anytype, n: anytype) !PyValue {
+    var result = std.ArrayList(PyValue){};
+
+    // Convert count to usize
+    const count: usize = if (n < 0) 0 else @intCast(n);
+
+    // Get the source elements
+    const AType = @TypeOf(a);
+    const a_is_pyvalue = @typeInfo(AType) == .@"union" and @hasField(AType, "list");
+    const a_is_arraylist = @typeInfo(AType) == .@"struct" and @hasField(AType, "items") and @hasField(AType, "capacity");
+
+    // Repeat n times
+    for (0..count) |_| {
+        if (a_is_pyvalue) {
+            const a_list = if (a == .list) a.list else if (a == .tuple) a.tuple else &[_]PyValue{};
+            try result.appendSlice(allocator, a_list);
+        } else if (a_is_arraylist) {
+            for (a.items) |item| {
+                try result.append(allocator, try PyValue.fromAlloc(allocator, item));
+            }
+        } else {
+            const a_slice = iterSlice(a);
+            for (a_slice) |item| {
+                try result.append(allocator, try PyValue.fromAlloc(allocator, item));
+            }
         }
     }
 

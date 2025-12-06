@@ -89,6 +89,12 @@ pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_
                 }
                 // Fix parse_direct import in subdirectories
                 content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"../parse_direct.zig\")", "@import(\"../parse_direct.zig\")");
+
+                // Patch h2 module for files in Lib/http/
+                // h2 is at cache root (cache/h2/), Lib/http is at cache/Lib/http/
+                if (std.mem.indexOf(u8, dir_name, "Lib/http") != null) {
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"h2\")", "@import(\"../../h2/h2.zig\")");
+                }
             }
 
             try dst_file.writeAll(content);
@@ -317,6 +323,50 @@ fn copyTokenizerDirWithPatching(allocator: std.mem.Allocator, src_path: []const 
             defer allocator.free(new_src);
             const new_dst = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dst_path, entry.name });
             try copyTokenizerDirWithPatching(allocator, new_src, new_dst);
+        }
+    }
+}
+
+/// Copy h2 package (HTTP/2 client) to cache for http module
+pub fn copyH2Package(allocator: std.mem.Allocator, build_dir: []const u8) !void {
+    const src_dir_path = "packages/shared/http/h2";
+    const dst_dir_path = try std.fmt.allocPrint(allocator, "{s}/h2", .{build_dir});
+    defer allocator.free(dst_dir_path);
+
+    // Create destination directory
+    std.fs.cwd().makePath(dst_dir_path) catch {};
+
+    // Open source directory
+    var src_dir = std.fs.cwd().openDir(src_dir_path, .{ .iterate = true }) catch |err| {
+        if (err == error.FileNotFound) return;
+        return err;
+    };
+    defer src_dir.close();
+
+    // Copy all .zig files with import patching
+    var iterator = src_dir.iterate();
+    while (try iterator.next()) |entry| {
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".zig")) {
+            const src_file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ src_dir_path, entry.name });
+            defer allocator.free(src_file_path);
+            const dst_file_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dst_dir_path, entry.name });
+            defer allocator.free(dst_file_path);
+
+            const src_file = try std.fs.cwd().openFile(src_file_path, .{});
+            defer src_file.close();
+            const dst_file = try std.fs.cwd().createFile(dst_file_path, .{});
+            defer dst_file.close();
+
+            var content = try src_file.readToEndAlloc(allocator, 2 * 1024 * 1024);
+
+            // Patch module imports for standalone compilation
+            // h2 is in cache/h2/, so it needs to import from parent directory (../)
+            content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"gzip\")", "@import(\"../Modules/gzip/gzip.zig\")");
+            content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"netpoller\")", "@import(\"../runtime/netpoller.zig\")");
+            content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"green_thread\")", "@import(\"../runtime/green_thread.zig\")");
+
+            try dst_file.writeAll(content);
+            allocator.free(content);
         }
     }
 }

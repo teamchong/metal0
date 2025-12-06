@@ -109,6 +109,9 @@ pub fn setupRuntimeFiles(allocator: std.mem.Allocator) !void {
     // Copy tokenizer package to build dir
     try compiler_utils.copyTokenizerPackage(aa, build_dir);
 
+    // Copy h2 package to build dir (for http module)
+    try compiler_utils.copyH2Package(aa, build_dir);
+
     // Copy utils directory to build dir (for hashmap_helper, wyhash)
     try compiler_utils.copySrcUtilsDir(aa, build_dir);
 }
@@ -219,6 +222,9 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
     // Copy tokenizer package to build dir
     try compiler_utils.copyTokenizerPackage(aa, build_dir);
 
+    // Copy h2 package to build dir (for http module)
+    try compiler_utils.copyH2Package(aa, build_dir);
+
     // Copy utils directory to build dir (for hashmap_helper, wyhash)
     try compiler_utils.copySrcUtilsDir(aa, build_dir);
 
@@ -282,6 +288,25 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
     // Add build dir to import path so @import("runtime") finds runtime.zig
     const import_flag = try std.fmt.allocPrint(aa, "-I{s}", .{build_dir});
     try args.append(aa, import_flag);
+
+    // Add vendor libdeflate include path for gzip module's @cImport
+    try args.append(aa, "-Ivendor/libdeflate");
+
+    // Add libdeflate C source files (needed for http/gzip module)
+    const libdeflate_srcs = [_][]const u8{
+        "vendor/libdeflate/lib/deflate_compress.c",
+        "vendor/libdeflate/lib/deflate_decompress.c",
+        "vendor/libdeflate/lib/utils.c",
+        "vendor/libdeflate/lib/gzip_compress.c",
+        "vendor/libdeflate/lib/gzip_decompress.c",
+        "vendor/libdeflate/lib/adler32.c",
+        "vendor/libdeflate/lib/crc32.c",
+        "vendor/libdeflate/lib/arm/cpu_features.c",
+        "vendor/libdeflate/lib/x86/cpu_features.c",
+    };
+    for (libdeflate_srcs) |src| {
+        try args.append(aa, src);
+    }
 
     // Add main source file
     try args.append(aa, tmp_path);
