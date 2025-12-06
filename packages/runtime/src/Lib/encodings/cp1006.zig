@@ -1,7 +1,132 @@
-//! Python stdlib module stub
-//! TODO: Implement from CPython Lib/
-const std = @import("std");
+//! Python 'cp1006' Codec (Urdu)
+//!
+//! IBM CP1006 Urdu encoding
+//!
+//! Mirrors: CPython Lib/encodings/cp1006.py
 
-pub fn __stub__() void {
-    // Stub module - not yet implemented
+const std = @import("std");
+const charmap = @import("charmap.zig");
+
+pub const name = "cp1006";
+pub const aliases = [_][]const u8{};
+
+const UNDEF = charmap.UNDEFINED;
+
+/// CP1006 decode table
+const decode_table: [256]u21 = blk: {
+    var table: [256]u21 = undefined;
+    // 0x00-0x7F same as ASCII
+    for (0..0x80) |i| table[i] = @intCast(i);
+    // 0x80-0x9F: Undefined
+    for (0x80..0xA0) |i| table[i] = UNDEF;
+    // 0xA0-0xBF
+    table[0xA0] = 0x00A0; // NO-BREAK SPACE
+    table[0xA1] = 0x06F0; // EXTENDED ARABIC-INDIC DIGIT ZERO
+    table[0xA2] = 0x06F1; // EXTENDED ARABIC-INDIC DIGIT ONE
+    table[0xA3] = 0x06F2; // EXTENDED ARABIC-INDIC DIGIT TWO
+    table[0xA4] = 0x06F3; // EXTENDED ARABIC-INDIC DIGIT THREE
+    table[0xA5] = 0x06F4; // EXTENDED ARABIC-INDIC DIGIT FOUR
+    table[0xA6] = 0x06F5; // EXTENDED ARABIC-INDIC DIGIT FIVE
+    table[0xA7] = 0x06F6; // EXTENDED ARABIC-INDIC DIGIT SIX
+    table[0xA8] = 0x06F7; // EXTENDED ARABIC-INDIC DIGIT SEVEN
+    table[0xA9] = 0x06F8; // EXTENDED ARABIC-INDIC DIGIT EIGHT
+    table[0xAA] = 0x06F9; // EXTENDED ARABIC-INDIC DIGIT NINE
+    table[0xAB] = 0x060C; // ARABIC COMMA
+    table[0xAC] = 0x061B; // ARABIC SEMICOLON
+    table[0xAD] = 0x00AD; // SOFT HYPHEN
+    table[0xAE] = 0x061F; // ARABIC QUESTION MARK
+    table[0xAF] = 0xFE81; // ARABIC LETTER ALEF WITH MADDA ABOVE ISOLATED FORM
+    table[0xB0] = 0xFE8D; // ARABIC LETTER ALEF ISOLATED FORM
+    table[0xB1] = 0xFE8E; // ARABIC LETTER ALEF FINAL FORM
+    table[0xB2] = 0xFE8F; // ARABIC LETTER BEH ISOLATED FORM
+    table[0xB3] = 0xFE91; // ARABIC LETTER BEH INITIAL FORM
+    table[0xB4] = 0xFB56; // ARABIC LETTER PEH ISOLATED FORM
+    table[0xB5] = 0xFB58; // ARABIC LETTER PEH INITIAL FORM
+    table[0xB6] = 0xFE93; // ARABIC LETTER TEH MARBUTA ISOLATED FORM
+    table[0xB7] = 0xFE95; // ARABIC LETTER TEH ISOLATED FORM
+    table[0xB8] = 0xFE97; // ARABIC LETTER TEH INITIAL FORM
+    table[0xB9] = 0xFB66; // ARABIC LETTER TTEH ISOLATED FORM
+    table[0xBA] = 0xFB68; // ARABIC LETTER TTEH INITIAL FORM
+    table[0xBB] = 0xFE99; // ARABIC LETTER THEH ISOLATED FORM
+    table[0xBC] = 0xFE9B; // ARABIC LETTER THEH INITIAL FORM
+    table[0xBD] = 0xFE9D; // ARABIC LETTER JEEM ISOLATED FORM
+    table[0xBE] = 0xFE9F; // ARABIC LETTER JEEM INITIAL FORM
+    table[0xBF] = 0xFB7A; // ARABIC LETTER TCHEH ISOLATED FORM
+    // 0xC0-0xDF
+    table[0xC0] = 0xFB7C; // ARABIC LETTER TCHEH INITIAL FORM
+    table[0xC1] = 0xFEA1; // ARABIC LETTER HAH ISOLATED FORM
+    table[0xC2] = 0xFEA3; // ARABIC LETTER HAH INITIAL FORM
+    table[0xC3] = 0xFEA5; // ARABIC LETTER KHAH ISOLATED FORM
+    table[0xC4] = 0xFEA7; // ARABIC LETTER KHAH INITIAL FORM
+    table[0xC5] = 0xFEA9; // ARABIC LETTER DAL ISOLATED FORM
+    table[0xC6] = 0xFB84; // ARABIC LETTER DAHAL ISOLATED FORM
+    table[0xC7] = 0xFEAB; // ARABIC LETTER THAL ISOLATED FORM
+    table[0xC8] = 0xFEAD; // ARABIC LETTER REH ISOLATED FORM
+    table[0xC9] = 0xFB8C; // ARABIC LETTER RREH ISOLATED FORM
+    table[0xCA] = 0xFEAF; // ARABIC LETTER ZAIN ISOLATED FORM
+    table[0xCB] = 0xFB8A; // ARABIC LETTER JEH ISOLATED FORM
+    table[0xCC] = 0xFEB1; // ARABIC LETTER SEEN ISOLATED FORM
+    table[0xCD] = 0xFEB3; // ARABIC LETTER SEEN INITIAL FORM
+    table[0xCE] = 0xFEB5; // ARABIC LETTER SHEEN ISOLATED FORM
+    table[0xCF] = 0xFEB7; // ARABIC LETTER SHEEN INITIAL FORM
+    table[0xD0] = 0xFEB9; // ARABIC LETTER SAD ISOLATED FORM
+    table[0xD1] = 0xFEBB; // ARABIC LETTER SAD INITIAL FORM
+    table[0xD2] = 0xFEBD; // ARABIC LETTER DAD ISOLATED FORM
+    table[0xD3] = 0xFEBF; // ARABIC LETTER DAD INITIAL FORM
+    table[0xD4] = 0xFEC1; // ARABIC LETTER TAH ISOLATED FORM
+    table[0xD5] = 0xFEC5; // ARABIC LETTER ZAH ISOLATED FORM
+    table[0xD6] = 0xFEC9; // ARABIC LETTER AIN ISOLATED FORM
+    table[0xD7] = 0xFECA; // ARABIC LETTER AIN FINAL FORM
+    table[0xD8] = 0xFECB; // ARABIC LETTER AIN INITIAL FORM
+    table[0xD9] = 0xFECC; // ARABIC LETTER AIN MEDIAL FORM
+    table[0xDA] = 0xFECD; // ARABIC LETTER GHAIN ISOLATED FORM
+    table[0xDB] = 0xFECE; // ARABIC LETTER GHAIN FINAL FORM
+    table[0xDC] = 0xFECF; // ARABIC LETTER GHAIN INITIAL FORM
+    table[0xDD] = 0xFED0; // ARABIC LETTER GHAIN MEDIAL FORM
+    table[0xDE] = 0xFED1; // ARABIC LETTER FEH ISOLATED FORM
+    table[0xDF] = 0xFED3; // ARABIC LETTER FEH INITIAL FORM
+    // 0xE0-0xFF
+    table[0xE0] = 0xFED5; // ARABIC LETTER QAF ISOLATED FORM
+    table[0xE1] = 0xFED7; // ARABIC LETTER QAF INITIAL FORM
+    table[0xE2] = 0xFED9; // ARABIC LETTER KAF ISOLATED FORM
+    table[0xE3] = 0xFEDB; // ARABIC LETTER KAF INITIAL FORM
+    table[0xE4] = 0xFB92; // ARABIC LETTER GAF ISOLATED FORM
+    table[0xE5] = 0xFB94; // ARABIC LETTER GAF INITIAL FORM
+    table[0xE6] = 0xFEDD; // ARABIC LETTER LAM ISOLATED FORM
+    table[0xE7] = 0xFEDF; // ARABIC LETTER LAM INITIAL FORM
+    table[0xE8] = 0xFEE1; // ARABIC LETTER MEEM ISOLATED FORM
+    table[0xE9] = 0xFEE3; // ARABIC LETTER MEEM INITIAL FORM
+    table[0xEA] = 0xFB9E; // ARABIC LETTER NOON GHUNNA ISOLATED FORM
+    table[0xEB] = 0xFEE5; // ARABIC LETTER NOON ISOLATED FORM
+    table[0xEC] = 0xFEE7; // ARABIC LETTER NOON INITIAL FORM
+    table[0xED] = 0xFE85; // ARABIC LETTER WAW WITH HAMZA ABOVE ISOLATED FORM
+    table[0xEE] = 0xFEED; // ARABIC LETTER WAW ISOLATED FORM
+    table[0xEF] = 0xFBA6; // ARABIC LETTER HEH GOAL ISOLATED FORM
+    table[0xF0] = 0xFBA8; // ARABIC LETTER HEH GOAL INITIAL FORM
+    table[0xF1] = 0xFBA9; // ARABIC LETTER HEH GOAL MEDIAL FORM
+    table[0xF2] = 0xFBAA; // ARABIC LETTER HEH DOACHASHMEE ISOLATED FORM
+    table[0xF3] = 0xFE80; // ARABIC LETTER HAMZA ISOLATED FORM
+    table[0xF4] = 0xFE89; // ARABIC LETTER YEH WITH HAMZA ABOVE ISOLATED FORM
+    table[0xF5] = 0xFE8A; // ARABIC LETTER YEH WITH HAMZA ABOVE FINAL FORM
+    table[0xF6] = 0xFE8B; // ARABIC LETTER YEH WITH HAMZA ABOVE INITIAL FORM
+    table[0xF7] = 0xFEF1; // ARABIC LETTER YEH ISOLATED FORM
+    table[0xF8] = 0xFEF2; // ARABIC LETTER YEH FINAL FORM
+    table[0xF9] = 0xFEF3; // ARABIC LETTER YEH INITIAL FORM
+    table[0xFA] = 0xFBB0; // ARABIC LETTER YEH BARREE WITH HAMZA ABOVE ISOLATED FORM
+    table[0xFB] = 0xFBAE; // ARABIC LETTER YEH BARREE ISOLATED FORM
+    table[0xFC] = 0xFE7C; // ARABIC SHADDA ISOLATED FORM
+    table[0xFD] = 0xFE7D; // ARABIC SHADDA MEDIAL FORM
+    table[0xFE] = UNDEF;
+    table[0xFF] = UNDEF;
+    break :blk table;
+};
+
+const Codec = charmap.CharmapCodec(&decode_table, name);
+pub const decode = Codec.decode;
+pub const encode = Codec.encode;
+
+test "cp1006 decode" {
+    const result = try decode(std.testing.allocator, "Hello", .strict);
+    defer std.testing.allocator.free(result.output);
+    try std.testing.expectEqualStrings("Hello", result.output);
 }

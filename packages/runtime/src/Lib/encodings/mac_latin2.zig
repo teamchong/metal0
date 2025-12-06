@@ -1,7 +1,165 @@
-//! Python stdlib module stub
-//! TODO: Implement from CPython Lib/
-const std = @import("std");
+//! Python 'mac_latin2' Codec (Macintosh Central European)
+//!
+//! Macintosh Central European encoding (Latin-2)
+//!
+//! Mirrors: CPython Lib/encodings/mac_latin2.py
 
-pub fn __stub__() void {
-    // Stub module - not yet implemented
+const std = @import("std");
+const charmap = @import("charmap.zig");
+
+pub const name = "mac-latin2";
+pub const aliases = [_][]const u8{ "mac_latin2", "maclatin2", "maccentraleurope" };
+
+const UNDEF = charmap.UNDEFINED;
+
+/// Mac Latin2 decode table
+const decode_table: [256]u21 = blk: {
+    var table: [256]u21 = undefined;
+    // 0x00-0x7F same as ASCII
+    for (0..0x80) |i| table[i] = @intCast(i);
+    // 0x80-0x9F
+    table[0x80] = 0x00C4; // LATIN CAPITAL LETTER A WITH DIAERESIS
+    table[0x81] = 0x0100; // LATIN CAPITAL LETTER A WITH MACRON
+    table[0x82] = 0x0101; // LATIN SMALL LETTER A WITH MACRON
+    table[0x83] = 0x00C9; // LATIN CAPITAL LETTER E WITH ACUTE
+    table[0x84] = 0x0104; // LATIN CAPITAL LETTER A WITH OGONEK
+    table[0x85] = 0x00D6; // LATIN CAPITAL LETTER O WITH DIAERESIS
+    table[0x86] = 0x00DC; // LATIN CAPITAL LETTER U WITH DIAERESIS
+    table[0x87] = 0x00E1; // LATIN SMALL LETTER A WITH ACUTE
+    table[0x88] = 0x0105; // LATIN SMALL LETTER A WITH OGONEK
+    table[0x89] = 0x010C; // LATIN CAPITAL LETTER C WITH CARON
+    table[0x8A] = 0x00E4; // LATIN SMALL LETTER A WITH DIAERESIS
+    table[0x8B] = 0x010D; // LATIN SMALL LETTER C WITH CARON
+    table[0x8C] = 0x0106; // LATIN CAPITAL LETTER C WITH ACUTE
+    table[0x8D] = 0x0107; // LATIN SMALL LETTER C WITH ACUTE
+    table[0x8E] = 0x00E9; // LATIN SMALL LETTER E WITH ACUTE
+    table[0x8F] = 0x0179; // LATIN CAPITAL LETTER Z WITH ACUTE
+    table[0x90] = 0x017A; // LATIN SMALL LETTER Z WITH ACUTE
+    table[0x91] = 0x010E; // LATIN CAPITAL LETTER D WITH CARON
+    table[0x92] = 0x00ED; // LATIN SMALL LETTER I WITH ACUTE
+    table[0x93] = 0x010F; // LATIN SMALL LETTER D WITH CARON
+    table[0x94] = 0x0112; // LATIN CAPITAL LETTER E WITH MACRON
+    table[0x95] = 0x0113; // LATIN SMALL LETTER E WITH MACRON
+    table[0x96] = 0x0116; // LATIN CAPITAL LETTER E WITH DOT ABOVE
+    table[0x97] = 0x00F3; // LATIN SMALL LETTER O WITH ACUTE
+    table[0x98] = 0x0117; // LATIN SMALL LETTER E WITH DOT ABOVE
+    table[0x99] = 0x00F4; // LATIN SMALL LETTER O WITH CIRCUMFLEX
+    table[0x9A] = 0x00F6; // LATIN SMALL LETTER O WITH DIAERESIS
+    table[0x9B] = 0x00F5; // LATIN SMALL LETTER O WITH TILDE
+    table[0x9C] = 0x00FA; // LATIN SMALL LETTER U WITH ACUTE
+    table[0x9D] = 0x011A; // LATIN CAPITAL LETTER E WITH CARON
+    table[0x9E] = 0x011B; // LATIN SMALL LETTER E WITH CARON
+    table[0x9F] = 0x00FC; // LATIN SMALL LETTER U WITH DIAERESIS
+    // 0xA0-0xAF
+    table[0xA0] = 0x2020; // DAGGER
+    table[0xA1] = 0x00B0; // DEGREE SIGN
+    table[0xA2] = 0x0118; // LATIN CAPITAL LETTER E WITH OGONEK
+    table[0xA3] = 0x00A3; // POUND SIGN
+    table[0xA4] = 0x00A7; // SECTION SIGN
+    table[0xA5] = 0x2022; // BULLET
+    table[0xA6] = 0x00B6; // PILCROW SIGN
+    table[0xA7] = 0x00DF; // LATIN SMALL LETTER SHARP S
+    table[0xA8] = 0x00AE; // REGISTERED SIGN
+    table[0xA9] = 0x00A9; // COPYRIGHT SIGN
+    table[0xAA] = 0x2122; // TRADE MARK SIGN
+    table[0xAB] = 0x0119; // LATIN SMALL LETTER E WITH OGONEK
+    table[0xAC] = 0x00A8; // DIAERESIS
+    table[0xAD] = 0x2260; // NOT EQUAL TO
+    table[0xAE] = 0x0123; // LATIN SMALL LETTER G WITH CEDILLA
+    table[0xAF] = 0x012E; // LATIN CAPITAL LETTER I WITH OGONEK
+    // 0xB0-0xBF
+    table[0xB0] = 0x012F; // LATIN SMALL LETTER I WITH OGONEK
+    table[0xB1] = 0x012A; // LATIN CAPITAL LETTER I WITH MACRON
+    table[0xB2] = 0x2264; // LESS-THAN OR EQUAL TO
+    table[0xB3] = 0x2265; // GREATER-THAN OR EQUAL TO
+    table[0xB4] = 0x012B; // LATIN SMALL LETTER I WITH MACRON
+    table[0xB5] = 0x0136; // LATIN CAPITAL LETTER K WITH CEDILLA
+    table[0xB6] = 0x2202; // PARTIAL DIFFERENTIAL
+    table[0xB7] = 0x2211; // N-ARY SUMMATION
+    table[0xB8] = 0x0142; // LATIN SMALL LETTER L WITH STROKE
+    table[0xB9] = 0x013B; // LATIN CAPITAL LETTER L WITH CEDILLA
+    table[0xBA] = 0x013C; // LATIN SMALL LETTER L WITH CEDILLA
+    table[0xBB] = 0x013D; // LATIN CAPITAL LETTER L WITH CARON
+    table[0xBC] = 0x013E; // LATIN SMALL LETTER L WITH CARON
+    table[0xBD] = 0x0139; // LATIN CAPITAL LETTER L WITH ACUTE
+    table[0xBE] = 0x013A; // LATIN SMALL LETTER L WITH ACUTE
+    table[0xBF] = 0x0145; // LATIN CAPITAL LETTER N WITH CEDILLA
+    // 0xC0-0xCF
+    table[0xC0] = 0x0146; // LATIN SMALL LETTER N WITH CEDILLA
+    table[0xC1] = 0x0143; // LATIN CAPITAL LETTER N WITH ACUTE
+    table[0xC2] = 0x00AC; // NOT SIGN
+    table[0xC3] = 0x221A; // SQUARE ROOT
+    table[0xC4] = 0x0144; // LATIN SMALL LETTER N WITH ACUTE
+    table[0xC5] = 0x0147; // LATIN CAPITAL LETTER N WITH CARON
+    table[0xC6] = 0x2206; // INCREMENT
+    table[0xC7] = 0x00AB; // LEFT-POINTING DOUBLE ANGLE QUOTATION MARK
+    table[0xC8] = 0x00BB; // RIGHT-POINTING DOUBLE ANGLE QUOTATION MARK
+    table[0xC9] = 0x2026; // HORIZONTAL ELLIPSIS
+    table[0xCA] = 0x00A0; // NO-BREAK SPACE
+    table[0xCB] = 0x0148; // LATIN SMALL LETTER N WITH CARON
+    table[0xCC] = 0x0150; // LATIN CAPITAL LETTER O WITH DOUBLE ACUTE
+    table[0xCD] = 0x00D5; // LATIN CAPITAL LETTER O WITH TILDE
+    table[0xCE] = 0x0151; // LATIN SMALL LETTER O WITH DOUBLE ACUTE
+    table[0xCF] = 0x014C; // LATIN CAPITAL LETTER O WITH MACRON
+    // 0xD0-0xDF
+    table[0xD0] = 0x2013; // EN DASH
+    table[0xD1] = 0x2014; // EM DASH
+    table[0xD2] = 0x201C; // LEFT DOUBLE QUOTATION MARK
+    table[0xD3] = 0x201D; // RIGHT DOUBLE QUOTATION MARK
+    table[0xD4] = 0x2018; // LEFT SINGLE QUOTATION MARK
+    table[0xD5] = 0x2019; // RIGHT SINGLE QUOTATION MARK
+    table[0xD6] = 0x00F7; // DIVISION SIGN
+    table[0xD7] = 0x25CA; // LOZENGE
+    table[0xD8] = 0x014D; // LATIN SMALL LETTER O WITH MACRON
+    table[0xD9] = 0x0154; // LATIN CAPITAL LETTER R WITH ACUTE
+    table[0xDA] = 0x0155; // LATIN SMALL LETTER R WITH ACUTE
+    table[0xDB] = 0x0158; // LATIN CAPITAL LETTER R WITH CARON
+    table[0xDC] = 0x2039; // SINGLE LEFT-POINTING ANGLE QUOTATION MARK
+    table[0xDD] = 0x203A; // SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
+    table[0xDE] = 0x0159; // LATIN SMALL LETTER R WITH CARON
+    table[0xDF] = 0x0156; // LATIN CAPITAL LETTER R WITH CEDILLA
+    // 0xE0-0xFF
+    table[0xE0] = 0x0157; // LATIN SMALL LETTER R WITH CEDILLA
+    table[0xE1] = 0x0160; // LATIN CAPITAL LETTER S WITH CARON
+    table[0xE2] = 0x201A; // SINGLE LOW-9 QUOTATION MARK
+    table[0xE3] = 0x201E; // DOUBLE LOW-9 QUOTATION MARK
+    table[0xE4] = 0x0161; // LATIN SMALL LETTER S WITH CARON
+    table[0xE5] = 0x015A; // LATIN CAPITAL LETTER S WITH ACUTE
+    table[0xE6] = 0x015B; // LATIN SMALL LETTER S WITH ACUTE
+    table[0xE7] = 0x00C1; // LATIN CAPITAL LETTER A WITH ACUTE
+    table[0xE8] = 0x0164; // LATIN CAPITAL LETTER T WITH CARON
+    table[0xE9] = 0x0165; // LATIN SMALL LETTER T WITH CARON
+    table[0xEA] = 0x00CD; // LATIN CAPITAL LETTER I WITH ACUTE
+    table[0xEB] = 0x017D; // LATIN CAPITAL LETTER Z WITH CARON
+    table[0xEC] = 0x017E; // LATIN SMALL LETTER Z WITH CARON
+    table[0xED] = 0x016A; // LATIN CAPITAL LETTER U WITH MACRON
+    table[0xEE] = 0x00D3; // LATIN CAPITAL LETTER O WITH ACUTE
+    table[0xEF] = 0x00D4; // LATIN CAPITAL LETTER O WITH CIRCUMFLEX
+    table[0xF0] = 0x016B; // LATIN SMALL LETTER U WITH MACRON
+    table[0xF1] = 0x016E; // LATIN CAPITAL LETTER U WITH RING ABOVE
+    table[0xF2] = 0x00DA; // LATIN CAPITAL LETTER U WITH ACUTE
+    table[0xF3] = 0x016F; // LATIN SMALL LETTER U WITH RING ABOVE
+    table[0xF4] = 0x0170; // LATIN CAPITAL LETTER U WITH DOUBLE ACUTE
+    table[0xF5] = 0x0171; // LATIN SMALL LETTER U WITH DOUBLE ACUTE
+    table[0xF6] = 0x0172; // LATIN CAPITAL LETTER U WITH OGONEK
+    table[0xF7] = 0x0173; // LATIN SMALL LETTER U WITH OGONEK
+    table[0xF8] = 0x00DD; // LATIN CAPITAL LETTER Y WITH ACUTE
+    table[0xF9] = 0x00FD; // LATIN SMALL LETTER Y WITH ACUTE
+    table[0xFA] = 0x0137; // LATIN SMALL LETTER K WITH CEDILLA
+    table[0xFB] = 0x017B; // LATIN CAPITAL LETTER Z WITH DOT ABOVE
+    table[0xFC] = 0x0141; // LATIN CAPITAL LETTER L WITH STROKE
+    table[0xFD] = 0x017C; // LATIN SMALL LETTER Z WITH DOT ABOVE
+    table[0xFE] = 0x0122; // LATIN CAPITAL LETTER G WITH CEDILLA
+    table[0xFF] = 0x02C7; // CARON
+    break :blk table;
+};
+
+const Codec = charmap.CharmapCodec(&decode_table, name);
+pub const decode = Codec.decode;
+pub const encode = Codec.encode;
+
+test "mac_latin2 decode" {
+    const result = try decode(std.testing.allocator, "Hello", .strict);
+    defer std.testing.allocator.free(result.output);
+    try std.testing.expectEqualStrings("Hello", result.output);
 }
