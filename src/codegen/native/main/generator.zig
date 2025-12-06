@@ -163,7 +163,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     try self.emit("const std = @import(\"std\");\n");
     try self.emit("const runtime = @import(\"./runtime.zig\");\n");
     if (analysis.needs_string_utils) {
-        try self.emit("const string_utils = @import(\"string_utils.zig\");\n");
+        try self.emit("const string_utils = @import(\"./runtime/string_utils.zig\");\n");
     }
     if (analysis.needs_hashmap_helper) {
         try self.emit("const hashmap_helper = @import(\"./utils/hashmap_helper.zig\");\n");
@@ -690,6 +690,109 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 continue;
             }
 
+            // Check if this variable is assigned from dict() builtin with no args
+            // The type is only known at runtime based on subsequent mutations
+            var is_dict_builtin = false;
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            if (assign.value.* == .call) {
+                                const call = assign.value.call;
+                                if (call.func.* == .name) {
+                                    const func_name = call.func.name.id;
+                                    if (std.mem.eql(u8, func_name, "dict") and call.args.len == 0) {
+                                        is_dict_builtin = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // For dict() builtin assignments, use mutation-analyzed type for pre-declaration
+            // and initialize directly (skip the d = dict() assignment later)
+            if (is_dict_builtin) {
+                if (self.mutation_info) |mut_info| {
+                    const has_str_keys = mutation_analyzer.hasDictStrKeyMutation(mut_info.*, var_name);
+                    const has_int_keys = mutation_analyzer.hasDictIntKeyMutation(mut_info.*, var_name);
+
+                    // Check value type from type inferrer (following pattern from line 942-963)
+                    const dict_type = self.type_inferrer.var_types.get(var_name);
+                    var value_tag_str: ?[]const u8 = null;
+                    if (dict_type) |dt| {
+                        if (@as(std.meta.Tag(@TypeOf(dt)), dt) == .dict) {
+                            const value_type = dt.dict.value.*;
+                            const vt = @as(std.meta.Tag(@TypeOf(value_type)), value_type);
+                            if (vt == .string) value_tag_str = "string";
+                            if (vt == .float) value_tag_str = "float";
+                        }
+                    }
+
+                    // Determine type based on key/value analysis
+                    // Look for value type in dict mutations by scanning the module AST
+                    var dict_value_type: []const u8 = "i64";
+                    for (module.body) |stmt| {
+                        if (stmt == .assign) {
+                            const assign = stmt.assign;
+                            for (assign.targets) |target| {
+                                if (target == .subscript and target.subscript.value.* == .name) {
+                                    if (std.mem.eql(u8, target.subscript.value.name.id, var_name)) {
+                                        // Found d[key] = value, check value type
+                                        if (assign.value.* == .constant) {
+                                            if (assign.value.constant.value == .string) {
+                                                dict_value_type = "[]const u8";
+                                            } else if (assign.value.constant.value == .float) {
+                                                dict_value_type = "f64";
+                                            }
+                                        } else if (assign.value.* == .name or assign.value.* == .attribute) {
+                                            // Variable reference - might be string, default to generic
+                                            // Check type inference if available
+                                            const val_type = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
+                                            if (@as(std.meta.Tag(@TypeOf(val_type)), val_type) == .string) {
+                                                dict_value_type = "[]const u8";
+                                            }
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    const zig_type: []const u8 = if (has_str_keys) blk: {
+                        if (value_tag_str) |vtag| {
+                            if (std.mem.eql(u8, vtag, "string")) break :blk "hashmap_helper.StringHashMap([]const u8)";
+                            if (std.mem.eql(u8, vtag, "float")) break :blk "hashmap_helper.StringHashMap(f64)";
+                        }
+                        if (std.mem.eql(u8, dict_value_type, "[]const u8")) break :blk "hashmap_helper.StringHashMap([]const u8)";
+                        if (std.mem.eql(u8, dict_value_type, "f64")) break :blk "hashmap_helper.StringHashMap(f64)";
+                        break :blk "hashmap_helper.StringHashMap(i64)";
+                    } else if (has_int_keys) blk: {
+                        if (value_tag_str) |vtag| {
+                            if (std.mem.eql(u8, vtag, "string")) break :blk "std.AutoHashMap(i64, []const u8)";
+                            if (std.mem.eql(u8, vtag, "float")) break :blk "std.AutoHashMap(i64, f64)";
+                        }
+                        if (std.mem.eql(u8, dict_value_type, "[]const u8")) break :blk "std.AutoHashMap(i64, []const u8)";
+                        if (std.mem.eql(u8, dict_value_type, "f64")) break :blk "std.AutoHashMap(i64, f64)";
+                        break :blk "std.AutoHashMap(i64, i64)";
+                    } else "hashmap_helper.StringHashMap(i64)"; // Default for empty dict()
+
+                    try self.emit("var ");
+                    try self.emit(var_name);
+                    try self.emit(": ");
+                    try self.emit(zig_type);
+                    try self.emit(" = undefined;\n");
+                    try self.symbol_table.declare(var_name, .unknown, true);
+                    try self.markGlobalVar(var_name);
+                    // Track for assignment handling - skip assignment, will be initialized in main
+                    try self.dict_builtin_vars.put(try self.allocator.dupe(u8, var_name), {});
+                    continue;
+                }
+            }
+
             // Check if this variable is assigned a type alias (e.g., R = fractions.Fraction)
             // Type aliases need `const R = type` not `var R: SomeType = undefined`
             var is_type_alias = false;
@@ -896,8 +999,26 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                                 // Default to PyObject for complex values
                                 break :blk "std.AutoHashMap(i64, *runtime.PyObject)";
                             }
+                        } else if (has_str_keys) {
+                            // String keys with mutations - check value type
+                            // Empty dicts default to unknown value type, which should be i64
+                            // to match dict.zig codegen (d['key'] = 1 typically has int values)
+                            const value_type = vt.dict.value.*;
+                            const value_tag = @as(std.meta.Tag(@TypeOf(value_type)), value_type);
+                            if (value_tag == .int) {
+                                break :blk "hashmap_helper.StringHashMap(i64)";
+                            } else if (value_tag == .float) {
+                                break :blk "hashmap_helper.StringHashMap(f64)";
+                            } else if (value_tag == .string) {
+                                break :blk "hashmap_helper.StringHashMap([]const u8)";
+                            } else if (value_tag == .unknown) {
+                                // Empty dict with string keys defaults to i64 values
+                                // (matches dict.zig behavior for empty dicts with str key mutations)
+                                break :blk "hashmap_helper.StringHashMap(i64)";
+                            }
+                            // For other value types, fall through to nativeTypeToZigType
                         }
-                        // String keys (default) - fall through to nativeTypeToZigType
+                        // Default - fall through to nativeTypeToZigType
                     }
                 }
                 needs_free = true;
@@ -1119,7 +1240,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("const std = @import(\"std\");\n");
         try self.emit("const runtime = @import(\"./runtime.zig\");\n");
         if (analysis.needs_string_utils) {
-            try self.emit("const string_utils = @import(\"string_utils.zig\");\n");
+            try self.emit("const string_utils = @import(\"./runtime/string_utils.zig\");\n");
         }
         if (analysis.needs_hashmap_helper) {
             try self.emit("const hashmap_helper = @import(\"./utils/hashmap_helper.zig\");\n");
