@@ -129,6 +129,13 @@ pub const ResponseCache = struct {
     }
 };
 
+/// HTTP Protocol version
+pub const HttpVersion = enum {
+    auto, // Auto-detect: HTTP/1.1 for http://, HTTP/2 for https://
+    http1, // Force HTTP/1.1 (even for https://)
+    http2, // Force HTTP/2
+};
+
 /// HTTP/2 Client with connection pooling and optional response cache
 pub const Client = struct {
     allocator: std.mem.Allocator,
@@ -136,6 +143,7 @@ pub const Client = struct {
     connections_mutex: std.Thread.Mutex,
     max_connections_per_host: usize,
     cache: ?*ResponseCache,
+    http_version: HttpVersion,
 
     // Async I/O support (goroutine-style)
     netpoller: ?*Netpoller,
@@ -153,6 +161,21 @@ pub const Client = struct {
             .connections_mutex = .{},
             .max_connections_per_host = 1, // HTTP/2 multiplexing means 1 is enough
             .cache = null,
+            .http_version = .auto,
+            .netpoller = null,
+            .green_thread = null,
+        };
+    }
+
+    /// Initialize with forced HTTP version
+    pub fn initWithVersion(allocator: std.mem.Allocator, version: HttpVersion) Client {
+        return .{
+            .allocator = allocator,
+            .connections = std.StringHashMap(*H2Connection).init(allocator),
+            .connections_mutex = .{},
+            .max_connections_per_host = 1,
+            .cache = null,
+            .http_version = version,
             .netpoller = null,
             .green_thread = null,
         };
@@ -165,6 +188,7 @@ pub const Client = struct {
             .connections_mutex = .{},
             .max_connections_per_host = 1,
             .cache = cache,
+            .http_version = .auto,
             .netpoller = null,
             .green_thread = null,
         };
@@ -178,6 +202,7 @@ pub const Client = struct {
             .connections_mutex = .{},
             .max_connections_per_host = 1,
             .cache = null,
+            .http_version = .auto,
             .netpoller = netpoller,
             .green_thread = green_thread,
         };
@@ -222,8 +247,19 @@ pub const Client = struct {
         const port: u16 = uri.port orelse if (std.mem.eql(u8, scheme, "https")) @as(u16, 443) else @as(u16, 80);
         const path = getPathString(uri.path);
 
-        // Use HTTP/1.1 for plain HTTP, HTTP/2 for HTTPS
-        if (std.mem.eql(u8, scheme, "http")) {
+        // Determine whether to use HTTP/1.1 or HTTP/2
+        const use_http1 = switch (self.http_version) {
+            .http1 => true, // Force HTTP/1.1
+            .http2 => false, // Force HTTP/2
+            .auto => std.mem.eql(u8, scheme, "http"), // Auto: HTTP/1.1 for http://, HTTP/2 for https://
+        };
+
+        // Use HTTP/1.1 for plain HTTP or when forced
+        if (use_http1) {
+            // For HTTPS with HTTP/1.1, we need TLS but not HTTP/2
+            if (std.mem.eql(u8, scheme, "https")) {
+                return self.requestHttp1Tls(method, host, port, path, extra_headers, body);
+            }
             return self.requestHttp1(method, host, port, path, extra_headers, body);
         }
 
@@ -370,6 +406,85 @@ pub const Client = struct {
         var read_buf: [8192]u8 = undefined;
         while (true) {
             const n = std.posix.recv(socket, &read_buf, 0) catch break;
+            if (n == 0) break;
+            try response_buf.appendSlice(self.allocator, read_buf[0..n]);
+        }
+
+        // Parse HTTP/1.1 response
+        return self.parseHttp1Response(response_buf.items);
+    }
+
+    /// HTTP/1.1 request over TLS (HTTPS with HTTP/1.1)
+    fn requestHttp1Tls(
+        self: *Client,
+        method: []const u8,
+        host: []const u8,
+        port: u16,
+        path: []const u8,
+        extra_headers: []const ExtraHeader,
+        body: ?[]const u8,
+    ) !Response {
+        // TCP connect
+        const list = std.net.getAddressList(self.allocator, host, port) catch return error.ConnectionFailed;
+        defer list.deinit();
+
+        if (list.addrs.len == 0) return error.ConnectionFailed;
+
+        const socket = std.posix.socket(
+            list.addrs[0].any.family,
+            std.posix.SOCK.STREAM,
+            0,
+        ) catch return error.ConnectionFailed;
+        errdefer std.posix.close(socket);
+
+        std.posix.connect(socket, &list.addrs[0].any, list.addrs[0].getOsSockLen()) catch return error.ConnectionFailed;
+
+        // TLS handshake (with http/1.1 ALPN instead of h2)
+        const tls_conn = try TlsConnection.init(self.allocator, socket, self.netpoller, self.green_thread);
+        defer tls_conn.deinit();
+
+        try tls_conn.handshake(host, &.{tls.ALPN.HTTP11});
+
+        // Build HTTP/1.1 request
+        var request_buf = std.ArrayList(u8){};
+        defer request_buf.deinit(self.allocator);
+
+        const writer = request_buf.writer(self.allocator);
+
+        // Request line
+        try writer.print("{s} {s} HTTP/1.1\r\n", .{ method, path });
+        try writer.print("Host: {s}\r\n", .{host});
+        try writer.print("User-Agent: metal0/1.0\r\n", .{});
+        try writer.print("Accept: */*\r\n", .{});
+        try writer.print("Connection: close\r\n", .{});
+
+        // Extra headers
+        for (extra_headers) |h| {
+            try writer.print("{s}: {s}\r\n", .{ h.name, h.value });
+        }
+
+        // Content-Length for body
+        if (body) |b| {
+            try writer.print("Content-Length: {}\r\n", .{b.len});
+        }
+
+        try writer.print("\r\n", .{});
+
+        // Send request over TLS
+        try tls_conn.send(request_buf.items);
+
+        // Send body over TLS
+        if (body) |b| {
+            try tls_conn.send(b);
+        }
+
+        // Read response over TLS
+        var response_buf = std.ArrayList(u8){};
+        defer response_buf.deinit(self.allocator);
+
+        var read_buf: [8192]u8 = undefined;
+        while (true) {
+            const n = tls_conn.recv(&read_buf) catch break;
             if (n == 0) break;
             try response_buf.appendSlice(self.allocator, read_buf[0..n]);
         }

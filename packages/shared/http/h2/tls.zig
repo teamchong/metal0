@@ -453,7 +453,7 @@ pub const TlsConnection = struct {
     }
 
     fn sendClientHello(self: *TlsConnection, host: []const u8, public_key: *const [32]u8, alpn_protocols: []const []const u8) !void {
-        var msg: [512]u8 = undefined;
+        var msg: [600]u8 = undefined;
         var pos: usize = 0;
 
         msg[pos] = @intFromEnum(HandshakeType.client_hello);
@@ -462,20 +462,22 @@ pub const TlsConnection = struct {
         const len_pos = pos;
         pos += 3;
 
-        // Client version (TLS 1.2 for compatibility)
+        // Client version (TLS 1.2 for compatibility, real version in extension)
         msg[pos] = 0x03;
         msg[pos + 1] = 0x03;
         pos += 2;
 
-        // Random
+        // Random (32 bytes)
         crypto.random.bytes(msg[pos .. pos + 32]);
         pos += 32;
 
-        // Session ID (empty)
-        msg[pos] = 0;
+        // Session ID (32 random bytes for middlebox compatibility)
+        msg[pos] = 32;
         pos += 1;
+        crypto.random.bytes(msg[pos .. pos + 32]);
+        pos += 32;
 
-        // Cipher suites
+        // Cipher suites (TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384)
         msg[pos] = 0;
         msg[pos + 1] = 4;
         pos += 2;
@@ -485,7 +487,7 @@ pub const TlsConnection = struct {
         msg[pos + 3] = 0x02;
         pos += 4;
 
-        // Compression
+        // Compression (null only)
         msg[pos] = 1;
         msg[pos + 1] = 0;
         pos += 2;
@@ -494,38 +496,7 @@ pub const TlsConnection = struct {
         const ext_start = pos;
         pos += 2;
 
-        // supported_versions
-        msg[pos] = 0x00;
-        msg[pos + 1] = 0x2b;
-        pos += 2;
-        msg[pos] = 0x00;
-        msg[pos + 1] = 0x03;
-        pos += 2;
-        msg[pos] = 0x02;
-        msg[pos + 1] = 0x03;
-        msg[pos + 2] = 0x04;
-        pos += 3;
-
-        // key_share
-        msg[pos] = 0x00;
-        msg[pos + 1] = 0x33;
-        pos += 2;
-        msg[pos] = 0x00;
-        msg[pos + 1] = 0x26;
-        pos += 2;
-        msg[pos] = 0x00;
-        msg[pos + 1] = 0x24;
-        pos += 2;
-        msg[pos] = 0x00;
-        msg[pos + 1] = 0x1d;
-        pos += 2;
-        msg[pos] = 0x00;
-        msg[pos + 1] = 0x20;
-        pos += 2;
-        @memcpy(msg[pos .. pos + 32], public_key);
-        pos += 32;
-
-        // server_name (SNI)
+        // 1. server_name (SNI) - REQUIRED, should come first
         msg[pos] = 0x00;
         msg[pos + 1] = 0x00;
         pos += 2;
@@ -536,7 +507,7 @@ pub const TlsConnection = struct {
         msg[pos] = @truncate((sni_len - 2) >> 8);
         msg[pos + 1] = @truncate(sni_len - 2);
         pos += 2;
-        msg[pos] = 0;
+        msg[pos] = 0; // host_name type
         pos += 1;
         msg[pos] = @truncate(host.len >> 8);
         msg[pos + 1] = @truncate(host.len);
@@ -544,17 +515,28 @@ pub const TlsConnection = struct {
         @memcpy(msg[pos .. pos + host.len], host);
         pos += host.len;
 
-        // signature_algorithms (REQUIRED for TLS 1.3)
+        // 2. supported_versions (REQUIRED for TLS 1.3)
         msg[pos] = 0x00;
-        msg[pos + 1] = 0x0d; // extension type
+        msg[pos + 1] = 0x2b;
         pos += 2;
         msg[pos] = 0x00;
-        msg[pos + 1] = 0x12; // extension length = 18
+        msg[pos + 1] = 0x03;
+        pos += 2;
+        msg[pos] = 0x02;
+        msg[pos + 1] = 0x03;
+        msg[pos + 2] = 0x04; // TLS 1.3
+        pos += 3;
+
+        // 3. signature_algorithms (REQUIRED for TLS 1.3)
+        msg[pos] = 0x00;
+        msg[pos + 1] = 0x0d;
         pos += 2;
         msg[pos] = 0x00;
-        msg[pos + 1] = 0x10; // algorithm list length = 16
+        msg[pos + 1] = 0x12;
         pos += 2;
-        // Algorithms: ecdsa_secp256r1_sha256, ecdsa_secp384r1_sha384, rsa_pss_rsae_sha256, etc.
+        msg[pos] = 0x00;
+        msg[pos + 1] = 0x10;
+        pos += 2;
         const sig_algs = [_]u8{
             0x04, 0x03, // ecdsa_secp256r1_sha256
             0x05, 0x03, // ecdsa_secp384r1_sha384
@@ -568,21 +550,40 @@ pub const TlsConnection = struct {
         @memcpy(msg[pos .. pos + sig_algs.len], &sig_algs);
         pos += sig_algs.len;
 
-        // supported_groups (REQUIRED for key_share)
+        // 4. supported_groups (REQUIRED for key_share)
         msg[pos] = 0x00;
-        msg[pos + 1] = 0x0a; // extension type
+        msg[pos + 1] = 0x0a;
         pos += 2;
         msg[pos] = 0x00;
-        msg[pos + 1] = 0x04; // extension length = 4
+        msg[pos + 1] = 0x04;
         pos += 2;
         msg[pos] = 0x00;
-        msg[pos + 1] = 0x02; // list length = 2
+        msg[pos + 1] = 0x02;
         pos += 2;
         msg[pos] = 0x00;
         msg[pos + 1] = 0x1d; // x25519
         pos += 2;
 
-        // ALPN
+        // 5. key_share (X25519 public key)
+        msg[pos] = 0x00;
+        msg[pos + 1] = 0x33;
+        pos += 2;
+        msg[pos] = 0x00;
+        msg[pos + 1] = 0x26;
+        pos += 2;
+        msg[pos] = 0x00;
+        msg[pos + 1] = 0x24;
+        pos += 2;
+        msg[pos] = 0x00;
+        msg[pos + 1] = 0x1d; // x25519
+        pos += 2;
+        msg[pos] = 0x00;
+        msg[pos + 1] = 0x20;
+        pos += 2;
+        @memcpy(msg[pos .. pos + 32], public_key);
+        pos += 32;
+
+        // 6. ALPN
         if (alpn_protocols.len > 0) {
             msg[pos] = 0x00;
             msg[pos + 1] = 0x10;
@@ -624,7 +625,9 @@ pub const TlsConnection = struct {
 
     fn receiveServerHello(self: *TlsConnection) ![32]u8 {
         const record = try self.receiveRecord();
-        if (record.content_type != .handshake) return error.UnexpectedRecord;
+        if (record.content_type != .handshake) {
+            return error.UnexpectedRecord;
+        }
 
         self.transcript_hash.update(record.payload);
 
@@ -669,12 +672,26 @@ pub const TlsConnection = struct {
             defer if (record.allocated) self.allocator.free(@constCast(record.payload));
             if (record.payload.len == 0) continue;
 
-            const msg_type: HandshakeType = @enumFromInt(record.payload[0]);
-            self.transcript_hash.update(record.payload);
+            // Parse multiple handshake messages from a single record
+            var pos: usize = 0;
+            while (pos < record.payload.len) {
+                if (pos + 4 > record.payload.len) break;
 
-            if (msg_type == .finished) break;
-            count += 1;
-            if (count > 20) return error.TooManyHandshakeMessages;
+                const msg_type: HandshakeType = @enumFromInt(record.payload[pos]);
+                const hs_len = (@as(u24, record.payload[pos + 1]) << 16) | (@as(u24, record.payload[pos + 2]) << 8) | record.payload[pos + 3];
+                const msg_end = pos + 4 + hs_len;
+
+                if (msg_end > record.payload.len) break;
+
+                // Update transcript with this handshake message
+                self.transcript_hash.update(record.payload[pos..msg_end]);
+
+                if (msg_type == .finished) return; // Success!
+
+                pos = msg_end;
+                count += 1;
+                if (count > 20) return error.TooManyHandshakeMessages;
+            }
         }
     }
 
@@ -887,3 +904,4 @@ test "RecordHeader parse/serialize roundtrip" {
     try std.testing.expectEqual(original.legacy_version, parsed.legacy_version);
     try std.testing.expectEqual(original.length, parsed.length);
 }
+

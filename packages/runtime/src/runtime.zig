@@ -2039,6 +2039,34 @@ pub const int__new__ = int_ops.int__new__;
 pub const divideInt = int_ops.divideInt;
 pub const moduloInt = int_ops.moduloInt;
 pub const pyIntFromAny = int_ops.pyIntFromAny;
+
+/// Convert any value to its string representation
+/// Used when code calls str(value) on an anytype parameter
+pub fn pyStrFromAny(value: anytype) []const u8 {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // String types - return as-is
+    if (T == []const u8 or T == []u8) {
+        return value;
+    }
+
+    // Pointer to array (string literal like *const [N:0]u8)
+    if (info == .pointer) {
+        const Child = info.pointer.child;
+        if (@typeInfo(Child) == .array) {
+            return value[0..];
+        }
+    }
+
+    // Struct with .data field (PyBytes)
+    if (info == .@"struct" and @hasField(T, "data")) {
+        return value.data;
+    }
+
+    // For other types, return empty string - caller should use pyStr with allocator
+    return "";
+}
 pub const intToString = int_ops.intToString;
 pub const parseIntUnicode = int_ops.parseIntUnicode;
 pub const parseIntToBigInt = int_ops.parseIntToBigInt;
