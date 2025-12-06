@@ -12,6 +12,7 @@ const shared = @import("../../shared_maps.zig");
 const BinaryDunders = shared.BinaryDunders;
 const ReverseDunders = shared.ReverseDunders;
 const collections = @import("../collections.zig");
+const operator_traits = @import("../../../../analysis/traits/operator_traits.zig");
 
 /// Check if a list will be generated as a fixed array (constant + homogeneous)
 fn willGenerateAsFixedArray(list_node: ast.Node) bool {
@@ -759,27 +760,49 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     }
 
     // Regular numeric operations
-    // Special handling for floor division (//): use @divFloor for Python semantics
+    // Special handling for floor division (//): use operator_traits for semantics
     if (binop.op == .FloorDiv) {
         const left_type = try self.inferExprScoped(binop.left.*);
         const right_type = try self.inferExprScoped(binop.right.*);
-        try self.emit("@divFloor(");
-        if (left_type == .bool) {
-            try self.emit("@as(i64, @intFromBool(");
-            try genExpr(self, binop.left.*);
-            try self.emit("))");
-        } else {
-            try genExpr(self, binop.left.*);
+        const semantics = operator_traits.getFloorDivSemantics(left_type, right_type);
+        switch (semantics) {
+            .runtime_dispatch => {
+                // Unknown types - use runtime dispatch
+                try self.emit("runtime.pyFloorDiv(__global_allocator, ");
+                try genExpr(self, binop.left.*);
+                try self.emit(", ");
+                try genExpr(self, binop.right.*);
+                try self.emit(")");
+            },
+            .python_floored => {
+                // Floats - floor(a / b) returns float
+                try self.emit("@floor(");
+                try genExpr(self, binop.left.*);
+                try self.emit(" / ");
+                try genExpr(self, binop.right.*);
+                try self.emit(")");
+            },
+            .zig_native => {
+                // Integers - use @divFloor with bool conversion if needed
+                try self.emit("@divFloor(");
+                if (left_type == .bool) {
+                    try self.emit("@as(i64, @intFromBool(");
+                    try genExpr(self, binop.left.*);
+                    try self.emit("))");
+                } else {
+                    try genExpr(self, binop.left.*);
+                }
+                try self.emit(", ");
+                if (right_type == .bool) {
+                    try self.emit("@as(i64, @intFromBool(");
+                    try genExpr(self, binop.right.*);
+                    try self.emit("))");
+                } else {
+                    try genExpr(self, binop.right.*);
+                }
+                try self.emit(")");
+            },
         }
-        try self.emit(", ");
-        if (right_type == .bool) {
-            try self.emit("@as(i64, @intFromBool(");
-            try genExpr(self, binop.right.*);
-            try self.emit("))");
-        } else {
-            try genExpr(self, binop.right.*);
-        }
-        try self.emit(")");
         return;
     }
 
@@ -793,45 +816,47 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             try genStringFormat(self, binop);
             return;
         }
-        // If type is unknown (e.g., anytype parameter), use runtime dispatch
-        if (left_type == .unknown) {
-            // Generate runtime type check: if type is string, do formatting; else do modulo
-            try self.emit("runtime.pyMod(__global_allocator, ");
-            try genExpr(self, binop.left.*);
-            try self.emit(", ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
-            return;
-        }
-        // Numeric modulo - use @mod for integers, pyFloatMod for floats
+        // Use operator_traits for modulo semantics
         const right_type = try self.inferExprScoped(binop.right.*);
-        // For floats, use Python's floored modulo (result has same sign as divisor)
-        if (left_type == .float or right_type == .float) {
-            try self.emit("runtime.pyFloatMod(");
-            try genExpr(self, binop.left.*);
-            try self.emit(", ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
-            return;
+        const semantics = operator_traits.getModuloSemantics(left_type, right_type);
+        switch (semantics) {
+            .runtime_dispatch => {
+                // Unknown types - use runtime dispatch
+                try self.emit("runtime.pyMod(__global_allocator, ");
+                try genExpr(self, binop.left.*);
+                try self.emit(", ");
+                try genExpr(self, binop.right.*);
+                try self.emit(")");
+            },
+            .python_floored => {
+                // Floats - use Python's floored modulo
+                try self.emit("runtime.pyFloatMod(");
+                try genExpr(self, binop.left.*);
+                try self.emit(", ");
+                try genExpr(self, binop.right.*);
+                try self.emit(")");
+            },
+            .zig_native => {
+                // Integers - use @mod with bool conversion if needed
+                try self.emit("@mod(");
+                if (left_type == .bool) {
+                    try self.emit("@as(i64, @intFromBool(");
+                    try genExpr(self, binop.left.*);
+                    try self.emit("))");
+                } else {
+                    try genExpr(self, binop.left.*);
+                }
+                try self.emit(", ");
+                if (right_type == .bool) {
+                    try self.emit("@as(i64, @intFromBool(");
+                    try genExpr(self, binop.right.*);
+                    try self.emit("))");
+                } else {
+                    try genExpr(self, binop.right.*);
+                }
+                try self.emit(")");
+            },
         }
-        // For integers, use @mod (Zig's @mod already has Python semantics for ints)
-        try self.emit("@mod(");
-        if (left_type == .bool) {
-            try self.emit("@as(i64, @intFromBool(");
-            try genExpr(self, binop.left.*);
-            try self.emit("))");
-        } else {
-            try genExpr(self, binop.left.*);
-        }
-        try self.emit(", ");
-        if (right_type == .bool) {
-            try self.emit("@as(i64, @intFromBool(");
-            try genExpr(self, binop.right.*);
-            try self.emit("))");
-        } else {
-            try genExpr(self, binop.right.*);
-        }
-        try self.emit(")");
         return;
     }
 
