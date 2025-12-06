@@ -107,6 +107,13 @@ _prototype/
 **/*_rust
 **/*_metal0
 
+# Benchmark folder - ignore all binaries and build artifacts
+benchmarks/**/build/
+benchmarks/**/*_metal
+benchmarks/**/*_metal0
+benchmarks/**/*.exe
+benchmarks/**/*.bin
+
 # Rust build artifacts (anywhere)
 **/target/
 **/Cargo.lock
