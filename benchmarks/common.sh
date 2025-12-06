@@ -177,6 +177,28 @@ add_pypy() {
     fi
 }
 
+# Ensure Python package is installed
+# Usage: ensure_python_pkg <package>
+ensure_python_pkg() {
+    local pkg="$1"
+    if ! python3 -c "import $pkg" 2>/dev/null; then
+        echo -e "  ${YELLOW}→${NC} Installing $pkg for Python..."
+        pip3 install -q "$pkg" 2>/dev/null || true
+    fi
+}
+
+# Ensure PyPy package is installed
+# Usage: ensure_pypy_pkg <package>
+ensure_pypy_pkg() {
+    local pkg="$1"
+    if [ "$PYPY_AVAILABLE" = true ]; then
+        if ! pypy3 -c "import $pkg" 2>/dev/null; then
+            echo -e "  ${YELLOW}→${NC} Installing $pkg for PyPy..."
+            pypy3 -m pip install -q "$pkg" 2>/dev/null || true
+        fi
+    fi
+}
+
 # Print section header
 print_header() {
     echo ""
