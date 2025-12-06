@@ -1269,6 +1269,7 @@ fn findDebugInfoFiles(allocator: std.mem.Allocator) ![][]const u8 {
 fn cmdBuild(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var opts = CompileOptions{ .input_file = undefined, .mode = "build" };
     var input_file: ?[]const u8 = null;
+    var output_file: ?[]const u8 = null;
     var i: usize = 0;
 
     while (i < args.len) : (i += 1) {
@@ -1281,6 +1282,16 @@ fn cmdBuild(allocator: std.mem.Allocator, args: []const []const u8) !void {
             opts.debug = true;
         } else if (std.mem.eql(u8, arg, "--emit-zig")) {
             opts.emit_zig_only = true;
+        } else if (std.mem.eql(u8, arg, "-o") or std.mem.eql(u8, arg, "--output")) {
+            // Parse -o <output> or --output <output>
+            i += 1;
+            if (i < args.len) {
+                output_file = args[i];
+            }
+        } else if (std.mem.startsWith(u8, arg, "-o=")) {
+            output_file = arg["-o=".len..];
+        } else if (std.mem.startsWith(u8, arg, "--output=")) {
+            output_file = arg["--output=".len..];
         } else if (std.mem.eql(u8, arg, "--target") or std.mem.eql(u8, arg, "-t")) {
             // Parse --target <value>
             i += 1;
@@ -1304,7 +1315,12 @@ fn cmdBuild(allocator: std.mem.Allocator, args: []const []const u8) !void {
                 opts.pgo_use = args[i];
             }
         } else if (!std.mem.startsWith(u8, arg, "-")) {
-            if (input_file == null) input_file = arg;
+            // First positional = input, second positional = output
+            if (input_file == null) {
+                input_file = arg;
+            } else if (output_file == null) {
+                output_file = arg;
+            }
         }
     }
 
@@ -1314,6 +1330,7 @@ fn cmdBuild(allocator: std.mem.Allocator, args: []const []const u8) !void {
     }
 
     opts.input_file = input_file.?;
+    opts.output_file = output_file;
     try compile.compileFile(allocator, opts);
 }
 

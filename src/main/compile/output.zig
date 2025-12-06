@@ -45,12 +45,18 @@ pub fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8
 
 /// Determine output path for notebook compilation
 pub fn getNotebookOutputPath(allocator: std.mem.Allocator, input_file: []const u8, output_file: ?[]const u8, binary: bool) ![]const u8 {
-    if (output_file) |path| {
-        return try allocator.dupe(u8, path);
-    }
-
     const platform_dir = try ensurePlatformDir(allocator);
     defer allocator.free(platform_dir);
+
+    // If output path specified, use it but ensure it's in platform_dir
+    if (output_file) |path| {
+        // If path is absolute or contains directory, use as-is
+        if (std.fs.path.isAbsolute(path) or std.mem.indexOf(u8, path, "/") != null) {
+            return try allocator.dupe(u8, path);
+        }
+        // Otherwise, put in platform_dir
+        return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ platform_dir, path });
+    }
 
     const name_no_ext = getBaseName(input_file);
 
@@ -63,12 +69,18 @@ pub fn getNotebookOutputPath(allocator: std.mem.Allocator, input_file: []const u
 
 /// Determine output path for file compilation
 pub fn getFileOutputPath(allocator: std.mem.Allocator, input_file: []const u8, output_file: ?[]const u8, binary: bool) ![]const u8 {
-    if (output_file) |path| {
-        return try allocator.dupe(u8, path);
-    }
-
     const platform_dir = try ensurePlatformDir(allocator);
     defer allocator.free(platform_dir);
+
+    // If output path specified, use it but ensure it's in platform_dir
+    if (output_file) |path| {
+        // If path is absolute or contains directory, use as-is
+        if (std.fs.path.isAbsolute(path) or std.mem.indexOf(u8, path, "/") != null) {
+            return try allocator.dupe(u8, path);
+        }
+        // Otherwise, put in platform_dir
+        return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ platform_dir, path });
+    }
 
     const name_no_ext = getBaseName(input_file);
 
