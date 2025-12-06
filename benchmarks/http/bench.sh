@@ -172,13 +172,13 @@ print_header "Starting Server"
 pkill -f "go-httpbin" 2>/dev/null || true
 sleep 1
 
-# Start HTTP server
-go-httpbin -port $PORT_HTTP &
+# Start HTTP server (suppress logs)
+go-httpbin -port $PORT_HTTP 2>/dev/null &
 PID_HTTP=$!
 sleep 1
 
-# Start HTTPS server
-go-httpbin -port $PORT_HTTPS -https-cert-file cert.pem -https-key-file key.pem &
+# Start HTTPS server (suppress logs)
+go-httpbin -port $PORT_HTTPS -https-cert-file cert.pem -https-key-file key.pem 2>/dev/null &
 PID_HTTPS=$!
 sleep 1
 
