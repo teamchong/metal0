@@ -1615,20 +1615,108 @@ fn cmdBuildFast(allocator: std.mem.Allocator, args: []const []const u8) !void {
     std.debug.print("  {s}Hint:{s} Run `metal0 <file.py>` to link and execute\n", .{ Color.dim, Color.reset });
 }
 
-/// Bun-style test command: metal0 test <dir>
-/// 3-phase: codegen → compile → run (all parallel, with Zig caching)
+/// Bun-style test command: metal0 test <dir> [patterns...] [options]
+/// Options:
+///   --timeout=N      Per-test timeout in seconds (default: 60)
+///   --bail=N         Stop after N failures (default: 0 = no limit)
+///   --jobs=N         Parallelism (default: CPU count)
+///   --dots           Compact dot output (. = pass, x = fail, ? = timeout)
+///   -t, --filter=P   Only run tests matching pattern P
+///   --help           Show help
+///
+/// Examples:
+///   metal0 test tests/cpython                    # Run all tests
+///   metal0 test tests/cpython bool float         # Only test_bool.py, test_float.py
+///   metal0 test tests/cpython -t "test_add"      # Filter by test name
+///   metal0 test tests/cpython --timeout=30       # 30s per test
+///   metal0 test tests/cpython --bail=5           # Stop after 5 failures
 fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const incremental = @import("compile/incremental.zig");
     const build_dirs = @import("../build_dirs.zig");
     const compiler_mod = @import("../compiler.zig");
 
-    const run_timeout_ns = 10 * std.time.ns_per_min; // per-test timeout (10 minutes)
+    // Parse options
+    var test_dir: []const u8 = "tests/cpython";
+    var timeout_sec: u64 = 60; // Default 60s per test
+    var bail_count: usize = 0; // 0 = no limit
+    var jobs: usize = std.Thread.getCpuCount() catch 8;
+    var dots_mode: bool = false;
+    var filter_pattern: ?[]const u8 = null;
+    var file_patterns = std.ArrayList([]const u8){};
+    defer file_patterns.deinit(allocator);
 
-    // Parse test directory from args or default to tests/cpython
-    const test_dir = if (args.len > 0) args[0] else "tests/cpython";
-    const ncpu = std.Thread.getCpuCount() catch 8;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            std.debug.print(
+                \\{s}metal0 test{s} - Fast parallel test runner
+                \\
+                \\{s}Usage:{s}
+                \\  metal0 test [dir] [patterns...] [options]
+                \\
+                \\{s}Options:{s}
+                \\  --timeout=N      Per-test timeout in seconds (default: 60)
+                \\  --bail=N         Stop after N failures (default: 0 = no limit)
+                \\  --jobs=N         Parallelism (default: CPU count)
+                \\  --dots           Compact dot output (. = pass, x = fail, ? = timeout)
+                \\  -t, --filter=P   Only run tests matching pattern P
+                \\  --help           Show this help
+                \\
+                \\{s}Examples:{s}
+                \\  metal0 test tests/cpython                    # Run all tests
+                \\  metal0 test tests/cpython bool float         # Only test_bool.py, test_float.py
+                \\  metal0 test tests/cpython -t "add|sub"       # Filter by test name regex
+                \\  metal0 test tests/cpython --timeout=30       # 30s per test
+                \\  metal0 test tests/cpython --bail=5 --dots    # Stop after 5 failures, compact output
+                \\
+            , .{ Color.bold, Color.reset, Color.bold, Color.reset, Color.bold, Color.reset, Color.bold, Color.reset });
+            return;
+        } else if (std.mem.startsWith(u8, arg, "--timeout=")) {
+            timeout_sec = std.fmt.parseInt(u64, arg["--timeout=".len..], 10) catch 60;
+        } else if (std.mem.startsWith(u8, arg, "--bail=")) {
+            bail_count = std.fmt.parseInt(usize, arg["--bail=".len..], 10) catch 0;
+        } else if (std.mem.startsWith(u8, arg, "--jobs=")) {
+            jobs = std.fmt.parseInt(usize, arg["--jobs=".len..], 10) catch jobs;
+        } else if (std.mem.eql(u8, arg, "--dots")) {
+            dots_mode = true;
+        } else if (std.mem.eql(u8, arg, "-t") or std.mem.eql(u8, arg, "--filter")) {
+            i += 1;
+            if (i < args.len) filter_pattern = args[i];
+        } else if (std.mem.startsWith(u8, arg, "--filter=")) {
+            filter_pattern = arg["--filter=".len..];
+        } else if (std.mem.startsWith(u8, arg, "-t=")) {
+            filter_pattern = arg["-t=".len..];
+        } else if (!std.mem.startsWith(u8, arg, "-")) {
+            // First non-flag is directory, rest are patterns
+            if (i == 0 or (i == 1 and std.mem.endsWith(u8, args[0], "test"))) {
+                test_dir = arg;
+            } else {
+                try file_patterns.append(allocator, arg);
+            }
+        }
+    }
 
-    std.debug.print("=== metal0 test ({s}) ===\n", .{test_dir});
+    // If first positional looks like a directory, use it
+    if (args.len > 0 and !std.mem.startsWith(u8, args[0], "-")) {
+        test_dir = args[0];
+    }
+
+    const run_timeout_ns = timeout_sec * std.time.ns_per_s;
+    const ncpu = jobs;
+
+    if (!dots_mode) {
+        std.debug.print("=== metal0 test ({s}) ===\n", .{test_dir});
+        if (file_patterns.items.len > 0) {
+            std.debug.print("Patterns: ", .{});
+            for (file_patterns.items, 0..) |p, idx| {
+                if (idx > 0) std.debug.print(", ", .{});
+                std.debug.print("{s}", .{p});
+            }
+            std.debug.print("\n", .{});
+        }
+        if (filter_pattern) |f| std.debug.print("Filter: {s}\n", .{f});
+    }
 
     // Phase 0: Setup runtime + ensure cache dirs exist
     try build_dirs.init();
@@ -1639,7 +1727,7 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         if (err != error.PathAlreadyExists) return err;
     };
 
-    // Discover test files
+    // Discover test files (with pattern matching)
     var test_files = std.ArrayList([]const u8){};
     defer {
         for (test_files.items) |f| allocator.free(f);
@@ -1655,6 +1743,18 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var iter = dir.iterate();
     while (iter.next() catch null) |entry| {
         if (entry.kind == .file and std.mem.startsWith(u8, entry.name, "test_") and std.mem.endsWith(u8, entry.name, ".py")) {
+            // Check file patterns (e.g., "bool" matches "test_bool.py")
+            if (file_patterns.items.len > 0) {
+                var matched = false;
+                for (file_patterns.items) |pattern| {
+                    if (std.mem.indexOf(u8, entry.name, pattern) != null) {
+                        matched = true;
+                        break;
+                    }
+                }
+                if (!matched) continue;
+            }
+
             const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ test_dir, entry.name });
             try test_files.append(allocator, path);
         }
@@ -1663,14 +1763,26 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const total = test_files.items.len;
     if (total == 0) {
         printWarn("No test files found in {s}", .{test_dir});
+        if (file_patterns.items.len > 0) {
+            std.debug.print("  (filtered by patterns: ", .{});
+            for (file_patterns.items, 0..) |p, idx| {
+                if (idx > 0) std.debug.print(", ", .{});
+                std.debug.print("{s}", .{p});
+            }
+            std.debug.print(")\n", .{});
+        }
         return;
     }
 
-    std.debug.print("Found {d} tests, using {d} parallel workers\n\n", .{ total, ncpu });
+    if (!dots_mode) {
+        std.debug.print("Found {d} tests, using {d} workers (timeout: {d}s", .{ total, ncpu, timeout_sec });
+        if (bail_count > 0) std.debug.print(", bail: {d}", .{bail_count});
+        std.debug.print(")\n\n", .{});
+    }
 
     // Phase 1: Parallel codegen (.py → .zig)
     // Use batched processing with arena reset to prevent memory accumulation
-    std.debug.print("Phase 1: Codegen...\n", .{});
+    if (!dots_mode) std.debug.print("Phase 1: Codegen...\n", .{});
     var codegen_ok: usize = 0;
     var zig_files = std.ArrayList([]const u8){};
     defer {
@@ -1697,7 +1809,7 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
         batch_start = batch_end;
     }
-    std.debug.print("  Codegen: {d}/{d}\n", .{ codegen_ok, total });
+    if (!dots_mode) std.debug.print("  Codegen: {d}/{d}\n", .{ codegen_ok, total });
 
     if (codegen_ok == 0) {
         printError("All codegen failed", .{});
@@ -1706,7 +1818,7 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     // Phase 2: Batch compile using Zig's cache (.zig → binary)
     // Key: use --cache-dir for hash-based caching (Zig handles incremental!)
-    std.debug.print("Phase 2: Compile (cached)...\n", .{});
+    if (!dots_mode) std.debug.print("Phase 2: Compile (cached)...\n", .{});
     var compile_ok: usize = 0;
     var bin_paths = std.ArrayList([]const u8){};
     defer {
@@ -1765,23 +1877,61 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
             allocator.free(bin_path);
         }
     }
-    std.debug.print("  Compile: {d}/{d}\n", .{ compile_ok, codegen_ok });
+    if (!dots_mode) std.debug.print("  Compile: {d}/{d}\n", .{ compile_ok, codegen_ok });
 
     // Phase 3: Run binaries
-    std.debug.print("Phase 3: Run...\n", .{});
+    if (!dots_mode) std.debug.print("Phase 3: Run...\n", .{});
     var run_ok: usize = 0;
-    var run_timeout: usize = 0;
+    var run_fail: usize = 0;
+    var run_timeout_count: usize = 0;
 
     for (bin_paths.items) |bin_path| {
-        switch (runBinaryWithTimeout(allocator, bin_path, run_timeout_ns)) {
-            .ok => run_ok += 1,
-            .timeout => run_timeout += 1,
-            .failed => {},
+        const result = runBinaryWithTimeout(allocator, bin_path, run_timeout_ns);
+        switch (result) {
+            .ok => {
+                run_ok += 1;
+                if (dots_mode) std.debug.print(".", .{});
+            },
+            .timeout => {
+                run_timeout_count += 1;
+                if (dots_mode) std.debug.print("?", .{});
+            },
+            .failed => {
+                run_fail += 1;
+                if (dots_mode) std.debug.print("x", .{});
+            },
+        }
+
+        // Bail on N failures
+        if (bail_count > 0 and run_fail >= bail_count) {
+            if (dots_mode) std.debug.print("\n", .{});
+            std.debug.print("\n{s}Bailed after {d} failures{s}\n", .{ Color.yellow, run_fail, Color.reset });
+            break;
         }
     }
 
+    // Summary
+    if (dots_mode) std.debug.print("\n", .{});
     std.debug.print("\n", .{});
-    std.debug.print("Results: {d}/{d} passed (timeout: {d})\n", .{ run_ok, total, run_timeout });
+
+    const passed_pct = if (total > 0) @as(f64, @floatFromInt(run_ok)) / @as(f64, @floatFromInt(total)) * 100.0 else 0.0;
+
+    if (run_ok == total) {
+        printSuccess("All {d} tests passed!", .{total});
+    } else {
+        std.debug.print("{s}Results:{s} {s}{d}/{d} passed ({d:.1}%%){s}", .{
+            Color.bold,
+            Color.reset,
+            if (run_ok > 0) Color.green else Color.red,
+            run_ok,
+            total,
+            passed_pct,
+            Color.reset,
+        });
+        if (run_fail > 0) std.debug.print(" | {s}{d} failed{s}", .{ Color.red, run_fail, Color.reset });
+        if (run_timeout_count > 0) std.debug.print(" | {s}{d} timeout{s}", .{ Color.yellow, run_timeout_count, Color.reset });
+        std.debug.print("\n", .{});
+    }
 }
 
 const RunResult = enum { ok, timeout, failed };

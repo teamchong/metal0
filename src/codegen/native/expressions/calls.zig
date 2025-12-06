@@ -1456,7 +1456,7 @@ fn inferTypeFromExpr(expr: ast.Node) []const u8 {
         },
         .fstring => "[]const u8",
         .list, .listcomp => "std.ArrayList(i64)",
-        .dict, .dictcomp => "std.StringHashMap(i64)",
+        .dict, .dictcomp => "hashmap_helper.StringHashMap(i64)",
         .name => |n| {
             // Variable reference - could be any type, default to i64
             // In future: look up variable type from context

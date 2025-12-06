@@ -276,7 +276,7 @@ pub fn toZigContainerType(t: NativeType, elem_zig_type: []const u8) ?[]const u8 
     const tag = @as(std.meta.Tag(@TypeOf(t)), t);
     return switch (tag) {
         .list => "std.ArrayList",
-        .dict => "std.StringHashMap", // Simplified - actual depends on key type
+        .dict => "hashmap_helper.StringHashMap", // Simplified - actual depends on key type
         .set => "std.AutoHashMap", // Using AutoHashMap(T, void) for set
         else => null,
     };

@@ -330,7 +330,7 @@ pub fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // dict() with no args returns empty dict
     // Default to i64 value type since it's common (keys are strings)
     if (args.len == 0) {
-        try self.emit("std.StringHashMap(i64){}");
+        try self.emit("hashmap_helper.StringHashMap(i64){}");
         return;
     }
 

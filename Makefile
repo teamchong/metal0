@@ -97,36 +97,34 @@ TIMEOUT ?= 10
 JOBS ?= 16
 test-status: build
 	@echo "CPython tests status (timeout=$(TIMEOUT)s, jobs=$(JOBS))..."
-	@pass=0; fail=0; other=0; \
-	for f in $$(find tests/cpython -name "test_*.py" -type f | sort); do \
-		echo "$$f"; \
-	done | xargs -P $(JOBS) -I {} sh -c ' \
-		result=$$(timeout $(TIMEOUT) ./zig-out/bin/metal0 "{}" --force 2>&1); \
-		if echo "$$result" | grep -qE "^OK$$|Ran [0-9]+ test.*OK"; then \
-			echo "PASS {}"; \
-		elif echo "$$result" | grep -qE "error:|Error:|FAILED"; then \
-			echo "FAIL {}"; \
-		else \
-			echo "OTHER {}"; \
-		fi \
-	' 2>/dev/null | tee /tmp/test_status_$$$$.log | { \
-		pass=0; fail=0; other=0; \
-		while read line; do \
-			case "$$line" in \
-				PASS*) pass=$$((pass+1)); printf ".";; \
-				FAIL*) fail=$$((fail+1)); printf "x";; \
-				OTHER*) other=$$((other+1)); printf "?";; \
-			esac; \
-		done; \
-		echo ""; echo ""; \
-		echo "========================================"; \
-		printf "\033[0;32m✓ PASS:  %3d\033[0m\n" $$pass; \
-		printf "\033[0;31m✗ FAIL:  %3d\033[0m\n" $$fail; \
-		printf "\033[0;33m? OTHER: %3d\033[0m\n" $$other; \
-		echo "----------------------------------------"; \
-		printf "  TOTAL: %3d\n" $$((pass+fail+other)); \
-		echo "========================================"; \
-	}
+	@rm -f /tmp/test_status.log
+	@for f in tests/cpython/test_*.py; do \
+		( \
+			result=$$(timeout $(TIMEOUT) ./zig-out/bin/metal0 "$$f" --force 2>&1); \
+			if echo "$$result" | grep -qE "^OK$$|Ran [0-9]+ test.*OK"; then \
+				echo "PASS $$f" >> /tmp/test_status.log; \
+				printf "."; \
+			elif echo "$$result" | grep -qE "error:|Error:|FAILED"; then \
+				echo "FAIL $$f" >> /tmp/test_status.log; \
+				printf "x"; \
+			else \
+				echo "OTHER $$f" >> /tmp/test_status.log; \
+				printf "?"; \
+			fi \
+		) & \
+		if [ $$(jobs -r | wc -l) -ge $(JOBS) ]; then wait -n 2>/dev/null || wait; fi; \
+	done; \
+	wait; \
+	echo ""; echo ""; \
+	echo "========================================"; \
+	printf "\033[0;32m✓ PASS:  %3d\033[0m\n" $$(grep -c "^PASS" /tmp/test_status.log 2>/dev/null || echo 0); \
+	printf "\033[0;31m✗ FAIL:  %3d\033[0m\n" $$(grep -c "^FAIL" /tmp/test_status.log 2>/dev/null || echo 0); \
+	printf "\033[0;33m? OTHER: %3d\033[0m\n" $$(grep -c "^OTHER" /tmp/test_status.log 2>/dev/null || echo 0); \
+	echo "----------------------------------------"; \
+	printf "  TOTAL: %3d\n" $$(wc -l < /tmp/test_status.log 2>/dev/null || echo 0); \
+	echo "========================================"; \
+	echo ""; \
+	echo "Pass list: /tmp/test_status.log"
 
 # =============================================================================
 # BENCHMARK (requires hyperfine: brew install hyperfine)
