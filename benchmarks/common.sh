@@ -74,9 +74,9 @@ compile_metal0() {
     cd "$PROJECT_ROOT"
     ./zig-out/bin/metal0 build "$SCRIPT_DIR/$src" "$basename" --binary --force >/dev/null 2>&1
     local result=$?
-    # metal0 puts binaries in build/lib.*/
-    local built_binary=$(find build -name "$basename" -type f 2>/dev/null | head -1)
-    if [ $result -eq 0 ] && [ -n "$built_binary" ] && [ -f "$built_binary" ]; then
+    # metal0 outputs to .metal0/bin/
+    local built_binary=".metal0/bin/$basename"
+    if [ $result -eq 0 ] && [ -f "$built_binary" ]; then
         cp "$built_binary" "$SCRIPT_DIR/$out"
         cd "$SCRIPT_DIR"
         echo -e "  ${GREEN}✓${NC} metal0: $src"

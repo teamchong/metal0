@@ -2,10 +2,11 @@
 const std = @import("std");
 const utils = @import("../utils.zig");
 
-/// Platform directory name (e.g., "build/lib.macosx-11.0-arm64")
+/// Binary output directory (.metal0/bin/)
+/// Industry standard: all build outputs go to a dedicated directory
 pub fn getPlatformDir(allocator: std.mem.Allocator) ![]const u8 {
-    const arch = utils.getArch();
-    return try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}", .{arch});
+    _ = allocator;
+    return ".metal0/bin";
 }
 
 /// Ensure platform build directory exists
@@ -13,7 +14,6 @@ pub fn ensurePlatformDir(allocator: std.mem.Allocator) ![]const u8 {
     const platform_dir = try getPlatformDir(allocator);
     std.fs.cwd().makePath(platform_dir) catch |err| {
         if (err != error.PathAlreadyExists) {
-            allocator.free(platform_dir);
             return err;
         }
     };
@@ -32,8 +32,6 @@ pub fn getBaseName(path: []const u8) []const u8 {
 /// Get module output path for a compiled .so file
 pub fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8) ![]const u8 {
     const platform_dir = try ensurePlatformDir(allocator);
-    defer allocator.free(platform_dir);
-
     const name_no_ext = getBaseName(module_path);
 
     return try std.fmt.allocPrint(
@@ -46,7 +44,6 @@ pub fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8
 /// Determine output path for notebook compilation
 pub fn getNotebookOutputPath(allocator: std.mem.Allocator, input_file: []const u8, output_file: ?[]const u8, binary: bool) ![]const u8 {
     const platform_dir = try ensurePlatformDir(allocator);
-    defer allocator.free(platform_dir);
 
     // If output path specified, use it but ensure it's in platform_dir
     if (output_file) |path| {
@@ -70,7 +67,6 @@ pub fn getNotebookOutputPath(allocator: std.mem.Allocator, input_file: []const u
 /// Determine output path for file compilation
 pub fn getFileOutputPath(allocator: std.mem.Allocator, input_file: []const u8, output_file: ?[]const u8, binary: bool) ![]const u8 {
     const platform_dir = try ensurePlatformDir(allocator);
-    defer allocator.free(platform_dir);
 
     // If output path specified, use it but ensure it's in platform_dir
     if (output_file) |path| {
