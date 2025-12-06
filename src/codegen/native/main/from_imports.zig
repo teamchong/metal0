@@ -398,6 +398,9 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
 
             // Track for local import shadowing prevention
             try self.module_level_from_imports.put(symbol_name, {});
+
+            // Register for dispatch routing (needed for typing.cast and similar)
+            try self.local_from_imports.put(symbol_name, from_imp.module);
         }
     }
 

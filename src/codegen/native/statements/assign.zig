@@ -1420,16 +1420,39 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         try self.genExpr(assign.value.*);
                     }
                     try self.emit(");\n");
-                } else if (container_type == .list) {
+                } else if (container_type == .list or (subscript.value.* == .name and self.isArrayListVar(subscript.value.name.id))) {
                     // List assignment: list.items[idx] = value
+                    // Also handles ArrayList variables which may have .array type from inference
+                    // Need to handle negative indices: a[-1] = x → a.items[a.items.len - 1] = x
+
+                    // Check if index is a negative literal
+                    const is_negative_literal = subscript.slice.index.* == .unaryop and
+                        subscript.slice.index.unaryop.op == .USub and
+                        subscript.slice.index.unaryop.operand.* == .constant and
+                        subscript.slice.index.unaryop.operand.constant.value == .int;
+
                     if (is_nested) {
                         try self.genSubscriptLHS(subscript.value.subscript);
                     } else {
                         try self.genExpr(subscript.value.*);
                     }
-                    try self.emit(".items[@as(usize, @intCast(");
-                    try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))] = ");
+
+                    if (is_negative_literal) {
+                        // For negative literal index: use len - abs(idx)
+                        const neg_val = subscript.slice.index.unaryop.operand.constant.value.int;
+                        try self.output.writer(self.allocator).print(".items[", .{});
+                        if (is_nested) {
+                            try self.genSubscriptLHS(subscript.value.subscript);
+                        } else {
+                            try self.genExpr(subscript.value.*);
+                        }
+                        try self.output.writer(self.allocator).print(".items.len - {d}] = ", .{neg_val});
+                    } else {
+                        // For non-negative or runtime index: cast to usize
+                        try self.emit(".items[@intCast(");
+                        try self.genExpr(subscript.slice.index.*);
+                        try self.emit(")] = ");
+                    }
                     try self.genExpr(assign.value.*);
                     try self.emit(";\n");
                 } else if (container_type == .pyvalue) {

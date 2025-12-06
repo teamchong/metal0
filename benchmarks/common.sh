@@ -69,15 +69,20 @@ build_metal0_compiler() {
 compile_metal0() {
     local src="$1"
     local out="$2"
+    local basename=$(basename "$out")
     # Must run from PROJECT_ROOT for metal0 to find dependencies
     cd "$PROJECT_ROOT"
-    ./zig-out/bin/metal0 build "$SCRIPT_DIR/$src" "$SCRIPT_DIR/$out" --binary --force >/dev/null 2>&1
+    ./zig-out/bin/metal0 build "$SCRIPT_DIR/$src" "$basename" --binary --force >/dev/null 2>&1
     local result=$?
-    cd "$SCRIPT_DIR"
-    if [ $result -eq 0 ] && [ -f "$SCRIPT_DIR/$out" ]; then
+    # metal0 puts binaries in build/lib.*/
+    local built_binary=$(find build -name "$basename" -type f 2>/dev/null | head -1)
+    if [ $result -eq 0 ] && [ -n "$built_binary" ] && [ -f "$built_binary" ]; then
+        cp "$built_binary" "$SCRIPT_DIR/$out"
+        cd "$SCRIPT_DIR"
         echo -e "  ${GREEN}✓${NC} metal0: $src"
         return 0
     else
+        cd "$SCRIPT_DIR"
         echo -e "  ${RED}✗${NC} metal0: $src failed"
         return 1
     fi

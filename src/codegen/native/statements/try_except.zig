@@ -828,14 +828,21 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // Create aliases for read-only captured variables (by value)
         // Note: Use 'var' instead of 'const' because some types like iterators need mutable access
         // even though they appear "read-only" in Python (e.g., next(it) mutates the iterator)
+        // EXCEPTION: Class types (nested_class_names) must be 'const' in Zig - types are not available at runtime
         for (read_only_vars.items) |var_name| {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("var __local_{s}_{d}: @TypeOf(p_{s}_{d}) = p_{s}_{d};\n", .{ var_name, helper_id, var_name, helper_id, var_name, helper_id });
+            // Classes/types must be const, not var - Zig types are comptime-only
+            const is_class_type = self.nested_class_names.contains(var_name);
+            const var_or_const = if (is_class_type) "const" else "var";
+            try self.output.writer(self.allocator).print("{s} __local_{s}_{d}: @TypeOf(p_{s}_{d}) = p_{s}_{d};\n", .{ var_or_const, var_name, helper_id, var_name, helper_id, var_name, helper_id });
 
             // Always emit discard using runtime.discard() to prevent "unused local variable"
             // errors while avoiding "pointless discard of local variable" issues
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print("runtime.discard(&__local_{s}_{d});\n", .{ var_name, helper_id });
+            // Skip discard for const class types - can't take address of const comptime value
+            if (!is_class_type) {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("runtime.discard(&__local_{s}_{d});\n", .{ var_name, helper_id });
+            }
 
             // Add to rename map
             var buf = std.ArrayListUnmanaged(u8){};

@@ -387,6 +387,16 @@ pub fn inferExprWithInferrer(
                 break :blk .{ .c_func = .{ .library = lib_copy, .func_name = func_name_copy } };
             }
 
+            // http Response attribute access
+            if (obj_type == .http_response) {
+                if (std.mem.eql(u8, a.attr, "status") or std.mem.eql(u8, a.attr, "status_code")) {
+                    break :blk .{ .int = .bounded }; // u16 status code
+                }
+                if (std.mem.eql(u8, a.attr, "body") or std.mem.eql(u8, a.attr, "text") or std.mem.eql(u8, a.attr, "content")) {
+                    break :blk .{ .string = .runtime }; // Response body as string
+                }
+            }
+
             break :blk .unknown;
         },
         .list => |l| blk: {
@@ -801,6 +811,12 @@ fn inferBinOpWithInferrer(
         return .bytes; // Bytes concatenation produces bytes
     }
 
+    // List concatenation: list + list → pyvalue (concatRuntime returns PyValue)
+    // This includes ArrayList (list) and fixed array (array) types
+    if (binop.op == .Add and (left_tag == .list or left_tag == .array) and (right_tag == .list or right_tag == .array)) {
+        return .pyvalue; // List concatenation via concatRuntime returns PyValue
+    }
+
     // String repetition: str * int or int * str → runtime string
     // Bytes repetition: bytes * int or int * bytes → bytes
     // List repetition: list * int or int * list → list (same element type)
@@ -820,32 +836,12 @@ fn inferBinOpWithInferrer(
         if ((left_is_bytes and right_is_numeric) or (left_is_numeric and right_is_bytes)) {
             return .bytes; // Bytes repetition produces bytes
         }
-        // List repetition: [a, b] * n or n * [a, b] → list/slice with same element type
-        // If multiplier is runtime (not constant), result is a slice (from sliceRepeatDynamic)
-        // If multiplier is compile-time constant, result keeps array type (can compute size)
+        // List repetition: [a, b] * n or n * [a, b] → pyvalue (repeatRuntime returns PyValue)
         if (left_is_list and right_is_numeric) {
-            const multiplier_is_constant = binop.right.* == .constant;
-            if (!multiplier_is_constant) {
-                // Runtime multiplier - sliceRepeatDynamic returns []const T
-                const elem_type = if (left_tag == .array)
-                    left_type.array.element_type
-                else
-                    left_type.list; // list -> *const NativeType
-                return .{ .slice = elem_type };
-            }
-            return left_type; // Preserve list's element type for constant multiplier
+            return .pyvalue; // List repetition via repeatRuntime returns PyValue
         }
         if (left_is_numeric and right_is_list) {
-            const multiplier_is_constant = binop.left.* == .constant;
-            if (!multiplier_is_constant) {
-                // Runtime multiplier - sliceRepeatDynamic returns []const T
-                const elem_type = if (right_tag == .array)
-                    right_type.array.element_type
-                else
-                    right_type.list;
-                return .{ .slice = elem_type };
-            }
-            return right_type; // Preserve list's element type for constant multiplier
+            return .pyvalue; // List repetition via repeatRuntime returns PyValue
         }
     }
 

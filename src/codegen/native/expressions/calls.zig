@@ -666,9 +666,15 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Check if this is a closure variable
         if (self.closure_vars.contains(raw_func_name)) {
-            // Closure call: add_five(3) -> add_five.call(3)
+            // Closure call: add_five(3) -> (try add_five.call(3))
+            // Closures return error unions (!T) so we need to unwrap with try
+            // EXCEPTION: void-returning closures don't need try wrapping
             // Use the variable name which was already assigned the closure
             // Use writeEscapedIdent (not writeLocalVarName) to match how the closure was defined
+            const is_void_closure = self.void_closure_vars.contains(raw_func_name);
+            if (!is_void_closure) {
+                try self.emit("(try ");
+            }
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
             try self.emit(".call(");
 
@@ -716,7 +722,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             }
 
-            try self.emit(")");
+            if (!is_void_closure) {
+                try self.emit("))");  // Close both .call() and (try ...)
+            } else {
+                try self.emit(")");  // Close just .call() - no try wrapper
+            }
             return;
         }
 

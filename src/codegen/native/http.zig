@@ -14,6 +14,6 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "post", genHttpPost },
 });
 
-// Comptime-generated handlers - use PyObject wrappers for Python compatibility
-pub const genHttpGet = bridge.genSimpleCall(.{ .runtime_path = "runtime.http.getAsPyString", .arg_count = 1 });
-pub const genHttpPost = bridge.genSimpleCall(.{ .runtime_path = "runtime.http.postAsPyString", .arg_count = 2 });
+// Use native Response type for proper .status, .body access
+pub const genHttpGet = bridge.genSimpleCall(.{ .runtime_path = "runtime.http.get", .arg_count = 1 });
+pub const genHttpPost = bridge.genSimpleCall(.{ .runtime_path = "runtime.http.post", .arg_count = 2 });

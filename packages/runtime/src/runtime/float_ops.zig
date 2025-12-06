@@ -397,6 +397,62 @@ pub fn floatToHex(allocator: std.mem.Allocator, value: f64) ![]u8 {
     return buf.toOwnedSlice(allocator);
 }
 
+/// Integer result type that can be either i64 or BigInt
+pub const IntResult = union(enum) {
+    small: i64,
+    big: BigInt,
+
+    /// Convert to f64 for comparison with floats
+    pub fn toFloat(self: IntResult) f64 {
+        return switch (self) {
+            .small => |v| @floatFromInt(v),
+            .big => |b| b.toFloat(),
+        };
+    }
+
+    /// Check equality with f64 (what Python does for int == float)
+    pub fn eqlFloat(self: IntResult, f: f64) bool {
+        return self.toFloat() == f;
+    }
+
+    /// Get as i64 if small, otherwise error
+    pub fn asI64(self: IntResult) PythonError!i64 {
+        return switch (self) {
+            .small => |v| v,
+            .big => PythonError.OverflowError,
+        };
+    }
+
+    /// Format for printing - supports {d}, {s}, {any} and default formats
+    pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        switch (self) {
+            .small => |v| try writer.print("{d}", .{v}),
+            .big => |b| try writer.print("{s}", .{b.toString(std.heap.page_allocator) catch "BigInt"}),
+        }
+    }
+};
+
+/// float.__floor__() - Returns largest integer <= value
+/// Python: (1.7).__floor__() -> 1, (1e200).__floor__() -> BigInt
+/// Returns i64 for small values, BigInt for large values
+pub fn floatFloorBig(allocator: std.mem.Allocator, value: f64) anyerror!IntResult {
+    // Python raises ValueError for NaN, OverflowError for Inf
+    if (std.math.isNan(value)) return PythonError.ValueError;
+    if (std.math.isInf(value)) return PythonError.OverflowError;
+    // Apply floor then convert to i64
+    const floored = @floor(value);
+    // Check if it fits in i64
+    if (floored >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+        floored <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+    {
+        return IntResult{ .small = @intFromFloat(floored) };
+    }
+    // Too large for i64 - convert to BigInt
+    return IntResult{ .big = try BigInt.fromFloat(allocator, floored) };
+}
+
 /// float.__floor__() - Returns largest integer <= value
 /// Python: (1.7).__floor__() -> 1, (1e200).__floor__() -> BigInt
 /// Returns i64 for small values, raises error for NaN/Inf
@@ -412,8 +468,62 @@ pub fn floatFloor(_: std.mem.Allocator, value: f64) PythonError!i64 {
     {
         return @intFromFloat(floored);
     }
-    // Too large for i64 - for now return error (BigInt support can be added later)
+    // Too large for i64 - return error for now
     return PythonError.OverflowError;
+}
+
+/// Union type for floor/ceil that can return either i64 or f64
+pub const FloorCeilResult = union(enum) {
+    int: i64,
+    float: f64,
+
+    pub fn toFloat(self: FloorCeilResult) f64 {
+        return switch (self) {
+            .int => |v| @floatFromInt(v),
+            .float => |v| v,
+        };
+    }
+
+    /// Format for printing - supports any format specifier
+    pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        switch (self) {
+            .int => |v| try writer.print("{d}", .{v}),
+            .float => |v| try writer.print("{d}", .{v}),
+        }
+    }
+};
+
+/// float.__floor__() that returns either i64 or f64 for very large values
+/// For very large floats, the value is already an integer, so we return f64
+pub fn floatFloorAny(_: std.mem.Allocator, value: f64) PythonError!FloorCeilResult {
+    if (std.math.isNan(value)) return PythonError.ValueError;
+    if (std.math.isInf(value)) return PythonError.OverflowError;
+    const floored = @floor(value);
+    if (floored >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+        floored <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+    {
+        return FloorCeilResult{ .int = @intFromFloat(floored) };
+    }
+    // For very large floats, return the float (it's already an integer due to precision)
+    return FloorCeilResult{ .float = floored };
+}
+
+/// float.__ceil__() - Returns smallest integer >= value
+/// Python: (1.3).__ceil__() -> 2
+/// Returns i64 for small values, BigInt for large values
+pub fn floatCeilBig(allocator: std.mem.Allocator, value: f64) anyerror!IntResult {
+    if (std.math.isNan(value)) return PythonError.ValueError;
+    if (std.math.isInf(value)) return PythonError.OverflowError;
+    const ceiled = @ceil(value);
+    if (ceiled >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+        ceiled <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+    {
+        return IntResult{ .small = @intFromFloat(ceiled) };
+    }
+    // Too large for i64 - convert to BigInt
+    return IntResult{ .big = try BigInt.fromFloat(allocator, ceiled) };
 }
 
 /// float.__ceil__() - Returns smallest integer >= value
@@ -429,6 +539,20 @@ pub fn floatCeil(_: std.mem.Allocator, value: f64) PythonError!i64 {
         return @intFromFloat(ceiled);
     }
     return PythonError.OverflowError;
+}
+
+/// float.__ceil__() that returns either i64 or f64 for very large values
+pub fn floatCeilAny(_: std.mem.Allocator, value: f64) PythonError!FloorCeilResult {
+    if (std.math.isNan(value)) return PythonError.ValueError;
+    if (std.math.isInf(value)) return PythonError.OverflowError;
+    const ceiled = @ceil(value);
+    if (ceiled >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+        ceiled <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+    {
+        return FloorCeilResult{ .int = @intFromFloat(ceiled) };
+    }
+    // For very large floats, return the float (it's already an integer due to precision)
+    return FloorCeilResult{ .float = ceiled };
 }
 
 /// float.__trunc__() - Truncate towards zero

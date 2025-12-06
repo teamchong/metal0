@@ -46,15 +46,15 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Angular
     .{ "degrees", h.wrap("(", " * 180.0 / 3.141592653589793)", "@as(f64, 0.0)") },
     .{ "radians", h.wrap("(", " * 3.141592653589793 / 180.0)", "@as(f64, 0.0)") },
-    // Float manipulation
-    .{ "copysign", h.stdmath2("copysign", "@as(f64, 0.0)") },
+    // Float manipulation - use runtime.math.copysign to handle PyPowResult
+    .{ "copysign", genCopysign },
     .{ "fmod", h.wrap2("@mod(@as(f64, ", "), @as(f64, ", "))", "@as(f64, 0.0)") },
     .{ "frexp", genFrexp }, .{ "modf", genModf },
     .{ "ldexp", h.wrap2("std.math.ldexp(@as(f64, ", "), @as(i32, @intCast(", ")))", "@as(f64, 0.0)") },
     .{ "remainder", h.wrap2("@rem(@as(f64, ", "), @as(f64, ", "))", "@as(f64, 0.0)") },
-    // Classification
-    .{ "isfinite", h.stdmath1("isFinite", "true") }, .{ "isinf", h.stdmath1("isInf", "false") },
-    .{ "isnan", h.stdmath1("isNan", "false") },
+    // Classification - use runtime.math.* to handle PyPowResult union type
+    .{ "isfinite", genIsFinite }, .{ "isinf", genIsInf },
+    .{ "isnan", genIsNan },
     .{ "isclose", h.wrap2("std.math.approxEqAbs(f64, @as(f64, ", "), @as(f64, ", "), 1e-9)", "false") },
     // Sums
     .{ "hypot", h.stdmath2("hypot", "@as(f64, 0.0)") }, .{ "dist", genDist }, .{ "fsum", genFsum }, .{ "prod", genProd },
@@ -80,3 +80,46 @@ const genProd = h.wrap("blk: { var product: f64 = 1; for (", ") |item| { product
 
 const genNextafter = h.wrap2("blk: { const x = @as(f64, ", "); const y = @as(f64, ", "); if (x < y) break :blk x + std.math.floatMin(f64) else if (x > y) break :blk x - std.math.floatMin(f64) else break :blk y; }", "@as(f64, 0.0)");
 const genUlp = h.wrap("blk: { const x = @abs(@as(f64, ", ")); const exp = @as(i32, @intFromFloat(@log2(x))); break :blk std.math.ldexp(@as(f64, 1.0), exp - 52); }", "std.math.floatMin(f64)");
+
+// Classification functions that handle PyPowResult union type via runtime.math.*
+fn genIsNan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) {
+        try self.emit("runtime.math.isnan(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    } else {
+        try self.emit("false");
+    }
+}
+
+fn genIsInf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) {
+        try self.emit("runtime.math.isinf(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    } else {
+        try self.emit("false");
+    }
+}
+
+fn genIsFinite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) {
+        try self.emit("runtime.math.isfinite(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    } else {
+        try self.emit("true");
+    }
+}
+
+fn genCopysign(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len >= 2) {
+        try self.emit("runtime.math.copysign(");
+        try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit(")");
+    } else {
+        try self.emit("@as(f64, 0.0)");
+    }
+}

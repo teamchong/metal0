@@ -125,6 +125,15 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
     if (call.func.* == .name) {
         const func_name = call.func.name.id;
         if (self.local_from_imports.get(func_name)) |module_name| {
+            // Special handling for typing.cast - just emit the second argument
+            // cast(Type, value) -> value (identity function)
+            if (std.mem.eql(u8, module_name, "typing") and std.mem.eql(u8, func_name, "cast")) {
+                if (call.args.len >= 2) {
+                    const expressions = @import("expressions.zig");
+                    try expressions.genExpr(self, call.args[1]);
+                    return true;
+                }
+            }
             // Route to module function dispatch
             if (try module_functions.tryDispatch(self, module_name, func_name, call)) {
                 return true;

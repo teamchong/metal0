@@ -92,13 +92,13 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
                 return;
             }
             // Closure calls return error unions - discard both value and error
-            // Generate: _ = call(...) catch {}
+            // The closure call generates "(try closure.call(...))" which unwraps the error
+            // We need to use _ = to discard the return value
+            // DO NOT add "catch {}" because "try" already unwraps the error
             try self.emit("_ = ");
             added_discard_prefix = true;
-            // Mark that we need to append " catch {}" after the expression
-            // We'll use a simple approach: generate expr then append
             try self.genExpr(expr);
-            try self.emit(" catch {};\n");
+            try self.emit(";\n");
             return;
         } else if (self.type_inferrer.func_return_types.get(func_name)) |return_type| {
             // Check if function returns non-void type

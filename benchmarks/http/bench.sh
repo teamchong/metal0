@@ -2,41 +2,111 @@
 # HTTP Client Benchmark
 # Compares metal0 vs Rust vs Go vs Python vs PyPy
 # All Python-based runners use the SAME source code
+#
+# Uses local go-httpbin server for consistent results
+# 3 tests: HTTP, HTTPS, HTTPS+Gzip
 
 source "$(dirname "$0")/../common.sh"
 cd "$SCRIPT_DIR"
 
-init_benchmark_compiled "HTTP Client Benchmark - 50 HTTPS requests"
+ITERATIONS=100
+PORT_HTTP=18080
+PORT_HTTPS=18443
+
+init_benchmark_compiled "HTTP Client Benchmark"
 echo ""
-echo "Fetching https://httpbin.org/get 50 times"
-echo "Tests: SSL/TLS, socket, HTTP client"
+echo "Tests: HTTP/1.1, HTTPS, HTTPS+Gzip"
+echo "Server: go-httpbin (local)"
+echo "Iterations: $ITERATIONS requests per test"
 echo ""
 
-# Python source (SAME code for metal0, Python, PyPy)
-cat > http_bench.py <<'EOF'
-import requests
+# Check go-httpbin
+if ! command -v go-httpbin &>/dev/null; then
+    echo -e "${YELLOW}Installing go-httpbin...${NC}"
+    go install github.com/mccutchen/go-httpbin/v2/cmd/go-httpbin@latest
+    if ! command -v go-httpbin &>/dev/null; then
+        echo -e "${RED}Error: go-httpbin not found after install${NC}"
+        echo "Make sure ~/go/bin is in PATH"
+        exit 1
+    fi
+fi
+echo -e "  ${GREEN}✓${NC} go-httpbin"
 
-i = 0
-success = 0
-while i < 50:
-    resp = requests.get("https://httpbin.org/get")
-    if resp.ok:
-        success = success + 1
-    i = i + 1
+# Generate self-signed cert for HTTPS tests
+if [ ! -f cert.pem ] || [ ! -f key.pem ]; then
+    echo "Generating self-signed certificate..."
+    openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+        -days 1 -nodes -subj "/CN=localhost" 2>/dev/null
+fi
 
-print(success)
+# Python source for metal0 (uses http module)
+cat > http_client_metal0.py <<EOF
+import sys
+import http
+
+url = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:$PORT_HTTP/get"
+
+for _ in range($ITERATIONS):
+    r = http.get(url)
+    _ = r.body
 EOF
 
-# Rust source (using ureq - popular simple HTTP client)
+# Python source for CPython/PyPy (uses requests)
+cat > http_client.py <<EOF
+import sys
+import requests
+import urllib3
+urllib3.disable_warnings()
+
+url = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:$PORT_HTTP/get"
+
+for _ in range($ITERATIONS):
+    r = requests.get(url, verify=False)
+    _ = r.text
+EOF
+
+# Go source
+cat > http_client.go <<'EOF'
+package main
+
+import (
+	"crypto/tls"
+	"io"
+	"net/http"
+	"os"
+	"strconv"
+)
+
+func main() {
+	url := os.Args[1]
+	iterations, _ := strconv.Atoi(os.Args[2])
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+
+	for i := 0; i < iterations; i++ {
+		resp, err := client.Get(url)
+		if err == nil {
+			io.ReadAll(resp.Body)
+			resp.Body.Close()
+		}
+	}
+}
+EOF
+
+# Rust source (using ureq with native-tls for self-signed cert support)
 mkdir -p rust/src
 cat > rust/Cargo.toml <<'EOF'
 [package]
-name = "http_bench"
+name = "http_client"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ureq = { version = "2", features = ["tls"] }
+ureq = { version = "2", features = ["native-tls"] }
+native-tls = "0.2"
 
 [profile.release]
 lto = true
@@ -44,96 +114,133 @@ codegen-units = 1
 EOF
 
 cat > rust/src/main.rs <<'EOF'
+use std::env;
+use std::sync::Arc;
+
 fn main() {
-    let mut success = 0;
-    for _ in 0..50 {
-        match ureq::get("https://httpbin.org/get").call() {
-            Ok(resp) => {
-                if resp.status() == 200 {
-                    let _ = resp.into_string();
-                    success += 1;
-                }
-            }
+    let url = env::args().nth(1).expect("URL required");
+    let iterations: usize = env::args().nth(2).unwrap_or("100".to_string()).parse().unwrap();
+
+    // Build TLS connector that accepts self-signed certs
+    let tls = native_tls::TlsConnector::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap();
+
+    let agent = ureq::AgentBuilder::new()
+        .tls_connector(Arc::new(tls))
+        .build();
+
+    for _ in 0..iterations {
+        match agent.get(&url).call() {
+            Ok(resp) => { let _ = resp.into_string(); }
             Err(_) => {}
         }
     }
-    println!("{}", success);
-}
-EOF
-
-# Go source (using net/http - standard but very popular)
-cat > http_bench.go <<'EOF'
-package main
-
-import (
-	"fmt"
-	"io"
-	"net/http"
-)
-
-func main() {
-	success := 0
-	client := &http.Client{}
-
-	for i := 0; i < 50; i++ {
-		resp, err := client.Get("https://httpbin.org/get")
-		if err == nil {
-			io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if resp.StatusCode == 200 {
-				success++
-			}
-		}
-	}
-
-	fmt.Println(success)
 }
 EOF
 
 print_header "Building"
 
 build_metal0_compiler
-compile_metal0 http_bench.py http_bench_metal0
-compile_go http_bench.go http_bench_go
 
-# Rust with cargo (needs network for deps)
+# Build metal0 client
+if compile_metal0 http_client_metal0.py http_client_metal0; then
+    METAL0_BUILT=true
+else
+    METAL0_BUILT=false
+fi
+
+# Build Go client
+compile_go http_client.go http_client_go
+
+# Build Rust client
 if [ "$RUST_AVAILABLE" = true ]; then
-    echo "  Building Rust (may take a moment for deps)..."
+    echo "  Building Rust..."
     cd rust && cargo build --release --quiet 2>/dev/null && cd ..
-    if [ -f rust/target/release/http_bench ]; then
-        cp rust/target/release/http_bench http_bench_rust
-        echo -e "  ${GREEN}✓${NC} Rust: http_bench"
+    if [ -f rust/target/release/http_client ]; then
+        cp rust/target/release/http_client http_client_rust
+        echo -e "  ${GREEN}✓${NC} Rust"
     else
         echo -e "  ${YELLOW}⚠${NC} Rust build failed"
     fi
 fi
 
-print_header "Running Benchmark"
-echo "Note: Network latency dominates (~200-300ms per request)"
-echo ""
+print_header "Starting Server"
 
-BENCH_CMD=(hyperfine --warmup 1 --runs 3 --export-markdown results.md)
+# Kill any existing go-httpbin
+pkill -f "go-httpbin" 2>/dev/null || true
+sleep 1
 
-add_metal0 BENCH_CMD http_bench_metal0
-add_rust BENCH_CMD http_bench_rust
-add_go BENCH_CMD http_bench_go
+# Start HTTP server
+go-httpbin -port $PORT_HTTP &
+PID_HTTP=$!
+sleep 1
 
-# Check if PyPy has requests installed
-if [ "$PYPY_AVAILABLE" = true ]; then
-    if pypy3 -c "import requests" 2>/dev/null; then
-        add_pypy BENCH_CMD http_bench.py
-    else
-        echo -e "  ${YELLOW}⚠${NC} PyPy skipped (requests not installed: pypy3 -m pip install requests)"
-    fi
+# Start HTTPS server
+go-httpbin -port $PORT_HTTPS -https-cert-file cert.pem -https-key-file key.pem &
+PID_HTTPS=$!
+sleep 1
+
+# Verify servers are running
+if ! curl -s "http://localhost:$PORT_HTTP/get" >/dev/null; then
+    echo -e "${RED}HTTP server failed to start${NC}"
+    exit 1
 fi
+echo -e "  ${GREEN}✓${NC} HTTP server on :$PORT_HTTP"
 
-add_python BENCH_CMD http_bench.py requests
+if ! curl -sk "https://localhost:$PORT_HTTPS/get" >/dev/null; then
+    echo -e "${RED}HTTPS server failed to start${NC}"
+    kill $PID_HTTP 2>/dev/null
+    exit 1
+fi
+echo -e "  ${GREEN}✓${NC} HTTPS server on :$PORT_HTTPS"
 
-"${BENCH_CMD[@]}"
+# Cleanup function
+cleanup() {
+    kill $PID_HTTP $PID_HTTPS 2>/dev/null
+    rm -f http_client.py http_client_metal0.py http_client.go http_client_metal0 http_client_go http_client_rust
+    rm -rf rust
+}
+trap cleanup EXIT
 
-print_header "Results"
-cat results.md
+# Run benchmark for a specific test
+run_benchmark() {
+    local test_name=$1
+    local url=$2
 
-# Cleanup
-rm -f http_bench.py http_bench.go http_bench_metal0 http_bench_rust http_bench_go
-rm -rf rust
+    print_header "$test_name"
+    echo "URL: $url"
+    echo ""
+
+    BENCH_CMD=(hyperfine --warmup 1 --runs 5)
+
+    if [ "$METAL0_BUILT" = true ] && [ -f http_client_metal0 ]; then
+        BENCH_CMD+=(--command-name "metal0" "./http_client_metal0 '$url'")
+    fi
+
+    if [ "$RUST_AVAILABLE" = true ] && [ -f http_client_rust ]; then
+        BENCH_CMD+=(--command-name "Rust" "./http_client_rust '$url' $ITERATIONS")
+    fi
+
+    if [ "$GO_AVAILABLE" = true ] && [ -f http_client_go ]; then
+        BENCH_CMD+=(--command-name "Go" "./http_client_go '$url' $ITERATIONS")
+    fi
+
+    if [ "$PYPY_AVAILABLE" = true ]; then
+        if pypy3 -c "import requests" 2>/dev/null; then
+            BENCH_CMD+=(--command-name "PyPy" "pypy3 http_client.py '$url'")
+        fi
+    fi
+
+    BENCH_CMD+=(--command-name "Python" "python3 http_client.py '$url'")
+
+    "${BENCH_CMD[@]}"
+}
+
+# Run all 3 benchmarks
+run_benchmark "HTTP/1.1 ($ITERATIONS requests)" "http://localhost:$PORT_HTTP/get"
+run_benchmark "HTTPS ($ITERATIONS requests)" "https://localhost:$PORT_HTTPS/get"
+run_benchmark "HTTPS + Gzip ($ITERATIONS requests)" "https://localhost:$PORT_HTTPS/gzip"
+
+print_header "Done"

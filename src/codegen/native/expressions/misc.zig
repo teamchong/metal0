@@ -272,6 +272,27 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         }
     }
 
+    // Check if this is an http_response attribute access (response.status, response.body)
+    if (value_type == .http_response) {
+        if (std.mem.eql(u8, attr.attr, "status") or std.mem.eql(u8, attr.attr, "status_code")) {
+            // Python expects integer status code - call statusCode() method
+            try genExpr(self, attr.value.*);
+            try self.emit(".statusCode()");
+            return;
+        }
+        if (std.mem.eql(u8, attr.attr, "text") or std.mem.eql(u8, attr.attr, "content")) {
+            // text/content returns body as string
+            try genExpr(self, attr.value.*);
+            try self.emit(".body");
+            return;
+        }
+        // For other attributes (body, headers, etc.), use direct access
+        try genExpr(self, attr.value.*);
+        try self.emit(".");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+        return;
+    }
+
     // Check if this is a ctypes CDLL attribute access (lib.func_name)
     // Returns a function pointer lookup from the dynamic library
     if (value_type == .cdll) {

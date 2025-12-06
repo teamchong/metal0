@@ -2164,7 +2164,12 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
                 return if (value < 0) -0.0 else 0.0;
             }
             const scaled = value / multiplier;
-            const result = bankersRound(scaled) * multiplier;
+            const rounded = bankersRound(scaled);
+            // If rounded to 0, preserve the sign of the original value
+            if (rounded == 0.0) {
+                return if (value < 0) -0.0 else 0.0;
+            }
+            const result = rounded * multiplier;
             // Check if result overflows
             if (std.math.isInf(result) and !std.math.isInf(value)) {
                 return PythonError.OverflowError;

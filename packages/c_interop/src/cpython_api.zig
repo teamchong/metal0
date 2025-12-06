@@ -269,7 +269,6 @@ export const Py_True: *cpython.PyObject = @ptrCast(&pybool._Py_TrueStruct);
 export const Py_False: *cpython.PyObject = @ptrCast(&pybool._Py_FalseStruct);
 
 // Also export the NotImplemented and Ellipsis singletons
-const pyslice = @import("objects/sliceobject.zig");
 export const Py_Ellipsis: *cpython.PyObject = &pyslice._Py_EllipsisObject;
 
 // ============================================================================

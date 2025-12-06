@@ -214,6 +214,8 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     // Note: runtime is imported as @import("./runtime.zig") at module level
     try registry.register("json", .zig_runtime, "runtime.json", null);
     try registry.register("http", .zig_runtime, "runtime.http", null);
+    try registry.register("http.client", .zig_runtime, "runtime.http.client", null); // http.client submodule
+    try registry.register("requests", .zig_runtime, "runtime.http", null); // requests API via http module
     try registry.register("asyncio", .zig_runtime, "runtime.async", null);
     try registry.registerWithMeta("re", .zig_runtime, "runtime.re", null, false, &ReFuncMeta);
     try registry.registerWithMeta("sys", .zig_runtime, "runtime.sys", null, false, &SysFuncMeta);

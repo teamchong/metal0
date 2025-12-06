@@ -1,4 +1,4 @@
-.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-regex benchmark-tokenizer benchmark-numpy benchmark-asyncio benchmark-asyncio-io clean format
+.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-webserver benchmark-regex benchmark-tokenizer benchmark-numpy benchmark-asyncio benchmark-asyncio-io clean format
 
 # =============================================================================
 # HELP
@@ -26,6 +26,7 @@ help:
 	@echo "  make benchmark-json-full JSON full (metal0 vs Rust vs Go vs Python)"
 	@echo "  make benchmark-http      HTTP client (metal0 vs Rust vs Go vs Python)"
 	@echo "  make benchmark-flask     Flask + requests (metal0 vs Rust vs Go vs Python)"
+	@echo "  make benchmark-webserver Web server throughput with wrk (req/sec)"
 	@echo "  make benchmark-regex     Regex (metal0 vs Python vs Rust vs Go)"
 	@echo "  make benchmark-tokenizer BPE tokenizer (vs tiktoken/HuggingFace)"
 	@echo "  make benchmark-numpy     NumPy matmul (metal0+BLAS vs Python+NumPy)"
@@ -145,6 +146,11 @@ benchmark-flask: build-release
 	@# Install flask+requests for PyPy if missing
 	@pypy3 -c "import flask, requests" 2>/dev/null || pypy3 -m pip install flask requests -q 2>/dev/null || true
 	@cd benchmarks/flask && bash bench.sh
+
+benchmark-webserver: build-release
+	@command -v wrk >/dev/null || { echo "Install: brew install wrk"; exit 1; }
+	@echo "Web Server Benchmark: metal0 vs Rust vs Go vs Python (using wrk)"
+	@cd benchmarks/webserver && bash bench.sh
 
 benchmark-regex: build-release
 	@echo "Regex Benchmark: metal0 vs Python vs Rust vs Go"

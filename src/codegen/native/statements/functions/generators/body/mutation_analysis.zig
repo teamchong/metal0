@@ -451,11 +451,19 @@ pub fn countAssignmentsWithScope(
                     defer allocator.free(scoped_key);
                     const current = scoped_counts.get(scoped_key) orelse 0;
                     try scoped_counts.put(try allocator.dupe(u8, scoped_key), current + 1);
-                    // NOTE: We do NOT propagate nested scope assignments to function scope.
-                    // In Python, `x = 1` inside a loop and `x = 2` outside share the same variable.
-                    // But in generated Zig, each block scope creates a NEW variable declaration.
-                    // So `const x = ...` inside loop and `const x = ...` outside are DIFFERENT vars.
-                    // Cross-scope assignments are NOT mutations in Zig - they're fresh declarations.
+                    // If we're inside a loop (scope_id != 0) and assigning to a variable
+                    // that was ALREADY assigned at function scope (scope_id=0), then the
+                    // function-level variable is being mutated and needs `var`.
+                    // Example: `total = 0; for x in a: total = total + x`
+                    // But NOT: `for x in a: negs = '-' + x` (negs is loop-local)
+                    if (scope_id != 0) {
+                        const func_scope_key = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ name, @as(usize, 0) });
+                        defer allocator.free(func_scope_key);
+                        if (scoped_counts.get(func_scope_key) != null) {
+                            // Variable exists at function scope, mark it as needing var
+                            try aug_vars.put(name, {});
+                        }
+                    }
                 } else if (target == .subscript) {
                     // Subscript assignment: x[0] = value mutates x
                     const subscript = target.subscript;
@@ -474,6 +482,14 @@ pub fn countAssignmentsWithScope(
                             defer allocator.free(scoped_key);
                             const current = scoped_counts.get(scoped_key) orelse 0;
                             try scoped_counts.put(try allocator.dupe(u8, scoped_key), current + 1);
+                            // Same as above: only mark as var if already exists at function scope
+                            if (scope_id != 0) {
+                                const func_scope_key = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ name, @as(usize, 0) });
+                                defer allocator.free(func_scope_key);
+                                if (scoped_counts.get(func_scope_key) != null) {
+                                    try aug_vars.put(name, {});
+                                }
+                            }
                         }
                     }
                 }

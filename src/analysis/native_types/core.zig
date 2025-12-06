@@ -138,6 +138,9 @@ pub const NativeType = union(enum) {
     re_match: void, // re.Match - result of re.search/re.match
     re_pattern: void, // re.Pattern - compiled regex pattern
 
+    // http module types
+    http_response: void, // http.Response - runtime.http.Response struct
+
     // Iterator types
     list_iterator: void, // iter() on list - SequenceIterator(i64)
 
@@ -347,6 +350,8 @@ pub const NativeType = union(enum) {
             // re module types
             .re_match => try buf.appendSlice(allocator, "*runtime.re.PyMatch"),
             .re_pattern => try buf.appendSlice(allocator, "*runtime.PyObject"),
+            // http module types
+            .http_response => try buf.appendSlice(allocator, "runtime.http.Response"),
             // Iterator types
             .list_iterator => try buf.appendSlice(allocator, "runtime.iterators.SequenceIterator(i64)"),
         }

@@ -53,30 +53,34 @@ pub fn genConjugate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
     try self.genExpr(obj);
 }
 
-/// Generate float.__floor__() - returns largest int <= value (as BigInt for large values)
-/// Python: (1.7).__floor__() -> 1, (1e200).__floor__() -> BigInt
-/// Zig: try runtime.floatFloor(allocator, f)
+/// Generate float.__floor__() - returns largest int <= value
+/// Python: (1.7).__floor__() -> 1, (1e200).__floor__() -> 1e200 (returns float for very large)
+/// For values that fit in i64, returns i64. For very large values, returns f64.
+/// Returns f64 for type consistency (Python's dynamic typing doesn't map to Zig's static types)
+/// Zig: (try runtime.floatFloorAny(allocator, f)).toFloat()
 pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    try self.emit("(try runtime.floatFloor(");
+    try self.emit("(try runtime.floatFloorAny(");
     try self.emit(alloc_name);
     try self.emit(", ");
     try self.genExpr(obj);
-    try self.emit("))");
+    try self.emit(")).toFloat()");
 }
 
-/// Generate float.__ceil__() - returns smallest int >= value (as BigInt for large values)
-/// Python: (1.3).__ceil__() -> 2
-/// Zig: try runtime.floatCeil(allocator, f)
+/// Generate float.__ceil__() - returns smallest int >= value
+/// Python: (1.3).__ceil__() -> 2, (1e200).__ceil__() -> 1e200 (returns float for very large)
+/// For values that fit in i64, returns i64. For very large values, returns f64.
+/// Returns f64 for type consistency (Python's dynamic typing doesn't map to Zig's static types)
+/// Zig: (try runtime.floatCeilAny(allocator, f)).toFloat()
 pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    try self.emit("(try runtime.floatCeil(");
+    try self.emit("(try runtime.floatCeilAny(");
     try self.emit(alloc_name);
     try self.emit(", ");
     try self.genExpr(obj);
-    try self.emit("))");
+    try self.emit(")).toFloat()");
 }
 
 /// Generate float.__trunc__() - truncate towards zero (as BigInt for large values)

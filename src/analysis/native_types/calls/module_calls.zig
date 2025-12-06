@@ -49,8 +49,20 @@ pub fn inferModuleFunctionCall(
     const RE_HASH = comptime fnv_hash.hash("re");
     const _STRING_HASH = comptime fnv_hash.hash("_string");
     const CTYPES_HASH = comptime fnv_hash.hash("ctypes");
+    const HTTP_HASH = comptime fnv_hash.hash("http");
+    const REQUESTS_HASH = comptime fnv_hash.hash("requests");
 
     switch (module_hash) {
+        HTTP_HASH, REQUESTS_HASH => {
+            // http/requests module - get/post return http_response
+            const func_hash = fnv_hash.hash(func_name);
+            const GET_HASH = comptime fnv_hash.hash("get");
+            const POST_HASH = comptime fnv_hash.hash("post");
+            if (func_hash == GET_HASH or func_hash == POST_HASH) {
+                return .http_response;
+            }
+            return .unknown;
+        },
         CTYPES_HASH => {
             // ctypes module type inference
             const func_hash = fnv_hash.hash(func_name);

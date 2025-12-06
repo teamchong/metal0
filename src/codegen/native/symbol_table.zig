@@ -100,6 +100,21 @@ pub const SymbolTable = struct {
         return current.contains(name);
     }
 
+    /// Check if symbol is declared in any scope from base_level to current scope
+    /// Used by nested functions to check if a variable is declared anywhere within the nested function
+    /// without looking at outer (enclosing function) scopes
+    pub fn isDeclaredFromScopeLevel(self: *SymbolTable, name: []const u8, base_level: usize) bool {
+        // Search from current scope down to base_level (inclusive)
+        var i: usize = self.scopes.items.len;
+        while (i > base_level) {
+            i -= 1;
+            if (self.scopes.items[i].contains(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// Get symbol's type
     pub fn getType(self: *SymbolTable, name: []const u8) ?NativeType {
         if (self.lookup(name)) |info| {

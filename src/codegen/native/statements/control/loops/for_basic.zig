@@ -1262,11 +1262,12 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     }
 
     // Generate initialization
-    // If hoisted or already declared, variable already exists - just assign
-    // Otherwise, declare as new variable
+    // If hoisted or already declared AND NOT shadowing (using same name), assign
+    // If shadowing (renamed), always declare the new unique variable
+    // Otherwise, declare a new variable
     try self.emitIndent();
-    if (is_hoisted or is_declared) {
-        // Variable already exists - assign with cast to match the existing type
+    if ((is_hoisted or is_declared) and !shadows_outer) {
+        // Variable already exists with same name - assign with cast to match the existing type
         try self.emit(loop_var_name);
         try self.emit(" = @as(@TypeOf(");
         try self.emit(loop_var_name);
@@ -1278,6 +1279,7 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
         }
         try self.emit("));\n");
     } else {
+        // Declare new variable (either first use, or renamed to avoid shadowing)
         try self.emit("var ");
         try self.emit(loop_var_name);
         try self.emit(": ");
@@ -1289,6 +1291,11 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
             try self.emit("0");
         }
         try self.emit(";\n");
+        // Register the variable as declared so subsequent for loops with the same
+        // variable name reuse it instead of redeclaring
+        if (!shadows_outer) {
+            try self.declareVar(var_name);
+        }
     }
 
     // Generate while loop

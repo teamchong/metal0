@@ -508,8 +508,12 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
         // Check for list concatenation: list + list or array + array
         // Also check AST nodes for list literals since type inference may return .unknown
+        // Also check for ArrayList variables (runtime tracking)
+        const left_is_arraylist_var = binop.left.* == .name and self.isArrayListVar(binop.left.name.id);
+        const right_is_arraylist_var = binop.right.* == .name and self.isArrayListVar(binop.right.name.id);
         if (left_type == .list or right_type == .list or
-            binop.left.* == .list or binop.right.* == .list)
+            binop.left.* == .list or binop.right.* == .list or
+            left_is_arraylist_var or right_is_arraylist_var)
         {
             // Check if either operand might produce a runtime value (ArrayList, PyValue)
             // This includes: call expressions, nested binops, and unknown types
@@ -526,7 +530,8 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
                 left_is_binop or right_is_binop or
                 left_is_name or right_is_name or
                 left_type == .unknown or right_type == .unknown or
-                left_type == .pyvalue or right_type == .pyvalue;
+                left_type == .pyvalue or right_type == .pyvalue or
+                left_is_arraylist_var or right_is_arraylist_var;
 
             if (needs_runtime) {
                 // Use runtime concatenation for non-comptime values
@@ -607,6 +612,38 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             try self.emit(", @as(usize, @intCast(");
             try genExpr(self, binop.left.*);
             try self.emit("))) catch @panic(\"OOM\"))");
+            return;
+        }
+
+        // list * n -> repeat list n times
+        const left_is_arraylist_var = binop.left.* == .name and self.isArrayListVar(binop.left.name.id);
+        if ((left_type == .list or left_type == .array or binop.left.* == .list or left_is_arraylist_var) and
+            (right_type == .int or right_type == .unknown))
+        {
+            const alloc_name = "__global_allocator";
+            try self.emit("try runtime.repeatRuntime(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try genExpr(self, binop.left.*);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(")");
+            return;
+        }
+
+        // n * list -> repeat list n times
+        const right_is_arraylist_var = binop.right.* == .name and self.isArrayListVar(binop.right.name.id);
+        if ((right_type == .list or right_type == .array or binop.right.* == .list or right_is_arraylist_var) and
+            (left_type == .int or left_type == .unknown))
+        {
+            const alloc_name = "__global_allocator";
+            try self.emit("try runtime.repeatRuntime(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try genExpr(self, binop.right.*);
+            try self.emit(", ");
+            try genExpr(self, binop.left.*);
+            try self.emit(")");
             return;
         }
 

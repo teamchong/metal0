@@ -739,43 +739,111 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         // Handle list comparisons (ArrayList structs don't support ==)
         // Also handles cross-type comparison: ArrayList (.list) vs fixed array (.array) literal
         // Check for ArrayList by: type == .list, AST node == .list, OR isArrayListVar (runtime tracking)
+        // IMPORTANT: Exclude PyValue types - concatRuntime returns PyValue, not ArrayList
         else if ((current_left_type == .list or current_left == .list or
             (current_left == .name and self.isArrayListVar(current_left.name.id))) and
-            (right_type == .list or compare.comparators[i] == .list or right_type == .array))
+            (right_type == .list or compare.comparators[i] == .list or right_type == .array) and
+            current_left_type != .pyvalue and right_type != .pyvalue)
         {
             // Use runtime.pySliceEql for Python semantics (NaN identity)
             // Constant list literals become arrays in Zig → use & to get slice
             // List with variables become ArrayList → use .items
             const left_is_literal = current_left == .list;
             const right_is_literal = compare.comparators[i] == .list;
-            // Check if side is a fixed array (comptime constant list literal OR .array type from inference)
+            // Check if side is a fixed array (comptime constant list literal with elements OR .array type from inference)
+            // Empty lists are NOT fixed arrays - they generate as ArrayList: std.ArrayListUnmanaged(i64){}
             // BUT exclude ArrayList variables (tracked by isArrayListVar) - they should use .items
             const left_is_arraylist_var = current_left == .name and self.isArrayListVar(current_left.name.id);
-            const left_is_array = ((left_is_literal and collections.isComptimeConstant(current_left)) or
-                (current_left_type == .array)) and !left_is_arraylist_var;
-            const right_is_array = (right_is_literal and collections.isComptimeConstant(compare.comparators[i])) or
-                (right_type == .array);
+            const left_is_empty_list = left_is_literal and current_left.list.elts.len == 0;
+            const right_is_empty_list = right_is_literal and compare.comparators[i].list.elts.len == 0;
+            // Check if operand is a slice subscript (e.g., a[1:3]) - these return []T directly, not ArrayList
+            const left_is_slice_subscript = current_left == .subscript and current_left.subscript.slice == .slice;
+            const right_is_slice_subscript = compare.comparators[i] == .subscript and compare.comparators[i].subscript.slice == .slice;
+            const left_is_array = ((left_is_literal and !left_is_empty_list and collections.isComptimeConstant(current_left)) or
+                (current_left_type == .array) or left_is_slice_subscript) and !left_is_arraylist_var;
+            const right_is_array = (right_is_literal and !right_is_empty_list and collections.isComptimeConstant(compare.comparators[i])) or
+                (right_type == .array) or right_is_slice_subscript;
 
-            // Get element type for pySliceEql
+            // Special case: when comparing with an empty list literal, just check length == 0
+            // This avoids type mismatch issues when comparing function results (e.g. list([])) with []
+            // The list() call generates PyValue elements while empty literal [] uses i64
+            if (left_is_empty_list or right_is_empty_list) {
+                // Generate: (len check) - for empty list comparison, both sides must be empty
+                if (op == .NotEq) {
+                    try self.emit("!");
+                }
+                try self.emit("(");
+                // Check left side length
+                if (left_is_empty_list) {
+                    // Empty literal - length is always 0, just emit "true" for the left == 0 part
+                    try self.emit("true");
+                } else if (left_is_array) {
+                    try self.emit("((");
+                    try genExpr(self, current_left);
+                    try self.emit(").len == 0)");
+                } else if (left_is_literal) {
+                    try self.emit("((");
+                    try genExpr(self, current_left);
+                    try self.emit(").items.len == 0)");
+                } else {
+                    // Call or variable returning list - wrap and check .items.len
+                    // For calls like list([]), this generates ArrayList which has .items
+                    try self.emit("((");
+                    try genExpr(self, current_left);
+                    try self.emit(").items.len == 0)");
+                }
+                try self.emit(" and ");
+                // Check right side length
+                if (right_is_empty_list) {
+                    // Empty literal - length is always 0
+                    try self.emit("true");
+                } else if (right_is_array) {
+                    try self.emit("((");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(").len == 0)");
+                } else if (right_is_literal) {
+                    try self.emit("((");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(").items.len == 0)");
+                } else {
+                    // Call or variable returning list - wrap and check .items.len
+                    try self.emit("((");
+                    try genExpr(self, compare.comparators[i]);
+                    try self.emit(").items.len == 0)");
+                }
+                try self.emit(")");
+                // No need to update current_left/current_left_type - they're recomputed at loop start
+            } else {
+                // Get element type for pySliceEql
             // First try type info, then fall back to inferring from literals
-            const elem_type_str: []const u8 = if (current_left_type == .list)
-                current_left_type.list.*.toSimpleZigType()
-            else if (right_type == .list)
-                right_type.list.*.toSimpleZigType()
-            else if (current_left_type == .array)
+            // Use i64 as default (matches empty list code generation: std.ArrayListUnmanaged(i64){})
+            const elem_type_str: []const u8 = if (current_left_type == .list) blk: {
+                const elem = current_left_type.list.*;
+                // Check if element type is primitive, otherwise use i64 (matches empty list codegen)
+                break :blk switch (elem) {
+                    .int, .float, .bool, .string, .bytes => elem.toSimpleZigType(),
+                    else => "i64", // Default to i64 for unknown/complex types
+                };
+            } else if (right_type == .list) blk: {
+                const elem = right_type.list.*;
+                break :blk switch (elem) {
+                    .int, .float, .bool, .string, .bytes => elem.toSimpleZigType(),
+                    else => "i64",
+                };
+            } else if (current_left_type == .array)
                 current_left_type.array.element_type.toSimpleZigType()
             else if (right_type == .array)
                 right_type.array.element_type.toSimpleZigType()
             else if (left_is_literal and current_left.list.elts.len > 0) blk: {
                 const first_elem = current_left.list.elts[0];
-                const inferred = self.type_inferrer.inferExpr(first_elem) catch break :blk "f64";
+                const inferred = self.type_inferrer.inferExpr(first_elem) catch break :blk "i64";
                 break :blk inferred.toSimpleZigType();
             } else if (right_is_literal and compare.comparators[i].list.elts.len > 0) blk: {
                 const first_elem = compare.comparators[i].list.elts[0];
-                const inferred = self.type_inferrer.inferExpr(first_elem) catch break :blk "f64";
+                const inferred = self.type_inferrer.inferExpr(first_elem) catch break :blk "i64";
                 break :blk inferred.toSimpleZigType();
             } else
-                "f64";
+                "i64"; // Default to i64 (matches empty list code generation)
 
             if (op == .NotEq) {
                 try self.emit("!");
@@ -785,7 +853,10 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             try self.emit(", ");
 
             // Left operand
-            if (left_is_array) {
+            if (left_is_slice_subscript) {
+                // Slice subscript (e.g., a[1:3]) already returns []T - use directly
+                try genExpr(self, current_left);
+            } else if (left_is_array) {
                 // Constant array literal: use & to get slice
                 try self.emit("&(");
                 try genExpr(self, current_left);
@@ -796,14 +867,19 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try genExpr(self, current_left);
                 try self.emit(").items");
             } else {
-                // ArrayList variable: use .items
+                // ArrayList variable or call returning ArrayList: use .items
+                // Wrap in parens to handle inline struct literals like std.ArrayListUnmanaged(i64){}
+                try self.emit("(");
                 try genExpr(self, current_left);
-                try self.emit(".items");
+                try self.emit(").items");
             }
             try self.emit(", ");
 
             // Right operand
-            if (right_is_array) {
+            if (right_is_slice_subscript) {
+                // Slice subscript (e.g., a[1:3]) already returns []T - use directly
+                try genExpr(self, compare.comparators[i]);
+            } else if (right_is_array) {
                 // Constant array literal: use & to get slice
                 try self.emit("&(");
                 try genExpr(self, compare.comparators[i]);
@@ -814,11 +890,14 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try genExpr(self, compare.comparators[i]);
                 try self.emit(").items");
             } else {
-                // ArrayList variable: use .items
+                // ArrayList variable or call returning ArrayList: use .items
+                // Wrap in parens to handle inline struct literals like std.ArrayListUnmanaged(i64){}
+                try self.emit("(");
                 try genExpr(self, compare.comparators[i]);
-                try self.emit(".items");
+                try self.emit(").items");
             }
             try self.emit(")");
+            }
         }
         // Handle set comparisons - sets are HashMaps and don't support direct ==
         else if (@as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .set or

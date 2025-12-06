@@ -69,6 +69,11 @@ pub fn genRecursiveClosure(
     self.inside_nested_function = true;
     defer self.inside_nested_function = saved_inside_nested;
 
+    // Track the base scope level for this nested function
+    const saved_nested_base_scope = self.nested_function_base_scope;
+    self.nested_function_base_scope = self.symbol_table.currentScopeLevel();
+    defer self.nested_function_base_scope = saved_nested_base_scope;
+
     // Save and reset control_flow_terminated - nested function has its own control flow
     const saved_control_flow_terminated = self.control_flow_terminated;
     self.control_flow_terminated = false;
@@ -90,6 +95,22 @@ pub fn genRecursiveClosure(
         self.hoisted_vars.deinit();
         self.hoisted_vars = saved_hoisted_vars;
     }
+
+    // Save and clear mutation tracking for this nested function body
+    const saved_func_local_mutations = self.func_local_mutations;
+    const saved_func_local_aug_assigns = self.func_local_aug_assigns;
+    self.func_local_mutations = hashmap_helper.StringHashMap(void).init(self.allocator);
+    self.func_local_aug_assigns = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.func_local_mutations.deinit();
+        self.func_local_aug_assigns.deinit();
+        self.func_local_mutations = saved_func_local_mutations;
+        self.func_local_aug_assigns = saved_func_local_aug_assigns;
+    }
+
+    // Analyze nested function body for local mutations (determines var vs const)
+    const mutation_analysis = @import("../generators/body/mutation_analysis.zig");
+    try mutation_analysis.analyzeFunctionLocalMutations(self, func);
 
     // Save outer scope renames for captured variables (to restore later)
     var saved_outer_renames = std.ArrayList(?[]const u8){};

@@ -738,6 +738,53 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         }
     }
 
+    // Handle true division - Python's /= on integers returns float
+    // For integer targets, we need to use shadow variables since the type changes from i64 to f64
+    // IMPORTANT: This must be BEFORE "Emit target" because we're declaring a NEW variable, not reassigning
+    if (aug.op == .Div) {
+        // Check if target is integer type - if so, use shadow variable for type change
+        if (aug.target.* == .name and target_type == .int) {
+            const var_name = aug.target.name.id;
+            const current_name = self.var_renames.get(var_name) orelse var_name;
+
+            // Generate unique shadow variable name
+            const shadow_name = try std.fmt.allocPrint(self.allocator, "__{s}_div_{d}", .{ var_name, self.shadow_counter });
+            self.shadow_counter += 1;
+
+            // Generate: const __x_div_N = blk: { _ = &x; break :blk @as(f64, @floatFromInt(x)) / ...; };
+            // The block with discard of `&x` (pointer) suppresses "var never mutated" warning
+            // while using x by value computes the result
+            try self.emit("const ");
+            try self.emit(shadow_name);
+            try self.emit(": f64 = blk: { _ = &");
+            try self.emit(current_name);
+            try self.emit("; break :blk @as(f64, @floatFromInt(");
+            try self.emit(current_name);
+            try self.emit(")) / @as(f64, @floatFromInt(");
+            try self.genExpr(aug.value.*);
+            try self.emit(")); };\n");
+
+            // Suppress unused warning if shadow variable isn't used again
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emit(shadow_name);
+            try self.emit(";\n");
+
+            // Update var_renames so future uses of 'x' use the shadow variable
+            try self.var_renames.put(var_name, shadow_name);
+            return;
+        }
+
+        // For already-float targets, just do float division in place
+        try self.genExpr(aug.target.*);
+        try self.emit(" = ");
+        try self.genExpr(aug.target.*);
+        try self.emit(" / ");
+        try self.genExpr(aug.value.*);
+        try self.emit(";\n");
+        return;
+    }
+
     // Emit target (variable name)
     try self.genExpr(aug.target.*);
     try self.emit(" = ");
@@ -763,17 +810,6 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
     if (aug.op == .Mod) {
         try self.emit("@mod(");
-        try self.genExpr(aug.target.*);
-        try self.emit(", ");
-        try self.genExpr(aug.value.*);
-        try self.emit(");\n");
-        return;
-    }
-
-    // Handle true division - Python's /= on integers returns float but we're in-place
-    // For integer division assignment, use @divTrunc to truncate to integer
-    if (aug.op == .Div) {
-        try self.emit("@divTrunc(");
         try self.genExpr(aug.target.*);
         try self.emit(", ");
         try self.genExpr(aug.value.*);

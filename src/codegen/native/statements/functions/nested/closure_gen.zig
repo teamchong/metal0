@@ -241,6 +241,12 @@ pub fn genStandardClosure(
     self.inside_nested_function = true;
     defer self.inside_nested_function = saved_inside_nested;
 
+    // Track the base scope level for this nested function
+    // isDeclared() will check all scopes from this level to current (including for loops within)
+    const saved_nested_base_scope = self.nested_function_base_scope;
+    self.nested_function_base_scope = self.symbol_table.currentScopeLevel();
+    defer self.nested_function_base_scope = saved_nested_base_scope;
+
     // Save and reset control_flow_terminated - nested function has its own control flow
     const saved_control_flow_terminated = self.control_flow_terminated;
     self.control_flow_terminated = false;
@@ -813,6 +819,11 @@ pub fn genNestedFunctionWithOuterCapture(
     const saved_inside_nested = self.inside_nested_function;
     self.inside_nested_function = true;
     defer self.inside_nested_function = saved_inside_nested;
+
+    // Track the base scope level for this nested function
+    const saved_nested_base_scope2 = self.nested_function_base_scope;
+    self.nested_function_base_scope = self.symbol_table.currentScopeLevel();
+    defer self.nested_function_base_scope = saved_nested_base_scope2;
 
     // Save and reset control_flow_terminated - nested function has its own control flow
     const saved_control_flow_terminated2 = self.control_flow_terminated;

@@ -212,6 +212,19 @@ metal0 compiles Python's `asyncio` to optimized native code:
 | Word Boundary | 116ms | 385ms | 3.32x |
 | Date ISO | 346ms | 636ms | 1.84x |
 
+### Web Server Benchmark
+
+**HTTP throughput (Hello World JSON, wrk -t4 -c100 -d10s):**
+
+| Server | Requests/sec | Latency (avg) | vs Python |
+|--------|-------------|---------------|-----------|
+| Rust (actix-web) | 140,530 | 683us | 96x faster |
+| Go (net/http) | 128,766 | 930us | 88x faster |
+| Python (Flask) | 1,457 | 28.2ms | baseline |
+| PyPy (Flask) | 165 | 588ms | 9x slower |
+
+*Tested on Apple M2. Flask dev server. PyPy slower due to JIT warmup overhead on short-lived requests.*
+
 ### Running Benchmarks
 
 ```bash
@@ -223,6 +236,7 @@ make benchmark-regex       # Regex patterns
 make benchmark-asyncio     # CPU-bound async
 make benchmark-asyncio-io  # I/O-bound async
 make benchmark-numpy       # NumPy BLAS
+make benchmark-webserver   # Web server throughput (wrk)
 
 # Tokenizer benchmarks (run from packages/tokenizer/)
 cd packages/tokenizer && zig build -Doptimize=ReleaseFast && ./zig-out/bin/bench_train

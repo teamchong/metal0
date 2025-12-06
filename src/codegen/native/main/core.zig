@@ -486,6 +486,11 @@ pub const NativeCodegen = struct {
     // This ensures variables from outer function that weren't captured are treated as undeclared
     inside_nested_function: bool,
 
+    // Base scope level when entering a nested function
+    // Used by isDeclared() to check all scopes within the nested function (including block scopes like for loops)
+    // Without exceeding into outer function scopes
+    nested_function_base_scope: usize,
+
     // Current function being generated (for tail-call optimization)
     // Set during function generation, null otherwise
     current_function_name: ?[]const u8,
@@ -718,6 +723,7 @@ pub const NativeCodegen = struct {
             .inside_finally_block = false,
             .current_finally_id = 0,
             .inside_nested_function = false,
+            .nested_function_base_scope = 0,
             .current_function_name = null,
             .current_function_body = null,
             .in_generator_function = false,
@@ -1007,9 +1013,10 @@ pub const NativeCodegen = struct {
         if (self.hoisted_vars.contains(name)) return true;
 
         if (self.inside_nested_function) {
-            // Inside nested function: check current scope OR var_renames (for captured vars)
-            // Variables from outer scope that weren't captured should be treated as undeclared
-            if (self.symbol_table.isDeclaredInCurrentScope(name)) return true;
+            // Inside nested function: check all scopes from nested_function_base_scope to current
+            // This includes variables declared in block scopes (like for loops) within the function
+            // but excludes variables from outer (enclosing) function scopes
+            if (self.symbol_table.isDeclaredFromScopeLevel(name, self.nested_function_base_scope)) return true;
             // Captured variables are in var_renames, they should count as "declared"
             return self.var_renames.contains(name);
         }

@@ -117,6 +117,11 @@ pub fn genZeroCaptureClosure(
     self.inside_nested_function = true;
     defer self.inside_nested_function = saved_inside_nested;
 
+    // Track the base scope level for this nested function
+    const saved_nested_base_scope = self.nested_function_base_scope;
+    self.nested_function_base_scope = self.symbol_table.currentScopeLevel();
+    defer self.nested_function_base_scope = saved_nested_base_scope;
+
     // Save and reset control_flow_terminated - nested function has its own control flow
     // Without this, a return statement in nested function prevents subsequent statements
     // in the outer function from being generated
@@ -140,6 +145,23 @@ pub fn genZeroCaptureClosure(
         self.hoisted_vars.deinit();
         self.hoisted_vars = saved_hoisted_vars;
     }
+
+    // Save and clear mutation tracking for this nested function body
+    // Nested functions need their own mutation analysis to determine var vs const
+    const saved_func_local_mutations = self.func_local_mutations;
+    const saved_func_local_aug_assigns = self.func_local_aug_assigns;
+    self.func_local_mutations = hashmap_helper.StringHashMap(void).init(self.allocator);
+    self.func_local_aug_assigns = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.func_local_mutations.deinit();
+        self.func_local_aug_assigns.deinit();
+        self.func_local_mutations = saved_func_local_mutations;
+        self.func_local_aug_assigns = saved_func_local_aug_assigns;
+    }
+
+    // Analyze nested function body for local mutations (determines var vs const)
+    const mutation_analysis = @import("../generators/body/mutation_analysis.zig");
+    try mutation_analysis.analyzeFunctionLocalMutations(self, func);
 
     // Populate func_local_uses with variables used in this function body
     try var_tracking.collectUsedNames(func.body, &self.func_local_uses);
@@ -529,6 +551,27 @@ pub fn genModuleLevelZeroCaptureClosure(
     const saved_inside_nested = self.inside_nested_function;
     self.inside_nested_function = true;
     defer self.inside_nested_function = saved_inside_nested;
+
+    // Track the base scope level for this nested function
+    const saved_nested_base_scope = self.nested_function_base_scope;
+    self.nested_function_base_scope = self.symbol_table.currentScopeLevel();
+    defer self.nested_function_base_scope = saved_nested_base_scope;
+
+    // Save and clear mutation tracking for this nested function body
+    const saved_func_local_mutations_2 = self.func_local_mutations;
+    const saved_func_local_aug_assigns_2 = self.func_local_aug_assigns;
+    self.func_local_mutations = hashmap_helper.StringHashMap(void).init(self.allocator);
+    self.func_local_aug_assigns = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.func_local_mutations.deinit();
+        self.func_local_aug_assigns.deinit();
+        self.func_local_mutations = saved_func_local_mutations_2;
+        self.func_local_aug_assigns = saved_func_local_aug_assigns_2;
+    }
+
+    // Analyze nested function body for local mutations (determines var vs const)
+    const mutation_analysis_2 = @import("../generators/body/mutation_analysis.zig");
+    try mutation_analysis_2.analyzeFunctionLocalMutations(self, func);
 
     // Add parameter renames to var_renames temporarily
     var rename_keys = std.ArrayList([]const u8){};

@@ -285,12 +285,28 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
                 // Generate: _ = dict.fetchSwapRemove(key) or _ = list.orderedRemove(idx)
                 switch (sub.slice) {
                     .index => |idx| {
+                        // Check if it's a list (ArrayList) or dict
+                        const container_type = try self.inferExprScoped(sub.value.*);
+                        const is_list = container_type == .list or container_type == .array or
+                            (sub.value.* == .name and self.isArrayListVar(sub.value.name.id));
+
                         try self.emit("_ = ");
                         try self.genExpr(sub.value.*);
-                        // For dicts, use fetchSwapRemove (returns removed value or null)
-                        try self.emit(".fetchSwapRemove(");
-                        try self.genExpr(idx.*);
-                        try self.emit(");\n");
+
+                        if (is_list) {
+                            // For lists, use orderedRemove which preserves order
+                            // Need to normalize negative indices: if idx < 0, use len + idx
+                            try self.emit(".orderedRemove(blk: { const __idx = ");
+                            try self.genExpr(idx.*);
+                            try self.emit("; const __len = ");
+                            try self.genExpr(sub.value.*);
+                            try self.emit(".items.len; break :blk if (__idx < 0) @as(usize, @intCast(@as(i64, @intCast(__len)) + __idx)) else @as(usize, @intCast(__idx)); });\n");
+                        } else {
+                            // For dicts, use fetchSwapRemove (returns removed value or null)
+                            try self.emit(".fetchSwapRemove(");
+                            try self.genExpr(idx.*);
+                            try self.emit(");\n");
+                        }
                     },
                     .slice => |slice| {
                         // del list[a:b] - delete elements from a to b
