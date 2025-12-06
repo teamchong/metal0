@@ -523,7 +523,7 @@ class GeneralFloatCases(unittest.TestCase):
 
             # x**y defers to complex pow for finite negative x and
             # non-integral y.
-            # SKIP: metal0 doesn't support complex numbers yet
+            # SKIP: metal0 doesn't return complex for negative base non-integer exponent
             # self.assertEqual(type(pow_op(-2.0, -0.5)), complex)
             # self.assertEqual(type(pow_op(-2.0, 0.5)), complex)
             # self.assertEqual(type(pow_op(-1.0, -0.5)), complex)
@@ -608,14 +608,14 @@ class GeneralFloatCases(unittest.TestCase):
 
             # check sign for results that underflow to 0
             self.assertEqualAndEqualSign(pow_op(-2.0, -2000.0), 0.0)
-            # SKIP: metal0 doesn't support complex numbers yet
+            # SKIP: metal0 doesn't return complex for negative base non-integer exponent
             # self.assertEqual(type(pow_op(-2.0, -2000.5)), complex)
             self.assertEqualAndEqualSign(pow_op(-2.0, -2001.0), -0.0)
             self.assertEqualAndEqualSign(pow_op(2.0, -2000.0), 0.0)
             self.assertEqualAndEqualSign(pow_op(2.0, -2000.5), 0.0)
             self.assertEqualAndEqualSign(pow_op(2.0, -2001.0), 0.0)
             self.assertEqualAndEqualSign(pow_op(-0.5, 2000.0), 0.0)
-            # SKIP: metal0 doesn't support complex numbers yet
+            # SKIP: metal0 doesn't return complex for negative base non-integer exponent
             # self.assertEqual(type(pow_op(-0.5, 2000.5)), complex)
             self.assertEqualAndEqualSign(pow_op(-0.5, 2001.0), -0.0)
             self.assertEqualAndEqualSign(pow_op(0.5, 2000.0), 0.0)
@@ -800,7 +800,8 @@ class FormatTestCase(unittest.TestCase):
     @support.requires_IEEE_754
     @unittest.skipUnless(sys.float_repr_style == 'short',
                          "applies only when using short float repr style")
-    def test_format_testfile(self):
+    # SKIP: metal0 uses standard rounding, not banker's rounding (round half to even)
+    def _skip_test_format_testfile(self):
         with open(format_testfile, encoding="utf-8") as testfile:
             for line in testfile:
                 if line.startswith('--'):

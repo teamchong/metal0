@@ -34,11 +34,11 @@ pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) 
 
 /// Generate float.hex() - returns hexadecimal string representation
 /// Python: (255.0).hex() -> '0x1.fe00000000000p+7'
-/// Zig: runtime.floatHex(allocator, f)
+/// Zig: try runtime.floatHex(allocator, f)
 pub fn genHex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    try self.emit("runtime.floatHex(");
+    try self.emit("try runtime.floatHex(");
     try self.emit(alloc_name);
     try self.emit(", ");
     try self.genExpr(obj);
@@ -54,10 +54,11 @@ pub fn genConjugate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 }
 
 /// Generate float.__floor__() - returns largest int <= value
-/// Python: (1.7).__floor__() -> 1, (1e200).__floor__() -> 1e200 (returns float for very large)
-/// For values that fit in i64, returns i64. For very large values, returns f64.
-/// Returns f64 for type consistency (Python's dynamic typing doesn't map to Zig's static types)
-/// Zig: (try runtime.floatFloorAny(allocator, f)).toFloat()
+/// Python: (1.7).__floor__() -> 1
+/// Returns FloorCeilResult union. When skip_floor_ceil_toFloat is set (e.g., in assertEqual),
+/// we return the union directly so assertEqual can handle both small and large values.
+/// Otherwise, we call .toInt() to convert to i64 for variable assignment.
+/// Zig: (try runtime.floatFloorAny(allocator, f)) or (try runtime.floatFloorAny(allocator, f)).toInt()
 pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
@@ -65,14 +66,19 @@ pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit(alloc_name);
     try self.emit(", ");
     try self.genExpr(obj);
-    try self.emit(")).toFloat()");
+    try self.emit("))");
+    // Add .toInt() for variable assignment contexts (not in assertEqual/assertIsInstance)
+    if (!self.skip_floor_ceil_toFloat) {
+        try self.emit(".toInt()");
+    }
 }
 
 /// Generate float.__ceil__() - returns smallest int >= value
-/// Python: (1.3).__ceil__() -> 2, (1e200).__ceil__() -> 1e200 (returns float for very large)
-/// For values that fit in i64, returns i64. For very large values, returns f64.
-/// Returns f64 for type consistency (Python's dynamic typing doesn't map to Zig's static types)
-/// Zig: (try runtime.floatCeilAny(allocator, f)).toFloat()
+/// Python: (1.3).__ceil__() -> 2
+/// Returns FloorCeilResult union. When skip_floor_ceil_toFloat is set (e.g., in assertEqual),
+/// we return the union directly so assertEqual can handle both small and large values.
+/// Otherwise, we call .toInt() to convert to i64 for variable assignment.
+/// Zig: (try runtime.floatCeilAny(allocator, f)) or (try runtime.floatCeilAny(allocator, f)).toInt()
 pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
@@ -80,7 +86,11 @@ pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     try self.emit(alloc_name);
     try self.emit(", ");
     try self.genExpr(obj);
-    try self.emit(")).toFloat()");
+    try self.emit("))");
+    // Add .toInt() for variable assignment contexts (not in assertEqual/assertIsInstance)
+    if (!self.skip_floor_ceil_toFloat) {
+        try self.emit(".toInt()");
+    }
 }
 
 /// Generate float.__trunc__() - truncate towards zero (as BigInt for large values)
