@@ -12,10 +12,9 @@ pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_
         if (err != error.PathAlreadyExists) return err;
     };
 
-    // Open source directory
+    // Open source directory - fail loudly if not found
     var src_dir = std.fs.cwd().openDir(src_dir_path, .{ .iterate = true }) catch |err| {
-        // If directory doesn't exist, that's okay - just skip it
-        if (err == error.FileNotFound) return;
+        std.debug.print("ERROR: Failed to open runtime directory '{s}': {any}\n", .{ src_dir_path, err });
         return err;
     };
     defer src_dir.close();
@@ -175,10 +174,9 @@ pub fn copyCInteropDir(allocator: std.mem.Allocator, build_dir: []const u8) !voi
         if (err != error.PathAlreadyExists) return err;
     };
 
-    // Open source directory
+    // Open source directory - fail loudly if not found
     var src_dir = std.fs.cwd().openDir(src_dir_path, .{ .iterate = true }) catch |err| {
-        // If directory doesn't exist, that's okay - just skip it
-        if (err == error.FileNotFound) return;
+        std.debug.print("ERROR: Failed to open runtime directory '{s}': {any}\n", .{ src_dir_path, err });
         return err;
     };
     defer src_dir.close();
