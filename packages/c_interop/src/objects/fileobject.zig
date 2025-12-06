@@ -8,7 +8,6 @@
 ///            cpython/Include/fileobject.h
 ///            cpython/Include/cpython/fileobject.h
 /// Memory layout matches CPython 3.12 exactly
-
 const std = @import("std");
 const cpython = @import("../include/object.zig");
 
@@ -72,9 +71,15 @@ fn stdprinter_repr(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject
     if (self_obj == null) return null;
     const self: *PyStdPrinter_Object = @ptrCast(@alignCast(self_obj.?));
 
-    // TODO: Return PyUnicode_FromFormat("<stdprinter(fd=%d) object at %p>", ...)
-    _ = self;
-    return null;
+    // Format as "<stdprinter(fd=N) object at 0xPTR>"
+    var buf: [128]u8 = undefined;
+    const len = std.fmt.bufPrint(&buf, "<stdprinter(fd={d}) object at 0x{x}>", .{
+        self.fd,
+        @intFromPtr(self),
+    }) catch return null;
+
+    const pyunicode = @import("../include/unicodeobject.zig");
+    return pyunicode.PyUnicode_FromStringAndSize(buf[0..len].ptr, @intCast(len));
 }
 
 /// Write to std printer
@@ -87,12 +92,26 @@ fn stdprinter_write(self_obj: ?*cpython.PyObject, args: ?*cpython.PyObject) call
         return null;
     }
 
-    // TODO: Parse args to get unicode string
-    // Convert to UTF-8 and write to fd
-    // For now, just return the length
+    // Get unicode string from args
+    const pyunicode = @import("../include/unicodeobject.zig");
+    if (!pyunicode.PyUnicode_Check(args.?)) {
+        return null;
+    }
+
+    // Get UTF-8 representation
+    var size: isize = 0;
+    const utf8 = pyunicode.PyUnicode_AsUTF8AndSize(args.?, &size);
+    if (utf8 == null) return null;
+
+    // Write to file descriptor
+    const fd: std.posix.fd_t = @intCast(self.fd);
+    const written = std.posix.write(fd, utf8.?[0..@intCast(size)]) catch |err| {
+        _ = err;
+        return null;
+    };
 
     const pylong = @import("longobject.zig");
-    return pylong.PyLong_FromSsize_t(0);
+    return pylong.PyLong_FromSsize_t(@intCast(written));
 }
 
 /// Get file descriptor
@@ -246,10 +265,40 @@ pub export fn PyFile_WriteObject(v: ?*cpython.PyObject, f: ?*cpython.PyObject, f
     if (f == null) return -1;
     if (v == null) return -1;
 
-    // TODO: Get write method from f
-    // If flags & Py_PRINT_RAW, use str(v), else use repr(v)
-    // Call f.write(str_or_repr)
-    _ = flags;
+    // Get string representation of v
+    const object_mod = @import("object.zig");
+    const str_obj: ?*cpython.PyObject = if ((flags & Py_PRINT_RAW) != 0)
+        object_mod.PyObject_Str(v.?)
+    else
+        object_mod.PyObject_Repr(v.?);
+
+    if (str_obj == null) return -1;
+    defer cpython.Py_DECREF(str_obj.?);
+
+    // Get write method from f
+    const pyunicode = @import("../include/unicodeobject.zig");
+    const write_name = pyunicode.PyUnicode_FromString("write");
+    if (write_name == null) return -1;
+    defer cpython.Py_DECREF(write_name.?);
+
+    const write_method = object_mod.PyObject_GetAttr(f.?, write_name.?);
+    if (write_method == null) return -1;
+    defer cpython.Py_DECREF(write_method.?);
+
+    // Build args tuple
+    const pytuple = @import("tupleobject.zig");
+    const args = pytuple.PyTuple_New(1);
+    if (args == null) return -1;
+    defer cpython.Py_DECREF(args.?);
+
+    cpython.Py_INCREF(str_obj.?);
+    _ = pytuple.PyTuple_SetItem(args.?, 0, str_obj);
+
+    // Call write method
+    const result = object_mod.PyObject_Call(write_method.?, args.?, null);
+    if (result == null) return -1;
+    cpython.Py_DECREF(result.?);
+
     return 0;
 }
 
@@ -283,8 +332,31 @@ pub export fn PyObject_AsFileDescriptor(o: ?*cpython.PyObject) c_int {
         return @intCast(fd);
     }
 
-    // TODO: Try to call o.fileno() method
-    return -1;
+    // Try to call o.fileno() method
+    const object_mod = @import("object.zig");
+    const pyunicode = @import("../include/unicodeobject.zig");
+
+    const fileno_name = pyunicode.PyUnicode_FromString("fileno");
+    if (fileno_name == null) return -1;
+    defer cpython.Py_DECREF(fileno_name.?);
+
+    const fileno_method = object_mod.PyObject_GetAttr(o.?, fileno_name.?);
+    if (fileno_method == null) return -1;
+    defer cpython.Py_DECREF(fileno_method.?);
+
+    // Call fileno() with no args
+    const pytuple = @import("tupleobject.zig");
+    const empty_args = pytuple.PyTuple_New(0);
+    if (empty_args == null) return -1;
+    defer cpython.Py_DECREF(empty_args.?);
+
+    const result = object_mod.PyObject_Call(fileno_method.?, empty_args.?, null);
+    if (result == null) return -1;
+    defer cpython.Py_DECREF(result.?);
+
+    // Convert result to int
+    if (!pylong.PyLong_Check(result.?)) return -1;
+    return @intCast(pylong.PyLong_AsLong(result.?));
 }
 
 /// Open file for code execution
