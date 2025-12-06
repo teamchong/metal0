@@ -462,9 +462,8 @@ pub fn emitVarDeclaration(
     // but now closures pass class instances directly (no &), so this flag is no longer needed.
     _ = is_mutable_class_instance; // No longer used for var/const decision
     // List comprehensions return ArrayLists which need `var` for defer deinit() calls
-    // Note: Dicts don't need `var` just because they're dicts - dict methods take *Self
-    // and can mutate through the pointer. Only use `var` if the variable itself is reassigned.
-    const needs_var = is_arraylist or is_mutated or is_mutable_collection or is_iterator or is_listcomp;
+    // Dicts need `var` because defer cleanup calls .deinit() which takes *Self (mutable reference)
+    const needs_var = is_arraylist or is_mutated or is_mutable_collection or is_iterator or is_listcomp or is_dict;
 
     if (needs_var) {
         try self.emit("var ");

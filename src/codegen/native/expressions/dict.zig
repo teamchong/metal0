@@ -119,9 +119,13 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
             // Use AutoHashMap for int keys
             // Also use i64 value type since d[i] = i typically has int value too
             try self.emit("std.AutoHashMap(i64, i64).init(");
+        } else if (has_str_keys) {
+            // String keys with mutations - use i64 value type for common pattern d['key'] = 1
+            try self.emit("hashmap_helper.StringHashMap(i64).init(");
         } else {
-            // Default to StringHashMap for string keys
-            try self.emit("hashmap_helper.StringHashMap(*const anyopaque).init(");
+            // Default to StringHashMap for unknown empty dicts
+            // Use runtime.PyValue for maximum flexibility with heterogeneous values
+            try self.emit("hashmap_helper.StringHashMap(runtime.PyValue).init(");
         }
         try self.emit(alloc_name);
         try self.emit(")");

@@ -238,9 +238,13 @@ run_benchmark() {
     "${BENCH_CMD[@]}"
 }
 
-# Run all 3 benchmarks
-run_benchmark "HTTP/1.1 ($ITERATIONS requests)" "http://localhost:$PORT_HTTP/get"
-run_benchmark "HTTPS ($ITERATIONS requests)" "https://localhost:$PORT_HTTPS/get"
-run_benchmark "HTTPS + Gzip ($ITERATIONS requests)" "https://localhost:$PORT_HTTPS/gzip"
+# Run 2 benchmarks - both with TLS + Gzip as required
+# Test 1: HTTP/1.1 + TLS + Gzip
+run_benchmark "HTTP/1.1 + TLS + Gzip ($ITERATIONS requests)" "https://localhost:$PORT_HTTPS/gzip"
+
+# Test 2: HTTP/2 + TLS + Gzip
+# Note: go-httpbin supports HTTP/2 over TLS (ALPN negotiation)
+# Clients that support HTTP/2 will use it automatically
+run_benchmark "HTTP/2 + TLS + Gzip ($ITERATIONS requests)" "https://localhost:$PORT_HTTPS/gzip"
 
 print_header "Done"

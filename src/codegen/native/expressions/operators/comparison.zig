@@ -116,8 +116,14 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         const either_bytes = left_is_bytes_literal or right_is_bytes_literal;
         const neither_unknown = (current_left_type != .unknown and right_type != .unknown);
 
-        if ((left_is_string and right_is_string) or (either_string and !neither_unknown) or (left_is_string_literal or right_is_string_literal) or
-            either_bytes) {
+        // For 'in' / 'not in' operators, dict/list/set containment takes priority over string substring
+        // e.g., 'a' in {'a': 1} should be dict key lookup, not string substring search
+        const right_is_dict_or_container = right_type == .dict or compare.comparators[i] == .dict or
+            right_type == .list or right_type == .set;
+        const is_container_in_check = (op == .In or op == .NotIn) and right_is_dict_or_container;
+
+        if (((left_is_string and right_is_string) or (either_string and !neither_unknown) or (left_is_string_literal or right_is_string_literal) or
+            either_bytes) and !is_container_in_check) {
             // Check for string/bytes literal comparison optimization
             // If both sides are literals, fold at compile time
             const left_is_str_const = isStringConstant(current_left);
