@@ -348,19 +348,28 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         return true;
     }
 
-    // Try list methods
-    if (ListMethods.get(method_name)) |handler| {
-        try handler(self, obj, call.args);
-        return true;
-    }
-
-    // Try dict methods - but only for dict-like types (not sets)
-    // Dict and set both have 'update', 'clear', 'copy', 'pop' methods
-    // We need to check type to dispatch correctly
+    // Try dict methods BEFORE list - dict and list share some method names (pop, clear, copy)
+    // We need type-aware dispatch to avoid list.pop() being called on dicts
     if (DictMethods.get(method_name)) |handler| {
         // Only dispatch dict methods for dict-like types
-        if (obj_type == .dict or obj_type == .counter or
-            (obj_type == .unknown and !SetMethods.has(method_name))) {
+        if (obj_type == .dict or obj_type == .counter) {
+            try handler(self, obj, call.args);
+            return true;
+        }
+    }
+
+    // Try list methods - but NOT if we know it's a dict or set
+    if (ListMethods.get(method_name)) |handler| {
+        // Skip list dispatch for dict/set types to avoid list.pop() on dicts
+        if (obj_type != .dict and obj_type != .set and obj_type != .counter) {
+            try handler(self, obj, call.args);
+            return true;
+        }
+    }
+
+    // Try dict methods for unknown types (fallback for untyped dicts)
+    if (DictMethods.get(method_name)) |handler| {
+        if (obj_type == .unknown and !SetMethods.has(method_name)) {
             try handler(self, obj, call.args);
             return true;
         }

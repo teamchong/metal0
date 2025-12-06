@@ -369,8 +369,9 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     try self.genExpr(obj);
     try self.emit(";\n");
 
+    // ArrayHashMap needs .init(allocator), not {}
     try self.emitIndent();
-    try self.emit("var __copy = @TypeOf(__src_dict){};\n");
+    try self.emit("var __copy = @TypeOf(__src_dict).init(__global_allocator);\n");
 
     try self.emitIndent();
     try self.emit("var __iter = __src_dict.iterator();\n");

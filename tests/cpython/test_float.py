@@ -205,7 +205,6 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertAlmostEqual(float("  .25e-1  "), .025)
 
     def test_floatconversion(self):
-        """skip: Requires __new__ for float subclasses and assertWarns context manager"""
         # Make sure that calls to __float__() work properly
         class Foo2(float):
             def __float__(self):
@@ -385,8 +384,7 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertEqual((a, copysign(1.0, a)), (b, copysign(1.0, b)))
 
     def test_float_floor(self):
-        # Skip assertIsInstance - metal0 returns f64 for type consistency
-        # self.assertIsInstance(float(0.5).__floor__(), int)
+        self.assertIsInstance(float(0.5).__floor__(), int)
         self.assertEqual(float(0.5).__floor__(), 0)
         self.assertEqual(float(1.0).__floor__(), 1)
         self.assertEqual(float(1.5).__floor__(), 1)
@@ -400,8 +398,7 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertRaises(OverflowError, float("-inf").__floor__)
 
     def test_float_ceil(self):
-        # Skip assertIsInstance - metal0 returns f64 for type consistency
-        # self.assertIsInstance(float(0.5).__ceil__(), int)
+        self.assertIsInstance(float(0.5).__ceil__(), int)
         self.assertEqual(float(0.5).__ceil__(), 1)
         self.assertEqual(float(1.0).__ceil__(), 1)
         self.assertEqual(float(1.5).__ceil__(), 2)
@@ -636,7 +633,6 @@ class GeneralFloatCases(unittest.TestCase):
             #self.assertTrue(0.0 > pow_op(-2.0, -1047) > -1e-315)
 
     def test_hash(self):
-        """skip: hash(-1.0) returns -2 instead of -1 (CPython special case)"""
         for x in range(-30, 30):
             self.assertEqual(hash(float(x)), hash(x))
         self.assertEqual(hash(float(sys.float_info.max)),
@@ -645,7 +641,6 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertEqual(hash(float('-inf')), -sys.hash_info.inf)
 
     def test_hash_nan(self):
-        """skip: Requires object.__hash__ and multiple inheritance (float, H)"""
         value = float('nan')
         self.assertEqual(hash(value), object.__hash__(value))
         class H:

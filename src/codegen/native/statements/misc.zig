@@ -700,23 +700,26 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                     const var_name = target.name.id;
                     if (isUnittestContextManager(stmt.with_stmt.context_expr.*)) {
                         // Unittest context managers need hoisting too - err may be used after with block
-                        // Hoist as ContextManager type - use const since it's only assigned once
-                        // Check for module-level function shadowing
-                        const shadows_module_func = self.module_level_funcs.contains(var_name);
-                        var actual_name = var_name;
-                        if (shadows_module_func and !self.var_renames.contains(var_name)) {
-                            const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
-                            self.lambda_counter += 1;
-                            try self.var_renames.put(var_name, prefixed_name);
-                            actual_name = prefixed_name;
-                        } else if (self.var_renames.get(var_name)) |renamed| {
-                            actual_name = renamed;
+                        // Skip if already hoisted or declared (handles multiple with assertRaises as err)
+                        if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+                            // Hoist as ContextManager type - use const since it's only assigned once
+                            // Check for module-level function shadowing
+                            const shadows_module_func = self.module_level_funcs.contains(var_name);
+                            var actual_name = var_name;
+                            if (shadows_module_func and !self.var_renames.contains(var_name)) {
+                                const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
+                                self.lambda_counter += 1;
+                                try self.var_renames.put(var_name, prefixed_name);
+                                actual_name = prefixed_name;
+                            } else if (self.var_renames.get(var_name)) |renamed| {
+                                actual_name = renamed;
+                            }
+                            try self.emitIndent();
+                            try self.emit("const ");
+                            try self.emit(actual_name);
+                            try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
+                            try self.hoisted_vars.put(var_name, {});
                         }
-                        try self.emitIndent();
-                        try self.emit("const ");
-                        try self.emit(actual_name);
-                        try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
-                        try self.hoisted_vars.put(var_name, {});
                     } else {
                         // Use @TypeOf(context_expr) for comptime type inference
                         try hoistVarWithExpr(self, var_name, stmt.with_stmt.context_expr);
@@ -732,22 +735,25 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                         const cm_expr = named.value.*;
                         if (isUnittestContextManager(cm_expr)) {
                             // Hoist unittest context manager variable - use const since only assigned once
-                            // Check for module-level function shadowing
-                            const shadows_cm = self.module_level_funcs.contains(cm_var_name);
-                            var actual_cm_name = cm_var_name;
-                            if (shadows_cm and !self.var_renames.contains(cm_var_name)) {
-                                const prefixed_cm = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ cm_var_name, self.lambda_counter });
-                                self.lambda_counter += 1;
-                                try self.var_renames.put(cm_var_name, prefixed_cm);
-                                actual_cm_name = prefixed_cm;
-                            } else if (self.var_renames.get(cm_var_name)) |renamed_cm| {
-                                actual_cm_name = renamed_cm;
+                            // Skip if already hoisted or declared (handles multiple with assertRaises as err)
+                            if (!self.isDeclared(cm_var_name) and !self.hoisted_vars.contains(cm_var_name)) {
+                                // Check for module-level function shadowing
+                                const shadows_cm = self.module_level_funcs.contains(cm_var_name);
+                                var actual_cm_name = cm_var_name;
+                                if (shadows_cm and !self.var_renames.contains(cm_var_name)) {
+                                    const prefixed_cm = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ cm_var_name, self.lambda_counter });
+                                    self.lambda_counter += 1;
+                                    try self.var_renames.put(cm_var_name, prefixed_cm);
+                                    actual_cm_name = prefixed_cm;
+                                } else if (self.var_renames.get(cm_var_name)) |renamed_cm| {
+                                    actual_cm_name = renamed_cm;
+                                }
+                                try self.emitIndent();
+                                try self.emit("const ");
+                                try self.emit(actual_cm_name);
+                                try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
+                                try self.hoisted_vars.put(cm_var_name, {});
                             }
-                            try self.emitIndent();
-                            try self.emit("const ");
-                            try self.emit(actual_cm_name);
-                            try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
-                            try self.hoisted_vars.put(cm_var_name, {});
                         } else {
                             // Hoist regular context manager variable
                             try hoistVarWithExpr(self, cm_var_name, &cm_expr);
