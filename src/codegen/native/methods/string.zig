@@ -208,13 +208,17 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: try std.mem.join(allocator, separator, list)
-    // std.mem.join returns error{OutOfMemory}![]u8 so we need try
-    try self.emit("try std.mem.join(__global_allocator, ");
+    // Generate: blk: { break :blk try runtime.string_utils.pyJoin(allocator, separator, list); }
+    // Uses runtime.string_utils.pyJoin which handles PyValue, slices, arrays, and ArrayLists
+    try self.emit("blk: {\n");
+    try self.emit("const __join_sep = ");
     try self.genExpr(obj); // The separator string
-    try self.emit(", ");
+    try self.emit(";\n");
+    try self.emit("const __join_list = ");
     try self.genExpr(args[0]); // The list
-    try self.emit(")");
+    try self.emit(";\n");
+    try self.emit("break :blk try runtime.string_utils.pyJoin(__global_allocator, __join_sep, __join_list);\n");
+    try self.emit("}");
 }
 
 /// Generate code for text.startswith(prefix[, start[, end]])

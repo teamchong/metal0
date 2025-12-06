@@ -21,12 +21,13 @@ fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
 pub fn genAdd(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: try set.add(elem)
+    // Generate: try set.put(elem, {})
+    // Zig HashMap uses put(key, value) - for sets, value is void ({})
     try self.emit("try ");
     try emitObjExpr(self, obj);
-    try self.emit(".add(");
+    try self.emit(".put(");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emit(", {})");
 }
 
 /// Generate code for set.remove(elem)
@@ -34,12 +35,20 @@ pub fn genAdd(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: if (!set.remove(elem)) return error.KeyError;
-    try self.emit("if (!");
+    // Generate: if (!(if (@hasDecl(@TypeOf(set), "swapRemove")) set.swapRemove(elem) else set.remove(elem))) return error.KeyError;
+    // AutoHashMap uses .remove(), ArrayHashMap uses .swapRemove()
+    // Both return bool (true if removed, false if not present)
+    try self.emit("if (!(if (@hasDecl(@TypeOf(");
+    try emitObjExpr(self, obj);
+    try self.emit("), \"swapRemove\")) ");
+    try emitObjExpr(self, obj);
+    try self.emit(".swapRemove(");
+    try self.genExpr(args[0]);
+    try self.emit(") else ");
     try emitObjExpr(self, obj);
     try self.emit(".remove(");
     try self.genExpr(args[0]);
-    try self.emit(")) return error.KeyError");
+    try self.emit("))) return error.KeyError");
 }
 
 /// Generate code for set.discard(elem)
@@ -47,30 +56,47 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 pub fn genDiscard(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: set.discard(elem)
+    // Generate: { _ = (if (@hasDecl(@TypeOf(set), "swapRemove")) set.swapRemove(elem) else set.remove(elem)); }
+    // AutoHashMap uses .remove(), ArrayHashMap uses .swapRemove()
+    // Both return bool (true if removed, false if not present) - discard ignores result
+    // Wrapping in a block makes this a statement that evaluates to void
+    try self.emit("{ _ = (if (@hasDecl(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(".discard(");
+    try self.emit("), \"swapRemove\")) ");
+    try emitObjExpr(self, obj);
+    try self.emit(".swapRemove(");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emit(") else ");
+    try emitObjExpr(self, obj);
+    try self.emit(".remove(");
+    try self.genExpr(args[0]);
+    try self.emit(")); }");
 }
 
 /// Generate code for set.clear()
 pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     try emitObjExpr(self, obj);
-    try self.emit(".clear()");
+    // std.AutoHashMap uses clearRetainingCapacity() or clearAndFree()
+    try self.emit(".clearRetainingCapacity()");
 }
 
 /// Generate code for set.pop()
 /// Remove and return arbitrary element, raises KeyError if empty
 pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    // Generate: blk: { var iter = set.iterator(); break :blk iter.next() orelse return error.KeyError; }
+    // Generate: blk: { var iter = set.iterator(); const entry = iter.next() orelse return error.KeyError;
+    //           const key = entry.key_ptr.*; _ = (if hasDecl then swapRemove else remove)(key); break :blk key; }
+    // AutoHashMap uses .remove(), ArrayHashMap uses .swapRemove()
     try self.emit("blk: { var __set_iter = ");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator(); const __elem = __set_iter.next() orelse return error.KeyError; ");
+    try self.emit(".iterator(); const __entry = __set_iter.next() orelse return error.KeyError; const __key = __entry.key_ptr.*; _ = (if (@hasDecl(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(".discard(__elem); break :blk __elem; }");
+    try self.emit("), \"swapRemove\")) ");
+    try emitObjExpr(self, obj);
+    try self.emit(".swapRemove(__key) else ");
+    try emitObjExpr(self, obj);
+    try self.emit(".remove(__key)); break :blk __key; }");
 }
 
 /// Generate code for set.copy()
@@ -86,7 +112,7 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     try self.emitIndent();
     try self.emit("var __copy = @TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit("){};\n");
+    try self.emit(").init(__global_allocator);\n");
 
     try self.emitIndent();
     try self.emit("var __iter = ");
@@ -178,7 +204,7 @@ pub fn genUnion(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emitIndent();
     try self.emit("var __result = @TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit("){};\n");
+    try self.emit(").init(__global_allocator);\n");
 
     try self.emitIndent();
     try self.emit("var __self_iter = ");
@@ -242,7 +268,7 @@ pub fn genIntersection(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     try self.emitIndent();
     try self.emit("var __result = @TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit("){};\n");
+    try self.emit(").init(__global_allocator);\n");
 
     try self.emitIndent();
     try self.emit("var __self_iter = ");
@@ -302,7 +328,7 @@ pub fn genDifference(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     try self.emitIndent();
     try self.emit("var __result = @TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit("){};\n");
+    try self.emit(").init(__global_allocator);\n");
 
     try self.emitIndent();
     try self.emit("var __self_iter = ");
@@ -360,7 +386,7 @@ pub fn genSymmetricDifference(self: *NativeCodegen, obj: ast.Node, args: []ast.N
     try self.emitIndent();
     try self.emit("var __result = @TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit("){};\n");
+    try self.emit(").init(__global_allocator);\n");
 
     // Store other set in a variable first
     try self.emitIndent();
@@ -548,10 +574,11 @@ pub fn genIntersectionUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.No
     self.indent_level += 1;
 
     // Collect keys to remove (can't modify while iterating)
+    // Use std.meta.fieldInfo to get key type from KV struct (works with const)
     try self.emitIndent();
-    try self.emit("var __to_remove = std.ArrayListUnmanaged(@TypeOf(");
+    try self.emit("var __to_remove = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator().next().?.key_ptr.*)){};\n");
+    try self.emit(").Unmanaged.KV, .key).type){};\n");
 
     try self.emitIndent();
     try self.emit("var __self_iter = ");
@@ -581,11 +608,15 @@ pub fn genIntersectionUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.No
     try self.emitIndent();
     try self.emit("}\n");
 
-    // Remove collected keys
+    // Remove collected keys (handle both AutoHashMap and ArrayHashMap)
     try self.emitIndent();
-    try self.emit("for (__to_remove.items) |key| { _ = ");
+    try self.emit("for (__to_remove.items) |key| { _ = (if (@hasDecl(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(".swapRemove(key); }\n");
+    try self.emit("), \"swapRemove\")) ");
+    try emitObjExpr(self, obj);
+    try self.emit(".swapRemove(key) else ");
+    try emitObjExpr(self, obj);
+    try self.emit(".remove(key)); }\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :sinterupd_{d} null;\n", .{label_id});
@@ -623,9 +654,14 @@ pub fn genDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         try self.output.writer(self.allocator).print("while (__other_{d}.next()) |entry| {{\n", .{i});
         self.indent_level += 1;
         try self.emitIndent();
-        try self.emit("_ = ");
+        // Handle both AutoHashMap (.remove) and ArrayHashMap (.swapRemove)
+        try self.emit("_ = (if (@hasDecl(@TypeOf(");
         try emitObjExpr(self, obj);
-        try self.emit(".swapRemove(entry.key_ptr.*);\n");
+        try self.emit("), \"swapRemove\")) ");
+        try emitObjExpr(self, obj);
+        try self.emit(".swapRemove(entry.key_ptr.*) else ");
+        try emitObjExpr(self, obj);
+        try self.emit(".remove(entry.key_ptr.*));\n");
         self.indent_level -= 1;
         try self.emitIndent();
         try self.emit("}\n");
@@ -661,15 +697,16 @@ pub fn genSymmetricDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: [
     try self.emit(";\n");
 
     // Collect keys to remove (in both sets)
+    // Use std.meta.fieldInfo to get key type from KV struct (works with const)
     try self.emitIndent();
-    try self.emit("var __to_remove = std.ArrayListUnmanaged(@TypeOf(");
+    try self.emit("var __to_remove = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator().next().?.key_ptr.*)){};\n");
+    try self.emit(").Unmanaged.KV, .key).type){};\n");
 
     try self.emitIndent();
-    try self.emit("var __to_add = std.ArrayListUnmanaged(@TypeOf(");
+    try self.emit("var __to_add = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator().next().?.key_ptr.*)){};\n");
+    try self.emit(").Unmanaged.KV, .key).type){};\n");
 
     // Find elements in self that are in other (to remove)
     try self.emitIndent();
@@ -701,11 +738,15 @@ pub fn genSymmetricDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: [
     try self.emitIndent();
     try self.emit("}\n");
 
-    // Apply changes
+    // Apply changes (handle both AutoHashMap and ArrayHashMap)
     try self.emitIndent();
-    try self.emit("for (__to_remove.items) |key| { _ = ");
+    try self.emit("for (__to_remove.items) |key| { _ = (if (@hasDecl(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(".swapRemove(key); }\n");
+    try self.emit("), \"swapRemove\")) ");
+    try emitObjExpr(self, obj);
+    try self.emit(".swapRemove(key) else ");
+    try emitObjExpr(self, obj);
+    try self.emit(".remove(key)); }\n");
 
     try self.emitIndent();
     try self.emit("for (__to_add.items) |key| { try ");
