@@ -1,7 +1,7 @@
 /// Core compilation functions
 const std = @import("std");
-const hashmap_helper = @import("hashmap_helper");
-const ast = @import("ast");
+const hashmap_helper = @import("utils.hashmap_helper");
+const ast = @import("analysis.ast");
 const lexer = @import("../lexer.zig");
 const parser = @import("../parser.zig");
 const compiler = @import("../compiler.zig");
@@ -19,8 +19,8 @@ const import_resolver = @import("../import_resolver.zig");
 const import_scanner = @import("../import_scanner.zig");
 const import_registry = @import("../codegen/native/import_registry.zig");
 const build_dirs = @import("../build_dirs.zig");
-const debug_info = @import("debug_info");
-const zig_keywords = @import("zig_keywords");
+const debug_info = @import("debug.debug_info");
+const zig_keywords = @import("utils.zig_keywords");
 
 // Submodules
 const cache = @import("compile/cache.zig");
@@ -634,7 +634,7 @@ fn collectDebugSymbols(dw: *debug_info.DebugInfoWriter, module: ast.Node.Module,
     // Since AST doesn't store line info, we find tokens by name matching
 
     // Create a token index for quick name lookup
-    var token_lines = std.StringHashMap(u32).init(dw.allocator);
+    var token_lines = hashmap_helper.StringHashMap(u32).init(dw.allocator);
     defer token_lines.deinit();
 
     // First pass: collect all identifier tokens with their line numbers

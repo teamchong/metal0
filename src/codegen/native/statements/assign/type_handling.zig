@@ -1,6 +1,6 @@
 /// Type analysis and detection for assignment statements
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const shared = @import("../../shared_maps.zig");
 const AllocatingStringMethods = shared.AllocatingStringMethods;

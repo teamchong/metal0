@@ -7,7 +7,7 @@
 /// - TypeScript type definitions
 ///
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 
 pub const JsGlueGenerator = struct {
     allocator: std.mem.Allocator,

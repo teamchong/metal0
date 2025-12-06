@@ -1,11 +1,11 @@
 /// Scan Python file for all imports and recursively collect dependencies
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const parser = @import("parser.zig");
 const lexer = @import("lexer.zig");
 const import_resolver = @import("import_resolver.zig");
 const import_registry = @import("codegen/native/import_registry.zig");
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 pub const ModuleInfo = struct {
     path: []const u8, // Full path to .py file

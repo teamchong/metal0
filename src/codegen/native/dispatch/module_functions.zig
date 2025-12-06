@@ -1,6 +1,6 @@
 /// Module function dispatchers (json, http, asyncio, os, etc.)
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 

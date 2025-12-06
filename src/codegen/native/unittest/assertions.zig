@@ -1,12 +1,12 @@
 /// unittest assertion code generation
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const parent = @import("../expressions.zig");
 const shared = @import("../shared_maps.zig");
 const PyToZigTypes = shared.PyTypeToZig;
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 
 /// Check if a name is a Python builtin type name (not a user variable)
 fn isBuiltinTypeName(name: []const u8) bool {

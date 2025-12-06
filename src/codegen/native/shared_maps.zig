@@ -165,7 +165,7 @@ pub const AllocatingStringMethods = std.StaticStringMap(void).initComptime(.{
 // AST Node Predicate Helpers
 // Reduce repetitive pattern: `node == .constant and node.constant.value == .int`
 // ============================================================================
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 
 /// Check if node is an integer constant
 pub fn isIntConstant(node: ast.Node) bool {

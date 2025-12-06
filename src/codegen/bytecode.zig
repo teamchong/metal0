@@ -1,7 +1,7 @@
 /// Bytecode codegen - compiles metal0 AST to runtime bytecode format
 /// Used for --emit-bytecode flag to support runtime eval()
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 
 /// Bytecode opcodes (must match packages/runtime/src/bytecode.zig)
 pub const OpCode = enum(u8) {

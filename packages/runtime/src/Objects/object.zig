@@ -120,7 +120,7 @@ pub const PyValue = union(enum) {
     /// For fmtdict['@'][fmt] where fmtdict['@'] is a PyValue wrapping a dict
     pub fn pyDictGet(self: PyValue, key: []const u8) ?PyValue {
         if (self != .ptr) return null;
-        const hashmap_helper = @import("hashmap_helper");
+        const hashmap_helper = @import("utils.hashmap_helper");
         const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(self.ptr));
         return map_ptr.get(key);
     }
@@ -129,7 +129,7 @@ pub const PyValue = union(enum) {
     /// For assigning to fmtdict['@'][fmt]
     pub fn pyDictGetPtr(self: PyValue, key: []const u8) ?*PyValue {
         if (self != .ptr) return null;
-        const hashmap_helper = @import("hashmap_helper");
+        const hashmap_helper = @import("utils.hashmap_helper");
         const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(self.ptr));
         return map_ptr.getPtr(key);
     }
@@ -138,7 +138,7 @@ pub const PyValue = union(enum) {
     pub fn pyDictPut(self: PyValue, allocator: std.mem.Allocator, key: []const u8, value: PyValue) !void {
         _ = allocator; // Allocator kept for API compatibility but not used for in-place put
         if (self != .ptr) return;
-        const hashmap_helper = @import("hashmap_helper");
+        const hashmap_helper = @import("utils.hashmap_helper");
         const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(self.ptr));
         try map_ptr.put(key, value);
     }

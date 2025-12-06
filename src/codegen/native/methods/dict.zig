@@ -1,7 +1,7 @@
 /// Dict methods - .get(), .keys(), .values(), .items(), .pop(), .update(), .clear(), .copy(),
 /// .setdefault(), .popitem(), .fromkeys()
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const NativeType = @import("../../../analysis/native_types.zig").NativeType;

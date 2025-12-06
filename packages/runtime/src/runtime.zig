@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 /// Browser WASM (freestanding) has no threading or OS support
 pub const is_freestanding = builtin.os.tag == .freestanding;
 
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const pyint = @import("Objects/intobject.zig");
 const pyfloat = @import("Objects/floatobject.zig");
 const pybool = @import("Objects/boolobject.zig");

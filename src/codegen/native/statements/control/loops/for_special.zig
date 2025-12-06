@@ -1,9 +1,9 @@
 /// For loop code generation (enumerate, zip)
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 const param_analyzer = @import("../../functions/param_analyzer.zig");
 const for_basic = @import("for_basic.zig");
 

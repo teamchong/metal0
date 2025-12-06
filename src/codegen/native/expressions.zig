@@ -1,10 +1,10 @@
 /// Expression-level code generation - Re-exports from submodules
 /// Handles Python expressions: constants, binary ops, calls, lists, dicts, subscripts, etc.
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 
 /// Python type/constant names to Zig code
 const PyTypeNames = std.StaticStringMap([]const u8).initComptime(.{

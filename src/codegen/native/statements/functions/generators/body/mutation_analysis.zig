@@ -1,9 +1,9 @@
 /// Mutation analysis for function/method bodies
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Check if a method mutates self (assigns to self.field or self.field[key])
 /// Also returns true if method returns self (needed for nested classes where returning self

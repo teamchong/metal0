@@ -7,7 +7,7 @@ const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Word = @import("bpe_word.zig").Word;
 const Pair = @import("bpe_word.zig").Pair;
 const Change = @import("bpe_word.zig").Change;
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const byte_level = @import("byte_level.zig");
 const gpt2_splitter = @import("gpt2_splitter.zig");
 

@@ -7,6 +7,7 @@
 ///
 const std = @import("std");
 const debug_info = @import("debug_info.zig");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// DWARF line number program opcodes (standard)
 const DW_LNS = struct {
@@ -511,7 +512,7 @@ pub const DwarfInfoEmitter = struct {
 
     /// String table (.debug_str)
     strings: std.ArrayList(u8),
-    string_offsets: std.StringHashMap(u32),
+    string_offsets: hashmap_helper.StringHashMap(u32),
 
     /// DIE reference tracking
     die_offsets: std.ArrayList(u32),
@@ -532,7 +533,7 @@ pub const DwarfInfoEmitter = struct {
             .output = std.ArrayList(u8){},
             .abbrev = std.ArrayList(u8){},
             .strings = std.ArrayList(u8){},
-            .string_offsets = std.StringHashMap(u32).init(allocator),
+            .string_offsets = hashmap_helper.StringHashMap(u32).init(allocator),
             .die_offsets = std.ArrayList(u32){},
             .source_file = source_file,
             .source_dir = dir,

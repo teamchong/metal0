@@ -220,7 +220,7 @@ pub const NativeType = union(enum) {
 
     /// Convert to Zig type string
     pub fn toZigType(self: NativeType, allocator: std.mem.Allocator, buf: *std.ArrayList(u8)) !void {
-        const hashmap_helper = @import("hashmap_helper");
+        const hashmap_helper = @import("utils.hashmap_helper");
         _ = hashmap_helper;
 
         switch (self) {

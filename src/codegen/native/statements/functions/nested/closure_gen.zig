@@ -1,13 +1,13 @@
 /// Standard closure generation with captured variables
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const DeferredClosureInfo = @import("../../../main/core.zig").DeferredClosureInfo;
-const zig_keywords = @import("zig_keywords");
-const hashmap_helper = @import("hashmap_helper");
+const zig_keywords = @import("utils.zig_keywords");
+const hashmap_helper = @import("utils.hashmap_helper");
 const var_tracking = @import("var_tracking.zig");
-const function_traits = @import("function_traits");
+const function_traits = @import("analysis.function_traits");
 
 /// Find the specific context manager type from return statements in body
 /// Returns the Zig type string for the context manager, or null if unknown

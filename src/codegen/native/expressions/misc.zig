@@ -1,10 +1,10 @@
 /// Miscellaneous expression code generation (tuple, attribute, subscript)
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const subscript_mod = @import("subscript.zig");
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 const expressions_mod = @import("../expressions.zig");
 const producesBlockExpression = expressions_mod.producesBlockExpression;
 const self_analyzer = @import("../statements/functions/self_analyzer.zig");

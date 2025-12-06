@@ -449,24 +449,44 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
         dst.close();
     }
 
-    // Copy runtime subdirectories to cache
-    try compiler_utils.copyRuntimeDir(allocator, "http", build_dir);
-    try compiler_utils.copyRuntimeDir(allocator, "async", build_dir);
-    try compiler_utils.copyRuntimeDir(allocator, "json", build_dir);
-    try compiler_utils.copyRuntimeDir(allocator, "runtime", build_dir);
-    try compiler_utils.copyRuntimeDir(allocator, "pystring", build_dir);
-    try compiler_utils.copyRuntimeDir(allocator, "unittest", build_dir);
-    try compiler_utils.copyRuntimeDir(allocator, "gzip", build_dir);
+    // Copy CPython-mirrored directory structure
+    // Objects/ - PyObject implementations
+    try compiler_utils.copyRuntimeDir(allocator, "Objects", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Objects/stringlib", build_dir);
 
-    // Copy individual runtime files
-    try compiler_utils.copyRuntimeFile(allocator, "calendar.zig", build_dir);
-    try compiler_utils.copyRuntimeFile(allocator, "debug_reader.zig", build_dir);
+    // Lib/ - Pure Python stdlib modules
+    try compiler_utils.copyRuntimeDir(allocator, "Lib", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/http", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/http_impl", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/asyncio_impl", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/unittest", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/unittest_impl", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/json", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/json_impl", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/json_impl/parse_module", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/json_impl/parse_direct_module", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/json_impl/simd", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/json_impl/utils", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Lib/utils_impl", build_dir);
+
+    // Modules/ - C extension modules
+    try compiler_utils.copyRuntimeDir(allocator, "Modules", build_dir);
+    try compiler_utils.copyRuntimeDir(allocator, "Modules/gzip", build_dir);
+
+    // Python/ - Interpreter core
+    try compiler_utils.copyRuntimeDir(allocator, "Python", build_dir);
+
+    // runtime/ - metal0-specific runtime
+    try compiler_utils.copyRuntimeDir(allocator, "runtime", build_dir);
 
     // Copy JSON SIMD files from shared/json/simd
     try compiler_utils.copyJsonSimd(allocator, build_dir);
 
     // Copy c_interop directory to build dir
     try compiler_utils.copyCInteropDir(allocator, build_dir);
+
+    // Copy h2 package to build dir (for http module)
+    try compiler_utils.copyH2Package(allocator, build_dir);
 
     // Copy utils directory to build dir (for hashmap_helper, wyhash)
     try compiler_utils.copySrcUtilsDir(allocator, build_dir);
@@ -669,18 +689,35 @@ fn compileWasmInternal(allocator: std.mem.Allocator, zig_code: []const u8, outpu
         try dst.writeAll(bigint_content);
     }
 
-    // Copy runtime subdirectories to cache
-    try compiler_utils.copyRuntimeDir(aa, "http", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "async", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "json", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "runtime", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "pystring", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "unittest", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "gzip", build_dir);
+    // Copy CPython-mirrored directory structure (same as compileZigWithOptions)
+    // Objects/ - PyObject implementations
+    try compiler_utils.copyRuntimeDir(aa, "Objects", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Objects/stringlib", build_dir);
 
-    // Copy individual runtime files
-    try compiler_utils.copyRuntimeFile(aa, "calendar.zig", build_dir);
-    try compiler_utils.copyRuntimeFile(aa, "debug_reader.zig", build_dir);
+    // Lib/ - Pure Python stdlib modules
+    try compiler_utils.copyRuntimeDir(aa, "Lib", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/http", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/http_impl", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/asyncio_impl", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/unittest", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/unittest_impl", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/parse_module", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/parse_direct_module", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/simd", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/utils", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/utils_impl", build_dir);
+
+    // Modules/ - C extension modules
+    try compiler_utils.copyRuntimeDir(aa, "Modules", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Modules/gzip", build_dir);
+
+    // Python/ - Interpreter core
+    try compiler_utils.copyRuntimeDir(aa, "Python", build_dir);
+
+    // runtime/ - metal0-specific runtime
+    try compiler_utils.copyRuntimeDir(aa, "runtime", build_dir);
 
     // Copy JSON SIMD files from shared/json/simd
     try compiler_utils.copyJsonSimd(aa, build_dir);
@@ -693,6 +730,9 @@ fn compileWasmInternal(allocator: std.mem.Allocator, zig_code: []const u8, outpu
 
     // Copy tokenizer package to build dir
     try compiler_utils.copyTokenizerPackage(aa, build_dir);
+
+    // Copy h2 package to build dir (for http module)
+    try compiler_utils.copyH2Package(aa, build_dir);
 
     // Copy utils directory to build dir (for hashmap_helper, wyhash)
     try compiler_utils.copySrcUtilsDir(aa, build_dir);

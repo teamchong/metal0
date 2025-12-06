@@ -1,9 +1,9 @@
 /// unittest lifecycle code generation (main, finalize, setUp/tearDown)
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 
 /// Generate code for unittest.main()
 /// Runs all test methods in parallel using metal0 scheduler (thread pool)

@@ -1,11 +1,11 @@
 /// Function and method signature generation
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const param_analyzer = @import("../param_analyzer.zig");
 const self_analyzer = @import("../self_analyzer.zig");
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 const state_machine = @import("../../../async_state_machine.zig");
 
 // NOTE: Async strategy is now determined per-function via function_traits

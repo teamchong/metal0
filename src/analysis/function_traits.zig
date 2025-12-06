@@ -14,8 +14,8 @@
 /// | is_generator           | Generator state machine                       |
 /// | calls                  | Call graph edges for dead code elimination    |
 const std = @import("std");
-const ast = @import("ast");
-const hashmap_helper = @import("hashmap_helper");
+const ast = @import("analysis.ast");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Reference to a function (module-qualified name)
 pub const FunctionRef = struct {

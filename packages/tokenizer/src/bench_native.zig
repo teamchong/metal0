@@ -1,6 +1,6 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
-const allocator_helper = @import("allocator_helper");
+const allocator_helper = @import("utils.allocator_helper");
 const json = @import("runtime/src/json/parse.zig");
 const JsonValue = @import("runtime/src/json/value.zig").JsonValue;
 

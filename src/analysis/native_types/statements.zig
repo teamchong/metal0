@@ -1,7 +1,7 @@
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const core = @import("core.zig");
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const inferrer_mod = @import("inferrer.zig");
 const expressions = @import("expressions.zig");
 const TypeInferrer = inferrer_mod.TypeInferrer;
@@ -167,7 +167,7 @@ pub fn visitStmtScoped(
             var fields = FnvHashMap.init(allocator);
             var methods = FnvHashMap.init(allocator);
             var property_methods = FnvHashMap.init(allocator);
-            const hm_helper = @import("hashmap_helper");
+            const hm_helper = @import("utils.hashmap_helper");
             var property_getters = hm_helper.StringHashMap([]const u8).init(allocator);
 
             // Get constructor arg types if available

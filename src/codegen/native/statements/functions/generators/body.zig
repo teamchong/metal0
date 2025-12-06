@@ -1,6 +1,6 @@
 /// Function and class body generation - Thin facade that re-exports from submodules
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 

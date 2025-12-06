@@ -1,6 +1,6 @@
 /// Collection conversion builtins: list(), tuple(), dict(), set(), frozenset()
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const producesBlockExpression = @import("../../expressions.zig").producesBlockExpression;

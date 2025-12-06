@@ -3,7 +3,7 @@
 /// Ported from HuggingFace tokenizers/src/models/unigram/model.rs (640 lines)
 
 const std = @import("std");
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const Allocator = std.mem.Allocator;
 const Lattice = @import("unigram_lattice.zig").Lattice;
 const Trie = @import("unigram_trie.zig").Trie;

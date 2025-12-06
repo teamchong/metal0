@@ -1,7 +1,7 @@
 /// Logical operations: and, or, not
 /// Handles Python value-based semantics (returns actual values, not just booleans)
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const expressions = @import("../../expressions.zig");

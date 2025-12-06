@@ -18,6 +18,7 @@
 /// ```
 const std = @import("std");
 const ast = @import("../ast/core.zig");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Represents a WASM import declaration
 pub const WasmImport = struct {
@@ -289,7 +290,7 @@ pub fn generateZigExterns(allocator: std.mem.Allocator, bindings: *const WasmBin
     );
 
     // Group imports by namespace
-    var namespaces = std.StringHashMap(std.ArrayList(WasmImport)).init(allocator);
+    var namespaces = hashmap_helper.StringHashMap(std.ArrayList(WasmImport)).init(allocator);
     defer {
         var it = namespaces.valueIterator();
         while (it.next()) |list| {
@@ -423,7 +424,7 @@ pub fn generateJsLoader(allocator: std.mem.Allocator, bindings: *const WasmBindi
     , .{module_name});
 
     // Group by namespace
-    var seen_ns = std.StringHashMap(void).init(allocator);
+    var seen_ns = hashmap_helper.StringHashMap(void).init(allocator);
     defer seen_ns.deinit();
 
     for (bindings.imports.items) |imp| {

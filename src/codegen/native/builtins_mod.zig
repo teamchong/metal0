@@ -1,6 +1,6 @@
 /// Python builtins module - Built-in functions exposed as module
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;

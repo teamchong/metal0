@@ -1,6 +1,6 @@
 const std = @import("std");
 const cl100k_splitter = @import("cl100k_splitter.zig");
-const allocator_helper = @import("allocator_helper");
+const allocator_helper = @import("utils.allocator_helper");
 const json = @import("runtime/src/json/parse.zig");
 const JsonValue = @import("runtime/src/json/value.zig").JsonValue;
 

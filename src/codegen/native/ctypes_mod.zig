@@ -1,7 +1,7 @@
 /// Python ctypes module - Foreign function library
 /// Generates code that uses runtime.ctypes for actual FFI
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const m = @import("mod_helper.zig");
 const H = m.H;
 

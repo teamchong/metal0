@@ -3,7 +3,7 @@ const std = @import("std");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const ComptimeValue = @import("../../../analysis/comptime_eval.zig").ComptimeValue;
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 
 /// Emit assignment with compile-time constant value
 /// Generates optimized code like: const x: i64 = 5;

@@ -7,6 +7,7 @@
 ///
 const std = @import("std");
 const debug_info = @import("debug_info.zig");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// DAP message types
 pub const MessageType = enum {
@@ -102,7 +103,7 @@ pub const DapServer = struct {
     seq: u32 = 1,
 
     /// Breakpoints by source file
-    breakpoints: std.StringHashMap(std.ArrayList(Breakpoint)),
+    breakpoints: hashmap_helper.StringHashMap(std.ArrayList(Breakpoint)),
 
     /// Next breakpoint ID
     next_breakpoint_id: u32 = 1,
@@ -123,7 +124,7 @@ pub const DapServer = struct {
     pub fn init(allocator: std.mem.Allocator) DapServer {
         return .{
             .allocator = allocator,
-            .breakpoints = std.StringHashMap(std.ArrayList(Breakpoint)).init(allocator),
+            .breakpoints = hashmap_helper.StringHashMap(std.ArrayList(Breakpoint)).init(allocator),
             .stack_frames = std.ArrayList(StackFrame){},
             .variables = std.AutoHashMap(u32, std.ArrayList(Variable)).init(allocator),
             .read_buffer = std.ArrayList(u8){},

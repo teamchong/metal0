@@ -1,6 +1,6 @@
 /// String and bytes conversion builtins: str(), bytes(), bytearray(), memoryview(), repr()
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 

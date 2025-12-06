@@ -7,7 +7,7 @@ const ast = @import("ast.zig");
 const common = @import("common.zig");
 const optimizer = @import("optimizer.zig");
 const backtrack = @import("backtrack.zig");
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Represents a match result from a regex operation
 pub const Match = struct {

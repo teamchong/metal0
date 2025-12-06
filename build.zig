@@ -5,10 +5,11 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Shared modules - define ONCE, use everywhere
-    const hashmap_helper = b.addModule("hashmap_helper", .{
+    // Namespaced: utils.hashmap_helper, utils.allocator_helper, etc.
+    const hashmap_helper = b.addModule("utils.hashmap_helper", .{
         .root_source_file = b.path("src/utils/hashmap_helper.zig"),
     });
-    const allocator_helper = b.addModule("allocator_helper", .{
+    const allocator_helper = b.addModule("utils.allocator_helper", .{
         .root_source_file = b.path("src/utils/allocator_helper.zig"),
     });
     const runtime = b.createModule(.{
@@ -36,13 +37,13 @@ pub fn build(b: *std.Build) void {
     const collections = b.addModule("collections", .{
         .root_source_file = b.path("packages/collections/collections.zig"),
     });
-    const fnv_hash = b.addModule("fnv_hash", .{
+    const fnv_hash = b.addModule("utils.fnv_hash", .{
         .root_source_file = b.path("src/utils/fnv_hash.zig"),
     });
-    const zig_keywords = b.addModule("zig_keywords", .{
+    const zig_keywords = b.addModule("utils.zig_keywords", .{
         .root_source_file = b.path("src/utils/zig_keywords.zig"),
     });
-    const ast = b.addModule("ast", .{
+    const ast = b.addModule("analysis.ast", .{
         .root_source_file = b.path("src/ast.zig"),
     });
 
@@ -105,25 +106,26 @@ pub fn build(b: *std.Build) void {
     pkg_mod.addImport("h2", h2_mod);
 
     // Function traits analysis framework (call graph, mutation, async, etc.)
-    const function_traits = b.addModule("function_traits", .{
+    const function_traits = b.addModule("analysis.function_traits", .{
         .root_source_file = b.path("src/analysis/function_traits.zig"),
     });
-    function_traits.addImport("ast", ast);
-    function_traits.addImport("hashmap_helper", hashmap_helper);
+    function_traits.addImport("analysis.ast", ast);
+    function_traits.addImport("utils.hashmap_helper", hashmap_helper);
 
     // Debug info module for debugger support (external debug symbols like .pdb/.dSYM)
-    const debug_info_mod = b.addModule("debug_info", .{
+    const debug_info_mod = b.addModule("debug.debug_info", .{
         .root_source_file = b.path("src/debug/debug_info.zig"),
     });
+    debug_info_mod.addImport("utils.hashmap_helper", hashmap_helper);
 
     // Source map module (re-exports debug_info for convenience)
-    const source_map_mod = b.addModule("source_map", .{
+    const source_map_mod = b.addModule("debug.source_map", .{
         .root_source_file = b.path("src/debug/source_map.zig"),
     });
     _ = source_map_mod;
 
     // Module dependencies
-    runtime.addImport("hashmap_helper", hashmap_helper);
+    runtime.addImport("utils.hashmap_helper", hashmap_helper);
     runtime.addImport("json_simd", json_simd);
     runtime.addImport("regex", regex_mod);
     runtime.addImport("bigint", bigint_mod);
@@ -184,18 +186,18 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    exe.root_module.addImport("hashmap_helper", hashmap_helper);
-    exe.root_module.addImport("allocator_helper", allocator_helper);
+    exe.root_module.addImport("utils.hashmap_helper", hashmap_helper);
+    exe.root_module.addImport("utils.allocator_helper", allocator_helper);
     exe.root_module.addImport("runtime", runtime);
     exe.root_module.addImport("collections", collections);
-    exe.root_module.addImport("fnv_hash", fnv_hash);
-    exe.root_module.addImport("zig_keywords", zig_keywords);
-    exe.root_module.addImport("ast", ast);
+    exe.root_module.addImport("utils.fnv_hash", fnv_hash);
+    exe.root_module.addImport("utils.zig_keywords", zig_keywords);
+    exe.root_module.addImport("analysis.ast", ast);
     // lexer and parser are imported via relative paths from src/
     exe.root_module.addImport("c_interop", c_interop_mod);
     exe.root_module.addImport("pkg", pkg_mod);
-    exe.root_module.addImport("function_traits", function_traits);
-    exe.root_module.addImport("debug_info", debug_info_mod);
+    exe.root_module.addImport("analysis.function_traits", function_traits);
+    exe.root_module.addImport("debug.debug_info", debug_info_mod);
     exe.root_module.addImport("wasmedge", wasmedge_mod);
     exe.root_module.addImport("metal0", metal0_mod);
     exe.linkLibC();
@@ -220,7 +222,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    comptime_eval_module.addImport("ast", ast);
+    comptime_eval_module.addImport("analysis.ast", ast);
 
     // Create test module
     const runtime_tests = b.addTest(.{
@@ -232,8 +234,8 @@ pub fn build(b: *std.Build) void {
     });
 
     // Add imports to test module
-    runtime_tests.root_module.addImport("ast", ast);
-    runtime_tests.root_module.addImport("comptime_eval", comptime_eval_module);
+    runtime_tests.root_module.addImport("analysis.ast", ast);
+    runtime_tests.root_module.addImport("analysis.comptime_eval", comptime_eval_module);
 
     const run_runtime_tests = b.addRunArtifact(runtime_tests);
     const test_step = b.step("test-zig", "Run Zig runtime unit tests");
@@ -321,8 +323,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    json_spec_tests.root_module.addImport("hashmap_helper", hashmap_helper);
-    json_spec_tests.root_module.addImport("allocator_helper", allocator_helper);
+    json_spec_tests.root_module.addImport("utils.hashmap_helper", hashmap_helper);
+    json_spec_tests.root_module.addImport("utils.allocator_helper", allocator_helper);
     json_spec_tests.root_module.addImport("runtime", runtime);
 
     const run_json_spec_tests = b.addRunArtifact(json_spec_tests);
@@ -358,7 +360,7 @@ pub fn build(b: *std.Build) void {
     });
     test_correctness_exe.root_module.addImport("tokenizer", tokenizer_mod);
     test_correctness_exe.root_module.addImport("json", json_mod);
-    test_correctness_exe.root_module.addImport("allocator_helper", allocator_helper);
+    test_correctness_exe.root_module.addImport("utils.allocator_helper", allocator_helper);
     test_correctness_exe.linkLibC();
     b.installArtifact(test_correctness_exe);
 
@@ -372,7 +374,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     bench_json_parse.root_module.addImport("runtime", runtime);
-    bench_json_parse.root_module.addImport("allocator_helper", allocator_helper);
+    bench_json_parse.root_module.addImport("utils.allocator_helper", allocator_helper);
     bench_json_parse.linkLibC();
 
     b.installArtifact(bench_json_parse);
@@ -391,7 +393,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     bench_json_stringify.root_module.addImport("runtime", runtime);
-    bench_json_stringify.root_module.addImport("allocator_helper", allocator_helper);
+    bench_json_stringify.root_module.addImport("utils.allocator_helper", allocator_helper);
     bench_json_stringify.linkLibC();
 
     b.installArtifact(bench_json_stringify);
@@ -446,8 +448,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
     bench_train.root_module.addImport("json", json_mod);
-    bench_train.root_module.addImport("allocator_helper", allocator_helper);
-    bench_train.root_module.addImport("hashmap_helper", hashmap_helper);
+    bench_train.root_module.addImport("utils.allocator_helper", allocator_helper);
+    bench_train.root_module.addImport("utils.hashmap_helper", hashmap_helper);
     bench_train.linkLibC();
     b.installArtifact(bench_train);
 

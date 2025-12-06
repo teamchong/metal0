@@ -1,7 +1,7 @@
 /// Python array module - Efficient arrays of numeric values
 const std = @import("std");
 const h = @import("mod_helper.zig");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 
 /// Get Zig type from Python array typecode
 fn getZigType(typecode: u8) []const u8 {

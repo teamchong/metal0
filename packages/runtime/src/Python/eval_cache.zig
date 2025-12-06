@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 const ast_executor = @import("ast_executor.zig");
 const bytecode = @import("compile.zig");
 const PyObject = @import("../runtime.zig").PyObject;
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Compile Python source via metal0 subprocess (for dynamic eval)
 /// Spawns: metal0 --emit-bytecode <source>

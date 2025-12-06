@@ -1,6 +1,6 @@
 /// String methods - .split(), .upper(), .lower(), .strip(), etc.
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 

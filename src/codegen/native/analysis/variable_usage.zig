@@ -1,8 +1,8 @@
 /// Shared variable usage analysis for AST traversal
 /// Consolidates duplicated code from param_analyzer.zig and try_except.zig
 const std = @import("std");
-const ast = @import("ast");
-const hashmap_helper = @import("hashmap_helper");
+const ast = @import("analysis.ast");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 pub const StringSet = hashmap_helper.StringHashMap(void);
 

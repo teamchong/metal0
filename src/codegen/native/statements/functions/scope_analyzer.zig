@@ -7,8 +7,8 @@
 /// These variables need to be hoisted to function scope.
 /// We record the initializer expression so we can use @TypeOf(expr) for type inference.
 const std = @import("std");
-const ast = @import("ast");
-const hashmap_helper = @import("hashmap_helper");
+const ast = @import("analysis.ast");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Common error type for scope analysis functions (to break recursive error set inference)
 pub const ScopeAnalysisError = std.mem.Allocator.Error;

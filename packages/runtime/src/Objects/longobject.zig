@@ -2,7 +2,7 @@
 /// Provides fast conversion between large integers and decimal strings
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Log base 256 of 10, used for digit estimation
 pub const LOG_10_BASE_256: f64 = 0.4150374992788438;

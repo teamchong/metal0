@@ -1,7 +1,7 @@
 /// Local class hoisting utilities - hoist locally-defined classes from method bodies to struct level
 /// This is needed because Zig requires all const declarations to appear before pub fn declarations.
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
 const generators = @import("../../generators.zig");

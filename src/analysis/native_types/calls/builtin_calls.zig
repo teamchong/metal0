@@ -1,8 +1,8 @@
 /// Type inference for builtin function calls (int, str, len, abs, list, map, etc.)
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const core = @import("../core.zig");
-const fnv_hash = @import("fnv_hash");
+const fnv_hash = @import("utils.fnv_hash");
 const static_maps = @import("static_maps.zig");
 const expressions = @import("../expressions.zig");
 
@@ -10,7 +10,7 @@ pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
 pub const ClassInfo = core.ClassInfo;
 
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 

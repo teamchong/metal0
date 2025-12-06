@@ -292,7 +292,7 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
             try buffer.append(allocator, '{');
 
             if (dict_obj.ma_keys) |keys_ptr| {
-                const map: *@import("hashmap_helper").StringHashMap(*runtime.PyObject) = @ptrCast(@alignCast(keys_ptr));
+                const map: *@import("utils.hashmap_helper").StringHashMap(*runtime.PyObject) = @ptrCast(@alignCast(keys_ptr));
                 // Fast path: process first entry without comma check
                 var it = map.iterator();
                 if (it.next()) |entry| {
@@ -433,7 +433,7 @@ fn estimateJsonSize(obj: *runtime.PyObject) usize {
             const dict_obj: *runtime.PyDictObject = @ptrCast(@alignCast(obj));
             var size: usize = 2; // {}
             if (dict_obj.ma_keys) |keys_ptr| {
-                const map: *@import("hashmap_helper").StringHashMap(*runtime.PyObject) = @ptrCast(@alignCast(keys_ptr));
+                const map: *@import("utils.hashmap_helper").StringHashMap(*runtime.PyObject) = @ptrCast(@alignCast(keys_ptr));
                 var it = map.iterator();
                 while (it.next()) |entry| {
                     size += entry.key_ptr.*.len + 3; // "key":
@@ -513,7 +513,7 @@ fn stringifyPyObject(obj: *runtime.PyObject, writer: anytype) !void {
             // Fast path: don't sort keys (Python json.dumps sort_keys=False default)
             // This is 2-3x faster than sorting for large dicts
             if (dict_obj.ma_keys) |keys_ptr| {
-                const map: *@import("hashmap_helper").StringHashMap(*runtime.PyObject) = @ptrCast(@alignCast(keys_ptr));
+                const map: *@import("utils.hashmap_helper").StringHashMap(*runtime.PyObject) = @ptrCast(@alignCast(keys_ptr));
                 var it = map.iterator();
                 var first = true;
                 while (it.next()) |entry| {
@@ -747,7 +747,7 @@ fn stringifyPyObjectWithOptions(obj: *runtime.PyObject, buffer: *std.ArrayList(u
             try buffer.append(allocator, '{');
 
             if (dict_obj.ma_keys) |keys_ptr| {
-                const map: *@import("hashmap_helper").StringHashMap(*runtime.PyObject) = @ptrCast(@alignCast(keys_ptr));
+                const map: *@import("utils.hashmap_helper").StringHashMap(*runtime.PyObject) = @ptrCast(@alignCast(keys_ptr));
 
                 if (options.sort_keys) {
                     // Collect and sort keys

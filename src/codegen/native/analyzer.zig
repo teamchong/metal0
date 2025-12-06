@@ -1,7 +1,7 @@
 /// Comptime analysis - Analyze AST before code generation
 /// Determines what imports, resources, and setup code is needed
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const shared = @import("shared_maps.zig");
 const ListMethods = shared.MutatingMethods;
 const AllocatorStringMethods = shared.AllocatingStringMethods;

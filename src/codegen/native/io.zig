@@ -1,6 +1,6 @@
 /// IO module codegen - StringIO, BytesIO
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const m = @import("mod_helper.zig");
 const H = m.H;
 

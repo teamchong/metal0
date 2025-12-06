@@ -3,7 +3,7 @@
 /// NOTE: All handlers use Zig stdlib directly (std.fs, std.process, std.posix).
 /// No runtime.os module exists - these generate inline Zig code, not runtime calls.
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const m = @import("mod_helper.zig");
 const CodegenError = m.CodegenError;
 const NativeCodegen = m.NativeCodegen;

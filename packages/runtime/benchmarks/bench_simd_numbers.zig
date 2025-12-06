@@ -1,7 +1,7 @@
 // Benchmark SIMD number parsing with 8+ digit numbers
 const std = @import("std");
 const runtime = @import("runtime");
-const allocator_helper = @import("allocator_helper");
+const allocator_helper = @import("utils.allocator_helper");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

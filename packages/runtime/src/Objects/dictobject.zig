@@ -1,7 +1,7 @@
 /// Python dict type implementation (CPython ABI compatible)
 const std = @import("std");
 const runtime = @import("../runtime.zig");
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // Re-export CPython-compatible types
 pub const PyObject = runtime.PyObject;

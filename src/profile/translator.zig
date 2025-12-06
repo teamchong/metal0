@@ -3,6 +3,7 @@
 /// using .metal0.dbg.json source maps
 const std = @import("std");
 const format = @import("format.zig");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Debug info from .metal0.dbg.json
 pub const DebugInfo = struct {
@@ -51,12 +52,12 @@ pub const Sample = struct {
 /// Translator state
 pub const Translator = struct {
     allocator: std.mem.Allocator,
-    debug_infos: std.StringHashMap(DebugInfo),
+    debug_infos: hashmap_helper.StringHashMap(DebugInfo),
 
     pub fn init(allocator: std.mem.Allocator) Translator {
         return .{
             .allocator = allocator,
-            .debug_infos = std.StringHashMap(DebugInfo).init(allocator),
+            .debug_infos = hashmap_helper.StringHashMap(DebugInfo).init(allocator),
         };
     }
 
@@ -93,8 +94,7 @@ pub const Translator = struct {
         }
 
         // Look for function in debug info
-        var iter = self.debug_infos.valueIterator();
-        while (iter.next()) |info| {
+        for (self.debug_infos.values()) |info| {
             for (info.symbols) |sym| {
                 if (std.mem.eql(u8, sym.kind, "function")) {
                     if (std.mem.indexOf(u8, zig_symbol, sym.name)) |_| {
@@ -210,7 +210,7 @@ pub const Translator = struct {
             samples.deinit(self.allocator);
         }
 
-        var sample_counts = std.StringHashMap(u64).init(self.allocator);
+        var sample_counts = hashmap_helper.StringHashMap(u64).init(self.allocator);
         defer {
             var iter = sample_counts.keyIterator();
             while (iter.next()) |key| {
@@ -264,11 +264,10 @@ pub const Translator = struct {
 
     /// Translate raw samples to Python profile
     pub fn translateToProfile(self: *Translator, samples: []const Sample, source_file: []const u8) !format.Profile {
-        var function_samples = std.StringHashMap(u64).init(self.allocator);
+        var function_samples = hashmap_helper.StringHashMap(u64).init(self.allocator);
         defer {
-            var iter = function_samples.keyIterator();
-            while (iter.next()) |key| {
-                self.allocator.free(key.*);
+            for (function_samples.keys()) |key| {
+                self.allocator.free(key);
             }
             function_samples.deinit();
         }

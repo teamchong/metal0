@@ -1,5 +1,5 @@
 const std = @import("std");
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Named capture group support for regex patterns
 /// Supports both Python-style (?P<name>...) and .NET-style (?<name>...)

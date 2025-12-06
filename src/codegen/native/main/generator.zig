@@ -1,6 +1,6 @@
 /// Main code generation functions
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const core = @import("core.zig");
 const NativeCodegen = core.NativeCodegen;
 const CodegenError = core.CodegenError;
@@ -10,8 +10,8 @@ const analyzer = @import("../analyzer.zig");
 const statements = @import("../statements.zig");
 const expressions = @import("../expressions.zig");
 const import_resolver = @import("../../../import_resolver.zig");
-const zig_keywords = @import("zig_keywords");
-const hashmap_helper = @import("hashmap_helper");
+const zig_keywords = @import("utils.zig_keywords");
+const hashmap_helper = @import("utils.hashmap_helper");
 const build_dirs = @import("../../../build_dirs.zig");
 
 // Comptime constants for code generation (zero runtime cost)
@@ -1522,7 +1522,7 @@ fn genClosureWrapperTypes(self: *NativeCodegen, module: ast.Node.Module) !void {
 /// This populates test_factories map with factory function name -> TestClassInfo[]
 fn analyzeTestFactories(self: *NativeCodegen, module: ast.Node.Module) !void {
     const generators = @import("../statements/functions/generators.zig");
-    const function_traits = @import("function_traits");
+    const function_traits = @import("analysis.function_traits");
 
     for (module.body) |stmt| {
         if (stmt != .function_def) continue;

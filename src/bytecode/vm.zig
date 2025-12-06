@@ -10,6 +10,7 @@
 const std = @import("std");
 const opcode = @import("opcode.zig");
 const builtin = @import("builtin");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 const OpCode = opcode.OpCode;
 const Instruction = opcode.Instruction;
@@ -72,12 +73,12 @@ pub const VM = struct {
     /// Call frames for function calls
     frames: std.ArrayList(Frame),
     /// Global variables
-    globals: std.StringHashMap(StackValue),
+    globals: hashmap_helper.StringHashMap(StackValue),
 
     pub const Frame = struct {
         program: *const Program,
         ip: usize,
-        locals: std.StringHashMap(StackValue),
+        locals: hashmap_helper.StringHashMap(StackValue),
     };
 
     pub fn init(allocator: std.mem.Allocator) VM {
@@ -85,7 +86,7 @@ pub const VM = struct {
             .allocator = allocator,
             .stack = std.ArrayList(StackValue){},
             .frames = std.ArrayList(Frame){},
-            .globals = std.StringHashMap(StackValue).init(allocator),
+            .globals = hashmap_helper.StringHashMap(StackValue).init(allocator),
         };
     }
 
@@ -103,7 +104,7 @@ pub const VM = struct {
         try self.frames.append(self.allocator, .{
             .program = program,
             .ip = 0,
-            .locals = std.StringHashMap(StackValue).init(self.allocator),
+            .locals = hashmap_helper.StringHashMap(StackValue).init(self.allocator),
         });
 
         while (self.frames.items.len > 0) {

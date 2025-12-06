@@ -1,6 +1,6 @@
 /// Pathlib module - pathlib.Path and all Path methods
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const m = @import("mod_helper.zig");
 const CodegenError = m.CodegenError;
 const NativeCodegen = m.NativeCodegen;

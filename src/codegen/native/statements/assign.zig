@@ -1,6 +1,6 @@
 /// Assignment and expression statement code generation
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeType = @import("../../../analysis/native_types/core.zig").NativeType;
@@ -9,7 +9,7 @@ const comptimeHelpers = @import("assign_comptime.zig");
 const deferCleanup = @import("assign_defer.zig");
 const typeHandling = @import("assign/type_handling.zig");
 const valueGen = @import("assign/value_generation.zig");
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 
 // Re-export submodules
 pub const genAugAssign = @import("assign/aug_assign.zig").genAugAssign;

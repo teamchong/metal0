@@ -1,9 +1,9 @@
 /// Nested class capture analysis for closure support
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const shared = @import("../../../../shared_maps.zig");
 const MutatingMethods = shared.MutatingMethods;
 const BuiltinNames = shared.PythonBuiltinNames;

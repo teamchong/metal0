@@ -3,6 +3,7 @@
 const std = @import("std");
 const metal0 = @import("metal0");
 const c_interop = @import("c_interop");
+const hashmap_helper = @import("utils.hashmap_helper");
 const CompileOptions = @import("../main.zig").CompileOptions;
 const utils = @import("utils.zig");
 const compile = @import("compile.zig");
@@ -918,9 +919,9 @@ fn cmdProfileTranslate(allocator: std.mem.Allocator, args: []const []const u8) !
 
     // Get source file from first debug info
     var source_file: []const u8 = "unknown";
-    var dbg_iter = translator.debug_infos.valueIterator();
-    if (dbg_iter.next()) |info| {
-        source_file = info.source_file;
+    const dbg_values = translator.debug_infos.values();
+    if (dbg_values.len > 0) {
+        source_file = dbg_values[0].source_file;
     }
 
     // Translate to Python profile
@@ -1495,7 +1496,7 @@ fn cmdCodegen(allocator: std.mem.Allocator, args: []const []const u8) !void {
         std.debug.print("Failed: {s}{d}{s}\n\n", .{ Color.red, errors.items.len, Color.reset });
 
         // Group errors by type
-        var error_counts = std.StringHashMap(usize).init(allocator);
+        var error_counts = hashmap_helper.StringHashMap(usize).init(allocator);
         defer error_counts.deinit();
 
         for (errors.items) |e| {

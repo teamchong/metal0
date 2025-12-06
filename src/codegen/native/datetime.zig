@@ -1,7 +1,7 @@
 /// DateTime module codegen - datetime.datetime, datetime.date, datetime.time, datetime.timedelta
 /// Supports constructors, now(), today(), strftime, and method calls
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 

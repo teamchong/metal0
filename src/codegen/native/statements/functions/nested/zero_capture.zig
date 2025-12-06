@@ -1,10 +1,10 @@
 /// Zero-capture closure generation - optimized closures with no captured variables
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
-const zig_keywords = @import("zig_keywords");
-const hashmap_helper = @import("hashmap_helper");
+const zig_keywords = @import("utils.zig_keywords");
+const hashmap_helper = @import("utils.hashmap_helper");
 const var_tracking = @import("var_tracking.zig");
 
 /// Generate zero-capture closure using comptime ZeroClosure

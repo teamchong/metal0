@@ -5,9 +5,9 @@
 /// - Instance methods: "hello".upper(), [1,2,3].append(), etc.
 /// - User-defined functions and class constructors
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const core = @import("core.zig");
-const fnv_hash = @import("fnv_hash");
+const fnv_hash = @import("utils.fnv_hash");
 
 // Import submodules
 const static_maps = @import("calls/static_maps.zig");
@@ -20,7 +20,7 @@ pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
 pub const ClassInfo = core.ClassInfo;
 
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 

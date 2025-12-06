@@ -1,4 +1,4 @@
-.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-webserver benchmark-regex benchmark-tokenizer benchmark-numpy benchmark-asyncio benchmark-asyncio-io clean format gen-packages
+.PHONY: help build install test test-unit test-integration test-quick test-cpython test-cpython-one test-status test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-webserver benchmark-regex benchmark-tokenizer benchmark-numpy benchmark-asyncio benchmark-asyncio-io clean format gen-packages
 
 # =============================================================================
 # HELP
@@ -15,6 +15,7 @@ help:
 	@echo "  make test           Run quick tests (unit + smoke)"
 	@echo "  make test-unit      Run unit tests only"
 	@echo "  make test-integration  Run integration tests"
+	@echo "  make test-status    Quick pass/fail count for 390 CPython tests (parallel)"
 	@echo "  make test-all       Run ALL tests (slow)"
 	@echo ""
 	@echo "Benchmark:"
@@ -89,6 +90,43 @@ test-cpython-one: build
 test-all: build test-unit test-integration test-cpython
 	@echo ""
 	@echo "✓ All tests complete"
+
+# Quick status check - parallel run with short timeout (shows pass/fail counts fast)
+# Usage: make test-status [TIMEOUT=10] [JOBS=16]
+TIMEOUT ?= 10
+JOBS ?= 16
+test-status: build
+	@echo "CPython tests status (timeout=$(TIMEOUT)s, jobs=$(JOBS))..."
+	@pass=0; fail=0; other=0; \
+	for f in $$(find tests/cpython -name "test_*.py" -type f | sort); do \
+		echo "$$f"; \
+	done | xargs -P $(JOBS) -I {} sh -c ' \
+		result=$$(timeout $(TIMEOUT) ./zig-out/bin/metal0 "{}" --force 2>&1); \
+		if echo "$$result" | grep -qE "^OK$$|Ran [0-9]+ test.*OK"; then \
+			echo "PASS {}"; \
+		elif echo "$$result" | grep -qE "error:|Error:|FAILED"; then \
+			echo "FAIL {}"; \
+		else \
+			echo "OTHER {}"; \
+		fi \
+	' 2>/dev/null | tee /tmp/test_status_$$$$.log | { \
+		pass=0; fail=0; other=0; \
+		while read line; do \
+			case "$$line" in \
+				PASS*) pass=$$((pass+1)); printf ".";; \
+				FAIL*) fail=$$((fail+1)); printf "x";; \
+				OTHER*) other=$$((other+1)); printf "?";; \
+			esac; \
+		done; \
+		echo ""; echo ""; \
+		echo "========================================"; \
+		printf "\033[0;32m✓ PASS:  %3d\033[0m\n" $$pass; \
+		printf "\033[0;31m✗ FAIL:  %3d\033[0m\n" $$fail; \
+		printf "\033[0;33m? OTHER: %3d\033[0m\n" $$other; \
+		echo "----------------------------------------"; \
+		printf "  TOTAL: %3d\n" $$((pass+fail+other)); \
+		echo "========================================"; \
+	}
 
 # =============================================================================
 # BENCHMARK (requires hyperfine: brew install hyperfine)

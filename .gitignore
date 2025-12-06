@@ -113,10 +113,35 @@ benchmarks/**/*_metal
 benchmarks/**/*_metal0
 benchmarks/**/*.exe
 benchmarks/**/*.bin
+benchmarks/**/go/parse
+benchmarks/**/go/stringify
 
 # Rust build artifacts (anywhere)
 **/target/
 **/Cargo.lock
+
+# Package test/bench binaries (not source files)
+packages/**/bench
+packages/**/bench_*
+packages/**/test_*
+packages/**/BENCHMARK*
+packages/**/simd_bench
+packages/**/debug_*
+packages/**/example_*
+packages/**/bin/bench_*
+packages/**/bin/accuracy_*
+!packages/**/*.py
+!packages/**/*.sh
+!packages/**/*.zig
+!packages/**/*.go
+!packages/**/*.rs
+!packages/**/*.js
+!packages/**/*.md
+!packages/**/*.json
+!packages/**/*.txt
+
+# Examples binaries
+examples/**/app
 
 # Go build artifacts
 **/go.sum

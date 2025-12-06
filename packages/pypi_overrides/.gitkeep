@@ -1,0 +1,18 @@
+# PyPI Override Packages
+#
+# Each subfolder here replaces a PyPI package with native Zig implementation.
+#
+# Structure:
+#   packages/pypi_overrides/{pypi_name}/
+#   ├── pypi.json         # Optional: {"aliases": ["alt-name1", "alt-name2"]}
+#   └── src/main.zig      # Implementation
+#
+# The folder name is the primary PyPI package name.
+# System auto-generates:
+#   - Skip list (prevents PyPI download)
+#   - Import mapping (Python import → Zig module)
+#
+# Example: websockets/
+#   pypi.json: {"aliases": ["websocket-client"]}
+#   → Skips: websockets, websocket-client
+#   → Maps: import websockets → @import("pypi_overrides").websockets

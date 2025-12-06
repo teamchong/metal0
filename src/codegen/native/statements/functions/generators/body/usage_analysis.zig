@@ -1,6 +1,7 @@
 /// Variable usage analysis for function/method bodies
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
+const hashmap_helper = @import("utils.hashmap_helper");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
 
@@ -279,7 +280,7 @@ pub fn collectUsesInNode(self: *NativeCodegen, node: ast.Node) !void {
         // But DON'T count variables that are assigned locally in the nested function
         .function_def => |func_def| {
             // First, collect all variables assigned locally in nested function
-            var local_assigns = std.StringHashMap(void).init(self.allocator);
+            var local_assigns = hashmap_helper.StringHashMap(void).init(self.allocator);
             defer local_assigns.deinit();
             // Add function parameters as local
             for (func_def.args) |arg| {
@@ -320,7 +321,7 @@ pub fn collectUsesInNode(self: *NativeCodegen, node: ast.Node) !void {
 }
 
 /// Collect variable names assigned in a statement (for nested function local detection)
-fn collectAssignedVars(locals: *std.StringHashMap(void), node: ast.Node) void {
+fn collectAssignedVars(locals: *hashmap_helper.StringHashMap(void), node: ast.Node) void {
     switch (node) {
         .assign => |assign| {
             for (assign.targets) |target| {
@@ -406,7 +407,7 @@ fn collectAssignedVars(locals: *std.StringHashMap(void), node: ast.Node) void {
 }
 
 /// Collect uses in node, but exclude variables that are locally assigned
-fn collectUsesExcludingLocals(self: *NativeCodegen, node: ast.Node, locals: *const std.StringHashMap(void)) !void {
+fn collectUsesExcludingLocals(self: *NativeCodegen, node: ast.Node, locals: *const hashmap_helper.StringHashMap(void)) !void {
     switch (node) {
         .name => |name| {
             // Only add to uses if NOT a local variable

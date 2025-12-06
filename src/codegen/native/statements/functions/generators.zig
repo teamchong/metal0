@@ -1,12 +1,12 @@
 /// Function and class definition code generation
 const std = @import("std");
-const ast = @import("ast");
-const hashmap_helper = @import("hashmap_helper");
-const zig_keywords = @import("zig_keywords");
+const ast = @import("analysis.ast");
+const hashmap_helper = @import("utils.hashmap_helper");
+const zig_keywords = @import("utils.zig_keywords");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const DecoratedFunction = @import("../../main.zig").DecoratedFunction;
 const CodegenError = @import("../../main.zig").CodegenError;
-const function_traits = @import("function_traits");
+const function_traits = @import("analysis.function_traits");
 const signature = @import("generators/signature.zig");
 const body = @import("generators/body.zig");
 const builtin_types = @import("generators/builtin_types.zig");

@@ -1,23 +1,23 @@
 /// Core NativeCodegen struct and basic operations
 const std = @import("std");
-const ast = @import("ast");
-const zig_keywords = @import("zig_keywords");
+const ast = @import("analysis.ast");
+const zig_keywords = @import("utils.zig_keywords");
 const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
 const TypeInferrer = native_types.TypeInferrer;
 const SemanticInfo = @import("../../../analysis/types.zig").SemanticInfo;
 const comptime_eval = @import("../../../analysis/comptime_eval.zig");
-const function_traits = @import("function_traits");
+const function_traits = @import("analysis.function_traits");
 const symbol_table_mod = @import("../symbol_table.zig");
 const SymbolTable = symbol_table_mod.SymbolTable;
 const ClassRegistry = symbol_table_mod.ClassRegistry;
 const MethodInfo = symbol_table_mod.MethodInfo;
 const import_registry = @import("../import_registry.zig");
-const fnv_hash = @import("fnv_hash");
+const fnv_hash = @import("utils.fnv_hash");
 const cleanup = @import("cleanup.zig");
-const debug_info = @import("debug_info");
+const debug_info = @import("debug.debug_info");
 
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 const FnvStringMap = hashmap_helper.StringHashMap([]const u8);
 const FnvFuncDefMap = hashmap_helper.StringHashMap(ast.Node.FunctionDef);
@@ -602,7 +602,7 @@ pub const NativeCodegen = struct {
 
     // Token line lookup map (built lazily when needed for debug info)
     // Maps identifier name -> Python line number
-    token_lines: ?std.StringHashMap(u32),
+    token_lines: ?hashmap_helper.StringHashMap(u32),
 
     // Keyword occurrence counters for debug line mapping
     // Track how many times we've processed each keyword type during codegen
@@ -786,7 +786,7 @@ pub const NativeCodegen = struct {
         // Build token line map lazily on first use
         if (self.token_lines == null) {
             if (self.tokens) |toks| {
-                self.token_lines = std.StringHashMap(u32).init(self.allocator);
+                self.token_lines = hashmap_helper.StringHashMap(u32).init(self.allocator);
                 const lexer_mod = @import("../../../lexer.zig");
                 for (toks) |tok| {
                     // Store all identifiers with their line numbers

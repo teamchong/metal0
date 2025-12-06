@@ -2,7 +2,7 @@
 /// Handles chained comparisons, string comparisons, container membership, identity checks
 /// String literal comparisons are folded at compile time ("a" == "a" → true)
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const expressions = @import("../../expressions.zig");

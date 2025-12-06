@@ -1,6 +1,6 @@
 /// Python http module - HTTP protocol client/server
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;

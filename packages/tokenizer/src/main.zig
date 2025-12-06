@@ -3,7 +3,7 @@
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Trainer = @import("trainer.zig").Trainer;
-const allocator_helper = @import("allocator_helper");
+const allocator_helper = @import("utils.allocator_helper");
 
 /// Comptime-validated unsafe optimization
 /// Zig guarantees this is safe at compile time!

@@ -1,9 +1,9 @@
 /// Variable tracking for closures - finding captured vars, analyzing usage patterns
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Collect variable names from an assignment target (handles name, tuple, list)
 fn collectTargetVarsToList(allocator: std.mem.Allocator, node: ast.Node, list: *std.ArrayList([]const u8)) !void {

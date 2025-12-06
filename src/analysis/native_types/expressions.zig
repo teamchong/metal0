@@ -1,7 +1,7 @@
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const core = @import("core.zig");
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const calls = @import("calls.zig");
 const inferrer_mod = @import("inferrer.zig");
 
@@ -365,7 +365,7 @@ pub fn inferExprWithInferrer(
 
             // Path properties
             if (obj_type == .path) {
-                const fnv_hash = @import("fnv_hash");
+                const fnv_hash = @import("utils.fnv_hash");
                 const attr_hash = fnv_hash.hash(a.attr);
                 const PARENT_HASH = comptime fnv_hash.hash("parent");
                 const NAME_HASH = comptime fnv_hash.hash("name");

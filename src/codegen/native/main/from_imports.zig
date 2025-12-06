@@ -1,9 +1,9 @@
 const std = @import("std");
 const core = @import("core.zig");
 const NativeCodegen = core.NativeCodegen;
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const import_resolver = @import("../../../import_resolver.zig");
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 
 /// Check if operator function name is known
 fn isKnownOperatorFunc(name: []const u8) bool {

@@ -1,7 +1,7 @@
 /// Test skip detection for unittest classes
 const std = @import("std");
-const ast = @import("ast");
-const hashmap_helper = @import("hashmap_helper");
+const ast = @import("analysis.ast");
+const hashmap_helper = @import("utils.hashmap_helper");
 const shared = @import("../../../shared_maps.zig");
 const TypeParamDefaults = shared.PythonBuiltinTypes;
 const PyNameToZig = shared.PyTypeToZig;

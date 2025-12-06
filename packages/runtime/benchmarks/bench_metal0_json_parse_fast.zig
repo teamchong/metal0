@@ -1,7 +1,7 @@
 // Benchmark metal0's JSON parse with arena allocator optimization
 const std = @import("std");
 const runtime = @import("runtime");
-const allocator_helper = @import("allocator_helper");
+const allocator_helper = @import("utils.allocator_helper");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

@@ -1,12 +1,12 @@
 /// For loop code generation (basic, range, tuple unpacking)
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const for_special = @import("for_special.zig");
 const genEnumerateLoop = for_special.genEnumerateLoop;
 const genZipLoop = for_special.genZipLoop;
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 const producesBlockExpression = @import("../../../expressions.zig").producesBlockExpression;
 const triggerDeferredClosureInstantiations = @import("../../assign.zig").triggerDeferredClosureInstantiations;
 

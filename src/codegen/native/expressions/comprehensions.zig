@@ -1,13 +1,13 @@
 /// List and dict comprehension code generation
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const shared = @import("../shared_maps.zig");
 const BinOpStrings = shared.BinOpStrings;
-const function_traits = @import("function_traits");
-const zig_keywords = @import("zig_keywords");
+const function_traits = @import("analysis.function_traits");
+const zig_keywords = @import("utils.zig_keywords");
 
 /// Builtins that return int for type inference
 const IntReturningBuiltins = std.StaticStringMap(void).initComptime(.{

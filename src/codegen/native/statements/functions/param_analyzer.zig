@@ -1,7 +1,7 @@
 /// Parameter usage analysis for decorator and higher-order function detection
 /// Uses shared variable_usage module for core AST traversal
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const self_analyzer = @import("self_analyzer.zig");
 const UnittestMethodNames = self_analyzer.unittest_assertion_methods;
 

@@ -1,11 +1,11 @@
 /// Value generation and emission logic for assignments
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const helpers = @import("../assign_helpers.zig");
 const deferCleanup = @import("../assign_defer.zig");
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 
 /// Generate tuple unpacking assignment: a, b = (1, 2)
 pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tuple: ast.Node.Tuple) CodegenError!void {

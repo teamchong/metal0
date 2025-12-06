@@ -1,13 +1,13 @@
 /// Subscript and slicing code generation
 /// Handles array/dict indexing and slicing operations
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
 const producesBlockExpression = expressions.producesBlockExpression;
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 
 /// Check if a node is a negative constant
 pub fn isNegativeConstant(node: ast.Node) bool {

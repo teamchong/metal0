@@ -11,9 +11,9 @@
 ///
 /// Used by both genFunctionBody (top-level functions) and genMethodBody (class methods).
 const std = @import("std");
-const ast = @import("ast");
-const hashmap_helper = @import("hashmap_helper");
-const zig_keywords = @import("zig_keywords");
+const ast = @import("analysis.ast");
+const hashmap_helper = @import("utils.hashmap_helper");
+const zig_keywords = @import("utils.zig_keywords");
 const scope_analyzer = @import("scope_analyzer.zig");
 
 const NativeCodegen = @import("../../main.zig").NativeCodegen;

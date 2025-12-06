@@ -1,14 +1,14 @@
 /// Miscellaneous statement code generation (return, import, assert, global, del, raise)
 const std = @import("std");
-const ast = @import("ast");
-const zig_keywords = @import("zig_keywords");
+const ast = @import("analysis.ast");
+const zig_keywords = @import("utils.zig_keywords");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const shared = @import("../shared_maps.zig");
 const ExceptionTypes = shared.RuntimeExceptions;
 const var_hoisting = @import("functions/var_hoisting.zig");
 const scope_analyzer = @import("functions/scope_analyzer.zig");
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // Re-export print statement generation
 pub const genPrint = @import("print.zig").genPrint;

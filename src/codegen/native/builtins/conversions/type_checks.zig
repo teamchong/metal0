@@ -1,6 +1,6 @@
 /// Type checking and introspection builtins: type(), isinstance(), callable(), issubclass(), id(), delattr()
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const shared = @import("../../shared_maps.zig");

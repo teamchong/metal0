@@ -1,6 +1,6 @@
 /// Shared module helper types and comptime generators for *_mod.zig files
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 pub const CodegenError = @import("main.zig").CodegenError;
 pub const NativeCodegen = @import("main.zig").NativeCodegen;
 

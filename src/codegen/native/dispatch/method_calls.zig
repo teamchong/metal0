@@ -1,9 +1,9 @@
 /// Method call dispatchers (string, list, dict methods)
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 
 const methods = @import("../methods.zig");
 const io_mod = @import("../io.zig");
@@ -744,7 +744,7 @@ fn handleStreamMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.No
     self.output = saved_output;
 
     // Use simple string comparison for method dispatch
-    const fnv = @import("fnv_hash");
+    const fnv = @import("utils.fnv_hash");
     const WRITE = comptime fnv.hash("write");
     const READ = comptime fnv.hash("read");
     const READLINE = comptime fnv.hash("readline");
@@ -830,7 +830,7 @@ fn handleHashMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.Node
     defer self.allocator.free(receiver);
     self.output = saved_output;
 
-    const fnv = @import("fnv_hash");
+    const fnv = @import("utils.fnv_hash");
     const UPDATE = comptime fnv.hash("update");
     const DIGEST = comptime fnv.hash("digest");
     const HEXDIGEST = comptime fnv.hash("hexdigest");

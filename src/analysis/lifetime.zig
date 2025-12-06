@@ -1,5 +1,5 @@
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const types = @import("types.zig");
 
 /// Record variable uses from an assignment target (handles name, tuple, list)

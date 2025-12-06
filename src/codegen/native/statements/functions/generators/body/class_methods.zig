@@ -1,13 +1,13 @@
 /// Class method generation (init, regular methods, inherited methods)
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const signature = @import("../signature.zig");
 const class_fields = @import("class_fields.zig");
-const function_traits = @import("function_traits");
-const zig_keywords = @import("zig_keywords");
+const function_traits = @import("analysis.function_traits");
+const zig_keywords = @import("utils.zig_keywords");
 const generators = @import("../../generators.zig");
 const native_types = @import("../../../../../../analysis/native_types/core.zig");
 

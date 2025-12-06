@@ -45,7 +45,8 @@
 /// PHILOSOPHY: Analyze once, query many times. No string-based detection.
 
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // TYPES
@@ -106,13 +107,13 @@ pub const VarUsage = struct {
 /// Analysis result for a scope
 pub const ScopeAnalysis = struct {
     scope: ScopeId,
-    variables: std.StringHashMap(VarUsage),
+    variables: hashmap_helper.StringHashMap(VarUsage),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, scope: ScopeId) ScopeAnalysis {
         return .{
             .scope = scope,
-            .variables = std.StringHashMap(VarUsage).init(allocator),
+            .variables = hashmap_helper.StringHashMap(VarUsage).init(allocator),
             .allocator = allocator,
         };
     }
@@ -128,8 +129,8 @@ pub const ScopeAnalysis = struct {
 
 pub const CodegenAnalyzer = struct {
     allocator: std.mem.Allocator,
-    scope_analyses: std.StringHashMap(ScopeAnalysis),
-    outer_scope_vars: std.StringHashMap(ScopeId), // var_name -> declaring scope
+    scope_analyses: hashmap_helper.StringHashMap(ScopeAnalysis),
+    outer_scope_vars: hashmap_helper.StringHashMap(ScopeId), // var_name -> declaring scope
     shadow_counter: u32,
 
     const Self = @This();
@@ -137,8 +138,8 @@ pub const CodegenAnalyzer = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .scope_analyses = std.StringHashMap(ScopeAnalysis).init(allocator),
-            .outer_scope_vars = std.StringHashMap(ScopeId).init(allocator),
+            .scope_analyses = hashmap_helper.StringHashMap(ScopeAnalysis).init(allocator),
+            .outer_scope_vars = hashmap_helper.StringHashMap(ScopeId).init(allocator),
             .shadow_counter = 0,
         };
     }

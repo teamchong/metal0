@@ -5,7 +5,7 @@
 /// Reference: https://zork.net/~st/jottings/sais.html
 /// HuggingFace uses esaxx_rs which implements this algorithm
 const std = @import("std");
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const Allocator = std.mem.Allocator;
 
 /// Substring with its frequency count

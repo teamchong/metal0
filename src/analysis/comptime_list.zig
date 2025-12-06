@@ -1,5 +1,5 @@
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const ComptimeValue = @import("comptime_eval.zig").ComptimeValue;
 
 /// List operation evaluation helpers

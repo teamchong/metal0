@@ -1,6 +1,6 @@
 /// Self-usage detection for method bodies
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 
 /// unittest assertion methods that dispatch to runtime (self isn't used in generated code)
 /// Public so other modules can check against this list

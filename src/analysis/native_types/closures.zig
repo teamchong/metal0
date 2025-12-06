@@ -1,7 +1,7 @@
 /// Closure analysis - detect captured variables in nested functions
 const std = @import("std");
-const hashmap_helper = @import("hashmap_helper");
-const ast = @import("ast");
+const hashmap_helper = @import("utils.hashmap_helper");
+const ast = @import("analysis.ast");
 
 /// Collect variable names from an assignment target (handles name, tuple, list)
 fn collectTargetVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void)) !void {

@@ -1,14 +1,14 @@
 /// Try/except/finally statement code generation
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const NativeType = @import("../../../analysis/native_types.zig").NativeType;
 const variable_usage = @import("../analysis/variable_usage.zig");
 const expressions = @import("../expressions.zig");
 const shared = @import("../shared_maps.zig");
-const zig_keywords = @import("zig_keywords");
+const zig_keywords = @import("utils.zig_keywords");
 const signature_utils = @import("functions/generators/signature.zig");
 
 const FnvVoidMap = hashmap_helper.StringHashMap(void);

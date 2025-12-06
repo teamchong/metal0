@@ -1,14 +1,14 @@
 /// Import handling and module compilation
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const core = @import("core.zig");
 const NativeCodegen = core.NativeCodegen;
 const statements = @import("../statements.zig");
 const import_resolver = @import("../../../import_resolver.zig");
-const fnv_hash = @import("fnv_hash");
+const fnv_hash = @import("utils.fnv_hash");
 const build_dirs = @import("../../../build_dirs.zig");
 
-const hashmap_helper = @import("hashmap_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 const FnvStringMap = hashmap_helper.StringHashMap([]const u8);
 const cleanup = @import("cleanup.zig");

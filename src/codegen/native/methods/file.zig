@@ -1,6 +1,6 @@
 /// File methods - read(), write(), close(), readline(), seek(), tell(), flush(), readlines(), writelines()
 const std = @import("std");
-const ast = @import("ast");
+const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
