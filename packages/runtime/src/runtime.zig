@@ -224,6 +224,13 @@ pub fn pyContains(comptime T: type, slice: []const T, value: T) bool {
         }
         return false;
     }
+    // For slice types (like strings), use std.mem.eql
+    if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .slice) {
+        for (slice) |item| {
+            if (std.mem.eql(@typeInfo(T).pointer.child, item, value)) return true;
+        }
+        return false;
+    }
     // For other types, use standard equality
     return std.mem.indexOfScalar(T, slice, value) != null;
 }
@@ -716,11 +723,21 @@ pub fn toBool(value: anytype) bool {
         if (@hasField(T, "items")) {
             return value.items.len > 0;
         }
+        // Check for .count() method (HashMap/ArrayHashMap) - empty dict is falsy
+        if (@hasDecl(T, "count")) {
+            return value.count() > 0;
+        }
     }
 
     // Handle arrays (fixed-size arrays) - empty is falsy, non-empty is truthy
     if (info == .array) {
         return info.array.len > 0;
+    }
+
+    // Handle tuples (anonymous structs with numbered fields) - empty tuple is falsy
+    // This catches `struct {}` (empty tuple) and `struct { i64, i64 }` etc.
+    if (info == .@"struct" and info.@"struct".is_tuple) {
+        return info.@"struct".fields.len > 0;
     }
 
     // Default: truthy for everything else (non-empty types)
@@ -735,6 +752,36 @@ pub fn validateBoolReturn(value: anytype) PythonError!bool {
         return value;
     }
     // Python 3: __bool__ MUST return bool (True or False)
+    return PythonError.TypeError;
+}
+
+/// Validate that __float__ returns float (Python 3 requirement)
+/// Returns error.TypeError if value is not float
+pub fn validateFloatReturn(value: anytype) PythonError!f64 {
+    const T = @TypeOf(value);
+    const type_info = @typeInfo(T);
+    if (type_info == .float or type_info == .comptime_float) {
+        return value;
+    }
+    // Handle PyValue union (when __float__ returns stored value)
+    if (T == PyValue) {
+        switch (value) {
+            .float => |f| return f,
+            else => return PythonError.TypeError,
+        }
+    }
+    // Handle struct with __base_value__ (float subclass)
+    if (type_info == .@"struct") {
+        if (@hasField(T, "__base_value__")) {
+            const base_val = value.__base_value__;
+            const base_type = @typeInfo(@TypeOf(base_val));
+            if (base_type == .float or base_type == .comptime_float) {
+                return @as(f64, base_val);
+            }
+        }
+    }
+    // Python 3: __float__ MUST return float (not int or other types)
+    // "ClassName.__float__ returned non-float (type int)"
     return PythonError.TypeError;
 }
 
@@ -1911,7 +1958,7 @@ pub const operatorGe = builtins.operatorGe;
 pub const classInstanceEq = builtins.classInstanceEq;
 pub const classInstanceNe = builtins.classInstanceNe;
 pub const PyPowResult = builtins.PyPowResult;
-pub const pyPow = builtins.pyPow;
+// pyPow is defined locally in this file with more comprehensive special case handling
 pub const PyBytes = builtins.PyBytes;
 pub const pyStr = builtins.pyStr;
 
@@ -2215,6 +2262,8 @@ pub const PyDict = dict_module.PyDict;
 // HTTP, async, JSON, regex, sys, and dynamic execution modules
 // HTTP uses pool.zig/server.zig which have Mutex - not available on freestanding
 pub const http = if (is_freestanding) void else @import("Lib/http.zig");
+// WebSocket client (maps to Python's websockets library)
+pub const websocket = if (is_freestanding) void else @import("Lib/websocket.zig");
 // Async modules require threading (not available on freestanding)
 pub const async_runtime = if (is_freestanding) void else @import("Lib/async.zig");
 pub const asyncio = if (is_freestanding) void else @import("Lib/asyncio.zig");
@@ -2506,8 +2555,10 @@ pub fn pyHash(value: anytype) i64 {
     const type_info = @typeInfo(T);
 
     // Integer types: hash is the value itself (Python behavior)
+    // Note: Python maps -1 to -2 because -1 is reserved as error indicator in C API
     if (type_info == .int or type_info == .comptime_int) {
-        return @intCast(value);
+        const result: i64 = @intCast(value);
+        return if (result == -1) -2 else result;
     }
 
     // Bool: 1 for true, 0 for false
@@ -2543,6 +2594,43 @@ pub fn pyHash(value: anytype) i64 {
 
     // Default: return 0 for unhashable types
     return 0;
+}
+
+/// Python-compatible pow function
+/// Handles special cases like (-1)**1e100 = 1.0 (large even exponent)
+/// and 1**anything = 1.0
+pub fn pyPow(base: f64, exp: f64) f64 {
+    // Special case: 1**anything = 1.0
+    if (base == 1.0) {
+        return 1.0;
+    }
+
+    // Special case: anything**0 = 1.0
+    if (exp == 0.0) {
+        return 1.0;
+    }
+
+    // Special case: (-1)**large_integer
+    // If exp is a very large number that would become infinity,
+    // but the mathematical result should be 1 or -1
+    if (base == -1.0) {
+        // Check if exponent is an integer (or effectively an integer)
+        // For very large exponents, we need to determine if even or odd
+        // If |exp| >= 2^53, all floats are integers and even (due to representation)
+        if (@abs(exp) >= 9007199254740992.0) {
+            // Very large exponent - all such floats are even integers
+            return 1.0;
+        }
+        // For smaller exponents, check if it's an integer
+        if (exp == @trunc(exp)) {
+            // It's an integer - check odd/even
+            const exp_int: i64 = @intFromFloat(exp);
+            return if (@mod(exp_int, 2) == 0) 1.0 else -1.0;
+        }
+    }
+
+    // Default: use standard pow
+    return std.math.pow(f64, base, exp);
 }
 
 /// Python-compatible float hash (from Objects/object.c _Py_HashDouble)
