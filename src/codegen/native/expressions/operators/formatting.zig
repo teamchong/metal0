@@ -7,6 +7,58 @@ const CodegenError = @import("../../main.zig").CodegenError;
 const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
 
+/// Parse a Python format specifier like "%.0f", "%5.2f", "%d"
+/// Returns the format type char and the number of characters consumed
+const FormatSpec = struct {
+    spec_char: u8, // 'd', 'f', 's', etc.
+    precision: ?u32, // precision after the dot
+    width: ?u32, // minimum field width
+    consumed: usize, // total chars consumed including %
+};
+
+fn parseFormatSpec(fmt: []const u8, start: usize) FormatSpec {
+    var i = start + 1; // skip %
+    var width: ?u32 = null;
+    var precision: ?u32 = null;
+
+    // Skip flags: -, +, space, #, 0
+    while (i < fmt.len and (fmt[i] == '-' or fmt[i] == '+' or fmt[i] == ' ' or fmt[i] == '#' or fmt[i] == '0')) {
+        i += 1;
+    }
+
+    // Parse width
+    if (i < fmt.len and fmt[i] >= '1' and fmt[i] <= '9') {
+        var w: u32 = 0;
+        while (i < fmt.len and fmt[i] >= '0' and fmt[i] <= '9') {
+            w = w * 10 + @as(u32, fmt[i] - '0');
+            i += 1;
+        }
+        width = w;
+    }
+
+    // Parse precision
+    if (i < fmt.len and fmt[i] == '.') {
+        i += 1;
+        var p: u32 = 0;
+        while (i < fmt.len and fmt[i] >= '0' and fmt[i] <= '9') {
+            p = p * 10 + @as(u32, fmt[i] - '0');
+            i += 1;
+        }
+        precision = p;
+    }
+
+    // Get format character
+    const spec_char = if (i < fmt.len) fmt[i] else 's';
+    const consumed = i + 1 - start;
+
+    return FormatSpec{
+        .spec_char = spec_char,
+        .precision = precision,
+        .width = width,
+        .consumed = consumed,
+    };
+}
+
 /// Generate Python-style string formatting: "%d" % value or "%s %s" % (a, b)
 /// Handles both single value and tuple of values
 pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
@@ -52,11 +104,20 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             var i: usize = 0;
             while (i < fmt.len) {
                 if (fmt[i] == '%' and i + 1 < fmt.len) {
-                    const spec = fmt[i + 1];
-                    switch (spec) {
+                    const fspec = parseFormatSpec(fmt, i);
+                    switch (fspec.spec_char) {
                         'd', 'i' => try self.emit("{any}"),
                         's' => try self.emit("{s}"),
-                        'f' => try self.emit("{d}"),
+                        'f' => {
+                            // Handle precision for floats: %.0f -> {d:.0}, %.2f -> {d:.2}
+                            if (fspec.precision) |p| {
+                                try self.emitFmt("{{d:.{d}}}", .{p});
+                            } else {
+                                try self.emit("{d}");
+                            }
+                        },
+                        'g', 'G' => try self.emit("{d}"), // general format
+                        'e', 'E' => try self.emit("{e}"), // scientific notation
                         'x' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
                         'X' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
                         'o' => try self.emit("{s}"), // Use {s} for octal - formatInt returns string
@@ -64,10 +125,10 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                         '%' => try self.emit("%"),
                         else => {
                             try self.emitFmt("{c}", .{fmt[i]});
-                            try self.emitFmt("{c}", .{spec});
+                            try self.emitFmt("{c}", .{fspec.spec_char});
                         },
                     }
-                    i += 2;
+                    i += fspec.consumed;
                 } else {
                     // Escape special chars for Zig format string
                     if (fmt[i] == '{') {
@@ -94,28 +155,28 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             // Track which format specs need special handling
             var elem_idx: usize = 0;
             var fmt_idx: usize = 0;
-            while (fmt_idx < fmt.len) : (fmt_idx += 1) {
+            while (fmt_idx < fmt.len) {
                 if (fmt[fmt_idx] == '%' and fmt_idx + 1 < fmt.len) {
-                    const spec = fmt[fmt_idx + 1];
+                    const fspec2 = parseFormatSpec(fmt, fmt_idx);
                     // Skip %% - it's an escaped literal % and doesn't consume a tuple element
-                    if (spec == '%') {
-                        fmt_idx += 1;
+                    if (fspec2.spec_char == '%') {
+                        fmt_idx += fspec2.consumed;
                         continue;
                     }
                     if (elem_idx > 0) try self.emit(", ");
                     if (elem_idx < tuple.elts.len) {
                         // For hex/octal formats, wrap in runtime.formatInt to handle bool
-                        if (spec == 'x' or spec == 'X' or spec == 'o') {
+                        if (fspec2.spec_char == 'x' or fspec2.spec_char == 'X' or fspec2.spec_char == 'o') {
                             try self.emit("runtime.formatInt(");
                             try genExpr(self, tuple.elts[elem_idx]);
-                            if (spec == 'x') {
+                            if (fspec2.spec_char == 'x') {
                                 try self.emit(", .hex_lower)");
-                            } else if (spec == 'X') {
+                            } else if (fspec2.spec_char == 'X') {
                                 try self.emit(", .hex_upper)");
                             } else {
                                 try self.emit(", .octal)");
                             }
-                        } else if (spec == 'r') {
+                        } else if (fspec2.spec_char == 'r') {
                             // For %r, wrap in runtime.pyRepr for Python repr() output
                             try self.emitFmt("(runtime.builtins.pyRepr({s}, ", .{alloc_name});
                             try genExpr(self, tuple.elts[elem_idx]);
@@ -125,7 +186,9 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                         }
                         elem_idx += 1;
                     }
-                    fmt_idx += 1; // Skip the spec char
+                    fmt_idx += fspec2.consumed;
+                } else {
+                    fmt_idx += 1;
                 }
             }
             try self.emit("}) catch unreachable;\n");
@@ -135,11 +198,11 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
         // Single format argument: "%d" % n
         if (format_str) |fmt| {
             // Find the format specifier for special handling
-            var format_spec: u8 = 0;
+            var main_fspec: FormatSpec = .{ .spec_char = 's', .precision = null, .width = null, .consumed = 0 };
             var i: usize = 0;
             while (i < fmt.len) {
                 if (fmt[i] == '%' and i + 1 < fmt.len) {
-                    format_spec = fmt[i + 1];
+                    main_fspec = parseFormatSpec(fmt, i);
                     break;
                 }
                 i += 1;
@@ -150,11 +213,20 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             i = 0;
             while (i < fmt.len) {
                 if (fmt[i] == '%' and i + 1 < fmt.len) {
-                    const spec = fmt[i + 1];
-                    switch (spec) {
+                    const fspec = parseFormatSpec(fmt, i);
+                    switch (fspec.spec_char) {
                         'd', 'i' => try self.emit("{any}"),
                         's' => try self.emit("{s}"),
-                        'f' => try self.emit("{d}"),
+                        'f' => {
+                            // Handle precision for floats: %.0f -> {d:.0}, %.2f -> {d:.2}
+                            if (fspec.precision) |p| {
+                                try self.emitFmt("{{d:.{d}}}", .{p});
+                            } else {
+                                try self.emit("{d}");
+                            }
+                        },
+                        'g', 'G' => try self.emit("{d}"), // general format
+                        'e', 'E' => try self.emit("{e}"), // scientific notation
                         'x' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
                         'X' => try self.emit("{s}"), // Use {s} for hex - formatInt returns string
                         'o' => try self.emit("{s}"), // Use {s} for octal - formatInt returns string
@@ -162,10 +234,10 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                         '%' => try self.emit("%"),
                         else => {
                             try self.emitFmt("{c}", .{fmt[i]});
-                            try self.emitFmt("{c}", .{spec});
+                            try self.emitFmt("{c}", .{fspec.spec_char});
                         },
                     }
-                    i += 2;
+                    i += fspec.consumed;
                 } else {
                     // Escape special chars for Zig format string
                     if (fmt[i] == '{') {
@@ -190,17 +262,17 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             }
             try self.emit("\", .{");
             // For hex/octal formats, wrap value in runtime.formatInt
-            if (format_spec == 'x' or format_spec == 'X' or format_spec == 'o') {
+            if (main_fspec.spec_char == 'x' or main_fspec.spec_char == 'X' or main_fspec.spec_char == 'o') {
                 try self.emit("runtime.formatInt(");
                 try genExpr(self, binop.right.*);
-                if (format_spec == 'x') {
+                if (main_fspec.spec_char == 'x') {
                     try self.emit(", .hex_lower)");
-                } else if (format_spec == 'X') {
+                } else if (main_fspec.spec_char == 'X') {
                     try self.emit(", .hex_upper)");
                 } else {
                     try self.emit(", .octal)");
                 }
-            } else if (format_spec == 'd' or format_spec == 'i') {
+            } else if (main_fspec.spec_char == 'd' or main_fspec.spec_char == 'i') {
                 // For %d/%i with bool, convert to int
                 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
                 const right_type = self.inferExprScoped(binop.right.*) catch NativeType.unknown;
@@ -211,7 +283,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                 } else {
                     try genExpr(self, binop.right.*);
                 }
-            } else if (format_spec == 'r') {
+            } else if (main_fspec.spec_char == 'r') {
                 // For %r, wrap in runtime.pyRepr for Python repr() output
                 try self.emitFmt("(runtime.builtins.pyRepr({s}, ", .{alloc_name});
                 try genExpr(self, binop.right.*);

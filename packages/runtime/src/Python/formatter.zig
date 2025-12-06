@@ -1089,12 +1089,16 @@ pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anyt
                 j += 1;
             }
 
-            // Skip precision (.digits)
+            // Parse precision (.digits)
+            var precision: ?u32 = null;
             if (j < format_str.len and format_str[j] == '.') {
                 j += 1;
+                var p: u32 = 0;
                 while (j < format_str.len and std.ascii.isDigit(format_str[j])) {
+                    p = p * 10 + @as(u32, format_str[j] - '0');
                     j += 1;
                 }
+                precision = p;
             }
 
             // Now j points to the conversion character
@@ -1130,17 +1134,25 @@ pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anyt
                 }
                 i = j + 1;
             } else if (spec == 'f' or spec == 'e' or spec == 'g') {
-                // Float format - use canonical formatter
+                // Float format - use canonical formatter with precision
                 if (@typeInfo(V) == .float or @typeInfo(V) == .comptime_float) {
                     const sign_opt: FloatSignOption = if (sign_flag == '+') .plus else if (sign_flag == ' ') .space else .none;
                     const format_opt: FloatFormatType = if (spec == 'e') .scientific else if (spec == 'f') .fixed else .general;
-                    const val_str = try formatPythonFloat(allocator, value, .{ .sign = sign_opt, .format_type = format_opt });
+                    const val_str = try formatPythonFloat(allocator, value, .{ .sign = sign_opt, .format_type = format_opt, .precision = precision });
                     defer allocator.free(val_str);
                     try result.appendSlice(allocator, val_str);
                 } else if (@typeInfo(V) == .int or @typeInfo(V) == .comptime_int) {
                     if (sign_flag == '+' and value >= 0) try result.append(allocator, '+');
                     if (sign_flag == ' ' and value >= 0) try result.append(allocator, ' ');
-                    try result.writer(allocator).print("{d}.0", .{value});
+                    if (precision) |p| {
+                        if (p == 0) {
+                            try result.writer(allocator).print("{d}", .{value});
+                        } else {
+                            try result.writer(allocator).print("{d}.0", .{value});
+                        }
+                    } else {
+                        try result.writer(allocator).print("{d}.0", .{value});
+                    }
                 } else {
                     try result.writer(allocator).print("{any}", .{value});
                 }
