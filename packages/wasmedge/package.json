@@ -1,0 +1,7 @@
+{
+  "name": "wasmedge",
+  "root": "wasmedge.zig",
+  "deps": [],
+  "optional": true,
+  "env": "WASMEDGE_DIR"
+}

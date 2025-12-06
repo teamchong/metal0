@@ -1,9 +1,9 @@
 /// metal0 unittest module - test framework
 /// Re-exports all unittest functionality from submodules
 pub const runner = @import("unittest/runner.zig");
-pub const assertions_basic = @import("unittest/assertions_basic.zig");
-pub const assertions_type = @import("unittest/assertions_type.zig");
-pub const subtest = @import("unittest/subtest.zig");
+pub const assertions_basic = @import("unittest_impl/assertions_basic.zig");
+pub const assertions_type = @import("unittest_impl/assertions_type.zig");
+pub const subtest = @import("unittest_impl/subtest.zig");
 pub const mock = @import("unittest/mock.zig");
 
 // Re-export runner functions

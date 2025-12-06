@@ -147,16 +147,16 @@ pub fn fail(msg: []const u8) noreturn {
 }
 
 /// failUnlessEqual - Alias for assertEqual (deprecated but still in CPython)
-pub const failUnlessEqual = @import("assertions_basic.zig").assertEqual;
+pub const failUnlessEqual = @import("../unittest_impl/assertions_basic.zig").assertEqual;
 
 /// failIfEqual - Alias for assertNotEqual (deprecated but still in CPython)
-pub const failIfEqual = @import("assertions_basic.zig").assertNotEqual;
+pub const failIfEqual = @import("../unittest_impl/assertions_basic.zig").assertNotEqual;
 
 /// failUnless - Alias for assertTrue (deprecated but still in CPython)
-pub const failUnless = @import("assertions_basic.zig").assertTrue;
+pub const failUnless = @import("../unittest_impl/assertions_basic.zig").assertTrue;
 
 /// failIf - Alias for assertFalse (deprecated but still in CPython)
-pub const failIf = @import("assertions_basic.zig").assertFalse;
+pub const failIf = @import("../unittest_impl/assertions_basic.zig").assertFalse;
 
 // ============================================================================
 // TestSuite - Collection of test cases

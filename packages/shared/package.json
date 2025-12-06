@@ -1,0 +1,11 @@
+{
+  "name": "shared",
+  "root": "json/json.zig",
+  "pypi": ["ujson", "orjson", "simplejson"],
+  "submodules": {
+    "json": "json/json.zig",
+    "json_simd": "json/simd/dispatch.zig",
+    "h2": "http/h2/h2.zig"
+  },
+  "deps": []
+}

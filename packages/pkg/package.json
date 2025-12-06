@@ -1,0 +1,5 @@
+{
+  "name": "pkg",
+  "root": "src/pkg.zig",
+  "deps": ["json", "h2", "green_thread", "netpoller"]
+}

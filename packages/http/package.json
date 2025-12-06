@@ -1,0 +1,6 @@
+{
+  "name": "http",
+  "root": "../shared/http/h2/h2.zig",
+  "pypi": ["requests", "httpx", "urllib3", "aiohttp"],
+  "deps": ["gzip"]
+}

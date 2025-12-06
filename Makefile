@@ -1,4 +1,4 @@
-.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-webserver benchmark-regex benchmark-tokenizer benchmark-numpy benchmark-asyncio benchmark-asyncio-io clean format
+.PHONY: help build install test test-unit test-integration test-quick test-cpython test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-webserver benchmark-regex benchmark-tokenizer benchmark-numpy benchmark-asyncio benchmark-asyncio-io clean format gen-packages
 
 # =============================================================================
 # HELP
@@ -35,6 +35,7 @@ help:
 	@echo ""
 	@echo "Other:"
 	@echo "  make format         Format Zig code"
+	@echo "  make gen-packages   Regenerate package imports from packages/*/package.json"
 	@echo "  make clean          Remove build artifacts"
 
 # =============================================================================
@@ -186,6 +187,11 @@ format:
 	@find src -name "*.zig" -exec zig fmt {} \;
 	@find packages -name "*.zig" -exec zig fmt {} \;
 	@echo "✓ Formatted"
+
+gen-packages:
+	@echo "Regenerating package imports from packages/*/package.json..."
+	@python3 scripts/gen_packages.py
+	@echo "✓ Generated"
 
 clean:
 	@rm -rf zig-out zig-cache .zig-cache build .build

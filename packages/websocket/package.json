@@ -1,0 +1,6 @@
+{
+  "name": "websocket",
+  "root": "src/main.zig",
+  "pypi": ["websockets", "websocket-client"],
+  "deps": []
+}

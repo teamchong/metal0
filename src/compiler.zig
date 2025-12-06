@@ -81,11 +81,17 @@ pub fn setupRuntimeFiles(allocator: std.mem.Allocator) !void {
     // Lib/ - Pure Python stdlib modules (json.zig, datetime.zig, etc.)
     try compiler_utils.copyRuntimeDir(aa, "Lib", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "Lib/http", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/http_impl", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "Lib/asyncio_impl", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "Lib/unittest", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/unittest_impl", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "Lib/json", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json/parse", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json/parse_direct", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/parse_module", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/parse_direct_module", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/simd", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/utils", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/utils_impl", build_dir);
 
     // Modules/ - C extension modules (_bisect.zig, _collections.zig, etc.)
     try compiler_utils.copyRuntimeDir(aa, "Modules", build_dir);
@@ -194,11 +200,17 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
     // Lib/ - Pure Python stdlib modules (json.zig, datetime.zig, etc.)
     try compiler_utils.copyRuntimeDir(aa, "Lib", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "Lib/http", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/http_impl", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "Lib/asyncio_impl", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "Lib/unittest", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/unittest_impl", build_dir);
     try compiler_utils.copyRuntimeDir(aa, "Lib/json", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json/parse", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json/parse_direct", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/parse_module", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/parse_direct_module", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/simd", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/utils", build_dir);
+    try compiler_utils.copyRuntimeDir(aa, "Lib/utils_impl", build_dir);
 
     // Modules/ - C extension modules (_bisect.zig, _collections.zig, etc.)
     try compiler_utils.copyRuntimeDir(aa, "Modules", build_dir);

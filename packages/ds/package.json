@@ -1,0 +1,5 @@
+{
+  "name": "ds",
+  "root": "src/ds.zig",
+  "deps": []
+}

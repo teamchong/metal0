@@ -1,12 +1,12 @@
 /// Public JSON API for metal0 - json.loads() and json.dumps()
 const std = @import("std");
 const runtime = @import("../runtime.zig");
-const parse_direct = @import("json/parse_direct.zig");
-const parse_arena = @import("json/parse_arena.zig");
+const parse_direct = @import("json_impl/parse_direct.zig");
+const parse_arena = @import("json_impl/parse_arena.zig");
 
 // Export for internal use (e.g. notebook parsing)
-pub const parse = @import("json/parse.zig").parse;
-pub const Value = @import("json/value.zig").JsonValue;
+pub const parse = @import("json_impl/parse.zig").parse;
+pub const Value = @import("json_impl/value.zig").JsonValue;
 pub const JsonValue = Value;
 
 /// Deserialize JSON string to PyObject (arena-allocated for speed!)

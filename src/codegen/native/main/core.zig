@@ -290,6 +290,12 @@ pub const NativeCodegen = struct {
     // Used for type inference: len(kwargs) -> runtime.PyDict.len()
     kwarg_params: FnvVoidMap,
 
+    // Track dict builtin variables (for dict comprehension codegen)
+    dict_builtin_vars: FnvVoidMap,
+
+    // Skip floor/ceil toFloat conversion (when already using float)
+    skip_floor_ceil_toFloat: bool,
+
     // Track function signatures (param counts for default handling)
     // Maps function name -> FuncSignature (e.g., "foo" -> {total: 2, required: 1})
     function_signatures: FnvFuncSigMap,
@@ -676,6 +682,8 @@ pub const NativeCodegen = struct {
             .vararg_params = FnvVoidMap.init(allocator),
             .kwarg_functions = FnvVoidMap.init(allocator),
             .kwarg_params = FnvVoidMap.init(allocator),
+            .dict_builtin_vars = FnvVoidMap.init(allocator),
+            .skip_floor_ceil_toFloat = false,
             .function_signatures = FnvFuncSigMap.init(allocator),
             .imported_modules = FnvVoidMap.init(allocator),
             .import_aliases = FnvStringMap.init(allocator),

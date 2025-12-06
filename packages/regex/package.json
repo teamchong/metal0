@@ -1,0 +1,6 @@
+{
+  "name": "regex",
+  "root": "src/pyregex/regex.zig",
+  "pypi": ["regex"],
+  "deps": []
+}

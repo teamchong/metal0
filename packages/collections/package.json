@@ -1,0 +1,5 @@
+{
+  "name": "collections",
+  "root": "collections.zig",
+  "deps": ["runtime"]
+}
