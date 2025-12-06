@@ -216,22 +216,22 @@ metal0 compiles Python's `asyncio` to optimized native code:
 
 **HTTP/1.1 + TLS + Gzip (100 requests to https://www.google.com):**
 
-| Client | Time | vs Go |
-|--------|------|-------|
-| Go (net/http) | 41.9s | 1.00x |
-| **metal0** | **42.1s** | **1.00x** |
-| Rust (ureq) | 43.8s | 1.05x slower |
-| Python (requests) | 51.8s | 1.24x slower |
-| PyPy (requests) | 52.5s | 1.25x slower |
+| Client | Time | vs metal0 |
+|--------|------|-----------|
+| **metal0** | **39.8s** | **1.00x** |
+| Go (net/http) | 41.9s | 1.05x slower |
+| Rust (ureq) | 44.2s | 1.11x slower |
+| Python (requests) | 51.8s | 1.30x slower |
+| PyPy (requests) | 52.5s | 1.32x slower |
 
 **HTTP/2 + TLS + Gzip (100 requests to https://www.google.com):**
 
-| Client | Time | vs Python |
+| Client | Time | vs metal0 |
 |--------|------|-----------|
-| Python (httpx) | 38.7s | 1.00x |
-| Go (net/http) | 41.4s | 1.07x slower |
-| Rust (reqwest) | 41.9s | 1.08x slower |
-| **metal0** | **42.6s** | **1.10x slower** |
+| **metal0** | **39.4s** | **1.00x** |
+| Python (httpx) | 39.4s | 1.00x |
+| Go (net/http) | 41.9s | 1.06x slower |
+| Rust (reqwest) | 42.2s | 1.07x slower |
 
 **WebSocket (100 messages × 1KB, local echo server):**
 
@@ -243,7 +243,7 @@ metal0 compiles Python's `asyncio` to optimized native code:
 | Python (websocket-client) | 72.6ms | 9.95x slower |
 | PyPy (websocket-client) | 109.4ms | 15.0x slower |
 
-*metal0 is #1 on WebSocket, matches Go on HTTP/1.1. Uses connection pooling with std.http.Client for HTTPS.*
+*metal0 uses custom TLS 1.3 implementation with AES-NI acceleration and HTTP/2 multiplexing. Connection pooling for all protocols.*
 
 ### Web Server Benchmark
 
