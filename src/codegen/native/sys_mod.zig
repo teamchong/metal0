@@ -31,5 +31,5 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "displayhook", h.debugPrint("", "{any}", "{}") }, .{ "excepthook", h.c("{}") }, .{ "settrace", h.c("{}") }, .{ "gettrace", h.c("null") },
     .{ "setprofile", h.c("{}") }, .{ "getprofile", h.c("null") },
     .{ "get_int_max_str_digits", h.c("(try sys.get_int_max_str_digits(__global_allocator))") },
-    .{ "set_int_max_str_digits", h.wrap("(try sys.set_int_max_str_digits(__global_allocator, ", "))", "(try sys.set_int_max_str_digits(__global_allocator, 0))") },
+    .{ "set_int_max_str_digits", h.wrap("_ = (try sys.set_int_max_str_digits(__global_allocator, ", "))", "_ = (try sys.set_int_max_str_digits(__global_allocator, 0))") },
 });

@@ -252,11 +252,12 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
         if (base_needs_runtime_check and self.in_assert_raises_context) {
             // In assertRaises with potentially invalid base - use runtime validation
-            try self.emit("runtime.builtins.intWithBase(__global_allocator, ");
+            // Must use 'try' since intWithBase returns error union and we're in an error-returning context
+            try self.emit("(try runtime.builtins.intWithBase(__global_allocator, ");
             try self.genExpr(args[0]);
             try self.emit(", ");
             try self.genExpr(args[1]);
-            try self.emit(")");
+            try self.emit("))");
             return;
         }
 

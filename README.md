@@ -212,6 +212,40 @@ metal0 compiles Python's `asyncio` to optimized native code:
 | Word Boundary | 116ms | 385ms | 3.32x |
 | Date ISO | 346ms | 636ms | 1.84x |
 
+### HTTP Client Benchmark
+
+**HTTP/1.1 (100 requests to local server):**
+
+| Client | Time | vs Python |
+|--------|------|-----------|
+| Rust (ureq) | 13.3ms | 17x faster |
+| Go (net/http) | 13.9ms | 16x faster |
+| **metal0** | **33.0ms** | **6.8x faster** |
+| Python (requests) | 225.9ms | baseline |
+| PyPy (requests) | 465.0ms | 2x slower |
+
+**HTTPS with TLS (100 requests):**
+
+| Client | Time | vs Python |
+|--------|------|-----------|
+| Go (net/http) | 20.0ms | 80x faster |
+| Rust (ureq) | 20.4ms | 78x faster |
+| **metal0** | **35.4ms** | **45x faster** |
+| PyPy (requests) | 1.47s | similar |
+| Python (requests) | 1.60s | baseline |
+
+**HTTPS + Gzip (100 requests):**
+
+| Client | Time | vs Python |
+|--------|------|-----------|
+| Rust (ureq) | 29.3ms | 56x faster |
+| **metal0** | **30.6ms** | **53x faster** |
+| Go (net/http) | 32.3ms | 50x faster |
+| PyPy (requests) | 1.27s | 1.3x faster |
+| Python (requests) | 1.63s | baseline |
+
+*metal0 HTTP client uses h2 library with native TLS and libdeflate gzip. On HTTPS+Gzip, metal0 matches Rust/Go performance.*
+
 ### Web Server Benchmark
 
 **HTTP throughput (Hello World JSON, wrk -t4 -c100 -d10s):**
@@ -236,6 +270,7 @@ make benchmark-regex       # Regex patterns
 make benchmark-asyncio     # CPU-bound async
 make benchmark-asyncio-io  # I/O-bound async
 make benchmark-numpy       # NumPy BLAS
+make benchmark-http        # HTTP client (HTTP/HTTPS/Gzip)
 make benchmark-webserver   # Web server throughput (wrk)
 
 # Tokenizer benchmarks (run from packages/tokenizer/)

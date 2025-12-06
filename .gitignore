@@ -97,6 +97,22 @@ _prototype/
 /fibonacci_*
 /hello
 /hello_*
+/runtime
+
+# Benchmark binaries (anywhere)
+**/bench_*_go
+**/bench_*_rust
+**/bench_*_metal0
+**/*_go
+**/*_rust
+**/*_metal0
+
+# Rust build artifacts (anywhere)
+**/target/
+**/Cargo.lock
+
+# Go build artifacts
+**/go.sum
 /*.rmeta
 /*.hash
 
