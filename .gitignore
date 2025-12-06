@@ -133,6 +133,7 @@ packages/**/bin/accuracy_*
 !packages/**/*.py
 !packages/**/*.sh
 !packages/**/*.zig
+!packages/runtime/src/Lib/
 !packages/**/*.go
 !packages/**/*.rs
 !packages/**/*.js
