@@ -8,6 +8,9 @@ const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
 const producesBlockExpression = expressions.producesBlockExpression;
 const zig_keywords = @import("utils.zig_keywords");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
 
 /// Check if a node is a negative constant
 pub fn isNegativeConstant(node: ast.Node) bool {
@@ -98,10 +101,10 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // Check if the base is a tuple type - use .@"N" instead of [N]
                     const base_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
                     const base_tag = @as(std.meta.Tag(@TypeOf(base_type)), base_type);
-                    const is_tuple = base_tag == .tuple;
+                    const is_tuple = container_traits.isTuple(base_type);
                     const is_pyvalue = base_tag == .pyvalue;
-                    const is_unknown = base_tag == .unknown;
-                    const is_bytes = base_tag == .bytes;
+                    const is_unknown = type_traits.isUnknown(base_type);
+                    const is_bytes = string_traits.isBytes(base_type);
                     const index_tag = @as(std.meta.Tag(@TypeOf(index_type)), index_type);
                     const is_int_index = (index_tag == .int) or (index_tag == .usize);
 
@@ -140,7 +143,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 // Slice access on temp variable
                 // Check if base is bytes type - use .sliceRange() method
                 const base_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
-                const is_bytes = (@as(std.meta.Tag(@TypeOf(base_type)), base_type) == .bytes);
+                const is_bytes = string_traits.isBytes(base_type);
 
                 if (is_bytes) {
                     // Bytes slicing: __base.sliceRange(start, end)
@@ -225,9 +228,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             // Check if this is a dict, list subscript
             const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
 
-            const is_dict = (value_type == .dict);
+            const is_dict = container_traits.isDict(value_type);
             const is_counter = (value_type == .counter);
-            const is_unknown_pyobject = (value_type == .unknown);
+            const is_unknown_pyobject = type_traits.isUnknown(value_type);
 
             // Check if value type is a slice (e.g., from [0] * n with runtime n)
             const is_slice = (value_type == .slice);
@@ -251,11 +254,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             };
 
             // A variable is a list if type inference says .list OR if it's tracked as ArrayList
-            const is_list = (value_type == .list) or is_tracked_arraylist_early;
+            const is_list = container_traits.isList(value_type) or is_tracked_arraylist_early;
 
             // For unknown PyObject types (like json.loads() result), check if index is string → dict access
             const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
-            const is_likely_dict = is_unknown_pyobject and (index_type == .string);
+            const is_likely_dict = is_unknown_pyobject and string_traits.isString(index_type);
 
             // Check if this is a FeatureMacros access (feature_macros['key'])
             const is_feature_macros = blk: {
@@ -390,7 +393,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     }
                     try self.emitFmt("; if (__idx >= __s.items.len) return error.IndexError; break :idx_{d} __s.items[__idx]; }}", .{label_id});
                 }
-            } else if (value_type == .bytes) {
+            } else if (string_traits.isBytes(value_type)) {
                 // Bytes indexing: PyBytes uses .get() method, returns u8
                 const needs_cast = (index_type == .int);
                 try genExpr(self, subscript.value.*);
@@ -405,7 +408,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try self.emit(")");
             } else {
                 // Array/slice/string indexing: a[b]
-                const is_string = (value_type == .string);
+                const is_string = string_traits.isString(value_type);
 
                 // For strings: Python s[0] returns "h" (string), not 'h' (char)
                 // Zig: s[0] returns u8, need s[0..1] for single-char slice
@@ -456,7 +459,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         const is_arraylist = blk: {
                             if (val_is_slice) break :blk false; // Slices are not ArrayLists
                             // Also check if type is .list - which means ArrayList in Zig
-                            if (val_type == .list) break :blk true; // ArrayList confirmed by type inference
+                            if (container_traits.isList(val_type)) break :blk true; // ArrayList confirmed by type inference
                             if (subscript.value.* == .name) {
                                 break :blk self.isArrayListVar(subscript.value.name.id);
                             }
@@ -506,7 +509,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             const needs_len = slice_range.upper == null;
 
             // Handle bytes slicing: PyBytes uses .sliceRange() method
-            if (value_type == .bytes) {
+            if (string_traits.isBytes(value_type)) {
                 const label_id = self.block_label_counter;
                 self.block_label_counter += 1;
                 try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
@@ -537,7 +540,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
             if (has_step) {
                 // With step: use slice with step calculation
-                if (value_type == .string) {
+                if (string_traits.isString(value_type)) {
                     // String slicing with step (supports negative step for reverse iteration)
                     const label_id = self.block_label_counter;
                     self.block_label_counter += 1;
@@ -566,7 +569,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     }
 
                     try self.emitFmt("; var __result = std.ArrayListUnmanaged(u8){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(__global_allocator, __s[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(__global_allocator, __s[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(__global_allocator); }}", .{label_id});
-                } else if (value_type == .list) {
+                } else if (container_traits.isList(value_type)) {
                     // List slicing with step (supports negative step for reverse iteration)
                     // Get element type to generate proper ArrayList
                     const elem_type = value_type.list.*;
@@ -603,7 +606,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     try elem_type.toZigType(self.allocator, &self.output);
 
                     try self.emitFmt("){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(__global_allocator, __s.items[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(__global_allocator, __s.items[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(__global_allocator); }}", .{label_id});
-                } else if (value_type == .tuple) {
+                } else if (container_traits.isTuple(value_type)) {
                     // Tuple slicing with step - convert to runtime array slice
                     // Python tuples are immutable but we can slice them
                     const label_id = self.block_label_counter;
@@ -670,7 +673,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 }
             } else if (needs_len) {
                 // Need length for upper bound - use block expression with bounds checking
-                const is_list = (value_type == .list);
+                const is_list = container_traits.isList(value_type);
 
                 const label_id = self.block_label_counter;
                 self.block_label_counter += 1;
@@ -695,7 +698,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 }
             } else {
                 // Simple slice with both bounds known - need to check for negative indices
-                const is_list = (value_type == .list);
+                const is_list = container_traits.isList(value_type);
 
                 const has_negative = check_neg: {
                     if (slice_range.lower) |lower| {
@@ -799,43 +802,43 @@ pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) Code
             const index_type = self.type_inferrer.inferExpr(index.*) catch .unknown;
 
             // Dict access with string key - use .getPtr() for mutable access
-            if (container_type == .dict) {
+            if (container_traits.isDict(container_type)) {
                 // Native dict (StringHashMap) - use .getPtr()
                 try self.emit(".getPtr(");
                 try genExpr(self, index.*);
                 try self.emit(").?.*");
-            } else if (container_type == .pyvalue and (index_type == .string or index_type == .pyvalue or index_type == .unknown)) {
+            } else if (container_type == .pyvalue and (string_traits.isString(index_type) or index_type == .pyvalue or type_traits.isUnknown(index_type))) {
                 // PyValue wrapping a dict (ptr to StringHashMap) - use .pyDictGetPtr()
                 // For PyValue keys, we need to convert to string first
                 try self.emit(".pyDictGetPtr(");
-                if (index_type == .pyvalue or index_type == .unknown) {
+                if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
                     try genExpr(self, index.*);
                     try self.emit(".asString()");
                 } else {
                     try genExpr(self, index.*);
                 }
                 try self.emit(").?.*");
-            } else if (container_type == .unknown and (index_type == .string or index_type == .pyvalue or index_type == .unknown)) {
+            } else if (type_traits.isUnknown(container_type) and (string_traits.isString(index_type) or index_type == .pyvalue or type_traits.isUnknown(index_type))) {
                 // Unknown container with string/pyvalue key - emit runtime check
                 // Use inline if to handle both native dict and PyValue dict
                 try self.emit(": blk: { const __cont = ");
                 try genExpr(self, subscript.value.*);
                 try self.emit("; break :blk if (@TypeOf(__cont) == runtime.PyValue) __cont.pyDictGetPtr(");
-                if (index_type == .pyvalue or index_type == .unknown) {
+                if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
                     try genExpr(self, index.*);
                     try self.emit(".asString()");
                 } else {
                     try genExpr(self, index.*);
                 }
                 try self.emit(").?.* else __cont.getPtr(");
-                if (index_type == .pyvalue or index_type == .unknown) {
+                if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
                     try genExpr(self, index.*);
                     try self.emit(".asString()");
                 } else {
                     try genExpr(self, index.*);
                 }
                 try self.emit(").?.*; }");
-            } else if (container_type == .list) {
+            } else if (container_traits.isList(container_type)) {
                 try self.emit(".items[@as(usize, @intCast(");
                 try genExpr(self, index.*);
                 try self.emit("))]");

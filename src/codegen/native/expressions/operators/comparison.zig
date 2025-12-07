@@ -12,6 +12,9 @@ const NativeType = @import("../../../../analysis/native_types/core.zig").NativeT
 const shared = @import("../../shared_maps.zig");
 const CompOpStrings = shared.CompOpStrings;
 const collections = @import("../collections.zig");
+const string_traits = @import("../../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../../analysis/traits/container_traits.zig");
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 
 /// Check if expression is a string constant (NOT bytes)
 fn isStringConstant(expr: ast.Node) bool {
@@ -104,8 +107,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         // Both string and bytes need std.mem.eql instead of ==
         // Also handle cases where one side is .unknown (e.g., json.loads) comparing to string
         // AND cases where the literal is a string/bytes but inference got the other side wrong
-        const left_is_string = (current_left_type == .string);
-        const right_is_string = (right_type == .string);
+        const left_is_string = string_traits.isString(current_left_type);
+        const right_is_string = string_traits.isString(right_type);
         // Note: bytes literals are also represented as .string in NativeType, so we
         // only check AST constants for bytes, not NativeType
         const left_is_string_literal = isStringConstant(current_left);
@@ -114,12 +117,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         const right_is_bytes_literal = isBytesConstant(compare.comparators[i]);
         const either_string = left_is_string or right_is_string or left_is_string_literal or right_is_string_literal;
         const either_bytes = left_is_bytes_literal or right_is_bytes_literal;
-        const neither_unknown = (current_left_type != .unknown and right_type != .unknown);
+        const neither_unknown = (!type_traits.isUnknown(current_left_type) and !type_traits.isUnknown(right_type));
 
         // For 'in' / 'not in' operators, dict/list/set containment takes priority over string substring
         // e.g., 'a' in {'a': 1} should be dict key lookup, not string substring search
-        const right_is_dict_or_container = right_type == .dict or compare.comparators[i] == .dict or
-            right_type == .list or right_type == .set;
+        const right_is_dict_or_container = container_traits.isDict(right_type) or compare.comparators[i] == .dict or
+            container_traits.isList(right_type) or container_traits.isSet(right_type);
         const is_container_in_check = (op == .In or op == .NotIn) and right_is_dict_or_container;
 
         if (((left_is_string and right_is_string) or (either_string and !neither_unknown) or (left_is_string_literal or right_is_string_literal) or
@@ -237,11 +240,11 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // Check for ArrayList: type == .list OR tracked as ArrayList variable via isArrayListVar
             const right_is_arraylist_var = compare.comparators[i] == .name and
                 self.isArrayListVar(compare.comparators[i].name.id);
-            if (right_type == .list or right_is_arraylist_var) {
+            if (container_traits.isList(right_type) or right_is_arraylist_var) {
                 // List membership check using runtime.pyContains for Python semantics
                 // Handles NaN identity: NaN in [NaN] == True
                 // Get element type - handle both .list and .array (for ArrayList vars with wrong inference)
-                const type_str: []const u8 = if (right_type == .list)
+                const type_str: []const u8 = if (container_traits.isList(right_type))
                     right_type.list.*.toSimpleZigType()
                 else if (right_type == .array)
                     right_type.array.element_type.toSimpleZigType()
@@ -279,7 +282,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try genExpr(self, current_left); // item to search for
                     try self.emit("))");
                 }
-            } else if (right_type == .dict) {
+            } else if (container_traits.isDict(right_type)) {
                 // Dict key check: dict.contains(key)
                 // For dict literals, wrap in block to assign to temp var
                 const is_literal = compare.comparators[i] == .dict;
@@ -335,7 +338,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // String arrays/tuples need special handling - can't use indexOfScalar
                 // because strings require std.mem.eql for comparison, not ==
                 // Also check if comparator is a tuple of strings
-                const is_string_search = current_left_type == .string or
+                const is_string_search = string_traits.isString(current_left_type) or
                     (compare.comparators[i] == .tuple and compare.comparators[i].tuple.elts.len > 0 and
                     compare.comparators[i].tuple.elts[0] == .constant and
                     compare.comparators[i].tuple.elts[0].constant.value == .string);
@@ -398,12 +401,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             }
         }
         // Special handling for None comparisons
-        else if (current_left_type == .none or right_type == .none) {
+        else if (type_traits.isNone(current_left_type) or type_traits.isNone(right_type)) {
             // Check if this is comparing an optional parameter (e.g., base: ?i64) to None
             // If left side is a name that was renamed (optional param), compare to null instead
             // This handles: "if base is None:" -> "if (base == null)"
             const is_optional_param_check = blk: {
-                if (right_type == .none and current_left == .name) {
+                if (type_traits.isNone(right_type) and current_left == .name) {
                     const var_name = current_left.name.id;
                     // Check if this variable was renamed from a parameter with None default
                     if (self.var_renames.get(var_name) != null) {
@@ -428,7 +431,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             if (is_optional_param_check) {
                 // For anytype parameters (used with None defaults), use comptime type check
                 // This handles cases like `expected=None` where expected can be tuple or null
-                if (current_left_type == .unknown) {
+                if (type_traits.isUnknown(current_left_type)) {
                     // Emit comptime type check: @TypeOf(x) == @TypeOf(null)
                     if (op == .Is or op == .Eq) {
                         try self.emit("(@TypeOf(");
@@ -486,8 +489,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 if (left_is_eval and !right_is_eval) {
                     // eval(...) == value - check if value is BigInt
                     // Note: right_type is already in scope from line 103
-                    const rhs_tag = @as(std.meta.Tag(@TypeOf(right_type)), right_type);
-                    if (rhs_tag == .bigint) {
+                    if (right_type == .bigint) {
                         // BigInt comparison
                         try self.emit("runtime.bigIntCompare(runtime.pyObjToBigInt(");
                         try genExpr(self, current_left);
@@ -505,8 +507,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 } else if (right_is_eval and !left_is_eval) {
                     // value == eval(...) - check if value is BigInt
                     // Note: current_left_type is already in scope from line 107
-                    const lhs_tag = @as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type);
-                    if (lhs_tag == .bigint) {
+                    if (current_left_type == .bigint) {
                         // BigInt comparison
                         try self.emit("runtime.bigIntCompare(");
                         try genExpr(self, current_left);
@@ -543,10 +544,10 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         else if (op == .Is or op == .IsNot) {
             // For arrays/lists/dicts/sets, we need to compare pointers since == doesn't work
             // For class_instances, we use value comparison (they're stack-allocated value types)
-            const needs_ptr_compare = current_left_type == .list or right_type == .list or
+            const needs_ptr_compare = container_traits.isList(current_left_type) or container_traits.isList(right_type) or
                 current_left_type == .array or right_type == .array or
-                current_left_type == .dict or right_type == .dict or
-                current_left_type == .set or right_type == .set;
+                container_traits.isDict(current_left_type) or container_traits.isDict(right_type) or
+                container_traits.isSet(current_left_type) or container_traits.isSet(right_type);
 
             // Special case: if both sides are literals (not variables), they are NEVER the same
             // identity, since each literal creates a new object in Python.
@@ -628,8 +629,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try self.emit("})");
             } else {
                 // Check if either side is a tuple (struct types don't support ==)
-                const left_is_tuple = (@as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .tuple or current_left == .tuple);
-                const right_is_tuple = (@as(std.meta.Tag(@TypeOf(right_type)), right_type) == .tuple or compare.comparators[i] == .tuple);
+                const left_is_tuple = (container_traits.isTuple(current_left_type) or current_left == .tuple);
+                const right_is_tuple = (container_traits.isTuple(right_type) or compare.comparators[i] == .tuple);
 
                 if (left_is_tuple or right_is_tuple) {
                     // Tuples: for identity comparison ('is'/'is not')
@@ -683,8 +684,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             }
         }
         // Handle tuple comparisons (anonymous structs don't support ==)
-        else if ((@as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .tuple or current_left == .tuple) and
-            (@as(std.meta.Tag(@TypeOf(right_type)), right_type) == .tuple or compare.comparators[i] == .tuple))
+        else if ((container_traits.isTuple(current_left_type) or current_left == .tuple) and
+            (container_traits.isTuple(right_type) or compare.comparators[i] == .tuple))
         {
             // Use runtime.pyTupleEql for Python semantics (NaN identity)
             if (op == .NotEq) {
@@ -697,8 +698,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             try self.emit(")");
         }
         // Handle set comparisons (HashMaps don't support ==)
-        else if ((current_left_type == .set or current_left == .set) and
-            (right_type == .set or compare.comparators[i] == .set))
+        else if ((container_traits.isSet(current_left_type) or current_left == .set) and
+            (container_traits.isSet(right_type) or compare.comparators[i] == .set))
         {
             // For sets, compare count and all keys match
             // This is a simplified comparison - full Python would check symmetric difference
@@ -719,8 +720,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             try self.output.writer(self.allocator).print("break :set_cmp_{d} __all_match; }}", .{set_label});
         }
         // Handle dict comparisons (HashMaps don't support ==)
-        else if ((current_left_type == .dict or current_left == .dict) and
-            (right_type == .dict or compare.comparators[i] == .dict))
+        else if ((container_traits.isDict(current_left_type) or current_left == .dict) and
+            (container_traits.isDict(right_type) or compare.comparators[i] == .dict))
         {
             // For dicts, compare count, all keys match, and all values equal
             const dict_label = self.block_label_counter;
@@ -746,9 +747,9 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         // Also handles cross-type comparison: ArrayList (.list) vs fixed array (.array) literal
         // Check for ArrayList by: type == .list, AST node == .list, OR isArrayListVar (runtime tracking)
         // IMPORTANT: Exclude PyValue types - concatRuntime returns PyValue, not ArrayList
-        else if ((current_left_type == .list or current_left == .list or
+        else if ((container_traits.isList(current_left_type) or current_left == .list or
             (current_left == .name and self.isArrayListVar(current_left.name.id))) and
-            (right_type == .list or compare.comparators[i] == .list or right_type == .array) and
+            (container_traits.isList(right_type) or compare.comparators[i] == .list or right_type == .array) and
             current_left_type != .pyvalue and right_type != .pyvalue)
         {
             // Use runtime.pySliceEql for Python semantics (NaN identity)
@@ -823,14 +824,14 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // Get element type for pySliceEql
             // First try type info, then fall back to inferring from literals
             // Use i64 as default (matches empty list code generation: std.ArrayListUnmanaged(i64){})
-            const elem_type_str: []const u8 = if (current_left_type == .list) blk: {
+            const elem_type_str: []const u8 = if (container_traits.isList(current_left_type)) blk: {
                 const elem = current_left_type.list.*;
                 // Check if element type is primitive, otherwise use i64 (matches empty list codegen)
                 break :blk switch (elem) {
                     .int, .float, .bool, .string, .bytes => elem.toSimpleZigType(),
                     else => "i64", // Default to i64 for unknown/complex types
                 };
-            } else if (right_type == .list) blk: {
+            } else if (container_traits.isList(right_type)) blk: {
                 const elem = right_type.list.*;
                 break :blk switch (elem) {
                     .int, .float, .bool, .string, .bytes => elem.toSimpleZigType(),
@@ -906,8 +907,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             }
         }
         // Handle set comparisons - sets are HashMaps and don't support direct ==
-        else if (@as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .set or
-            @as(std.meta.Tag(@TypeOf(right_type)), right_type) == .set)
+        else if (container_traits.isSet(current_left_type) or
+            container_traits.isSet(right_type))
         {
             // Set comparison: use runtime.setCompare
             // For s == s (identity), both sides are the same HashMap pointer
@@ -996,12 +997,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             try self.emit(BigIntCompOps.get(@tagName(op)) orelse ", .eq)");
         }
         // Handle unknown type comparisons (anytype parameters)
-        else if (current_left_type == .unknown or right_type == .unknown) {
+        else if (type_traits.isUnknown(current_left_type) or type_traits.isUnknown(right_type)) {
             // Special case: anytype compared to None
             // For anytype params with default=None, use comptime type check instead of null comparison
-            const left_is_none = current_left_type == .none or
+            const left_is_none = type_traits.isNone(current_left_type) or
                 (current_left == .constant and current_left.constant.value == .none);
-            const right_is_none = right_type == .none or
+            const right_is_none = type_traits.isNone(right_type) or
                 (compare.comparators[i] == .constant and compare.comparators[i].constant.value == .none);
 
             if (left_is_none or right_is_none) {
@@ -1044,10 +1045,10 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             const left_is_int = (current_left_type == .int);
             const right_is_usize = (right_type == .usize);
             const right_is_int = (right_type == .int);
-            const left_is_float = (current_left_type == .float);
-            const right_is_float = (right_type == .float);
-            const left_is_bool = (current_left_type == .bool);
-            const right_is_bool = (right_type == .bool);
+            const left_is_float = type_traits.isFloating(current_left_type);
+            const right_is_float = type_traits.isFloating(right_type);
+            const left_is_bool = type_traits.isBoolean(current_left_type);
+            const right_is_bool = type_traits.isBoolean(right_type);
 
             // For known primitive types (int, usize, float, bool), use direct comparison
             // For other types (tuples, structs, etc.), use std.meta.eql to avoid Zig struct comparison error
@@ -1062,8 +1063,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             const right_needs_wrap = producesBlockExpression(compare.comparators[i]);
 
             // Check if either side is a list/array type
-            const left_is_list = (current_left_type == .list);
-            const right_is_list = (right_type == .list);
+            const left_is_list = container_traits.isList(current_left_type);
+            const right_is_list = container_traits.isList(right_type);
             const left_is_array = (current_left_type == .array);
             const right_is_array = (right_type == .array);
 

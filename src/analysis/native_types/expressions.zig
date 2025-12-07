@@ -4,6 +4,9 @@ const core = @import("core.zig");
 const hashmap_helper = @import("utils.hashmap_helper");
 const calls = @import("calls.zig");
 const inferrer_mod = @import("inferrer.zig");
+const string_traits = @import("../traits/string_traits.zig");
+const container_traits = @import("../traits/container_traits.zig");
+const type_traits = @import("../traits/type_traits.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -204,11 +207,11 @@ pub fn inferExprWithInferrer(
                     // list[i] -> element type
                     // dict[key] -> value type
                     // tuple[i] -> element type at index i
-                    if (obj_type == .string) {
+                    if (string_traits.isString(obj_type)) {
                         // String indexing returns a single character
                         // For now, treat as string for simplicity
                         break :blk .{ .string = .slice };
-                    } else if (obj_type == .bytes) {
+                    } else if (string_traits.isBytes(obj_type)) {
                         // Bytes indexing returns a single byte (u8/int)
                         break :blk .{ .int = .bounded };
                     } else if (obj_type == .array) {
@@ -242,9 +245,9 @@ pub fn inferExprWithInferrer(
                     // bytes[1:4] -> bytes
                     // array[1:4] -> slice (converted to list)
                     // list[1:4] -> list
-                    if (obj_type == .string) {
+                    if (string_traits.isString(obj_type)) {
                         break :blk .{ .string = .slice };
-                    } else if (obj_type == .bytes) {
+                    } else if (string_traits.isBytes(obj_type)) {
                         // Bytes slicing returns bytes
                         break :blk .bytes;
                     } else if (obj_type == .array) {
@@ -802,18 +805,18 @@ fn inferBinOpWithInferrer(
     }
 
     // String concatenation: str + str → runtime string
-    if (binop.op == .Add and left_tag == .string and right_tag == .string) {
+    if (binop.op == .Add and string_traits.isString(left_type) and string_traits.isString(right_type)) {
         return .{ .string = .runtime }; // Concatenation produces runtime string
     }
 
     // Bytes concatenation: bytes + bytes → bytes
-    if (binop.op == .Add and (left_tag == .bytes or right_tag == .bytes)) {
+    if (binop.op == .Add and (string_traits.isBytes(left_type) or string_traits.isBytes(right_type))) {
         return .bytes; // Bytes concatenation produces bytes
     }
 
     // List concatenation: list + list → pyvalue (concatRuntime returns PyValue)
     // This includes ArrayList (list) and fixed array (array) types
-    if (binop.op == .Add and (left_tag == .list or left_tag == .array) and (right_tag == .list or right_tag == .array)) {
+    if (binop.op == .Add and container_traits.isList(left_type) and container_traits.isList(right_type)) {
         return .pyvalue; // List concatenation via concatRuntime returns PyValue
     }
 
@@ -821,14 +824,14 @@ fn inferBinOpWithInferrer(
     // Bytes repetition: bytes * int or int * bytes → bytes
     // List repetition: list * int or int * list → list (same element type)
     if (binop.op == .Mult) {
-        const left_is_string = left_tag == .string;
-        const right_is_string = right_tag == .string;
-        const left_is_bytes = left_tag == .bytes;
-        const right_is_bytes = right_tag == .bytes;
-        const left_is_list = left_tag == .list or left_tag == .array;
-        const right_is_list = right_tag == .list or right_tag == .array;
-        const left_is_numeric = left_tag == .int or left_tag == .usize;
-        const right_is_numeric = right_tag == .int or right_tag == .usize;
+        const left_is_string = string_traits.isString(left_type);
+        const right_is_string = string_traits.isString(right_type);
+        const left_is_bytes = string_traits.isBytes(left_type);
+        const right_is_bytes = string_traits.isBytes(right_type);
+        const left_is_list = container_traits.isList(left_type);
+        const right_is_list = container_traits.isList(right_type);
+        const left_is_numeric = type_traits.isIntegral(left_type);
+        const right_is_numeric = type_traits.isIntegral(right_type);
 
         if ((left_is_string and right_is_numeric) or (left_is_numeric and right_is_string)) {
             return .{ .string = .runtime }; // String repetition produces runtime string
@@ -846,7 +849,7 @@ fn inferBinOpWithInferrer(
     }
 
     // String formatting: str % value → runtime string (Python % formatting)
-    if (binop.op == .Mod and left_tag == .string) {
+    if (binop.op == .Mod and string_traits.isString(left_type)) {
         return .{ .string = .runtime }; // String formatting produces runtime string
     }
 
@@ -857,7 +860,7 @@ fn inferBinOpWithInferrer(
         if (left_tag == .class_instance or right_tag == .class_instance) {
             return .unknown; // Class dunder method - type determined by method return
         }
-        if (left_tag == .float or right_tag == .float) {
+        if (type_traits.isFloating(left_type) or type_traits.isFloating(right_type)) {
             return .float; // Any arithmetic with float produces float
         }
         // Python's / operator ALWAYS returns float (true division) for primitives

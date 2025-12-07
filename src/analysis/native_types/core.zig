@@ -1,5 +1,10 @@
 const std = @import("std");
 
+// Trait imports for type checking
+const string_traits = @import("../traits/string_traits.zig");
+const container_traits = @import("../traits/container_traits.zig");
+const type_traits = @import("../traits/type_traits.zig");
+
 // Re-export from split modules
 pub const containers = @import("containers.zig");
 pub const attributes = @import("attributes.zig");
@@ -365,9 +370,9 @@ pub const NativeType = union(enum) {
         const other_tag = @as(std.meta.Tag(NativeType), other);
 
         // If one is unknown but the other is known, prefer the known type
-        if (self_tag == .unknown and other_tag != .unknown) return other;
-        if (other_tag == .unknown and self_tag != .unknown) return self;
-        if (self_tag == .unknown and other_tag == .unknown) return .unknown;
+        if (type_traits.isUnknown(self) and !type_traits.isUnknown(other)) return other;
+        if (type_traits.isUnknown(other) and !type_traits.isUnknown(self)) return self;
+        if (type_traits.isUnknown(self) and type_traits.isUnknown(other)) return .unknown;
 
         // PyValue absorbs everything - once heterogeneous, stays heterogeneous
         if (self_tag == .pyvalue or other_tag == .pyvalue) return .pyvalue;
@@ -375,7 +380,7 @@ pub const NativeType = union(enum) {
         // If types match, no widening needed (except for tuples, arrays, and ints which need special handling)
         if (self_tag == other_tag) {
             // Special handling for tuple types - widen element-wise
-            if (self_tag == .tuple) {
+            if (container_traits.isTuple(self)) {
                 // Tuples with different lengths -> use unknown (becomes PyObject in codegen)
                 // This handles Python's dynamic tuple sizing (e.g., bases=() vs bases=(cls,))
                 if (self.tuple.len != other.tuple.len) return .unknown;
@@ -385,7 +390,7 @@ pub const NativeType = union(enum) {
                 return self;
             }
             // Special handling for array types - different lengths need list type
-            if (self_tag == .array) {
+            if (container_traits.isArray(self)) {
                 // Arrays with different lengths but same element type -> use list (slice in Zig)
                 // This matches InferListType behavior which produces []T for varying-length arrays
                 if (self.array.length != other.array.length) {
@@ -396,7 +401,7 @@ pub const NativeType = union(enum) {
                 return self;
             }
             // Special handling for list types - if element types differ, return pyvalue
-            if (self_tag == .list) {
+            if (container_traits.isList(self)) {
                 const self_elem = self.list.*;
                 const other_elem = other.list.*;
                 const self_elem_tag = @as(std.meta.Tag(NativeType), self_elem);
@@ -415,7 +420,7 @@ pub const NativeType = union(enum) {
             }
             // Special handling for int types - combine boundedness
             // unbounded + anything = unbounded (taint propagation)
-            if (self_tag == .int) {
+            if (type_traits.isIntegral(self)) {
                 const combined_kind = self.int.combine(other.int);
                 return .{ .int = combined_kind };
             }
@@ -424,12 +429,12 @@ pub const NativeType = union(enum) {
 
         // Handle array + list widening: array meets list -> list wins
         // This handles nested lists where some have arrays of different lengths
-        if ((self_tag == .array and other_tag == .list) or
-            (self_tag == .list and other_tag == .array))
+        if ((container_traits.isArray(self) and container_traits.isList(other)) or
+            (container_traits.isList(self) and container_traits.isArray(other)))
         {
             // The list type is more general, use it
             // But we might need to widen the element types
-            if (self_tag == .list) {
+            if (container_traits.isList(self)) {
                 return self;
             } else {
                 return other;
@@ -450,12 +455,12 @@ pub const NativeType = union(enum) {
         // String + non-numeric types = PyValue (heterogeneous list)
         // Strings only "win" within the string hierarchy (literal vs runtime)
         // When mixing string with int/float/bool/etc., use pyvalue for type erasure
-        if (self_tag == .string and other_tag == .string) return .{ .string = .runtime };
-        if (self_tag == .string or other_tag == .string) {
+        if (string_traits.isString(self) and string_traits.isString(other)) return .{ .string = .runtime };
+        if (string_traits.isString(self) or string_traits.isString(other)) {
             // String + numeric (int/float/usize/bigint) = pyvalue (heterogeneous)
             // String + bool = pyvalue (heterogeneous)
-            const other_is_numeric = other_tag == .int or other_tag == .float or other_tag == .usize or other_tag == .bigint or other_tag == .bool;
-            const self_is_numeric = self_tag == .int or self_tag == .float or self_tag == .usize or self_tag == .bigint or self_tag == .bool;
+            const other_is_numeric = type_traits.isNumeric(other);
+            const self_is_numeric = type_traits.isNumeric(self);
             if (self_is_numeric or other_is_numeric) return .pyvalue;
             // String + other non-numeric types still defaults to pyvalue
             return .pyvalue;

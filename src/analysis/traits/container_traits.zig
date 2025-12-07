@@ -273,6 +273,7 @@ pub fn getSliceResultType(t: NativeType) NativeType {
 
 /// Get the Zig container type name for a Python container
 pub fn toZigContainerType(t: NativeType, elem_zig_type: []const u8) ?[]const u8 {
+    _ = elem_zig_type;
     const tag = @as(std.meta.Tag(@TypeOf(t)), t);
     return switch (tag) {
         .list => "std.ArrayList",
@@ -280,7 +281,6 @@ pub fn toZigContainerType(t: NativeType, elem_zig_type: []const u8) ?[]const u8 
         .set => "std.AutoHashMap", // Using AutoHashMap(T, void) for set
         else => null,
     };
-    _ = elem_zig_type;
 }
 
 /// Check if container needs PyValue elements (heterogeneous)

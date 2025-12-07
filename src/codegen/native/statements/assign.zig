@@ -10,6 +10,9 @@ const deferCleanup = @import("assign_defer.zig");
 const typeHandling = @import("assign/type_handling.zig");
 const valueGen = @import("assign/value_generation.zig");
 const zig_keywords = @import("utils.zig_keywords");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
 
 // Re-export submodules
 pub const genAugAssign = @import("assign/aug_assign.zig").genAugAssign;
@@ -258,8 +261,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             // Infer source type
             const source_type = try self.type_inferrer.inferExpr(assign.value.*);
-            const source_tag = @as(std.meta.Tag(@TypeOf(source_type)), source_type);
-            const is_list_type = source_tag == .list or source_tag == .array;
+            const is_list_type = container_traits.isList(source_type);
 
             // Generate: const __chained_tmp_N = value_expr;
             try self.emitIndent();
@@ -747,7 +749,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     continue;
                 }
 
-                if (value_type == .unknown) {
+                if (type_traits.isUnknown(value_type)) {
                     // PyObject: capture in block and decref immediately
                     // { const __unused = expr; runtime.decref(__unused, __global_allocator); }
                     try self.emit("{ const __unused = ");
@@ -770,7 +772,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     const rhs_name = assign.value.name.id;
                     // Check if the inferred type is a list (not just if variable was ever ArrayList)
                     // This ensures we don't alias class instances even if a previous function had same var name
-                    const is_rhs_list_type = value_type == .list or value_type == .array;
+                    const is_rhs_list_type = container_traits.isList(value_type);
                     const is_rhs_arraylist = is_rhs_list_type and (self.isArrayListVar(rhs_name) or self.arraylist_aliases.contains(rhs_name));
                     if (is_rhs_arraylist) {
                         // Track y as an alias pointing to x
@@ -833,18 +835,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 const needs_shadow = blk: {
                     // Collection type transitions: list <-> dict, array <-> hashmap
                     // These are fundamentally incompatible in Zig
-                    const declared_tag = @as(std.meta.Tag(NativeType), declared_type);
-                    const new_tag = @as(std.meta.Tag(NativeType), new_type);
 
                     // List/array to dict/set transition
-                    if ((declared_tag == .list or declared_tag == .array) and
-                        (new_tag == .dict or new_tag == .set))
+                    if (container_traits.isList(declared_type) and
+                        (container_traits.isDict(new_type) or container_traits.isSet(new_type)))
                     {
                         break :blk true;
                     }
                     // Dict/set to list/array transition
-                    if ((declared_tag == .dict or declared_tag == .set) and
-                        (new_tag == .list or new_tag == .array))
+                    if ((container_traits.isDict(declared_type) or container_traits.isSet(declared_type)) and
+                        container_traits.isList(new_type))
                     {
                         break :blk true;
                     }
@@ -860,8 +860,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // In Python, F inherits from float but in Zig they're different types
                     if (new_type == .class_instance) {
                         // Was a primitive type (int, float, bool, string) but now is class instance
-                        if (declared_type == .int or declared_type == .float or
-                            declared_type == .bool or declared_type == .string)
+                        if (type_traits.isIntegral(declared_type) or type_traits.isFloating(declared_type) or
+                            type_traits.isBoolean(declared_type) or string_traits.isString(declared_type))
                         {
                             break :blk true;
                         }
@@ -886,13 +886,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                                 // as class_instance. Check if call names differ.
                                 // This handles: u = subclass(); u = subclass_with_init()
                                 // where declared_type might be .unknown
-                                if (declared_type == .unknown) {
+                                if (type_traits.isUnknown(declared_type)) {
                                     break :blk true; // Different nested class, need shadow
                                 }
                             }
                             // Also shadow if declared as primitive but now assigning nested class
-                            if (declared_type == .int or declared_type == .float or
-                                declared_type == .bool or declared_type == .string)
+                            if (type_traits.isIntegral(declared_type) or type_traits.isFloating(declared_type) or
+                                type_traits.isBoolean(declared_type) or string_traits.isString(declared_type))
                             {
                                 break :blk true;
                             }
@@ -907,7 +907,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     const is_alias_reassign = self.arraylist_aliases.contains(var_name) and assign.value.* == .name;
                     if (is_alias_reassign) {
                         const rhs_name = assign.value.name.id;
-                        const is_rhs_list_type = new_type == .list or new_type == .array;
+                        const is_rhs_list_type = container_traits.isList(new_type);
                         const is_rhs_arraylist = is_rhs_list_type and (self.isArrayListVar(rhs_name) or self.arraylist_aliases.contains(rhs_name));
                         if (is_rhs_arraylist) {
                             // Shadow the alias - generate new pointer variable
@@ -975,7 +975,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // When reassigning an alias, we need to update the pointer: y = &x
                     if (self.arraylist_aliases.contains(var_name) and assign.value.* == .name) {
                         const rhs_name = assign.value.name.id;
-                        const is_rhs_list_type = value_type == .list or value_type == .array;
+                        const is_rhs_list_type = container_traits.isList(value_type);
                         const is_rhs_arraylist = is_rhs_list_type and (self.isArrayListVar(rhs_name) or self.arraylist_aliases.contains(rhs_name));
                         if (is_rhs_arraylist) {
                             // Update alias to point to new target
@@ -1030,7 +1030,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (assign.value.* == .binop and assign.value.binop.op == .Add) {
                 const left_type = try self.inferExprScoped(assign.value.binop.left.*);
                 const right_type = try self.inferExprScoped(assign.value.binop.right.*);
-                if (left_type == .string or right_type == .string) {
+                if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
                     try valueGen.genStringConcat(self, assign, var_name, is_first_assignment);
                     return;
                 }
@@ -1060,13 +1060,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // When variable is typed as bigint OR has unbounded int (could overflow i64),
             // we need to convert values to BigInt
             const needs_bigint = value_type == .bigint or
-                (value_type == .int and value_type.int.needsBigInt());
+                (type_traits.isIntegral(value_type) and value_type.int.needsBigInt());
             if (needs_bigint) {
                 // Infer the type of the current value expression
                 const current_value_type = try self.inferExprScoped(assign.value.*);
 
                 // If current value is int-typed, convert to BigInt
-                if (current_value_type == .int) {
+                if (type_traits.isIntegral(current_value_type)) {
                     // Check if this is an int() call - use parseIntToBigInt directly
                     // to avoid overflow when parsing very large strings like int('1' * 600)
                     if (assign.value.* == .call and assign.value.call.func.* == .name and
@@ -1397,7 +1397,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                 try self.emitIndent();
 
-                if (container_type == .dict) {
+                if (container_traits.isDict(container_type)) {
                     // Dict assignment: dict.put(key, value)
                     // Check if dict has PyValue values - if so, wrap the value
                     const dict_value_type = container_type.dict.value.*;
@@ -1420,7 +1420,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         try self.genExpr(assign.value.*);
                     }
                     try self.emit(");\n");
-                } else if (container_type == .list or (subscript.value.* == .name and self.isArrayListVar(subscript.value.name.id))) {
+                } else if (container_traits.isList(container_type) or (subscript.value.* == .name and self.isArrayListVar(subscript.value.name.id))) {
                     // List assignment: list.items[idx] = value
                     // Also handles ArrayList variables which may have .array type from inference
                     // Need to handle negative indices: a[-1] = x → a.items[a.items.len - 1] = x
@@ -1460,7 +1460,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // PyValue can contain a dict (wrapped as ptr to StringHashMap)
                     const index_type = try self.inferExprScoped(subscript.slice.index.*);
                     std.debug.print("DEBUG pyvalue branch: index_type={}\n", .{index_type});
-                    if (index_type == .string or index_type == .pyvalue or index_type == .unknown) {
+                    if (string_traits.isString(index_type) or index_type == .pyvalue or type_traits.isUnknown(index_type)) {
                         // String key (or PyValue containing string, or unknown) - treat as dict assignment
                         // For PyValue/unknown key, we need to unwrap it to string with .asString()
                         try self.emit("try ");
@@ -1470,7 +1470,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             try self.genExpr(subscript.value.*);
                         }
                         try self.emit(".pyDictPut(__global_allocator, ");
-                        if (index_type == .pyvalue or index_type == .unknown) {
+                        if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
                             try self.genExpr(subscript.slice.index.*);
                             try self.emit(".asString()");
                         } else {
@@ -1500,7 +1500,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // For nested subscripts with PyValue-style iteration variable (string key from dict iteration)
                     // or unknown containers with string/pyvalue keys, use runtime dict handling
                     // Check if this is a nested subscript where the index comes from PyValue iteration
-                    const is_pyvalue_key = (index_type == .string or index_type == .pyvalue or index_type == .unknown);
+                    const is_pyvalue_key = (string_traits.isString(index_type) or index_type == .pyvalue or type_traits.isUnknown(index_type));
                     if (is_nested and is_pyvalue_key) {
                         // Unknown container with string/pyvalue key - likely dict access
                         // Use runtime type check
@@ -1591,7 +1591,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.genExpr(assign.value.*);
                 try self.emit(";\n");
 
-                if (container_type == .list) {
+                if (container_traits.isList(container_type)) {
                     if (is_full_slice) {
                         // a[:] = data - replace entire list
                         try self.emitIndent();

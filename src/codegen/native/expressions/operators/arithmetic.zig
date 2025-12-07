@@ -13,6 +13,9 @@ const BinaryDunders = shared.BinaryDunders;
 const ReverseDunders = shared.ReverseDunders;
 const collections = @import("../collections.zig");
 const operator_traits = @import("../../../../analysis/traits/operator_traits.zig");
+const string_traits = @import("../../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../../analysis/traits/container_traits.zig");
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 
 /// Check if a list will be generated as a fixed array (constant + homogeneous)
 fn willGenerateAsFixedArray(list_node: ast.Node) bool {
@@ -64,7 +67,7 @@ fn collectConcatParts(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayLis
         const right_type = try self.inferExprScoped(node.binop.right.*);
 
         // Only flatten if this is string concatenation
-        if (left_type == .string or right_type == .string) {
+        if (string_traits.isStringLike(left_type) or string_traits.isStringLike(right_type)) {
             try collectConcatParts(self, node.binop.left.*, parts);
             try collectConcatParts(self, node.binop.right.*, parts);
             return;
@@ -435,12 +438,12 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         // 1. One operand is definitively int and the other is definitively float
         // 2. One operand is int and other is unknown (unknown could be any type from tuple unpack, closure param, etc.)
         // 3. One operand is float and other is unknown
-        const left_is_int = left_type == .int;
-        const right_is_int = right_type == .int;
-        const left_is_float = left_type == .float;
-        const right_is_float = right_type == .float;
-        const left_is_unknown = left_type == .unknown;
-        const right_is_unknown = right_type == .unknown;
+        const left_is_int = type_traits.isIntegral(left_type);
+        const right_is_int = type_traits.isIntegral(right_type);
+        const left_is_float = type_traits.isFloating(left_type);
+        const right_is_float = type_traits.isFloating(right_type);
+        const left_is_unknown = type_traits.isUnknown(left_type);
+        const right_is_unknown = type_traits.isUnknown(right_type);
 
         // Use runtime helpers when types could be mixed (any combination involving unknown or explicit int+float)
         const needs_runtime_helper = (left_is_int and right_is_float) or
@@ -471,7 +474,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         const left_type = try self.inferExprScoped(binop.left.*);
         const right_type = try self.inferExprScoped(binop.right.*);
 
-        if (left_type == .string or right_type == .string) {
+        if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
             // Flatten nested concatenations to avoid intermediate allocations
             var parts = std.ArrayList(ast.Node){};
             defer parts.deinit(self.allocator);
@@ -495,7 +498,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
         // Check for bytes concatenation: bytes + bytes
         // Use catch instead of try to work at module level
-        if (left_type == .bytes or right_type == .bytes) {
+        if (string_traits.isBytes(left_type) or string_traits.isBytes(right_type)) {
             const alloc_name = "__global_allocator";
             try self.emit("(runtime.builtins.PyBytes.concat(");
             try self.emit(alloc_name);
@@ -576,7 +579,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         const right_type = try self.inferExprScoped(binop.right.*);
 
         // str * n -> repeat string n times
-        if (left_type == .string and (right_type == .int or right_type == .unknown)) {
+        if (string_traits.isString(left_type) and (type_traits.isIntegral(right_type) or type_traits.isUnknown(right_type))) {
             const alloc_name = "__global_allocator";
             try self.emit("runtime.strRepeat(");
             try self.emit(alloc_name);
@@ -590,7 +593,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
         // bytes * n -> repeat bytes n times
         // Use catch instead of try to work at module level
-        if (left_type == .bytes and (right_type == .int or right_type == .unknown)) {
+        if (string_traits.isBytes(left_type) and (type_traits.isIntegral(right_type) or type_traits.isUnknown(right_type))) {
             const alloc_name = "__global_allocator";
             try self.emit("(runtime.builtins.PyBytes.repeat(");
             try self.emit(alloc_name);
@@ -604,7 +607,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
         // n * bytes -> repeat bytes n times
         // Use catch instead of try to work at module level
-        if (right_type == .bytes and (left_type == .int or left_type == .unknown)) {
+        if (string_traits.isBytes(right_type) and (type_traits.isIntegral(left_type) or type_traits.isUnknown(left_type))) {
             const alloc_name = "__global_allocator";
             try self.emit("(runtime.builtins.PyBytes.repeat(");
             try self.emit(alloc_name);
@@ -650,7 +653,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
         // unknown * int - could be string repeat in inline for context
         // Generate comptime type check with unique label to avoid conflicts
-        if (left_type == .unknown and (right_type == .int or right_type == .unknown)) {
+        if (type_traits.isUnknown(left_type) and (type_traits.isIntegral(right_type) or type_traits.isUnknown(right_type))) {
             const alloc_name = "__global_allocator";
             const label_id = self.block_label_counter;
             self.block_label_counter += 1;
@@ -665,7 +668,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             return;
         }
         // n * str -> repeat string n times
-        if (right_type == .string and (left_type == .int or left_type == .unknown)) {
+        if (string_traits.isString(right_type) and (type_traits.isIntegral(left_type) or type_traits.isUnknown(left_type))) {
             const alloc_name = "__global_allocator";
             try self.emit("runtime.strRepeat(");
             try self.emit(alloc_name);
@@ -679,9 +682,9 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
         // tuple * n -> repeat tuple n times (returns a list/slice)
         // Check both AST node type (.tuple literal) and inferred type (.tuple)
-        const left_is_tuple = binop.left.* == .tuple or left_type == .tuple;
-        const right_is_tuple = binop.right.* == .tuple or right_type == .tuple;
-        if (left_is_tuple and (right_type == .int or right_type == .unknown)) {
+        const left_is_tuple = binop.left.* == .tuple or container_traits.isTuple(left_type);
+        const right_is_tuple = binop.right.* == .tuple or container_traits.isTuple(right_type);
+        if (left_is_tuple and (type_traits.isIntegral(right_type) or type_traits.isUnknown(right_type))) {
             const alloc_name = "__global_allocator";
             try self.emit("runtime.tupleRepeat(");
             try self.emit(alloc_name);
@@ -693,7 +696,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             return;
         }
         // n * tuple -> repeat tuple n times
-        if (right_is_tuple and (left_type == .int or left_type == .unknown)) {
+        if (right_is_tuple and (type_traits.isIntegral(left_type) or type_traits.isUnknown(left_type))) {
             const alloc_name = "__global_allocator";
             try self.emit("runtime.tupleRepeat(");
             try self.emit(alloc_name);
@@ -706,9 +709,9 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         }
 
         // list * n -> repeat list n times
-        const left_is_list = binop.left.* == .list or left_type == .list;
-        const right_is_list = binop.right.* == .list or right_type == .list;
-        if (left_is_list and (right_type == .int or right_type == .unknown)) {
+        const left_is_list = binop.left.* == .list or container_traits.isList(left_type);
+        const right_is_list = binop.right.* == .list or container_traits.isList(right_type);
+        if (left_is_list and (type_traits.isIntegral(right_type) or type_traits.isUnknown(right_type))) {
             const alloc_name = "__global_allocator";
             try self.emit("runtime.sliceRepeatDynamic(");
             try self.emit(alloc_name);
@@ -733,7 +736,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             return;
         }
         // n * list -> repeat list n times
-        if (right_is_list and (left_type == .int or left_type == .unknown)) {
+        if (right_is_list and (type_traits.isIntegral(left_type) or type_traits.isUnknown(left_type))) {
             const alloc_name = "__global_allocator";
             try self.emit("runtime.sliceRepeatDynamic(");
             try self.emit(alloc_name);
@@ -785,7 +788,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             .zig_native => {
                 // Integers - use @divFloor with bool conversion if needed
                 try self.emit("@divFloor(");
-                if (left_type == .bool) {
+                if (type_traits.isBoolean(left_type)) {
                     try self.emit("@as(i64, @intFromBool(");
                     try genExpr(self, binop.left.*);
                     try self.emit("))");
@@ -793,7 +796,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
                     try genExpr(self, binop.left.*);
                 }
                 try self.emit(", ");
-                if (right_type == .bool) {
+                if (type_traits.isBoolean(right_type)) {
                     try self.emit("@as(i64, @intFromBool(");
                     try genExpr(self, binop.right.*);
                     try self.emit("))");
@@ -810,7 +813,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     if (binop.op == .Mod) {
         // Check if this is Python string formatting: "%d" % value
         const left_type = try self.inferExprScoped(binop.left.*);
-        if (left_type == .string or (binop.left.* == .constant and binop.left.constant.value == .string)) {
+        if (string_traits.isString(left_type) or (binop.left.* == .constant and binop.left.constant.value == .string)) {
             // Python string formatting: "format" % value(s)
             const genStringFormat = @import("./formatting.zig").genStringFormat;
             try genStringFormat(self, binop);
@@ -839,7 +842,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             .zig_native => {
                 // Integers - use @mod with bool conversion if needed
                 try self.emit("@mod(");
-                if (left_type == .bool) {
+                if (type_traits.isBoolean(left_type)) {
                     try self.emit("@as(i64, @intFromBool(");
                     try genExpr(self, binop.left.*);
                     try self.emit("))");
@@ -847,7 +850,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
                     try genExpr(self, binop.left.*);
                 }
                 try self.emit(", ");
-                if (right_type == .bool) {
+                if (type_traits.isBoolean(right_type)) {
                     try self.emit("@as(i64, @intFromBool(");
                     try genExpr(self, binop.right.*);
                     try self.emit("))");
@@ -865,8 +868,8 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         // Check types for bool handling
         const left_type = try self.inferExprScoped(binop.left.*);
         const right_type = try self.inferExprScoped(binop.right.*);
-        const left_is_bool = (left_type == .bool);
-        const right_is_bool = (right_type == .bool);
+        const left_is_bool = type_traits.isBoolean(left_type);
+        const right_is_bool = type_traits.isBoolean(right_type);
 
         // Helper to emit left operand with possible bool conversion
         const emitLeft = struct {
@@ -1231,19 +1234,18 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
             // - int/float: 0 is falsy -> x == 0
             // - bool: just negate
             const operand_type = try self.inferExprScoped(unaryop.operand.*);
-            const operand_tag = @as(std.meta.Tag(@TypeOf(operand_type)), operand_type);
-            if (operand_tag == .string) {
+            if (string_traits.isString(operand_type)) {
                 // not string -> string.len == 0
                 try self.emit("(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit(").len == 0");
-            } else if (operand_tag == .list or operand_tag == .array) {
+            } else if (container_traits.isList(operand_type)) {
                 // not list/array -> use runtime.toBool for proper truthiness
                 // (handles both ArrayListUnmanaged and fixed arrays)
                 try self.emit("!runtime.toBool(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit(")");
-            } else if (operand_tag == .tuple) {
+            } else if (container_traits.isTuple(operand_type)) {
                 // not tuple -> check if tuple is empty via comptime struct fields
                 try self.emit("(@typeInfo(@TypeOf(");
                 try genExpr(self, unaryop.operand.*);
@@ -1254,7 +1256,7 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
             } else if (unaryop.operand.* == .tuple) {
                 // Non-empty tuple literal - always false (not (1,2) == false)
                 try self.emit("false");
-            } else if (operand_tag == .bool or operand_tag == .int or operand_tag == .float) {
+            } else if (type_traits.isBoolean(operand_type) or type_traits.isIntegral(operand_type) or type_traits.isFloating(operand_type)) {
                 // Simple bool/int/float - direct negation works
                 try self.emit("!(");
                 try genExpr(self, unaryop.operand.*);
@@ -1269,7 +1271,7 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
         .USub => {
             // In Python, -bool converts to int first: -True = -1, -False = 0
             const operand_type = try self.inferExprScoped(unaryop.operand.*);
-            if (operand_type == .bool) {
+            if (type_traits.isBoolean(operand_type)) {
                 try self.emit("-@as(i64, @intFromBool(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit("))");
@@ -1288,7 +1290,7 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
                 try self.emit(").clone(");
                 try self.emit(alloc_name);
                 try self.emitFmt(") catch @panic(\"OOM\"); __neg_tmp.negate(); break :neg_{d} __neg_tmp; }}", .{id});
-            } else if (operand_type == .unknown) {
+            } else if (type_traits.isUnknown(operand_type)) {
                 // Unknown type (e.g., anytype parameter) - use comptime type check
                 const alloc_name = "__global_allocator";
                 const id = self.block_label_counter;
@@ -1307,7 +1309,7 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
         .UAdd => {
             // In Python, +bool converts to int: +True = 1, +False = 0
             const operand_type = try self.inferExprScoped(unaryop.operand.*);
-            if (operand_type == .bool) {
+            if (type_traits.isBoolean(operand_type)) {
                 try self.emit("@as(i64, @intFromBool(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit("))");
@@ -1325,7 +1327,7 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
 
             // Check if operand is a boolean constant or name (True/False)
             const is_bool = blk: {
-                if (operand_type == .bool) break :blk true;
+                if (type_traits.isBoolean(operand_type)) break :blk true;
                 // Check for True/False names which may not be typed as bool
                 if (unaryop.operand.* == .name) {
                     const name = unaryop.operand.name.id;

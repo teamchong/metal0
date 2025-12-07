@@ -594,6 +594,9 @@ pub const getCacheStats = eval_cache.getCacheStats;
 /// Deinitialize cache
 pub const deinitCache = eval_cache.deinitCache;
 
+/// Python eval() builtin - alias for evalCached
+pub const eval = evalCached;
+
 // ============================================================================
 // Bytecode Execution (High-Level)
 // ============================================================================

@@ -9,6 +9,11 @@ const BinOpStrings = shared.BinOpStrings;
 const function_traits = @import("analysis.function_traits");
 const zig_keywords = @import("utils.zig_keywords");
 
+// Trait imports for type checking
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
+
 /// Builtins that return int for type inference
 const IntReturningBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "len", {} }, .{ "int", {} }, .{ "ord", {} },
@@ -54,13 +59,13 @@ fn genComprehensionCondition(
             }
             break :blk false;
         },
-        else => cond_type == .bool,
+        else => type_traits.isBoolean(cond_type),
     };
 
     if (is_already_bool) {
         // Boolean expression - use directly
         try genExprWithSubs(self, if_cond, subs);
-    } else if (cond_type == .unknown) {
+    } else if (type_traits.isUnknown(cond_type)) {
         // Unknown type (PyObject) - use runtime truthiness check
         try self.emit("runtime.pyTruthy(");
         try genExprWithSubs(self, if_cond, subs);
@@ -105,13 +110,13 @@ fn genComprehensionConditionNoSubs(
             }
             break :blk false;
         },
-        else => cond_type == .bool,
+        else => type_traits.isBoolean(cond_type),
     };
 
     if (is_already_bool) {
         // Boolean expression - use directly
         try genExpr(self, if_cond);
-    } else if (cond_type == .unknown) {
+    } else if (type_traits.isUnknown(cond_type)) {
         // Unknown type (PyObject) - use runtime truthiness check
         try self.emit("runtime.pyTruthy(");
         try genExpr(self, if_cond);
@@ -450,11 +455,11 @@ fn genExprWithSubs(
             const cond_type = self.type_inferrer.inferExpr(ie.condition.*) catch .unknown;
 
             try self.emit("(if (");
-            if (cond_type == .int or cond_type == .float) {
+            if (type_traits.isIntegral(cond_type) or type_traits.isFloating(cond_type)) {
                 // Integer/float condition - check != 0
                 try genExprWithSubs(self, ie.condition.*, subs);
                 try self.emit(" != 0");
-            } else if (cond_type == .unknown) {
+            } else if (type_traits.isUnknown(cond_type)) {
                 // Unknown type (PyObject) - use runtime truthiness check
                 try self.emit("runtime.pyTruthy(");
                 try genExprWithSubs(self, ie.condition.*, subs);
@@ -726,6 +731,7 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
             std.mem.eql(u8, gen.iter.call.func.name.id, "range");
         if (!is_range) {
             const iter_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
+            // Check if iter_type is PyValue (using tag comparison since there's no trait for it yet)
             if (iter_type == .pyvalue) {
                 // PyValue iteration - emit empty PyValue list directly
                 try self.emit("std.ArrayListUnmanaged(runtime.PyValue){}\n");
@@ -742,7 +748,8 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     // Determine element type from the expression
     // For tuple elements, we need to generate a struct type dynamically
     const element_type: []const u8 = blk: {
-        if (listcomp.elt.* == .tuple) {
+        const elt_type = self.type_inferrer.inferExpr(listcomp.elt.*) catch .unknown;
+        if (container_traits.isTuple(elt_type) or listcomp.elt.* == .tuple) {
             // Tuple element like (a,) - need to infer types of each element
             const tuple = listcomp.elt.tuple;
             var type_buf = std.ArrayListUnmanaged(u8){};
@@ -752,14 +759,17 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                 if (idx > 0) writer.writeAll(", ") catch {};
                 writer.print("@\"{d}\": ", .{idx}) catch {};
                 // Infer type of each tuple element
-                const elt_type = self.type_inferrer.inferExpr(elt) catch .unknown;
-                const type_str: []const u8 = switch (elt_type) {
-                    .string => "[]const u8",
-                    .bool => "bool",
-                    .float => "f64",
-                    .pyvalue => "runtime.PyValue",
-                    else => "i64",
-                };
+                const tuple_elt_type = self.type_inferrer.inferExpr(elt) catch .unknown;
+                const type_str: []const u8 = if (string_traits.isString(tuple_elt_type))
+                    "[]const u8"
+                else if (type_traits.isBoolean(tuple_elt_type))
+                    "bool"
+                else if (type_traits.isFloating(tuple_elt_type))
+                    "f64"
+                else if (tuple_elt_type == .pyvalue)
+                    "runtime.PyValue"
+                else
+                    "i64";
                 writer.writeAll(type_str) catch {};
             }
             writer.writeAll(" }") catch {};
@@ -780,31 +790,34 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
             }
         } else if (listcomp.elt.* == .constant) {
             // Constant element
-            switch (listcomp.elt.constant.value) {
-                .string => break :blk "[]const u8",
-                .bytes => break :blk "runtime.builtins.PyBytes",
-                .bool => break :blk "bool",
-                .float => break :blk "f64",
-                else => {},
+            const const_type = self.type_inferrer.inferExpr(listcomp.elt.*) catch .unknown;
+            if (string_traits.isString(const_type)) {
+                break :blk "[]const u8";
+            } else if (string_traits.isBytes(const_type)) {
+                break :blk "runtime.builtins.PyBytes";
+            } else if (type_traits.isBoolean(const_type)) {
+                break :blk "bool";
+            } else if (type_traits.isFloating(const_type)) {
+                break :blk "f64";
             }
         } else if (listcomp.elt.* == .if_expr) {
             // Ternary expression - check body and orelse types
             const if_expr = listcomp.elt.if_expr;
             // Check if both body and orelse are bool literals
             if (if_expr.body.* == .constant and if_expr.orelse_value.* == .constant) {
-                const body_const = if_expr.body.constant.value;
-                const orelse_const = if_expr.orelse_value.constant.value;
-                if (body_const == .bool and orelse_const == .bool) {
+                const body_const_type = self.type_inferrer.inferExpr(if_expr.body.*) catch .unknown;
+                const orelse_const_type = self.type_inferrer.inferExpr(if_expr.orelse_value.*) catch .unknown;
+                if (type_traits.isBoolean(body_const_type) and type_traits.isBoolean(orelse_const_type)) {
                     break :blk "bool";
                 }
             }
             // Use type inference for the body expression
             const body_type = self.type_inferrer.inferExpr(if_expr.body.*) catch .unknown;
-            if (body_type == .bool) {
+            if (type_traits.isBoolean(body_type)) {
                 break :blk "bool";
-            } else if (body_type == .string) {
+            } else if (string_traits.isString(body_type)) {
                 break :blk "[]const u8";
-            } else if (body_type == .float) {
+            } else if (type_traits.isFloating(body_type)) {
                 break :blk "f64";
             }
         }
@@ -864,7 +877,8 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
             const is_direct_iterable = blk: {
                 // String literals are directly iterable (they're Zig arrays)
                 if (gen.iter.* == .constant) {
-                    if (gen.iter.constant.value == .string) break :blk true;
+                    const iter_const_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
+                    if (string_traits.isString(iter_const_type)) break :blk true;
                 }
                 if (gen.iter.* == .name) {
                     const var_name = gen.iter.name.id;
@@ -874,7 +888,7 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                     if (self.anytype_params.contains(var_name)) break :blk true;
                     // String variables are directly iterable
                     if (self.getVarType(var_name)) |vt| {
-                        if (vt == .string) break :blk true;
+                        if (string_traits.isString(vt)) break :blk true;
                     }
                 }
                 break :blk false;
@@ -1051,7 +1065,8 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
             const is_direct_iterable = blk: {
                 // String literals are directly iterable (they're Zig arrays)
                 if (gen.iter.* == .constant) {
-                    if (gen.iter.constant.value == .string) break :blk true;
+                    const iter_const_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
+                    if (string_traits.isString(iter_const_type)) break :blk true;
                 }
                 if (gen.iter.* == .name) {
                     const var_name_inner = gen.iter.name.id;
@@ -1061,7 +1076,7 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
                     if (self.anytype_params.contains(var_name_inner)) break :blk true;
                     // String variables are directly iterable
                     if (self.getVarType(var_name_inner)) |vt| {
-                        if (vt == .string) break :blk true;
+                        if (string_traits.isString(vt)) break :blk true;
                     }
                 }
                 break :blk false;
@@ -1249,7 +1264,8 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
             const is_direct_iterable = blk: {
                 // String literals are directly iterable (they're Zig arrays)
                 if (gen.iter.* == .constant) {
-                    if (gen.iter.constant.value == .string) break :blk true;
+                    const iter_const_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
+                    if (string_traits.isString(iter_const_type)) break :blk true;
                 }
                 if (gen.iter.* == .name) {
                     const var_name_gen = gen.iter.name.id;
@@ -1259,7 +1275,7 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
                     if (self.anytype_params.contains(var_name_gen)) break :blk true;
                     // String variables are directly iterable
                     if (self.getVarType(var_name_gen)) |vt| {
-                        if (vt == .string) break :blk true;
+                        if (string_traits.isString(vt)) break :blk true;
                     }
                 }
                 break :blk false;
@@ -1379,7 +1395,7 @@ fn isBoolExpr(node: ast.Node) bool {
         .compare => true, // Comparisons (including 'in') yield bool
         .boolop => true, // and/or yield bool
         .unaryop => |u| u.op == .Not, // not yields bool
-        .constant => |c| c.value == .bool,
+        .constant => |c| type_traits.isBoolean(if (c.value == .bool) .bool else .unknown),
         .call => |c| {
             if (c.func.* == .name) return BoolReturningBuiltins.has(c.func.name.id);
             return false;

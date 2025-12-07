@@ -7,12 +7,17 @@ const CodegenError = main.CodegenError;
 const shared = @import("../shared_maps.zig");
 const AllocatingMethods = shared.AllocatingStringMethods;
 
+// Trait imports
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
+
 /// Flatten nested string concat: (s1 + " ") + s2 => [s1, " ", s2]
 fn flattenConcat(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayList(ast.Node)) CodegenError!void {
     if (node == .binop and node.binop.op == .Add) {
         const left_type = try self.type_inferrer.inferExpr(node.binop.left.*);
         const right_type = try self.type_inferrer.inferExpr(node.binop.right.*);
-        if (left_type == .string or right_type == .string) {
+        if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
             try flattenConcat(self, node.binop.left.*, parts);
             try flattenConcat(self, node.binop.right.*, parts);
             return;
@@ -35,7 +40,7 @@ fn isAllocatingMethodCall(self: *NativeCodegen, node: ast.Node) bool {
     if (node.call.func.* != .attribute) return false;
     const attr = node.call.func.attribute;
     const obj_type = self.type_inferrer.inferExpr(attr.value.*) catch return false;
-    if (obj_type != .string) return false;
+    if (!string_traits.isString(obj_type)) return false;
     return AllocatingMethods.has(attr.attr);
 }
 
@@ -74,7 +79,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 const needs_items = if (starred_value == .name)
                     self.arraylist_vars.contains(starred_value.name.id)
                 else
-                    value_type == .list;
+                    container_traits.isList(value_type);
 
                 if (needs_items) {
                     try self.emit("    for (__starred.items) |__elem| {\n");
@@ -92,9 +97,9 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
                 const arg_type = try self.type_inferrer.inferExpr(arg);
                 // Note: bool uses {s} because we wrap with "True"/"False" string
-                const fmt = if (arg_type == .bool) "{s}" else arg_type.getPrintFormat();
+                const fmt = if (type_traits.isBoolean(arg_type)) "{s}" else arg_type.getPrintFormat();
 
-                if (arg_type == .bool) {
+                if (type_traits.isBoolean(arg_type)) {
                     try self.emit("    std.debug.print(\"{s}\", .{if (");
                     try self.genExpr(arg);
                     try self.emit(") \"True\" else \"False\"});\n");
@@ -129,7 +134,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (arg == .binop and arg.binop.op == .Add) {
             const left_type = try self.type_inferrer.inferExpr(arg.binop.left.*);
             const right_type = try self.type_inferrer.inferExpr(arg.binop.right.*);
-            if (left_type == .string or right_type == .string) {
+            if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
                 has_string_concat = true;
                 break;
             }
@@ -138,34 +143,34 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             has_allocating_call = true;
         }
         const arg_type = try self.type_inferrer.inferExpr(arg);
-        if (arg_type == .list) {
+        if (container_traits.isList(arg_type)) {
             has_list = true;
         }
         if (arg_type == .array) {
             has_array = true;
         }
-        if (arg_type == .tuple) {
+        if (container_traits.isTuple(arg_type)) {
             has_tuple = true;
         }
-        if (arg_type == .dict) {
+        if (container_traits.isDict(arg_type)) {
             has_dict = true;
         }
-        if (arg_type == .bool) {
+        if (type_traits.isBoolean(arg_type)) {
             has_bool = true;
         }
-        if (arg_type == .float) {
+        if (type_traits.isFloating(arg_type)) {
             has_float = true;
         }
-        if (arg_type == .none) {
+        if (type_traits.isNone(arg_type)) {
             has_none = true;
         }
-        if (arg_type == .unknown) {
+        if (type_traits.isUnknown(arg_type)) {
             has_unknown = true;
         }
         if (arg_type == .pyobject) {
             has_pyobject = true;
         }
-        if (arg_type == .bytes) {
+        if (string_traits.isBytes(arg_type)) {
             has_unknown = true; // bytes needs complex printing path like unknown
         }
     }
@@ -201,18 +206,18 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For lists and arrays, we need to print in Python format: [elem1, elem2, ...]
     for (args, 0..) |arg, i| {
         const arg_type = try self.type_inferrer.inferExpr(arg);
-        if (arg_type == .list or arg_type == .array) {
+        if (container_traits.isList(arg_type) or arg_type == .array) {
             try genPrintList(self, arg, arg_type);
-        } else if (arg_type == .tuple) {
+        } else if (container_traits.isTuple(arg_type)) {
             try genPrintTuple(self, arg, arg_type);
-        } else if (arg_type == .dict) {
+        } else if (container_traits.isDict(arg_type)) {
             try genPrintDict(self, arg);
-        } else if (arg_type == .bytes) {
+        } else if (string_traits.isBytes(arg_type)) {
             // PyBytes - print with b'...' repr format
             try self.emit("std.debug.print(\"{s}\", .{runtime.builtins.bytesRepr(__global_allocator, (");
             try self.genExpr(arg);
             try self.emit(").data) catch \"<bytes>\"});\n");
-        } else if (arg_type == .unknown) {
+        } else if (type_traits.isUnknown(arg_type)) {
             // Unknown types - use runtime printer
             try self.emit("runtime.printPyObject(");
             try self.genExpr(arg);
@@ -233,18 +238,18 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("for (");
             try self.genExpr(arg);
             try self.emit(") |__row| { __row.print(); std.debug.print(\"\\n\", .{}); }\n");
-        } else if (arg_type == .bool) {
+        } else if (type_traits.isBoolean(arg_type)) {
             // Print booleans as Python-style True/False
             try self.emit("std.debug.print(\"{s}\", .{if (");
             try self.genExpr(arg);
             try self.emit(") \"True\" else \"False\"});\n");
-        } else if (arg_type == .none) {
+        } else if (type_traits.isNone(arg_type)) {
             // Print None
             try self.emit("std.debug.print(\"None\", .{});\n");
         } else {
             // For non-list/tuple/bool args in mixed print, use std.debug.print
             // Note: unknown types try {s} (works for string constants)
-            const fmt = if (arg_type == .unknown) "{s}" else arg_type.getPrintFormat();
+            const fmt = if (type_traits.isUnknown(arg_type)) "{s}" else arg_type.getPrintFormat();
             try self.emit("std.debug.print(\"");
             try self.emit(fmt);
             try self.emit("\", .{");
@@ -266,7 +271,7 @@ fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenE
     const is_array_slice = isArraySlice(self, arg);
     const is_plain_array = arg_type == .array;
     // .list type means ArrayList - always use .items
-    const is_arraylist = arg_type == .list;
+    const is_arraylist = container_traits.isList(arg_type);
 
     // Generate loop to print list/array elements
     try self.emit("{\n");
@@ -288,7 +293,7 @@ fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenE
     try self.emit("        if (__idx > 0) std.debug.print(\", \", .{});\n");
 
     // Get element format based on element type
-    const elem_fmt = if (arg_type == .list) blk: {
+    const elem_fmt = if (container_traits.isList(arg_type)) blk: {
         // ArrayList element type
         const elem_type = arg_type.list.*;
         break :blk elem_type.getPrintFormat();
@@ -323,8 +328,8 @@ fn genPrintTuple(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) Codegen
             // Determine format based on element type
             const elem_type = arg_type.tuple[elem_idx];
             // Note: bool uses {s} because we wrap with "True"/"False" string
-            const fmt = if (elem_type == .bool) "{s}" else elem_type.getPrintFormat();
-            if (elem_type == .bool) {
+            const fmt = if (type_traits.isBoolean(elem_type)) "{s}" else elem_type.getPrintFormat();
+            if (type_traits.isBoolean(elem_type)) {
                 // Boolean elements need conditional formatting
                 try self.emitFmt("    std.debug.print(\"{{s}}\", .{{if (__tuple.@\"{d}\") \"True\" else \"False\"}});\n", .{elem_idx});
             } else {
@@ -375,7 +380,7 @@ fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
         if (arg == .binop and arg.binop.op == .Add) {
             const left_type = try self.type_inferrer.inferExpr(arg.binop.left.*);
             const right_type = try self.type_inferrer.inferExpr(arg.binop.right.*);
-            if (left_type == .string or right_type == .string) {
+            if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
                 try self.emitIndent();
                 try self.emitFmt("const _temp{d} = ", .{temp_counter});
 
@@ -436,7 +441,7 @@ fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
         if (arg == .binop and arg.binop.op == .Add) {
             const left_type = try self.type_inferrer.inferExpr(arg.binop.left.*);
             const right_type = try self.type_inferrer.inferExpr(arg.binop.right.*);
-            if (left_type == .string or right_type == .string) {
+            if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
                 try self.emitFmt("_temp{d}", .{temp_counter});
                 temp_counter += 1;
             } else {
@@ -472,7 +477,7 @@ fn genPrintSimple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const arg_type = try self.type_inferrer.inferExpr(arg);
         // Note: bool uses {s} because formatAny() returns string
         // Note: unknown uses {s} - works for string constants
-        const fmt = if (arg_type == .bool or arg_type == .unknown) "{s}" else arg_type.getPrintFormat();
+        const fmt = if (type_traits.isBoolean(arg_type) or type_traits.isUnknown(arg_type)) "{s}" else arg_type.getPrintFormat();
         try self.emit(fmt);
 
         if (i < args.len - 1) {
@@ -485,7 +490,7 @@ fn genPrintSimple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate arguments - wrap bools only, use unknowns/native types directly
     for (args, 0..) |arg, i| {
         const arg_type = try self.type_inferrer.inferExpr(arg);
-        if (arg_type == .bool) {
+        if (type_traits.isBoolean(arg_type)) {
             try self.emit("runtime.formatAny(");
             try self.genExpr(arg);
             try self.emit(")");
