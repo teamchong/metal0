@@ -413,6 +413,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Helper to check if attribute chain starts with imported module
         // Track module name and function name for registry lookup
         var is_module_call = false;
+        var is_local_module_call = false; // True if calling function from local .py module
         var module_name: ?[]const u8 = null;
         const func_name = attr.attr;
         {
@@ -424,6 +425,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     is_module_call = self.imported_modules.contains(base_name);
                     if (is_module_call) {
                         module_name = base_name;
+                    } else {
+                        // Also check module_registry for local modules
+                        if (self.module_registry.hasModule(base_name)) {
+                            is_module_call = true;
+                            is_local_module_call = true;
+                            module_name = base_name;
+                        }
                     }
                     break;
                 } else if (current.* == .attribute) {
@@ -505,13 +513,25 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         var needs_try = false;
 
         if (module_name) |mod| {
-            // Look up function metadata in registry
-            if (self.import_registry.getFunctionMeta(mod, func_name)) |meta| {
-                needs_alloc = !meta.no_alloc; // no_alloc=true means DON'T need allocator
-                needs_try = meta.returns_error;
+            if (is_local_module_call) {
+                // Local module - check module_registry for function traits
+                if (self.module_registry.lookupFunction(mod, func_name)) |traits| {
+                    needs_alloc = traits.needs_allocator;
+                    needs_try = traits.can_error;
+                } else {
+                    // Function not found in local module - emit compile error
+                    try self.emitFmt("@compileError(\"Unknown function: {s}.{s}\")", .{ mod, func_name });
+                    return;
+                }
             } else {
-                // No metadata - assume needs allocator (conservative)
-                needs_alloc = true;
+                // Stdlib module - look up function metadata in import_registry
+                if (self.import_registry.getFunctionMeta(mod, func_name)) |meta| {
+                    needs_alloc = !meta.no_alloc; // no_alloc=true means DON'T need allocator
+                    needs_try = meta.returns_error;
+                } else {
+                    // No metadata - assume needs allocator (conservative)
+                    needs_alloc = true;
+                }
             }
         } else if (is_class_method_call or is_nested_class_method_call) {
             needs_alloc = class_method_needs_alloc;

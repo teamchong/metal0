@@ -116,6 +116,14 @@ pub fn build(b: *std.Build) void {
     function_traits.addImport("analysis.ast", ast);
     function_traits.addImport("utils.hashmap_helper", hashmap_helper);
 
+    // Module traits for cross-module function/constant registry
+    const module_traits = b.addModule("analysis.module_traits", .{
+        .root_source_file = b.path("src/analysis/traits/module_traits.zig"),
+    });
+    module_traits.addImport("analysis.ast", ast);
+    module_traits.addImport("utils.hashmap_helper", hashmap_helper);
+    module_traits.addImport("analysis.function_traits", function_traits);
+
     // Debug info module for debugger support (external debug symbols like .pdb/.dSYM)
     const debug_info_mod = b.addModule("debug.debug_info", .{
         .root_source_file = b.path("src/debug/debug_info.zig"),
@@ -202,6 +210,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("c_interop", c_interop_mod);
     exe.root_module.addImport("pkg", pkg_mod);
     exe.root_module.addImport("analysis.function_traits", function_traits);
+    exe.root_module.addImport("analysis.module_traits", module_traits);
     exe.root_module.addImport("debug.debug_info", debug_info_mod);
     exe.root_module.addImport("wasmedge", wasmedge_mod);
     exe.root_module.addImport("metal0", metal0_mod);

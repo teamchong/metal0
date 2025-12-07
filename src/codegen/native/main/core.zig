@@ -8,6 +8,7 @@ const TypeInferrer = native_types.TypeInferrer;
 const SemanticInfo = @import("../../../analysis/types.zig").SemanticInfo;
 const comptime_eval = @import("../../../analysis/comptime_eval.zig");
 const function_traits = @import("analysis.function_traits");
+const module_traits = @import("analysis.module_traits");
 const symbol_table_mod = @import("../symbol_table.zig");
 const SymbolTable = symbol_table_mod.SymbolTable;
 const ClassRegistry = symbol_table_mod.ClassRegistry;
@@ -252,6 +253,9 @@ pub const NativeCodegen = struct {
 
     // Import registry for Python→Zig module mapping
     import_registry: *import_registry.ImportRegistry,
+
+    // Module registry for cross-module function/constant lookup
+    module_registry: *module_traits.ModuleRegistry,
 
     // Track from-imports for symbol re-export generation
     from_imports: std.ArrayList(FromImportInfo),
@@ -624,6 +628,10 @@ pub const NativeCodegen = struct {
         const registry = try allocator.create(import_registry.ImportRegistry);
         registry.* = try import_registry.createDefaultRegistry(allocator);
 
+        // Create and initialize module registry
+        const mod_registry = try allocator.create(module_traits.ModuleRegistry);
+        mod_registry.* = module_traits.ModuleRegistry.init(allocator);
+
         self.* = .{
             .allocator = allocator,
             .output = std.ArrayList(u8){},
@@ -673,6 +681,7 @@ pub const NativeCodegen = struct {
             .source_file_path = null,
             .decorated_functions = std.ArrayList(DecoratedFunction){},
             .import_registry = registry,
+            .module_registry = mod_registry,
             .from_imports = std.ArrayList(FromImportInfo){},
             .from_import_needs_allocator = FnvVoidMap.init(allocator),
             .functions_needing_allocator = FnvVoidMap.init(allocator),
