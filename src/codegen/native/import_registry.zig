@@ -31,12 +31,30 @@ pub const ImportStrategy = enum {
     unsupported,
 };
 
+/// Return type hint for stdlib functions
+/// Mirrors TypeHint in function_traits.zig for type flow
+pub const ReturnTypeHint = enum {
+    void,
+    int,
+    float,
+    bool,
+    string,
+    list,
+    dict,
+    tuple,
+    none,
+    object, // Default - dynamic type
+    any,
+};
+
 /// Function signature metadata for codegen
 pub const FunctionMeta = struct {
     /// Function does NOT need allocator as first parameter
     no_alloc: bool = false,
     /// Function returns error union (needs try)
     returns_error: bool = false,
+    /// Return type hint for type inference
+    return_type: ReturnTypeHint = .object,
 };
 
 /// Information about how to import a Python module

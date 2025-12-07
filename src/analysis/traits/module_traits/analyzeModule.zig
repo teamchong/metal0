@@ -5,7 +5,7 @@
 
 const std = @import("std");
 const ast = @import("analysis.ast");
-const function_traits = @import("../function_traits.zig");
+const function_traits = @import("analysis.function_traits");
 const module_traits = @import("../module_traits.zig");
 const hashmap_helper = @import("utils.hashmap_helper");
 
@@ -57,6 +57,9 @@ fn analyzeFunction(func_def: ast.Node.FunctionDef, module_name: []const u8) func
     // So for module functions, needs_allocator is always true regardless of body analysis
     const needs_alloc = true; // Module functions always have allocator param
 
+    // Infer return type from: (1) annotation, (2) return statements
+    const return_type = inferReturnType(func_def);
+
     return .{
         .ref = .{
             .module = module_name,
@@ -67,7 +70,106 @@ fn analyzeFunction(func_def: ast.Node.FunctionDef, module_name: []const u8) func
         .can_error = analyzeCanError(func_def.body),
         .has_await = containsAwait(func_def.body),
         .is_generator = containsYield(func_def.body),
+        .return_type_hint = return_type,
     };
+}
+
+/// Infer function return type from annotation or return statements
+fn inferReturnType(func_def: ast.Node.FunctionDef) function_traits.TypeHint {
+    // 1. Check explicit return type annotation: def add(a, b) -> int:
+    if (func_def.return_type) |ret_ann| {
+        return annotationToTypeHint(ret_ann);
+    }
+
+    // 2. Infer from return statements in body
+    return inferReturnTypeFromBody(func_def.body);
+}
+
+/// Convert Python type annotation string to TypeHint
+fn annotationToTypeHint(annotation: []const u8) function_traits.TypeHint {
+    if (std.mem.eql(u8, annotation, "int")) return .int;
+    if (std.mem.eql(u8, annotation, "float")) return .float;
+    if (std.mem.eql(u8, annotation, "bool")) return .bool;
+    if (std.mem.eql(u8, annotation, "str")) return .string;
+    if (std.mem.eql(u8, annotation, "list")) return .list;
+    if (std.mem.eql(u8, annotation, "dict")) return .dict;
+    if (std.mem.eql(u8, annotation, "tuple")) return .tuple;
+    if (std.mem.eql(u8, annotation, "None")) return .none;
+    if (std.mem.eql(u8, annotation, "void")) return .void;
+    if (std.mem.eql(u8, annotation, "Any")) return .any;
+    return .object; // Unknown annotation
+}
+
+/// Infer return type from return statements in function body
+fn inferReturnTypeFromBody(body: []const ast.Node) function_traits.TypeHint {
+    for (body) |stmt| {
+        if (stmt == .return_stmt) {
+            if (stmt.return_stmt.value) |val| {
+                return inferExprType(val.*);
+            }
+            return .none; // return without value -> None
+        }
+        // Check nested blocks for return statements
+        const nested_type = switch (stmt) {
+            .if_stmt => |i| blk: {
+                const body_type = inferReturnTypeFromBody(i.body);
+                if (body_type != .object) break :blk body_type;
+                break :blk inferReturnTypeFromBody(i.else_body);
+            },
+            .for_stmt => |f| inferReturnTypeFromBody(f.body),
+            .while_stmt => |w| inferReturnTypeFromBody(w.body),
+            .try_stmt => |t| inferReturnTypeFromBody(t.body),
+            .with_stmt => |w| inferReturnTypeFromBody(w.body),
+            else => function_traits.TypeHint.object,
+        };
+        if (nested_type != .object) return nested_type;
+    }
+    return .object; // No return found or unknown
+}
+
+/// Infer type of an expression
+fn inferExprType(expr: ast.Node) function_traits.TypeHint {
+    return switch (expr) {
+        .constant => |c| switch (c.value) {
+            .int => .int,
+            .float => .float,
+            .bool => .bool,
+            .string => .string,
+            .none => .none,
+            else => .object,
+        },
+        .list => .list,
+        .dict => .dict,
+        .tuple => .tuple,
+        .binop => |b| inferBinopType(b),
+        .name => .object, // Variable - can't know type statically
+        .call => .object, // Function call - need more context
+        .fstring => .string, // f-string produces string
+        else => .object,
+    };
+}
+
+/// Infer type of binary operation
+fn inferBinopType(binop: ast.Node.BinOp) function_traits.TypeHint {
+    const left_type = inferExprType(binop.left.*);
+    const right_type = inferExprType(binop.right.*);
+
+    // Arithmetic: int op int -> int, int op float -> float, float op float -> float
+    if (left_type == .float or right_type == .float) return .float;
+    if (left_type == .int and right_type == .int) {
+        // Division always returns float in Python 3
+        if (binop.op == .Div) return .float;
+        return .int;
+    }
+
+    // String: str + str -> str, str * int -> str
+    if (left_type == .string and right_type == .string) return .string;
+    if (left_type == .string and right_type == .int) return .string;
+
+    // List: list + list -> list
+    if (left_type == .list and right_type == .list) return .list;
+
+    return .object;
 }
 
 /// Check if a name is a constant (UPPER_CASE convention)

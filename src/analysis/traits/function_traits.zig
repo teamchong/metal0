@@ -92,8 +92,12 @@ pub const FunctionTraits = struct {
     /// Async complexity classification
     async_complexity: AsyncComplexity = .trivial,
 
-    /// Return type hint (if determinable)
+    /// Return type hint (if determinable) - legacy, use return_type instead
     return_type_hint: ?TypeHint = null,
+
+    /// Return type as TypeHint (used for type flow in codegen)
+    /// Populated during module analysis from: (1) type annotations, (2) return statement inference
+    return_type: TypeHint = .object,
 
     // ========== PARAMETER USAGE ANALYSIS ==========
     /// Which parameters are actually used in the function body (indexed by param position)

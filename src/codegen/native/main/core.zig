@@ -1152,6 +1152,21 @@ pub const NativeCodegen = struct {
                     }
                 }
             }
+            // Check for module function calls (e.g., test_mymodule.add())
+            if (node.call.func.* == .attribute) {
+                const attr = node.call.func.attribute;
+                if (attr.value.* == .name) {
+                    const module_name = attr.value.name.id;
+                    const func_name = attr.attr;
+                    // Check module registry for return type
+                    if (self.module_registry.lookupFunction(module_name, func_name)) |traits| {
+                        // Convert TypeHint to NativeType
+                        if (traits.return_type_hint) |hint| {
+                            return typeHintToNativeType(hint);
+                        }
+                    }
+                }
+            }
         }
 
         // For unary ops, recursively check the operand
@@ -1175,6 +1190,23 @@ pub const NativeCodegen = struct {
 
         // Fall back to global type inferrer
         return self.type_inferrer.inferExpr(node);
+    }
+
+    /// Convert function_traits.TypeHint to NativeType
+    /// Note: For container types (list, dict, tuple) we return unknown since
+    /// we don't track element types in TypeHint. The key benefit is for
+    /// primitive types: int, float, bool, string which are most common.
+    fn typeHintToNativeType(hint: function_traits.TypeHint) NativeType {
+        return switch (hint) {
+            .void => .none,
+            .int => .{ .int = .bounded },
+            .float => .float,
+            .bool => .bool,
+            .string => .{ .string = .runtime },
+            .none => .none,
+            // Container types don't have element type info in TypeHint
+            .list, .dict, .tuple, .object, .any => .unknown,
+        };
     }
 
     /// Check if variable holds a constant array (vs ArrayList)

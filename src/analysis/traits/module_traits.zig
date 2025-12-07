@@ -27,7 +27,7 @@
 //! ```
 
 const std = @import("std");
-const function_traits = @import("function_traits.zig");
+const function_traits = @import("analysis.function_traits");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Simple type tag for module-level type tracking
