@@ -389,7 +389,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     const right_is_anytype = if (binop.right.* == .name) self.anytype_params.contains(binop.right.name.id) else false;
 
     // If left operand is a known class instance (not anytype), call dunder method on left
-    if (bigint_left_type == .class_instance and !left_is_anytype) {
+    if (type_traits.isClassInstance(bigint_left_type) and !left_is_anytype) {
         if (BinaryDunders.get(@tagName(binop.op))) |dunder_method| {
             try self.emit("try ");
             try genExpr(self, binop.left.*);
@@ -404,7 +404,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
     // If right operand is a known class instance (not anytype) and left is not class, call __radd__ etc.
     // Only call if the class actually implements the reverse dunder method
-    if (bigint_right_type == .class_instance and !right_is_anytype and bigint_left_type != .class_instance) {
+    if (type_traits.isClassInstance(bigint_right_type) and !right_is_anytype and !type_traits.isClassInstance(bigint_left_type)) {
         if (ReverseDunders.get(@tagName(binop.op))) |rdunder_method| {
             // Generate comptime check for method existence
             // If method exists, call it; otherwise raise TypeError at runtime
@@ -997,14 +997,14 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         const left_type = try self.inferExprScoped(binop.left.*);
         const right_type = try self.inferExprScoped(binop.right.*);
 
-        if (left_type == .class_instance or left_type == .unknown) {
+        if (type_traits.isClassInstance(left_type) or type_traits.isUnknown(left_type)) {
             // Left is a class, call __matmul__: try left.__matmul__(allocator, right)
             try self.emit("try ");
             try genExpr(self, binop.left.*);
             try self.emit(".__matmul__(__global_allocator, ");
             try genExpr(self, binop.right.*);
             try self.emit(")");
-        } else if (right_type == .class_instance or right_type == .unknown) {
+        } else if (type_traits.isClassInstance(right_type) or type_traits.isUnknown(right_type)) {
             // Right is a class, call __rmatmul__: try right.__rmatmul__(allocator, left)
             try self.emit("try ");
             try genExpr(self, binop.right.*);

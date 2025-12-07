@@ -6,6 +6,7 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
 
 /// String method codegen patterns for map(str.method, items)
 const StrMethodPatterns = std.StaticStringMap([]const u8).initComptime(.{
@@ -713,7 +714,7 @@ pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For custom iterator objects with __next__ method
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-    if (arg_type == .class_instance) {
+    if (type_traits.isClassInstance(arg_type)) {
         try self.genExpr(args[0]);
         try self.emit(".__next__()");
         return;

@@ -392,7 +392,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // Set method names are unique enough (update, discard, intersection_update, etc.)
     // that we can safely dispatch on unknown and class_instance types too
     if (SetMethods.get(method_name)) |handler| {
-        if (container_traits.isSet(obj_type) or type_traits.isUnknown(obj_type) or obj_type == .class_instance) {
+        if (container_traits.isSet(obj_type) or type_traits.isUnknown(obj_type) or type_traits.isClassInstance(obj_type)) {
             try handler(self, obj, call.args);
             return true;
         }

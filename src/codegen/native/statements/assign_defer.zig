@@ -94,9 +94,9 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
             const this_type = try self.type_inferrer.inferExpr(value);
             const tags_match = @as(std.meta.Tag(@TypeOf(first_type)), first_type) ==
                 @as(std.meta.Tag(@TypeOf(this_type)), this_type);
-            const is_int_float_mix = (type_traits.isIntegral(first_type) and type_traits.isFloating(this_type)) or
-                (type_traits.isFloating(first_type) and type_traits.isIntegral(this_type));
-            if (!tags_match and !is_int_float_mix) {
+            // int+float mixing is compatible (promotion to float)
+            const is_numeric_promotion = type_traits.needsPromotion(first_type, this_type);
+            if (!tags_match and !is_numeric_promotion) {
                 // Mixed types → will use runtime path → NOT comptime!
                 is_comptime_dict = false;
                 break;

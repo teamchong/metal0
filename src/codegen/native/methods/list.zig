@@ -40,7 +40,8 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     const elem_is_callable = blk: {
         if (container_traits.isList(list_type)) {
             const elem_type = list_type.list.*;
-            break :blk (@as(std.meta.Tag(@TypeOf(elem_type)), elem_type) == .callable);
+            const type_traits = @import("../../../analysis/traits/type_traits.zig");
+            break :blk type_traits.isCallable(elem_type);
         }
         break :blk false;
     };

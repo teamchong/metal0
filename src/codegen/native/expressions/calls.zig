@@ -483,7 +483,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // SECOND: Check generic class instance method calls (f.run() where f is a Foo instance)
             if (!is_class_method_call) {
                 const obj_type = self.type_inferrer.inferExpr(attr.value.*) catch .unknown;
-                if (obj_type == .class_instance) {
+                if (type_traits.isClassInstance(obj_type)) {
                     const class_name = obj_type.class_instance;
                     // Look up method in class registry
                     if (self.class_registry.findMethod(class_name, attr.attr)) |method_info| {
@@ -821,7 +821,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // e.g., AbstractSuper = AbstractClass(bases=()) then AbstractSuper() should call __call__
         const var_type = self.getVarType(raw_func_name);
         if (var_type) |vt| {
-            if (vt == .class_instance) {
+            if (type_traits.isClassInstance(vt)) {
                 const class_name = vt.class_instance;
                 // Check if this class has __call__ method
                 if (self.class_registry.findMethod(class_name, "__call__") != null) {
@@ -1142,7 +1142,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
                         if (is_definitely_float) {
                             try genExpr(self, arg);
-                        } else if (arg_type == .class_instance) {
+                        } else if (type_traits.isClassInstance(arg_type)) {
                             // Known class instance - use floatBuiltinCall
                             try self.emit("(runtime.floatBuiltinCall(");
                             try genExpr(self, arg);
@@ -1336,7 +1336,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (i > 0) try self.emit(", ");
                 // Check if argument is a class instance - pass by pointer for Python semantics
                 const arg_type = self.inferExprScoped(arg) catch .unknown;
-                if (arg_type == .class_instance) {
+                if (type_traits.isClassInstance(arg_type)) {
                     // Don't add & for renamed variables (param reassignment creates var, already a value)
                     const is_renamed_var = if (arg == .name)
                         self.var_renames.contains(arg.name.id)

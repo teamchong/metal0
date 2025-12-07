@@ -146,7 +146,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (container_traits.isList(arg_type)) {
             has_list = true;
         }
-        if (arg_type == .array) {
+        if (type_traits.isArray(arg_type)) {
             has_array = true;
         }
         if (container_traits.isTuple(arg_type)) {
@@ -206,7 +206,7 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For lists and arrays, we need to print in Python format: [elem1, elem2, ...]
     for (args, 0..) |arg, i| {
         const arg_type = try self.type_inferrer.inferExpr(arg);
-        if (container_traits.isList(arg_type) or arg_type == .array) {
+        if (container_traits.isList(arg_type) or type_traits.isArray(arg_type)) {
             try genPrintList(self, arg, arg_type);
         } else if (container_traits.isTuple(arg_type)) {
             try genPrintTuple(self, arg, arg_type);
@@ -269,7 +269,7 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenError!void {
     // Check if this is an array slice vs ArrayList vs plain array
     const is_array_slice = isArraySlice(self, arg);
-    const is_plain_array = arg_type == .array;
+    const is_plain_array = type_traits.isArray(arg_type);
     // .list type means ArrayList - always use .items
     const is_arraylist = container_traits.isList(arg_type);
 
@@ -297,7 +297,7 @@ fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenE
         // ArrayList element type
         const elem_type = arg_type.list.*;
         break :blk elem_type.getPrintFormat();
-    } else if (arg_type == .array) blk: {
+    } else if (type_traits.isArray(arg_type)) blk: {
         // Fixed array element type
         const elem_type = arg_type.array.element_type.*;
         break :blk elem_type.getPrintFormat();

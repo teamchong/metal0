@@ -533,7 +533,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // They're emitted at module level directly when encountered as module-level assignments
             // Skip pre-declaration here to avoid type mismatch
             if (var_type) |vt| {
-                if (vt == .callable) {
+                if (type_traits.isCallable(vt)) {
                     // Track as callable global - will be emitted as const at module level in statements
                     try self.markGlobalVar(var_name);
                     try self.callable_global_vars.put(try self.allocator.dupe(u8, var_name), {});

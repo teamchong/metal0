@@ -751,130 +751,69 @@ fn inferBinOpWithInferrer(
     const left_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, binop.left.*, type_inferrer);
     const right_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, binop.right.*, type_inferrer);
 
-    // Get type tags for analysis
+    // Get type tags for special cases not handled by trait
     const left_tag = @as(std.meta.Tag(NativeType), left_type);
     const right_tag = @as(std.meta.Tag(NativeType), right_type);
 
-    // Large left shift produces BigInt (e.g., 1 << 100000)
-    // Also use BigInt when shift amount is runtime (not comptime-known) for safety
-    if (binop.op == .LShift) {
-        if (binop.right.* == .constant and binop.right.constant.value == .int) {
-            const shift_amount = binop.right.constant.value.int;
-            if (shift_amount >= 63) {
-                return .bigint;
-            }
-        } else {
-            // Shift amount is not comptime-known - codegen uses BigInt for safety
-            return .bigint;
-        }
-    }
-
-    // Large power produces BigInt (e.g., 10 ** 30000, 2 ** 1000000)
-    if (binop.op == .Pow) {
-        if (binop.right.* == .constant and binop.right.constant.value == .int) {
-            const exp = binop.right.constant.value.int;
-            // If exponent is large enough to potentially overflow i64, use bigint
-            // log2(i64_max) ≈ 63, so base^exp > 2^63 when exp * log2(base) > 63
-            // For simplicity, use bigint if exp >= 20 for any base >= 2
-            if (exp >= 20) {
-                return .bigint;
-            }
-        }
-    }
-
-    // Helper to check if type needs BigInt (explicit bigint or unbounded int)
-    const left_needs_bigint = left_tag == .bigint or
-        (left_tag == .int and left_type.int.needsBigInt());
-    const right_needs_bigint = right_tag == .bigint or
-        (right_tag == .int and right_type.int.needsBigInt());
-
-    // If either operand needs bigint, result is bigint (for arithmetic ops)
-    if (left_needs_bigint or right_needs_bigint) {
-        if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult or
-            binop.op == .FloorDiv or binop.op == .Mod or binop.op == .Pow or
-            binop.op == .LShift or binop.op == .RShift or
-            binop.op == .BitAnd or binop.op == .BitOr or binop.op == .BitXor)
-        {
-            return .bigint;
-        }
-    }
-
-    // Path join: Path / string → Path
-    if (binop.op == .Div and left_tag == .path) {
-        return .path;
-    }
-
-    // String concatenation: str + str → runtime string
-    if (binop.op == .Add and string_traits.isString(left_type) and string_traits.isString(right_type)) {
-        return .{ .string = .runtime }; // Concatenation produces runtime string
-    }
-
-    // Bytes concatenation: bytes + bytes → bytes
-    if (binop.op == .Add and (string_traits.isBytes(left_type) or string_traits.isBytes(right_type))) {
-        return .bytes; // Bytes concatenation produces bytes
-    }
-
-    // List concatenation: list + list → pyvalue (concatRuntime returns PyValue)
-    // This includes ArrayList (list) and fixed array (array) types
-    if (binop.op == .Add and container_traits.isList(left_type) and container_traits.isList(right_type)) {
-        return .pyvalue; // List concatenation via concatRuntime returns PyValue
-    }
-
-    // String repetition: str * int or int * str → runtime string
-    // Bytes repetition: bytes * int or int * bytes → bytes
-    // List repetition: list * int or int * list → list (same element type)
-    if (binop.op == .Mult) {
-        const left_is_string = string_traits.isString(left_type);
-        const right_is_string = string_traits.isString(right_type);
-        const left_is_bytes = string_traits.isBytes(left_type);
-        const right_is_bytes = string_traits.isBytes(right_type);
-        const left_is_list = container_traits.isList(left_type);
-        const right_is_list = container_traits.isList(right_type);
-        const left_is_numeric = type_traits.isIntegral(left_type);
-        const right_is_numeric = type_traits.isIntegral(right_type);
-
-        if ((left_is_string and right_is_numeric) or (left_is_numeric and right_is_string)) {
-            return .{ .string = .runtime }; // String repetition produces runtime string
-        }
-        if ((left_is_bytes and right_is_numeric) or (left_is_numeric and right_is_bytes)) {
-            return .bytes; // Bytes repetition produces bytes
-        }
-        // List repetition: [a, b] * n or n * [a, b] → pyvalue (repeatRuntime returns PyValue)
-        if (left_is_list and right_is_numeric) {
-            return .pyvalue; // List repetition via repeatRuntime returns PyValue
-        }
-        if (left_is_numeric and right_is_list) {
-            return .pyvalue; // List repetition via repeatRuntime returns PyValue
-        }
-    }
-
-    // String formatting: str % value → runtime string (Python % formatting)
-    if (binop.op == .Mod and string_traits.isString(left_type)) {
-        return .{ .string = .runtime }; // String formatting produces runtime string
-    }
-
-    // Type promotion: int + float → float
-    if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult or binop.op == .Div) {
-        // Class instances with dunder methods may return class type, not float
-        // E.g., Rat.__truediv__ returns Rat, not float
-        if (left_tag == .class_instance or right_tag == .class_instance) {
+    // Class instances with dunder methods may return class type, not standard result
+    // E.g., Rat.__truediv__ returns Rat, not float - must be handled before trait
+    if (left_tag == .class_instance or right_tag == .class_instance) {
+        if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult or binop.op == .Div) {
             return .unknown; // Class dunder method - type determined by method return
         }
-        if (type_traits.isFloating(left_type) or type_traits.isFloating(right_type)) {
-            return .float; // Any arithmetic with float produces float
+    }
+
+    // Build operation hints from AST for comptime-known values
+    var hints: type_traits.OperationHints = .{};
+
+    // Extract shift amount for LShift if comptime-known
+    if (binop.op == .LShift) {
+        if (binop.right.* == .constant and binop.right.constant.value == .int) {
+            hints.shift_amount = binop.right.constant.value.int;
         }
-        // Python's / operator ALWAYS returns float (true division) for primitives
-        if (binop.op == .Div) {
-            return .float; // Division always produces float
+        // If shift_amount is null, trait will return bigint for safety
+    }
+
+    // Extract exponent for Pow if comptime-known
+    if (binop.op == .Pow) {
+        if (binop.right.* == .constant and binop.right.constant.value == .int) {
+            hints.exponent = binop.right.constant.value.int;
         }
-        // usize mixed with int → result is int, preserving int's boundedness
+    }
+
+    // Convert AST op to trait BinOp
+    const trait_op: type_traits.BinOp = switch (binop.op) {
+        .Add => .Add,
+        .Sub => .Sub,
+        .Mult => .Mult,
+        .Div => .Div,
+        .FloorDiv => .FloorDiv,
+        .Mod => .Mod,
+        .Pow => .Pow,
+        .BitAnd => .BitAnd,
+        .BitOr => .BitOr,
+        .BitXor => .BitXor,
+        .LShift => .LShift,
+        .RShift => .RShift,
+        else => return left_type.widen(right_type), // Comparison ops etc use widening
+    };
+
+    // Use centralized trait for type inference
+    const trait_result = type_traits.binaryResultTypeWithHints(trait_op, left_type, right_type, hints);
+
+    // If trait returned a concrete type, use it
+    if (trait_result != .unknown) {
+        return trait_result;
+    }
+
+    // Special case: usize mixed with int preserves int's boundedness
+    if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult) {
         if (left_tag == .usize and right_tag == .int) {
-            return right_type; // Preserve int's boundedness
+            return right_type;
         }
         if (left_tag == .int and right_tag == .usize) {
-            return left_type; // Preserve int's boundedness
+            return left_type;
         }
-        // usize op usize → usize
         if (left_tag == .usize and right_tag == .usize) {
             return .usize;
         }

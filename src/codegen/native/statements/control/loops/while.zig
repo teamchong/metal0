@@ -15,7 +15,6 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
 
     // Check condition type - need to handle non-boolean conditions
     const cond_type = self.type_inferrer.inferExpr(while_stmt.condition.*) catch .unknown;
-    const cond_tag = @as(std.meta.Tag(@TypeOf(cond_type)), cond_type);
     if (type_traits.isUnknown(cond_type)) {
         // Unknown type (PyObject) - use runtime truthiness check
         _ = try builder.write("runtime.pyTruthy(");
@@ -28,7 +27,7 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
     } else if (type_traits.isBoolean(cond_type)) {
         // Boolean - use directly
         try self.genExpr(while_stmt.condition.*);
-    } else if (cond_tag == .class_instance) {
+    } else if (type_traits.isClassInstance(cond_type)) {
         // Class instance - use runtime.toBool for duck typing (__bool__ support)
         _ = try builder.write("runtime.toBool(");
         try self.genExpr(while_stmt.condition.*);

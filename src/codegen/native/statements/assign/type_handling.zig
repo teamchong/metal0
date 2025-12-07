@@ -76,7 +76,7 @@ pub fn isArrayList(self: *NativeCodegen, assign: ast.Node.Assign, var_name: []co
     // (arraylist_vars is module-scoped so may have stale entries from other functions)
     if (assign.value.* == .name) {
         const rhs_type = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
-        const is_list_type = container_traits.isList(rhs_type) or rhs_type == .array;
+        const is_list_type = container_traits.isList(rhs_type) or type_traits.isArray(rhs_type);
         if (is_list_type and self.isArrayListVar(assign.value.name.id)) {
             return true;
         }

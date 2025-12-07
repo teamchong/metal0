@@ -6,6 +6,7 @@ const CodegenError = @import("../../../main.zig").CodegenError;
 const zig_keywords = @import("utils.zig_keywords");
 const hashmap_helper = @import("utils.hashmap_helper");
 const var_tracking = @import("var_tracking.zig");
+const type_traits = @import("../../../../../analysis/traits/type_traits.zig");
 
 /// Generate zero-capture closure using comptime ZeroClosure
 pub fn genZeroCaptureClosure(
@@ -269,7 +270,7 @@ pub fn genZeroCaptureClosure(
         if (return_type) |rt| {
             if (rt == .int or rt == .usize) {
                 try self.emit("return 0;\n");
-            } else if (@as(std.meta.Tag(@TypeOf(rt)), rt) == .class_instance) {
+            } else if (type_traits.isClassInstance(rt)) {
                 try self.emit("return undefined;\n");
             } else {
                 try self.emit("return undefined;\n");

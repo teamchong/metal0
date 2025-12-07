@@ -11,6 +11,7 @@ const shared = @import("../shared_maps.zig");
 const zig_keywords = @import("utils.zig_keywords");
 const signature_utils = @import("functions/generators/signature.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
 
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
@@ -495,7 +496,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         // If it's a class instance type, check if the class was renamed (e.g., duplicate S classes)
         if (var_type) |vt| {
-            if (@as(std.meta.Tag(NativeType), vt) == .class_instance) {
+            if (type_traits.isClassInstance(vt)) {
                 const class_name = vt.class_instance;
                 if (self.var_renames.get(class_name)) |renamed| {
                     self.allocator.free(zig_type);
@@ -767,7 +768,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             defer if (var_type != null) self.allocator.free(zig_type);
             // Check for class renames (e.g., Rat -> metal0_main.Rat)
             if (var_type) |vt| {
-                if (@as(std.meta.Tag(NativeType), vt) == .class_instance) {
+                if (type_traits.isClassInstance(vt)) {
                     if (self.var_renames.get(vt.class_instance)) |renamed| {
                         self.allocator.free(zig_type);
                         zig_type = try self.allocator.dupe(u8, renamed);
@@ -798,7 +799,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             defer if (var_type != null) self.allocator.free(zig_type);
             // Check for class renames
             if (var_type) |vt| {
-                if (@as(std.meta.Tag(NativeType), vt) == .class_instance) {
+                if (type_traits.isClassInstance(vt)) {
                     if (self.var_renames.get(vt.class_instance)) |renamed| {
                         self.allocator.free(zig_type);
                         zig_type = try self.allocator.dupe(u8, renamed);

@@ -4,6 +4,9 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 
+// Trait imports for type checking
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+
 const ValueReturningBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "list", {} }, .{ "dict", {} }, .{ "set", {} }, .{ "tuple", {} }, .{ "frozenset", {} },
     .{ "str", {} }, .{ "int", {} }, .{ "float", {} }, .{ "bool", {} }, .{ "bytes", {} }, .{ "bytearray", {} },
@@ -63,12 +66,12 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // These generate method calls that return values
     if (expr == .binop) {
         const left_type = try self.inferExprScoped(expr.binop.left.*);
-        if (left_type == .class_instance) {
+        if (type_traits.isClassInstance(left_type)) {
             try self.emit("_ = ");
             added_discard_prefix = true;
         } else {
             const right_type = try self.inferExprScoped(expr.binop.right.*);
-            if (right_type == .class_instance) {
+            if (type_traits.isClassInstance(right_type)) {
                 try self.emit("_ = ");
                 added_discard_prefix = true;
             }

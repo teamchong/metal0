@@ -138,7 +138,7 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     // Self-referential classes need pointer type (*@This()) since struct is incomplete
                     // So we use *runtime.PyObject for dynamic typing instead
                     var is_self_referential = false;
-                    if (@as(std.meta.Tag(@TypeOf(inferred)), inferred) == .class_instance) {
+                    if (type_traits.isClassInstance(inferred)) {
                         const nested_class_name = inferred.class_instance;
                         // Check if this is a self-referential field (same class)
                         if (std.mem.eql(u8, nested_class_name, class_name)) {

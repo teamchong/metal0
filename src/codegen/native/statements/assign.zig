@@ -137,8 +137,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (self.type_inferrer.getScopedVar(var_name)) |scoped_type| {
                 if (scoped_type != .unknown) {
                     // Don't widen for class_instance types that differ - need actual type for shadowing
-                    const skip_widening = scoped_type == .class_instance and
-                        original_expr_type == .class_instance and
+                    const skip_widening = type_traits.isClassInstance(scoped_type) and
+                        type_traits.isClassInstance(original_expr_type) and
                         !std.mem.eql(u8, scoped_type.class_instance, original_expr_type.class_instance);
                     if (!skip_widening) {
                         value_type = scoped_type;
@@ -849,7 +849,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         break :blk true;
                     }
 
-                    if (declared_type == .class_instance and new_type == .class_instance) {
+                    if (type_traits.isClassInstance(declared_type) and type_traits.isClassInstance(new_type)) {
                         // Different class instances - need shadow
                         if (!std.mem.eql(u8, declared_type.class_instance, new_type.class_instance)) {
                             break :blk true;
@@ -858,7 +858,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Primitive type being reassigned to class instance
                     // e.g., value = float('nan'); value = F('nan') where F(float, H)
                     // In Python, F inherits from float but in Zig they're different types
-                    if (new_type == .class_instance) {
+                    if (type_traits.isClassInstance(new_type)) {
                         // Was a primitive type (int, float, bool, string) but now is class instance
                         if (type_traits.isIntegral(declared_type) or type_traits.isFloating(declared_type) or
                             type_traits.isBoolean(declared_type) or string_traits.isString(declared_type))
@@ -877,7 +877,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                         if (is_nested_class or is_uppercase_class) {
                             // Class constructor call - check if different from original
-                            if (declared_type == .class_instance) {
+                            if (type_traits.isClassInstance(declared_type)) {
                                 if (!std.mem.eql(u8, declared_type.class_instance, call_name)) {
                                     break :blk true;
                                 }
@@ -1696,7 +1696,7 @@ fn isDynamicAttrAssign(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
     const obj_type = try self.inferExprScoped(attr.value.*);
 
     // Check if it's a class instance
-    if (obj_type != .class_instance) return false;
+    if (!type_traits.isClassInstance(obj_type)) return false;
 
     const class_name = obj_type.class_instance;
 

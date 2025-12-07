@@ -246,7 +246,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // Get element type - handle both .list and .array (for ArrayList vars with wrong inference)
                 const type_str: []const u8 = if (container_traits.isList(right_type))
                     right_type.list.*.toSimpleZigType()
-                else if (right_type == .array)
+                else if (type_traits.isArray(right_type))
                     right_type.array.element_type.toSimpleZigType()
                 else
                     // For ArrayList vars with unknown type, infer from item being searched
@@ -545,7 +545,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // For arrays/lists/dicts/sets, we need to compare pointers since == doesn't work
             // For class_instances, we use value comparison (they're stack-allocated value types)
             const needs_ptr_compare = container_traits.isList(current_left_type) or container_traits.isList(right_type) or
-                current_left_type == .array or right_type == .array or
+                type_traits.isArray(current_left_type) or type_traits.isArray(right_type) or
                 container_traits.isDict(current_left_type) or container_traits.isDict(right_type) or
                 container_traits.isSet(current_left_type) or container_traits.isSet(right_type);
 
@@ -570,7 +570,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
             // Class instances: with heap allocation, both sides are already pointers
             // Direct pointer comparison works for identity semantics
-            const is_class_instance = current_left_type == .class_instance or right_type == .class_instance;
+            const is_class_instance = type_traits.isClassInstance(current_left_type) or type_traits.isClassInstance(right_type);
 
             if (is_class_instance) {
                 // Both are pointers to heap-allocated objects - direct pointer comparison
@@ -749,7 +749,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         // IMPORTANT: Exclude PyValue types - concatRuntime returns PyValue, not ArrayList
         else if ((container_traits.isList(current_left_type) or current_left == .list or
             (current_left == .name and self.isArrayListVar(current_left.name.id))) and
-            (container_traits.isList(right_type) or compare.comparators[i] == .list or right_type == .array) and
+            (container_traits.isList(right_type) or compare.comparators[i] == .list or type_traits.isArray(right_type)) and
             current_left_type != .pyvalue and right_type != .pyvalue)
         {
             // Use runtime.pySliceEql for Python semantics (NaN identity)
@@ -767,9 +767,9 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             const left_is_slice_subscript = current_left == .subscript and current_left.subscript.slice == .slice;
             const right_is_slice_subscript = compare.comparators[i] == .subscript and compare.comparators[i].subscript.slice == .slice;
             const left_is_array = ((left_is_literal and !left_is_empty_list and collections.isComptimeConstant(current_left)) or
-                (current_left_type == .array) or left_is_slice_subscript) and !left_is_arraylist_var;
+                type_traits.isArray(current_left_type) or left_is_slice_subscript) and !left_is_arraylist_var;
             const right_is_array = (right_is_literal and !right_is_empty_list and collections.isComptimeConstant(compare.comparators[i])) or
-                (right_type == .array) or right_is_slice_subscript;
+                type_traits.isArray(right_type) or right_is_slice_subscript;
 
             // Special case: when comparing with an empty list literal, just check length == 0
             // This avoids type mismatch issues when comparing function results (e.g. list([])) with []
@@ -837,9 +837,9 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     .int, .float, .bool, .string, .bytes => elem.toSimpleZigType(),
                     else => "i64",
                 };
-            } else if (current_left_type == .array)
+            } else if (type_traits.isArray(current_left_type))
                 current_left_type.array.element_type.toSimpleZigType()
-            else if (right_type == .array)
+            else if (type_traits.isArray(right_type))
                 right_type.array.element_type.toSimpleZigType()
             else if (left_is_literal and current_left.list.elts.len > 0) blk: {
                 const first_elem = current_left.list.elts[0];
@@ -932,8 +932,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             }
         }
         // Handle class instance comparisons - call __eq__/__ne__/__lt__ etc. methods
-        else if (@as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .class_instance or
-            @as(std.meta.Tag(@TypeOf(right_type)), right_type) == .class_instance)
+        else if (type_traits.isClassInstance(current_left_type) or
+            type_traits.isClassInstance(right_type))
         {
             // Class instance comparison - call the appropriate dunder method
             // For ==, call left.__eq__(right) - if it returns NotImplemented, try right.__eq__(left)
@@ -941,7 +941,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // Note: Our __eq__/__ne__ return bool (NotImplemented is converted to false in genReturn)
 
             // Check if left operand is a class instance
-            const left_is_class = @as(std.meta.Tag(@TypeOf(current_left_type)), current_left_type) == .class_instance;
+            const left_is_class = type_traits.isClassInstance(current_left_type);
 
             if (left_is_class) {
                 // For __ne__, if class doesn't define it, we need to negate __eq__
@@ -1065,8 +1065,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // Check if either side is a list/array type
             const left_is_list = container_traits.isList(current_left_type);
             const right_is_list = container_traits.isList(right_type);
-            const left_is_array = (current_left_type == .array);
-            const right_is_array = (right_type == .array);
+            const left_is_array = type_traits.isArray(current_left_type);
+            const right_is_array = type_traits.isArray(right_type);
 
             // Check if either side is PyValue (e.g., from list(tuple) element access)
             const left_is_pyvalue = (current_left_type == .pyvalue);

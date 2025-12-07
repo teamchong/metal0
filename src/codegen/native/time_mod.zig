@@ -4,6 +4,7 @@ const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
+const type_traits = @import("../../analysis/traits/type_traits.zig");
 
 const ns_to_sec = h.c("blk: { const _t = std.time.nanoTimestamp(); break :blk @as(f64, @floatFromInt(_t)) / 1_000_000_000.0; }");
 const nano_ts = h.c("@as(i64, @intCast(std.time.nanoTimestamp()))");
@@ -25,7 +26,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-    const is_class_instance = (arg_type == .class_instance) or (args[0] == .call and args[0].call.func.* == .name and std.ascii.isUpper(args[0].call.func.name.id[0]));
+    const is_class_instance = type_traits.isClassInstance(arg_type) or (args[0] == .call and args[0].call.func.* == .name and std.ascii.isUpper(args[0].call.func.name.id[0]));
     try self.emit("std.Thread.sleep(@as(u64, @intFromFloat(");
     if (is_class_instance) { try self.emit("(runtime.floatBuiltinCall("); try self.genExpr(args[0]); try self.emit(", .{}) catch 0.0)"); } else { try self.genExpr(args[0]); }
     try self.emit(" * 1_000_000_000)))");

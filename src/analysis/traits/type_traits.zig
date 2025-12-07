@@ -70,6 +70,21 @@ pub fn isUnknown(t: NativeType) bool {
     return t == .unknown;
 }
 
+/// Check if type is a class instance (custom Python class)
+pub fn isClassInstance(t: NativeType) bool {
+    return t == .class_instance;
+}
+
+/// Check if type is callable (function, lambda, method)
+pub fn isCallable(t: NativeType) bool {
+    return t == .callable;
+}
+
+/// Check if type is a fixed-size array
+pub fn isArray(t: NativeType) bool {
+    return t == .array;
+}
+
 // ============================================================================
 // CONTAINER TYPE CHECKING
 // ============================================================================
@@ -194,101 +209,13 @@ pub fn isConvertible(from: NativeType, to: NativeType) bool {
 // BINARY OPERATION TYPE INFERENCE
 // ============================================================================
 
-pub const BinOp = enum {
-    Add, // +
-    Sub, // -
-    Mult, // *
-    Div, // /
-    FloorDiv, // //
-    Mod, // %
-    Pow, // **
-    BitAnd, // &
-    BitOr, // |
-    BitXor, // ^
-    LShift, // <<
-    RShift, // >>
-};
+/// Re-export from dedicated module for full functionality including hints
+const binaryResultType_mod = @import("type_traits/binaryResultType.zig");
 
-/// Get the result type of a binary operation
-pub fn binaryResultType(op: BinOp, left: NativeType, right: NativeType) NativeType {
-    // Unknown propagates
-    if (isUnknown(left) or isUnknown(right)) return .unknown;
-
-    const left_tag = @as(std.meta.Tag(@TypeOf(left)), left);
-    const right_tag = @as(std.meta.Tag(@TypeOf(right)), right);
-
-    switch (op) {
-        .Add => {
-            // String/bytes concatenation
-            if (string_traits.canConcat(left, right)) {
-                return string_traits.getConcatResultType(left, right) orelse .unknown;
-            }
-            // Numeric addition
-            if (isNumeric(left) and isNumeric(right)) {
-                return promoteNumeric(left, right);
-            }
-            // List concatenation
-            if (left_tag == .list and right_tag == .list) {
-                return left; // Same list type
-            }
-        },
-        .Sub, .Mod => {
-            if (isNumeric(left) and isNumeric(right)) {
-                return promoteNumeric(left, right);
-            }
-        },
-        .Mult => {
-            // String/bytes repetition: str * int
-            if (string_traits.canRepeat(left) and isIntegral(right)) {
-                return string_traits.getRepeatResultType(left) orelse .unknown;
-            }
-            if (string_traits.canRepeat(right) and isIntegral(left)) {
-                return string_traits.getRepeatResultType(right) orelse .unknown;
-            }
-            // List repetition: list * int
-            if (left_tag == .list and isIntegral(right)) {
-                return left;
-            }
-            // Numeric multiplication
-            if (isNumeric(left) and isNumeric(right)) {
-                return promoteNumeric(left, right);
-            }
-        },
-        .Div => {
-            // True division always returns float
-            if (isNumeric(left) and isNumeric(right)) {
-                return .float;
-            }
-        },
-        .FloorDiv => {
-            // Floor division: int // int -> int, float involved -> float
-            if (isNumeric(left) and isNumeric(right)) {
-                if (isFloating(left) or isFloating(right)) {
-                    return .float;
-                }
-                return promoteNumeric(left, right);
-            }
-        },
-        .Pow => {
-            // Power: int ** int can be bigint, float ** anything is float
-            if (isNumeric(left) and isNumeric(right)) {
-                if (isFloating(left) or isFloating(right)) {
-                    return .float;
-                }
-                // int ** int might overflow, but we return int
-                return promoteNumeric(left, right);
-            }
-        },
-        .BitAnd, .BitOr, .BitXor, .LShift, .RShift => {
-            // Bitwise ops require integers
-            if (isIntegral(left) and isIntegral(right)) {
-                return promoteNumeric(left, right);
-            }
-        },
-    }
-
-    return .unknown;
-}
+pub const BinOp = binaryResultType_mod.BinOp;
+pub const OperationHints = binaryResultType_mod.OperationHints;
+pub const binaryResultType = binaryResultType_mod.binaryResultType;
+pub const binaryResultTypeWithHints = binaryResultType_mod.binaryResultTypeWithHints;
 
 /// Check if promotion is needed for binary operation
 pub fn needsPromotion(left: NativeType, right: NativeType) bool {
@@ -298,29 +225,6 @@ pub fn needsPromotion(left: NativeType, right: NativeType) bool {
     const right_tag = @as(std.meta.Tag(@TypeOf(right)), right);
 
     return left_tag != right_tag;
-}
-
-/// Promote two numeric types to common type
-fn promoteNumeric(left: NativeType, right: NativeType) NativeType {
-    const left_tag = @as(std.meta.Tag(@TypeOf(left)), left);
-    const right_tag = @as(std.meta.Tag(@TypeOf(right)), right);
-
-    // complex > float > bigint > int > usize > bool
-    if (left_tag == .complex or right_tag == .complex) return .complex;
-    if (left_tag == .float or right_tag == .float) return .float;
-    if (left_tag == .bigint or right_tag == .bigint) return .bigint;
-    if (left_tag == .int and right_tag == .int) {
-        // Combine boundedness - unbounded taints result
-        const left_kind = left.int;
-        const right_kind = right.int;
-        if (left_kind == .unbounded or right_kind == .unbounded) {
-            return .{ .int = .unbounded };
-        }
-        return .{ .int = .bounded };
-    }
-    if (left_tag == .usize or right_tag == .usize) return .usize;
-
-    return .{ .int = .bounded };
 }
 
 // ============================================================================

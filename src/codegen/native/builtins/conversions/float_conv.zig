@@ -78,7 +78,7 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const var_name = args[0].name.id;
         if (self.getVarType(var_name)) |local_type| {
             // Prefer local type if it's more specific (not int/unknown)
-            if (string_traits.isString(local_type) or @as(std.meta.Tag(@TypeOf(local_type)), local_type) == .class_instance) {
+            if (string_traits.isString(local_type) or type_traits.isClassInstance(local_type)) {
                 arg_type = local_type;
             }
         }
@@ -161,7 +161,7 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const var_name = args[0].name.id;
             // First check if this variable's type is a class instance
             if (self.getVarType(var_name)) |var_type| {
-                if (var_type == .class_instance) {
+                if (type_traits.isClassInstance(var_type)) {
                     const class_name = var_type.class_instance;
                     if (self.classHasMethod(class_name, "__float__")) {
                         break :blk true;

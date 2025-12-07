@@ -6,6 +6,7 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 
 /// Generate boolean operations (and, or)
 /// Python's and/or return the actual values, not booleans:
@@ -52,7 +53,7 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
         // - class_instance types are only compatible if same class name
         const types_compatible = blk: {
             if (a_tag != b_tag) break :blk false;
-            if (a_tag == .class_instance) {
+            if (type_traits.isClassInstance(a_type)) {
                 break :blk std.mem.eql(u8, a_type.class_instance, b_type.class_instance);
             }
             break :blk true;

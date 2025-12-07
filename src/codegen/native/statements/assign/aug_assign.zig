@@ -510,7 +510,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     if (aug.op == .Mult) {
         // First check if this is a class instance - if so, use dunder methods
         const target_type_for_mult = try self.inferExprScoped(aug.target.*);
-        if (target_type_for_mult == .class_instance) {
+        if (type_traits.isClassInstance(target_type_for_mult)) {
             // Fall through to class instance handler below
         } else {
             const is_arraylist = if (aug.target.* == .name)
@@ -552,7 +552,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
     // Handle class instance operators: x += val calls x.__iadd__(val) or x = x.__add__(val)
     const target_type = try self.inferExprScoped(aug.target.*);
-    if (target_type == .class_instance) {
+    if (type_traits.isClassInstance(target_type)) {
         const class_name = target_type.class_instance;
         const op_name = @tagName(aug.op);
         const iadd_method = InplaceDunders.get(op_name);

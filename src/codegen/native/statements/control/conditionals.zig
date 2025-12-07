@@ -319,7 +319,7 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             const var_type = self.type_inferrer.inferExpr(v.node) catch .unknown;
 
             // Skip hoisting if type refers to a class defined inside the block
-            if (var_type == .class_instance) {
+            if (type_traits.isClassInstance(var_type)) {
                 var skip = false;
                 for (nested_classes.items) |nested_class| {
                     if (std.mem.eql(u8, var_type.class_instance, nested_class)) {
@@ -401,7 +401,6 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
 
     // Check condition type - need to handle PyObject truthiness
     const cond_type = self.type_inferrer.inferExpr(if_stmt.condition.*) catch .unknown;
-    const cond_tag = @as(std.meta.Tag(@TypeOf(cond_type)), cond_type);
     if (is_feature_macros_subscript) {
         // FeatureMacros subscript returns comptime bool - use directly
         try self.genExpr(if_stmt.condition.*);
@@ -417,7 +416,7 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
     } else if (type_traits.isBoolean(cond_type)) {
         // Boolean - use directly
         try self.genExpr(if_stmt.condition.*);
-    } else if (cond_tag == .class_instance) {
+    } else if (type_traits.isClassInstance(cond_type)) {
         // Class instance - use runtime.toBool for duck typing (__bool__ support)
         _ = try builder.write("runtime.toBool(");
         try self.genExpr(if_stmt.condition.*);

@@ -7,6 +7,7 @@ const param_analyzer = @import("../param_analyzer.zig");
 const self_analyzer = @import("../self_analyzer.zig");
 const zig_keywords = @import("utils.zig_keywords");
 const state_machine = @import("../../../async_state_machine.zig");
+const type_traits = @import("../../../../../analysis/traits/type_traits.zig");
 
 // NOTE: Async strategy is now determined per-function via function_traits
 // Query self.shouldUseStateMachineAsync(func.name) instead of hardcoded constant
@@ -1208,7 +1209,7 @@ pub fn genMethodSignatureWithSkip(
                 // Check for class_instance type - if the class isn't in the registry,
                 // it's probably a locally-defined class inside the function and we can't
                 // use it as a parameter type (it would be undefined at function signature scope)
-                if (var_type_tag == .class_instance) {
+                if (type_traits.isClassInstance(var_type)) {
                     const inferred_class_name = var_type.class_instance;
                     if (!self.class_registry.classes.contains(inferred_class_name)) {
                         // Class not in registry - use anytype instead

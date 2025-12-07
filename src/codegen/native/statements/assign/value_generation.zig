@@ -26,7 +26,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
 
     // Check if source is a list/array type (uses [N] indexing) vs tuple (uses .@"N")
     const source_tag = @as(std.meta.Tag(@TypeOf(source_type)), source_type);
-    const is_list_type = source_tag == .list or source_tag == .array;
+    const is_list_type = source_tag == .list or type_traits.isArray(source_type);
 
     // Generate: const __unpack_tmp_N = value_expr;
     try self.emitIndent();
@@ -147,7 +147,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             const is_dynamic = blk: {
                 if (attr.value.* != .name) break :blk false;
                 const obj_type = self.inferExprScoped(attr.value.*) catch break :blk false;
-                if (obj_type != .class_instance) break :blk false;
+                if (!type_traits.isClassInstance(obj_type)) break :blk false;
                 const class_name = obj_type.class_instance;
                 // Check if class has this as a known field
                 if (self.type_inferrer.class_fields.get(class_name)) |info| {
@@ -224,7 +224,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
     // Infer the type of the source to determine indexing style
     const source_type = try self.type_inferrer.inferExpr(assign.value.*);
     const source_tag = @as(std.meta.Tag(@TypeOf(source_type)), source_type);
-    const is_list_type = source_tag == .list or source_tag == .array;
+    const is_list_type = source_tag == .list or type_traits.isArray(source_type);
 
     // Generate: const __unpack_tmp_N = value_expr;
     try self.emitIndent();
@@ -265,7 +265,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 }
             } else if (container_traits.isList(source_type)) {
                 try self.type_inferrer.var_types.put(var_name, source_type.list.*);
-            } else if (source_tag == .array) {
+            } else if (type_traits.isArray(source_type)) {
                 try self.type_inferrer.var_types.put(var_name, source_type.array.element_type.*);
             }
 
@@ -332,7 +332,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             const is_dynamic = blk: {
                 if (attr.value.* != .name) break :blk false;
                 const obj_type = self.inferExprScoped(attr.value.*) catch break :blk false;
-                if (obj_type != .class_instance) break :blk false;
+                if (!type_traits.isClassInstance(obj_type)) break :blk false;
                 const class_name = obj_type.class_instance;
                 // Check if class has this as a known field
                 if (self.type_inferrer.class_fields.get(class_name)) |info| {
@@ -494,7 +494,7 @@ pub fn emitVarDeclaration(
     const is_dict_type = container_traits.isDict(value_type);
     const is_counter = (value_type == .counter);
     const is_deque = (value_type == .deque);
-    const is_class_instance = (value_type == .class_instance);
+    const is_class_instance = type_traits.isClassInstance(value_type);
     const is_dictcomp = false; // Passed separately
 
     // BigInt needs explicit type annotation to declare variable as BigInt even if first value is a small int
@@ -566,9 +566,8 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
     }
 
     // Check if this is a list of callables (needs wrapping)
-    const elem_tag = @as(std.meta.Tag(NativeType), elem_type);
-    const is_callable_list = elem_tag == .callable;
-    const is_pyvalue_list = elem_tag == .pyvalue;
+    const is_callable_list = type_traits.isCallable(elem_type);
+    const is_pyvalue_list = (elem_type == .pyvalue);
 
     // Append elements
     for (list.elts) |elem| {
@@ -811,7 +810,7 @@ pub fn trackVariableMetadata(
 
             // Look up the object's type to find its class name
             if (self.getVarType(obj_name)) |obj_type| {
-                if (obj_type == .class_instance) {
+                if (type_traits.isClassInstance(obj_type)) {
                     const class_name = obj_type.class_instance;
                     // Check if ClassName.method_name is registered as closure-returning
                     const key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, method_name });

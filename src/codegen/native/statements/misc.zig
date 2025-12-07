@@ -293,7 +293,7 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
                     .index => |idx| {
                         // Check if it's a list (ArrayList) or dict
                         const container_type = try self.inferExprScoped(sub.value.*);
-                        const is_list = container_traits.isList(container_type) or container_type == .array or
+                        const is_list = container_traits.isList(container_type) or type_traits.isArray(container_type) or
                             (sub.value.* == .name and self.isArrayListVar(sub.value.name.id));
 
                         try self.emit("_ = ");

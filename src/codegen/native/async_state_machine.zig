@@ -595,14 +595,16 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
                     try genExprInFrame(self, aug.value.*, frame_fields);
                     try self.emit(");\n");
                 } else if (aug.op == .Mod) {
-                    try self.emit("@mod(");
+                    // Use runtime.OperatorMod for proper Python modulo semantics (floored)
+                    try self.emit("runtime.OperatorMod{}.call(");
                     try self.emit(prefix);
                     try self.emit(target_name);
                     try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
                     try self.emit(");\n");
                 } else if (aug.op == .FloorDiv) {
-                    try self.emit("@divFloor(");
+                    // Use runtime.OperatorFloordiv for proper Python floor division
+                    try self.emit("runtime.OperatorFloordiv{}.call(");
                     try self.emit(prefix);
                     try self.emit(target_name);
                     try self.emit(", ");
@@ -661,14 +663,16 @@ fn genStatementInFrameWithIndent(self: *NativeCodegen, stmt: ast.Node, frame_fie
                     try genExprInFrame(self, aug.value.*, frame_fields);
                     try self.emit(");\n");
                 } else if (aug.op == .Mod) {
-                    try self.emit("@mod(");
+                    // Use runtime.OperatorMod for proper Python modulo semantics (floored)
+                    try self.emit("runtime.OperatorMod{}.call(");
                     try self.emit(prefix);
                     try self.emit(target_name);
                     try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
                     try self.emit(");\n");
                 } else if (aug.op == .FloorDiv) {
-                    try self.emit("@divFloor(");
+                    // Use runtime.OperatorFloordiv for proper Python floor division
+                    try self.emit("runtime.OperatorFloordiv{}.call(");
                     try self.emit(prefix);
                     try self.emit(target_name);
                     try self.emit(", ");
@@ -743,9 +747,9 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
         },
         .binop => |bin| {
             // Handle binary operations with frame variable references
-            // Use @mod for modulo to handle signed integers properly
+            // Use runtime.OperatorMod for modulo - handles both int and float correctly
             if (bin.op == .Mod) {
-                try self.emit("@mod(");
+                try self.emit("runtime.OperatorMod{}.call(");
                 try genExprInFrame(self, bin.left.*, frame_fields);
                 try self.emit(", ");
                 try genExprInFrame(self, bin.right.*, frame_fields);
@@ -758,8 +762,8 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
                 try genExprInFrame(self, bin.right.*, frame_fields);
                 try self.emit(")");
             } else if (bin.op == .FloorDiv) {
-                // Floor division uses @divFloor for Python semantics
-                try self.emit("@divFloor(");
+                // Use runtime.OperatorFloordiv for proper Python floor division
+                try self.emit("runtime.OperatorFloordiv{}.call(");
                 try genExprInFrame(self, bin.left.*, frame_fields);
                 try self.emit(", ");
                 try genExprInFrame(self, bin.right.*, frame_fields);
@@ -1007,9 +1011,9 @@ fn genFrameExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             else => try self.emit("0"),
         },
         .binop => |bin| {
-            // Use @mod for modulo to handle signed integers properly
+            // Use runtime.OperatorMod for proper Python modulo semantics (floored)
             if (bin.op == .Mod) {
-                try self.emit("@mod(");
+                try self.emit("runtime.OperatorMod{}.call(");
                 try genFrameExpr(self, bin.left.*);
                 try self.emit(", ");
                 try genFrameExpr(self, bin.right.*);
@@ -1022,8 +1026,8 @@ fn genFrameExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 try genFrameExpr(self, bin.right.*);
                 try self.emit(")");
             } else if (bin.op == .FloorDiv) {
-                // Floor division uses @divFloor for Python semantics
-                try self.emit("@divFloor(");
+                // Use runtime.OperatorFloordiv for proper Python floor division
+                try self.emit("runtime.OperatorFloordiv{}.call(");
                 try genFrameExpr(self, bin.left.*);
                 try self.emit(", ");
                 try genFrameExpr(self, bin.right.*);
@@ -1290,13 +1294,15 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
                     try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
                     try self.emit(");\n");
                 } else if (aug.op == .Mod) {
-                    try self.emit("@mod(");
+                    // Use runtime.OperatorMod for proper Python modulo semantics (floored)
+                    try self.emit("runtime.OperatorMod{}.call(");
                     try self.emit(target_name);
                     try self.emit(", ");
                     try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
                     try self.emit(");\n");
                 } else if (aug.op == .FloorDiv) {
-                    try self.emit("@divFloor(");
+                    // Use runtime.OperatorFloordiv for proper Python floor division
+                    try self.emit("runtime.OperatorFloordiv{}.call(");
                     try self.emit(target_name);
                     try self.emit(", ");
                     try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
@@ -1350,9 +1356,9 @@ fn genSyncExprInFrameWithLoopVar(self: *NativeCodegen, node: ast.Node, args: []a
             else => try self.emit("0"),
         },
         .binop => |bin| {
-            // Use @mod for modulo to handle signed integers properly
+            // Use runtime.OperatorMod for proper Python modulo semantics (floored)
             if (bin.op == .Mod) {
-                try self.emit("@mod(");
+                try self.emit("runtime.OperatorMod{}.call(");
                 try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
                 try self.emit(", ");
                 try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
@@ -1364,7 +1370,8 @@ fn genSyncExprInFrameWithLoopVar(self: *NativeCodegen, node: ast.Node, args: []a
                 try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
                 try self.emit(")");
             } else if (bin.op == .FloorDiv) {
-                try self.emit("@divFloor(");
+                // Use runtime.OperatorFloordiv for proper Python floor division
+                try self.emit("runtime.OperatorFloordiv{}.call(");
                 try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
                 try self.emit(", ");
                 try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
@@ -1404,9 +1411,9 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
             else => try self.emit("0"),
         },
         .binop => |bin| {
-            // Use @mod for modulo to handle signed integers properly
+            // Use runtime.OperatorMod for proper Python modulo semantics (floored)
             if (bin.op == .Mod) {
-                try self.emit("@mod(");
+                try self.emit("runtime.OperatorMod{}.call(");
                 try genSyncExprInFrame(self, bin.left.*, args);
                 try self.emit(", ");
                 try genSyncExprInFrame(self, bin.right.*, args);
@@ -1418,7 +1425,8 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
                 try genSyncExprInFrame(self, bin.right.*, args);
                 try self.emit(")");
             } else if (bin.op == .FloorDiv) {
-                try self.emit("@divFloor(");
+                // Use runtime.OperatorFloordiv for proper Python floor division
+                try self.emit("runtime.OperatorFloordiv{}.call(");
                 try genSyncExprInFrame(self, bin.left.*, args);
                 try self.emit(", ");
                 try genSyncExprInFrame(self, bin.right.*, args);

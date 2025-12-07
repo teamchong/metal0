@@ -1993,9 +1993,24 @@ pub const OperatorTruediv = struct {
 };
 
 /// operator.floordiv callable - floor division
+/// Handles both integer and float floor division correctly
+/// For floats: uses @floor(a/b) to get Python semantics
+/// For integers: uses @divFloor for proper floored division
 pub const OperatorFloordiv = struct {
     pub fn call(_: @This(), a: anytype, b: anytype) @TypeOf(a) {
-        return @divFloor(a, b);
+        const T = @TypeOf(a);
+        const BT = @TypeOf(b);
+        // For floats, use @floor(a/b) for Python floor division semantics
+        if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
+            const bf: T = if (@typeInfo(BT) == .float) b else @as(T, @floatFromInt(b));
+            return @floor(a / bf);
+        } else if (@typeInfo(BT) == .float or @typeInfo(BT) == .comptime_float) {
+            // If b is float but a is int, promote a to float
+            return @floor(@as(BT, @floatFromInt(a)) / b);
+        } else {
+            // Both are integers - use @divFloor
+            return @divFloor(a, b);
+        }
     }
 };
 

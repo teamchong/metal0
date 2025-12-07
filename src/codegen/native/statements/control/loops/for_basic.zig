@@ -621,7 +621,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // If any tuple element is a callable type, register loop variable as callable
             // This enables .call() syntax for calls like pow_op(a, b) -> pow_op.call(a, b)
             // where the tuple is (pow, operator.pow) - both callable structs
-            if (elem_type == .callable) {
+            if (type_traits.isCallable(elem_type)) {
                 const owned_name = try self.allocator.dupe(u8, var_name);
                 try self.callable_vars.put(owned_name, {});
             }
@@ -1157,7 +1157,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // This enables .call() syntax for calls like f(arg) -> f.call(arg)
     // Also register in var_types for type inference of call return values
     if (container_traits.isList(iter_type)) {
-        if (@as(std.meta.Tag(@TypeOf(iter_type.list.*)), iter_type.list.*) == .callable) {
+        if (type_traits.isCallable(iter_type.list.*)) {
             // Register loop variable as callable for .call() generation
             const owned_name = try self.allocator.dupe(u8, var_name);
             try self.callable_vars.put(owned_name, {});

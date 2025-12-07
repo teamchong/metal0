@@ -420,7 +420,7 @@ fn isPropertyMethod(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
     const obj_type = try self.type_inferrer.inferExpr(attr.value.*);
 
     // Check if it's a class instance
-    if (obj_type != .class_instance) return false;
+    if (!type_traits.isClassInstance(obj_type)) return false;
 
     const class_name = obj_type.class_instance;
 
@@ -439,7 +439,7 @@ fn isPropertyMethod(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
 fn getPropertyGetter(self: *NativeCodegen, attr: ast.Node.Attribute) !?[]const u8 {
     // Get object type
     const obj_type = try self.type_inferrer.inferExpr(attr.value.*);
-    if (obj_type != .class_instance) return null;
+    if (!type_traits.isClassInstance(obj_type)) return null;
 
     const class_name = obj_type.class_instance;
 
@@ -472,7 +472,7 @@ fn isDynamicAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
     }
 
     // Check if it's a class instance
-    if (obj_type != .class_instance) return false;
+    if (!type_traits.isClassInstance(obj_type)) return false;
 
     const class_name = obj_type.class_instance;
 

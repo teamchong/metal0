@@ -405,13 +405,15 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 
         // Check if we need to cast this element
         const this_type = try self.type_inferrer.inferExpr(elem);
-        const needs_cast = (type_traits.isFloating(elem_type) and type_traits.isIntegral(this_type));
+        // Need int→float cast when list element type is float but value is int
+        // (type_traits.isConvertible confirms int→float is valid)
+        const needs_cast = type_traits.isFloating(elem_type) and type_traits.isIntegral(this_type);
 
         if (needs_cast) {
             try self.emit("@as(f64, @floatFromInt(");
             try genExpr(self, elem);
             try self.emit("))");
-        } else if (@as(std.meta.Tag(NativeType), elem_type) == .callable) {
+        } else if (type_traits.isCallable(elem_type)) {
             // List of callables - wrap non-PyCallable elements
             try genCallableElement(self, elem, this_type);
         } else {
