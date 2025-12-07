@@ -283,7 +283,8 @@ fn emitBytecode(allocator: std.mem.Allocator, source: []const u8) !void {
     _ = try std.posix.write(std.posix.STDOUT_FILENO, bytes);
 }
 
-/// Fast codegen-only mode - skips import scanning, produces just .zig file
+/// Fast codegen-only mode - produces just .zig file
+/// Still scans for local imports and compiles them as modules
 pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const u8) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -304,7 +305,31 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
 
     if (tree != .module) return error.InvalidAST;
 
-    // Skip all import scanning/compilation for speed
+    // Scan for local imports and compile them as modules
+    // This is needed so imported modules have pub functions
+    // Use ImportGraph's isRegistryModule to check if module is handled by runtime
+    var registry = try import_registry.createDefaultRegistry(aa);
+    var import_graph = import_scanner.ImportGraph.initWithRegistry(aa, &registry);
+    defer import_graph.deinit();
+
+    const source_dir = std.fs.path.dirname(input_file) orelse ".";
+    for (tree.module.body) |stmt| {
+        if (stmt == .import_stmt) {
+            const module_name = stmt.import_stmt.module;
+            // Skip stdlib modules (handled by runtime) using ImportGraph's registry check
+            if (import_graph.registry) |reg| {
+                if (reg.lookup(module_name) != null) continue;
+            }
+            // Check if local .py file exists
+            const local_path = std.fmt.allocPrint(aa, "{s}/{s}.py", .{ source_dir, module_name }) catch continue;
+            if (std.fs.cwd().access(local_path, .{})) |_| {
+                // Compile as module (with pub functions)
+                compileModule(aa, local_path, module_name) catch |err| {
+                    std.debug.print("Warning: Failed to compile local module {s}: {}\n", .{ module_name, err });
+                };
+            } else |_| {}
+        }
+    }
 
     // Semantic analysis (required for codegen)
     var semantic_info = semantic_types.SemanticInfo.init(aa);
