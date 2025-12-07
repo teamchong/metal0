@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Process Class
@@ -23,7 +24,7 @@ pub const Process = struct {
     exitcode: ?i32,
     target: ?*const fn () void,
     args: ?[]const []const u8,
-    kwargs: ?std.StringHashMap([]const u8),
+    kwargs: ?hashmap_helper.StringHashMap([]const u8),
     started: bool,
     sentinel: ?i32,
 
@@ -663,12 +664,12 @@ pub const ManagedNamespace = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
-    attrs: std.StringHashMap([]const u8),
+    attrs: hashmap_helper.StringHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .attrs = std.StringHashMap([]const u8).init(allocator),
+            .attrs = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
     }
 

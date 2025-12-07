@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/configparser.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Interpolation Classes
@@ -70,15 +71,15 @@ pub const ConfigParser = struct {
     };
 
     allocator: std.mem.Allocator,
-    sections: std.StringHashMap(std.StringHashMap([]const u8)),
-    defaults: std.StringHashMap([]const u8),
+    sections: hashmap_helper.StringHashMap(hashmap_helper.StringHashMap([]const u8)),
+    defaults: hashmap_helper.StringHashMap([]const u8),
     options: Options,
 
     pub fn init(allocator: std.mem.Allocator, options: Options) Self {
         return .{
             .allocator = allocator,
-            .sections = std.StringHashMap(std.StringHashMap([]const u8)).init(allocator),
-            .defaults = std.StringHashMap([]const u8).init(allocator),
+            .sections = hashmap_helper.StringHashMap(hashmap_helper.StringHashMap([]const u8)).init(allocator),
+            .defaults = hashmap_helper.StringHashMap([]const u8).init(allocator),
             .options = options,
         };
     }
@@ -140,7 +141,7 @@ pub const ConfigParser = struct {
                     const section_name = line[1..end];
                     current_section = try self.allocator.dupe(u8, section_name);
                     if (!self.sections.contains(current_section.?)) {
-                        try self.sections.put(current_section.?, std.StringHashMap([]const u8).init(self.allocator));
+                        try self.sections.put(current_section.?, hashmap_helper.StringHashMap([]const u8).init(self.allocator));
                     }
                 }
                 continue;
@@ -171,12 +172,12 @@ pub const ConfigParser = struct {
     }
 
     /// Read configuration from a dict
-    pub fn readDict(self: *Self, dictionary: std.StringHashMap(std.StringHashMap([]const u8))) !void {
+    pub fn readDict(self: *Self, dictionary: hashmap_helper.StringHashMap(hashmap_helper.StringHashMap([]const u8))) !void {
         var iter = dictionary.iterator();
         while (iter.next()) |entry| {
             const section = entry.key_ptr.*;
             if (!self.sections.contains(section)) {
-                try self.sections.put(section, std.StringHashMap([]const u8).init(self.allocator));
+                try self.sections.put(section, hashmap_helper.StringHashMap([]const u8).init(self.allocator));
             }
 
             var val_iter = entry.value_ptr.iterator();
@@ -287,7 +288,7 @@ pub const ConfigParser = struct {
             return error.DuplicateSection;
         }
         const section_dup = try self.allocator.dupe(u8, section);
-        try self.sections.put(section_dup, std.StringHashMap([]const u8).init(self.allocator));
+        try self.sections.put(section_dup, hashmap_helper.StringHashMap([]const u8).init(self.allocator));
     }
 
     /// Remove a section

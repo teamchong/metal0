@@ -54,15 +54,15 @@ pub fn abstractproperty(comptime func: anytype) @TypeOf(func) {
 pub const ABCMeta = struct {
     allocator: std.mem.Allocator,
     /// Maps ABC type names to their registered virtual subclasses
-    registry: std.StringHashMap(std.ArrayList([]const u8)),
+    registry: hashmap_helper.StringHashMap(std.ArrayList([]const u8)),
     /// Tracks negative cache (types that are not instances)
-    negative_cache: std.StringHashMap(std.ArrayList([]const u8)),
+    negative_cache: hashmap_helper.StringHashMap(std.ArrayList([]const u8)),
 
     pub fn init(allocator: std.mem.Allocator) ABCMeta {
         return .{
             .allocator = allocator,
-            .registry = std.StringHashMap(std.ArrayList([]const u8)).init(allocator),
-            .negative_cache = std.StringHashMap(std.ArrayList([]const u8)).init(allocator),
+            .registry = hashmap_helper.StringHashMap(std.ArrayList([]const u8)).init(allocator),
+            .negative_cache = hashmap_helper.StringHashMap(std.ArrayList([]const u8)).init(allocator),
         };
     }
 

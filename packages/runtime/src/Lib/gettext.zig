@@ -5,6 +5,7 @@
 /// Used for internationalizing Python programs.
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Constants
@@ -32,7 +33,7 @@ pub const Translation = struct {
     const Self = @This();
 
     /// The message catalog (msgid -> msgstr mapping)
-    catalog: ?std.StringHashMap([]const u8),
+    catalog: ?hashmap_helper.StringHashMap([]const u8),
     /// Character encoding
     charset: []const u8,
     /// Fallback translation
@@ -174,7 +175,7 @@ pub const GNUTranslations = struct {
         _ = orig_offset;
         _ = trans_offset;
 
-        var catalog = std.StringHashMap([]const u8).init(allocator);
+        var catalog = hashmap_helper.StringHashMap([]const u8).init(allocator);
 
         // Read string pairs (simplified - real impl needs seeking)
         for (0..nstrings) |_| {
@@ -206,17 +207,17 @@ pub const GNUTranslations = struct {
 // Global Translation Registry
 // ============================================================================
 
-var translations: ?std.StringHashMap(*Translation) = null;
+var translations: ?hashmap_helper.StringHashMap(*Translation) = null;
 var translations_allocator: ?std.mem.Allocator = null;
 var current_translation: ?*const Translation = null;
 var current_domain: []const u8 = DEFAULT_DOMAIN;
-var locale_dirs: ?std.StringHashMap([]const u8) = null;
+var locale_dirs: ?hashmap_helper.StringHashMap([]const u8) = null;
 
 /// Initialize the translation registry
 pub fn initRegistry(allocator: std.mem.Allocator) void {
     if (translations == null) {
-        translations = std.StringHashMap(*Translation).init(allocator);
-        locale_dirs = std.StringHashMap([]const u8).init(allocator);
+        translations = hashmap_helper.StringHashMap(*Translation).init(allocator);
+        locale_dirs = hashmap_helper.StringHashMap([]const u8).init(allocator);
         translations_allocator = allocator;
     }
 }

@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/netrc.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -47,15 +48,15 @@ pub const Netrc = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
-    hosts: std.StringHashMap(Authenticator),
-    macros: std.StringHashMap([]const u8),
+    hosts: hashmap_helper.StringHashMap(Authenticator),
+    macros: hashmap_helper.StringHashMap([]const u8),
     default_entry: ?Authenticator,
 
     pub fn init(allocator: std.mem.Allocator, file: ?[]const u8) !Self {
         var self = Self{
             .allocator = allocator,
-            .hosts = std.StringHashMap(Authenticator).init(allocator),
-            .macros = std.StringHashMap([]const u8).init(allocator),
+            .hosts = hashmap_helper.StringHashMap(Authenticator).init(allocator),
+            .macros = hashmap_helper.StringHashMap([]const u8).init(allocator),
             .default_entry = null,
         };
 
@@ -212,12 +213,12 @@ pub const Netrc = struct {
     }
 
     /// Get hosts dictionary
-    pub fn getHosts(self: *Self) std.StringHashMap(Authenticator) {
+    pub fn getHosts(self: *Self) hashmap_helper.StringHashMap(Authenticator) {
         return self.hosts;
     }
 
     /// Get macros dictionary
-    pub fn getMacros(self: *Self) std.StringHashMap([]const u8) {
+    pub fn getMacros(self: *Self) hashmap_helper.StringHashMap([]const u8) {
         return self.macros;
     }
 

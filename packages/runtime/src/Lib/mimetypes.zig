@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/mimetypes.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Constants
@@ -169,19 +170,19 @@ pub const MimeTypes = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
-    types_map: std.StringHashMap([]const u8),
-    types_map_inv: std.StringHashMap([]const u8),
-    encodings_map: std.StringHashMap([]const u8),
-    suffix_map: std.StringHashMap([]const u8),
+    types_map: hashmap_helper.StringHashMap([]const u8),
+    types_map_inv: hashmap_helper.StringHashMap([]const u8),
+    encodings_map: hashmap_helper.StringHashMap([]const u8),
+    suffix_map: hashmap_helper.StringHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator, filenames: ?[]const []const u8, strict: bool) !Self {
         _ = strict;
         var self = Self{
             .allocator = allocator,
-            .types_map = std.StringHashMap([]const u8).init(allocator),
-            .types_map_inv = std.StringHashMap([]const u8).init(allocator),
-            .encodings_map = std.StringHashMap([]const u8).init(allocator),
-            .suffix_map = std.StringHashMap([]const u8).init(allocator),
+            .types_map = hashmap_helper.StringHashMap([]const u8).init(allocator),
+            .types_map_inv = hashmap_helper.StringHashMap([]const u8).init(allocator),
+            .encodings_map = hashmap_helper.StringHashMap([]const u8).init(allocator),
+            .suffix_map = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
 
         // Initialize built-in types

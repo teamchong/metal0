@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/argparse.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Argument Types
@@ -101,7 +102,7 @@ pub const Argument = struct {
 pub const ArgumentParser = struct {
     const Self = @This();
     const ArgList = std.ArrayList(Argument);
-    const ValueMap = std.StringHashMap(ArgValue);
+    const ValueMap = hashmap_helper.StringHashMap(ArgValue);
 
     allocator: std.mem.Allocator,
 
@@ -405,7 +406,7 @@ pub const ArgumentOptions = struct {
 /// Result of parsing arguments
 pub const ParseResult = struct {
     const Self = @This();
-    const ValueMap = std.StringHashMap(ArgValue);
+    const ValueMap = hashmap_helper.StringHashMap(ArgValue);
     const StringList = std.ArrayList([]const u8);
 
     allocator: std.mem.Allocator,
@@ -479,7 +480,7 @@ pub const ParseResult = struct {
 /// Group of subparsers
 pub const SubparserGroup = struct {
     const Self = @This();
-    const ParserMap = std.StringHashMap(*ArgumentParser);
+    const ParserMap = hashmap_helper.StringHashMap(*ArgumentParser);
 
     allocator: std.mem.Allocator,
     parsers: ParserMap,

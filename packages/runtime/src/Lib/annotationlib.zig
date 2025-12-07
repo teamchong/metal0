@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/annotationlib.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Format Enum
@@ -78,10 +79,10 @@ pub fn get_annotations(
     obj: anytype,
     format: Format,
     eval_str: bool,
-) !std.StringHashMap([]const u8) {
+) !hashmap_helper.StringHashMap([]const u8) {
     _ = obj;
     _ = eval_str;
-    var annotations = std.StringHashMap([]const u8).init(allocator);
+    var annotations = hashmap_helper.StringHashMap([]const u8).init(allocator);
 
     // In AOT compilation, annotations are typically stored as metadata
     // This is a simplified implementation
@@ -106,9 +107,9 @@ pub fn get_annotations(
 /// Convert annotations to string format
 pub fn annotations_to_string(
     allocator: std.mem.Allocator,
-    annotations: std.StringHashMap(*anyopaque),
-) !std.StringHashMap([]const u8) {
-    var result = std.StringHashMap([]const u8).init(allocator);
+    annotations: hashmap_helper.StringHashMap(*anyopaque),
+) !hashmap_helper.StringHashMap([]const u8) {
+    var result = hashmap_helper.StringHashMap([]const u8).init(allocator);
 
     var iter = annotations.iterator();
     while (iter.next()) |entry| {
@@ -127,12 +128,12 @@ pub fn get_type_hints(
     globalns: ?*anyopaque,
     localns: ?*anyopaque,
     include_extras: bool,
-) !std.StringHashMap([]const u8) {
+) !hashmap_helper.StringHashMap([]const u8) {
     _ = globalns;
     _ = localns;
     _ = include_extras;
     _ = obj;
-    return std.StringHashMap([]const u8).init(allocator);
+    return hashmap_helper.StringHashMap([]const u8).init(allocator);
 }
 
 // ============================================================================
@@ -148,9 +149,9 @@ pub fn is_forward_ref(annotation: anytype) bool {
 /// Resolve string annotations to ForwardRef objects
 pub fn stringize_annotations(
     allocator: std.mem.Allocator,
-    annotations: std.StringHashMap([]const u8),
-) !std.StringHashMap(ForwardRef) {
-    var result = std.StringHashMap(ForwardRef).init(allocator);
+    annotations: hashmap_helper.StringHashMap([]const u8),
+) !hashmap_helper.StringHashMap(ForwardRef) {
+    var result = hashmap_helper.StringHashMap(ForwardRef).init(allocator);
 
     var iter = annotations.iterator();
     while (iter.next()) |entry| {
@@ -186,11 +187,11 @@ pub fn evaluate_annotations(
     obj: anytype,
     globalns: ?*anyopaque,
     localns: ?*anyopaque,
-) !std.StringHashMap([]const u8) {
+) !hashmap_helper.StringHashMap([]const u8) {
     _ = globalns;
     _ = localns;
     _ = obj;
-    return std.StringHashMap([]const u8).init(allocator);
+    return hashmap_helper.StringHashMap([]const u8).init(allocator);
 }
 
 // ============================================================================

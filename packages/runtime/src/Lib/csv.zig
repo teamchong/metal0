@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/csv.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Constants
@@ -525,11 +526,11 @@ pub fn dictWriter(
 }
 
 /// Register a dialect (simplified - stores in a map)
-var dialects: ?std.StringHashMap(Dialect) = null;
+var dialects: ?hashmap_helper.StringHashMap(Dialect) = null;
 
 pub fn registerDialect(name: []const u8, dialect: Dialect, allocator: std.mem.Allocator) !void {
     if (dialects == null) {
-        dialects = std.StringHashMap(Dialect).init(allocator);
+        dialects = hashmap_helper.StringHashMap(Dialect).init(allocator);
     }
     try dialects.?.put(name, dialect);
 }

@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/dataclasses.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Constants
@@ -396,8 +397,8 @@ pub fn isDataclass(comptime T: type) bool {
 }
 
 /// Convert a dataclass instance to a dict-like struct
-pub fn asdict(comptime T: type, instance: T, allocator: std.mem.Allocator) !std.StringHashMap([]const u8) {
-    var result = std.StringHashMap([]const u8).init(allocator);
+pub fn asdict(comptime T: type, instance: T, allocator: std.mem.Allocator) !hashmap_helper.StringHashMap([]const u8) {
+    var result = hashmap_helper.StringHashMap([]const u8).init(allocator);
     errdefer result.deinit();
 
     const fields = @typeInfo(T).@"struct".fields;

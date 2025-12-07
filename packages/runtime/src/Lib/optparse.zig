@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/optparse.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Option Actions
@@ -127,7 +128,7 @@ pub const Option = struct {
 /// Container for parsed option values
 pub const Values = struct {
     const Self = @This();
-    const ValueMap = std.StringHashMap(Value);
+    const ValueMap = hashmap_helper.StringHashMap(Value);
 
     allocator: std.mem.Allocator,
     values: ValueMap,

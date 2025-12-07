@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/_threading_local.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Thread Local Storage
@@ -49,14 +50,14 @@ pub const _localimpl = struct {
     const Self = @This();
 
     /// Thread-specific dictionary storage
-    dicts: std.AutoHashMap(std.Thread.Id, std.StringHashMap([]const u8)),
+    dicts: std.AutoHashMap(std.Thread.Id, hashmap_helper.StringHashMap([]const u8)),
     allocator: std.mem.Allocator,
     key: []const u8,
     lock: std.Thread.Mutex,
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
-            .dicts = std.AutoHashMap(std.Thread.Id, std.StringHashMap([]const u8)).init(allocator),
+            .dicts = std.AutoHashMap(std.Thread.Id, hashmap_helper.StringHashMap([]const u8)).init(allocator),
             .allocator = allocator,
             .key = "",
             .lock = .{},
@@ -72,7 +73,7 @@ pub const _localimpl = struct {
     }
 
     /// Get dictionary for current thread
-    pub fn getDict(self: *Self) !*std.StringHashMap([]const u8) {
+    pub fn getDict(self: *Self) !*hashmap_helper.StringHashMap([]const u8) {
         self.lock.lock();
         defer self.lock.unlock();
 
@@ -83,12 +84,12 @@ pub const _localimpl = struct {
         }
 
         // Create new dictionary for this thread
-        try self.dicts.put(tid, std.StringHashMap([]const u8).init(self.allocator));
+        try self.dicts.put(tid, hashmap_helper.StringHashMap([]const u8).init(self.allocator));
         return self.dicts.getPtr(tid).?;
     }
 
     /// Create new dictionary for current thread
-    pub fn createDict(self: *Self) !*std.StringHashMap([]const u8) {
+    pub fn createDict(self: *Self) !*hashmap_helper.StringHashMap([]const u8) {
         self.lock.lock();
         defer self.lock.unlock();
 
@@ -101,7 +102,7 @@ pub const _localimpl = struct {
         }
 
         // Create new dictionary
-        try self.dicts.put(tid, std.StringHashMap([]const u8).init(self.allocator));
+        try self.dicts.put(tid, hashmap_helper.StringHashMap([]const u8).init(self.allocator));
         return self.dicts.getPtr(tid).?;
     }
 };
@@ -147,7 +148,7 @@ pub const Local = struct {
     }
 
     /// Get the thread-local dictionary
-    pub fn getDict(self: *Self) !*std.StringHashMap([]const u8) {
+    pub fn getDict(self: *Self) !*hashmap_helper.StringHashMap([]const u8) {
         return self.impl.getDict();
     }
 };

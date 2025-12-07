@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/mailbox.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -32,7 +33,7 @@ pub const Message = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
-    headers: std.StringHashMap([]const u8),
+    headers: hashmap_helper.StringHashMap([]const u8),
     body: []const u8,
     flags: Flags,
 
@@ -49,7 +50,7 @@ pub const Message = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .headers = std.StringHashMap([]const u8).init(allocator),
+            .headers = hashmap_helper.StringHashMap([]const u8).init(allocator),
             .body = "",
             .flags = .{},
         };
@@ -70,7 +71,7 @@ pub const Message = struct {
     }
 
     /// Get all headers
-    pub fn getHeaders(self: *Self) std.StringHashMap([]const u8) {
+    pub fn getHeaders(self: *Self) hashmap_helper.StringHashMap([]const u8) {
         return self.headers;
     }
 
@@ -606,13 +607,13 @@ pub const MH = struct {
     }
 
     /// Get sequences
-    pub fn getSequences(self: *Self) !std.StringHashMap([]const u32) {
+    pub fn getSequences(self: *Self) !hashmap_helper.StringHashMap([]const u32) {
         _ = self;
-        return std.StringHashMap([]const u32).init(self.allocator);
+        return hashmap_helper.StringHashMap([]const u32).init(self.allocator);
     }
 
     /// Set sequences
-    pub fn setSequences(self: *Self, sequences: std.StringHashMap([]const u32)) !void {
+    pub fn setSequences(self: *Self, sequences: hashmap_helper.StringHashMap([]const u32)) !void {
         _ = self;
         _ = sequences;
     }

@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/linecache.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Cache Storage
@@ -18,12 +19,12 @@ const CacheEntry = struct {
     fullname: []const u8,
 };
 
-var cache: ?std.StringHashMap(CacheEntry) = null;
+var cache: ?hashmap_helper.StringHashMap(CacheEntry) = null;
 var cache_allocator: std.mem.Allocator = std.heap.page_allocator;
 
 fn initCache() void {
     if (cache == null) {
-        cache = std.StringHashMap(CacheEntry).init(cache_allocator);
+        cache = hashmap_helper.StringHashMap(CacheEntry).init(cache_allocator);
     }
 }
 

@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/contextvars.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Token - Used for resetting context variables
@@ -108,7 +109,7 @@ pub fn ContextVar(comptime T: type) type {
 /// Immutable context containing context variable values
 pub const Context = struct {
     const Self = @This();
-    const DataMap = std.StringHashMap(ContextValue);
+    const DataMap = hashmap_helper.StringHashMap(ContextValue);
 
     allocator: std.mem.Allocator,
     data: DataMap,

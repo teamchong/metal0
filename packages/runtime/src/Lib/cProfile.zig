@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/cProfile.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Profile Entry
@@ -69,7 +70,7 @@ pub const Profile = struct {
 
     allocator: std.mem.Allocator,
     /// Profile statistics by function key
-    stats: std.StringHashMap(ProfileEntry),
+    stats: hashmap_helper.StringHashMap(ProfileEntry),
     /// Call stack for tracking nested calls
     call_stack: std.ArrayList(CallStackEntry),
     /// Whether profiler is enabled
@@ -82,7 +83,7 @@ pub const Profile = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .stats = std.StringHashMap(ProfileEntry).init(allocator),
+            .stats = hashmap_helper.StringHashMap(ProfileEntry).init(allocator),
             .call_stack = std.ArrayList(CallStackEntry).init(allocator),
             .timer = defaultTimer,
         };
@@ -241,7 +242,7 @@ pub const Stats = struct {
     total_time: f64 = 0.0,
     prim_calls: u64 = 0,
 
-    pub fn init(allocator: std.mem.Allocator, stats: *std.StringHashMap(ProfileEntry)) Self {
+    pub fn init(allocator: std.mem.Allocator, stats: *hashmap_helper.StringHashMap(ProfileEntry)) Self {
         var entries = std.ArrayList(ProfileEntry).init(allocator);
         var total_calls: u64 = 0;
         var total_time: f64 = 0.0;
@@ -455,7 +456,7 @@ test "SortKey enum" {
 
 test "Stats init" {
     const allocator = std.testing.allocator;
-    var stats_map = std.StringHashMap(ProfileEntry).init(allocator);
+    var stats_map = hashmap_helper.StringHashMap(ProfileEntry).init(allocator);
     defer stats_map.deinit();
 
     var entry = ProfileEntry.init("test", "test.py", 10);

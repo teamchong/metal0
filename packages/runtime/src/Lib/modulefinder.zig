@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/modulefinder.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Module - Represents a found module
@@ -23,9 +24,9 @@ pub const Module = struct {
     /// Source code (if loaded)
     code: ?[]const u8,
     /// Global names defined
-    globalnames: std.StringHashMap(void),
+    globalnames: hashmap_helper.StringHashMap(void),
     /// Names that need to be in __starimport__ namespace
-    starimports: std.StringHashMap(void),
+    starimports: hashmap_helper.StringHashMap(void),
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Self {
         return .{
@@ -33,8 +34,8 @@ pub const Module = struct {
             .file = null,
             .path = null,
             .code = null,
-            .globalnames = std.StringHashMap(void).init(allocator),
-            .starimports = std.StringHashMap(void).init(allocator),
+            .globalnames = hashmap_helper.StringHashMap(void).init(allocator),
+            .starimports = hashmap_helper.StringHashMap(void).init(allocator),
         };
     }
 
@@ -64,26 +65,26 @@ pub const ModuleFinder = struct {
 
     allocator: std.mem.Allocator,
     /// Found modules
-    modules: std.StringHashMap(*Module),
+    modules: hashmap_helper.StringHashMap(*Module),
     /// Bad modules (import errors)
-    badmodules: std.StringHashMap(std.StringHashMap(void)),
+    badmodules: hashmap_helper.StringHashMap(hashmap_helper.StringHashMap(void)),
     /// Search path
     path: std.ArrayList([]const u8),
     /// Debug level
     debug: i32,
     /// Exclude modules
-    excludes: std.StringHashMap(void),
+    excludes: hashmap_helper.StringHashMap(void),
     /// Replace paths
     replace_paths: std.ArrayList(struct { old: []const u8, new: []const u8 }),
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .modules = std.StringHashMap(*Module).init(allocator),
-            .badmodules = std.StringHashMap(std.StringHashMap(void)).init(allocator),
+            .modules = hashmap_helper.StringHashMap(*Module).init(allocator),
+            .badmodules = hashmap_helper.StringHashMap(hashmap_helper.StringHashMap(void)).init(allocator),
             .path = std.ArrayList([]const u8).init(allocator),
             .debug = 0,
-            .excludes = std.StringHashMap(void).init(allocator),
+            .excludes = hashmap_helper.StringHashMap(void).init(allocator),
             .replace_paths = std.ArrayList(struct { old: []const u8, new: []const u8 }).init(allocator),
         };
     }
@@ -251,7 +252,7 @@ pub const ModuleFinder = struct {
         }
 
         // Record as bad module
-        var callers = std.StringHashMap(void).init(self.allocator);
+        var callers = hashmap_helper.StringHashMap(void).init(self.allocator);
         if (parent) |p| {
             try callers.put(p.name, {});
         }

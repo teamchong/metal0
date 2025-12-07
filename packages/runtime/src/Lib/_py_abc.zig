@@ -5,6 +5,7 @@
 /// Provides ABCMeta metaclass and ABC base class functionality.
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const Allocator = std.mem.Allocator;
 
 // ============================================================================
@@ -18,7 +19,7 @@ pub const ABCRegistry = struct {
     /// Registered virtual subclasses (type ID -> list of subclass IDs)
     virtual_subclasses: std.AutoHashMap(u64, std.ArrayList(u64)),
     /// Abstract methods cache (type ID -> set of method names)
-    abstract_methods: std.AutoHashMap(u64, std.StringHashMap(void)),
+    abstract_methods: std.AutoHashMap(u64, hashmap_helper.StringHashMap(void)),
     /// Negative cache for isinstance checks
     negative_cache: std.AutoHashMap(u64, std.AutoHashMap(u64, void)),
     /// Cache version counter
@@ -30,7 +31,7 @@ pub const ABCRegistry = struct {
         return Self{
             .allocator = allocator,
             .virtual_subclasses = std.AutoHashMap(u64, std.ArrayList(u64)).init(allocator),
-            .abstract_methods = std.AutoHashMap(u64, std.StringHashMap(void)).init(allocator),
+            .abstract_methods = std.AutoHashMap(u64, hashmap_helper.StringHashMap(void)).init(allocator),
             .negative_cache = std.AutoHashMap(u64, std.AutoHashMap(u64, void)).init(allocator),
         };
     }
@@ -81,7 +82,7 @@ pub const ABCRegistry = struct {
     pub fn registerAbstractMethods(self: *Self, type_id: u64, methods: []const []const u8) !void {
         const result = try self.abstract_methods.getOrPut(type_id);
         if (!result.found_existing) {
-            result.value_ptr.* = std.StringHashMap(void).init(self.allocator);
+            result.value_ptr.* = hashmap_helper.StringHashMap(void).init(self.allocator);
         }
         for (methods) |method| {
             try result.value_ptr.put(method, {});
@@ -89,7 +90,7 @@ pub const ABCRegistry = struct {
     }
 
     /// Get abstract methods for a type
-    pub fn getAbstractMethods(self: *const Self, type_id: u64) ?*const std.StringHashMap(void) {
+    pub fn getAbstractMethods(self: *const Self, type_id: u64) ?*const hashmap_helper.StringHashMap(void) {
         return if (self.abstract_methods.getPtr(type_id)) |ptr| ptr else null;
     }
 
@@ -123,7 +124,7 @@ pub const ABCMeta = struct {
     /// Name
     name: []const u8,
     /// Abstract methods
-    abstract_methods: std.StringHashMap(void),
+    abstract_methods: hashmap_helper.StringHashMap(void),
     /// Registry reference
     registry: *ABCRegistry,
     /// Allocator
@@ -135,7 +136,7 @@ pub const ABCMeta = struct {
             .registry = registry,
             .name = name,
             .type_id = type_id,
-            .abstract_methods = std.StringHashMap(void).init(allocator),
+            .abstract_methods = hashmap_helper.StringHashMap(void).init(allocator),
         };
     }
 
@@ -180,7 +181,7 @@ pub const ABCMeta = struct {
 
 /// Check if an object has all required abstract methods implemented
 pub fn hasAllAbstractMethods(
-    abstract_methods: *const std.StringHashMap(void),
+    abstract_methods: *const hashmap_helper.StringHashMap(void),
     implemented_methods: []const []const u8,
 ) bool {
     var it = abstract_methods.keyIterator();
@@ -286,7 +287,7 @@ test "cache invalidation" {
 
 test "has all abstract methods" {
     const allocator = std.testing.allocator;
-    var methods = std.StringHashMap(void).init(allocator);
+    var methods = hashmap_helper.StringHashMap(void).init(allocator);
     defer methods.deinit();
 
     try methods.put("foo", {});

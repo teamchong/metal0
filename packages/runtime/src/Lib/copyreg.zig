@@ -5,13 +5,14 @@
 //! Mirrors: CPython Lib/copyreg.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Dispatch Table
 // ============================================================================
 
 /// Global dispatch table mapping types to reduction functions
-var dispatch_table: ?std.StringHashMap(ReductionFn) = null;
+var dispatch_table: ?hashmap_helper.StringHashMap(ReductionFn) = null;
 var dispatch_allocator: ?std.mem.Allocator = null;
 
 pub const ReductionFn = *const fn (*anyopaque) ReduceResult;
@@ -27,7 +28,7 @@ pub const ReduceResult = struct {
 /// Initialize the dispatch table
 pub fn initDispatchTable(allocator: std.mem.Allocator) void {
     if (dispatch_table == null) {
-        dispatch_table = std.StringHashMap(ReductionFn).init(allocator);
+        dispatch_table = hashmap_helper.StringHashMap(ReductionFn).init(allocator);
         dispatch_allocator = allocator;
     }
 }
@@ -68,7 +69,7 @@ pub fn getReduceFn(type_name: []const u8) ?ReductionFn {
 // ============================================================================
 
 /// Constructor registry
-var constructor_table: ?std.StringHashMap(ConstructorFn) = null;
+var constructor_table: ?hashmap_helper.StringHashMap(ConstructorFn) = null;
 
 pub const ConstructorFn = *const fn ([]const []const u8) *anyopaque;
 
@@ -79,7 +80,7 @@ pub fn constructor(
 ) !void {
     if (constructor_table == null) {
         if (dispatch_allocator) |alloc| {
-            constructor_table = std.StringHashMap(ConstructorFn).init(alloc);
+            constructor_table = hashmap_helper.StringHashMap(ConstructorFn).init(alloc);
         }
     }
 
@@ -101,7 +102,7 @@ pub fn getConstructor(type_name: []const u8) ?ConstructorFn {
 // ============================================================================
 
 /// Extension code registry
-var extension_registry: ?std.StringHashMap(i32) = null;
+var extension_registry: ?hashmap_helper.StringHashMap(i32) = null;
 var inverted_registry: ?std.AutoHashMap(i32, []const u8) = null;
 
 /// Add extension code mapping
@@ -112,7 +113,7 @@ pub fn add_extension(
 ) !void {
     if (dispatch_allocator) |alloc| {
         if (extension_registry == null) {
-            extension_registry = std.StringHashMap(i32).init(alloc);
+            extension_registry = hashmap_helper.StringHashMap(i32).init(alloc);
         }
         if (inverted_registry == null) {
             inverted_registry = std.AutoHashMap(i32, []const u8).init(alloc);

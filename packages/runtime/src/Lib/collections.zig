@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/collections/__init__.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // namedtuple
@@ -66,8 +67,8 @@ pub fn namedtuple(comptime name: []const u8, comptime fields: []const []const u8
         }
 
         /// Convert to dict-like representation
-        pub fn asDict(self: Self, allocator: std.mem.Allocator) !std.StringHashMap([]const u8) {
-            var dict = std.StringHashMap([]const u8).init(allocator);
+        pub fn asDict(self: Self, allocator: std.mem.Allocator) !hashmap_helper.StringHashMap([]const u8) {
+            var dict = hashmap_helper.StringHashMap([]const u8).init(allocator);
             errdefer dict.deinit();
             inline for (fields, 0..) |f, i| {
                 try dict.put(f, self.values[i]);

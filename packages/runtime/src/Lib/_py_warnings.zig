@@ -5,6 +5,7 @@
 /// Handles warning categories, filters, and formatting.
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const Allocator = std.mem.Allocator;
 
 // ============================================================================
@@ -166,7 +167,7 @@ pub const WarningsState = struct {
     /// Warning filters (checked in order)
     filters: std.ArrayList(WarningFilter),
     /// Registry of warnings already shown (for once/default/module)
-    registry: std.StringHashMap(void),
+    registry: hashmap_helper.StringHashMap(void),
     /// Once registry (category + message hash)
     once_registry: std.AutoHashMap(u64, void),
     /// Default action when no filter matches
@@ -178,7 +179,7 @@ pub const WarningsState = struct {
         return Self{
             .allocator = allocator,
             .filters = std.ArrayList(WarningFilter).init(allocator),
-            .registry = std.StringHashMap(void).init(allocator),
+            .registry = hashmap_helper.StringHashMap(void).init(allocator),
             .once_registry = std.AutoHashMap(u64, void).init(allocator),
         };
     }

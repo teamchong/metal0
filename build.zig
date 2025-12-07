@@ -215,6 +215,19 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the metal0 compiler");
     run_step.dependOn(&run_cmd.step);
 
+    // gen-stdlib: Generate stdlib_modules_gen.zig from source directories
+    const gen_stdlib_exe = b.addExecutable(.{
+        .name = "gen_stdlib",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/codegen/native/gen_stdlib.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_gen_stdlib = b.addRunArtifact(gen_stdlib_exe);
+    const gen_stdlib_step = b.step("gen-stdlib", "Generate stdlib_modules_gen.zig from source directories");
+    gen_stdlib_step.dependOn(&run_gen_stdlib.step);
+
     // Zig runtime tests
     // Create comptime_eval module with ast dependency
     const comptime_eval_module = b.createModule(.{

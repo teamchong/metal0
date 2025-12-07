@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/code.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // InteractiveInterpreter
@@ -15,7 +16,7 @@ pub const InteractiveInterpreter = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
-    locals: std.StringHashMap([]const u8),
+    locals: hashmap_helper.StringHashMap([]const u8),
     filename: []const u8,
     compile: ?*const fn (source: []const u8, filename: []const u8, mode: []const u8) anyerror!?CompiledCode,
 
@@ -25,10 +26,10 @@ pub const InteractiveInterpreter = struct {
         mode: []const u8,
     };
 
-    pub fn init(allocator: std.mem.Allocator, locals: ?std.StringHashMap([]const u8)) Self {
+    pub fn init(allocator: std.mem.Allocator, locals: ?hashmap_helper.StringHashMap([]const u8)) Self {
         return .{
             .allocator = allocator,
-            .locals = locals orelse std.StringHashMap([]const u8).init(allocator),
+            .locals = locals orelse hashmap_helper.StringHashMap([]const u8).init(allocator),
             .filename = "<stdin>",
             .compile = null,
         };
@@ -118,7 +119,7 @@ pub const InteractiveConsole = struct {
     exitmsg: []const u8,
     raw_input: bool,
 
-    pub fn init(allocator: std.mem.Allocator, locals: ?std.StringHashMap([]const u8), filename: ?[]const u8) Self {
+    pub fn init(allocator: std.mem.Allocator, locals: ?hashmap_helper.StringHashMap([]const u8), filename: ?[]const u8) Self {
         var interp = InteractiveInterpreter.init(allocator, locals);
         if (filename) |f| {
             interp.filename = f;
@@ -235,7 +236,7 @@ pub const InteractiveConsole = struct {
 // ============================================================================
 
 /// Start an interactive console
-pub fn interact(allocator: std.mem.Allocator, banner: ?[]const u8, readfunc: ?*const fn () ?[]const u8, local: ?std.StringHashMap([]const u8), exitmsg: ?[]const u8) !void {
+pub fn interact(allocator: std.mem.Allocator, banner: ?[]const u8, readfunc: ?*const fn () ?[]const u8, local: ?hashmap_helper.StringHashMap([]const u8), exitmsg: ?[]const u8) !void {
     _ = readfunc;
     var console = InteractiveConsole.init(allocator, local, null);
     defer console.deinit();

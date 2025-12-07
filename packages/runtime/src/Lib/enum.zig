@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/enum.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Enum Base
@@ -276,7 +277,7 @@ pub fn isFlag(comptime T: type) bool {
 /// Runtime enum that can be modified
 pub const DynamicEnum = struct {
     const Self = @This();
-    const StringMap = std.StringHashMap(i64);
+    const StringMap = hashmap_helper.StringHashMap(i64);
 
     allocator: std.mem.Allocator,
     members: StringMap,

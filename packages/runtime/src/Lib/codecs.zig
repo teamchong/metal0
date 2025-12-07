@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/codecs.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Codec Info
@@ -38,13 +39,13 @@ pub const DecodeResult = struct {
 // Codec Registry
 // ============================================================================
 
-var codec_registry: ?std.StringHashMap(CodecInfo) = null;
+var codec_registry: ?hashmap_helper.StringHashMap(CodecInfo) = null;
 var search_functions: std.ArrayList(*const fn (name: []const u8) ?CodecInfo) = undefined;
 var registry_initialized = false;
 
 fn initRegistry() void {
     if (registry_initialized) return;
-    codec_registry = std.StringHashMap(CodecInfo).init(std.heap.page_allocator);
+    codec_registry = hashmap_helper.StringHashMap(CodecInfo).init(std.heap.page_allocator);
     search_functions = std.ArrayList(*const fn (name: []const u8) ?CodecInfo).init(std.heap.page_allocator);
     registry_initialized = true;
 }

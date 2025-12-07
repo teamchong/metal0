@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/logging/__init__.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Log Levels
@@ -483,13 +484,13 @@ pub const Manager = struct {
 
     allocator: std.mem.Allocator,
     root: *Logger,
-    loggers: std.StringHashMap(*Logger),
+    loggers: hashmap_helper.StringHashMap(*Logger),
 
     pub fn init(allocator: std.mem.Allocator, root: *Logger) Self {
         return .{
             .allocator = allocator,
             .root = root,
-            .loggers = std.StringHashMap(*Logger).init(allocator),
+            .loggers = hashmap_helper.StringHashMap(*Logger).init(allocator),
         };
     }
 

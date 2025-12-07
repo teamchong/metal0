@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/email/
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // email.message - Message class
@@ -146,7 +147,7 @@ pub const Message = struct {
     /// Get all header names
     pub fn keys(self: *Self) ![][]const u8 {
         var result = std.ArrayList([]const u8).init(self.allocator);
-        var seen = std.StringHashMap(void).init(self.allocator);
+        var seen = hashmap_helper.StringHashMap(void).init(self.allocator);
         defer seen.deinit();
 
         for (self.headers.items) |h| {

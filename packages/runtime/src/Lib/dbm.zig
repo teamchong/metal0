@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/dbm/__init__.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -27,7 +28,7 @@ pub fn Database(comptime K: type, comptime V: type) type {
     return struct {
         const Self = @This();
 
-        data: std.StringHashMap(V),
+        data: hashmap_helper.StringHashMap(V),
         filename: []const u8,
         mode: Mode,
         allocator: std.mem.Allocator,
@@ -50,7 +51,7 @@ pub fn Database(comptime K: type, comptime V: type) type {
             };
 
             var self = Self{
-                .data = std.StringHashMap(V).init(allocator),
+                .data = hashmap_helper.StringHashMap(V).init(allocator),
                 .filename = filename,
                 .mode = mode,
                 .allocator = allocator,

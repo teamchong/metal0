@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/bdb.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Breakpoint Types
@@ -145,7 +146,7 @@ pub const Bdb = struct {
 
     // Breakpoint management
     breakpoints: std.ArrayList(Breakpoint),
-    bp_by_file: std.StringHashMap(std.ArrayList(usize)),
+    bp_by_file: hashmap_helper.StringHashMap(std.ArrayList(usize)),
     next_bp_number: usize,
 
     // Execution state
@@ -154,7 +155,7 @@ pub const Bdb = struct {
     stop_reason: ?StopReason,
 
     // Step control
-    skip: ?std.StringHashMap(void),
+    skip: ?hashmap_helper.StringHashMap(void),
     stopframe: ?*FrameInfo,
     returnframe: ?*FrameInfo,
     quitting: bool,
@@ -172,7 +173,7 @@ pub const Bdb = struct {
         return .{
             .allocator = allocator,
             .breakpoints = std.ArrayList(Breakpoint).init(allocator),
-            .bp_by_file = std.StringHashMap(std.ArrayList(usize)).init(allocator),
+            .bp_by_file = hashmap_helper.StringHashMap(std.ArrayList(usize)).init(allocator),
             .next_bp_number = 1,
             .stop_here = false,
             .return_frame = null,
@@ -507,7 +508,7 @@ pub const Bdb = struct {
 // ============================================================================
 
 /// Check if code should be traced (not in skip set)
-pub fn shouldTrace(skip: ?std.StringHashMap(void), name: []const u8) bool {
+pub fn shouldTrace(skip: ?hashmap_helper.StringHashMap(void), name: []const u8) bool {
     if (skip) |s| {
         if (s.contains(name)) return false;
     }
@@ -528,8 +529,8 @@ pub fn canonic(allocator: std.mem.Allocator, filename: []const u8) ![]u8 {
 }
 
 /// Effective skip set - expands module patterns
-pub fn effectiveSkip(allocator: std.mem.Allocator, skip: []const []const u8) !std.StringHashMap(void) {
-    var result = std.StringHashMap(void).init(allocator);
+pub fn effectiveSkip(allocator: std.mem.Allocator, skip: []const []const u8) !hashmap_helper.StringHashMap(void) {
+    var result = hashmap_helper.StringHashMap(void).init(allocator);
     for (skip) |name| {
         try result.put(name, {});
     }
@@ -645,7 +646,7 @@ test "shouldTrace" {
     try std.testing.expect(shouldTrace(null, "anything"));
 
     // With skip set
-    var skip = std.StringHashMap(void).init(allocator);
+    var skip = hashmap_helper.StringHashMap(void).init(allocator);
     defer skip.deinit();
     try skip.put("skip_me", {});
 
