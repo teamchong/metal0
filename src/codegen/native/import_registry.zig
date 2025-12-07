@@ -14,6 +14,7 @@
 
 const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
+const stdlib_modules_gen = @import("stdlib_modules_gen.zig");
 
 /// Strategy for handling Python imports
 pub const ImportStrategy = enum {
@@ -335,6 +336,19 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     // Note: metal0 itself doesn't need a zig_import - only the submodules do
     try registry.register("metal0", .zig_runtime, null, null);
     try registry.registerWithMeta("metal0.tokenizer", .zig_runtime, "__metal0_tokenizer", null, true, &TokenizerFuncMeta);
+
+    // ========================================================================
+    // AUTO-REGISTRATION: Discovered modules from stdlib_modules_gen
+    // ========================================================================
+    // Register all auto-discoverable modules that aren't already manually registered.
+    // These are Zig implementations in Lib/, Objects/, Python/, c_interop/ that
+    // don't need special function metadata or custom import paths.
+    for (stdlib_modules_gen.auto_registrable_modules) |mod| {
+        // Only register if not already in the registry (manual entries take precedence)
+        if (registry.lookup(mod) == null) {
+            try registry.register(mod, .zig_runtime, null, null);
+        }
+    }
 
     return registry;
 }

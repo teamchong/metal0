@@ -1,4 +1,4 @@
-.PHONY: help build install test test-unit test-integration test-quick test-cpython test-cpython-one test-status test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-webserver benchmark-regex benchmark-tokenizer benchmark-numpy benchmark-asyncio benchmark-asyncio-io clean format gen-packages
+.PHONY: help build install test test-unit test-integration test-quick test-cpython test-cpython-one test-status test-all benchmark-fib benchmark-fib-tail benchmark-dict benchmark-string benchmark-json benchmark-json-full benchmark-http benchmark-flask benchmark-webserver benchmark-regex benchmark-tokenizer benchmark-numpy benchmark-asyncio benchmark-asyncio-io clean format gen-packages gen-stdlib
 
 # =============================================================================
 # HELP
@@ -37,6 +37,7 @@ help:
 	@echo "Other:"
 	@echo "  make format         Format Zig code"
 	@echo "  make gen-packages   Regenerate package imports from packages/*/package.json"
+	@echo "  make gen-stdlib     Regenerate stdlib module list from Zig source files"
 	@echo "  make clean          Remove build artifacts"
 
 # =============================================================================
@@ -228,6 +229,11 @@ gen-packages:
 	@echo "Regenerating package imports from packages/*/package.json..."
 	@python3 scripts/gen_packages.py
 	@echo "✓ Generated"
+
+gen-stdlib:
+	@echo "Regenerating stdlib module list from Zig source files..."
+	@python3 scripts/gen_stdlib_imports.py
+	@echo "✓ Generated: src/codegen/native/stdlib_modules_gen.zig"
 
 clean:
 	@rm -rf zig-out zig-cache .zig-cache build .build
