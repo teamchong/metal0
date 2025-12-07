@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/abc.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Abstract Base Class Infrastructure
