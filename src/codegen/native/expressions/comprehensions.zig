@@ -13,6 +13,7 @@ const zig_keywords = @import("utils.zig_keywords");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const operator_traits = @import("../../../analysis/traits/operator_traits.zig");
 
 /// Builtins that return int for type inference
 const IntReturningBuiltins = std.StaticStringMap(void).initComptime(.{
@@ -73,13 +74,37 @@ fn genComprehensionCondition(
     } else {
         // Other types (int, float, string, list, etc.) - use runtime.toBool
         // This handles Python truthiness semantics (0 is false, "" is false, [] is false, etc.)
-        // Special case: modulo should use @mod to return int (not pyMod which returns string)
+        // Special case: modulo should use proper operator semantics (not pyMod which returns string)
         if (if_cond == .binop and if_cond.binop.op == .Mod) {
-            try self.emit("runtime.toBool(@mod(");
-            try genExprWithSubs(self, if_cond.binop.left.*, subs);
-            try self.emit(", ");
-            try genExprWithSubs(self, if_cond.binop.right.*, subs);
-            try self.emit("))");
+            const left_type = self.type_inferrer.inferExpr(if_cond.binop.left.*) catch .unknown;
+            const right_type = self.type_inferrer.inferExpr(if_cond.binop.right.*) catch .unknown;
+            const semantics = operator_traits.getModuloSemantics(left_type, right_type);
+            switch (semantics) {
+                .zig_native => {
+                    // Integer modulo - use @mod
+                    try self.emit("runtime.toBool(@mod(");
+                    try genExprWithSubs(self, if_cond.binop.left.*, subs);
+                    try self.emit(", ");
+                    try genExprWithSubs(self, if_cond.binop.right.*, subs);
+                    try self.emit("))");
+                },
+                .python_floored => {
+                    // Float modulo - use Python semantics
+                    try self.emit("runtime.toBool(runtime.pyFloatMod(");
+                    try genExprWithSubs(self, if_cond.binop.left.*, subs);
+                    try self.emit(", ");
+                    try genExprWithSubs(self, if_cond.binop.right.*, subs);
+                    try self.emit("))");
+                },
+                .runtime_dispatch => {
+                    // Unknown types - use runtime helper
+                    try self.emit("runtime.toBool(runtime.moduloRuntime(");
+                    try genExprWithSubs(self, if_cond.binop.left.*, subs);
+                    try self.emit(", ");
+                    try genExprWithSubs(self, if_cond.binop.right.*, subs);
+                    try self.emit("))");
+                },
+            }
         } else {
             try self.emit("runtime.toBool(");
             try genExprWithSubs(self, if_cond, subs);

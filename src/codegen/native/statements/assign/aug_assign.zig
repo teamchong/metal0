@@ -11,6 +11,7 @@ const InplaceDunders = shared.InplaceDunders;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
+const operator_traits = @import("../../../../analysis/traits/operator_traits.zig");
 
 /// Simple binary operator strings (with spaces for assignment context)
 const SimpleOpStrings = std.StaticStringMap([]const u8).initComptime(.{
@@ -794,11 +795,24 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
     // Special handling for floor division and power
     if (aug.op == .FloorDiv) {
-        try self.emit("@divFloor(");
+        const left_type = self.type_inferrer.inferExpr(aug.target.*) catch .unknown;
+        const right_type = self.type_inferrer.inferExpr(aug.value.*) catch .unknown;
+        const semantics = operator_traits.getFloorDivSemantics(left_type, right_type);
+        switch (semantics) {
+            .zig_native => try self.emit("@divFloor("),
+            .python_floored => try self.emit("@floor(@as(f64, "),
+            .runtime_dispatch => try self.emit("runtime.floorDivRuntime("),
+        }
         try self.genExpr(aug.target.*);
-        try self.emit(", ");
-        try self.genExpr(aug.value.*);
-        try self.emit(");\n");
+        if (semantics == .python_floored) {
+            try self.emit(") / @as(f64, ");
+            try self.genExpr(aug.value.*);
+            try self.emit("));\n");
+        } else {
+            try self.emit(", ");
+            try self.genExpr(aug.value.*);
+            try self.emit(");\n");
+        }
         return;
     }
 
@@ -812,7 +826,14 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     }
 
     if (aug.op == .Mod) {
-        try self.emit("@mod(");
+        const left_type = self.type_inferrer.inferExpr(aug.target.*) catch .unknown;
+        const right_type = self.type_inferrer.inferExpr(aug.value.*) catch .unknown;
+        const semantics = operator_traits.getModuloSemantics(left_type, right_type);
+        switch (semantics) {
+            .zig_native => try self.emit("@mod("),
+            .python_floored => try self.emit("runtime.pyFloatMod("),
+            .runtime_dispatch => try self.emit("runtime.moduloRuntime("),
+        }
         try self.genExpr(aug.target.*);
         try self.emit(", ");
         try self.genExpr(aug.value.*);
