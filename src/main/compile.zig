@@ -31,6 +31,43 @@ fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8) ![
     return output.getModuleOutputPath(allocator, module_path);
 }
 
+/// Extract the body of a struct from generated Zig code
+/// Input: "// comment\npub const mod = struct {\n    pub fn add...\n};"
+/// Output: "pub fn add...\n"
+fn extractStructBody(code: []const u8) []const u8 {
+    // Find "struct {" and extract everything after it until the closing "};"
+    const struct_marker = "struct {";
+    if (std.mem.indexOf(u8, code, struct_marker)) |start| {
+        const body_start = start + struct_marker.len;
+
+        // Find matching closing brace (track brace depth)
+        var depth: i32 = 1;
+        var i: usize = body_start;
+        while (i < code.len and depth > 0) : (i += 1) {
+            if (code[i] == '{') depth += 1;
+            if (code[i] == '}') depth -= 1;
+        }
+
+        // Now i points just after the closing brace
+        // Extract content between braces, trimming outer whitespace
+        if (depth == 0 and i > body_start + 1) {
+            const content = code[body_start .. i - 1]; // Exclude closing brace
+            // Trim leading newlines/indentation
+            var trimmed_start: usize = 0;
+            while (trimmed_start < content.len and (content[trimmed_start] == '\n' or content[trimmed_start] == ' ' or content[trimmed_start] == '\t')) : (trimmed_start += 1) {}
+            // Trim trailing whitespace
+            var trimmed_end: usize = content.len;
+            while (trimmed_end > trimmed_start and (content[trimmed_end - 1] == '\n' or content[trimmed_end - 1] == ' ' or content[trimmed_end - 1] == '\t')) : (trimmed_end -= 1) {}
+
+            if (trimmed_start < trimmed_end) {
+                return content[trimmed_start..trimmed_end];
+            }
+        }
+    }
+    // Fallback: return original code
+    return code;
+}
+
 pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, module_name: []const u8) !void {
     // Use arena allocator for all intermediate allocations to avoid leaks on parse errors
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -224,6 +261,10 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
     var registry = try import_registry.createDefaultRegistry(aa);
     defer registry.deinit();
 
+    // Create module registry for cross-module function trait lookup
+    const module_traits = @import("analysis.module_traits");
+    var mod_registry = module_traits.ModuleRegistry.init(aa);
+
     for (tree.module.body) |stmt| {
         if (stmt == .import_stmt) {
             const module_name = stmt.import_stmt.module;
@@ -240,7 +281,7 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
                 }
             }
 
-            _ = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer) catch |err| {
+            _ = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer, &mod_registry) catch |err| {
                 std.debug.print("Warning: Could not pre-compile module {s}: {}\n", .{ module_name, err });
                 continue;
             };
@@ -253,6 +294,14 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
     std.debug.print("Generating native Zig code...\n", .{});
     var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
     defer native_gen.deinit();
+
+    // Copy module traits from pre-compilation phase to native_gen
+    // This allows call sites to lookup function traits for proper codegen
+    for (mod_registry.modules.keys()) |mod_name| {
+        if (mod_registry.modules.get(mod_name)) |mod_info| {
+            try native_gen.module_registry.registerModule(mod_name, mod_info);
+        }
+    }
 
     // Pass import context to codegen
     native_gen.setImportContext(&import_ctx);
@@ -506,6 +555,10 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // Create registry to check for runtime modules
     var registry2 = try import_registry.createDefaultRegistry(aa);
 
+    // Create module registry for cross-module function trait lookup
+    const module_traits = @import("analysis.module_traits");
+    var mod_registry2 = module_traits.ModuleRegistry.init(aa);
+
     // Track modules that failed to compile so we can skip them in codegen
     var failed_modules = hashmap_helper.StringHashMap(void).init(aa);
 
@@ -525,13 +578,38 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                 }
             }
 
-            const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer) catch |err| {
-                std.debug.print("Warning: Could not pre-compile module {s}: {}\n", .{ module_name, err });
+            const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer, &mod_registry2) catch {
                 // Track this failed module so codegen can skip it
                 try failed_modules.put(module_name, {});
                 continue;
             };
-            _ = compiled; // Arena will free
+
+            // Write compiled module to cache directory so generator.zig can @import it
+            // Extract struct body and export functions at file level
+            const cache_path = try std.fmt.allocPrint(aa, build_dirs.CACHE ++ "/{s}.zig", .{module_name});
+            const cache_file = std.fs.cwd().createFile(cache_path, .{}) catch {
+                continue;
+            };
+            defer cache_file.close();
+
+            // Prepend required imports for standalone module
+            const imports_header =
+                \\const std = @import("std");
+                \\const runtime = @import("runtime");
+                \\
+                \\
+            ;
+            cache_file.writeAll(imports_header) catch {
+                continue;
+            };
+
+            // Extract struct body - find "struct {" and extract contents
+            // Input: "pub const mod = struct { pub fn add... };"
+            // Output: "pub fn add..."
+            const struct_body = extractStructBody(compiled);
+            cache_file.writeAll(struct_body) catch {
+                continue;
+            };
         }
     }
 
@@ -541,6 +619,13 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     std.debug.print("Generating native Zig code...\n", .{});
     var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
     defer native_gen.deinit();
+
+    // Copy module traits from pre-compilation phase to native_gen
+    for (mod_registry2.modules.keys()) |mod_name| {
+        if (mod_registry2.modules.get(mod_name)) |mod_info| {
+            try native_gen.module_registry.registerModule(mod_name, mod_info);
+        }
+    }
 
     // Set mode: shared library (.so) = module mode, binary/run/wasm = script mode
     // WASM needs script mode (with main/_start entry point)

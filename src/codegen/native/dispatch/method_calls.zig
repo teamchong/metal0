@@ -316,6 +316,15 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // Infer object type for type-aware dispatch
     const obj_type = self.type_inferrer.inferExpr(obj) catch .unknown;
 
+    // If object is an imported module (stdlib or local), don't dispatch to method handlers
+    // Let calls.zig handle module function calls properly
+    if (obj == .name) {
+        const var_name = obj.name.id;
+        if (self.imported_modules.contains(var_name) or self.module_registry.hasModule(var_name)) {
+            return false;
+        }
+    }
+
     // CDLL methods are NOT string/list/dict methods - skip all standard methods
     // ctypes FFI calls are handled separately in calls.zig
     if (obj_type == .cdll or obj_type == .c_func) {

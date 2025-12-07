@@ -13,6 +13,7 @@ const FnvVoidMap = hashmap_helper.StringHashMap(void);
 const FnvStringMap = hashmap_helper.StringHashMap([]const u8);
 const cleanup = @import("cleanup.zig");
 const freeMapKeys = cleanup.freeMapKeys;
+const module_traits = @import("analysis.module_traits");
 
 /// Infer return type from type string
 fn inferReturnTypeFromString(
@@ -34,8 +35,9 @@ pub fn compileModuleAsStruct(
     source_file_dir: ?[]const u8,
     allocator: std.mem.Allocator,
     main_type_inferrer: ?*@import("../../../analysis/native_types.zig").TypeInferrer,
+    main_module_registry: ?*module_traits.ModuleRegistry,
 ) anyerror![]const u8 {
-    return compileModuleAsStructWithPrefix(module_name, null, source_file_dir, allocator, main_type_inferrer);
+    return compileModuleAsStructWithPrefix(module_name, null, source_file_dir, allocator, main_type_inferrer, main_module_registry);
 }
 
 fn compileModuleAsStructWithPrefix(
@@ -44,6 +46,7 @@ fn compileModuleAsStructWithPrefix(
     source_file_dir: ?[]const u8,
     allocator: std.mem.Allocator,
     main_type_inferrer: ?*@import("../../../analysis/native_types.zig").TypeInferrer,
+    main_module_registry: ?*module_traits.ModuleRegistry,
 ) anyerror![]const u8 {
     // Use arena for intermediate allocations
     // Base allocator used for: return value and qualified_names in type_inferrer
@@ -119,6 +122,18 @@ fn compileModuleAsStructWithPrefix(
     var type_inferrer = try native_types_mod.TypeInferrer.init(aa);
     try type_inferrer.analyze(tree.module);
 
+    // Register module traits (function metadata) in the main registry
+    // This allows call sites to lookup function traits for proper codegen
+    if (main_module_registry) |registry| {
+        const full_module_name = if (parent_prefix) |prefix|
+            try std.fmt.allocPrint(allocator, "{s}.{s}", .{ prefix, module_name })
+        else
+            try allocator.dupe(u8, module_name);
+
+        const module_info = try module_traits.analyzeModule(tree.module, full_module_name, py_path, allocator);
+        try registry.registerModule(full_module_name, module_info);
+    }
+
     // Use full codegen to generate proper module code
     var codegen = try NativeCodegen.init(aa, &type_inferrer, &semantic_info);
     defer codegen.deinit();
@@ -186,7 +201,7 @@ fn compileModuleAsStructWithPrefix(
                 try aa.dupe(u8, module_name);
 
             const submod_struct = compileModuleAsStructWithPrefix(submod_name, submod_prefix, pkg_info.package_dir, allocator, // Recursive call uses base allocator for return value
-                main_type_inferrer) catch |err| {
+                main_type_inferrer, main_module_registry) catch |err| {
                 std.debug.print("Warning: Could not compile submodule {s}.{s}: {}\n", .{ module_name, submod_name, err });
                 continue;
             };

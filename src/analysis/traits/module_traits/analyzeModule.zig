@@ -53,9 +53,9 @@ pub fn analyzeModule(
 
 /// Analyze a function definition to extract traits
 fn analyzeFunction(func_def: ast.Node.FunctionDef, module_name: []const u8) function_traits.FunctionTraits {
-    // Use existing function_traits analysis
-    const needs_alloc = function_traits.analyzeNeedsAllocator(func_def, null);
-    const can_error = function_traits.analyzeCanError(func_def);
+    // NOTE: In module mode, ALL functions get an allocator parameter (see generators.zig:38)
+    // So for module functions, needs_allocator is always true regardless of body analysis
+    const needs_alloc = true; // Module functions always have allocator param
 
     return .{
         .ref = .{
@@ -64,8 +64,7 @@ fn analyzeFunction(func_def: ast.Node.FunctionDef, module_name: []const u8) func
             .class_name = null,
         },
         .needs_allocator = needs_alloc,
-        .can_error = can_error,
-        // Other traits can be populated as needed
+        .can_error = analyzeCanError(func_def.body),
         .has_await = containsAwait(func_def.body),
         .is_generator = containsYield(func_def.body),
     };
@@ -173,7 +172,7 @@ fn stmtContainsAwait(stmt: ast.Node) bool {
         .assign => |a| exprContainsAwait(a.value.*),
         .if_stmt => |i| {
             for (i.body) |s| if (stmtContainsAwait(s)) return true;
-            for (i.orelse_body) |s| if (stmtContainsAwait(s)) return true;
+            for (i.else_body) |s| if (stmtContainsAwait(s)) return true;
             return false;
         },
         .for_stmt => |f| {
@@ -210,11 +209,11 @@ fn containsYield(body: []const ast.Node) bool {
 
 fn stmtContainsYield(stmt: ast.Node) bool {
     return switch (stmt) {
-        .yield_stmt, .yield_from => true,
-        .expr_stmt => |e| e.value.* == .yield_stmt or e.value.* == .yield_from,
+        .yield_stmt, .yield_from_stmt => true,
+        .expr_stmt => |e| e.value.* == .yield_stmt or e.value.* == .yield_from_stmt,
         .if_stmt => |i| {
             for (i.body) |s| if (stmtContainsYield(s)) return true;
-            for (i.orelse_body) |s| if (stmtContainsYield(s)) return true;
+            for (i.else_body) |s| if (stmtContainsYield(s)) return true;
             return false;
         },
         .for_stmt => |f| {
@@ -224,6 +223,106 @@ fn stmtContainsYield(stmt: ast.Node) bool {
         .while_stmt => |w| {
             for (w.body) |s| if (stmtContainsYield(s)) return true;
             return false;
+        },
+        else => false,
+    };
+}
+
+/// Check if function body can raise errors (raise stmt, try block, or error-raising builtins)
+fn analyzeCanError(body: []const ast.Node) bool {
+    for (body) |stmt| {
+        if (stmtCanError(stmt)) return true;
+    }
+    return false;
+}
+
+fn stmtCanError(stmt: ast.Node) bool {
+    return switch (stmt) {
+        .raise_stmt => true,
+        .try_stmt => true,
+        .assert_stmt => true,
+        .expr_stmt => |e| exprCanError(e.value.*),
+        .assign => |a| exprCanError(a.value.*),
+        .aug_assign => |a| exprCanError(a.value.*),
+        .return_stmt => |r| if (r.value) |v| exprCanError(v.*) else false,
+        .if_stmt => |i| blk: {
+            if (exprCanError(i.condition.*)) break :blk true;
+            for (i.body) |s| if (stmtCanError(s)) break :blk true;
+            for (i.else_body) |s| if (stmtCanError(s)) break :blk true;
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            if (exprCanError(f.iter.*)) break :blk true;
+            for (f.body) |s| if (stmtCanError(s)) break :blk true;
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            if (exprCanError(w.condition.*)) break :blk true;
+            for (w.body) |s| if (stmtCanError(s)) break :blk true;
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            if (exprCanError(w.context_expr.*)) break :blk true;
+            for (w.body) |s| if (stmtCanError(s)) break :blk true;
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+/// Error-raising builtin functions
+const ErrorFunctions = std.StaticStringMap(void).initComptime(.{
+    .{ "int", {} }, // int("abc") raises ValueError
+    .{ "float", {} }, // float("abc") raises ValueError
+    .{ "open", {} }, // FileNotFoundError, PermissionError
+    .{ "eval", {} }, // RuntimeError
+    .{ "exec", {} }, // RuntimeError
+    .{ "next", {} }, // StopIteration
+    .{ "getattr", {} }, // AttributeError
+    .{ "input", {} }, // EOFError
+});
+
+fn exprCanError(expr: ast.Node) bool {
+    return switch (expr) {
+        .call => |c| blk: {
+            // Check if calling an error-raising function
+            if (c.func.* == .name) {
+                if (ErrorFunctions.has(c.func.name.id)) break :blk true;
+            }
+            // Check arguments
+            for (c.args) |arg| if (exprCanError(arg)) break :blk true;
+            break :blk exprCanError(c.func.*);
+        },
+        .subscript => |s| blk: {
+            // Indexing can raise IndexError/KeyError
+            if (s.slice == .index) break :blk true;
+            break :blk exprCanError(s.value.*);
+        },
+        .binop => |b| blk: {
+            // Division can raise ZeroDivisionError
+            if (b.op == .Div or b.op == .FloorDiv or b.op == .Mod) break :blk true;
+            break :blk exprCanError(b.left.*) or exprCanError(b.right.*);
+        },
+        .attribute => |a| exprCanError(a.value.*),
+        .unaryop => |u| exprCanError(u.operand.*),
+        .compare => |c| blk: {
+            if (exprCanError(c.left.*)) break :blk true;
+            for (c.comparators) |cmp| if (exprCanError(cmp)) break :blk true;
+            break :blk false;
+        },
+        .if_expr => |i| exprCanError(i.condition.*) or exprCanError(i.body.*) or exprCanError(i.orelse_value.*),
+        .list => |l| blk: {
+            for (l.elts) |e| if (exprCanError(e)) break :blk true;
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |e| if (exprCanError(e)) break :blk true;
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys) |k| if (exprCanError(k)) break :blk true;
+            for (d.values) |v| if (exprCanError(v)) break :blk true;
+            break :blk false;
         },
         else => false,
     };

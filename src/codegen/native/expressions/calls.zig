@@ -425,8 +425,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     is_module_call = self.imported_modules.contains(base_name);
                     if (is_module_call) {
                         module_name = base_name;
+                        // Check if it's a LOCAL module (has traits in module_registry)
+                        // vs stdlib module (only in import_registry)
+                        if (self.module_registry.hasModule(base_name)) {
+                            is_local_module_call = true;
+                        }
                     } else {
-                        // Also check module_registry for local modules
+                        // Also check module_registry for local modules not in imported_modules
                         if (self.module_registry.hasModule(base_name)) {
                             is_module_call = true;
                             is_local_module_call = true;
