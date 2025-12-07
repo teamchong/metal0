@@ -4,6 +4,7 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const helpers = @import("assign_helpers.zig");
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
 
 /// Get the allocator name based on current scope level
 fn getAllocName(self: *NativeCodegen) []const u8 {
@@ -93,8 +94,8 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
             const this_type = try self.type_inferrer.inferExpr(value);
             const tags_match = @as(std.meta.Tag(@TypeOf(first_type)), first_type) ==
                 @as(std.meta.Tag(@TypeOf(this_type)), this_type);
-            const is_int_float_mix = (first_type == .int and this_type == .float) or
-                (first_type == .float and this_type == .int);
+            const is_int_float_mix = (first_type == .int and type_traits.isFloating(this_type)) or
+                (type_traits.isFloating(first_type) and this_type == .int);
             if (!tags_match and !is_int_float_mix) {
                 // Mixed types → will use runtime path → NOT comptime!
                 is_comptime_dict = false;

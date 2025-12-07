@@ -298,7 +298,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     } else {
                         // Non-empty dict - check key type to use appropriate contains
                         const key_type = try self.inferExprScoped(dict_lit.keys[0]);
-                        const uses_int_keys = key_type == .int;
+                        const uses_int_keys = type_traits.isIntegral(key_type);
 
                         try self.emit("(blk: { const __d = ");
                         try genExpr(self, compare.comparators[i]); // dict literal
@@ -1042,9 +1042,9 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // Regular comparisons for non-strings
             // Check for type mismatches between usize and i64
             const left_is_usize = (current_left_type == .usize);
-            const left_is_int = (current_left_type == .int);
+            const left_is_int = type_traits.isIntegral(current_left_type);
             const right_is_usize = (right_type == .usize);
-            const right_is_int = (right_type == .int);
+            const right_is_int = type_traits.isIntegral(right_type);
             const left_is_float = type_traits.isFloating(current_left_type);
             const right_is_float = type_traits.isFloating(right_type);
             const left_is_bool = type_traits.isBoolean(current_left_type);

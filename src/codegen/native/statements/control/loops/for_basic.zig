@@ -562,9 +562,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 const first_elem_type = iter_type.tuple[0];
                 if (first_elem_type == .int) {
                     try self.emit(": i64 = undefined;\n");
-                } else if (first_elem_type == .bool) {
+                } else if (type_traits.isBoolean(first_elem_type)) {
                     try self.emit(": bool = undefined;\n");
-                } else if (first_elem_type == .float) {
+                } else if (type_traits.isFloating(first_elem_type)) {
                     try self.emit(": f64 = undefined;\n");
                 } else if (string_traits.isString(first_elem_type)) {
                     // String literals have length in type - use []const u8 for flexibility

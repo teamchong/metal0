@@ -4,6 +4,7 @@ const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 
 /// Generate the error handling suffix for failable float operations.
 /// Inside try blocks, use "try" to propagate errors to handlers.
@@ -90,7 +91,7 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Parse string to float
-    if (arg_type == .string) {
+    if (string_traits.isString(arg_type)) {
         // Check for special float literals that can be used at module level without try
         if (args[0] == .constant and args[0].constant.value == .string) {
             const str_val = args[0].constant.value.string;
@@ -188,7 +189,7 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // For strings, use runtime.parseFloatWithUnicode (handles Unicode digits)
-    if (arg_type == .string) {
+    if (string_traits.isString(arg_type)) {
         if (self.inside_try_body) {
             try self.emit("(try runtime.parseFloatWithUnicode(");
             try self.genExpr(args[0]);

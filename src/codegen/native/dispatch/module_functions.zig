@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
 
 // Import specialized handlers
 const json = @import("../json.zig");
@@ -907,7 +908,7 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
             // Infer type of first argument
             const arg_type = self.type_inferrer.inferExpr(call.args[0]) catch .unknown;
 
-            if (arg_type == .bool) {
+            if (type_traits.isBoolean(arg_type)) {
                 if (protocol_value != null and protocol_value.? >= 2) {
                     // Protocol 2+: use binary format - return as PyBytes for correct type
                     try self.emit("runtime.builtins.bytesLiteral(if (");

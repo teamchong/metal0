@@ -515,7 +515,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         // Also check for ArrayList variables (runtime tracking)
         const left_is_arraylist_var = binop.left.* == .name and self.isArrayListVar(binop.left.name.id);
         const right_is_arraylist_var = binop.right.* == .name and self.isArrayListVar(binop.right.name.id);
-        if (left_type == .list or right_type == .list or
+        if (container_traits.isList(left_type) or container_traits.isList(right_type) or
             binop.left.* == .list or binop.right.* == .list or
             left_is_arraylist_var or right_is_arraylist_var)
         {
@@ -556,8 +556,8 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         }
 
         // Check for tuple concatenation: tuple + tuple
-        const left_is_tuple = binop.left.* == .tuple or left_type == .tuple;
-        const right_is_tuple = binop.right.* == .tuple or right_type == .tuple;
+        const left_is_tuple = binop.left.* == .tuple or container_traits.isTuple(left_type);
+        const right_is_tuple = binop.right.* == .tuple or container_traits.isTuple(right_type);
         if (left_is_tuple and right_is_tuple) {
             // Tuple concatenation: use comptime tuple concat (++)
             try genExpr(self, binop.left.*);
@@ -946,8 +946,8 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         }
 
         const right_type = try self.inferExprScoped(binop.right.*);
-        const left_is_bool = (left_type == .bool);
-        const right_is_bool = (right_type == .bool);
+        const left_is_bool = type_traits.isBoolean(left_type);
+        const right_is_bool = type_traits.isBoolean(right_type);
 
         // True division (/) - always returns float
         // At module level (indent_level == 0), we can't use 'try', so use direct division
@@ -1051,7 +1051,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
     // Python 3.9+ dict merge: dict1 | dict2 creates new merged dict
     // dict1 |= dict2 is handled separately in aug_assign
-    if (binop.op == .BitOr and left_type == .dict and right_type == .dict) {
+    if (binop.op == .BitOr and container_traits.isDict(left_type) and container_traits.isDict(right_type)) {
         // Generate: blk: { var __merged = dict1.copy(); __merged.update(dict2); break :blk __merged; }
         const label_id = self.block_label_counter;
         self.block_label_counter += 1;
@@ -1103,11 +1103,11 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     }
 
     const left_is_usize = (left_type == .usize);
-    const left_is_int = (left_type == .int);
-    const left_is_bool = (left_type == .bool);
+    const left_is_int = type_traits.isIntegral(left_type);
+    const left_is_bool = type_traits.isBoolean(left_type);
     const right_is_usize = (right_type == .usize);
-    const right_is_int = (right_type == .int);
-    const right_is_bool = (right_type == .bool);
+    const right_is_int = type_traits.isIntegral(right_type);
+    const right_is_bool = type_traits.isBoolean(right_type);
 
     // Python: bool & bool = bool, bool | bool = bool, bool ^ bool = bool
     // When both operands are bools and op is bitwise, result is bool

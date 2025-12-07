@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
 
 /// Check if argument is None constant
 fn isNoneArg(arg: ast.Node) bool {
@@ -26,7 +27,7 @@ pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Check if arg is a bool - need to cast to int first since @abs doesn't work on bool
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-    if (arg_type == .bool) {
+    if (type_traits.isBoolean(arg_type)) {
         // abs(True) = 1, abs(False) = 0
         // Just convert bool to int: @intFromBool(...)
         try self.emit("@as(i64, @intFromBool(");

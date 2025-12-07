@@ -5,6 +5,7 @@ const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 
 /// Generate code for str(obj) or str(bytes, encoding)
 /// Converts to string representation
@@ -83,7 +84,7 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit(") \"True\" else \"False\")");
         return;
-    } else if (arg_type == .tuple) {
+    } else if (container_traits.isTuple(arg_type)) {
         // For tuples: use Python-style (a, b, c) format
         try self.emit("(try runtime.builtins.tupleRepr(");
         try self.emit(alloc_name);
@@ -257,7 +258,7 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // For tuples: use Python-style (a, b, c) format
-    if (arg_type == .tuple) {
+    if (container_traits.isTuple(arg_type)) {
         try self.emit("(try runtime.builtins.tupleRepr(");
         try self.emit(alloc_name);
         try self.emit(", ");

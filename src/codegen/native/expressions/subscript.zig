@@ -125,7 +125,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try genExpr(self, index);
                         try self.emit("))]");
                     } else {
-                        const needs_cast = (index_type == .int);
+                        const needs_cast = type_traits.isIntegral(index_type);
 
                         try self.emit("__base[");
                         if (needs_cast) {
@@ -169,7 +169,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     if (slice.lower) |lower| {
                         const needs_cast = blk: {
                             const lt = self.type_inferrer.inferExpr(lower.*) catch .unknown;
-                            break :blk (lt == .int);
+                            break :blk type_traits.isIntegral(lt);
                         };
                         if (needs_cast) try self.emit("@as(usize, @intCast(");
                         try genExpr(self, lower.*);
@@ -181,7 +181,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     if (slice.upper) |upper| {
                         const needs_cast = blk: {
                             const ut = self.type_inferrer.inferExpr(upper.*) catch .unknown;
-                            break :blk (ut == .int);
+                            break :blk type_traits.isIntegral(ut);
                         };
                         if (needs_cast) try self.emit("@as(usize, @intCast(");
                         try genExpr(self, upper.*);
@@ -287,7 +287,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try self.emit(", ");
                 try genExpr(self, subscript.slice.index.*);
                 try self.emit(").?");
-            } else if (is_unknown_pyobject and (index_type == .int)) {
+            } else if (is_unknown_pyobject and type_traits.isIntegral(index_type)) {
                 // PyObject list access: runtime.PyList.get(obj, index)
                 try self.emit("(try runtime.PyList.get(");
                 try genExpr(self, subscript.value.*);
@@ -348,7 +348,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 if (is_array_slice or !is_tracked_arraylist) {
                     // Array slice or generic array: use runtime check for ArrayList vs array
                     // This handles cases where type inference is stale (e.g., after list(tuple))
-                    const needs_cast = (index_type == .int);
+                    const needs_cast = type_traits.isIntegral(index_type);
                     const label_id = self.block_label_counter;
                     self.block_label_counter += 1;
 
@@ -370,7 +370,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     try self.emitFmt("; break :idx_{d} if (@hasField(@TypeOf(__s), \"items\")) __s.items[__idx] else __s[__idx]; }}", .{label_id});
                 } else {
                     // ArrayList indexing - use .items with runtime bounds check
-                    const needs_cast = (index_type == .int);
+                    const needs_cast = type_traits.isIntegral(index_type);
 
                     // Generate: idx_N: { const __s = list; const __idx = idx; if (__idx >= __s.items.len) return error.IndexError; break :idx_N __s.items[__idx]; }
                     // Note: We use __s to be consistent with genSliceIndex which expects __s variable name
@@ -448,7 +448,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.emit("]; }");
                     } else {
                         // Positive index
-                        const needs_cast = (index_type == .int);
+                        const needs_cast = type_traits.isIntegral(index_type);
 
                         // Get value type to check for slice
                         const val_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;

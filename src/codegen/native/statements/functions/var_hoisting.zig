@@ -15,6 +15,7 @@ const ast = @import("analysis.ast");
 const hashmap_helper = @import("utils.hashmap_helper");
 const zig_keywords = @import("utils.zig_keywords");
 const scope_analyzer = @import("scope_analyzer.zig");
+const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
@@ -443,7 +444,7 @@ pub fn emitHoistedDeclarations(
                 try self.genExpr(escaped.for_iter_expr.?.*);
                 // Add .items if it's an ArrayList (list type)
                 const iter_type = self.type_inferrer.inferExpr(escaped.for_iter_expr.?.*) catch .unknown;
-                if (iter_type == .list) {
+                if (container_traits.isList(iter_type)) {
                     try self.emit(").items[0].@\"");
                 } else {
                     // For other types (tuples, etc.) access directly

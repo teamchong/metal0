@@ -1137,7 +1137,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     // of class instances to float values
                     if (inherits_float) {
                         // Check if arg is definitely a float/number - no conversion needed
-                        const is_definitely_float = (arg_type == .float) or (arg_type == .int) or
+                        const is_definitely_float = type_traits.isFloating(arg_type) or type_traits.isIntegral(arg_type) or
                             (arg == .constant and (arg.constant.value == .float or arg.constant.value == .int));
 
                         if (is_definitely_float) {

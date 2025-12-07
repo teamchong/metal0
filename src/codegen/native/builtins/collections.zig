@@ -4,6 +4,8 @@ const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
 
 /// String method codegen patterns for map(str.method, items)
 const StrMethodPatterns = std.StaticStringMap([]const u8).initComptime(.{
@@ -142,7 +144,7 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(arg);
         // Check if it's a list type that needs .items
         const arg_type = self.type_inferrer.inferExpr(arg) catch .unknown;
-        if (arg_type == .list) {
+        if (container_traits.isList(arg_type)) {
             try self.emit(".items");
         }
         try self.emit(";\n");
@@ -660,7 +662,7 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
     // For strings, create a stateful StringIterator
-    if (arg_type == .string) {
+    if (string_traits.isString(arg_type)) {
         try self.emit("runtime.builtins.strIterator(");
         try self.genExpr(args[0]);
         try self.emit(")");
@@ -668,7 +670,7 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // For tuples/arrays/slices, create a proper SequenceIterator
-    if (arg_type == .tuple or arg_type == .list) {
+    if (container_traits.isTuple(arg_type) or container_traits.isList(arg_type)) {
         // Check if this is an ArrayList variable (needs .items accessor)
         const is_arraylist = if (args[0] == .name)
             self.isArrayListVar(args[0].name.id)
@@ -718,7 +720,11 @@ pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // For list_iterator (SequenceIterator), call .next() directly
-    if (arg_type == .list_iterator) {
+    const is_list_iterator = switch (arg_type) {
+        .list_iterator => true,
+        else => false,
+    };
+    if (is_list_iterator) {
         try self.emit("(");
         try self.genExpr(args[0]);
         try self.emit(".next() catch |err| switch (err) { error.StopIteration => @panic(\"StopIteration\") })");

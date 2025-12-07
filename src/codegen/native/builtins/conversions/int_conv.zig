@@ -5,6 +5,7 @@ const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const producesBlockExpression = @import("../../expressions.zig").producesBlockExpression;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 
 /// Generate code for len(obj)
@@ -317,7 +318,7 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Parse string to int
-    if (arg_type == .string) {
+    if (string_traits.isString(arg_type)) {
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
         // Check if this is a literal string

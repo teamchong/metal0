@@ -6,6 +6,8 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const shared = @import("../../shared_maps.zig");
 const PythonBuiltinTypes = shared.PythonBuiltinTypes;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 
 /// Generate code for type(obj) or type(name, bases, dict)
 /// For 1 arg: Returns compile-time type name as string
@@ -108,7 +110,7 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             }
             try self.emit("blk: { _ = @TypeOf(");
             try self.genExpr(args[0]);
-            if (obj_type == .string) {
+            if (string_traits.isString(obj_type)) {
                 try self.emit("); break :blk true; }");
             } else {
                 try self.emit("); break :blk false; }");
@@ -118,7 +120,7 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("blk: { _ = @TypeOf(");
             try self.genExpr(args[0]);
             // Note: Use switch instead of container_traits since we need exact .list match
-            if (obj_type == .list) {
+            if (container_traits.isList(obj_type)) {
                 try self.emit("); break :blk true; }");
             } else {
                 try self.emit("); break :blk false; }");
@@ -128,7 +130,7 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("blk: { _ = @TypeOf(");
             try self.genExpr(args[0]);
             // Note: Use switch instead of container_traits since we need exact .dict match
-            if (obj_type == .dict) {
+            if (container_traits.isDict(obj_type)) {
                 try self.emit("); break :blk true; }");
             } else {
                 try self.emit("); break :blk false; }");
