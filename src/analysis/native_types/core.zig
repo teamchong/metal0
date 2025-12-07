@@ -509,7 +509,8 @@ pub const NativeType = union(enum) {
         if (self_tag == .function or other_tag == .function) return .callable;
         if (self_tag == .closure or other_tag == .closure) return .callable;
 
-        // Different incompatible types → fallback to unknown
+        // Different incompatible types (e.g., array + dict) → use unknown to let Zig infer
+        // The codegen handles shadowing when types are incompatible
         return .unknown;
     }
 

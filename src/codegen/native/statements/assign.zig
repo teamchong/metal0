@@ -833,19 +833,19 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // This handles reassignments like: u = Class1(); u = Class2()
                 // In Zig, we can't change a variable's type, so we shadow with a new const
                 const needs_shadow = blk: {
-                    // Collection type transitions: list <-> dict, array <-> hashmap
+                    // Collection type transitions: list/array <-> dict/set
                     // These are fundamentally incompatible in Zig
 
                     // List/array to dict/set transition
-                    if (container_traits.isList(declared_type) and
-                        (container_traits.isDict(new_type) or container_traits.isSet(new_type)))
-                    {
+                    const is_list_or_array = container_traits.isList(declared_type) or container_traits.isArray(declared_type);
+                    const is_dict_or_set = container_traits.isDict(new_type) or container_traits.isSet(new_type);
+                    if (is_list_or_array and is_dict_or_set) {
                         break :blk true;
                     }
                     // Dict/set to list/array transition
-                    if ((container_traits.isDict(declared_type) or container_traits.isSet(declared_type)) and
-                        container_traits.isList(new_type))
-                    {
+                    const was_dict_or_set = container_traits.isDict(declared_type) or container_traits.isSet(declared_type);
+                    const now_list_or_array = container_traits.isList(new_type) or container_traits.isArray(new_type);
+                    if (was_dict_or_set and now_list_or_array) {
                         break :blk true;
                     }
 
