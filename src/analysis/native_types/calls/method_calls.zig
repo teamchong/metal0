@@ -262,7 +262,7 @@ pub fn inferMethodCall(
     }
 
     // Float methods
-    if (obj_type == .float) {
+    if (type_traits.isFloating(obj_type)) {
         const method_hash = fnv_hash.hash(method_name);
         const AS_INTEGER_RATIO_HASH = comptime fnv_hash.hash("as_integer_ratio");
         const IS_INTEGER_HASH = comptime fnv_hash.hash("is_integer");

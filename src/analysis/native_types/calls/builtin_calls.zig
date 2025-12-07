@@ -5,6 +5,9 @@ const core = @import("../core.zig");
 const fnv_hash = @import("utils.fnv_hash");
 const static_maps = @import("static_maps.zig");
 const expressions = @import("../expressions.zig");
+const string_traits = @import("../../traits/string_traits.zig");
+const container_traits = @import("../../traits/container_traits.zig");
+const type_traits = @import("../../traits/type_traits.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -176,7 +179,7 @@ pub fn inferBuiltinCall(
         } else if (call.args.len > 0) {
             // dict(iterable) - try to infer from iterable
             const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
-            if (@as(std.meta.Tag(NativeType), arg_type) == .dict) {
+            if (container_traits.isDict(arg_type)) {
                 // Already a dict - return same type
                 return arg_type;
             }
@@ -194,15 +197,15 @@ pub fn inferBuiltinCall(
         if (call.args.len > 0) {
             // Infer from iterable argument
             const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
-            if (@as(std.meta.Tag(NativeType), arg_type) == .set) {
+            if (container_traits.isSet(arg_type)) {
                 return arg_type;
             }
-            if (@as(std.meta.Tag(NativeType), arg_type) == .list) {
+            if (container_traits.isList(arg_type)) {
                 elem_type.* = arg_type.list.*;
             } else if (@as(std.meta.Tag(NativeType), arg_type) == .array) {
                 // Array literals like ['a', 'b'] get array type - extract element type
                 elem_type.* = arg_type.array.element_type.*;
-            } else if (@as(std.meta.Tag(NativeType), arg_type) == .string) {
+            } else if (string_traits.isString(arg_type)) {
                 elem_type.* = .{ .string = .runtime }; // set("abc") -> set of chars
             } else {
                 elem_type.* = .unknown;
@@ -222,15 +225,15 @@ pub fn inferBuiltinCall(
         if (call.args.len > 0) {
             // Infer from iterable argument
             const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
-            if (@as(std.meta.Tag(NativeType), arg_type) == .set) {
+            if (container_traits.isSet(arg_type)) {
                 return arg_type;
             }
-            if (@as(std.meta.Tag(NativeType), arg_type) == .list) {
+            if (container_traits.isList(arg_type)) {
                 elem_type.* = arg_type.list.*;
             } else if (@as(std.meta.Tag(NativeType), arg_type) == .array) {
                 // Array literals like ['a', 'b'] get array type - extract element type
                 elem_type.* = arg_type.array.element_type.*;
-            } else if (@as(std.meta.Tag(NativeType), arg_type) == .string) {
+            } else if (string_traits.isString(arg_type)) {
                 elem_type.* = .{ .string = .runtime }; // frozenset("abc") -> set of chars
             } else {
                 elem_type.* = .unknown;
@@ -248,7 +251,7 @@ pub fn inferBuiltinCall(
         if (call.args.len > 0) {
             // Infer from argument
             const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
-            if (@as(std.meta.Tag(NativeType), arg_type) == .tuple) {
+            if (container_traits.isTuple(arg_type)) {
                 return arg_type;
             }
             // If arg is a literal string, create tuple type with that many string elements
@@ -297,17 +300,17 @@ pub fn inferBuiltinCall(
             // Infer element type from the iterable argument
             const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
             // If arg is already a list, return its type
-            if (@as(std.meta.Tag(NativeType), arg_type) == .list) {
+            if (container_traits.isList(arg_type)) {
                 return arg_type;
             }
             // If arg is a string, list() returns list of single chars (strings)
-            if (@as(std.meta.Tag(NativeType), arg_type) == .string) {
+            if (string_traits.isString(arg_type)) {
                 const elem_ptr = try allocator.create(NativeType);
                 elem_ptr.* = .{ .string = .runtime };
                 return .{ .list = elem_ptr };
             }
             // If arg is a tuple, list() returns list of PyValue (heterogeneous)
-            if (@as(std.meta.Tag(NativeType), arg_type) == .tuple) {
+            if (container_traits.isTuple(arg_type)) {
                 const elem_ptr = try allocator.create(NativeType);
                 elem_ptr.* = .pyvalue;
                 return .{ .list = elem_ptr };
