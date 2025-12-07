@@ -116,6 +116,24 @@ pub const Stream = struct {
         }
         return null;
     }
+
+    /// Transfer ownership of headers to caller (zero-copy)
+    /// After calling this, Stream no longer owns the headers
+    pub fn takeHeaders(self: *Stream) ![]hpack.Header {
+        const owned = try self.headers.toOwnedSlice(self.allocator);
+        // Reset to empty - we no longer own these headers
+        self.headers = std.ArrayList(hpack.Header){};
+        return owned;
+    }
+
+    /// Transfer ownership of body to caller (zero-copy)
+    /// After calling this, Stream no longer owns the body
+    pub fn takeBody(self: *Stream) ![]u8 {
+        const owned = try self.body.toOwnedSlice(self.allocator);
+        // Reset to empty - we no longer own this body
+        self.body = std.ArrayList(u8){};
+        return owned;
+    }
 };
 
 /// HTTP/2 Connection Settings

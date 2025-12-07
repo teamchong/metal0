@@ -16,10 +16,14 @@ pub const LIB = ROOT ++ "/lib";
 pub const BIN = ROOT ++ "/bin";
 pub const RUNTIME = ROOT ++ "/runtime";
 
+/// Mirrored source structure in cache (preserves relative imports)
+pub const PACKAGES = CACHE ++ "/packages";
+pub const SRC = CACHE ++ "/src";
+
 /// Initialize build directory structure
 pub fn init() !void {
     // Create all directories
-    inline for ([_][]const u8{ ROOT, CACHE, LIB, BIN, RUNTIME }) |dir| {
+    inline for ([_][]const u8{ ROOT, CACHE, LIB, BIN, RUNTIME, PACKAGES, SRC }) |dir| {
         std.fs.cwd().makeDir(dir) catch |err| {
             if (err != error.PathAlreadyExists) return err;
         };

@@ -39,17 +39,19 @@ pub const Response = struct {
     headers: []const hpack.Header,
     body: []const u8,
     allocator: std.mem.Allocator,
+    owns_headers: bool = true, // Whether Response owns header memory
+    owns_body: bool = true, // Whether Response owns body memory
 
     pub fn deinit(self: *Response) void {
-        // Only free if we allocated (non-empty slice from heap)
-        if (self.headers.len > 0) {
+        // Only free if we own the memory
+        if (self.owns_headers and self.headers.len > 0) {
             for (self.headers) |h| {
                 if (h.name.len > 0) self.allocator.free(h.name);
                 if (h.value.len > 0) self.allocator.free(h.value);
             }
             self.allocator.free(self.headers);
         }
-        if (self.body.len > 0) {
+        if (self.owns_body and self.body.len > 0) {
             self.allocator.free(self.body);
         }
     }
@@ -310,35 +312,35 @@ pub const Client = struct {
         var resp_body: []const u8 = undefined;
         const content_encoding = stream.getHeader("content-encoding");
         if (content_encoding != null and std.mem.eql(u8, content_encoding.?, "gzip")) {
-            // Decompress gzip response
+            // Decompress gzip response (creates new allocation)
             resp_body = gzip.decompress(self.allocator, stream.body.items) catch |err| {
                 std.debug.print("[H2] gzip decompress error: {}\n", .{err});
-                resp_body = try self.allocator.dupe(u8, stream.body.items);
+                // Fallback: take ownership of raw body from stream
+                resp_body = try stream.takeBody();
                 return Response{
                     .status = stream.status orelse 0,
                     .headers = &[_]hpack.Header{},
                     .body = resp_body,
                     .allocator = self.allocator,
+                    .owns_headers = false, // Empty slice literal
+                    .owns_body = true,
                 };
             };
         } else {
-            resp_body = try self.allocator.dupe(u8, stream.body.items);
+            // No decompression: take ownership of body from stream (zero-copy)
+            resp_body = try stream.takeBody();
         }
 
-        // Build response
-        const resp_headers = try self.allocator.alloc(hpack.Header, stream.headers.items.len);
-        for (stream.headers.items, 0..) |h, i| {
-            resp_headers[i] = .{
-                .name = try self.allocator.dupe(u8, h.name),
-                .value = try self.allocator.dupe(u8, h.value),
-            };
-        }
+        // Transfer header ownership from stream to response (zero-copy)
+        const resp_headers = try stream.takeHeaders();
 
         return Response{
             .status = stream.status orelse 0,
             .headers = resp_headers,
             .body = resp_body,
             .allocator = self.allocator,
+            .owns_headers = true,
+            .owns_body = true,
         };
     }
 
@@ -522,6 +524,8 @@ pub const Client = struct {
             .headers = &[_]hpack.Header{},
             .body = resp_body,
             .allocator = self.allocator,
+            .owns_headers = false, // Empty slice literal
+            .owns_body = resp_body.len > 0, // Only own if we allocated
         };
     }
 
@@ -652,39 +656,37 @@ pub const Client = struct {
         const streams = conn.h2.requestAll(requests) catch return;
         defer self.allocator.free(streams);
 
-        // Convert streams to responses
+        // Convert streams to responses (streams is []*Stream)
         for (streams, 0..) |stream, j| {
             const idx = url_list[j].index;
 
-            const resp_headers = self.allocator.alloc(
-                hpack.Header,
-                stream.headers.items.len,
-            ) catch continue;
-
-            // Check for gzip content-encoding
-            var is_gzip = false;
-            for (stream.headers.items, 0..) |h, k| {
-                resp_headers[k] = .{
-                    .name = self.allocator.dupe(u8, h.name) catch "",
-                    .value = self.allocator.dupe(u8, h.value) catch "",
-                };
-                if (std.mem.eql(u8, h.name, "content-encoding") and std.mem.eql(u8, h.value, "gzip")) {
-                    is_gzip = true;
+            // Check for gzip content-encoding before taking headers
+            const is_gzip = blk: {
+                for (stream.headers.items) |h| {
+                    if (std.mem.eql(u8, h.name, "content-encoding") and std.mem.eql(u8, h.value, "gzip")) {
+                        break :blk true;
+                    }
                 }
-            }
+                break :blk false;
+            };
 
-            // Decompress gzip body if needed
+            // Transfer header ownership from stream (zero-copy)
+            const resp_headers = stream.takeHeaders() catch continue;
+
+            // Decompress gzip body or take ownership
             const body = if (is_gzip and stream.body.items.len > 0)
                 gzip.decompress(self.allocator, stream.body.items) catch
-                    self.allocator.dupe(u8, stream.body.items) catch ""
+                    stream.takeBody() catch ""
             else
-                self.allocator.dupe(u8, stream.body.items) catch "";
+                stream.takeBody() catch "";
 
             results[idx] = Response{
                 .status = stream.status orelse 0,
                 .headers = resp_headers,
                 .body = body,
                 .allocator = self.allocator,
+                .owns_headers = true,
+                .owns_body = true,
             };
         }
     }

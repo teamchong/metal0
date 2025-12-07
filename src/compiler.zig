@@ -11,115 +11,29 @@ fn getBuildDir(allocator: std.mem.Allocator) ![]const u8 {
 }
 
 /// Setup runtime files in .metal0/cache/ (for batch compilation)
-/// This allows batch zig compilation without re-copying runtime for each file
+/// Mirrors exact source structure so relative imports work unchanged.
 pub fn setupRuntimeFiles(allocator: std.mem.Allocator) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const aa = arena.allocator();
 
-    const build_dir = try getBuildDir(aa);
+    // Initialize directory structure
+    try build_dirs.init();
 
-    // Create build directory if it doesn't exist
-    std.fs.cwd().makeDir(build_dir) catch |err| {
-        if (err != error.PathAlreadyExists) return err;
-    };
+    // Mirror exact source structure - no import patching needed!
+    // packages/ -> .metal0/cache/packages/
+    try compiler_utils.mirrorDir(aa, "packages/runtime/src", build_dirs.PACKAGES ++ "/runtime/src");
+    try compiler_utils.mirrorDir(aa, "packages/bigint/src", build_dirs.PACKAGES ++ "/bigint/src");
+    try compiler_utils.mirrorDir(aa, "packages/regex/src", build_dirs.PACKAGES ++ "/regex/src");
+    try compiler_utils.mirrorDir(aa, "packages/tokenizer/src", build_dirs.PACKAGES ++ "/tokenizer/src");
+    try compiler_utils.mirrorDir(aa, "packages/shared", build_dirs.PACKAGES ++ "/shared");
+    try compiler_utils.mirrorDir(aa, "packages/c_interop/src", build_dirs.PACKAGES ++ "/c_interop/src");
 
-    // Create cpython_bin subdirectory
-    std.fs.cwd().makeDir(build_dirs.CACHE ++ "/cpython_bin") catch |err| {
-        if (err != error.PathAlreadyExists) return err;
-    };
+    // src/ -> .metal0/cache/src/
+    try compiler_utils.mirrorDir(aa, "src/utils", build_dirs.SRC ++ "/utils");
 
-    // Copy runtime.zig (root module)
-    {
-        const src = std.fs.cwd().openFile("packages/runtime/src/runtime.zig", .{}) catch |e| {
-            std.debug.print("Warning: Could not copy runtime.zig: {any}\n", .{e});
-            return;
-        };
-        defer src.close();
-        var content = try src.readToEndAlloc(aa, 2 * 1024 * 1024);
-
-        // Patch module imports for standalone compilation
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"green_thread\")", "@import(\"runtime/green_thread.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"work_queue\")", "@import(\"runtime/work_queue.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"scheduler\")", "@import(\"runtime/scheduler.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"netpoller\")", "@import(\"runtime/netpoller.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"regex\")", "@import(\"regex/src/pyregex/regex.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"bigint\")", "@import(\"bigint.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"tokenizer\")", "@import(\"tokenizer/src/tokenizer.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"gzip\")", "@import(\"Modules/gzip/gzip.zig\")");
-
-        // Patch relative utils imports
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"../../src/utils/", "@import(\"utils/");
-
-        const dst_path = try std.fmt.allocPrint(aa, "{s}/runtime.zig", .{build_dir});
-        const dst = try std.fs.cwd().createFile(dst_path, .{});
-        defer dst.close();
-        try dst.writeAll(content);
-    }
-
-    // Copy bigint package to cache
-    {
-        const src = std.fs.cwd().openFile("packages/bigint/src/bigint.zig", .{}) catch |e| {
-            std.debug.print("Warning: Could not copy bigint.zig: {any}\n", .{e});
-            return;
-        };
-        defer src.close();
-        const bigint_content = try src.readToEndAlloc(aa, 1024 * 1024);
-        const dst_path = try std.fmt.allocPrint(aa, "{s}/bigint.zig", .{build_dir});
-        const dst = try std.fs.cwd().createFile(dst_path, .{});
-        defer dst.close();
-        try dst.writeAll(bigint_content);
-    }
-
-    // Copy CPython-mirrored directory structure
-    // Objects/ - PyObject implementations (listobject.zig, dictobject.zig, etc.)
-    try compiler_utils.copyRuntimeDir(aa, "Objects", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Objects/stringlib", build_dir);
-
-    // Lib/ - Pure Python stdlib modules (json.zig, datetime.zig, etc.)
-    try compiler_utils.copyRuntimeDir(aa, "Lib", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/http", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/http_impl", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/asyncio_impl", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/unittest", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/unittest_impl", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/parse_module", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/parse_direct_module", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/simd", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/utils", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/utils_impl", build_dir);
-
-    // Modules/ - C extension modules (_bisect.zig, _collections.zig, etc.)
-    try compiler_utils.copyRuntimeDir(aa, "Modules", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Modules/gzip", build_dir);
-
-    // Python/ - Interpreter core (formatter.zig, compile.zig, etc.)
-    try compiler_utils.copyRuntimeDir(aa, "Python", build_dir);
-
-    // runtime/ - metal0-specific runtime (builtins.zig, exceptions.zig, etc.)
-    try compiler_utils.copyRuntimeDir(aa, "runtime", build_dir);
-
-    // Copy JSON SIMD files from shared/json/simd
-    try compiler_utils.copyJsonSimd(aa, build_dir);
-
-    // Copy c_interop directory to build dir
-    try compiler_utils.copyCInteropDir(aa, build_dir);
-
-    // Copy regex package to build dir
-    try compiler_utils.copyRegexPackage(aa, build_dir);
-
-    // Copy tokenizer package to build dir
-    try compiler_utils.copyTokenizerPackage(aa, build_dir);
-
-    // Copy h2 package to build dir (for http module)
-    try compiler_utils.copyH2Package(aa, build_dir);
-
-    // Copy utils directory to build dir (for hashmap_helper, wyhash)
-    try compiler_utils.copySrcUtilsDir(aa, build_dir);
+    // vendor/ -> .metal0/cache/vendor/ (for libdeflate headers)
+    try compiler_utils.mirrorDir(aa, "vendor/libdeflate", build_dirs.CACHE ++ "/vendor/libdeflate");
 }
 
 /// PGO (Profile-Guided Optimization) options
@@ -141,131 +55,10 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
     defer arena.deinit();
     const aa = arena.allocator();
 
-    const build_dir = try getBuildDir(aa);
+    // Setup runtime files (mirrors exact source structure)
+    try setupRuntimeFiles(aa);
 
-    // Create build directory if it doesn't exist
-    std.fs.cwd().makeDir(build_dir) catch |err| {
-        if (err != error.PathAlreadyExists) return err;
-    };
-
-    // Copy runtime.zig (root module)
-    {
-        const src = std.fs.cwd().openFile("packages/runtime/src/runtime.zig", .{}) catch |e| {
-            std.debug.print("Warning: Could not copy runtime.zig: {any}\n", .{e});
-            return e;
-        };
-        defer src.close();
-        var content = try src.readToEndAlloc(aa, 2 * 1024 * 1024);
-
-        // Patch module imports for standalone compilation
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"green_thread\")", "@import(\"runtime/green_thread.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"work_queue\")", "@import(\"runtime/work_queue.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"scheduler\")", "@import(\"runtime/scheduler.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"netpoller\")", "@import(\"runtime/netpoller.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"hashmap_helper\")", "@import(\"utils/hashmap_helper.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"allocator_helper\")", "@import(\"utils/allocator_helper.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"regex\")", "@import(\"regex/src/pyregex/regex.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"bigint\")", "@import(\"bigint.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"tokenizer\")", "@import(\"tokenizer/src/tokenizer.zig\")");
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"gzip\")", "@import(\"Modules/gzip/gzip.zig\")");
-
-        // Patch relative utils imports
-        content = try std.mem.replaceOwned(u8, aa, content, "@import(\"../../src/utils/", "@import(\"utils/");
-
-        const dst_path = try std.fmt.allocPrint(aa, "{s}/runtime.zig", .{build_dir});
-        const dst = try std.fs.cwd().createFile(dst_path, .{});
-        defer dst.close();
-        try dst.writeAll(content);
-    }
-
-    // Copy bigint package to cache
-    {
-        const src = std.fs.cwd().openFile("packages/bigint/src/bigint.zig", .{}) catch |e| {
-            std.debug.print("Failed to open bigint.zig: {any}\n", .{e});
-            return e;
-        };
-        defer src.close();
-        const bigint_content = try src.readToEndAlloc(aa, 1024 * 1024);
-        const dst_path = try std.fmt.allocPrint(aa, "{s}/bigint.zig", .{build_dir});
-        const dst = try std.fs.cwd().createFile(dst_path, .{});
-        defer dst.close();
-        try dst.writeAll(bigint_content);
-    }
-
-    // Copy CPython-mirrored directory structure
-    // Objects/ - PyObject implementations (listobject.zig, dictobject.zig, etc.)
-    try compiler_utils.copyRuntimeDir(aa, "Objects", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Objects/stringlib", build_dir);
-
-    // Lib/ - Pure Python stdlib modules (json.zig, datetime.zig, etc.)
-    try compiler_utils.copyRuntimeDir(aa, "Lib", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/http", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/http_impl", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/asyncio_impl", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/unittest", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/unittest_impl", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/parse_module", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/parse_direct_module", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/simd", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/json_impl/utils", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Lib/utils_impl", build_dir);
-
-    // Modules/ - C extension modules (_bisect.zig, _collections.zig, etc.)
-    try compiler_utils.copyRuntimeDir(aa, "Modules", build_dir);
-    try compiler_utils.copyRuntimeDir(aa, "Modules/gzip", build_dir);
-
-    // Python/ - Interpreter core (formatter.zig, compile.zig, etc.)
-    try compiler_utils.copyRuntimeDir(aa, "Python", build_dir);
-
-    // runtime/ - metal0-specific runtime (builtins.zig, exceptions.zig, etc.)
-    try compiler_utils.copyRuntimeDir(aa, "runtime", build_dir);
-
-    // Copy JSON SIMD files from shared/json/simd
-    try compiler_utils.copyJsonSimd(aa, build_dir);
-
-    // Copy c_interop directory to build dir
-    try compiler_utils.copyCInteropDir(aa, build_dir);
-
-    // Copy regex package to build dir
-    try compiler_utils.copyRegexPackage(aa, build_dir);
-
-    // Copy tokenizer package to build dir
-    try compiler_utils.copyTokenizerPackage(aa, build_dir);
-
-    // Copy h2 package to build dir (for http module)
-    try compiler_utils.copyH2Package(aa, build_dir);
-
-    // Copy utils directory to build dir (for hashmap_helper, wyhash)
-    try compiler_utils.copySrcUtilsDir(aa, build_dir);
-
-    // Copy any compiled modules from cache to per-process build dir
-    // (Skip this if build_dir is cache itself to avoid copying files to themselves)
-    if (!std.mem.eql(u8, build_dir, build_dirs.CACHE)) {
-        if (std.fs.cwd().openDir(build_dirs.CACHE, .{ .iterate = true })) |build_iter_dir| {
-            var mut_dir = build_iter_dir;
-            defer mut_dir.close();
-            var walker = mut_dir.iterate();
-            while (try walker.next()) |entry| {
-                if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".zig")) {
-                    const src_path = try std.fmt.allocPrint(aa, build_dirs.CACHE ++ "/{s}", .{entry.name});
-                    const dst_path = try std.fmt.allocPrint(aa, "{s}/{s}", .{ build_dir, entry.name });
-
-                    const src = std.fs.cwd().openFile(src_path, .{}) catch continue;
-                    defer src.close();
-                    const dst = try std.fs.cwd().createFile(dst_path, .{});
-                    defer dst.close();
-
-                    const mod_content = try src.readToEndAlloc(aa, 1024 * 1024);
-                    try dst.writeAll(mod_content);
-                }
-            }
-        } else |err| {
-            // If cache doesn't exist, that's fine - no modules to copy
-            if (err != error.FileNotFound) return err;
-        }
-    }
+    const build_dir = build_dirs.CACHE;
 
     // Write Zig code to temporary file
     const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{d}.zig", .{ build_dir, std.time.milliTimestamp() });
@@ -278,12 +71,13 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
 
     try tmp_file.writeAll(zig_code);
 
-    // DEBUG: Verify runtime files before zig compilation
+    // DEBUG: Verify runtime files before zig compilation (mirrored structure)
     {
-        const check = try std.fs.cwd().openFile(build_dirs.CACHE ++ "/runtime.zig", .{});
+        const runtime_path = build_dirs.PACKAGES ++ "/runtime/src/runtime.zig";
+        const check = try std.fs.cwd().openFile(runtime_path, .{});
         defer check.close();
         const stat = try check.stat();
-        std.debug.print("RIGHT BEFORE ZIG: " ++ build_dirs.CACHE ++ "/runtime.zig is {d} bytes\n", .{stat.size});
+        std.debug.print("RIGHT BEFORE ZIG: {s} is {d} bytes\n", .{ runtime_path, stat.size });
     }
 
     // Shell out to zig build-exe

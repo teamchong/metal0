@@ -1,5 +1,99 @@
 const std = @import("std");
 
+/// Mirror a source directory to cache, preserving exact structure.
+/// For .zig files, patches cross-package imports (@import("bigint") -> relative path).
+/// Intra-package relative imports work unchanged without patching.
+pub fn mirrorDir(allocator: std.mem.Allocator, src_base: []const u8, dst_base: []const u8) !void {
+    // Create destination base directory
+    std.fs.cwd().makePath(dst_base) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    // Open source directory
+    var src_dir = std.fs.cwd().openDir(src_base, .{ .iterate = true }) catch |err| {
+        if (err == error.FileNotFound) return; // Skip if doesn't exist
+        return err;
+    };
+    defer src_dir.close();
+
+    // Use walker for recursive traversal
+    var walker = try src_dir.walk(allocator);
+    defer walker.deinit();
+
+    while (try walker.next()) |entry| {
+        const src_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ src_base, entry.path });
+        defer allocator.free(src_path);
+        const dst_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dst_base, entry.path });
+        defer allocator.free(dst_path);
+
+        switch (entry.kind) {
+            .file => {
+                // Ensure parent directory exists
+                if (std.fs.path.dirname(dst_path)) |parent| {
+                    std.fs.cwd().makePath(parent) catch {};
+                }
+
+                // Read source file
+                const src_file = try std.fs.cwd().openFile(src_path, .{});
+                defer src_file.close();
+                var content = try src_file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+
+                // Only patch .zig files for cross-package imports
+                if (std.mem.endsWith(u8, entry.basename, ".zig")) {
+                    // Calculate depth from cache/packages/runtime/src/ to find relative path
+                    // From cache/packages/runtime/src/runtime.zig -> bigint is at ../../bigint/src/bigint.zig
+                    // From cache/packages/runtime/src/runtime/ -> bigint is at ../../../bigint/src/bigint.zig
+
+                    // Count depth in entry.path to determine relative prefix
+                    var depth: usize = 0;
+                    for (entry.path) |c| {
+                        if (c == '/') depth += 1;
+                    }
+
+                    // Build relative prefix: need to go up to packages/, then into target package
+                    // depth=0 (runtime.zig at src/): ../../bigint/src/bigint.zig
+                    // depth=1 (runtime/X.zig at src/runtime/): ../../../bigint/src/bigint.zig
+                    // Base is 2 (to go from src/ to packages/), add depth for subdirs
+                    var prefix_buf: [64]u8 = undefined;
+                    var prefix_len: usize = 0;
+                    const ups_needed = 2 + depth;
+                    for (0..ups_needed) |_| {
+                        @memcpy(prefix_buf[prefix_len..][0..3], "../");
+                        prefix_len += 3;
+                    }
+                    const relative_prefix = prefix_buf[0..prefix_len];
+
+                    // Patch cross-package module imports to relative paths
+                    // These modules are registered in build.zig but need relative paths for standalone compilation
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"bigint\")", try std.fmt.allocPrint(allocator, "@import(\"{s}bigint/src/bigint.zig\")", .{relative_prefix}));
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"regex\")", try std.fmt.allocPrint(allocator, "@import(\"{s}regex/src/pyregex/regex.zig\")", .{relative_prefix}));
+                    // gzip is inside runtime/Modules, not a separate package
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"gzip\")", try std.fmt.allocPrint(allocator, "@import(\"{s}runtime/src/Modules/gzip/gzip.zig\")", .{relative_prefix}));
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"tokenizer\")", try std.fmt.allocPrint(allocator, "@import(\"{s}tokenizer/src/tokenizer.zig\")", .{relative_prefix}));
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"json\")", try std.fmt.allocPrint(allocator, "@import(\"{s}shared/json/json.zig\")", .{relative_prefix}));
+
+                    // Also patch utils imports that use namespaced module syntax
+                    // @import("utils.hashmap_helper") -> @import("../../../../src/utils/hashmap_helper.zig")
+                    const utils_prefix = try std.fmt.allocPrint(allocator, "@import(\"{s}../src/utils/", .{relative_prefix});
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"utils.hashmap_helper\")", try std.fmt.allocPrint(allocator, "{s}hashmap_helper.zig\")", .{utils_prefix}));
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"utils.allocator_helper\")", try std.fmt.allocPrint(allocator, "{s}allocator_helper.zig\")", .{utils_prefix}));
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"utils.fnv_hash\")", try std.fmt.allocPrint(allocator, "{s}fnv_hash.zig\")", .{utils_prefix}));
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"utils.wyhash\")", try std.fmt.allocPrint(allocator, "{s}wyhash.zig\")", .{utils_prefix}));
+                }
+
+                // Write to destination
+                const dst_file = try std.fs.cwd().createFile(dst_path, .{});
+                defer dst_file.close();
+                try dst_file.writeAll(content);
+            },
+            .directory => {
+                std.fs.cwd().makePath(dst_path) catch {};
+            },
+            else => {},
+        }
+    }
+}
+
 /// Copy a runtime subdirectory recursively to cache
 pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_dir: []const u8) !void {
     const src_dir_path = try std.fmt.allocPrint(allocator, "packages/runtime/src/{s}", .{dir_name});
