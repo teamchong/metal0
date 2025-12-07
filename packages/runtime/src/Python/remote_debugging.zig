@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Debug Protocol
@@ -94,7 +95,7 @@ pub const BreakpointManager = struct {
     /// Breakpoints by ID
     breakpoints: std.AutoHashMap(u32, Breakpoint),
     /// Breakpoints by file:line
-    by_location: std.StringHashMap(std.ArrayList(u32)),
+    by_location: hashmap_helper.StringHashMap(std.ArrayList(u32)),
     /// Next breakpoint ID
     next_id: u32 = 1,
     /// Allocator
@@ -104,7 +105,7 @@ pub const BreakpointManager = struct {
         return Self{
             .allocator = allocator,
             .breakpoints = std.AutoHashMap(u32, Breakpoint).init(allocator),
-            .by_location = std.StringHashMap(std.ArrayList(u32)).init(allocator),
+            .by_location = hashmap_helper.StringHashMap(std.ArrayList(u32)).init(allocator),
         };
     }
 

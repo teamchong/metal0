@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/xml/
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // xml.etree.ElementTree - Element tree XML API
@@ -19,7 +20,7 @@ pub const etree = struct {
         tag: []const u8,
         text: ?[]const u8,
         tail: ?[]const u8,
-        attrib: std.StringHashMap([]const u8),
+        attrib: hashmap_helper.StringHashMap([]const u8),
         children: std.ArrayList(*Element),
         parent: ?*Element,
 
@@ -30,7 +31,7 @@ pub const etree = struct {
                 .tag = try allocator.dupe(u8, tag),
                 .text = null,
                 .tail = null,
-                .attrib = std.StringHashMap([]const u8).init(allocator),
+                .attrib = hashmap_helper.StringHashMap([]const u8).init(allocator),
                 .children = std.ArrayList(*Element).init(allocator),
                 .parent = null,
             };
@@ -623,7 +624,7 @@ pub const dom = struct {
         node_value: ?[]const u8,
         parent_node: ?*Node,
         child_nodes: std.ArrayList(*Node),
-        attributes: ?std.StringHashMap([]const u8),
+        attributes: ?hashmap_helper.StringHashMap([]const u8),
 
         pub const NodeType = enum(u16) {
             ELEMENT_NODE = 1,
@@ -692,7 +693,7 @@ pub const dom = struct {
                 .node_value = null,
                 .parent_node = null,
                 .child_nodes = std.ArrayList(*Node).init(self.allocator),
-                .attributes = std.StringHashMap([]const u8).init(self.allocator),
+                .attributes = hashmap_helper.StringHashMap([]const u8).init(self.allocator),
             };
             return node;
         }

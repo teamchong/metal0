@@ -11,6 +11,7 @@
 //! - Package files (*.py, *.so, etc.)
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const h2 = @import("h2");
 const builtin = @import("builtin");
 const record = @import("../parse/record.zig");
@@ -239,7 +240,7 @@ pub const Installer = struct {
         var pypi_urls = std.ArrayList([]const u8){};
         defer pypi_urls.deinit(self.allocator);
 
-        var url_to_pkg = std.StringHashMap(usize).init(self.allocator);
+        var url_to_pkg = hashmap_helper.StringHashMap(usize).init(self.allocator);
         defer url_to_pkg.deinit();
 
         for (packages, 0..) |pkg, i| {

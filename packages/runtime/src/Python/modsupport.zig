@@ -5,6 +5,7 @@
 /// (Py_BuildValue) and for module initialization helpers (PyModule_Add*).
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Built value types
 pub const BuiltValue = union(enum) {
@@ -611,14 +612,14 @@ pub const InitGuard = struct {
 
 /// Extension module registry
 pub const ModuleRegistry = struct {
-    modules: std.StringHashMap(*anyopaque),
+    modules: hashmap_helper.StringHashMap(*anyopaque),
     allocator: std.mem.Allocator,
 
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
-            .modules = std.StringHashMap(*anyopaque).init(allocator),
+            .modules = hashmap_helper.StringHashMap(*anyopaque).init(allocator),
             .allocator = allocator,
         };
     }

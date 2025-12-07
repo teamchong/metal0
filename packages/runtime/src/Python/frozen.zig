@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Frozen Module Types
@@ -46,13 +47,13 @@ pub const FrozenRegistry = struct {
     const Self = @This();
 
     /// Module entries
-    modules: std.StringHashMap(FrozenModule),
+    modules: hashmap_helper.StringHashMap(FrozenModule),
     /// Allocator
     allocator: Allocator,
 
     pub fn init(allocator: Allocator) Self {
         return Self{
-            .modules = std.StringHashMap(FrozenModule).init(allocator),
+            .modules = hashmap_helper.StringHashMap(FrozenModule).init(allocator),
             .allocator = allocator,
         };
     }

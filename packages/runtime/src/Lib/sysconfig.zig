@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Installation Scheme Names
@@ -72,8 +73,8 @@ pub fn get_config_var(name: []const u8) ?[]const u8 {
 }
 
 /// Get all configuration variables
-pub fn get_config_vars(allocator: std.mem.Allocator) !std.StringHashMap([]const u8) {
-    var vars = std.StringHashMap([]const u8).init(allocator);
+pub fn get_config_vars(allocator: std.mem.Allocator) !hashmap_helper.StringHashMap([]const u8) {
+    var vars = hashmap_helper.StringHashMap([]const u8).init(allocator);
 
     const keys = [_][]const u8{
         "prefix", "exec_prefix", "base", "platbase",
@@ -132,9 +133,9 @@ pub fn get_python_version() []const u8 {
 // ============================================================================
 
 /// Get installation paths for a scheme
-pub fn get_paths(allocator: std.mem.Allocator, scheme: ?[]const u8) !std.StringHashMap([]const u8) {
+pub fn get_paths(allocator: std.mem.Allocator, scheme: ?[]const u8) !hashmap_helper.StringHashMap([]const u8) {
     _ = scheme;
-    var paths = std.StringHashMap([]const u8).init(allocator);
+    var paths = hashmap_helper.StringHashMap([]const u8).init(allocator);
 
     const prefix = "/usr/local";
     try paths.put("stdlib", prefix ++ "/lib/python3.12");

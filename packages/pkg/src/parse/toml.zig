@@ -6,6 +6,7 @@
 //! Reference: https://toml.io/en/v1.0.0
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 pub const TomlError = error{
     UnexpectedCharacter,
@@ -69,10 +70,10 @@ pub const Value = union(enum) {
 
 /// TOML Table (key-value pairs)
 pub const Table = struct {
-    entries: std.StringHashMap(Value),
+    entries: hashmap_helper.StringHashMap(Value),
 
     pub fn init(allocator: std.mem.Allocator) Table {
-        return .{ .entries = std.StringHashMap(Value).init(allocator) };
+        return .{ .entries = hashmap_helper.StringHashMap(Value).init(allocator) };
     }
 
     pub fn deinit(self: *Table, allocator: std.mem.Allocator) void {

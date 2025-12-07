@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Module Types
@@ -100,7 +101,7 @@ const ModuleCacheEntry = struct {
 /// Global import state
 const ImportState = struct {
     /// sys.modules cache (module name -> module object)
-    modules: std.StringHashMap(?*anyopaque),
+    modules: hashmap_helper.StringHashMap(?*anyopaque),
 
     /// Modules by index (for C extension module support)
     modules_by_index: std.ArrayList(?*anyopaque),
@@ -125,7 +126,7 @@ const ImportState = struct {
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
-            .modules = std.StringHashMap(?*anyopaque).init(allocator),
+            .modules = hashmap_helper.StringHashMap(?*anyopaque).init(allocator),
             .modules_by_index = std.ArrayList(?*anyopaque).init(allocator),
             .last_module_index = 0,
             .inittab = &builtin_modules,
@@ -359,12 +360,12 @@ pub fn lockHeld() bool {
 /// Mirrors: _PyImport_InitModules()
 pub fn initModules() !void {
     var state = &(import_state orelse return error.NotInitialized);
-    state.modules = std.StringHashMap(?*anyopaque).init(std.heap.page_allocator);
+    state.modules = hashmap_helper.StringHashMap(?*anyopaque).init(std.heap.page_allocator);
 }
 
 /// Get sys.modules dictionary
 /// Mirrors: PyImport_GetModuleDict()
-pub fn getModuleDict() ?*std.StringHashMap(?*anyopaque) {
+pub fn getModuleDict() ?*hashmap_helper.StringHashMap(?*anyopaque) {
     var state = &(import_state orelse return null);
     return &state.modules;
 }

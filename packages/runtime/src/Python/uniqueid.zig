@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // ID Types
@@ -183,7 +184,7 @@ pub const HeapTypeId = struct {
     /// ID generator
     generator: *IdGenerator,
     /// Type name to ID mapping
-    name_to_id: std.StringHashMap(UniqueId),
+    name_to_id: hashmap_helper.StringHashMap(UniqueId),
     /// ID to type mapping
     id_to_type: std.AutoHashMap(UniqueId, *anyopaque),
     /// Allocator
@@ -193,7 +194,7 @@ pub const HeapTypeId = struct {
         return Self{
             .allocator = allocator,
             .generator = generator,
-            .name_to_id = std.StringHashMap(UniqueId).init(allocator),
+            .name_to_id = hashmap_helper.StringHashMap(UniqueId).init(allocator),
             .id_to_type = std.AutoHashMap(UniqueId, *anyopaque).init(allocator),
         };
     }

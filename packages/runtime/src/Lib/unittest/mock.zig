@@ -2,6 +2,7 @@
 /// Provides Mock, MagicMock, patch, and related utilities
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Sentinel values for special returns
 pub const DEFAULT = struct {};
@@ -10,12 +11,12 @@ pub const sentinel = DEFAULT{};
 /// Call record - stores information about a single call
 pub const Call = struct {
     args: []const []const u8,
-    kwargs: std.StringHashMap([]const u8),
+    kwargs: hashmap_helper.StringHashMap([]const u8),
 
     pub fn init(allocator: Allocator) Call {
         return .{
             .args = &.{},
-            .kwargs = std.StringHashMap([]const u8).init(allocator),
+            .kwargs = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
     }
 
@@ -70,7 +71,7 @@ pub const Mock = struct {
     method_calls: std.ArrayList([]const u8),
 
     // Child mocks for attribute access
-    children: std.StringHashMap(*Mock),
+    children: hashmap_helper.StringHashMap(*Mock),
 
     const Self = @This();
 
@@ -79,7 +80,7 @@ pub const Mock = struct {
             .allocator = allocator,
             .call_args_list = std.ArrayList([]const u8){},
             .method_calls = std.ArrayList([]const u8){},
-            .children = std.StringHashMap(*Mock).init(allocator),
+            .children = hashmap_helper.StringHashMap(*Mock).init(allocator),
         };
     }
 

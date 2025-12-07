@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/types.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Function Types
@@ -16,7 +17,7 @@ pub const FunctionType = struct {
     name: []const u8,
     module: ?[]const u8 = null,
     doc: ?[]const u8 = null,
-    annotations: ?std.StringHashMap([]const u8) = null,
+    annotations: ?hashmap_helper.StringHashMap([]const u8) = null,
     defaults: ?[]const u8 = null,
     closure: ?*anyopaque = null,
 
@@ -224,7 +225,7 @@ pub fn MappingProxyType(comptime K: type, comptime V: type) type {
 /// A simple attribute-based namespace
 pub const SimpleNamespace = struct {
     const Self = @This();
-    const StringMap = std.StringHashMap([]const u8);
+    const StringMap = hashmap_helper.StringHashMap([]const u8);
 
     allocator: std.mem.Allocator,
     attrs: StringMap,

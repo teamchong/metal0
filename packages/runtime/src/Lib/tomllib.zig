@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/tomllib/
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -40,7 +41,7 @@ pub const Value = union(enum) {
     date: Date,
     time: Time,
     array: std.ArrayList(Value),
-    table: std.StringHashMap(Value),
+    table: hashmap_helper.StringHashMap(Value),
 
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -139,8 +140,8 @@ pub const Parser = struct {
     }
 
     /// Parse the TOML document
-    pub fn parse(self: *Self) !std.StringHashMap(Value) {
-        var root = std.StringHashMap(Value).init(self.allocator);
+    pub fn parse(self: *Self) !hashmap_helper.StringHashMap(Value) {
+        var root = hashmap_helper.StringHashMap(Value).init(self.allocator);
         var current_table = &root;
 
         while (self.pos < self.source.len) {
@@ -389,7 +390,7 @@ pub const Parser = struct {
         if (self.source[self.pos] != '{') return error.InvalidSyntax;
         self.pos += 1;
 
-        var tbl = std.StringHashMap(Value).init(self.allocator);
+        var tbl = hashmap_helper.StringHashMap(Value).init(self.allocator);
 
         while (self.pos < self.source.len) {
             self.skipWhitespace();
@@ -427,13 +428,13 @@ pub const Parser = struct {
 // ============================================================================
 
 /// Parse a TOML string
-pub fn loads(allocator: std.mem.Allocator, s: []const u8) !std.StringHashMap(Value) {
+pub fn loads(allocator: std.mem.Allocator, s: []const u8) !hashmap_helper.StringHashMap(Value) {
     var parser = Parser.init(allocator, s);
     return parser.parse();
 }
 
 /// Parse a TOML file
-pub fn load(allocator: std.mem.Allocator, fp: std.fs.File) !std.StringHashMap(Value) {
+pub fn load(allocator: std.mem.Allocator, fp: std.fs.File) !hashmap_helper.StringHashMap(Value) {
     const content = try fp.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(content);
     return loads(allocator, content);

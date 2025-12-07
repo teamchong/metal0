@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/trace.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // CoverageResults
@@ -16,21 +17,21 @@ pub const CoverageResults = struct {
 
     allocator: std.mem.Allocator,
     /// Map of filename -> set of executed line numbers
-    counts: std.StringHashMap(std.AutoHashMap(usize, u64)),
+    counts: hashmap_helper.StringHashMap(std.AutoHashMap(usize, u64)),
     /// Map of filename -> set of all line numbers in file
-    counter: std.StringHashMap(std.AutoHashMap(usize, void)),
+    counter: hashmap_helper.StringHashMap(std.AutoHashMap(usize, void)),
     /// Modules to include
-    calledfuncs: std.StringHashMap(void),
+    calledfuncs: hashmap_helper.StringHashMap(void),
     /// Modules to exclude
-    callers: std.StringHashMap(std.StringHashMap(void)),
+    callers: hashmap_helper.StringHashMap(hashmap_helper.StringHashMap(void)),
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .counts = std.StringHashMap(std.AutoHashMap(usize, u64)).init(allocator),
-            .counter = std.StringHashMap(std.AutoHashMap(usize, void)).init(allocator),
-            .calledfuncs = std.StringHashMap(void).init(allocator),
-            .callers = std.StringHashMap(std.StringHashMap(void)).init(allocator),
+            .counts = hashmap_helper.StringHashMap(std.AutoHashMap(usize, u64)).init(allocator),
+            .counter = hashmap_helper.StringHashMap(std.AutoHashMap(usize, void)).init(allocator),
+            .calledfuncs = hashmap_helper.StringHashMap(void).init(allocator),
+            .callers = hashmap_helper.StringHashMap(hashmap_helper.StringHashMap(void)).init(allocator),
         };
     }
 

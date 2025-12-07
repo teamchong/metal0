@@ -21,6 +21,7 @@
 //! ```
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const json = @import("json"); // SIMD-accelerated JSON parser (2.7-3.1x faster)
 const json_stream = json.stream; // Fast streaming JSON extraction
 
@@ -451,7 +452,7 @@ pub const PyPIClient = struct {
             has_metadata: bool,
             requires_python: ?[]const u8,
         };
-        var version_map = std.StringHashMap(VersionInfo).init(self.allocator);
+        var version_map = hashmap_helper.StringHashMap(VersionInfo).init(self.allocator);
         defer version_map.deinit();
 
         // Parse files to get wheel URLs with PEP 658 metadata

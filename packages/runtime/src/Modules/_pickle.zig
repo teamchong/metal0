@@ -1,6 +1,7 @@
 /// _pickle - C accelerator module for pickle
 /// Python object serialization
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const Allocator = std.mem.Allocator;
 
 /// Pickle protocol versions
@@ -316,7 +317,7 @@ pub const Unpickler = struct {
         bytes_val: []const u8,
         string_val: []const u8,
         list_val: std.ArrayList(PickleValue),
-        dict_val: std.StringHashMap(PickleValue),
+        dict_val: hashmap_helper.StringHashMap(PickleValue),
         tuple_val: []const PickleValue,
         mark,
     };
@@ -407,7 +408,7 @@ pub const Unpickler = struct {
                     try self.stack.append(self.allocator, .{ .list_val = std.ArrayList(PickleValue).init(self.allocator) });
                 },
                 @intFromEnum(Opcode.EMPTY_DICT) => {
-                    try self.stack.append(self.allocator, .{ .dict_val = std.StringHashMap(PickleValue).init(self.allocator) });
+                    try self.stack.append(self.allocator, .{ .dict_val = hashmap_helper.StringHashMap(PickleValue).init(self.allocator) });
                 },
                 @intFromEnum(Opcode.EMPTY_TUPLE) => {
                     try self.stack.append(self.allocator, .{ .tuple_val = &[_]PickleValue{} });

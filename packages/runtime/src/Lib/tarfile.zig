@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/tarfile.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Constants
@@ -65,7 +66,7 @@ pub const TarInfo = struct {
     devminor: u32 = 0,
     offset: u64 = 0,
     offset_data: u64 = 0,
-    pax_headers: ?std.StringHashMap([]const u8) = null,
+    pax_headers: ?hashmap_helper.StringHashMap([]const u8) = null,
 
     pub fn init(name: []const u8) Self {
         return .{ .name = name };

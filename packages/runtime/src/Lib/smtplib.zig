@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/smtplib.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Constants
@@ -127,7 +128,7 @@ pub const SMTP = struct {
     helo_resp: ?[]const u8,
     ehlo_resp: ?[]const u8,
     ehlo_or_helo_if_needed_called: bool,
-    esmtp_features: std.StringHashMap([]const u8),
+    esmtp_features: hashmap_helper.StringHashMap([]const u8),
     does_esmtp: bool,
     local_hostname: []const u8,
     source_address: ?[]const u8,
@@ -144,7 +145,7 @@ pub const SMTP = struct {
             .helo_resp = null,
             .ehlo_resp = null,
             .ehlo_or_helo_if_needed_called = false,
-            .esmtp_features = std.StringHashMap([]const u8).init(allocator),
+            .esmtp_features = hashmap_helper.StringHashMap([]const u8).init(allocator),
             .does_esmtp = false,
             .local_hostname = local_hostname orelse "localhost",
             .source_address = source_address,
@@ -435,7 +436,7 @@ pub const SMTP = struct {
     // ========================================================================
 
     /// Send a complete email message
-    pub fn sendmail(self: *Self, from_addr: []const u8, to_addrs: []const []const u8, msg: []const u8, mail_options: ?[]const []const u8, rcpt_options: ?[]const []const u8) !std.StringHashMap(SmtpResponse) {
+    pub fn sendmail(self: *Self, from_addr: []const u8, to_addrs: []const []const u8, msg: []const u8, mail_options: ?[]const []const u8, rcpt_options: ?[]const []const u8) !hashmap_helper.StringHashMap(SmtpResponse) {
         try self.ehloOrHeloIfNeeded();
 
         // MAIL FROM
@@ -445,7 +446,7 @@ pub const SMTP = struct {
         }
 
         // RCPT TO for each recipient
-        var errors = std.StringHashMap(SmtpResponse).init(self.allocator);
+        var errors = hashmap_helper.StringHashMap(SmtpResponse).init(self.allocator);
 
         for (to_addrs) |addr| {
             resp = try self.rcpt(addr, rcpt_options);
@@ -465,7 +466,7 @@ pub const SMTP = struct {
     }
 
     /// Send email message (simplified interface)
-    pub fn sendMessage(self: *Self, msg: anytype, from_addr: ?[]const u8, to_addrs: ?[]const []const u8) !std.StringHashMap(SmtpResponse) {
+    pub fn sendMessage(self: *Self, msg: anytype, from_addr: ?[]const u8, to_addrs: ?[]const []const u8) !hashmap_helper.StringHashMap(SmtpResponse) {
         _ = msg;
         const from = from_addr orelse "";
         const to = to_addrs orelse &[_][]const u8{};

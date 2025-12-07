@@ -20,6 +20,7 @@
 //! ```
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const pypi = @import("pypi.zig");
 const H2Client = @import("h2").Client;
 
@@ -35,10 +36,10 @@ pub const FetchScheduler = struct {
     client: *pypi.PyPIClient,
 
     // Request queue (deduplicated)
-    pending: std.StringHashMap(void),
+    pending: hashmap_helper.StringHashMap(void),
 
     // In-memory cache
-    cache: std.StringHashMap(CacheEntry),
+    cache: hashmap_helper.StringHashMap(CacheEntry),
     cache_ttl_ms: i64 = 5 * 60 * 1000, // 5 minutes default
 
     // Stats
@@ -51,25 +52,22 @@ pub const FetchScheduler = struct {
         return .{
             .allocator = allocator,
             .client = client,
-            .pending = std.StringHashMap(void).init(allocator),
-            .cache = std.StringHashMap(CacheEntry).init(allocator),
+            .pending = hashmap_helper.StringHashMap(void).init(allocator),
+            .cache = hashmap_helper.StringHashMap(CacheEntry).init(allocator),
         };
     }
 
     pub fn deinit(self: *FetchScheduler) void {
         // Free pending keys
-        var pending_it = self.pending.keyIterator();
-        while (pending_it.next()) |key| {
-            self.allocator.free(key.*);
+        for (self.pending.keys()) |key| {
+            self.allocator.free(key);
         }
         self.pending.deinit();
 
         // Free cache entries
-        var cache_it = self.cache.iterator();
-        while (cache_it.next()) |entry| {
-            self.allocator.free(entry.key_ptr.*);
-            var meta = entry.value_ptr.metadata;
-            meta.deinit(self.allocator);
+        for (self.cache.keys(), self.cache.values()) |key, *entry| {
+            self.allocator.free(key);
+            entry.metadata.deinit(self.allocator);
         }
         self.cache.deinit();
     }
@@ -184,11 +182,11 @@ pub const FetchScheduler = struct {
     }
 
     /// Execute batch and return map of name -> metadata
-    pub fn executeBatchToMap(self: *FetchScheduler) !std.StringHashMap(pypi.PackageMetadata) {
+    pub fn executeBatchToMap(self: *FetchScheduler) !hashmap_helper.StringHashMap(pypi.PackageMetadata) {
         const results = try self.executeBatch();
         defer self.allocator.free(results);
 
-        var map = std.StringHashMap(pypi.PackageMetadata).init(self.allocator);
+        var map = hashmap_helper.StringHashMap(pypi.PackageMetadata).init(self.allocator);
         errdefer map.deinit();
 
         for (results, 0..) |result, i| {
@@ -204,8 +202,8 @@ pub const FetchScheduler = struct {
 
     /// Get all cached + fetch pending in one call
     /// This is the main API for the resolver
-    pub fn fetchAll(self: *FetchScheduler, names: []const []const u8) !std.StringHashMap(pypi.PackageMetadata) {
-        var result_map = std.StringHashMap(pypi.PackageMetadata).init(self.allocator);
+    pub fn fetchAll(self: *FetchScheduler, names: []const []const u8) !hashmap_helper.StringHashMap(pypi.PackageMetadata) {
+        var result_map = hashmap_helper.StringHashMap(pypi.PackageMetadata).init(self.allocator);
         errdefer {
             var it = result_map.iterator();
             while (it.next()) |entry| {

@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/pdb.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Breakpoint
@@ -83,16 +84,16 @@ pub const Frame = struct {
     filename: []const u8,
     lineno: usize,
     function: []const u8,
-    locals: std.StringHashMap([]const u8),
-    globals: std.StringHashMap([]const u8),
+    locals: hashmap_helper.StringHashMap([]const u8),
+    globals: hashmap_helper.StringHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator, filename: []const u8, lineno: usize, function: []const u8) Frame {
         return .{
             .filename = filename,
             .lineno = lineno,
             .function = function,
-            .locals = std.StringHashMap([]const u8).init(allocator),
-            .globals = std.StringHashMap([]const u8).init(allocator),
+            .locals = hashmap_helper.StringHashMap([]const u8).init(allocator),
+            .globals = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
     }
 
@@ -133,7 +134,7 @@ pub const Pdb = struct {
     stdout: std.fs.File.Writer,
 
     // Aliases
-    aliases: std.StringHashMap([]const u8),
+    aliases: hashmap_helper.StringHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator, skip: ?[]const []const u8) Self {
         return .{
@@ -150,7 +151,7 @@ pub const Pdb = struct {
             .prompt = "(Pdb) ",
             .stdin = std.io.getStdIn().reader(),
             .stdout = std.io.getStdOut().writer(),
-            .aliases = std.StringHashMap([]const u8).init(allocator),
+            .aliases = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
     }
 

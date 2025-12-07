@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/zipimport.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -32,7 +33,7 @@ pub const zipimporter = struct {
     /// Prefix within the archive
     prefix: []const u8,
     /// Cached file list
-    files: std.StringHashMap(FileInfo),
+    files: hashmap_helper.StringHashMap(FileInfo),
 
     const FileInfo = struct {
         offset: u64,
@@ -72,7 +73,7 @@ pub const zipimporter = struct {
             .allocator = allocator,
             .archive = archive,
             .prefix = prefix,
-            .files = std.StringHashMap(FileInfo).init(allocator),
+            .files = hashmap_helper.StringHashMap(FileInfo).init(allocator),
         };
     }
 
@@ -188,12 +189,12 @@ pub const ModuleSpec = struct {
 // ============================================================================
 
 /// Cache of zipimporter instances by path
-var _zip_directory_cache: ?std.StringHashMap(*zipimporter) = null;
+var _zip_directory_cache: ?hashmap_helper.StringHashMap(*zipimporter) = null;
 
 /// Get or create a zipimporter for a path
 pub fn get_importer(allocator: std.mem.Allocator, path: []const u8) !*zipimporter {
     if (_zip_directory_cache == null) {
-        _zip_directory_cache = std.StringHashMap(*zipimporter).init(allocator);
+        _zip_directory_cache = hashmap_helper.StringHashMap(*zipimporter).init(allocator);
     }
 
     if (_zip_directory_cache.?.get(path)) |importer| {
@@ -250,7 +251,7 @@ test "zipimporter get_filename" {
         .allocator = allocator,
         .archive = "test.zip",
         .prefix = "",
-        .files = std.StringHashMap(zipimporter.FileInfo).init(allocator),
+        .files = hashmap_helper.StringHashMap(zipimporter.FileInfo).init(allocator),
     };
     defer importer.deinit();
 

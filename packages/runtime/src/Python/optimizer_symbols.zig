@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Symbol Types
@@ -156,7 +157,7 @@ pub const SymbolTable = struct {
     /// Memory allocator
     allocator: Allocator,
     /// Symbols by name
-    symbols: std.StringHashMap(*Symbol),
+    symbols: hashmap_helper.StringHashMap(*Symbol),
     /// All symbols in order
     symbol_list: std.ArrayList(*Symbol),
     /// Parent scope
@@ -178,7 +179,7 @@ pub const SymbolTable = struct {
     pub fn init(allocator: Allocator, name: []const u8, scope_type: ScopeType, depth: u32) Self {
         return Self{
             .allocator = allocator,
-            .symbols = std.StringHashMap(*Symbol).init(allocator),
+            .symbols = hashmap_helper.StringHashMap(*Symbol).init(allocator),
             .symbol_list = std.ArrayList(*Symbol).init(allocator),
             .children = std.ArrayList(*Self).init(allocator),
             .name = name,

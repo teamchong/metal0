@@ -4,6 +4,7 @@
 //! Implements caching to avoid redundant network requests.
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const pubgrub = @import("pubgrub.zig");
 const Version = pubgrub.Version;
 const Range = pubgrub.Range;
@@ -17,9 +18,9 @@ const json = @import("json");
 pub const PyPIProvider = struct {
     allocator: std.mem.Allocator,
     /// Cache of package versions: package_name -> [versions]
-    version_cache: std.StringHashMap([]Version),
+    version_cache: hashmap_helper.StringHashMap([]Version),
     /// Cache of dependencies: "package@version" -> Dependencies
-    dependency_cache: std.StringHashMap(CachedDependencies),
+    dependency_cache: hashmap_helper.StringHashMap(CachedDependencies),
     /// HTTP client for PyPI requests
     http_client: ?*anyopaque, // Would be h2.Client in real impl
 
@@ -31,8 +32,8 @@ pub const PyPIProvider = struct {
     pub fn init(allocator: std.mem.Allocator) PyPIProvider {
         return .{
             .allocator = allocator,
-            .version_cache = std.StringHashMap([]Version).init(allocator),
-            .dependency_cache = std.StringHashMap(CachedDependencies).init(allocator),
+            .version_cache = hashmap_helper.StringHashMap([]Version).init(allocator),
+            .dependency_cache = hashmap_helper.StringHashMap(CachedDependencies).init(allocator),
             .http_client = null,
         };
     }

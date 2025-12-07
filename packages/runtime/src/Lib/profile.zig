@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/profile.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Profile Statistics
@@ -17,7 +18,7 @@ pub const FuncStats = struct {
     cumtime: f64, // Cumulative time (including subfunctions)
     percall_tot: f64, // Total time per call
     percall_cum: f64, // Cumulative time per call
-    callers: std.StringHashMap(CallerStats),
+    callers: hashmap_helper.StringHashMap(CallerStats),
     allocator: std.mem.Allocator,
 
     pub const CallerStats = struct {
@@ -33,7 +34,7 @@ pub const FuncStats = struct {
             .cumtime = 0,
             .percall_tot = 0,
             .percall_cum = 0,
-            .callers = std.StringHashMap(CallerStats).init(allocator),
+            .callers = hashmap_helper.StringHashMap(CallerStats).init(allocator),
             .allocator = allocator,
         };
     }
@@ -61,7 +62,7 @@ pub const Profile = struct {
     allocator: std.mem.Allocator,
 
     // Statistics
-    stats: std.StringHashMap(FuncStats),
+    stats: hashmap_helper.StringHashMap(FuncStats),
     total_calls: u64,
     prim_calls: u64, // Primitive (non-recursive) calls
     total_tt: f64, // Total time
@@ -72,20 +73,20 @@ pub const Profile = struct {
 
     // State
     cur: ?[]const u8, // Current function
-    timings: std.StringHashMap(i64),
+    timings: hashmap_helper.StringHashMap(i64),
     c: i64, // Call count for calibration
 
     pub fn init(allocator: std.mem.Allocator, timer: ?fn () i64, bias: ?i64) Self {
         return .{
             .allocator = allocator,
-            .stats = std.StringHashMap(FuncStats).init(allocator),
+            .stats = hashmap_helper.StringHashMap(FuncStats).init(allocator),
             .total_calls = 0,
             .prim_calls = 0,
             .total_tt = 0,
             .timer = timer orelse defaultTimer,
             .bias = bias orelse 0,
             .cur = null,
-            .timings = std.StringHashMap(i64).init(allocator),
+            .timings = hashmap_helper.StringHashMap(i64).init(allocator),
             .c = 0,
         };
     }
@@ -287,7 +288,7 @@ pub const Stats = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
-    stats: std.StringHashMap(FuncStats),
+    stats: hashmap_helper.StringHashMap(FuncStats),
     total_calls: u64,
     prim_calls: u64,
     total_tt: f64,
@@ -296,7 +297,7 @@ pub const Stats = struct {
     pub fn init(allocator: std.mem.Allocator, filename: ?[]const u8) !Self {
         var self = Self{
             .allocator = allocator,
-            .stats = std.StringHashMap(FuncStats).init(allocator),
+            .stats = hashmap_helper.StringHashMap(FuncStats).init(allocator),
             .total_calls = 0,
             .prim_calls = 0,
             .total_tt = 0,

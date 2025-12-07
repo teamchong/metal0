@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/rlcompleter.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Completer class
@@ -15,7 +16,7 @@ pub const Completer = struct {
     allocator: std.mem.Allocator,
 
     /// Namespace for completion lookups
-    namespace: std.StringHashMap([]const u8),
+    namespace: hashmap_helper.StringHashMap([]const u8),
 
     /// Use __main__ namespace if true
     use_main_ns: bool = false,
@@ -26,14 +27,14 @@ pub const Completer = struct {
     pub fn init(allocator: std.mem.Allocator) Completer {
         return .{
             .allocator = allocator,
-            .namespace = std.StringHashMap([]const u8).init(allocator),
+            .namespace = hashmap_helper.StringHashMap([]const u8).init(allocator),
             .matches = std.ArrayList([]const u8).init(allocator),
         };
     }
 
     pub fn initWithNamespace(
         allocator: std.mem.Allocator,
-        namespace: std.StringHashMap([]const u8),
+        namespace: hashmap_helper.StringHashMap([]const u8),
     ) Completer {
         return .{
             .allocator = allocator,

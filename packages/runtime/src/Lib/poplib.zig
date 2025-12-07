@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/poplib.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Constants
@@ -73,7 +74,7 @@ pub const POP3 = struct {
     debugging: u8,
 
     // Capabilities
-    caps: std.StringHashMap([]const u8),
+    caps: hashmap_helper.StringHashMap([]const u8),
     timestamp: ?[]const u8,
 
     pub fn init(allocator: std.mem.Allocator, host: []const u8, port: ?u16, timeout: ?f64) !Self {
@@ -87,7 +88,7 @@ pub const POP3 = struct {
             .welcome = null,
             .encoding = "utf-8",
             .debugging = 0,
-            .caps = std.StringHashMap([]const u8).init(allocator),
+            .caps = hashmap_helper.StringHashMap([]const u8).init(allocator),
             .timestamp = null,
         };
 
@@ -196,7 +197,7 @@ pub const POP3 = struct {
     // ========================================================================
 
     /// Get server capabilities
-    pub fn capa(self: *Self) !std.StringHashMap([]const u8) {
+    pub fn capa(self: *Self) !hashmap_helper.StringHashMap([]const u8) {
         _ = try self.sendCmd("CAPA", null);
         return self.caps;
     }

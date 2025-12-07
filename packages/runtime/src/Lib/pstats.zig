@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/pstats.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Sort Keys
@@ -121,7 +122,7 @@ pub const Stats = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
-    stats: std.StringHashMap(FuncStat),
+    stats: hashmap_helper.StringHashMap(FuncStat),
     total_calls: usize,
     primitive_calls: usize,
     total_time: f64,
@@ -131,7 +132,7 @@ pub const Stats = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .stats = std.StringHashMap(FuncStat).init(allocator),
+            .stats = hashmap_helper.StringHashMap(FuncStat).init(allocator),
             .total_calls = 0,
             .primitive_calls = 0,
             .total_time = 0.0,

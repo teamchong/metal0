@@ -13,6 +13,7 @@
 //! - Atomic file writes (no partial files)
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 pub const CacheError = error{
     CacheMiss,
@@ -40,7 +41,7 @@ pub const CacheEntry = struct {
 /// Memory cache with LRU eviction
 pub const MemoryCache = struct {
     allocator: std.mem.Allocator,
-    entries: std.StringHashMap(Entry),
+    entries: hashmap_helper.StringHashMap(Entry),
     access_order: std.ArrayList([]const u8),
     max_size: u64,
     current_size: u64,
@@ -54,7 +55,7 @@ pub const MemoryCache = struct {
     pub fn init(allocator: std.mem.Allocator, max_size_bytes: u64, ttl_seconds: i64) MemoryCache {
         return .{
             .allocator = allocator,
-            .entries = std.StringHashMap(Entry).init(allocator),
+            .entries = hashmap_helper.StringHashMap(Entry).init(allocator),
             .access_order = std.ArrayList([]const u8){},
             .max_size = max_size_bytes,
             .current_size = 0,
@@ -139,7 +140,7 @@ pub const MemoryCache = struct {
         }
 
         // Then remove and free entry
-        if (self.entries.fetchRemove(key)) |kv| {
+        if (self.entries.fetchSwapRemove(key)) |kv| {
             self.current_size -= kv.value.data.len;
             self.allocator.free(kv.value.data);
             self.allocator.free(kv.key);
@@ -163,7 +164,7 @@ pub const MemoryCache = struct {
         if (self.access_order.items.len == 0) return;
 
         const key = self.access_order.orderedRemove(0);
-        if (self.entries.fetchRemove(key)) |kv| {
+        if (self.entries.fetchSwapRemove(key)) |kv| {
             self.current_size -= kv.value.data.len;
             self.allocator.free(kv.value.data);
             self.allocator.free(kv.key);

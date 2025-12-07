@@ -10,6 +10,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Block Types
@@ -134,13 +135,13 @@ pub const SymbolTableEntry = struct {
     name: []const u8, // Name of this scope
 
     // Symbol information
-    symbols: std.StringHashMap(SymbolInfo), // Name -> flags + scope
+    symbols: hashmap_helper.StringHashMap(SymbolInfo), // Name -> flags + scope
     varnames: std.ArrayList([]const u8), // Parameter names (ordered)
     children: std.ArrayList(*SymbolTableEntry), // Nested scopes
 
     // Directives
-    global_names: std.StringHashMap(SourceLocation), // global statements
-    nonlocal_names: std.StringHashMap(SourceLocation), // nonlocal statements
+    global_names: hashmap_helper.StringHashMap(SourceLocation), // global statements
+    nonlocal_names: hashmap_helper.StringHashMap(SourceLocation), // nonlocal statements
 
     // Block info
     block_type: BlockType,
@@ -187,11 +188,11 @@ pub const SymbolTableEntry = struct {
             .allocator = allocator,
             .id = id,
             .name = try allocator.dupe(u8, name),
-            .symbols = std.StringHashMap(SymbolInfo).init(allocator),
+            .symbols = hashmap_helper.StringHashMap(SymbolInfo).init(allocator),
             .varnames = std.ArrayList([]const u8).init(allocator),
             .children = std.ArrayList(*SymbolTableEntry).init(allocator),
-            .global_names = std.StringHashMap(SourceLocation).init(allocator),
-            .nonlocal_names = std.StringHashMap(SourceLocation).init(allocator),
+            .global_names = hashmap_helper.StringHashMap(SourceLocation).init(allocator),
+            .nonlocal_names = hashmap_helper.StringHashMap(SourceLocation).init(allocator),
             .block_type = block_type,
             .location = SourceLocation.NO_LOCATION,
         };
@@ -447,9 +448,9 @@ pub const SymbolTable = struct {
         }
     }
 
-    fn analyzeBlock(self: *Self, entry: *SymbolTableEntry, parent_free: ?*std.StringHashMap(void)) !void {
+    fn analyzeBlock(self: *Self, entry: *SymbolTableEntry, parent_free: ?*hashmap_helper.StringHashMap(void)) !void {
         // Collect free variables from this scope
-        var local_free = std.StringHashMap(void).init(self.allocator);
+        var local_free = hashmap_helper.StringHashMap(void).init(self.allocator);
         defer local_free.deinit();
 
         // First pass: determine initial scopes

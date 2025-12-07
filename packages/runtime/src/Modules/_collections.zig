@@ -1,6 +1,7 @@
 /// _collections - C accelerator module for collections
 /// Provides: deque, defaultdict, OrderedDict, Counter
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const Allocator = std.mem.Allocator;
 
 // ============================================================================
@@ -1421,8 +1422,8 @@ pub fn NamedTuple(comptime field_count: usize) type {
         }
 
         /// _asdict() - Return a new dict mapping field names to values
-        pub fn _asdict(self: Self, allocator: Allocator) !std.StringHashMap(i64) {
-            var dict = std.StringHashMap(i64).init(allocator);
+        pub fn _asdict(self: Self, allocator: Allocator) !hashmap_helper.StringHashMap(i64) {
+            var dict = hashmap_helper.StringHashMap(i64).init(allocator);
             for (self._fields, 0..) |field, i| {
                 try dict.put(field, self._values[i]);
             }
@@ -1505,8 +1506,8 @@ pub fn NamedTuple(comptime field_count: usize) type {
         }
 
         /// _field_defaults - Return dict of default values (empty for base)
-        pub fn _field_defaults(_: Self) std.StringHashMap(i64) {
-            return std.StringHashMap(i64).init(std.heap.page_allocator);
+        pub fn _field_defaults(_: Self) hashmap_helper.StringHashMap(i64) {
+            return hashmap_helper.StringHashMap(i64).init(std.heap.page_allocator);
         }
     };
 }
@@ -1537,7 +1538,7 @@ pub fn namedtupleFactory(comptime typename: []const u8, comptime field_names: an
             return self.data.getByName(name);
         }
 
-        pub fn _asdict(self: Self, allocator: Allocator) !std.StringHashMap(i64) {
+        pub fn _asdict(self: Self, allocator: Allocator) !hashmap_helper.StringHashMap(i64) {
             return self.data._asdict(allocator);
         }
 

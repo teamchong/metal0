@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/shelve.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Shelf
@@ -15,23 +16,23 @@ pub fn Shelf(comptime V: type) type {
     return struct {
         const Self = @This();
 
-        dict: std.StringHashMap(V),
+        dict: hashmap_helper.StringHashMap(V),
         filename: []const u8,
         flag: []const u8,
         protocol: u8,
         writeback: bool,
-        cache: std.StringHashMap(V),
+        cache: hashmap_helper.StringHashMap(V),
         allocator: std.mem.Allocator,
         modified: bool,
 
         pub fn init(allocator: std.mem.Allocator, filename: []const u8, flag: []const u8, protocol: ?u8, writeback: bool) !Self {
             var self = Self{
-                .dict = std.StringHashMap(V).init(allocator),
+                .dict = hashmap_helper.StringHashMap(V).init(allocator),
                 .filename = filename,
                 .flag = flag,
                 .protocol = protocol orelse 3,
                 .writeback = writeback,
-                .cache = std.StringHashMap(V).init(allocator),
+                .cache = hashmap_helper.StringHashMap(V).init(allocator),
                 .allocator = allocator,
                 .modified = false,
             };

@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Module-level variables
@@ -87,7 +88,7 @@ fn getUserSitePackages(allocator: std.mem.Allocator, user_base: []const u8) ![]c
 // ============================================================================
 
 /// Add a site-packages directory to sys.path
-pub fn addsitedir(allocator: std.mem.Allocator, sitedir: []const u8, known_paths: ?*std.StringHashMap(void)) !void {
+pub fn addsitedir(allocator: std.mem.Allocator, sitedir: []const u8, known_paths: ?*hashmap_helper.StringHashMap(void)) !void {
     _ = allocator;
     _ = known_paths;
 

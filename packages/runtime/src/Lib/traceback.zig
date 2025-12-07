@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/traceback.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Traceback Types
@@ -16,7 +17,7 @@ pub const FrameSummary = struct {
     lineno: ?u32,
     name: []const u8,
     line: ?[]const u8,
-    locals: ?std.StringHashMap([]const u8),
+    locals: ?hashmap_helper.StringHashMap([]const u8),
 
     pub fn init(
         filename: []const u8,

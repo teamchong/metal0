@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/pyclbr.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Class - Represents a class definition
@@ -24,7 +25,7 @@ pub const Class = struct {
     super: std.ArrayList([]const u8),
 
     /// Methods defined in the class
-    methods: std.StringHashMap(usize), // method name -> line number
+    methods: hashmap_helper.StringHashMap(usize), // method name -> line number
 
     /// File where the class is defined
     file: []const u8,
@@ -39,7 +40,7 @@ pub const Class = struct {
     parent: ?*Class = null,
 
     /// Nested classes
-    children: std.StringHashMap(*Class),
+    children: hashmap_helper.StringHashMap(*Class),
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -54,10 +55,10 @@ pub const Class = struct {
             .module = try allocator.dupe(u8, module),
             .name = try allocator.dupe(u8, name),
             .super = std.ArrayList([]const u8).init(allocator),
-            .methods = std.StringHashMap(usize).init(allocator),
+            .methods = hashmap_helper.StringHashMap(usize).init(allocator),
             .file = try allocator.dupe(u8, file),
             .lineno = lineno,
-            .children = std.StringHashMap(*Class).init(allocator),
+            .children = hashmap_helper.StringHashMap(*Class).init(allocator),
         };
         return cls;
     }
@@ -155,11 +156,11 @@ pub fn readmodule(
     allocator: std.mem.Allocator,
     module: []const u8,
     path: ?[]const []const u8,
-) !std.StringHashMap(*Class) {
+) !hashmap_helper.StringHashMap(*Class) {
     _ = path;
     const result = try readmodule_ex(allocator, module, null);
     // Filter to only return classes
-    var classes = std.StringHashMap(*Class).init(allocator);
+    var classes = hashmap_helper.StringHashMap(*Class).init(allocator);
     var it = result.classes.iterator();
     while (it.next()) |entry| {
         try classes.put(entry.key_ptr.*, entry.value_ptr.*);
@@ -169,8 +170,8 @@ pub fn readmodule(
 
 /// Read a module and return both classes and functions
 pub const ReadModuleResult = struct {
-    classes: std.StringHashMap(*Class),
-    functions: std.StringHashMap(*Function),
+    classes: hashmap_helper.StringHashMap(*Class),
+    functions: hashmap_helper.StringHashMap(*Function),
 };
 
 pub fn readmodule_ex(
@@ -187,8 +188,8 @@ pub fn readmodule_ex(
     // Read and parse the file
     const file = std.fs.cwd().openFile(filename, .{}) catch {
         return ReadModuleResult{
-            .classes = std.StringHashMap(*Class).init(allocator),
-            .functions = std.StringHashMap(*Function).init(allocator),
+            .classes = hashmap_helper.StringHashMap(*Class).init(allocator),
+            .functions = hashmap_helper.StringHashMap(*Function).init(allocator),
         };
     };
     defer file.close();
@@ -206,8 +207,8 @@ fn parseSource(
     module: []const u8,
     filename: []const u8,
 ) !ReadModuleResult {
-    var classes = std.StringHashMap(*Class).init(allocator);
-    var functions = std.StringHashMap(*Function).init(allocator);
+    var classes = hashmap_helper.StringHashMap(*Class).init(allocator);
+    var functions = hashmap_helper.StringHashMap(*Function).init(allocator);
 
     var line_num: usize = 0;
     var lines = std.mem.splitSequence(u8, source, "\n");

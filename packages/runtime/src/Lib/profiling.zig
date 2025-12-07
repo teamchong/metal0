@@ -5,6 +5,7 @@
 //! Internal module for profiling support.
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -113,14 +114,14 @@ pub const Profiler = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
-    stats: std.StringHashMap(FunctionStats),
+    stats: hashmap_helper.StringHashMap(FunctionStats),
     running: bool = false,
     timer: Timer = Timer.init(),
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .allocator = allocator,
-            .stats = std.StringHashMap(FunctionStats).init(allocator),
+            .stats = hashmap_helper.StringHashMap(FunctionStats).init(allocator),
         };
     }
 

@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/symtable.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Symbol Flags
@@ -188,7 +189,7 @@ pub const SymbolTable = struct {
     generator: bool,
     coroutine: bool,
     comprehension: bool,
-    symbols: std.StringHashMap(Symbol),
+    symbols: hashmap_helper.StringHashMap(Symbol),
     children: std.ArrayList(*Self),
     allocator: std.mem.Allocator,
 
@@ -218,7 +219,7 @@ pub const SymbolTable = struct {
             .generator = false,
             .coroutine = false,
             .comprehension = false,
-            .symbols = std.StringHashMap(Symbol).init(allocator),
+            .symbols = hashmap_helper.StringHashMap(Symbol).init(allocator),
             .children = std.ArrayList(*Self).init(allocator),
             .allocator = allocator,
         };

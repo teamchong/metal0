@@ -104,6 +104,7 @@ pub fn build(b: *std.Build) void {
     });
     pkg_mod.addImport("json", json_mod);
     pkg_mod.addImport("h2", h2_mod);
+    pkg_mod.addImport("utils.hashmap_helper", hashmap_helper);
 
     // Function traits analysis framework (call graph, mutation, async, etc.)
     const function_traits = b.addModule("analysis.function_traits", .{
@@ -536,6 +537,7 @@ pub fn build(b: *std.Build) void {
     pkg_module.addImport("h2", h2_mod);
     pkg_module.addImport("green_thread", green_thread_module);
     pkg_module.addImport("netpoller", netpoller_module);
+    pkg_module.addImport("utils.hashmap_helper", hashmap_helper);
 
     const resolve_exe = b.addExecutable(.{
         .name = "resolve",

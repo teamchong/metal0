@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/urllib/
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // urllib.parse - URL parsing
@@ -448,8 +449,8 @@ pub const parse = struct {
     }
 
     /// Parse query string into key-value pairs
-    pub fn parse_qs(allocator: std.mem.Allocator, qs: []const u8) !std.StringHashMap(std.ArrayList([]const u8)) {
-        var result = std.StringHashMap(std.ArrayList([]const u8)).init(allocator);
+    pub fn parse_qs(allocator: std.mem.Allocator, qs: []const u8) !hashmap_helper.StringHashMap(std.ArrayList([]const u8)) {
+        var result = hashmap_helper.StringHashMap(std.ArrayList([]const u8)).init(allocator);
 
         var pairs = std.mem.splitScalar(u8, qs, '&');
         while (pairs.next()) |pair| {
@@ -529,14 +530,14 @@ pub const request = struct {
     pub const Request = struct {
         url: []const u8,
         method: []const u8,
-        headers: std.StringHashMap([]const u8),
+        headers: hashmap_helper.StringHashMap([]const u8),
         data: ?[]const u8,
 
         pub fn init(allocator: std.mem.Allocator, url: []const u8) Request {
             return .{
                 .url = url,
                 .method = "GET",
-                .headers = std.StringHashMap([]const u8).init(allocator),
+                .headers = hashmap_helper.StringHashMap([]const u8).init(allocator),
                 .data = null,
             };
         }
@@ -558,7 +559,7 @@ pub const request = struct {
     pub const Response = struct {
         status: u16,
         reason: []const u8,
-        headers: std.StringHashMap([]const u8),
+        headers: hashmap_helper.StringHashMap([]const u8),
         body: []const u8,
 
         pub fn read(self: *Response) []const u8 {
@@ -588,7 +589,7 @@ pub const request = struct {
     }
 
     /// URL retrieve to file (stub)
-    pub fn urlretrieve(allocator: std.mem.Allocator, url: []const u8, filename: ?[]const u8) !struct { filename: []const u8, headers: std.StringHashMap([]const u8) } {
+    pub fn urlretrieve(allocator: std.mem.Allocator, url: []const u8, filename: ?[]const u8) !struct { filename: []const u8, headers: hashmap_helper.StringHashMap([]const u8) } {
         _ = allocator;
         _ = url;
         _ = filename;

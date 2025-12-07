@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/tracemalloc.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -161,7 +162,7 @@ pub const Snapshot = struct {
 
     /// Get statistics grouped by filename and line
     pub fn statistics(self: *const Self, allocator: std.mem.Allocator, key_type: []const u8) !std.ArrayList(Statistic) {
-        var stats = std.StringHashMap(Statistic).init(allocator);
+        var stats = hashmap_helper.StringHashMap(Statistic).init(allocator);
         defer stats.deinit();
 
         for (self.traces.items) |trace| {

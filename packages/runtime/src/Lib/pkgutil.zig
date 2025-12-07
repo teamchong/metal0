@@ -4,6 +4,7 @@
 /// Utilities to support packages (finding, importing, iterating).
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Module Info
@@ -37,7 +38,7 @@ pub const ModuleIterator = struct {
     dir: ?std.fs.Dir = null,
     iter: ?std.fs.Dir.Iterator = null,
     prefix: []const u8 = "",
-    seen: std.StringHashMap(void),
+    seen: hashmap_helper.StringHashMap(void),
 
     pub fn init(allocator: std.mem.Allocator, path: ?[]const []const u8, prefix: ?[]const u8) Self {
         const default_path = &[_][]const u8{"."};
@@ -45,7 +46,7 @@ pub const ModuleIterator = struct {
             .allocator = allocator,
             .path = path orelse default_path,
             .prefix = prefix orelse "",
-            .seen = std.StringHashMap(void).init(allocator),
+            .seen = hashmap_helper.StringHashMap(void).init(allocator),
         };
     }
 

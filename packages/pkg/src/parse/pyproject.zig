@@ -12,6 +12,7 @@
 //! Reference: https://peps.python.org/pep-0621/
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const toml = @import("toml.zig");
 const pep508 = @import("pep508.zig");
 
@@ -28,7 +29,7 @@ pub const PyProject = struct {
     /// Required dependencies
     dependencies: []const pep508.Dependency = &.{},
     /// Optional dependencies by extra name
-    optional_dependencies: std.StringHashMap([]const pep508.Dependency),
+    optional_dependencies: hashmap_helper.StringHashMap([]const pep508.Dependency),
     /// Build system requirements
     build_requires: []const pep508.Dependency = &.{},
     /// Build backend
@@ -109,7 +110,7 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !PyProject {
 
     var result = PyProject{
         .allocator = allocator,
-        .optional_dependencies = std.StringHashMap([]const pep508.Dependency).init(allocator),
+        .optional_dependencies = hashmap_helper.StringHashMap([]const pep508.Dependency).init(allocator),
         ._toml = table,
     };
     errdefer result.deinit();

@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/wsgiref/
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -23,7 +24,7 @@ pub const WsgiError = error{
 // ============================================================================
 
 /// WSGI environ dictionary type
-pub const Environ = std.StringHashMap([]const u8);
+pub const Environ = hashmap_helper.StringHashMap([]const u8);
 
 /// Response headers type
 pub const Headers = std.ArrayList(struct { []const u8, []const u8 });

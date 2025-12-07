@@ -1,6 +1,7 @@
 /// Full Pickle module implementation for Python compatibility
 /// Supports protocols 0-5 with proper serialization/deserialization
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Pickle protocol versions
 pub const HIGHEST_PROTOCOL: i64 = 5;
@@ -119,7 +120,7 @@ pub const PickleValue = union(enum) {
     bytes: []const u8,
     tuple: []const PickleValue,
     list: std.ArrayList(PickleValue),
-    dict: std.StringHashMap(PickleValue),
+    dict: hashmap_helper.StringHashMap(PickleValue),
     set: std.AutoHashMap(u64, void),
     // For iterators - store type info and state
     iterator: Iterator,
@@ -899,11 +900,11 @@ pub const Unpickler = struct {
                     self.allocator.free(items);
                 },
                 Opcode.EMPTY_DICT => {
-                    try self.push(.{ .dict = std.StringHashMap(PickleValue).init(self.allocator) });
+                    try self.push(.{ .dict = hashmap_helper.StringHashMap(PickleValue).init(self.allocator) });
                 },
                 Opcode.DICT => {
                     const items = try self.popToMark();
-                    var dict = std.StringHashMap(PickleValue).init(self.allocator);
+                    var dict = hashmap_helper.StringHashMap(PickleValue).init(self.allocator);
                     var i: usize = 0;
                     while (i + 1 < items.len) : (i += 2) {
                         if (items[i] == .string) {

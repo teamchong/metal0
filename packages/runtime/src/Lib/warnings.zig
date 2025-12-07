@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/warnings.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Warning Categories
@@ -145,7 +146,7 @@ pub const WarningsState = struct {
 
     allocator: std.mem.Allocator,
     filters: std.ArrayList(WarningFilter),
-    once_registry: std.StringHashMap(void),
+    once_registry: hashmap_helper.StringHashMap(void),
     default_action: FilterAction = .default,
     show_source: bool = true,
 
@@ -153,7 +154,7 @@ pub const WarningsState = struct {
         return .{
             .allocator = allocator,
             .filters = std.ArrayList(WarningFilter).init(allocator),
-            .once_registry = std.StringHashMap(void).init(allocator),
+            .once_registry = hashmap_helper.StringHashMap(void).init(allocator),
         };
     }
 

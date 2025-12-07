@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/xmlrpc/
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -47,7 +48,7 @@ pub const Value = union(enum) {
     base64: []const u8,
     dateTime: []const u8,
     array: std.ArrayList(Value),
-    @"struct": std.StringHashMap(Value),
+    @"struct": hashmap_helper.StringHashMap(Value),
 
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -188,7 +189,7 @@ pub const SimpleXMLRPCServer = struct {
     allocator: std.mem.Allocator,
     host: []const u8,
     port: u16,
-    methods: std.StringHashMap(MethodHandler),
+    methods: hashmap_helper.StringHashMap(MethodHandler),
     allow_none: bool = false,
     encoding: []const u8 = "utf-8",
 
@@ -197,7 +198,7 @@ pub const SimpleXMLRPCServer = struct {
             .allocator = allocator,
             .host = host,
             .port = port,
-            .methods = std.StringHashMap(MethodHandler).init(allocator),
+            .methods = hashmap_helper.StringHashMap(MethodHandler).init(allocator),
         };
     }
 

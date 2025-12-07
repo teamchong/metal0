@@ -5,6 +5,7 @@
 //! but some need runtime representations for introspection and tests.
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Runtime typing type info - used for type introspection
 pub const TypeInfo = struct {
@@ -288,8 +289,8 @@ pub fn get_overloads(_: anytype) []const fn () void {
 pub fn clear_overloads() void {}
 
 /// get_type_hints stub
-pub fn get_type_hints(_: anytype) std.StringHashMap([]const u8) {
-    return std.StringHashMap([]const u8).init(std.heap.page_allocator);
+pub fn get_type_hints(_: anytype) hashmap_helper.StringHashMap([]const u8) {
+    return hashmap_helper.StringHashMap([]const u8).init(std.heap.page_allocator);
 }
 
 /// override decorator (no-op)

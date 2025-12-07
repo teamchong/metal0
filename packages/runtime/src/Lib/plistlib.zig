@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/plistlib.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // PlistFormat - Format types
@@ -39,7 +40,7 @@ pub const PlistValue = union(enum) {
     data: []const u8,
     date: i64, // Unix timestamp
     array: []PlistValue,
-    dict: std.StringHashMap(PlistValue),
+    dict: hashmap_helper.StringHashMap(PlistValue),
     uid: UID,
 };
 
@@ -93,7 +94,7 @@ fn loadXML(allocator: std.mem.Allocator, data: []const u8) !PlistValue {
     // Simple XML parsing - look for plist elements
     _ = data;
     // Return empty dict as placeholder
-    return PlistValue{ .dict = std.StringHashMap(PlistValue).init(allocator) };
+    return PlistValue{ .dict = hashmap_helper.StringHashMap(PlistValue).init(allocator) };
 }
 
 fn dumpXML(allocator: std.mem.Allocator, value: PlistValue) ![]u8 {
@@ -202,7 +203,7 @@ fn loadBinary(allocator: std.mem.Allocator, data: []const u8) !PlistValue {
     // Binary plist format is complex
     // Return empty dict as placeholder
     _ = data;
-    return PlistValue{ .dict = std.StringHashMap(PlistValue).init(allocator) };
+    return PlistValue{ .dict = hashmap_helper.StringHashMap(PlistValue).init(allocator) };
 }
 
 fn dumpBinary(allocator: std.mem.Allocator, value: PlistValue) ![]u8 {

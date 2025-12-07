@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Import Errors
@@ -81,14 +82,14 @@ pub const ExtensionLoader = struct {
     /// Memory allocator
     allocator: Allocator,
     /// Loaded modules cache
-    loaded_modules: std.StringHashMap(*LoadedModule),
+    loaded_modules: hashmap_helper.StringHashMap(*LoadedModule),
     /// Search paths for extensions
     search_paths: std.ArrayList([]const u8),
 
     pub fn init(allocator: Allocator) Self {
         return Self{
             .allocator = allocator,
-            .loaded_modules = std.StringHashMap(*LoadedModule).init(allocator),
+            .loaded_modules = hashmap_helper.StringHashMap(*LoadedModule).init(allocator),
             .search_paths = std.ArrayList([]const u8).init(allocator),
         };
     }

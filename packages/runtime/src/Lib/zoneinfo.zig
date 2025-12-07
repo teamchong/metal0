@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/zoneinfo/
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -229,8 +230,8 @@ pub fn reset_tzpath() void {
 // ============================================================================
 
 /// Get a set of available time zone keys
-pub fn available_timezones(allocator: std.mem.Allocator) !std.StringHashMap(void) {
-    var zones = std.StringHashMap(void).init(allocator);
+pub fn available_timezones(allocator: std.mem.Allocator) !hashmap_helper.StringHashMap(void) {
+    var zones = hashmap_helper.StringHashMap(void).init(allocator);
 
     // Add common time zones
     const common = [_][]const u8{
