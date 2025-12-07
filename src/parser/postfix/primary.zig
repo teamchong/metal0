@@ -63,6 +63,141 @@ pub fn parsePrimary(self: *Parser) ParseError!ast.Node {
     return error.UnexpectedEof;
 }
 
+/// Convert hex string to decimal string for bigint storage
+/// Uses simple repeated doubling and addition algorithm
+fn hexToDecimalString(allocator: std.mem.Allocator, hex: []const u8) ![]const u8 {
+    // Start with 0
+    var result = std.ArrayList(u8){};
+    try result.append(allocator, '0');
+
+    for (hex) |c| {
+        const digit_val: u8 = if (c >= '0' and c <= '9')
+            c - '0'
+        else if (c >= 'a' and c <= 'f')
+            c - 'a' + 10
+        else if (c >= 'A' and c <= 'F')
+            c - 'A' + 10
+        else
+            continue; // Skip underscores
+
+        // Multiply result by 16 and add digit
+        // First multiply by 16 (multiply by 2 four times)
+        for (0..4) |_| {
+            var carry: u8 = 0;
+            var i = result.items.len;
+            while (i > 0) {
+                i -= 1;
+                const d = (result.items[i] - '0') * 2 + carry;
+                result.items[i] = (d % 10) + '0';
+                carry = d / 10;
+            }
+            if (carry > 0) {
+                try result.insert(allocator, 0, carry + '0');
+            }
+        }
+
+        // Add the digit value
+        var carry: u8 = digit_val;
+        var i = result.items.len;
+        while (i > 0 and carry > 0) {
+            i -= 1;
+            const d = (result.items[i] - '0') + carry;
+            result.items[i] = (d % 10) + '0';
+            carry = d / 10;
+        }
+        while (carry > 0) {
+            try result.insert(allocator, 0, (carry % 10) + '0');
+            carry /= 10;
+        }
+    }
+
+    return try result.toOwnedSlice(allocator);
+}
+
+/// Convert octal string to decimal string for bigint storage
+fn octalToDecimalString(allocator: std.mem.Allocator, oct: []const u8) ![]const u8 {
+    var result = std.ArrayList(u8){};
+    try result.append(allocator, '0');
+
+    for (oct) |c| {
+        if (c < '0' or c > '7') continue; // Skip underscores
+        const digit_val: u8 = c - '0';
+
+        // Multiply result by 8 (multiply by 2 three times)
+        for (0..3) |_| {
+            var carry: u8 = 0;
+            var i = result.items.len;
+            while (i > 0) {
+                i -= 1;
+                const d = (result.items[i] - '0') * 2 + carry;
+                result.items[i] = (d % 10) + '0';
+                carry = d / 10;
+            }
+            if (carry > 0) {
+                try result.insert(allocator, 0, carry + '0');
+            }
+        }
+
+        // Add the digit value
+        var carry: u8 = digit_val;
+        var i = result.items.len;
+        while (i > 0 and carry > 0) {
+            i -= 1;
+            const d = (result.items[i] - '0') + carry;
+            result.items[i] = (d % 10) + '0';
+            carry = d / 10;
+        }
+        while (carry > 0) {
+            try result.insert(allocator, 0, (carry % 10) + '0');
+            carry /= 10;
+        }
+    }
+
+    return try result.toOwnedSlice(allocator);
+}
+
+/// Convert binary string to decimal string for bigint storage
+fn binaryToDecimalString(allocator: std.mem.Allocator, bin: []const u8) ![]const u8 {
+    var result = std.ArrayList(u8){};
+    try result.append(allocator, '0');
+
+    for (bin) |c| {
+        if (c != '0' and c != '1') continue; // Skip underscores
+        const digit_val: u8 = c - '0';
+
+        // Multiply result by 2
+        var carry: u8 = 0;
+        var i = result.items.len;
+        while (i > 0) {
+            i -= 1;
+            const d = (result.items[i] - '0') * 2 + carry;
+            result.items[i] = (d % 10) + '0';
+            carry = d / 10;
+        }
+        if (carry > 0) {
+            try result.insert(allocator, 0, carry + '0');
+        }
+
+        // Add the digit value
+        if (digit_val > 0) {
+            carry = digit_val;
+            i = result.items.len;
+            while (i > 0 and carry > 0) {
+                i -= 1;
+                const d = (result.items[i] - '0') + carry;
+                result.items[i] = (d % 10) + '0';
+                carry = d / 10;
+            }
+            while (carry > 0) {
+                try result.insert(allocator, 0, (carry % 10) + '0');
+                carry /= 10;
+            }
+        }
+    }
+
+    return try result.toOwnedSlice(allocator);
+}
+
 /// Strip underscores from numeric literal (Python allows 1_000_000)
 fn stripUnderscores(input: []const u8, buf: []u8) []const u8 {
     var out_idx: usize = 0;
@@ -89,16 +224,40 @@ fn parseNumber(self: *Parser) ParseError!ast.Node {
         const prefix = lexeme[1];
         if (prefix == 'x' or prefix == 'X') {
             const clean = stripUnderscores(lexeme[2..], &buf);
-            const int_val = std.fmt.parseInt(i64, clean, 16) catch 0;
-            return ast.Node{ .constant = .{ .value = .{ .int = int_val } } };
+            if (std.fmt.parseInt(i64, clean, 16)) |int_val| {
+                return ast.Node{ .constant = .{ .value = .{ .int = int_val } } };
+            } else |err| {
+                if (err == error.Overflow) {
+                    // Convert hex to decimal string for bigint
+                    const bigint_str = try hexToDecimalString(self.allocator, clean);
+                    return ast.Node{ .constant = .{ .value = .{ .bigint = bigint_str } } };
+                }
+                return ast.Node{ .constant = .{ .value = .{ .int = 0 } } };
+            }
         } else if (prefix == 'o' or prefix == 'O') {
             const clean = stripUnderscores(lexeme[2..], &buf);
-            const int_val = std.fmt.parseInt(i64, clean, 8) catch 0;
-            return ast.Node{ .constant = .{ .value = .{ .int = int_val } } };
+            if (std.fmt.parseInt(i64, clean, 8)) |int_val| {
+                return ast.Node{ .constant = .{ .value = .{ .int = int_val } } };
+            } else |err| {
+                if (err == error.Overflow) {
+                    // Convert octal to decimal string for bigint
+                    const bigint_str = try octalToDecimalString(self.allocator, clean);
+                    return ast.Node{ .constant = .{ .value = .{ .bigint = bigint_str } } };
+                }
+                return ast.Node{ .constant = .{ .value = .{ .int = 0 } } };
+            }
         } else if (prefix == 'b' or prefix == 'B') {
             const clean = stripUnderscores(lexeme[2..], &buf);
-            const int_val = std.fmt.parseInt(i64, clean, 2) catch 0;
-            return ast.Node{ .constant = .{ .value = .{ .int = int_val } } };
+            if (std.fmt.parseInt(i64, clean, 2)) |int_val| {
+                return ast.Node{ .constant = .{ .value = .{ .int = int_val } } };
+            } else |err| {
+                if (err == error.Overflow) {
+                    // Convert binary to decimal string for bigint
+                    const bigint_str = try binaryToDecimalString(self.allocator, clean);
+                    return ast.Node{ .constant = .{ .value = .{ .bigint = bigint_str } } };
+                }
+                return ast.Node{ .constant = .{ .value = .{ .int = 0 } } };
+            }
         }
     }
 
