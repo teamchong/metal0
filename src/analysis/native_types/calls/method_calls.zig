@@ -5,6 +5,9 @@ const core = @import("../core.zig");
 const fnv_hash = @import("utils.fnv_hash");
 const static_maps = @import("static_maps.zig");
 const expressions = @import("../expressions.zig");
+const string_traits = @import("../../traits/string_traits.zig");
+const container_traits = @import("../../traits/container_traits.zig");
+const type_traits = @import("../../traits/type_traits.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -27,7 +30,7 @@ pub fn inferMethodCall(
     _ = class_fields;
     _ = func_return_types;
     // String methods
-    if (obj_type == .string) {
+    if (string_traits.isString(obj_type)) {
         if (static_maps.StringMethods.get(method_name)) |return_type| {
             return return_type;
         }
@@ -43,7 +46,7 @@ pub fn inferMethodCall(
     }
 
     // List methods (also handle array types since they may be promoted to list later)
-    if (obj_type == .list or obj_type == .array) {
+    if (container_traits.isList(obj_type) or obj_type == .array) {
         const method_hash = fnv_hash.hash(method_name);
         const POP_HASH = comptime fnv_hash.hash("pop");
         const INDEX_HASH = comptime fnv_hash.hash("index");
@@ -58,7 +61,7 @@ pub fn inferMethodCall(
         const REVERSE_HASH = comptime fnv_hash.hash("reverse");
 
         // Get element type (different access for list vs array)
-        const elem_type = if (obj_type == .list) obj_type.list.* else obj_type.array.element_type.*;
+        const elem_type = if (container_traits.isList(obj_type)) obj_type.list.* else obj_type.array.element_type.*;
 
         // pop() returns the element type
         if (method_hash == POP_HASH) {
@@ -83,7 +86,7 @@ pub fn inferMethodCall(
     }
 
     // Dict methods using hash-based dispatch
-    if (obj_type == .dict) {
+    if (container_traits.isDict(obj_type)) {
         const method_hash = fnv_hash.hash(method_name);
         const KEYS_HASH = comptime fnv_hash.hash("keys");
         const VALUES_HASH = comptime fnv_hash.hash("values");

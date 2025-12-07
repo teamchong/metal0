@@ -7,6 +7,9 @@ const CodegenError = @import("../main.zig").CodegenError;
 const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
 const mutation_analyzer = @import("../../../analysis/native_types/mutation_analyzer.zig");
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
 
 /// Key type inference result
 const KeyTypeResult = enum { int, string, unknown };
@@ -209,7 +212,7 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
 
     // Infer key type from first key
     const key_type = try self.type_inferrer.inferExpr(dict.keys[0]);
-    const uses_int_keys = key_type == .int;
+    const uses_int_keys = type_traits.isIntegral(key_type);
 
     try self.emit(label);
     try self.emit(": {\n");
@@ -331,7 +334,7 @@ fn getEntryValueType(self: *NativeCodegen, key: ast.Node, value: ast.Node) Codeg
     // Dict unpacking: None key signals **other_dict
     if (key == .constant and key.constant.value == .none) {
         const dict_type = try self.type_inferrer.inferExpr(value);
-        if (dict_type == .dict) {
+        if (container_traits.isDict(dict_type)) {
             return dict_type.dict.value.*;
         }
         return .unknown;
@@ -347,8 +350,8 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     for (dict.keys) |key| {
         if (key != .constant or key.constant.value != .none) {
             const key_type = try self.type_inferrer.inferExpr(key);
-            uses_int_keys = key_type == .int;
-            uses_float_keys = key_type == .float;
+            uses_int_keys = type_traits.isIntegral(key_type);
+            uses_float_keys = type_traits.isFloating(key_type);
             break;
         }
     }
@@ -401,7 +404,7 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     try self.emit(");\n");
 
     // Track if we need to convert values to strings
-    const need_str_conversion = val_type == .string;
+    const need_str_conversion = string_traits.isString(val_type);
 
     // Check if we have mixed types (need memory management)
     var has_mixed_types = false;
@@ -457,7 +460,7 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
         // If dict values are string type and this value isn't string, convert it
         if (need_str_conversion) {
             const value_type = try self.type_inferrer.inferExpr(value);
-            if (value_type != .string) {
+            if (!string_traits.isString(value_type)) {
                 try genValueToString(self, value, value_type, alloc_name);
             } else if (has_mixed_types) {
                 // For mixed-type dicts, duplicate ALL strings so we can free uniformly
@@ -498,14 +501,14 @@ fn genValueToString(
     value_type: @import("../../../analysis/native_types.zig").NativeType,
     alloc_name: []const u8,
 ) CodegenError!void {
-    if (value_type == .bool) {
+    if (type_traits.isBoolean(value_type)) {
         // Bool: use ternary for Python-style True/False
         try self.emit("try ");
         try self.emit(alloc_name);
         try self.emit(".dupe(u8, if (");
         try genExpr(self, value);
         try self.emit(") \"True\" else \"False\")");
-    } else if (value_type == .none) {
+    } else if (type_traits.isNone(value_type)) {
         // None: just use literal "None"
         try self.emit("try ");
         try self.emit(alloc_name);
@@ -514,10 +517,12 @@ fn genValueToString(
         try self.emit("try std.fmt.allocPrint(");
         try self.emit(alloc_name);
         try self.emit(", ");
-        switch (value_type) {
-            .int => try self.emit("\"{d}\""),
-            .float => try self.emit("\"{d}\""),
-            else => try self.emit("\"{any}\""),
+        if (type_traits.isIntegral(value_type)) {
+            try self.emit("\"{d}\"");
+        } else if (type_traits.isFloating(value_type)) {
+            try self.emit("\"{d}\"");
+        } else {
+            try self.emit("\"{any}\"");
         }
         try self.emit(", .{");
         try genExpr(self, value);

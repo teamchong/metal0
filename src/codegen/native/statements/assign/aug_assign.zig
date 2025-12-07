@@ -7,6 +7,11 @@ const shared = @import("../../shared_maps.zig");
 const BinaryDunders = shared.BinaryDunders;
 const InplaceDunders = shared.InplaceDunders;
 
+// Import trait functions
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../../analysis/traits/container_traits.zig");
+
 /// Simple binary operator strings (with spaces for assignment context)
 const SimpleOpStrings = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Add", " + " }, .{ "Sub", " - " }, .{ "Mult", " * " },
@@ -248,7 +253,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
             // Handle ArrayList subscript aug assign: x[i] += value
             // Generates: x.items[@as(usize, @intCast(i))] = x.items[...] OP value;
             // IMPORTANT: Check dict FIRST since dict also uses subscript
-            if (is_arraylist and !is_tracked_dict and base_type != .dict) {
+            if (is_arraylist and !is_tracked_dict and !container_traits.isDict(base_type)) {
                 // Special cases that need function calls
                 if (aug.op == .Pow) {
                     try self.genExpr(subscript.value.*);
@@ -317,7 +322,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 return;
             }
 
-            if (base_type == .dict or is_tracked_dict) {
+            if (container_traits.isDict(base_type) or is_tracked_dict) {
                 // Dict subscript aug assign: x[key] += value
                 // Generates: try base.put(key, (base.get(key).? OP value));
                 try self.emit("try ");
@@ -390,8 +395,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // Then update var_renames to redirect all 'x' references to '__x_shadow_N'
     if (aug.op == .Add and aug.value.* == .tuple) {
         const target_type = try self.inferExprScoped(aug.target.*);
-        const target_tag = @as(std.meta.Tag(@TypeOf(target_type)), target_type);
-        if (target_tag == .tuple or aug.target.* == .tuple) {
+        if (container_traits.isTuple(target_type) or aug.target.* == .tuple) {
             if (aug.target.* == .name) {
                 const var_name = aug.target.name.id;
                 // Generate unique shadow variable name
@@ -427,8 +431,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // Similar to concatenation, use const shadowing for type change
     if (aug.op == .Mult) {
         const target_type = try self.inferExprScoped(aug.target.*);
-        const target_tag = @as(std.meta.Tag(@TypeOf(target_type)), target_type);
-        if (target_tag == .tuple or aug.target.* == .tuple) {
+        if (container_traits.isTuple(target_type) or aug.target.* == .tuple) {
             if (aug.target.* == .name) {
                 const var_name = aug.target.name.id;
                 // Generate unique shadow variable name
@@ -626,11 +629,11 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
     // Python 3.9+ dict merge assignment: dict1 |= dict2/iterable (updates dict1 in-place)
     // Supports both dict |= dict and dict |= iterable_of_pairs
-    if (aug.op == .BitOr and target_type == .dict) {
+    if (aug.op == .BitOr and container_traits.isDict(target_type)) {
         const value_type = self.type_inferrer.inferExpr(aug.value.*) catch .unknown;
 
         // If RHS is a dict, iterate directly over dict entries
-        if (value_type == .dict) {
+        if (container_traits.isDict(value_type)) {
             // Generate: { const __other = dict2; var __iter = __other.iterator(); while (__iter.next()) |e| try dict1.put(e.key_ptr.*, e.value_ptr.*); }
             try self.emit("{\n");
             self.indent();
@@ -686,7 +689,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // This handles cases where RHS is not a literal list but target is a list type
     if (aug.op == .Add and aug.target.* == .name) {
         const is_arraylist = self.isArrayListVar(aug.target.name.id);
-        const is_list_type = target_type == .list or target_type == .array;
+        const is_list_type = container_traits.isList(target_type);
         const is_list_alias = self.arraylist_aliases.contains(aug.target.name.id);
 
         if (is_arraylist or is_list_type or is_list_alias) {
@@ -743,7 +746,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // IMPORTANT: This must be BEFORE "Emit target" because we're declaring a NEW variable, not reassigning
     if (aug.op == .Div) {
         // Check if target is integer type - if so, use shadow variable for type change
-        if (aug.target.* == .name and target_type == .int) {
+        if (aug.target.* == .name and type_traits.isIntegral(target_type)) {
             const var_name = aug.target.name.id;
             const current_name = self.var_renames.get(var_name) orelse var_name;
 
@@ -833,8 +836,8 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // and check if value is a fstring (f-string) which always produces string
     const value_type = try self.inferExprScoped(aug.value.*);
     const is_fstring = aug.value.* == .fstring;
-    const is_string_concat = target_type == .string or value_type == .string or is_fstring or
-        (target_type == .unknown and (value_type == .string or is_fstring));
+    const is_string_concat = string_traits.isString(target_type) or string_traits.isString(value_type) or is_fstring or
+        (type_traits.isUnknown(target_type) and (string_traits.isString(value_type) or is_fstring));
     if (aug.op == .Add and is_string_concat) {
         try self.emit("try std.mem.concat(__global_allocator, u8, &.{");
         try self.genExpr(aug.target.*);

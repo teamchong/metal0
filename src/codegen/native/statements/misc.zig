@@ -9,6 +9,8 @@ const ExceptionTypes = shared.RuntimeExceptions;
 const var_hoisting = @import("functions/var_hoisting.zig");
 const scope_analyzer = @import("functions/scope_analyzer.zig");
 const hashmap_helper = @import("utils.hashmap_helper");
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
 
 // Re-export print statement generation
 pub const genPrint = @import("print.zig").genPrint;
@@ -287,7 +289,7 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
                     .index => |idx| {
                         // Check if it's a list (ArrayList) or dict
                         const container_type = try self.inferExprScoped(sub.value.*);
-                        const is_list = container_type == .list or container_type == .array or
+                        const is_list = container_traits.isList(container_type) or container_type == .array or
                             (sub.value.* == .name and self.isArrayListVar(sub.value.name.id));
 
                         try self.emit("_ = ");
@@ -397,7 +399,7 @@ pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenErro
 
     // Check if condition is a simple bool type that doesn't need toBool wrapper
     const cond_type = self.inferExprScoped(assert_node.condition.*) catch .unknown;
-    const is_simple_bool = cond_type == .bool;
+    const is_simple_bool = type_traits.isBoolean(cond_type);
 
     try self.emitIndent();
     if (is_simple_bool) {

@@ -7,6 +7,11 @@ const helpers = @import("../assign_helpers.zig");
 const deferCleanup = @import("../assign_defer.zig");
 const zig_keywords = @import("utils.zig_keywords");
 
+// Trait imports for type checking
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../../analysis/traits/container_traits.zig");
+
 /// Generate tuple unpacking assignment: a, b = (1, 2)
 pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tuple: ast.Node.Tuple) CodegenError!void {
     const core = @import("../../main/core.zig");
@@ -57,11 +62,11 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
 
             // Register the type for this unpacked variable
             // Extract element type from source tuple if available
-            if (source_tag == .tuple) {
+            if (container_traits.isTuple(source_type)) {
                 if (i < source_type.tuple.len) {
                     try self.type_inferrer.var_types.put(var_name, source_type.tuple[i]);
                 }
-            } else if (source_tag == .list) {
+            } else if (container_traits.isList(source_type)) {
                 try self.type_inferrer.var_types.put(var_name, source_type.list.*);
             } else if (source_tag == .array) {
                 try self.type_inferrer.var_types.put(var_name, source_type.array.element_type.*);
@@ -254,11 +259,11 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             const is_first_assignment = !self.isDeclared(var_name);
 
             // Register element type for unpacked variable
-            if (source_tag == .tuple) {
+            if (container_traits.isTuple(source_type)) {
                 if (i < source_type.tuple.len) {
                     try self.type_inferrer.var_types.put(var_name, source_type.tuple[i]);
                 }
-            } else if (source_tag == .list) {
+            } else if (container_traits.isList(source_type)) {
                 try self.type_inferrer.var_types.put(var_name, source_type.list.*);
             } else if (source_tag == .array) {
                 try self.type_inferrer.var_types.put(var_name, source_type.array.element_type.*);
@@ -482,11 +487,11 @@ pub fn emitVarDeclaration(
     // EXCEPTION: bigint requires explicit type annotation because initial value (small int) won't match
     const is_int = (value_type == .int);
     const is_bigint = (value_type == .bigint);
-    const is_list = (value_type == .list);
-    const is_tuple = (value_type == .tuple);
+    const is_list = container_traits.isList(value_type);
+    const is_tuple = container_traits.isTuple(value_type);
     const is_closure = (value_type == .closure);
     const is_function = (value_type == .function); // Lambdas/closures - don't use *const fn type annotation
-    const is_dict_type = (value_type == .dict);
+    const is_dict_type = container_traits.isDict(value_type);
     const is_counter = (value_type == .counter);
     const is_deque = (value_type == .deque);
     const is_class_instance = (value_type == .class_instance);
@@ -499,7 +504,7 @@ pub fn emitVarDeclaration(
     }
 
     // For functions (lambdas), never emit *const fn type annotation - closures can't be coerced to function pointers
-    if (value_type != .unknown and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_function and !is_counter and !is_deque and !is_class_instance and !is_int) {
+    if (!type_traits.isUnknown(value_type) and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_function and !is_counter and !is_deque and !is_class_instance and !is_int) {
         try self.emit(": ");
         try value_type.toZigType(self.allocator, &self.output);
     }
@@ -527,7 +532,7 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
             self.type_inferrer.var_types.get(var_name);
         if (var_type) |vt| {
             // Extract element type from list type
-            if (vt == .list) {
+            if (container_traits.isList(vt)) {
                 // Get the element type from the list
                 break :blk vt.list.*;
             }

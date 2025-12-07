@@ -14,6 +14,11 @@ const zig_keywords = @import("utils.zig_keywords");
 const hashmap_helper = @import("utils.hashmap_helper");
 const build_dirs = @import("../../../build_dirs.zig");
 
+// Import trait modules for type checking
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
+
 // Comptime constants for code generation (zero runtime cost)
 const BUILD_DIR = build_dirs.CACHE;
 const MODULE_EXT = ".zig";
@@ -730,11 +735,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     const dict_type = self.type_inferrer.var_types.get(var_name);
                     var value_tag_str: ?[]const u8 = null;
                     if (dict_type) |dt| {
-                        if (@as(std.meta.Tag(@TypeOf(dt)), dt) == .dict) {
+                        if (container_traits.isDict(dt)) {
                             const value_type = dt.dict.value.*;
-                            const vt = @as(std.meta.Tag(@TypeOf(value_type)), value_type);
-                            if (vt == .string) value_tag_str = "string";
-                            if (vt == .float) value_tag_str = "float";
+                            if (string_traits.isString(value_type)) value_tag_str = "string";
+                            if (type_traits.isFloating(value_type)) value_tag_str = "float";
                         }
                     }
 
@@ -758,7 +762,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                                             // Variable reference - might be string, default to generic
                                             // Check type inference if available
                                             const val_type = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
-                                            if (@as(std.meta.Tag(@TypeOf(val_type)), val_type) == .string) {
+                                            if (string_traits.isString(val_type)) {
                                                 dict_value_type = "[]const u8";
                                             }
                                         }
@@ -963,7 +967,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 break :blk ctn;
             } else if (var_type) |vt| blk: {
                 // Check if this is a dict that needs type override based on mutations
-                if (@as(std.meta.Tag(@TypeOf(vt)), vt) == .dict) {
+                if (container_traits.isDict(vt)) {
                     // If this dict is copied from another dict, inherit its corrected type
                     if (copy_source_dict) |source_name| {
                         if (self.mutation_info) |mut_info| {
@@ -991,14 +995,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             // Empty dicts default to unknown value type, which should be i64
                             // to match dict.zig codegen (d = {} with d[i] = x typically has int values)
                             const value_type = vt.dict.value.*;
-                            const value_tag = @as(std.meta.Tag(@TypeOf(value_type)), value_type);
-                            if (value_tag == .int) {
+                            if (type_traits.isIntegral(value_type)) {
                                 break :blk "std.AutoHashMap(i64, i64)";
-                            } else if (value_tag == .float) {
+                            } else if (type_traits.isFloating(value_type)) {
                                 break :blk "std.AutoHashMap(i64, f64)";
-                            } else if (value_tag == .string) {
+                            } else if (string_traits.isString(value_type)) {
                                 break :blk "std.AutoHashMap(i64, []const u8)";
-                            } else if (value_tag == .unknown) {
+                            } else if (type_traits.isUnknown(value_type)) {
                                 // Empty dict with int keys defaults to i64 values
                                 // (matches dict.zig:61 behavior)
                                 break :blk "std.AutoHashMap(i64, i64)";
@@ -1011,14 +1014,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             // Empty dicts default to unknown value type, which should be i64
                             // to match dict.zig codegen (d['key'] = 1 typically has int values)
                             const value_type = vt.dict.value.*;
-                            const value_tag = @as(std.meta.Tag(@TypeOf(value_type)), value_type);
-                            if (value_tag == .int) {
+                            if (type_traits.isIntegral(value_type)) {
                                 break :blk "hashmap_helper.StringHashMap(i64)";
-                            } else if (value_tag == .float) {
+                            } else if (type_traits.isFloating(value_type)) {
                                 break :blk "hashmap_helper.StringHashMap(f64)";
-                            } else if (value_tag == .string) {
+                            } else if (string_traits.isString(value_type)) {
                                 break :blk "hashmap_helper.StringHashMap([]const u8)";
-                            } else if (value_tag == .unknown) {
+                            } else if (type_traits.isUnknown(value_type)) {
                                 // Empty dict with string keys defaults to i64 values
                                 // (matches dict.zig behavior for empty dicts with str key mutations)
                                 break :blk "hashmap_helper.StringHashMap(i64)";

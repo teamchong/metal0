@@ -216,9 +216,9 @@ pub fn inferExprWithInferrer(
                         break :blk .{ .int = .bounded };
                     } else if (obj_type == .array) {
                         break :blk obj_type.array.element_type.*;
-                    } else if (obj_type == .list) {
+                    } else if (container_traits.isList(obj_type)) {
                         break :blk obj_type.list.*;
-                    } else if (obj_type == .dict) {
+                    } else if (container_traits.isDict(obj_type)) {
                         // Return the dict's value type
                         // Note: Codegen converts mixed-type dicts to string dicts
                         break :blk obj_type.dict.value.*;
@@ -253,7 +253,7 @@ pub fn inferExprWithInferrer(
                     } else if (obj_type == .array) {
                         // Array slices become lists (dynamic)
                         break :blk .{ .list = obj_type.array.element_type };
-                    } else if (obj_type == .list) {
+                    } else if (container_traits.isList(obj_type)) {
                         break :blk obj_type;
                     } else {
                         break :blk .unknown;
@@ -447,7 +447,7 @@ pub fn inferExprWithInferrer(
                 if (d.keys[0] == .constant and d.keys[0].constant.value == .none) {
                     // Dict unpacking - get type from the unpacked dict
                     const unpacked_type = try inferExpr(allocator, var_types, class_fields, func_return_types, d.values[0]);
-                    if (unpacked_type == .dict) {
+                    if (container_traits.isDict(unpacked_type)) {
                         val_type = unpacked_type.dict.value.*;
                     } else {
                         val_type = .unknown;
@@ -462,7 +462,7 @@ pub fn inferExprWithInferrer(
                     if (key == .constant and key.constant.value == .none) {
                         // Dict unpacking
                         const unpacked_type = try inferExpr(allocator, var_types, class_fields, func_return_types, value);
-                        if (unpacked_type == .dict) {
+                        if (container_traits.isDict(unpacked_type)) {
                             this_type = unpacked_type.dict.value.*;
                         } else {
                             this_type = .unknown;

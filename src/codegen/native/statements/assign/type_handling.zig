@@ -5,6 +5,11 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const shared = @import("../../shared_maps.zig");
 const AllocatingStringMethods = shared.AllocatingStringMethods;
 
+// Import trait functions
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../../analysis/traits/container_traits.zig");
+
 /// Check if a list contains only literal values
 pub fn isConstantList(list: ast.Node.List) bool {
     if (list.elts.len == 0) return false;
@@ -71,7 +76,7 @@ pub fn isArrayList(self: *NativeCodegen, assign: ast.Node.Assign, var_name: []co
     // (arraylist_vars is module-scoped so may have stale entries from other functions)
     if (assign.value.* == .name) {
         const rhs_type = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
-        const is_list_type = rhs_type == .list or rhs_type == .array;
+        const is_list_type = container_traits.isList(rhs_type) or rhs_type == .array;
         if (is_list_type and self.isArrayListVar(assign.value.name.id)) {
             return true;
         }
@@ -84,7 +89,7 @@ pub fn isArrayList(self: *NativeCodegen, assign: ast.Node.Assign, var_name: []co
     // Type annotations take priority over value inference
     const var_type = self.type_inferrer.var_types.get(var_name);
     if (var_type) |vt| {
-        if (vt == .list) {
+        if (container_traits.isList(vt)) {
             return true; // Explicit list[T] annotation -> ArrayList
         }
     }
@@ -111,7 +116,7 @@ pub fn isAllocatedString(self: *NativeCodegen, value: ast.Node) bool {
             const attr = value.call.func.attribute;
             const obj_type = self.type_inferrer.inferExpr(attr.value.*) catch return false;
 
-            if (obj_type == .string) {
+            if (string_traits.isString(obj_type)) {
                 if (AllocatingStringMethods.has(attr.attr)) return true;
             }
         }
@@ -129,7 +134,7 @@ pub fn isAllocatedString(self: *NativeCodegen, value: ast.Node) bool {
     if (value == .binop and value.binop.op == .Add) {
         const left_type = self.type_inferrer.inferExpr(value.binop.left.*) catch return false;
         const right_type = self.type_inferrer.inferExpr(value.binop.right.*) catch return false;
-        if (left_type == .string or right_type == .string) {
+        if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
             return true;
         }
     }

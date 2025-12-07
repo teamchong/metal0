@@ -10,6 +10,10 @@ const producesBlockExpression = expressions_mod.producesBlockExpression;
 const self_analyzer = @import("../statements/functions/self_analyzer.zig");
 const UnittestAssertions = self_analyzer.unittest_assertion_methods;
 
+// Trait imports for type checking
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+
 const FloatClassMethods = std.StaticStringMap([]const u8).initComptime(.{
     .{ "fromhex", "runtime.floatFromHex" },
     .{ "hex", "runtime.floatToHex" },
@@ -98,7 +102,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             } else {
                 // Check if the index is a string - if so, generate runtime TypeError
                 const index_type = try self.type_inferrer.inferExpr(subscript.slice.index.*);
-                const index_is_string = (index_type == .string);
+                const index_is_string = string_traits.isString(index_type);
 
                 if (index_is_string) {
                     // Generate code that raises TypeError at runtime
@@ -461,7 +465,7 @@ fn isDynamicAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
     var obj_type = try self.type_inferrer.inferExpr(attr.value.*);
 
     // If type is unknown, check nested_class_instances
-    if (obj_type == .unknown) {
+    if (type_traits.isUnknown(obj_type)) {
         if (self.nested_class_instances.get(obj_name)) |class_name| {
             obj_type = .{ .class_instance = class_name };
         }

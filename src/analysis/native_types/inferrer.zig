@@ -6,6 +6,7 @@ const expressions = @import("expressions.zig");
 const hashmap_helper = @import("utils.hashmap_helper");
 const closures = @import("closures.zig");
 const mutation_analyzer = @import("mutation_analyzer.zig");
+const type_traits = @import("../traits/type_traits.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -439,7 +440,7 @@ pub const TypeInferrer = struct {
         for (func_def.args) |arg| {
             var param_type = try core.pythonTypeHintToNative(arg.type_annotation, arena_alloc);
             // Default to int if no type annotation (most common Python numeric type)
-            if (param_type == .unknown) {
+            if (type_traits.isUnknown(param_type)) {
                 param_type = .{ .int = .bounded };
             }
             try self.putScopedVar(arg.name, param_type);
@@ -462,7 +463,7 @@ pub const TypeInferrer = struct {
         const current_type = self.func_return_types.get(func_def.name) orelse .unknown;
 
         // Only infer if no annotation was provided (type is unknown)
-        if (current_type == .unknown) {
+        if (type_traits.isUnknown(current_type)) {
             // Find return statement in function body (recursively including match statements)
             if (try self.findReturnTypeInBody(func_def.body)) |inferred_type| {
                 try self.func_return_types.put(func_def.name, inferred_type);

@@ -13,6 +13,11 @@ const shared = @import("../shared_maps.zig");
 const RuntimeExceptions = shared.RuntimeExceptions;
 const NativeType = @import("../../../analysis/native_types/core.zig").NativeType;
 
+// Import trait functions for type checking
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
+
 fn isRuntimeExceptionType(name: []const u8) bool {
     return RuntimeExceptions.has(name);
 }
@@ -117,7 +122,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
                 const arg_type = try self.type_inferrer.inferExpr(arg);
-                if (arg_type == .string) {
+                if (string_traits.isString(arg_type)) {
                     try genExpr(self, arg);
                     try self.emit(".ptr");
                 } else {
@@ -295,7 +300,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
                 const arg_type = try self.type_inferrer.inferExpr(arg);
-                if (arg_type == .string) {
+                if (string_traits.isString(arg_type)) {
                     // Convert Python string to C string pointer
                     try genExpr(self, arg);
                     try self.emit(".ptr");
@@ -1179,7 +1184,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     const param_type = if (kwarg_key) |key| self.type_inferrer.var_types.get(key) else null;
 
                     if (param_type) |pt| {
-                        if (pt == .unknown and kwarg.value == .tuple) {
+                        if (type_traits.isUnknown(pt) and kwarg.value == .tuple) {
                             // Tuple arg to PyObject param - dynamically typed, use undefined placeholder
                             // This field will be set at runtime via __dict__ or similar mechanism
                             try self.emit("undefined");

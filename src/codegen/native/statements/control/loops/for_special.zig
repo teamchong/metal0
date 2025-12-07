@@ -6,6 +6,7 @@ const CodegenError = @import("../../../main.zig").CodegenError;
 const zig_keywords = @import("utils.zig_keywords");
 const param_analyzer = @import("../../functions/param_analyzer.zig");
 const for_basic = @import("for_basic.zig");
+const container_traits = @import("../../../../../analysis/traits/container_traits.zig");
 
 /// Generate enumerate loop
 pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []ast.Node) CodegenError!void {
@@ -97,13 +98,13 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     const iter_type = try self.type_inferrer.inferExpr(iterable);
 
     // If iterating over list literal, wrap in parens for .items access
-    if (iter_type == .list and iterable == .list) {
+    if (container_traits.isList(iter_type) and iterable == .list) {
         try self.emit("(");
         try self.genExpr(iterable);
         try self.emit(").items");
     } else {
         try self.genExpr(iterable);
-        if (iter_type == .list) {
+        if (container_traits.isList(iter_type)) {
             try self.emit(".items");
         }
     }
@@ -245,7 +246,7 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
 
     for (args, 0..) |iterable, i| {
         const iter_type = try self.type_inferrer.inferExpr(iterable);
-        iter_is_list[i] = (iter_type == .list);
+        iter_is_list[i] = container_traits.isList(iter_type);
     }
 
     // Store each iterable in a temporary variable: const __zip_iter_N = ...

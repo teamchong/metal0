@@ -6,6 +6,11 @@ const inferrer_mod = @import("inferrer.zig");
 const expressions = @import("expressions.zig");
 const TypeInferrer = inferrer_mod.TypeInferrer;
 
+// Import trait modules
+const type_traits = @import("../traits/type_traits.zig");
+const container_traits = @import("../traits/container_traits.zig");
+const string_traits = @import("../traits/string_traits.zig");
+
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
 pub const ClassInfo = core.ClassInfo;
@@ -85,9 +90,9 @@ pub fn visitStmtScoped(
                     } else {
                         // Legacy mode: use global var_types with widening
                         if (var_types.get(var_name)) |existing_type| {
-                            if (existing_type == .unknown and value_type != .unknown) {
+                            if (type_traits.isUnknown(existing_type) and !type_traits.isUnknown(value_type)) {
                                 try var_types.put(var_name, value_type);
-                            } else if (existing_type != .unknown and value_type == .unknown) {
+                            } else if (!type_traits.isUnknown(existing_type) and type_traits.isUnknown(value_type)) {
                                 // Keep existing specific type over unknown
                             } else {
                                 const widened = existing_type.widen(value_type);
@@ -153,7 +158,7 @@ pub fn visitStmtScoped(
             var_type = try core.parseTypeAnnotation(annot_node, allocator);
 
             // 2. Fall back to value inference
-            if (var_type == .unknown and ann_assign.value != null) {
+            if (type_traits.isUnknown(var_type) and ann_assign.value != null) {
                 var_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, ann_assign.value.?.*, type_inferrer);
             }
 
@@ -199,7 +204,7 @@ pub fn visitStmtScoped(
                                             if (getter.return_type) |type_str| {
                                                 return_type = try core.pythonTypeHintToNative(type_str, allocator);
                                             }
-                                            if (return_type == .unknown) {
+                                            if (type_traits.isUnknown(return_type)) {
                                                 for (getter.body) |body_stmt| {
                                                     if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
                                                         return_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*, type_inferrer);
@@ -252,7 +257,7 @@ pub fn visitStmtScoped(
                                                 // Method 2: Try keyword arg lookup first (has proper type widening)
                                                 // Stored as "ClassName.param_name" in var_types, widened across all calls
                                                 var found_kwarg_type = false;
-                                                if (field_type == .unknown) {
+                                                if (type_traits.isUnknown(field_type)) {
                                                     var kwarg_key_buf: [256]u8 = undefined;
                                                     const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_def.name, arg.name }) catch null;
                                                     if (kwarg_key) |key| {
@@ -265,7 +270,7 @@ pub fn visitStmtScoped(
 
                                                 // Method 3: If keyword lookup didn't find anything, use positional constructor call arg types
                                                 // Note: Don't overwrite if Method 2 found .unknown (means widened incompatible types)
-                                                if (!found_kwarg_type and field_type == .unknown) {
+                                                if (!found_kwarg_type and type_traits.isUnknown(field_type)) {
                                                     if (constructor_arg_types) |arg_types| {
                                                         // param_idx includes 'self', so subtract 1 for arg index
                                                         const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
@@ -317,7 +322,7 @@ pub fn visitStmtScoped(
                     var return_type = try core.pythonTypeHintToNative(method.return_type, allocator);
 
                     // If no annotation (unknown), infer from return statements
-                    if (return_type == .unknown) {
+                    if (type_traits.isUnknown(return_type)) {
                         for (method.body) |body_stmt| {
                             if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
                                 return_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*, type_inferrer);
@@ -445,9 +450,9 @@ pub fn visitStmtScoped(
                     const iter_type = expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, for_stmt.iter.*, type_inferrer) catch .unknown;
 
                     // If method returns a list of tuples, unpack the tuple element types
-                    if (iter_type == .list) {
+                    if (container_traits.isList(iter_type)) {
                         const elem_type = iter_type.list.*;
-                        if (elem_type == .tuple) {
+                        if (container_traits.isTuple(elem_type)) {
                             // Unpack tuple element types to target variables
                             const tuple_types = elem_type.tuple;
                             for (targets, 0..) |target, i| {
@@ -505,7 +510,7 @@ pub fn visitStmtScoped(
                         // dict.values() - get value type from dict
                         if (obj == .name) {
                             const dict_type = var_types.get(obj.name.id) orelse .unknown;
-                            if (dict_type == .dict) {
+                            if (container_traits.isDict(dict_type)) {
                                 try putForVarType(var_types, type_inferrer, target_name, dict_type.dict.value.*);
                             }
                         }
@@ -579,7 +584,7 @@ pub fn visitStmtScoped(
             // the int defaults set by inferFunctionReturnTypes
             for (func_def.args) |arg| {
                 const param_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
-                if (param_type == .unknown) continue; // Don't overwrite existing types with unknown
+                if (type_traits.isUnknown(param_type)) continue; // Don't overwrite existing types with unknown
                 if (type_inferrer) |ti| {
                     try ti.putScopedVar(arg.name, param_type);
                 } else {
@@ -591,7 +596,7 @@ pub fn visitStmtScoped(
             for (func_def.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
 
             // If no annotation (unknown), infer from return statements AFTER visiting body
-            if (return_type == .unknown) {
+            if (type_traits.isUnknown(return_type)) {
                 for (func_def.body) |body_stmt| {
                     if (body_stmt == .return_stmt and body_stmt.return_stmt.value != null) {
                         return_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, body_stmt.return_stmt.value.?.*, type_inferrer);
@@ -601,7 +606,7 @@ pub fn visitStmtScoped(
             }
 
             const existing = func_return_types.get(func_def.name);
-            if (existing == null or existing.? == .unknown) {
+            if (existing == null or type_traits.isUnknown(existing.?)) {
                 // Only set if no existing type or existing is unknown
                 try func_return_types.put(func_def.name, return_type);
             }

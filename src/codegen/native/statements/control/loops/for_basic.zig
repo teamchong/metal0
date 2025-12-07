@@ -9,6 +9,9 @@ const genZipLoop = for_special.genZipLoop;
 const zig_keywords = @import("utils.zig_keywords");
 const producesBlockExpression = @import("../../../expressions.zig").producesBlockExpression;
 const triggerDeferredClosureInstantiations = @import("../../assign.zig").triggerDeferredClosureInstantiations;
+const string_traits = @import("../../../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../../../analysis/traits/container_traits.zig");
+const type_traits = @import("../../../../../analysis/traits/type_traits.zig");
 
 /// Sanitize Python variable name for Zig (e.g., "_" -> "_unused")
 fn sanitizeVarName(name: []const u8) []const u8 {
@@ -362,7 +365,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     const is_method_call = iter == .call and iter.call.func.* == .attribute;
 
     // If iterating over list (including method calls that return lists), add .items
-    if (iter_type == .list) {
+    if (container_traits.isList(iter_type)) {
         // Check if this is a slice subscript - slices return []T directly, not ArrayList
         const is_slice = if (iter == .subscript) blk: {
             const sub = iter.subscript;
@@ -543,7 +546,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Special case: tuple iteration requires inline for (comptime)
     // Python for-loop variables persist after the loop, so we declare before
     // and assign inside to make the variable available after the loop ends.
-    if (iter_type == .tuple) {
+    if (container_traits.isTuple(iter_type)) {
         // Declare variable before loop so it persists after (Python semantics)
         // Only declare if not already declared in current scope (handles reuse like `for index in ...` twice)
         // Also skip if variable was hoisted at function start (avoids redeclaration)
@@ -563,7 +566,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                     try self.emit(": bool = undefined;\n");
                 } else if (first_elem_type == .float) {
                     try self.emit(": f64 = undefined;\n");
-                } else if (@as(std.meta.Tag(@TypeOf(first_elem_type)), first_elem_type) == .string) {
+                } else if (string_traits.isString(first_elem_type)) {
                     // String literals have length in type - use []const u8 for flexibility
                     try self.emit(": []const u8 = undefined;\n");
                 } else {
@@ -714,7 +717,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     try self.emitIndent();
 
     // Handle dict iteration - iterate over .keys()
-    if (iter_type == .dict) {
+    if (container_traits.isDict(iter_type)) {
         try self.emit("for (");
         try self.genExpr(for_stmt.iter.*);
         try self.emit(".keys()) |");
@@ -802,7 +805,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Handle string iteration - Python yields single-char strings, Zig yields bytes
     // Convert to index-based iteration that yields single-char slices
-    if (@as(std.meta.Tag(@TypeOf(iter_type)), iter_type) == .string) {
+    if (string_traits.isString(iter_type)) {
         // Generate: { const __str = <expr>; for (0..__str.len) |__i| { const c = __str[__i..][0..1]; ... } }
         const label_id = self.block_label_counter;
         self.block_label_counter += 1;
@@ -861,7 +864,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Handle PyObject iteration (e.g., from json.load() returning PyList)
     // Use while loop with runtime.PyList.getItem() since we can't use Zig for-each on PyObject
-    if (iter_type == .unknown) {
+    if (type_traits.isUnknown(iter_type)) {
         // Generate: var __i: usize = 0; const __len = runtime.PyList.len(iter);
         //           while (__i < __len) : (__i += 1) { const var = try runtime.PyList.getItem(iter, __i); ... }
         const label_id = self.block_label_counter;
@@ -1016,17 +1019,17 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     if (is_constant_array or is_array_var) {
         // Constant array or array variable - iterate directly
         try self.genExpr(for_stmt.iter.*);
-    } else if (iter_type == .list and for_stmt.iter.* == .list) {
+    } else if (container_traits.isList(iter_type) and for_stmt.iter.* == .list) {
         // Inline ArrayList literal - wrap in parens for .items access
         try self.emit("(");
         try self.genExpr(for_stmt.iter.*);
         try self.emit(").items");
-    } else if (iter_type == .list and for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .attribute) {
+    } else if (container_traits.isList(iter_type) and for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .attribute) {
         // Method call that returns ArrayList - wrap in parens for .items access
         try self.emit("(");
         try self.genExpr(for_stmt.iter.*);
         try self.emit(").items");
-    } else if ((iter_type == .list or iter_type == .deque) and for_stmt.iter.* == .call) {
+    } else if ((container_traits.isList(iter_type) or iter_type == .deque) and for_stmt.iter.* == .call) {
         // Function call that returns ArrayList (like chain(a, b)) - wrap in parens for .items access
         try self.emit("(");
         try self.genExpr(for_stmt.iter.*);
@@ -1034,7 +1037,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     } else {
         // ArrayList (list or deque types) need .items for iteration
         // Block expressions (listcomp, etc.) need to be wrapped in a temp variable
-        if (iter_type == .list or iter_type == .deque) {
+        if (container_traits.isList(iter_type) or iter_type == .deque) {
             // Check if this is a slice subscript - slices return []T directly, not ArrayList
             const is_slice = if (for_stmt.iter.* == .subscript) blk: {
                 const sub = for_stmt.iter.subscript;
@@ -1153,7 +1156,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // If iterating over a list of callables (PyCallable), register loop var as callable
     // This enables .call() syntax for calls like f(arg) -> f.call(arg)
     // Also register in var_types for type inference of call return values
-    if (@as(std.meta.Tag(@TypeOf(iter_type)), iter_type) == .list) {
+    if (container_traits.isList(iter_type)) {
         if (@as(std.meta.Tag(@TypeOf(iter_type.list.*)), iter_type.list.*) == .callable) {
             // Register loop variable as callable for .call() generation
             const owned_name = try self.allocator.dupe(u8, var_name);
