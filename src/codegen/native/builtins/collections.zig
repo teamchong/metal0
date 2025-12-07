@@ -79,7 +79,7 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Infer iterable type
     const iterable_type = try self.inferExprScoped(iterable);
-    const needs_items = @as(std.meta.Tag(@TypeOf(iterable_type)), iterable_type) == .list;
+    const needs_items = container_traits.isList(iterable_type);
 
     // Generate block that builds list of (index, value) tuples
     try self.emit("(enum_blk: {\n");
@@ -460,7 +460,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Check iterable type to determine if we need .items for ArrayList
     const iterable_type = try self.inferExprScoped(iterable);
-    const needs_items = @as(std.meta.Tag(@TypeOf(iterable_type)), iterable_type) == .list;
+    const needs_items = container_traits.isList(iterable_type);
 
     // Check for known method patterns: map(str.strip, items) or map(str.split, items)
     if (func == .attribute) {
