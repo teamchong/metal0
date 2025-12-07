@@ -20,13 +20,11 @@ const MODULE_EXT = ".zig";
 const IMPORT_PREFIX = "./";
 const MAIN_NAME = "__main__";
 
-// Import paths for mirrored cache structure
-// Generated user code is placed at .metal0/cache/{name}.zig
-// Runtime files are mirrored at .metal0/cache/packages/runtime/src/
-// Utils are mirrored at .metal0/cache/src/utils/
-const RUNTIME_IMPORT = "packages/runtime/src/runtime.zig";
-const RUNTIME_PREFIX = "packages/runtime/src/";
-const UTILS_PREFIX = "src/utils/";
+// Import paths using module names (defined via -M flags in compiler.zig)
+// No file paths needed - Zig resolves modules via -M flags at compile time
+const RUNTIME_IMPORT = "runtime";
+const RUNTIME_PREFIX = "runtime.";  // For submodules like runtime.string_utils
+const UTILS_PREFIX = "utils.";      // For utils.hashmap_helper, utils.allocator_helper
 
 /// Generate native Zig code for module
 pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
@@ -169,15 +167,16 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // Always import std and runtime - DCE removes if unused
     try self.emit("const std = @import(\"std\");\n");
-    try self.emit("const runtime = @import(\"" ++ RUNTIME_IMPORT ++ "\");\n");
+    try self.emit("const runtime = @import(\"runtime\");\n");
     if (analysis.needs_string_utils) {
-        try self.emit("const string_utils = @import(\"" ++ RUNTIME_PREFIX ++ "runtime/string_utils.zig\");\n");
+        // string_utils is a submodule of runtime, access via runtime.string_utils
+        try self.emit("const string_utils = runtime.string_utils;\n");
     }
     if (analysis.needs_hashmap_helper) {
-        try self.emit("const hashmap_helper = @import(\"" ++ UTILS_PREFIX ++ "hashmap_helper.zig\");\n");
+        try self.emit("const hashmap_helper = @import(\"utils.hashmap_helper\");\n");
     }
     // Always import allocator_helper - needs_allocator defaults to true and most code uses it
-    try self.emit("const allocator_helper = @import(\"" ++ UTILS_PREFIX ++ "allocator_helper.zig\");\n");
+    try self.emit("const allocator_helper = @import(\"utils.allocator_helper\");\n");
 
     // Emit @import statements for compiled user/stdlib modules (collected in PHASE 1.6)
     for (inlined_modules.items) |import_stmt| {
@@ -195,7 +194,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // PHASE 3.6: Generate c_interop import if C extension modules are used
     if (self.c_extension_modules.count() > 0) {
-        try self.emit("const c_interop = @import(\"packages/c_interop/src/c_interop.zig\");\n");
+        try self.emit("const c_interop = @import(\"c_interop\");\n");
     }
 
     // PHASE 3.7: Emit module assignments for registry modules
@@ -1246,15 +1245,15 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
         // Add imports
         try self.emit("const std = @import(\"std\");\n");
-        try self.emit("const runtime = @import(\"" ++ RUNTIME_IMPORT ++ "\");\n");
+        try self.emit("const runtime = @import(\"runtime\");\n");
         if (analysis.needs_string_utils) {
-            try self.emit("const string_utils = @import(\"" ++ RUNTIME_PREFIX ++ "runtime/string_utils.zig\");\n");
+            try self.emit("const string_utils = runtime.string_utils;\n");
         }
         if (analysis.needs_hashmap_helper) {
-            try self.emit("const hashmap_helper = @import(\"" ++ UTILS_PREFIX ++ "hashmap_helper.zig\");\n");
+            try self.emit("const hashmap_helper = @import(\"utils.hashmap_helper\");\n");
         }
         // Always import allocator_helper (matches the non-lambda path)
-        try self.emit("const allocator_helper = @import(\"" ++ UTILS_PREFIX ++ "allocator_helper.zig\");\n");
+        try self.emit("const allocator_helper = @import(\"utils.allocator_helper\");\n");
 
         // Add module imports (Phase 3.7 copy for lambda path)
         // First, emit @import for compiled Python modules

@@ -225,9 +225,9 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("unittest", .zig_runtime, "runtime.unittest", null);
 
     // Tier 2: C library wrappers (CPython stdlib modules only)
-    try registry.registerWithMeta("sqlite3", .c_library, "@import(\"packages/c_interop/src/c_interop.zig\").sqlite3", "sqlite3", false, &Sqlite3FuncMeta);
-    try registry.registerWithMeta("zlib", .c_library, "@import(\"packages/c_interop/src/c_interop.zig\").zlib", "z", false, &ZlibFuncMeta);
-    try registry.register("ssl", .c_library, "@import(\"packages/c_interop/src/c_interop.zig\").ssl", "ssl");
+    try registry.registerWithMeta("sqlite3", .c_library, "@import(\"c_interop\").sqlite3", "sqlite3", false, &Sqlite3FuncMeta);
+    try registry.registerWithMeta("zlib", .c_library, "@import(\"c_interop\").zlib", "z", false, &ZlibFuncMeta);
+    try registry.register("ssl", .c_library, "@import(\"c_interop\").ssl", "ssl");
     try registry.register("hashlib", .zig_runtime, "runtime.hashlib", null); // Uses Zig std.crypto
     try registry.register("io", .zig_runtime, "runtime.io", null); // io.StringIO, io.BytesIO
     try registry.register("struct", .zig_runtime, "std", null); // struct module is inline codegen

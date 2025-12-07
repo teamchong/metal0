@@ -7,7 +7,9 @@ const hashmap_helper = @import("utils.hashmap_helper");
 const CompileOptions = @import("../main.zig").CompileOptions;
 const utils = @import("utils.zig");
 const compile = @import("compile.zig");
+const compiler = @import("../compiler.zig");
 const pkg = @import("pkg");
+const build_dirs = @import("../build_dirs.zig");
 
 // Access wasmedge via metal0 module (mirrors Python's "from metal0 import wasmedge")
 const wasmedge = metal0.wasmedge;
@@ -1400,11 +1402,13 @@ fn cmdRunFile(allocator: std.mem.Allocator, args: []const []const u8) !void {
     try compile.compileFile(allocator, opts);
 }
 
-/// Setup runtime files in .metal0/cache/ (Phase 0 for batch compilation)
+/// Setup runtime (no-op with module flags, kept for backward compatibility)
 fn cmdSetupRuntime(allocator: std.mem.Allocator) !void {
-    const compiler_mod = @import("../compiler.zig");
-    try compiler_mod.setupRuntimeFiles(allocator);
-    printSuccess("Runtime files ready in .metal0/cache/", .{});
+    _ = allocator;
+    // With -M module flags, runtime is compiled directly from source
+    // No file copying needed - just ensure directories exist
+    try build_dirs.init();
+    printSuccess("Runtime ready (using -M module flags)", .{});
 }
 
 /// Build runtime static archive (.a) for fast linking
@@ -1631,10 +1635,6 @@ fn cmdBuildFast(allocator: std.mem.Allocator, args: []const []const u8) !void {
 ///   metal0 test tests/cpython --timeout=30       # 30s per test
 ///   metal0 test tests/cpython --bail=5           # Stop after 5 failures
 fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    const incremental = @import("compile/incremental.zig");
-    const build_dirs = @import("../build_dirs.zig");
-    const compiler_mod = @import("../compiler.zig");
-
     // Parse options
     var test_dir: []const u8 = "tests/cpython";
     var timeout_sec: u64 = 60; // Default 60s per test
@@ -1718,9 +1718,8 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         if (filter_pattern) |f| std.debug.print("Filter: {s}\n", .{f});
     }
 
-    // Phase 0: Setup runtime + ensure cache dirs exist
+    // Phase 0: Ensure cache dirs exist (runtime uses -M module flags, no file copying)
     try build_dirs.init();
-    try compiler_mod.setupRuntimeFiles(allocator);
 
     // Ensure bin output dir exists
     std.fs.cwd().makeDir(".metal0/bin") catch |err| {
@@ -1826,10 +1825,6 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         bin_paths.deinit(allocator);
     }
 
-    // Pre-allocate reusable arg strings to avoid leaks
-    const include_arg = try std.fmt.allocPrint(allocator, "-I{s}", .{build_dirs.CACHE});
-    defer allocator.free(include_arg);
-
     for (zig_files.items) |zig_path| {
         // Check if zig file exists
         std.fs.cwd().access(zig_path, .{}) catch continue;
@@ -1837,45 +1832,28 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         const basename = std.fs.path.basename(zig_path);
         const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
         const bin_path = try std.fmt.allocPrint(allocator, ".metal0/bin/{s}", .{stem});
-        const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{bin_path});
-        defer allocator.free(emit_arg); // FIX: was leaking before!
 
-        // Use Zig's built-in cache for incremental compilation
-        // Limit Zig's parallelism to reduce peak memory usage
-        const result = std.process.Child.run(.{
-            .allocator = allocator,
-            .argv = &[_][]const u8{
-                "zig",
-                "build-exe",
-                zig_path,
-                "--cache-dir",
-                incremental.ZIG_CACHE_DIR,
-                "-OReleaseFast",
-                "-lc",
-                "-fno-stack-check",
-                "-ffunction-sections",
-                "-fdata-sections",
-                "-j2", // Limit Zig threads to reduce memory pressure
-                include_arg,
-                emit_arg,
-            },
-        }) catch {
+        // Read the generated Zig source file
+        const zig_file = std.fs.cwd().openFile(zig_path, .{}) catch {
             allocator.free(bin_path);
             continue;
         };
-        allocator.free(result.stdout); // Free immediately, don't defer
-        allocator.free(result.stderr);
+        defer zig_file.close();
 
-        const success = switch (result.term) {
-            .Exited => |code| code == 0,
-            else => false,
-        };
-        if (success) {
-            compile_ok += 1;
-            try bin_paths.append(allocator, bin_path);
-        } else {
+        const zig_code = zig_file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch {
             allocator.free(bin_path);
-        }
+            continue;
+        };
+        defer allocator.free(zig_code);
+
+        // Use compiler.compileZigWithOptions which handles all module flags
+        compiler.compileZigWithOptions(allocator, zig_code, bin_path, &.{}, false, .{}) catch {
+            allocator.free(bin_path);
+            continue;
+        };
+
+        compile_ok += 1;
+        try bin_paths.append(allocator, bin_path);
     }
     if (!dots_mode) std.debug.print("  Compile: {d}/{d}\n", .{ compile_ok, codegen_ok });
 

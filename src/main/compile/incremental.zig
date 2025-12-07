@@ -39,8 +39,8 @@ pub fn buildRuntimeArchive(allocator: std.mem.Allocator) !void {
     defer arena.deinit();
     const aa = arena.allocator();
 
-    // Ensure runtime.zig exists
-    try compiler.setupRuntimeFiles(allocator);
+    // Ensure directories exist (no file copying needed with -M flags)
+    try build_dirs.init();
 
     // Create lib directory
     std.fs.cwd().makeDir(build_dirs.LIB) catch |err| {
@@ -52,7 +52,8 @@ pub fn buildRuntimeArchive(allocator: std.mem.Allocator) !void {
         if (err != error.PathAlreadyExists) return err;
     };
 
-    const runtime_zig = build_dirs.CACHE ++ "/runtime.zig";
+    // Use source runtime.zig directly (no copying needed)
+    const runtime_zig = "packages/runtime/src/runtime.zig";
 
     // Build args for creating static library
     var args = std.ArrayList([]const u8){};
@@ -109,8 +110,8 @@ pub fn ensureRuntimeArchive(allocator: std.mem.Allocator) !void {
         return;
     }
 
-    // Check if runtime.zig is newer than archive
-    const runtime_stat = std.fs.cwd().statFile(build_dirs.CACHE ++ "/runtime.zig") catch {
+    // Check if runtime.zig is newer than archive (use source path)
+    const runtime_stat = std.fs.cwd().statFile("packages/runtime/src/runtime.zig") catch {
         try buildRuntimeArchive(allocator);
         return;
     };
@@ -126,11 +127,11 @@ pub fn ensureRuntimeArchive(allocator: std.mem.Allocator) !void {
     }
 }
 
-/// Batch compile: setup runtime once, then compile multiple .zig files in parallel
+/// Batch compile: compile multiple .zig files in parallel
 /// Returns number of successful compilations
 pub fn batchCompile(allocator: std.mem.Allocator, zig_files: []const []const u8, parallelism: usize) !usize {
-    // Ensure runtime is ready
-    try compiler.setupRuntimeFiles(allocator);
+    // Ensure directories exist (no file copying needed with -M flags)
+    try build_dirs.init();
 
     // Create zig cache dir
     std.fs.cwd().makeDir(ZIG_CACHE_DIR) catch |err| {
@@ -251,10 +252,8 @@ fn compileToObjectInternal(allocator: std.mem.Allocator, zig_path: []const u8, m
 /// Fast compile using Zig's built-in caching
 /// Key: use --cache-dir for hash-based caching (Zig handles this!)
 pub fn compileToObject(allocator: std.mem.Allocator, zig_source: []const u8, module_name: []const u8) !void {
+    // Ensure directories exist (no file copying needed with -M flags)
     try build_dirs.init();
-
-    // Ensure runtime files are available
-    try compiler.setupRuntimeFiles(allocator);
 
     // Create zig cache dir
     std.fs.cwd().makeDir(ZIG_CACHE_DIR) catch |err| {
