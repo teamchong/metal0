@@ -93,6 +93,7 @@ pub fn getWasmOutputPath(allocator: std.mem.Allocator, input_file: []const u8, o
         return try allocator.dupe(u8, path);
     }
 
+    const platform_dir = try ensurePlatformDir(allocator);
     const name_no_ext = getBaseName(input_file);
-    return try std.fmt.allocPrint(allocator, "{s}.wasm", .{name_no_ext});
+    return try std.fmt.allocPrint(allocator, "{s}/{s}.wasm", .{ platform_dir, name_no_ext });
 }

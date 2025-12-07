@@ -156,3 +156,8 @@ examples/**/app
 *_backup.*
 *_original.*
 repro_*.zig
+
+# Generated artifacts (should go to .metal0/ but may leak to root)
+*.zcs
+*.d.ts
+*.rmeta
