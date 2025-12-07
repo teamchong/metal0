@@ -748,8 +748,8 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     // Determine element type from the expression
     // For tuple elements, we need to generate a struct type dynamically
     const element_type: []const u8 = blk: {
-        const elt_type = self.type_inferrer.inferExpr(listcomp.elt.*) catch .unknown;
-        if (container_traits.isTuple(elt_type) or listcomp.elt.* == .tuple) {
+        // Only access .tuple if it's actually a tuple AST node
+        if (listcomp.elt.* == .tuple) {
             // Tuple element like (a,) - need to infer types of each element
             const tuple = listcomp.elt.tuple;
             var type_buf = std.ArrayListUnmanaged(u8){};

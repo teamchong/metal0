@@ -420,9 +420,17 @@ pub const NativeType = union(enum) {
             }
             // Special handling for int types - combine boundedness
             // unbounded + anything = unbounded (taint propagation)
-            if (type_traits.isIntegral(self)) {
+            // Only combine .int payloads if both are .int (not usize/bigint)
+            if (self_tag == .int and other_tag == .int) {
                 const combined_kind = self.int.combine(other.int);
                 return .{ .int = combined_kind };
+            }
+            // usize + int -> int (more general)
+            if (self_tag == .usize and other_tag == .int) {
+                return other;
+            }
+            if (self_tag == .int and other_tag == .usize) {
+                return self;
             }
             return self;
         }

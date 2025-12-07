@@ -1060,7 +1060,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // When variable is typed as bigint OR has unbounded int (could overflow i64),
             // we need to convert values to BigInt
             const needs_bigint = value_type == .bigint or
-                (type_traits.isIntegral(value_type) and value_type.int.needsBigInt());
+                (value_type == .int and value_type.int.needsBigInt());
             if (needs_bigint) {
                 // Infer the type of the current value expression
                 const current_value_type = try self.inferExprScoped(assign.value.*);
