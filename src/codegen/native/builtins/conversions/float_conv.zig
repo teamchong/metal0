@@ -78,7 +78,7 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const var_name = args[0].name.id;
         if (self.getVarType(var_name)) |local_type| {
             // Prefer local type if it's more specific (not int/unknown)
-            if (local_type == .string or @as(std.meta.Tag(@TypeOf(local_type)), local_type) == .class_instance) {
+            if (string_traits.isString(local_type) or @as(std.meta.Tag(@TypeOf(local_type)), local_type) == .class_instance) {
                 arg_type = local_type;
             }
         }

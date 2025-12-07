@@ -485,7 +485,7 @@ pub fn emitVarDeclaration(
     // For class instances, let Zig infer to avoid cross-method type pollution issues
     // For integers, let Zig infer to handle i64/i128 from int() calls (sys.maxsize + 1 needs i128)
     // EXCEPTION: bigint requires explicit type annotation because initial value (small int) won't match
-    const is_int = (value_type == .int);
+    const is_int = type_traits.isIntegral(value_type) and value_type != .bigint;
     const is_bigint = (value_type == .bigint);
     const is_list = container_traits.isList(value_type);
     const is_tuple = container_traits.isTuple(value_type);

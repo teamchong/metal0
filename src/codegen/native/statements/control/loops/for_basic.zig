@@ -560,7 +560,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // so we must use []const u8 to allow different lengths.
             if (iter_type.tuple.len > 0) {
                 const first_elem_type = iter_type.tuple[0];
-                if (first_elem_type == .int) {
+                if (type_traits.isIntegral(first_elem_type)) {
                     try self.emit(": i64 = undefined;\n");
                 } else if (type_traits.isBoolean(first_elem_type)) {
                     try self.emit(": bool = undefined;\n");

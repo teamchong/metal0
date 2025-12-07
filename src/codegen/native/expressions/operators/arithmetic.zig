@@ -621,8 +621,8 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
         // list * n -> repeat list n times
         const left_is_arraylist_var = binop.left.* == .name and self.isArrayListVar(binop.left.name.id);
-        if ((left_type == .list or left_type == .array or binop.left.* == .list or left_is_arraylist_var) and
-            (right_type == .int or right_type == .unknown))
+        if ((container_traits.isList(left_type) or container_traits.isArray(left_type) or binop.left.* == .list or left_is_arraylist_var) and
+            (type_traits.isIntegral(right_type) or type_traits.isUnknown(right_type)))
         {
             const alloc_name = "__global_allocator";
             try self.emit("try runtime.repeatRuntime(");
@@ -637,8 +637,8 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
         // n * list -> repeat list n times
         const right_is_arraylist_var = binop.right.* == .name and self.isArrayListVar(binop.right.name.id);
-        if ((right_type == .list or right_type == .array or binop.right.* == .list or right_is_arraylist_var) and
-            (left_type == .int or left_type == .unknown))
+        if ((container_traits.isList(right_type) or container_traits.isArray(right_type) or binop.right.* == .list or right_is_arraylist_var) and
+            (type_traits.isIntegral(left_type) or type_traits.isUnknown(left_type)))
         {
             const alloc_name = "__global_allocator";
             try self.emit("try runtime.repeatRuntime(");
@@ -1134,8 +1134,8 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // Handle mixed int/float multiplication - convert int to float
     // Note: unknown types (like self.field) that are multiplied with float constants
     // need runtime type dispatch
-    const left_is_float = (left_type == .float);
-    const right_is_float = (right_type == .float);
+    const left_is_float = type_traits.isFloating(left_type);
+    const right_is_float = type_traits.isFloating(right_type);
     const left_is_unknown = (left_type == .unknown);
     const right_is_unknown = (right_type == .unknown);
     if (binop.op == .Mult and ((left_is_int and right_is_float) or (left_is_float and right_is_int))) {

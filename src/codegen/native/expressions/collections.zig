@@ -9,6 +9,7 @@ const genExpr = expressions.genExpr;
 const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
 
 // Re-export dict generation from dict.zig
 const dict = @import("dict.zig");
@@ -404,7 +405,7 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 
         // Check if we need to cast this element
         const this_type = try self.type_inferrer.inferExpr(elem);
-        const needs_cast = (elem_type == .float and this_type == .int);
+        const needs_cast = (type_traits.isFloating(elem_type) and type_traits.isIntegral(this_type));
 
         if (needs_cast) {
             try self.emit("@as(f64, @floatFromInt(");
@@ -458,7 +459,7 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
     // Use StringHashMap for strings, AutoHashMap for primitives
     // Note: floats need special handling - use u64 bit representation as key
     const is_string = string_traits.isString(elem_type);
-    const is_float = (elem_type == .float);
+    const is_float = type_traits.isFloating(elem_type);
     if (is_string) {
         try self.emit("var _set = hashmap_helper.StringHashMap(void).init(__global_allocator);\n");
     } else if (is_float) {

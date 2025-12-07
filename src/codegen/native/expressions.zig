@@ -298,7 +298,7 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
         // Optional type - check for non-null
         try genExpr(self, ie.condition.*);
         try self.emit(" != null");
-    } else if (cond_type == .int or cond_type == .usize) {
+    } else if (type_traits.isIntegral(cond_type)) {
         // Integer type - Python truthiness: non-zero is true
         try self.emit("(");
         try genExpr(self, ie.condition.*);
