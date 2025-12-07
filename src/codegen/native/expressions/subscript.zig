@@ -395,7 +395,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 }
             } else if (string_traits.isBytes(value_type)) {
                 // Bytes indexing: PyBytes uses .get() method, returns u8
-                const needs_cast = (index_type == .int);
+                const needs_cast = type_traits.isIntegral(index_type);
                 try genExpr(self, subscript.value.*);
                 try self.emit(".get(");
                 if (needs_cast) {
