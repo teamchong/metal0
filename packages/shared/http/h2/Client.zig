@@ -1,6 +1,7 @@
-//! High-Performance HTTP/2 Client
+//! High-Performance HTTP Client (HTTP/1.1 + HTTP/2)
 //!
 //! Features:
+//! - Automatic HTTP/2 with HTTP/1.1 fallback
 //! - TLS 1.3 with AES-NI acceleration
 //! - HTTP/2 stream multiplexing
 //! - HPACK header compression

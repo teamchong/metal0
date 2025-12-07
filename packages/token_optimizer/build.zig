@@ -53,7 +53,7 @@ pub fn build(b: *std.Build) void {
     netpoller_module.addImport("green_thread", green_thread_module);
 
     const h2_mod = b.addModule("h2", .{
-        .root_source_file = b.path("../shared/http/h2/h2.zig"),
+        .root_source_file = b.path("../shared/http/h2/Client.zig"),
     });
     h2_mod.addImport("gzip", runtime_gzip);
     h2_mod.addImport("green_thread", green_thread_module);

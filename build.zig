@@ -68,7 +68,7 @@ pub fn build(b: *std.Build) void {
 
     // HTTP/2 module with TLS 1.3 (AES-NI accelerated) and gzip decompression
     const h2_mod = b.addModule("h2", .{
-        .root_source_file = b.path("packages/shared/http/h2/h2.zig"),
+        .root_source_file = b.path("packages/shared/http/h2/Client.zig"),
     });
     h2_mod.addImport("gzip", gzip_module);
     h2_mod.addImport("utils.hashmap_helper", hashmap_helper);

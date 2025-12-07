@@ -186,7 +186,7 @@ pub fn copyRuntimeDir(allocator: std.mem.Allocator, dir_name: []const u8, build_
                 // Patch h2 module for files in Lib/http/
                 // h2 is at cache root (cache/h2/), Lib/http is at cache/Lib/http/
                 if (std.mem.indexOf(u8, dir_name, "Lib/http") != null) {
-                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"h2\")", "@import(\"../../h2/h2.zig\")");
+                    content = try std.mem.replaceOwned(u8, allocator, content, "@import(\"h2\")", "@import(\"../../h2/Client.zig\")");
                 }
             }
 
