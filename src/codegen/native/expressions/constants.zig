@@ -20,7 +20,9 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
     switch (constant.value) {
         .int => try self.output.writer(self.allocator).print("{d}", .{constant.value.int}),
         .bigint => |s| {
-            try self.output.writer(self.allocator).print("(try runtime.parseIntToBigInt(__global_allocator, \"{s}\", 10))", .{s});
+            // Use catch unreachable instead of try - this works at module scope
+            // parseIntToBigInt only fails on allocation errors, which shouldn't happen for string literals
+            try self.output.writer(self.allocator).print("(runtime.parseIntToBigInt(__global_allocator, \"{s}\", 10) catch unreachable)", .{s});
         },
         .float => |f| {
             if (std.math.isInf(f)) {

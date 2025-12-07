@@ -1102,13 +1102,21 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                     // Small integer constants can use fromInt (i64)
                     // Other int expressions (arithmetic, int(string), etc.) may produce i128
-                    if (assign.value.* == .constant) {
+                    // BUT: if the constant is already a bigint literal, genExpr already produces
+                    // parseIntToBigInt(...) which returns BigInt directly - don't double-wrap
+                    if (assign.value.* == .constant and assign.value.constant.value == .bigint) {
+                        // Already a bigint literal - genExpr will produce BigInt directly
+                        try self.genExpr(assign.value.*);
+                        try self.emit(";\n");
+                    } else if (assign.value.* == .constant) {
                         try self.emit("(runtime.BigInt.fromInt(__global_allocator, ");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(") catch unreachable);\n");
                     } else {
                         try self.emit("(runtime.BigInt.fromInt128(__global_allocator, ");
+                        try self.genExpr(assign.value.*);
+                        try self.emit(") catch unreachable);\n");
                     }
-                    try self.genExpr(assign.value.*);
-                    try self.emit(") catch unreachable);\n");
 
                     // Track variable metadata
                     try valueGen.trackVariableMetadata(
