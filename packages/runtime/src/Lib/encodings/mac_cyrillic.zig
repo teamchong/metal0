@@ -1,4 +1,4 @@
-//! Python 'mac_cyrillic' Codec (Macintosh Cyrillic)
+//! CPython source: Lib/encodings/mac_cyrillic.py
 //!
 //! Macintosh Cyrillic encoding
 //!

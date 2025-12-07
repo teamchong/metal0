@@ -1,4 +1,4 @@
-//! Python 'iso8859-6' Codec (ISO-8859-6 / Arabic)
+//! CPython source: Lib/encodings/iso8859_6.py
 //!
 //! Arabic alphabet
 //!

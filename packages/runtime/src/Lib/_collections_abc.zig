@@ -1,4 +1,4 @@
-//! Python '_collections_abc' module - Abstract Base Classes for containers
+//! CPython source: Lib/_collections_abc.py
 //!
 //! Provides ABCs for the collections module.
 //!

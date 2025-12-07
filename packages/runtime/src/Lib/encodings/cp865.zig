@@ -1,4 +1,4 @@
-//! Python 'cp865' Codec (DOS Nordic)
+//! CPython source: Lib/encodings/cp865.py
 //!
 //! DOS Nordic codepage
 //!

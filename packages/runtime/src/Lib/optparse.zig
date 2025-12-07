@@ -1,4 +1,4 @@
-//! Python 'optparse' module - Command-line option parsing library
+//! CPython source: Lib/optparse.py
 //!
 //! A powerful, extensible, and easy-to-use option parser.
 //! Note: In Python 3.2+, argparse is preferred over optparse.

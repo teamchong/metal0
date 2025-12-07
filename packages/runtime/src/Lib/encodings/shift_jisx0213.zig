@@ -1,4 +1,4 @@
-//! Python 'shift_jisx0213' Codec (Shift_JISX0213)
+//! CPython source: Lib/encodings/shift_jisx0213.py
 //!
 //! Implements Shift_JISX0213 encoding based on JIS X 0213:2000.
 //! Extension of Shift_JIS with additional characters.

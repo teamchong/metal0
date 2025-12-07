@@ -1,4 +1,4 @@
-//! Python 'cp856' Codec (DOS Hebrew)
+//! CPython source: Lib/encodings/cp856.py
 //!
 //! DOS Hebrew codepage (IBM PC)
 //!

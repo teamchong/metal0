@@ -1,4 +1,4 @@
-//! Python 'abc' module - Abstract Base Classes
+//! CPython source: Lib/abc.py
 //!
 //! Provides infrastructure for defining Abstract Base Classes (ABCs).
 //! ABCs define interfaces that subclasses must implement.

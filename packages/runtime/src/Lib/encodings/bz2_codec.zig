@@ -1,4 +1,4 @@
-//! Python 'bz2' Codec
+//! CPython source: Lib/encodings/bz2_codec.py
 //!
 //! Implements bzip2 compression encoding.
 //! Note: Zig std doesn't have bz2, so this is a stub that returns errors.

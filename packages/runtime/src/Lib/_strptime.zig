@@ -1,4 +1,4 @@
-//! Python '_strptime' module - String parsing for time
+//! CPython source: Lib/_strptime.py
 //!
 //! Provides strptime() implementation for parsing time strings.
 //!

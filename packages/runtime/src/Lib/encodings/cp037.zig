@@ -1,4 +1,4 @@
-//! Python 'cp037' Codec (EBCDIC-US/Canada)
+//! CPython source: Lib/encodings/cp037.py
 //!
 //! IBM EBCDIC US/Canada encoding
 //!

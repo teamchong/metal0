@@ -1,4 +1,4 @@
-//! Python 'stringprep' module - Preparation of Internationalized Strings
+//! CPython source: Lib/stringprep.py
 //!
 //! Implements the StringPrep profile as defined in RFC 3454.
 //! Used for preparation of internationalized strings, particularly for IDNA.

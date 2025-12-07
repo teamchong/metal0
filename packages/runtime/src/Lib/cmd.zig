@@ -1,4 +1,4 @@
-//! Python 'cmd' module - Support for line-oriented command interpreters
+//! CPython source: Lib/cmd.py
 //!
 //! Provides a simple framework for writing line-oriented command interpreters.
 //!

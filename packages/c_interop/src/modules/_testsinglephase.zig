@@ -1,4 +1,4 @@
-//! Python '_testsinglephase' module - Single-phase module initialization testing
+//! CPython source: Modules/_testsinglephase.c
 //!
 //! Internal test module for verifying CPython's legacy single-phase extension
 //! module initialization. Single-phase init is the older model where modules

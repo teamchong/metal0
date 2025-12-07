@@ -1,4 +1,4 @@
-//! Python 'cp850' Codec (DOS Western European)
+//! CPython source: Lib/encodings/cp850.py
 //!
 //! Code Page 850 - DOS Latin-1 Western European encoding.
 //!

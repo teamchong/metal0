@@ -1,4 +1,4 @@
-//! Python '_testclinic_limited' module - Argument Clinic testing (limited API)
+//! CPython source: Modules/_testclinic_limited.c
 //!
 //! Internal test module for verifying CPython's Argument Clinic code generator
 //! under the limited API constraints. Argument Clinic is a tool that generates

@@ -1,4 +1,4 @@
-//! Python 'ssl' module - TLS/SSL wrapper for socket objects
+//! CPython source: Lib/ssl.py
 //!
 //! Provides access to Transport Layer Security encryption and
 //! peer authentication facilities.

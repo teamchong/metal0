@@ -1,4 +1,4 @@
-//! Python 'koi8-u' Codec (Ukrainian)
+//! CPython source: Lib/encodings/koi8_u.py
 //!
 //! KOI8-U is a single-byte character encoding for Ukrainian Cyrillic.
 //!

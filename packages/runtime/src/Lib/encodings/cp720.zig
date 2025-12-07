@@ -1,4 +1,4 @@
-//! Python 'cp720' Codec (DOS Arabic)
+//! CPython source: Lib/encodings/cp720.py
 //!
 //! DOS Arabic codepage (transparent ASMO)
 //!

@@ -1,4 +1,4 @@
-//! Python 'numbers' module - Numeric abstract base classes
+//! CPython source: Lib/numbers.py
 //!
 //! Defines the hierarchy of numeric abstract base classes:
 //! Number :> Complex :> Real :> Rational :> Integral

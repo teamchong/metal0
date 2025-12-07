@@ -1,4 +1,4 @@
-//! Python 'pstats' module - Profile statistics browser
+//! CPython source: Lib/pstats.py
 //!
 //! Provides statistics browser for profiler data.
 //!

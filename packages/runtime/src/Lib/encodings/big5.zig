@@ -1,4 +1,4 @@
-//! Python 'big5' Codec
+//! CPython source: Lib/encodings/big5.py
 //!
 //! Implements Big5 encoding for Traditional Chinese text.
 //! Double-byte encoding commonly used in Taiwan and Hong Kong.

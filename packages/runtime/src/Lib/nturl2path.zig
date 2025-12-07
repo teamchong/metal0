@@ -1,4 +1,4 @@
-//! Python 'nturl2path' module - Convert between URL and Windows path
+//! CPython source: Lib/nturl2path.py
 //!
 //! Provides functions for converting between Windows file paths and URLs.
 //! Handles file:// URL encoding/decoding for Windows paths.

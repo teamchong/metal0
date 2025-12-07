@@ -1,4 +1,4 @@
-//! Python 'signal' module - Signal handling
+//! CPython source: Lib/signal.py
 //!
 //! Provides mechanisms to set handlers for asynchronous events.
 //!

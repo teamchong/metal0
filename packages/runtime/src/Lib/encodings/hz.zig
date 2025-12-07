@@ -1,4 +1,4 @@
-//! Python 'hz' Codec (HZ-GB-2312)
+//! CPython source: Lib/encodings/hz.py
 //!
 //! Implements HZ-GB-2312 encoding for Chinese text.
 //! Uses escape sequences ~{ and ~} to switch between ASCII and GB2312 modes.

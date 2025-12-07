@@ -1,4 +1,4 @@
-//! Python 'gb18030' Codec
+//! CPython source: Lib/encodings/gb18030.py
 //!
 //! Implements GB18030 encoding for Chinese text.
 //! National standard covering all Unicode code points.

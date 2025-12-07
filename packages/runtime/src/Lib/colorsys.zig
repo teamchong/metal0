@@ -1,4 +1,4 @@
-//! Python 'colorsys' module - Color system conversions
+//! CPython source: Lib/colorsys.py
 //!
 //! Provides conversions between RGB and other color systems:
 //! - YIQ (used in NTSC video)

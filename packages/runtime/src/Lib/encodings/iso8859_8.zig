@@ -1,4 +1,4 @@
-//! Python 'iso8859-8' Codec (ISO-8859-8 / Hebrew)
+//! CPython source: Lib/encodings/iso8859_8.py
 //!
 //! Hebrew alphabet
 //!

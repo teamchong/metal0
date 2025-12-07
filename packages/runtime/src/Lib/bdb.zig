@@ -1,4 +1,4 @@
-//! Python 'bdb' module - Debugger framework
+//! CPython source: Lib/bdb.py
 //!
 //! Provides a base class for building debuggers.
 //!

@@ -1,4 +1,4 @@
-//! Python 'iso8859-7' Codec (ISO-8859-7 / Greek)
+//! CPython source: Lib/encodings/iso8859_7.py
 //!
 //! Modern Greek alphabet
 //!

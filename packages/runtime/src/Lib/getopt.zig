@@ -1,4 +1,4 @@
-//! Python 'getopt' module - C-style option parsing
+//! CPython source: Lib/getopt.py
 //!
 //! Provides functions for parsing command-line options in the style of
 //! POSIX getopt() and GNU getopt_long().

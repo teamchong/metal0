@@ -1,4 +1,4 @@
-//! Python 'enum' module - Support for enumerations
+//! CPython source: Lib/enum.py
 //!
 //! Provides symbolic names (members) bound to unique, constant values.
 //!

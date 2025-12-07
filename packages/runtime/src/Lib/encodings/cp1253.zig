@@ -1,4 +1,4 @@
-//! Python 'cp1253' Codec (Windows-1253 / Greek)
+//! CPython source: Lib/encodings/cp1253.py
 //!
 //! Windows Greek codepage
 //!

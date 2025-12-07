@@ -1,4 +1,4 @@
-//! Python 'iso2022_jp' Codec (ISO-2022-JP)
+//! CPython source: Lib/encodings/iso2022_jp.py
 //!
 //! Implements ISO-2022-JP encoding for Japanese text.
 //! 7-bit encoding using escape sequences to switch character sets.

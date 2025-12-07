@@ -1,4 +1,4 @@
-//! Python 'struct' module - Interpret bytes as packed binary data
+//! CPython source: Lib/struct.py
 //!
 //! Provides functions to pack and unpack binary data according to format strings.
 //! Format characters specify byte order, size, and alignment.

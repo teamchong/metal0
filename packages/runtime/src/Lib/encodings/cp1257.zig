@@ -1,4 +1,4 @@
-//! Python 'cp1257' Codec (Windows-1257 / Baltic)
+//! CPython source: Lib/encodings/cp1257.py
 //!
 //! Windows Baltic codepage
 //!

@@ -1,4 +1,4 @@
-//! Python 'utf-16-be' Codec (Big Endian)
+//! CPython source: Lib/encodings/utf_16_be.py
 //!
 //! UTF-16 Big Endian encoding. No BOM is added when encoding.
 //!

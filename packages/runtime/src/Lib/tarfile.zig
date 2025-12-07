@@ -1,4 +1,4 @@
-//! Python 'tarfile' module - Read and write tar archive files
+//! CPython source: Lib/tarfile.py
 //!
 //! Provides tools to read and write tar archives, including
 //! support for gzip, bz2 and lzma compression.

@@ -1,4 +1,4 @@
-//! Python 'iso2022_jp_3' Codec (ISO-2022-JP-3)
+//! CPython source: Lib/encodings/iso2022_jp_3.py
 //!
 //! Implements ISO-2022-JP-3 encoding based on JIS X 0213:2000.
 //! Extension of ISO-2022-JP with JIS X 0213 plane 1 and 2.

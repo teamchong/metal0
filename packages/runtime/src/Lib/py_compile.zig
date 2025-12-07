@@ -1,4 +1,4 @@
-//! Python 'py_compile' module - Compile Python source files
+//! CPython source: Lib/py_compile.py
 //!
 //! Provides utilities for compiling Python source files to bytecode.
 //! Creates .pyc files for cached execution.

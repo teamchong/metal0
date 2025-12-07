@@ -1,4 +1,4 @@
-//! Python 'fileinput' module - Iterate over lines from multiple input streams
+//! CPython source: Lib/fileinput.py
 //!
 //! Provides a helper class for reading lines from files.
 //!

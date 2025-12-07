@@ -1,4 +1,4 @@
-//! Python 'iso8859-5' Codec (Cyrillic)
+//! CPython source: Lib/encodings/iso8859_5.py
 //!
 //! ISO-8859-5 encoding for Cyrillic scripts.
 //!

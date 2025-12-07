@@ -1,4 +1,4 @@
-//! Python 'stat' module - Interpret stat() results
+//! CPython source: Lib/stat.py
 //!
 //! Provides constants and functions for interpreting os.stat() results.
 //!

@@ -1,4 +1,4 @@
-//! Python 'wave' module - Read and write WAV files
+//! CPython source: Lib/wave.py
 //!
 //! Provides an interface to the WAV sound format.
 //!

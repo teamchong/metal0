@@ -1,4 +1,4 @@
-//! Python 'euc_jp' Codec (EUC-JP)
+//! CPython source: Lib/encodings/euc_jp.py
 //!
 //! Implements EUC-JP encoding for Japanese text.
 //! Extended Unix Code for Japanese - commonly used in Unix systems.

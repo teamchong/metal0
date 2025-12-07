@@ -1,4 +1,4 @@
-//! Python 'cp1256' Codec (Windows-1256 / Arabic)
+//! CPython source: Lib/encodings/cp1256.py
 //!
 //! Windows Arabic codepage
 //!

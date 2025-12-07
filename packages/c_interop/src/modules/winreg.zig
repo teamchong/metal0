@@ -1,4 +1,4 @@
-//! Python 'winreg' module - Windows Registry access
+//! CPython source: PC/winreg.c
 //!
 //! Provides access to the Windows Registry, allowing reading, writing,
 //! and querying registry keys and values.

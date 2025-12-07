@@ -1,4 +1,4 @@
-//! Python 'unicode-escape' Codec
+//! CPython source: Lib/encodings/unicode_escape.py
 //!
 //! Implements Python's unicode escape encoding which handles:
 //! - \xXX for single byte escapes

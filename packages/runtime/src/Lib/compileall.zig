@@ -1,4 +1,4 @@
-//! Python 'compileall' module - Compile Python source files
+//! CPython source: Lib/compileall.py
 //!
 //! Provides utilities to compile Python source files to bytecode.
 //!

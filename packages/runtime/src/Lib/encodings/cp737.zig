@@ -1,4 +1,4 @@
-//! Python 'cp737' Codec (DOS Greek)
+//! CPython source: Lib/encodings/cp737.py
 //!
 //! DOS Greek codepage
 //!

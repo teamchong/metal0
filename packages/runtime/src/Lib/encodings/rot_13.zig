@@ -1,4 +1,4 @@
-//! Python 'rot-13' Codec
+//! CPython source: Lib/encodings/rot_13.py
 //!
 //! ROT13 is a simple letter substitution cipher that replaces letters
 //! with the letter 13 positions later in the alphabet.

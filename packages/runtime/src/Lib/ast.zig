@@ -1,4 +1,4 @@
-//! Python 'ast' module - Abstract Syntax Trees
+//! CPython source: Lib/ast.py
 //!
 //! Provides AST node types and utilities for working with Python ASTs.
 //!

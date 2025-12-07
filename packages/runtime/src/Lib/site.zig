@@ -1,4 +1,4 @@
-//! Python 'site' module - Site-specific configuration hook
+//! CPython source: Lib/site.py
 //!
 //! Provides site-specific customization of the Python installation.
 //! Automatically imported during initialization.

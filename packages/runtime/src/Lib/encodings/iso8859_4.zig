@@ -1,4 +1,4 @@
-//! Python 'iso8859-4' Codec (ISO-8859-4 / Latin-4)
+//! CPython source: Lib/encodings/iso8859_4.py
 //!
 //! North European (Estonian, Latvian, Lithuanian, Greenlandic, Sami)
 //!

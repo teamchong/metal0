@@ -1,4 +1,4 @@
-//! Python 'fnmatch' module - Unix filename pattern matching
+//! CPython source: Lib/fnmatch.py
 //!
 //! Provides shell-style wildcards for filename matching:
 //!   *       matches everything

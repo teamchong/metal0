@@ -1,4 +1,4 @@
-//! Python 'cp875' Codec (EBCDIC Greek)
+//! CPython source: Lib/encodings/cp875.py
 //!
 //! IBM EBCDIC Greek encoding
 //!

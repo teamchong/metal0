@@ -1,4 +1,4 @@
-//! Python 'cp1140' Codec (EBCDIC US/Canada with Euro)
+//! CPython source: Lib/encodings/cp1140.py
 //!
 //! IBM EBCDIC US/Canada encoding with Euro sign (variant of CP037)
 //!

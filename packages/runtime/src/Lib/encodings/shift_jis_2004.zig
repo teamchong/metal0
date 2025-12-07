@@ -1,4 +1,4 @@
-//! Python 'shift_jis_2004' Codec (Shift_JIS-2004)
+//! CPython source: Lib/encodings/shift_jis_2004.py
 //!
 //! Implements Shift_JIS-2004 encoding based on JIS X 0213:2004.
 //! Extension of Shift_JIS with additional characters.

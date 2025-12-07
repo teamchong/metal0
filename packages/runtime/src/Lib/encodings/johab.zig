@@ -1,4 +1,4 @@
-//! Python 'johab' Codec (Johab)
+//! CPython source: Lib/encodings/johab.py
 //!
 //! Implements Johab encoding for Korean text.
 //! Combines initial/medial/final (Choseong/Jungseong/Jongseong) in one unit.

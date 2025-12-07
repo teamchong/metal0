@@ -1,4 +1,4 @@
-//! Python 'ntpath' module - Windows pathname operations
+//! CPython source: Lib/ntpath.py
 //!
 //! Provides path operations specific to Windows/NT systems.
 //!

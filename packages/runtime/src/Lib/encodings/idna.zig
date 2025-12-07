@@ -1,4 +1,4 @@
-//! Python 'idna' Codec
+//! CPython source: Lib/encodings/idna.py
 //!
 //! Implements IDNA (Internationalized Domain Names in Applications) encoding.
 //! Converts Unicode domain names to/from ASCII-compatible encoding using Punycode.

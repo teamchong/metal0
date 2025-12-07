@@ -1,4 +1,4 @@
-//! Python 'copy' module - Shallow and deep copy operations
+//! CPython source: Lib/copy.py
 //!
 //! Provides generic shallow and deep copying operations.
 //! Deep copy creates a new compound object and recursively copies all objects found.

@@ -1,4 +1,4 @@
-//! Python 'cp437' Codec (DOS Latin US)
+//! CPython source: Lib/encodings/cp437.py
 //!
 //! Code Page 437 - the original IBM PC character set.
 //!

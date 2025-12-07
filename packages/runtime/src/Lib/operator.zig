@@ -1,4 +1,4 @@
-//! Python 'operator' module - Standard operators as functions
+//! CPython source: Lib/operator.py
 //!
 //! Provides functions corresponding to Python's intrinsic operators.
 //! These are useful for functional programming and with functions like map/reduce.

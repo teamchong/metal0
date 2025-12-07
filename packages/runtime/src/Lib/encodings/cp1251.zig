@@ -1,4 +1,4 @@
-//! Python 'cp1251' Codec (Windows Cyrillic)
+//! CPython source: Lib/encodings/cp1251.py
 //!
 //! Windows-1251 encoding for Cyrillic scripts.
 //!

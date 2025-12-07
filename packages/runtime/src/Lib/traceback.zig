@@ -1,4 +1,4 @@
-//! Python 'traceback' module - Print or retrieve a stack traceback
+//! CPython source: Lib/traceback.py
 //!
 //! Provides functions to extract, format, and print stack traces.
 //!

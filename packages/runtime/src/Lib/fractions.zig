@@ -1,4 +1,4 @@
-//! Python 'fractions' module - Rational numbers
+//! CPython source: Lib/fractions.py
 //!
 //! Provides support for rational number arithmetic.
 //!

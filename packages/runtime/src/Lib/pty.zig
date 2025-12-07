@@ -1,4 +1,4 @@
-//! Python 'pty' module - Pseudo-terminal utilities
+//! CPython source: Lib/pty.py
 //!
 //! Provides functions for handling pseudo-terminal operations.
 //!

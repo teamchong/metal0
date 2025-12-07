@@ -1,4 +1,4 @@
-//! Python 'ipaddress' module - IPv4/IPv6 address manipulation
+//! CPython source: Lib/ipaddress.py
 //!
 //! Provides classes for working with IP addresses and networks.
 //!

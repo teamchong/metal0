@@ -1,4 +1,4 @@
-//! Python 'weakref' module - Weak reference support
+//! CPython source: Lib/weakref.py
 //!
 //! Provides tools for creating weak references to objects.
 //!

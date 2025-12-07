@@ -1,4 +1,4 @@
-//! Python 'ftplib' module - FTP protocol client
+//! CPython source: Lib/ftplib.py
 //!
 //! Provides FTP client functionality.
 //!

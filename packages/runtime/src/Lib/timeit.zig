@@ -1,4 +1,4 @@
-//! Python 'timeit' module - Measure execution time of small code snippets
+//! CPython source: Lib/timeit.py
 //!
 //! Provides a simple way to time small bits of Python code.
 //! In Zig context, we provide timing utilities for measuring code execution.

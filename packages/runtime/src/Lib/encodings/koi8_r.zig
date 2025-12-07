@@ -1,4 +1,4 @@
-//! Python 'koi8-r' Codec (Russian)
+//! CPython source: Lib/encodings/koi8_r.py
 //!
 //! KOI8-R is a single-byte character encoding for Russian Cyrillic.
 //!

@@ -1,4 +1,4 @@
-//! Python 'selectors' module - High-level I/O multiplexing
+//! CPython source: Lib/selectors.py
 //!
 //! Provides high-level abstractions for I/O multiplexing.
 //!

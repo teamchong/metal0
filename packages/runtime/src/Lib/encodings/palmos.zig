@@ -1,4 +1,4 @@
-//! Python 'palmos' Codec (PalmOS 3.5)
+//! CPython source: Lib/encodings/palmos.py
 //!
 //! Character Mapping Codec for PalmOS 3.5
 //! Based on iso8859_15 with card suit symbols and Windows-1252 extensions

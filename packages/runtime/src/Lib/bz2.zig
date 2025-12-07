@@ -1,4 +1,4 @@
-//! Python 'bz2' module - Support for bzip2 compression
+//! CPython source: Lib/bz2.py
 //!
 //! Provides reading and writing of bzip2-compressed files and streams.
 //!

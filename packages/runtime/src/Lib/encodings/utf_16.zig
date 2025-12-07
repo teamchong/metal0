@@ -1,4 +1,4 @@
-//! Python 'utf-16' Codec
+//! CPython source: Lib/encodings/utf_16.py
 //!
 //! UTF-16 encoding with BOM detection on decode and BOM prefix on encode.
 //!

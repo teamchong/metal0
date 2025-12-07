@@ -1,4 +1,4 @@
-//! Python 'raw-unicode-escape' Codec
+//! CPython source: Lib/encodings/raw_unicode_escape.py
 //!
 //! Implements Python's raw unicode escape encoding which handles:
 //! - \uXXXX for BMP characters

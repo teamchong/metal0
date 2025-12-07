@@ -1,4 +1,4 @@
-//! Python 'cp1125' Codec (Ukrainian)
+//! CPython source: Lib/encodings/cp1125.py
 //!
 //! CP1125 Ukrainian encoding (also known as RSTRSTRNG)
 //!

@@ -1,4 +1,4 @@
-//! Python 'cp857' Codec (DOS Turkish)
+//! CPython source: Lib/encodings/cp857.py
 //!
 //! DOS Turkish codepage
 //!

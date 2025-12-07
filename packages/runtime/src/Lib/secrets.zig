@@ -1,4 +1,4 @@
-//! Python 'secrets' module - Generate secure random numbers
+//! CPython source: Lib/secrets.py
 //!
 //! Generate cryptographically strong random numbers suitable for
 //! managing secrets such as account authentication, tokens, and similar.

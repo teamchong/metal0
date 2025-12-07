@@ -1,4 +1,4 @@
-//! Python 'utf-8' Codec
+//! CPython source: Lib/encodings/utf_8.py
 //!
 //! UTF-8 is the default encoding in Python 3 and the native string encoding in Zig.
 //! This codec mostly passes through data, validating UTF-8 sequences.

@@ -1,4 +1,4 @@
-//! Python Character Mapping Codec cp1252 (Windows Western)
+//! CPython source: Lib/encodings/cp1252.py
 //!
 //! Windows-1252 is a single-byte encoding used historically by Windows.
 //! It's a superset of ISO-8859-1 (Latin-1) with additional characters in the 0x80-0x9F range.

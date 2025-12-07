@@ -1,4 +1,4 @@
-//! Python 'iso8859-9' Codec (ISO-8859-9 / Latin-5)
+//! CPython source: Lib/encodings/iso8859_9.py
 //!
 //! Turkish (replaces Icelandic characters with Turkish)
 //!

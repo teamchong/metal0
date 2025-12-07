@@ -1,4 +1,4 @@
-//! Python 'mac_roman' Codec (Macintosh Roman)
+//! CPython source: Lib/encodings/mac_roman.py
 //!
 //! Macintosh Roman encoding
 //!

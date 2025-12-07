@@ -1,4 +1,4 @@
-//! Python 'trace' module - Trace or track Python statement execution
+//! CPython source: Lib/trace.py
 //!
 //! Provides a way to trace program execution and generate coverage reports.
 //!

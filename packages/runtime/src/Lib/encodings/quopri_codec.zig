@@ -1,4 +1,4 @@
-//! Python 'quopri' Codec (Quoted-Printable)
+//! CPython source: Lib/encodings/quopri_codec.py
 //!
 //! Implements Python's quoted-printable encoding for email.
 //! Encodes non-printable characters as =XX hex sequences.

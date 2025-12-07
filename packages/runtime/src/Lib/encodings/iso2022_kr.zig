@@ -1,4 +1,4 @@
-//! Python 'iso2022_kr' Codec (ISO-2022-KR)
+//! CPython source: Lib/encodings/iso2022_kr.py
 //!
 //! Implements ISO-2022-KR encoding for Korean text.
 //! 7-bit encoding using escape sequences to switch character sets.

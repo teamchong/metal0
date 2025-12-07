@@ -1,4 +1,4 @@
-//! Python 'undefined' Codec
+//! CPython source: Lib/encodings/undefined.py
 //!
 //! This codec will always raise a UnicodeError exception when being used.
 //! It is intended for use by the site.py file to switch off automatic

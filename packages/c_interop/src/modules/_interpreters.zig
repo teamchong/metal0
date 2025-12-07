@@ -1,4 +1,4 @@
-//! Python '_interpreters' module - Sub-interpreter management
+//! CPython source: Modules/_interpretersmodule.c
 //!
 //! Low-level access to the interpreter-related runtime machinery.
 //! Provides mechanisms for creating and managing sub-interpreters.

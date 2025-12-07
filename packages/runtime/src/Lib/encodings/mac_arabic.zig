@@ -1,4 +1,4 @@
-//! Python 'mac_arabic' Codec (Macintosh Arabic)
+//! CPython source: Lib/encodings/mac_arabic.py
 //!
 //! Macintosh Arabic encoding
 //!

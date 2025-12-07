@@ -1,4 +1,4 @@
-//! Python 'rlcompleter' module - Readline completion support
+//! CPython source: Lib/rlcompleter.py
 //!
 //! Provides word completion for interactive Python interpreter.
 //! Works with readline library for tab completion.

@@ -1,4 +1,4 @@
-//! Python 'keyword' module - Test whether a string is a keyword
+//! CPython source: Lib/keyword.py
 //!
 //! Provides functions to check if strings are Python keywords or soft keywords.
 //!

@@ -1,4 +1,4 @@
-//! Python 'genericpath' module - Common operations on Posix and Windows pathnames
+//! CPython source: Lib/genericpath.py
 //!
 //! Provides path operations that work on both Posix and Windows.
 //!

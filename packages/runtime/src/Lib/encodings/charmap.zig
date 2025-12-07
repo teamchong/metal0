@@ -1,4 +1,4 @@
-//! Python Character Mapping Codec infrastructure
+//! CPython source: Lib/encodings/charmap.py
 //!
 //! Provides the base infrastructure for single-byte character encodings
 //! like cp1252, latin-1, iso-8859-*, etc.

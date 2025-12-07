@@ -1,4 +1,4 @@
-//! Python 'heapq' module - Heap queue algorithm (priority queue)
+//! CPython source: Lib/heapq.py
 //!
 //! Provides an implementation of the heap queue algorithm (priority queue).
 //! Heaps are binary trees where parent <= children (min-heap).

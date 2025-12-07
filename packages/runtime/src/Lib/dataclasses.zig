@@ -1,4 +1,4 @@
-//! Python 'dataclasses' module - Data Classes decorator and functions
+//! CPython source: Lib/dataclasses.py
 //!
 //! Provides a decorator and functions for automatically adding generated
 //! special methods to classes.

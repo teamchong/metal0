@@ -1,4 +1,4 @@
-//! Python 'iso8859-16' Codec (ISO-8859-16 / Latin-10)
+//! CPython source: Lib/encodings/iso8859_16.py
 //!
 //! South-Eastern European (Romanian, Albanian, Croatian, Slovenian, etc.)
 //!

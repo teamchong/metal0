@@ -1,4 +1,4 @@
-//! Python 'hp_roman8' Codec (HP Roman-8)
+//! CPython source: Lib/encodings/hp_roman8.py
 //!
 //! HP Roman-8 encoding used on HP systems
 //!

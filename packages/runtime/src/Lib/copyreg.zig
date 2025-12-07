@@ -1,4 +1,4 @@
-//! Python 'copyreg' module - Register pickle support functions
+//! CPython source: Lib/copyreg.py
 //!
 //! Provides functions for registering pickling support for types.
 //!

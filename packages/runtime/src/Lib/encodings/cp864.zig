@@ -1,4 +1,4 @@
-//! Python 'cp864' Codec (DOS Arabic)
+//! CPython source: Lib/encodings/cp864.py
 //!
 //! DOS Arabic codepage
 //!

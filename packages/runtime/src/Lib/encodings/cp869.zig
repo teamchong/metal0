@@ -1,4 +1,4 @@
-//! Python 'cp869' Codec (DOS Greek 2)
+//! CPython source: Lib/encodings/cp869.py
 //!
 //! DOS Greek 2 codepage
 //!

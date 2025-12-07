@@ -1,4 +1,4 @@
-//! Python 'tokenize' module - Tokenizer for Python source
+//! CPython source: Lib/tokenize.py
 //!
 //! Provides a lexical scanner for Python source code.
 //!

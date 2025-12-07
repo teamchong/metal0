@@ -1,4 +1,4 @@
-//! Python 'turtle' module - Turtle graphics
+//! CPython source: Lib/turtle.py
 //!
 //! Turtle graphics implementation for educational programming.
 //! Uses a metaphor of a "turtle" that moves around the screen drawing lines.

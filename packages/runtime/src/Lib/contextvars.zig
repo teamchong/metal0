@@ -1,4 +1,4 @@
-//! Python 'contextvars' module - Context Variables
+//! CPython source: Lib/contextvars.py
 //!
 //! Provides context-local state management for async code.
 //!

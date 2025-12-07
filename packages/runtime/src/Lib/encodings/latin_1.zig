@@ -1,4 +1,4 @@
-//! Python 'latin-1' Codec (ISO-8859-1)
+//! CPython source: Lib/encodings/latin_1.py
 //!
 //! Latin-1 is the simplest possible encoding: bytes 0x00-0xFF map directly
 //! to Unicode codepoints U+0000-U+00FF. This is a bijective mapping.

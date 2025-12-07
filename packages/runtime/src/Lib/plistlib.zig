@@ -1,4 +1,4 @@
-//! Python 'plistlib' module - Property list support
+//! CPython source: Lib/plistlib.py
 //!
 //! Provides support for reading and writing Apple property list files.
 //!

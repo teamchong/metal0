@@ -1,4 +1,4 @@
-//! Python 'tis_620' Codec (Thai Industrial Standard 620-2533)
+//! CPython source: Lib/encodings/tis_620.py
 //!
 //! TIS-620 Thai encoding
 //!

@@ -1,4 +1,4 @@
-//! Python 'cp775' Codec (DOS Baltic Rim)
+//! CPython source: Lib/encodings/cp775.py
 //!
 //! DOS Baltic Rim codepage
 //!

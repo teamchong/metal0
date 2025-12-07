@@ -1,4 +1,4 @@
-//! Python 'kz1048' Codec (Kazakhstan Standard STRK1048-2002)
+//! CPython source: Lib/encodings/kz1048.py
 //!
 //! KZ-1048 Kazakh encoding
 //!

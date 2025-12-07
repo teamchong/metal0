@@ -1,4 +1,4 @@
-//! Python 'random' module - Random number generation
+//! CPython source: Lib/random.py
 //!
 //! Provides pseudo-random number generators for various distributions.
 //!

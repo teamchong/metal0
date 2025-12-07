@@ -1,4 +1,4 @@
-//! Python 'cp855' Codec (DOS Cyrillic)
+//! CPython source: Lib/encodings/cp855.py
 //!
 //! DOS Cyrillic codepage
 //!

@@ -1,4 +1,4 @@
-//! Python '_testinternalcapi' module - CPython internal API testing
+//! CPython source: Modules/_testinternalcapi.c
 //!
 //! Internal test module for verifying CPython's internal C API.
 //! These are APIs that are not part of the stable public API

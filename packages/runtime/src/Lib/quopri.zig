@@ -1,4 +1,4 @@
-//! Python 'quopri' module - Encode and decode MIME quoted-printable data
+//! CPython source: Lib/quopri.py
 //!
 //! Provides functions for encoding and decoding the quoted-printable
 //! transfer encoding as defined in RFC 1521.

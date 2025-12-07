@@ -1,4 +1,4 @@
-//! Python 'inspect' module - Inspect live objects
+//! CPython source: Lib/inspect.py
 //!
 //! Provides functions to get information about live objects such as modules,
 //! classes, methods, functions, tracebacks, frame objects, and code objects.

@@ -1,4 +1,4 @@
-//! Python 'zipimport' module - Import modules from Zip archives
+//! CPython source: Lib/zipimport.py
 //!
 //! Provides support for importing Python modules from ZIP archives.
 //!

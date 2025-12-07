@@ -1,4 +1,4 @@
-//! Python 'queue' module - A synchronized queue class
+//! CPython source: Lib/queue.py
 //!
 //! Multi-producer, multi-consumer queues for threading.
 //!

@@ -1,4 +1,4 @@
-//! Python 'iso8859-10' Codec (ISO-8859-10 / Latin-6)
+//! CPython source: Lib/encodings/iso8859_10.py
 //!
 //! Nordic languages (better coverage than Latin-4)
 //!

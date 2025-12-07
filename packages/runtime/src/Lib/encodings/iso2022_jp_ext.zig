@@ -1,4 +1,4 @@
-//! Python 'iso2022_jp_ext' Codec (ISO-2022-JP-EXT)
+//! CPython source: Lib/encodings/iso2022_jp_ext.py
 //!
 //! Implements ISO-2022-JP-EXT encoding for Japanese text.
 //! Extended version with additional character sets support.

@@ -1,4 +1,4 @@
-//! Python 'functools' module - Higher-order functions and operations on callable objects
+//! CPython source: Lib/functools.py
 //!
 //! Provides tools for working with functions and callable objects.
 //! Includes function caching, partial application, and reduction.

@@ -1,4 +1,4 @@
-//! Python 'euc_jisx0213' Codec (EUC-JISX0213)
+//! CPython source: Lib/encodings/euc_jisx0213.py
 //!
 //! Implements EUC-JISX0213 encoding based on JIS X 0213:2000.
 //! Extension of EUC-JP with additional characters.

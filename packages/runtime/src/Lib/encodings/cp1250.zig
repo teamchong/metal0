@@ -1,4 +1,4 @@
-//! Python 'cp1250' Codec (Windows Central European)
+//! CPython source: Lib/encodings/cp1250.py
 //!
 //! Windows-1250 encoding for Central European languages.
 //!

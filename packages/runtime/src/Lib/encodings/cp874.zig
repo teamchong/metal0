@@ -1,4 +1,4 @@
-//! Python 'cp874' Codec (Windows Thai)
+//! CPython source: Lib/encodings/cp874.py
 //!
 //! Windows Thai codepage
 //!

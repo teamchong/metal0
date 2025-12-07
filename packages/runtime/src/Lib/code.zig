@@ -1,4 +1,4 @@
-//! Python 'code' module - Facilities for interactive Python code execution
+//! CPython source: Lib/code.py
 //!
 //! Provides classes for interactive Python sessions.
 //!

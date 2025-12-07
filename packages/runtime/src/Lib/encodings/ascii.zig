@@ -1,4 +1,4 @@
-//! Python 'ascii' Codec
+//! CPython source: Lib/encodings/ascii.py
 //!
 //! ASCII is a 7-bit encoding where bytes 0x00-0x7F map directly to Unicode codepoints.
 //! Bytes >= 0x80 are invalid in ASCII.

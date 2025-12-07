@@ -1,4 +1,4 @@
-//! Python 'configparser' module - Configuration file parser
+//! CPython source: Lib/configparser.py
 //!
 //! Provides ConfigParser for reading and writing INI-style configuration files.
 //!

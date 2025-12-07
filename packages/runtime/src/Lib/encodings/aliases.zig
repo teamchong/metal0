@@ -1,4 +1,4 @@
-//! Encoding Aliases Support
+//! CPython source: Lib/encodings/aliases.py
 //!
 //! This module is used by the encodings package search function to
 //! map encoding names to module names.

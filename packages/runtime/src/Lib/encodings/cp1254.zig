@@ -1,4 +1,4 @@
-//! Python 'cp1254' Codec (Windows-1254 / Turkish)
+//! CPython source: Lib/encodings/cp1254.py
 //!
 //! Windows Turkish codepage (similar to Latin-5 with extra characters)
 //!

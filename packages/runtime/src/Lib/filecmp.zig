@@ -1,4 +1,4 @@
-//! Python 'filecmp' module - File and Directory Comparisons
+//! CPython source: Lib/filecmp.py
 //!
 //! Provides functions to compare files and directories.
 //!

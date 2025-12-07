@@ -1,4 +1,4 @@
-//! Python 'tty' module - Terminal I/O control
+//! CPython source: Lib/tty.py
 //!
 //! Provides functions for manipulating tty devices.
 //!

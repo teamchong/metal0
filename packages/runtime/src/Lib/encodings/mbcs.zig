@@ -1,4 +1,4 @@
-//! Python 'mbcs' Codec
+//! CPython source: Lib/encodings/mbcs.py
 //!
 //! Windows Multi-Byte Character Set encoding.
 //! This is a platform-specific encoding that uses the system's ANSI code page.

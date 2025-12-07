@@ -1,4 +1,4 @@
-//! Python 'profile' module - Deterministic Profiling
+//! CPython source: Lib/profile.py
 //!
 //! Provides deterministic profiling of Python programs.
 //!

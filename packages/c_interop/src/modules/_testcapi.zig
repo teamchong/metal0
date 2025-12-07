@@ -1,4 +1,4 @@
-//! Python '_testcapi' module - CPython C API testing infrastructure
+//! CPython source: Modules/_testcapimodule.c
 //!
 //! Internal test module for verifying CPython's C API implementation.
 //! Used by CPython's test suite to ensure C extension API correctness.

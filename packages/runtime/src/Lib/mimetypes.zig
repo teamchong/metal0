@@ -1,4 +1,4 @@
-//! Python 'mimetypes' module - Map filenames to MIME types
+//! CPython source: Lib/mimetypes.py
 //!
 //! Provides functions to map filenames to MIME types and vice versa.
 //!

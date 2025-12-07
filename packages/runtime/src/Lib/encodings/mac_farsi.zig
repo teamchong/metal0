@@ -1,4 +1,4 @@
-//! Python 'mac_farsi' Codec (Macintosh Farsi)
+//! CPython source: Lib/encodings/mac_farsi.py
 //!
 //! Macintosh Farsi (Persian) encoding
 //!

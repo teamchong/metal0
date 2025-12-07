@@ -1,4 +1,4 @@
-//! Python 'textwrap' module - Text wrapping and filling
+//! CPython source: Lib/textwrap.py
 //!
 //! Provides text formatting utilities for wrapping and filling text.
 //!

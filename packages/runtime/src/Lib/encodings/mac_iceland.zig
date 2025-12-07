@@ -1,4 +1,4 @@
-//! Python 'mac_iceland' Codec (Macintosh Icelandic)
+//! CPython source: Lib/encodings/mac_iceland.py
 //!
 //! Macintosh Icelandic encoding
 //!

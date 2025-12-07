@@ -1,4 +1,4 @@
-//! Python 'runpy' module - Locating and running Python modules
+//! CPython source: Lib/runpy.py
 //!
 //! Provides utility functions for locating and running Python modules.
 //! This is used by the -m flag to run modules as scripts.

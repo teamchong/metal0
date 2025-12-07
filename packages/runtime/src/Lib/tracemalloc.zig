@@ -1,4 +1,4 @@
-//! Python 'tracemalloc' module - Trace memory allocations
+//! CPython source: Lib/tracemalloc.py
 //!
 //! Traces memory allocations to debug memory leaks and analyze memory usage.
 //!

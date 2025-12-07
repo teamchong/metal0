@@ -1,4 +1,4 @@
-//! Python 'netrc' module - Parse .netrc files
+//! CPython source: Lib/netrc.py
 //!
 //! Provides netrc file parsing functionality.
 //!

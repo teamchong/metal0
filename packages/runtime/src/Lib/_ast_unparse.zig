@@ -1,4 +1,4 @@
-//! Python '_ast_unparse' module - AST Unparsing utilities
+//! CPython source: Lib/_ast_unparse.py
 //!
 //! Internal module for converting AST nodes back to Python source code.
 //!

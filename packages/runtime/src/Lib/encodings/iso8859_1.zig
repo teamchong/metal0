@@ -1,4 +1,4 @@
-//! Python 'iso8859-1' Codec (Latin-1)
+//! CPython source: Lib/encodings/iso8859_1.py
 //!
 //! ISO-8859-1 is identical to Latin-1. This module is an alias.
 //!

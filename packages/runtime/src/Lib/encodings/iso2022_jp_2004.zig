@@ -1,4 +1,4 @@
-//! Python 'iso2022_jp_2004' Codec (ISO-2022-JP-2004)
+//! CPython source: Lib/encodings/iso2022_jp_2004.py
 //!
 //! Implements ISO-2022-JP-2004 encoding based on JIS X 0213:2004.
 //! Extension of ISO-2022-JP with updated character mappings.

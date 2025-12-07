@@ -1,4 +1,4 @@
-//! Python 'platform' module - Access to underlying platform's identifying data
+//! CPython source: Lib/platform.py
 //!
 //! Provides portable interface to platform-identifying data.
 //!

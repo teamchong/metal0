@@ -1,4 +1,4 @@
-//! Python 'shlex' module - Simple lexical analysis
+//! CPython source: Lib/shlex.py
 //!
 //! Provides a class for making simple lexical analyzers (shell-like).
 //!

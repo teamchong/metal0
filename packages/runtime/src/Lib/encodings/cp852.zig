@@ -1,4 +1,4 @@
-//! Python 'cp852' Codec (DOS Latin-2)
+//! CPython source: Lib/encodings/cp852.py
 //!
 //! DOS Latin-2 (Central European) codepage
 //!

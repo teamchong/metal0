@@ -1,4 +1,4 @@
-//! Python 'euc_jis_2004' Codec (EUC-JIS-2004)
+//! CPython source: Lib/encodings/euc_jis_2004.py
 //!
 //! Implements EUC-JIS-2004 encoding based on JIS X 0213:2004.
 //! Extension of EUC-JP with additional characters.

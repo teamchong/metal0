@@ -1,4 +1,4 @@
-//! Python 'iso8859-11' Codec (ISO-8859-11 / Thai)
+//! CPython source: Lib/encodings/iso8859_11.py
 //!
 //! Thai alphabet (similar to TIS-620)
 //!

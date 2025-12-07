@@ -1,4 +1,4 @@
-//! Python 'sched' module - Event scheduler
+//! CPython source: Lib/sched.py
 //!
 //! Provides a general purpose event scheduler.
 //!

@@ -1,4 +1,4 @@
-//! Python 'threading' module - Thread-based parallelism
+//! CPython source: Lib/threading.py
 //!
 //! Provides higher-level threading interface built on top of std.Thread.
 //!

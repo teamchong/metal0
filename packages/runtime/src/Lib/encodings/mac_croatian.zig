@@ -1,4 +1,4 @@
-//! Python 'mac_croatian' Codec (Macintosh Croatian)
+//! CPython source: Lib/encodings/mac_croatian.py
 //!
 //! Macintosh Croatian encoding
 //!

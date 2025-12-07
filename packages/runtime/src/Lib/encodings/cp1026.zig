@@ -1,4 +1,4 @@
-//! Python 'cp1026' Codec (EBCDIC-Turkish)
+//! CPython source: Lib/encodings/cp1026.py
 //!
 //! IBM EBCDIC Turkish encoding
 //!

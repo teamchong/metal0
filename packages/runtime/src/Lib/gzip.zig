@@ -1,4 +1,4 @@
-//! Python 'gzip' module - Support for gzip files
+//! CPython source: Lib/gzip.py
 //!
 //! Provides reading and writing of gzip-format files.
 //!

@@ -1,4 +1,4 @@
-//! Python 'oem' Codec
+//! CPython source: Lib/encodings/oem.py
 //!
 //! Windows OEM (Original Equipment Manufacturer) code page encoding.
 //! This is a platform-specific encoding that uses the system's OEM code page.

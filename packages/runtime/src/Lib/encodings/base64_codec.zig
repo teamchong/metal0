@@ -1,4 +1,4 @@
-//! Python 'base64' Codec
+//! CPython source: Lib/encodings/base64_codec.py
 //!
 //! Base64 codec - converts bytes to/from base64 representation.
 //!

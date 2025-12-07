@@ -1,4 +1,4 @@
-//! Python 'punycode' Codec
+//! CPython source: Lib/encodings/punycode.py
 //!
 //! Implements Punycode encoding (RFC 3492) for internationalized domain names.
 //! Encodes Unicode strings into ASCII-compatible encoding.

@@ -1,4 +1,4 @@
-//! Python 'gbk' Codec
+//! CPython source: Lib/encodings/gbk.py
 //!
 //! Implements GBK encoding for Simplified Chinese text.
 //! GBK is an extension of GB2312 with additional characters.

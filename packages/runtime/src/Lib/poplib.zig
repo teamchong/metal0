@@ -1,4 +1,4 @@
-//! Python 'poplib' module - POP3 protocol client
+//! CPython source: Lib/poplib.py
 //!
 //! Provides POP3 client functionality.
 //!

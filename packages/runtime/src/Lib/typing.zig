@@ -1,4 +1,4 @@
-//! Python typing module types
+//! CPython source: Lib/typing.py
 //!
 //! Provides runtime representations of typing module constructs.
 //! Most typing constructs are compile-time in Zig and handled in codegen,

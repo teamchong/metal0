@@ -1,4 +1,4 @@
-//! Python 'csv' module - CSV File Reading and Writing
+//! CPython source: Lib/csv.py
 //!
 //! Provides classes for reading and writing tabular data in CSV format.
 //!

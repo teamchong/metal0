@@ -1,4 +1,4 @@
-//! Windows Code Page Codecs Helper
+//! CPython source: Lib/encodings/_win_cp_codecs.py
 //!
 //! Provides Windows-specific code page codec infrastructure.
 //! On non-Windows platforms, provides fallback implementations.

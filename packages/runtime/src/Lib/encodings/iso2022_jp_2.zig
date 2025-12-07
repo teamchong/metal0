@@ -1,4 +1,4 @@
-//! Python 'iso2022_jp_2' Codec (ISO-2022-JP-2)
+//! CPython source: Lib/encodings/iso2022_jp_2.py
 //!
 //! Implements ISO-2022-JP-2 encoding for multilingual text.
 //! Extension of ISO-2022-JP-1 with additional character sets.

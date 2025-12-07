@@ -1,4 +1,4 @@
-//! Python '_testconsole' module - Windows console testing support
+//! CPython source: PC/_testconsole.c
 //!
 //! Internal test module for testing Windows console I/O functionality.
 //! Used by CPython's test suite to verify console behavior.

@@ -1,4 +1,4 @@
-//! Python 'iso8859-13' Codec (ISO-8859-13 / Latin-7)
+//! CPython source: Lib/encodings/iso8859_13.py
 //!
 //! Baltic Rim (better coverage for Baltic languages)
 //!

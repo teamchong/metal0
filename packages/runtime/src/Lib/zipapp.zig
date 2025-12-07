@@ -1,4 +1,4 @@
-//! Python 'zipapp' module - Manage executable Python zip archives
+//! CPython source: Lib/zipapp.py
 //!
 //! Provides tools to create and manage executable Python zip archives.
 //!

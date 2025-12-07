@@ -1,4 +1,4 @@
-//! Python 'cp932' Codec (Windows Code Page 932)
+//! CPython source: Lib/encodings/cp932.py
 //!
 //! Microsoft's extension of Shift_JIS for Japanese.
 //! Adds NEC special characters and IBM extensions.

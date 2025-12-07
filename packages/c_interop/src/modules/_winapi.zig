@@ -1,4 +1,4 @@
-//! Python '_winapi' module - Low-level Windows API access
+//! CPython source: Modules/_winapi.c
 //!
 //! Provides low-level access to Windows API functions for process creation,
 //! pipe handling, and other OS-level operations.

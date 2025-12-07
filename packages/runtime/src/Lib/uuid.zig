@@ -1,4 +1,4 @@
-//! Python 'uuid' module - UUID objects (universally unique identifiers)
+//! CPython source: Lib/uuid.py
 //!
 //! Generate and work with UUIDs according to RFC 4122.
 //!

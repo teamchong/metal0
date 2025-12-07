@@ -1,4 +1,4 @@
-//! Python 'msvcrt' module - Microsoft Visual C Runtime routines
+//! CPython source: PC/msvcrtmodule.c
 //!
 //! Useful routines from the MS VC runtime - console I/O, file locking,
 //! and memory mapped files.

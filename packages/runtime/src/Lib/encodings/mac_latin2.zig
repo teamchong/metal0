@@ -1,4 +1,4 @@
-//! Python 'mac_latin2' Codec (Macintosh Central European)
+//! CPython source: Lib/encodings/mac_latin2.py
 //!
 //! Macintosh Central European encoding (Latin-2)
 //!

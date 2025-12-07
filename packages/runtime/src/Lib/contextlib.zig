@@ -1,4 +1,4 @@
-//! Python 'contextlib' module - Utilities for with-statement contexts
+//! CPython source: Lib/contextlib.py
 //!
 //! Provides utilities for common tasks involving the with statement.
 //!

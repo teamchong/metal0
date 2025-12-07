@@ -1,4 +1,4 @@
-//! Python 'cp950' Codec (Windows Code Page 950)
+//! CPython source: Lib/encodings/cp950.py
 //!
 //! Microsoft's extension of Big5 for Traditional Chinese.
 //! Used primarily in Taiwan and Hong Kong Windows systems.

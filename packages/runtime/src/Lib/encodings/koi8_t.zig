@@ -1,4 +1,4 @@
-//! Python 'koi8-t' Codec (KOI8-T / Tajik)
+//! CPython source: Lib/encodings/koi8_t.py
 //!
 //! Tajik Cyrillic codepage (based on KOI8-R with Tajik letters)
 //!

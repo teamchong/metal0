@@ -1,4 +1,4 @@
-//! Python 'winsound' module - Windows sound playing interface
+//! CPython source: PC/winsound.c
 //!
 //! Provides access to the Windows sound-playing machinery.
 //!

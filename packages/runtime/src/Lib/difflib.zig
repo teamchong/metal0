@@ -1,4 +1,4 @@
-//! Python 'difflib' module - Helpers for computing deltas
+//! CPython source: Lib/difflib.py
 //!
 //! Provides classes and functions for comparing sequences.
 //!

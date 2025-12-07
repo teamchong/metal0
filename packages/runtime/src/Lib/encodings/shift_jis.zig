@@ -1,4 +1,4 @@
-//! Python 'shift_jis' Codec (Shift JIS / CP932 variant)
+//! CPython source: Lib/encodings/shift_jis.py
 //!
 //! Implements Shift JIS encoding for Japanese text.
 //! Single-byte ASCII + half-width katakana, double-byte for kanji.

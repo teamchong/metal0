@@ -1,4 +1,4 @@
-//! Python 'mailbox' module - Manipulate mailboxes in various formats
+//! CPython source: Lib/mailbox.py
 //!
 //! Provides uniform access to mailboxes in different formats.
 //!

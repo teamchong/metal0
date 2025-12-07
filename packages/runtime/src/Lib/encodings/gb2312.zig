@@ -1,4 +1,4 @@
-//! Python 'gb2312' Codec (GB2312-80)
+//! CPython source: Lib/encodings/gb2312.py
 //!
 //! Implements GB2312 encoding for Simplified Chinese text.
 //! Double-byte encoding with 94x94 grid structure.

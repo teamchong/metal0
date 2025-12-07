@@ -1,4 +1,4 @@
-//! Python 'socketserver' module - Framework for network servers
+//! CPython source: Lib/socketserver.py
 //!
 //! Provides classes for implementing network servers.
 //!

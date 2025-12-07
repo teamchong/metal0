@@ -1,4 +1,4 @@
-//! Python 'shelve' module - Python object persistence
+//! CPython source: Lib/shelve.py
 //!
 //! A shelf is a persistent, dictionary-like object.
 //!

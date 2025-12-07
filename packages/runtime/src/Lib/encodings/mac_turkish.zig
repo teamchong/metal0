@@ -1,4 +1,4 @@
-//! Python 'mac_turkish' Codec (Macintosh Turkish)
+//! CPython source: Lib/encodings/mac_turkish.py
 //!
 //! Macintosh Turkish encoding
 //!

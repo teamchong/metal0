@@ -1,4 +1,4 @@
-//! Python 'cp863' Codec (DOS Canadian French)
+//! CPython source: Lib/encodings/cp863.py
 //!
 //! DOS Canadian French codepage
 //!

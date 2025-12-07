@@ -1,4 +1,4 @@
-//! Python 'utf-32-le' Codec (Little Endian)
+//! CPython source: Lib/encodings/utf_32_le.py
 //!
 //! UTF-32 Little Endian encoding. No BOM is added when encoding.
 //!

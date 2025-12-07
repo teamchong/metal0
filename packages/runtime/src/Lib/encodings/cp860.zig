@@ -1,4 +1,4 @@
-//! Python 'cp860' Codec (DOS Portuguese)
+//! CPython source: Lib/encodings/cp860.py
 //!
 //! DOS Portuguese codepage
 //!

@@ -1,4 +1,4 @@
-//! Python 'cp500' Codec (EBCDIC-International)
+//! CPython source: Lib/encodings/cp500.py
 //!
 //! IBM EBCDIC International encoding
 //!

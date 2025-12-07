@@ -1,4 +1,4 @@
-//! Python 'pdb' module - The Python Debugger
+//! CPython source: Lib/pdb.py
 //!
 //! Provides an interactive debugger for Python programs.
 //!

@@ -1,4 +1,4 @@
-//! Python 'cp273' Codec (EBCDIC German)
+//! CPython source: Lib/encodings/cp273.py
 //!
 //! IBM EBCDIC German encoding
 //!

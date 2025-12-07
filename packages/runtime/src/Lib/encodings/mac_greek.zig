@@ -1,4 +1,4 @@
-//! Python 'mac_greek' Codec (Macintosh Greek)
+//! CPython source: Lib/encodings/mac_greek.py
 //!
 //! Macintosh Greek encoding
 //!

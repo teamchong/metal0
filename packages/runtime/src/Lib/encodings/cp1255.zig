@@ -1,4 +1,4 @@
-//! Python 'cp1255' Codec (Windows-1255 / Hebrew)
+//! CPython source: Lib/encodings/cp1255.py
 //!
 //! Windows Hebrew codepage
 //!

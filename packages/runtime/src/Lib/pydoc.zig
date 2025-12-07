@@ -1,4 +1,4 @@
-//! Python 'pydoc' module - Documentation generator and online help system
+//! CPython source: Lib/pydoc.py
 //!
 //! Provides a documentation viewer and HTML generator.
 //!

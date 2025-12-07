@@ -1,4 +1,4 @@
-//! Python 'tempfile' module - Generate temporary files and directories
+//! CPython source: Lib/tempfile.py
 //!
 //! Provides functions for creating temporary files and directories.
 //! All files/directories are created in a platform-appropriate temp directory.

@@ -1,4 +1,4 @@
-//! Python '_testlimitedcapi' module - CPython limited/stable API testing
+//! CPython source: Modules/_testlimitedcapi.c
 //!
 //! Internal test module for verifying CPython's limited C API (stable ABI).
 //! The limited API is a subset of Python's C API that is guaranteed to be

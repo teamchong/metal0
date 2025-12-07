@@ -1,4 +1,4 @@
-//! Python 'types' module - Names for built-in types
+//! CPython source: Lib/types.py
 //!
 //! Defines names for some object types that are used by the standard Python
 //! interpreter, but not exposed as builtins.

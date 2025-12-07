@@ -1,4 +1,4 @@
-//! Python 'xxsubtype' module - Subtype testing
+//! CPython source: Modules/xxsubtype.c
 //!
 //! Internal test module for testing CPython's type/subtype C implementation.
 //! Used to verify type inheritance, method resolution, and the type system.

@@ -1,4 +1,4 @@
-//! Python 'iso8859-15' Codec (Latin-9)
+//! CPython source: Lib/encodings/iso8859_15.py
 //!
 //! ISO-8859-15 is Latin-1 with Euro sign and other updates.
 //!

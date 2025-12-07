@@ -1,4 +1,4 @@
-//! Python 'mac_romanian' Codec (Macintosh Romanian)
+//! CPython source: Lib/encodings/mac_romanian.py
 //!
 //! Macintosh Romanian encoding
 //!

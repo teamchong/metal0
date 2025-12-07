@@ -1,4 +1,4 @@
-//! Python 'cp424' Codec (EBCDIC Hebrew)
+//! CPython source: Lib/encodings/cp424.py
 //!
 //! IBM EBCDIC Hebrew encoding
 //!

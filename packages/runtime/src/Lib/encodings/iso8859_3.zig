@@ -1,4 +1,4 @@
-//! Python 'iso8859-3' Codec (ISO-8859-3 / Latin-3)
+//! CPython source: Lib/encodings/iso8859_3.py
 //!
 //! South European (Turkish, Maltese, Esperanto)
 //!

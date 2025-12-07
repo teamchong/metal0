@@ -1,4 +1,4 @@
-//! Python '_testbuffer' module - Buffer protocol testing
+//! CPython source: Modules/_testbuffer.c
 //!
 //! Internal test module for verifying CPython's buffer protocol implementation.
 //! The buffer protocol allows Python objects to share memory efficiently

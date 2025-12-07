@@ -1,4 +1,4 @@
-//! Python 'euc_kr' Codec (EUC-KR)
+//! CPython source: Lib/encodings/euc_kr.py
 //!
 //! Implements EUC-KR encoding for Korean text.
 //! Extended Unix Code for Korean - also known as KS X 1001.

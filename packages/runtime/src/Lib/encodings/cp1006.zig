@@ -1,4 +1,4 @@
-//! Python 'cp1006' Codec (Urdu)
+//! CPython source: Lib/encodings/cp1006.py
 //!
 //! IBM CP1006 Urdu encoding
 //!

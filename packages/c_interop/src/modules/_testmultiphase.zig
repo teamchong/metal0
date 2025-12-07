@@ -1,4 +1,4 @@
-//! Python '_testmultiphase' module - Multi-phase module initialization testing
+//! CPython source: Modules/_testmultiphase.c
 //!
 //! Internal test module for verifying CPython's PEP 489 multi-phase extension
 //! module initialization. Multi-phase init allows modules to be imported multiple

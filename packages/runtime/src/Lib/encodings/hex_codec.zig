@@ -1,4 +1,4 @@
-//! Python 'hex' Codec
+//! CPython source: Lib/encodings/hex_codec.py
 //!
 //! Hex codec - converts bytes to/from hexadecimal representation.
 //!

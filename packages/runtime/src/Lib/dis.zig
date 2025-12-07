@@ -1,4 +1,4 @@
-//! Python 'dis' module - Disassembler for Python bytecode
+//! CPython source: Lib/dis.py
 //!
 //! Provides functions to disassemble Python bytecode.
 //!

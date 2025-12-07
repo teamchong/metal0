@@ -1,4 +1,4 @@
-//! Python 'utf-8-sig' Codec
+//! CPython source: Lib/encodings/utf_8_sig.py
 //!
 //! UTF-8 with BOM signature. Strips BOM on decode, adds BOM on encode.
 //!

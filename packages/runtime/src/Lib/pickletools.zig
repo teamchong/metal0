@@ -1,4 +1,4 @@
-//! Python 'pickletools' module - Tools for working with pickle data
+//! CPython source: Lib/pickletools.py
 //!
 //! Provides functions to analyze and disassemble pickle data.
 //!

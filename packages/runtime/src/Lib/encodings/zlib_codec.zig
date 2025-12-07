@@ -1,4 +1,4 @@
-//! Python 'zlib' Codec
+//! CPython source: Lib/encodings/zlib_codec.py
 //!
 //! Implements zlib/deflate compression encoding.
 //! Uses Zig's built-in std.compress.zlib.

@@ -1,4 +1,4 @@
-//! Python 'socket' module - Low-level networking interface
+//! CPython source: Lib/socket.py
 //!
 //! Provides access to the BSD socket interface.
 //!

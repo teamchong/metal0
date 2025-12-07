@@ -1,4 +1,4 @@
-//! Python '__future__' module - Future statement definitions
+//! CPython source: Lib/__future__.py
 //!
 //! Provides definitions for __future__ statements.
 //!

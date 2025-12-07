@@ -1,4 +1,4 @@
-//! Python 'linecache' module - Cache lines from files
+//! CPython source: Lib/linecache.py
 //!
 //! Provides random access to individual lines from any file while optimizing
 //! for reading Python source files.

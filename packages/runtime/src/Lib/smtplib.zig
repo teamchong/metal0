@@ -1,4 +1,4 @@
-//! Python 'smtplib' module - SMTP protocol client
+//! CPython source: Lib/smtplib.py
 //!
 //! Provides SMTP client functionality for sending email.
 //!

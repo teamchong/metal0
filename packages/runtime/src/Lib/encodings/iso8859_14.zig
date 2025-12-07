@@ -1,4 +1,4 @@
-//! Python 'iso8859-14' Codec (ISO-8859-14 / Latin-8)
+//! CPython source: Lib/encodings/iso8859_14.py
 //!
 //! Celtic (Irish, Scottish Gaelic, Welsh, Breton, Cornish, Manx)
 //!

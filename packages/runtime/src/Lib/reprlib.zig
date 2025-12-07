@@ -1,4 +1,4 @@
-//! Python 'reprlib' module - Alternate repr() implementation with size limits
+//! CPython source: Lib/reprlib.py
 //!
 //! Provides a class that implements repr() methods with limits on object sizes
 //! to avoid excessive memory usage or infinite recursion.

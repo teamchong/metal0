@@ -1,4 +1,4 @@
-//! Python 'uu' Codec
+//! CPython source: Lib/encodings/uu_codec.py
 //!
 //! Implements Python's uuencode/uudecode encoding.
 //! Used for encoding binary data in ASCII text format.

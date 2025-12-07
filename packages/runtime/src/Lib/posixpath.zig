@@ -1,4 +1,4 @@
-//! Python 'posixpath' module - Posix pathname operations
+//! CPython source: Lib/posixpath.py
 //!
 //! Provides path operations specific to POSIX systems.
 //!

@@ -1,4 +1,4 @@
-//! Python 'cp858' Codec (DOS Latin-1 with Euro)
+//! CPython source: Lib/encodings/cp858.py
 //!
 //! DOS Latin-1 codepage with Euro sign (variant of CP850)
 //!

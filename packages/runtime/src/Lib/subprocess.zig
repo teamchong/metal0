@@ -1,4 +1,4 @@
-//! Python 'subprocess' module - Subprocess management
+//! CPython source: Lib/subprocess.py
 //!
 //! Provides functions for spawning and managing child processes.
 //! Supports pipes, environment variables, and shell commands.

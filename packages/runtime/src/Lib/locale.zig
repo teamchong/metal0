@@ -1,4 +1,4 @@
-//! Python 'locale' module - Internationalization services
+//! CPython source: Lib/locale.py
 //!
 //! Provides access to POSIX locale functionality.
 //!

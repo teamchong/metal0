@@ -1,4 +1,4 @@
-//! Python 'utf-32' Codec
+//! CPython source: Lib/encodings/utf_32.py
 //!
 //! UTF-32 encoding with BOM detection on decode and BOM prefix on encode.
 //!

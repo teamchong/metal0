@@ -1,4 +1,4 @@
-//! Python 'cp949' Codec (Windows Code Page 949)
+//! CPython source: Lib/encodings/cp949.py
 //!
 //! Microsoft's extension of EUC-KR for Korean (Unified Hangul Code).
 //! Also known as UHC or Extended Wansung.

@@ -1,4 +1,4 @@
-//! Python 'codeop' module - Compile Python code
+//! CPython source: Lib/codeop.py
 //!
 //! Utilities to compile possibly incomplete Python source code.
 //!

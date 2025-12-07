@@ -1,4 +1,4 @@
-//! Python 'calendar' module - Calendar printing functions
+//! CPython source: Lib/calendar.py
 //!
 //! Provides calendar-related functions, including calendar printing
 //! and various date calculations.

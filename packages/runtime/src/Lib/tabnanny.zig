@@ -1,4 +1,4 @@
-//! Python 'tabnanny' module - Detection of ambiguous indentation
+//! CPython source: Lib/tabnanny.py
 //!
 //! Checks Python source files for indentation consistency.
 //! Detects mixed tabs and spaces that could cause issues.

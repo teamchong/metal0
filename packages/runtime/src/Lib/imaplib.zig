@@ -1,4 +1,4 @@
-//! Python 'imaplib' module - IMAP4 protocol client
+//! CPython source: Lib/imaplib.py
 //!
 //! Provides IMAP4 client functionality.
 //!

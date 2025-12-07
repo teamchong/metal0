@@ -1,4 +1,4 @@
-//! Python 'webbrowser' module - Convenient web browser controller
+//! CPython source: Lib/webbrowser.py
 //!
 //! Provides high-level interface to allow displaying web-based documents.
 //!

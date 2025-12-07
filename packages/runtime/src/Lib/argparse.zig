@@ -1,4 +1,4 @@
-//! Python 'argparse' module - Command-line parsing library
+//! CPython source: Lib/argparse.py
 //!
 //! Parser for command-line options, arguments and sub-commands.
 //!

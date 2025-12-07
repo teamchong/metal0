@@ -1,4 +1,4 @@
-//! Python 'lzma' module - Compression using the LZMA algorithm
+//! CPython source: Lib/lzma.py
 //!
 //! Provides reading and writing of LZMA/XZ-compressed files and streams.
 //!

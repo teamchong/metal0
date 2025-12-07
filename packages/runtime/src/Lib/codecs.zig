@@ -1,4 +1,4 @@
-//! Python 'codecs' module - Codec registry and base classes
+//! CPython source: Lib/codecs.py
 //!
 //! Provides the foundation for encoding/decoding operations.
 //!

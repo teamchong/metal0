@@ -1,4 +1,4 @@
-//! Python 'modulefinder' module - Find modules used by a script
+//! CPython source: Lib/modulefinder.py
 //!
 //! Provides functionality for finding module dependencies.
 //!

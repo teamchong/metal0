@@ -1,4 +1,4 @@
-//! Python 'ptcp154' Codec (ParaType CP154 for Cyrillic Asian)
+//! CPython source: Lib/encodings/ptcp154.py
 //!
 //! PTCP154 encoding for Cyrillic Asian languages
 //!

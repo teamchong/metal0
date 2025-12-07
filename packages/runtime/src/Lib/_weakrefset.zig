@@ -1,4 +1,4 @@
-//! Python '_weakrefset' module - Weak reference set implementation
+//! CPython source: Lib/_weakrefset.py
 //!
 //! Provides WeakSet implementation.
 //!

@@ -1,4 +1,4 @@
-//! Python 'cp861' Codec (DOS Icelandic)
+//! CPython source: Lib/encodings/cp861.py
 //!
 //! DOS Icelandic codepage
 //!

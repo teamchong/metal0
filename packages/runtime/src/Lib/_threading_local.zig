@@ -1,4 +1,4 @@
-//! Python '_threading_local' module - Thread-local data
+//! CPython source: Lib/_threading_local.py
 //!
 //! Provides thread-local storage implementation.
 //!

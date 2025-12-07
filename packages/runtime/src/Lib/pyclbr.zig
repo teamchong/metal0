@@ -1,4 +1,4 @@
-//! Python 'pyclbr' module - Python class browser support
+//! CPython source: Lib/pyclbr.py
 //!
 //! Provides functions for extracting class and function definitions
 //! from Python source code without importing it.

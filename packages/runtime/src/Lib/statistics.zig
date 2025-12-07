@@ -1,4 +1,4 @@
-//! Python 'statistics' module - Mathematical statistics functions
+//! CPython source: Lib/statistics.py
 //!
 //! Provides functions for calculating mathematical statistics of numeric data.
 //!

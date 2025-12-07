@@ -1,4 +1,4 @@
-//! Python 'token' module - Token constants
+//! CPython source: Lib/token.py
 //!
 //! Provides constants for token types used by the tokenizer.
 //!

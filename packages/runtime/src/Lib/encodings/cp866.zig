@@ -1,4 +1,4 @@
-//! Python 'cp866' Codec (DOS Russian)
+//! CPython source: Lib/encodings/cp866.py
 //!
 //! Code Page 866 - DOS Cyrillic encoding for Russian.
 //!

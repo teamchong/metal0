@@ -1,4 +1,4 @@
-//! Python 'warnings' module - Warning control
+//! CPython source: Lib/warnings.py
 //!
 //! Provides functions to issue warnings and control warning behavior.
 //!

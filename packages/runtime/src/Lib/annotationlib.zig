@@ -1,4 +1,4 @@
-//! Python 'annotationlib' module - Annotation utilities
+//! CPython source: Lib/annotationlib.py
 //!
 //! Provides tools for working with annotations (PEP 563, PEP 649).
 //!

@@ -1,4 +1,4 @@
-//! Python 'big5hkscs' Codec (Big5 Hong Kong Supplementary Character Set)
+//! CPython source: Lib/encodings/big5hkscs.py
 //!
 //! Implements Big5-HKSCS encoding for Traditional Chinese in Hong Kong.
 //! Extension of Big5 with additional characters for Cantonese.

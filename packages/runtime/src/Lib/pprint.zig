@@ -1,4 +1,4 @@
-//! Python 'pprint' module - Data pretty printer
+//! CPython source: Lib/pprint.py
 //!
 //! Provides a capability to "pretty-print" arbitrary data structures
 //! in a form which can be used as input to the interpreter.

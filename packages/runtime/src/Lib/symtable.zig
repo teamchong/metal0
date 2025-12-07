@@ -1,4 +1,4 @@
-//! Python 'symtable' module - Symbol table generation
+//! CPython source: Lib/symtable.py
 //!
 //! Provides symbol table generation and analysis for Python source code.
 //!

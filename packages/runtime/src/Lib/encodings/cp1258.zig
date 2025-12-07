@@ -1,4 +1,4 @@
-//! Python 'cp1258' Codec (Windows-1258 / Vietnamese)
+//! CPython source: Lib/encodings/cp1258.py
 //!
 //! Windows Vietnamese codepage
 //!

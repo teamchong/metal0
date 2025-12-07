@@ -1,4 +1,4 @@
-//! Python 'bisect' module - Array bisection algorithm
+//! CPython source: Lib/bisect.py
 //!
 //! Provides support for maintaining a list in sorted order without having
 //! to sort the list after each insertion. Uses binary search.

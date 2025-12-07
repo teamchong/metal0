@@ -1,4 +1,4 @@
-//! Python 'iso8859-2' Codec (Latin-2, Central European)
+//! CPython source: Lib/encodings/iso8859_2.py
 //!
 //! ISO-8859-2 is used for Central European languages (Polish, Czech, etc.)
 //!

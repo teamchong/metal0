@@ -1,4 +1,4 @@
-//! Python 'cp862' Codec (DOS Hebrew)
+//! CPython source: Lib/encodings/cp862.py
 //!
 //! DOS Hebrew codepage
 //!

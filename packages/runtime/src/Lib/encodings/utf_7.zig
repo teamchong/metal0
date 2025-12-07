@@ -1,4 +1,4 @@
-//! Python 'utf-7' Codec
+//! CPython source: Lib/encodings/utf_7.py
 //!
 //! Implements UTF-7 encoding (RFC 2152) - a 7-bit safe Unicode encoding.
 //! Uses modified Base64 for non-ASCII characters.

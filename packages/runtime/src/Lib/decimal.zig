@@ -1,4 +1,4 @@
-//! Python 'decimal' module - Decimal fixed point and floating point arithmetic
+//! CPython source: Lib/decimal.py
 //!
 //! Provides support for fast correctly-rounded decimal floating point arithmetic.
 //!

@@ -1,4 +1,4 @@
-//! Python 'utf-32-be' Codec (Big Endian)
+//! CPython source: Lib/encodings/utf_32_be.py
 //!
 //! UTF-32 Big Endian encoding. No BOM is added when encoding.
 //!
