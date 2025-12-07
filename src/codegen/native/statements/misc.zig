@@ -200,12 +200,14 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
             return;
         }
 
-        if (info.zig_import) |zig_import| {
+        // Prefer direct_import for DCE-friendly imports, fallback to zig_import
+        const import_path = info.direct_import orelse info.zig_import;
+        if (import_path) |path| {
             try self.emitIndent();
             try self.emit("const ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias);
             try self.emit(" = ");
-            try self.emit(zig_import);
+            try self.emit(path);
             try self.emit(";\n");
         }
     }
@@ -224,7 +226,9 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
 
     // Look up in registry to get the Zig module path
     if (self.import_registry.lookup(module_name)) |info| {
-        if (info.zig_import) |zig_import| {
+        // Prefer direct_import for DCE-friendly imports, fallback to zig_import
+        const import_path = info.direct_import orelse info.zig_import;
+        if (import_path) |path| {
             // Generate const bindings for each imported name
             // from random import getrandbits -> const getrandbits = runtime.random.getrandbits;
             for (import.names, 0..) |name, i| {
@@ -243,7 +247,7 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 try self.emit("const ");
                 try self.emit(alias);
                 try self.emit(" = ");
-                try self.emit(zig_import);
+                try self.emit(path);
                 try self.emit(".");
                 try self.emit(name);
                 try self.emit(";\n");

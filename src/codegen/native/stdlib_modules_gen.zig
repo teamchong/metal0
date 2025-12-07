@@ -1343,12 +1343,19 @@ pub const stdlib_module_names = [_][]const u8{
 /// Number of discovered stdlib modules
 pub const stdlib_module_count: usize = 1321;
 
-/// Check if a module name exists in stdlib
-pub fn hasModule(name: []const u8) bool {
-    for (stdlib_module_names) |mod| {
-        if (std.mem.eql(u8, name, mod)) return true;
+/// StaticStringMap for O(1) module lookup (DCE-friendly, comptime-only)
+/// This replaces the linear scan with a comptime-generated hash table
+pub const module_map = std.StaticStringMap(void).initComptime(blk: {
+    var entries: [stdlib_module_names.len]struct { []const u8, void } = undefined;
+    for (stdlib_module_names, 0..) |name, i| {
+        entries[i] = .{ name, {} };
     }
-    return false;
+    break :blk entries[0..];
+});
+
+/// Check if a module name exists in stdlib (O(1) lookup)
+pub fn hasModule(name: []const u8) bool {
+    return module_map.has(name);
 }
 
 /// Modules that can be auto-registered (not in manual registry)

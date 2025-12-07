@@ -3099,3 +3099,48 @@ test "reference counting" {
     decref(obj, allocator);
     // Object should be destroyed here
 }
+
+// =============================================================================
+// DCE-Friendly Namespace Exports
+// =============================================================================
+// These namespace structs enable Zig's dead code elimination by only pulling in
+// modules when explicitly accessed (e.g., runtime.Lib.json instead of runtime.json).
+// The direct pub const exports above are kept for backwards compatibility.
+
+/// Lib/ directory modules - Python standard library implementations
+pub const Lib = struct {
+    pub const json = @import("Lib/json.zig");
+    pub const re = @import("Lib/re.zig");
+    pub const sys = @import("Lib/sys.zig");
+    pub const time = @import("Lib/time.zig");
+    pub const math = @import("Lib/math.zig");
+    pub const os = @import("Lib/os.zig");
+    pub const io = @import("Lib/io.zig");
+    pub const typing = @import("Lib/typing.zig");
+    pub const pathlib = @import("Lib/pathlib.zig");
+    pub const datetime = @import("Lib/datetime.zig");
+    pub const calendar = @import("Lib/calendar.zig");
+    pub const itertools = @import("Lib/itertools.zig");
+    pub const unittest = @import("Lib/unittest.zig");
+    pub const pickle = @import("Lib/pickle.zig");
+    pub const base64 = @import("Lib/base64.zig");
+    pub const http = if (is_freestanding) void else @import("Lib/http.zig");
+    pub const websocket = if (is_freestanding) void else @import("Lib/websocket.zig");
+    pub const asyncio = if (is_freestanding) void else @import("Lib/asyncio.zig");
+};
+
+/// Modules/ directory - C extension module implementations
+pub const Modules = struct {
+    pub const ctypes = @import("Modules/_ctypes.zig");
+    pub const hashlib = @import("Modules/_hashlib.zig");
+    pub const zlib = @import("Modules/zlibmodule.zig");
+    pub const _string = @import("Modules/_string.zig");
+    pub const _functools = @import("Modules/_functools.zig");
+    pub const _operator = @import("Modules/_operator.zig");
+    pub const _collections = @import("Modules/_collections.zig");
+    pub const _bisect = @import("Modules/_bisect.zig");
+    pub const _heapq = @import("Modules/_heapq.zig");
+    pub const _struct = @import("Modules/_struct.zig");
+    pub const _random = @import("Modules/_random.zig");
+    pub const _pickle = @import("Modules/_pickle.zig");
+};

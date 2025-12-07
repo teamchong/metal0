@@ -5,10 +5,73 @@
 const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
 
-// CPython stdlib wrappers (in modules/)
+// CPython stdlib wrappers (in modules/) - kept for backward compatibility
 pub const sqlite3 = @import("src/modules/sqlite3.zig");
 pub const zlib = @import("src/modules/zlib.zig");
 pub const ssl = @import("src/modules/ssl.zig");
+
+// =============================================================================
+// DCE-Friendly Namespace Exports
+// =============================================================================
+// These namespace structs enable Zig's dead code elimination by only pulling in
+// modules when explicitly accessed (e.g., c_interop.modules.sqlite3 instead of c_interop.sqlite3).
+// The direct pub const exports above are kept for backwards compatibility.
+
+/// modules/ directory - C extension module wrappers
+pub const modules = struct {
+    pub const sqlite3 = @import("src/modules/sqlite3.zig");
+    pub const zlib = @import("src/modules/zlib.zig");
+    pub const ssl = @import("src/modules/ssl.zig");
+};
+
+/// objects/ directory - PyObject type implementations
+pub const objects = struct {
+    pub const longobject = @import("src/objects/longobject.zig");
+    pub const floatobject = @import("src/objects/floatobject.zig");
+    pub const listobject = @import("src/objects/listobject.zig");
+    pub const tupleobject = @import("src/objects/tupleobject.zig");
+    pub const dictobject = @import("src/objects/dictobject.zig");
+    pub const bytesobject = @import("src/objects/bytesobject.zig");
+    pub const setobject = @import("src/objects/setobject.zig");
+    pub const boolobject = @import("src/objects/boolobject.zig");
+    pub const noneobject = @import("src/objects/noneobject.zig");
+    pub const complexobject = @import("src/objects/complexobject.zig");
+    pub const unicodeobject = @import("src/objects/unicodeobject.zig");
+    pub const iterobject = @import("src/objects/iterobject.zig");
+    pub const methodobject = @import("src/objects/methodobject.zig");
+    pub const moduleobject = @import("src/objects/moduleobject.zig");
+    pub const sliceobject = @import("src/objects/sliceobject.zig");
+    pub const exceptions = @import("src/objects/exceptions.zig");
+    pub const typetraits = @import("src/objects/typetraits.zig");
+};
+
+/// include/ directory - CPython C API headers
+pub const include = struct {
+    pub const modsupport = @import("src/include/modsupport.zig");
+    pub const refcount = @import("src/include/refcount.zig");
+    pub const buffer = @import("src/include/buffer.zig");
+    pub const datetime = @import("src/include/datetime.zig");
+    pub const descrobject = @import("src/include/descrobject.zig");
+    pub const ceval = @import("src/include/ceval.zig");
+    pub const fileobject = @import("src/include/fileobject.zig");
+    pub const import_ = @import("src/include/import.zig");
+    pub const pymisc = @import("src/include/pymisc.zig");
+    pub const moduleobject = @import("src/include/moduleobject.zig");
+    pub const number = @import("src/include/number.zig");
+    pub const sequence = @import("src/include/sequence.zig");
+    pub const sliceobject = @import("src/include/sliceobject.zig");
+    pub const typeslots = @import("src/include/typeslots.zig");
+    pub const unicodeobject = @import("src/include/unicodeobject.zig");
+    pub const weakrefobject = @import("src/include/weakrefobject.zig");
+    pub const mapping = @import("src/include/mapping.zig");
+    pub const abstract = @import("src/include/abstract.zig");
+    pub const codecs = @import("src/include/codecs.zig");
+    pub const context = @import("src/include/context.zig");
+    pub const objimpl = @import("src/include/objimpl.zig");
+    pub const iterobject = @import("src/include/iterobject.zig");
+    pub const call = @import("src/include/call.zig");
+    pub const structseq = @import("src/include/structseq.zig");
+};
 
 // CPython C API - our own implementation (drop-in replacement for libpython)
 // File structure mirrors CPython's Include/, Objects/, Modules/, Python/ directories

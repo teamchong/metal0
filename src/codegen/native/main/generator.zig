@@ -218,12 +218,14 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             switch (info.strategy) {
                 .zig_runtime, .c_library => {
                     // Use Zig import from registry
+                    // Prefer direct_import for DCE-friendly imports, fallback to zig_import
+                    const import_path = info.direct_import orelse info.zig_import;
                     try self.emit("const ");
                     // Use writeEscapedDottedIdent for consistency with lambda path
                     try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                     try self.emit(" = ");
-                    if (info.zig_import) |zig_import| {
-                        try self.emit(zig_import);
+                    if (import_path) |path| {
+                        try self.emit(path);
                     } else {
                         try self.emit("struct {}; // TODO: ");
                         try self.emit(mod_name);
@@ -1281,12 +1283,14 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (self.import_registry.lookup(mod_name)) |info| {
                 switch (info.strategy) {
                     .zig_runtime, .c_library => {
+                        // Prefer direct_import for DCE-friendly imports
+                        const import_path = info.direct_import orelse info.zig_import;
                         try self.emit("const ");
                         // Use writeEscapedDottedIdent for dotted module names like "test.support"
                         try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                         try self.emit(" = ");
-                        if (info.zig_import) |zig_import| {
-                            try self.emit(zig_import);
+                        if (import_path) |path| {
+                            try self.emit(path);
                         } else {
                             try self.emit("struct {}");
                         }
@@ -1298,11 +1302,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 // Fallback to root module for modules without submodule registry entries
                 switch (info.strategy) {
                     .zig_runtime, .c_library => {
+                        // Prefer direct_import for DCE-friendly imports
+                        const import_path = info.direct_import orelse info.zig_import;
                         try self.emit("const ");
                         try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                         try self.emit(" = ");
-                        if (info.zig_import) |zig_import| {
-                            try self.emit(zig_import);
+                        if (import_path) |path| {
+                            try self.emit(path);
                         } else {
                             try self.emit("struct {}");
                         }
