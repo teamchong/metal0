@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/filecmp.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // File Comparison
@@ -124,7 +125,7 @@ pub const DirCmp = struct {
     same_files: ?[][]const u8,
     diff_files: ?[][]const u8,
     funny_files: ?[][]const u8,
-    subdirs: ?std.StringHashMap(*Self),
+    subdirs: ?hashmap_helper.StringHashMap(*Self),
 
     /// Default patterns to ignore
     pub const DEFAULT_IGNORES = [_][]const u8{

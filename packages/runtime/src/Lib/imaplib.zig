@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/imaplib.py
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Constants
@@ -128,12 +129,12 @@ pub const IMAP4 = struct {
     sock: ?std.posix.socket_t,
     file: ?std.net.Stream,
     welcome: ?[]const u8,
-    capabilities: std.StringHashMap(void),
+    capabilities: hashmap_helper.StringHashMap(void),
     state: State,
     debugging: u8,
     literal: ?[]const u8,
-    tagged_commands: std.StringHashMap([]const u8),
-    untagged_responses: std.StringHashMap([][]const u8),
+    tagged_commands: hashmap_helper.StringHashMap([]const u8),
+    untagged_responses: hashmap_helper.StringHashMap([][]const u8),
     continuation_response: ?[]const u8,
     tagnum: u32,
     tagpre: []const u8,
@@ -154,12 +155,12 @@ pub const IMAP4 = struct {
             .sock = null,
             .file = null,
             .welcome = null,
-            .capabilities = std.StringHashMap(void).init(allocator),
+            .capabilities = hashmap_helper.StringHashMap(void).init(allocator),
             .state = .NONAUTH,
             .debugging = 0,
             .literal = null,
-            .tagged_commands = std.StringHashMap([]const u8).init(allocator),
-            .untagged_responses = std.StringHashMap([][]const u8).init(allocator),
+            .tagged_commands = hashmap_helper.StringHashMap([]const u8).init(allocator),
+            .untagged_responses = hashmap_helper.StringHashMap([][]const u8).init(allocator),
             .continuation_response = null,
             .tagnum = 0,
             .tagpre = "A",
