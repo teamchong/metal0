@@ -686,7 +686,7 @@ pub fn inferExprWithInferrer(
             // In Python, +bool and -bool convert to int
             switch (u.op) {
                 .UAdd, .USub => {
-                    if (operand_type == .bool) {
+                    if (type_traits.isBoolean(operand_type)) {
                         break :blk .{ .int = .bounded };
                     }
                     break :blk operand_type;
