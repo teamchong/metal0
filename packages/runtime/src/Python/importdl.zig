@@ -154,7 +154,7 @@ pub const ExtensionLoader = struct {
 
     /// Unload a module
     pub fn unloadModule(self: *Self, name: []const u8) void {
-        if (self.loaded_modules.fetchRemove(name)) |entry| {
+        if (self.loaded_modules.fetchSwapRemove(name)) |entry| {
             entry.value.deinit();
             self.allocator.destroy(entry.value);
         }

@@ -316,7 +316,7 @@ pub const ChannelRegistry = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        if (self.channels.fetchRemove(id)) |entry| {
+        if (self.channels.fetchSwapRemove(id)) |entry| {
             entry.value.deinit();
             self.allocator.destroy(entry.value);
         }

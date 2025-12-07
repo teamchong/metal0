@@ -151,7 +151,7 @@ pub const TLAllocatorRegistry = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        if (self.allocators.fetchRemove(thread_id)) |kv| {
+        if (self.allocators.fetchSwapRemove(thread_id)) |kv| {
             kv.value.deinit();
             self.backing.destroy(kv.value);
         }

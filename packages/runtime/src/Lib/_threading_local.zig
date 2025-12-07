@@ -96,7 +96,7 @@ pub const _localimpl = struct {
         const tid = std.Thread.getCurrentId();
 
         // Remove old dict if exists
-        if (self.dicts.fetchRemove(tid)) |entry| {
+        if (self.dicts.fetchSwapRemove(tid)) |entry| {
             var dict = entry.value;
             dict.deinit();
         }

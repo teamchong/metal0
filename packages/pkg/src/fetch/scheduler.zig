@@ -87,7 +87,7 @@ pub const FetchScheduler = struct {
                 return true; // Already cached
             }
             // Cache expired, remove it
-            if (self.cache.fetchRemove(norm_name)) |kv| {
+            if (self.cache.fetchSwapRemove(norm_name)) |kv| {
                 self.allocator.free(kv.key);
                 var meta = kv.value.metadata;
                 meta.deinit(self.allocator);
@@ -139,9 +139,8 @@ pub const FetchScheduler = struct {
         var names = std.ArrayList([]const u8){};
         defer names.deinit(self.allocator);
 
-        var it = self.pending.keyIterator();
-        while (it.next()) |key| {
-            try names.append(self.allocator, key.*);
+        for (self.pending.keys()) |key| {
+            try names.append(self.allocator, key);
         }
 
         self.batches_executed += 1;

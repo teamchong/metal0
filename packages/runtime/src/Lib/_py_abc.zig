@@ -157,9 +157,8 @@ pub const ABCMeta = struct {
     /// Get all abstract method names
     pub fn getAbstractMethodNames(self: *const Self, allocator: Allocator) ![][]const u8 {
         var names = std.ArrayList([]const u8).init(allocator);
-        var it = self.abstract_methods.keyIterator();
-        while (it.next()) |key| {
-            try names.append(key.*);
+        for (self.abstract_methods.keys()) |key| {
+            try names.append(key);
         }
         return names.toOwnedSlice();
     }
@@ -184,11 +183,10 @@ pub fn hasAllAbstractMethods(
     abstract_methods: *const hashmap_helper.StringHashMap(void),
     implemented_methods: []const []const u8,
 ) bool {
-    var it = abstract_methods.keyIterator();
-    while (it.next()) |abstract| {
+    for (abstract_methods.keys()) |abstract| {
         var found = false;
         for (implemented_methods) |impl| {
-            if (std.mem.eql(u8, abstract.*, impl)) {
+            if (std.mem.eql(u8, abstract, impl)) {
                 found = true;
                 break;
             }

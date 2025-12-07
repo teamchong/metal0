@@ -13,6 +13,7 @@
 //! - Compare keys without allocation via .eql()
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const LazyValue = @import("lazy.zig").LazyValue;
 const LazyString = @import("lazy.zig").LazyString;
 const simd = @import("json_simd");
@@ -203,7 +204,7 @@ fn parseArray(data: []const u8, pos: usize, allocator: std.mem.Allocator) ParseE
 fn parseObject(data: []const u8, pos: usize, allocator: std.mem.Allocator) ParseError!ParseResult {
     if (pos >= data.len or data[pos] != '{') return ParseError.UnexpectedToken;
 
-    var obj = std.StringHashMap(LazyValue).init(allocator);
+    var obj = hashmap_helper.StringHashMap(LazyValue).init(allocator);
     errdefer {
         var it = obj.iterator();
         while (it.next()) |entry| {

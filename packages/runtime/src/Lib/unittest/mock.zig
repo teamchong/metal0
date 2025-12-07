@@ -88,10 +88,9 @@ pub const Mock = struct {
         self.call_args_list.deinit(self.allocator);
         self.method_calls.deinit(self.allocator);
 
-        var iter = self.children.valueIterator();
-        while (iter.next()) |child| {
-            child.*.deinit();
-            self.allocator.destroy(child.*);
+        for (self.children.values()) |child| {
+            child.deinit();
+            self.allocator.destroy(child);
         }
         self.children.deinit();
     }
@@ -139,9 +138,8 @@ pub const Mock = struct {
         self.method_calls.clearRetainingCapacity();
         self.side_effect_idx = 0;
 
-        var iter = self.children.valueIterator();
-        while (iter.next()) |child| {
-            child.*.reset_mock();
+        for (self.children.values()) |child| {
+            child.reset_mock();
         }
     }
 

@@ -72,9 +72,8 @@ pub const etree = struct {
         /// Get all attribute keys
         pub fn keys(self: *Self) ![][]const u8 {
             var result = std.ArrayList([]const u8).init(self.allocator);
-            var iter = self.attrib.keyIterator();
-            while (iter.next()) |key| {
-                try result.append(key.*);
+            for (self.attrib.keys()) |key| {
+                try result.append(key);
             }
             return result.toOwnedSlice();
         }

@@ -371,7 +371,7 @@ pub const Optimizer = struct {
 
     /// Remove trace
     pub fn removeTrace(self: *Self, trace_id: u64) void {
-        if (self.traces.fetchRemove(trace_id)) |kv| {
+        if (self.traces.fetchSwapRemove(trace_id)) |kv| {
             kv.value.deinit();
             self.allocator.destroy(kv.value);
         }

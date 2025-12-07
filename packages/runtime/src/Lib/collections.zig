@@ -493,7 +493,7 @@ pub fn OrderedDict(comptime K: type, comptime V: type) type {
         }
 
         pub fn remove(self: *Self, key: K) bool {
-            if (self.map.fetchRemove(key)) |kv| {
+            if (self.map.fetchSwapRemove(key)) |kv| {
                 // Mark as removed (value becomes undefined)
                 _ = kv;
                 return true;

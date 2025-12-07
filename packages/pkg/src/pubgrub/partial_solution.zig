@@ -255,7 +255,7 @@ pub const PartialSolution = struct {
         }
 
         for (to_remove.items) |package| {
-            if (self.assignments.fetchRemove(package)) |kv| {
+            if (self.assignments.fetchSwapRemove(package)) |kv| {
                 var assignment = kv.value;
                 assignment.deinit();
             }

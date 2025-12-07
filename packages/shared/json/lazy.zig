@@ -4,6 +4,7 @@
 //! For most JSON parsing use cases, only a subset of values are accessed.
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const Value = @import("value.zig").Value;
 
 /// Lazy string reference - stores slice into source, copies on access
@@ -86,7 +87,7 @@ pub const LazyValue = union(enum) {
     number_float: f64,
     string: LazyString,
     array: std.ArrayList(LazyValue),
-    object: std.StringHashMap(LazyValue),
+    object: hashmap_helper.StringHashMap(LazyValue),
 
     /// Convert to eager Value (materializes all strings)
     pub fn toValue(self: *LazyValue, allocator: std.mem.Allocator) !Value {
@@ -110,7 +111,7 @@ pub const LazyValue = union(enum) {
                 break :blk .{ .array = new_arr };
             },
             .object => |obj| blk: {
-                var new_obj = std.StringHashMap(Value).init(allocator);
+                var new_obj = hashmap_helper.StringHashMap(Value).init(allocator);
                 errdefer {
                     var it = new_obj.iterator();
                     while (it.next()) |entry| {

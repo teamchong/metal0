@@ -4,6 +4,7 @@
 //! Based on packages/runtime/src/json/parse.zig but without PyObject dependencies.
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const Value = @import("value.zig").Value;
 const simd = @import("json_simd");
 
@@ -370,7 +371,7 @@ fn parseArray(data: []const u8, pos: usize, allocator: std.mem.Allocator) ParseE
 fn parseObject(data: []const u8, pos: usize, allocator: std.mem.Allocator) ParseError!ParseResult {
     if (pos >= data.len or data[pos] != '{') return ParseError.UnexpectedToken;
 
-    var object = std.StringHashMap(Value).init(allocator);
+    var object = hashmap_helper.StringHashMap(Value).init(allocator);
     var cleanup_needed = true;
     defer if (cleanup_needed) {
         var it = object.iterator();

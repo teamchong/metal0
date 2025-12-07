@@ -80,9 +80,8 @@ pub const FrozenRegistry = struct {
     /// Get all frozen module names
     pub fn getNames(self: *const Self, allocator: Allocator) ![][]const u8 {
         var names = std.ArrayList([]const u8).init(allocator);
-        var it = self.modules.keyIterator();
-        while (it.next()) |key| {
-            try names.append(key.*);
+        for (self.modules.keys()) |key| {
+            try names.append(key);
         }
         return names.toOwnedSlice();
     }

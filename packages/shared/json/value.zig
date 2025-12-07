@@ -2,6 +2,7 @@
 //! This is the shared representation used by all JSON operations in metal0.
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Generic JSON value representation
 /// Used as intermediate format for parsing and stringify operations
@@ -12,7 +13,7 @@ pub const Value = union(enum) {
     number_float: f64,
     string: []const u8,
     array: std.ArrayList(Value),
-    object: std.StringHashMap(Value),
+    object: hashmap_helper.StringHashMap(Value),
 
     /// Free all resources held by this Value
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
@@ -69,7 +70,7 @@ pub const Value = union(enum) {
                 break :blk .{ .array = new_arr };
             },
             .object => |obj| blk: {
-                var new_obj = std.StringHashMap(Value).init(allocator);
+                var new_obj = hashmap_helper.StringHashMap(Value).init(allocator);
                 errdefer {
                     var it = new_obj.iterator();
                     while (it.next()) |entry| {
@@ -141,7 +142,7 @@ test "Value.deinit" {
     arr_val.deinit(allocator);
 
     // Test object deinit
-    var obj = std.StringHashMap(Value).init(allocator);
+    var obj = hashmap_helper.StringHashMap(Value).init(allocator);
     try obj.put(try allocator.dupe(u8, "key"), Value{ .bool_value = true });
     var obj_val = Value{ .object = obj };
     obj_val.deinit(allocator);

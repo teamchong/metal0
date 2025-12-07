@@ -293,7 +293,7 @@ pub const ConfigParser = struct {
 
     /// Remove a section
     pub fn removeSection(self: *Self, section: []const u8) bool {
-        if (self.sections.fetchRemove(section)) |kv| {
+        if (self.sections.fetchSwapRemove(section)) |kv| {
             var map = kv.value;
             map.deinit();
             return true;
@@ -312,9 +312,8 @@ pub const ConfigParser = struct {
     /// Get all section names
     pub fn getSections(self: *Self) ![][]const u8 {
         var result = std.ArrayList([]const u8).init(self.allocator);
-        var iter = self.sections.keyIterator();
-        while (iter.next()) |key| {
-            try result.append(key.*);
+        for (self.sections.keys()) |key| {
+            try result.append(key);
         }
         return result.toOwnedSlice();
     }
@@ -324,16 +323,14 @@ pub const ConfigParser = struct {
         var result = std.ArrayList([]const u8).init(self.allocator);
 
         // Add defaults first
-        var def_iter = self.defaults.keyIterator();
-        while (def_iter.next()) |key| {
-            try result.append(key.*);
+        for (self.defaults.keys()) |key| {
+            try result.append(key);
         }
 
         // Add section-specific options
         if (self.sections.get(section)) |section_map| {
-            var sec_iter = section_map.keyIterator();
-            while (sec_iter.next()) |key| {
-                try result.append(key.*);
+            for (section_map.keys()) |key| {
+                try result.append(key);
             }
         } else {
             return error.NoSection;

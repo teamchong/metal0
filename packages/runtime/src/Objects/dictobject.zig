@@ -166,7 +166,7 @@ pub const PyDict = struct {
 
         const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
 
-        if (map.fetchRemove(key)) |entry| {
+        if (map.fetchSwapRemove(key)) |entry| {
             allocator.free(entry.key);
             dict_obj.ma_used -= 1;
             return entry.value;

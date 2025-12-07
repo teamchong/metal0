@@ -110,8 +110,7 @@ pub const BreakpointManager = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        var it = self.by_location.valueIterator();
-        while (it.next()) |list| {
+        for (self.by_location.values()) |*list| {
             list.deinit();
         }
         self.by_location.deinit();

@@ -38,7 +38,7 @@ pub const MacroRegistry = struct {
         errdefer self.allocator.free(pattern_copy);
 
         // Check if macro already exists and free old values
-        if (self.macros.fetchRemove(name)) |kv| {
+        if (self.macros.fetchSwapRemove(name)) |kv| {
             self.allocator.free(kv.key);
             self.allocator.free(kv.value);
         }

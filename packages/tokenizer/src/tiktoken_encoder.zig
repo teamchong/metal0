@@ -3,6 +3,7 @@
 ///
 /// Reference: https://github.com/openai/tiktoken/blob/main/src/lib.rs
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const Allocator = std.mem.Allocator;
 
 pub const Rank = u32;
@@ -157,7 +158,7 @@ test "byte_pair_encode - simple merge" {
     const allocator = std.testing.allocator;
 
     // Create a simple vocab
-    const TestMap = std.StringHashMap(Rank);
+    const TestMap = hashmap_helper.StringHashMap(Rank);
     var ranks = TestMap.init(allocator);
     defer ranks.deinit();
 
@@ -178,7 +179,7 @@ test "byte_pair_encode - simple merge" {
 test "byte_pair_encode - single byte" {
     const allocator = std.testing.allocator;
 
-    const TestMap = std.StringHashMap(Rank);
+    const TestMap = hashmap_helper.StringHashMap(Rank);
     var ranks = TestMap.init(allocator);
     defer ranks.deinit();
 
@@ -193,7 +194,7 @@ test "byte_pair_encode - single byte" {
 test "byte_pair_encode - no merges" {
     const allocator = std.testing.allocator;
 
-    const TestMap = std.StringHashMap(Rank);
+    const TestMap = hashmap_helper.StringHashMap(Rank);
     var ranks = TestMap.init(allocator);
     defer ranks.deinit();
 

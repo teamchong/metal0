@@ -309,7 +309,7 @@ pub fn DefaultDict(comptime K: type, comptime V: type) type {
 
         /// pop(key) - Remove and return value for key
         pub fn pop(self: *Self, key: K) ?V {
-            if (self.map.fetchRemove(key)) |kv| {
+            if (self.map.fetchSwapRemove(key)) |kv| {
                 return kv.value;
             }
             return null;
@@ -317,7 +317,7 @@ pub fn DefaultDict(comptime K: type, comptime V: type) type {
 
         /// popWithDefault(key, default) - Remove and return value, or default if missing
         pub fn popWithDefault(self: *Self, key: K, default: V) V {
-            if (self.map.fetchRemove(key)) |kv| {
+            if (self.map.fetchSwapRemove(key)) |kv| {
                 return kv.value;
             }
             return default;
@@ -560,7 +560,7 @@ pub fn OrderedDict(comptime K: type, comptime V: type) type {
 
         /// pop(key) - Remove and return value for key
         pub fn pop(self: *Self, key: K) ?V {
-            if (self.map.fetchRemove(key)) |kv| {
+            if (self.map.fetchSwapRemove(key)) |kv| {
                 // Remove from order list
                 for (self.order.items, 0..) |k, i| {
                     if (k == key) {
@@ -1074,7 +1074,7 @@ pub fn UserDict(comptime K: type, comptime V: type) type {
 
         /// pop - remove and return value
         pub fn pop(self: *Self, key: K, default: ?V) ?V {
-            if (self.data.fetchRemove(key)) |kv| {
+            if (self.data.fetchSwapRemove(key)) |kv| {
                 return kv.value;
             }
             return default;

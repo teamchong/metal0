@@ -6,6 +6,7 @@
 //!   defer allocator.free(output);
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const Value = @import("value.zig").Value;
 
 pub const StringifyError = error{
@@ -300,7 +301,7 @@ test "stringify array with values" {
 
 test "stringify empty object" {
     const allocator = std.testing.allocator;
-    var obj = std.StringHashMap(Value).init(allocator);
+    var obj = hashmap_helper.StringHashMap(Value).init(allocator);
     defer obj.deinit();
     const result = try stringify(allocator, .{ .object = obj });
     defer allocator.free(result);
@@ -309,7 +310,7 @@ test "stringify empty object" {
 
 test "stringify object with values" {
     const allocator = std.testing.allocator;
-    var obj = std.StringHashMap(Value).init(allocator);
+    var obj = hashmap_helper.StringHashMap(Value).init(allocator);
     defer obj.deinit();
     try obj.put("name", .{ .string = "metal0" });
     const result = try stringify(allocator, .{ .object = obj });
@@ -329,7 +330,7 @@ test "stringify nested structure" {
     try inner_arr.append(allocator, .{ .number_int = 2 });
 
     // Create outer object
-    var obj = std.StringHashMap(Value).init(allocator);
+    var obj = hashmap_helper.StringHashMap(Value).init(allocator);
     defer obj.deinit();
     try obj.put("nums", .{ .array = inner_arr });
     try obj.put("active", .{ .bool_value = true });

@@ -372,10 +372,9 @@ pub const SymbolTable = struct {
 
     pub fn deinit(self: *Self) void {
         // Free all entries
-        var it = self.entries.valueIterator();
-        while (it.next()) |entry_ptr| {
-            entry_ptr.*.deinit();
-            self.allocator.destroy(entry_ptr.*);
+        for (self.entries.values()) |entry_ptr| {
+            entry_ptr.deinit();
+            self.allocator.destroy(entry_ptr);
         }
         self.entries.deinit();
 

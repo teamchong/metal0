@@ -3,6 +3,7 @@
 ///
 /// This is metal0's DROP-IN REPLACEMENT for libpython - we provide the C API ourselves.
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // CPython stdlib wrappers (in modules/)
 pub const sqlite3 = @import("src/modules/sqlite3.zig");
@@ -80,11 +81,11 @@ const allocator = std.heap.c_allocator;
 // ============================================================================
 
 /// Module cache - stores loaded C extension modules
-var module_cache: ?std.StringHashMap(*cpython.PyObject) = null;
+var module_cache: ?hashmap_helper.StringHashMap(*cpython.PyObject) = null;
 
-fn getModuleCache() *std.StringHashMap(*cpython.PyObject) {
+fn getModuleCache() *hashmap_helper.StringHashMap(*cpython.PyObject) {
     if (module_cache == null) {
-        module_cache = std.StringHashMap(*cpython.PyObject).init(allocator);
+        module_cache = hashmap_helper.StringHashMap(*cpython.PyObject).init(allocator);
     }
     return &module_cache.?;
 }

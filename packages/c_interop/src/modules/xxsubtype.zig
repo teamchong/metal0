@@ -10,6 +10,7 @@
 //! Mirrors: CPython Modules/xxsubtype.c
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -83,13 +84,13 @@ pub const SpamDict = struct {
     const Self = @This();
 
     /// Internal map storage
-    map: std.StringHashMap(i64),
+    map: hashmap_helper.StringHashMap(i64),
     /// Custom state attribute
     state: i32 = 0,
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
-            .map = std.StringHashMap(i64).init(allocator),
+            .map = hashmap_helper.StringHashMap(i64).init(allocator),
         };
     }
 

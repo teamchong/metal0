@@ -19,6 +19,7 @@
 //! ```
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const pep440 = @import("../parse/pep440.zig");
 const pep508 = @import("../parse/pep508.zig");
 const pypi = @import("../fetch/pypi.zig");
@@ -107,9 +108,9 @@ pub const Resolver = struct {
     scheduler: scheduler_mod.FetchScheduler,
 
     // Resolution state
-    resolved: std.StringHashMap(ResolvedPackage),
-    pending: std.StringHashMap(pep508.Dependency),
-    state: std.StringHashMap(PackageState),
+    resolved: hashmap_helper.StringHashMap(ResolvedPackage),
+    pending: hashmap_helper.StringHashMap(pep508.Dependency),
+    state: hashmap_helper.StringHashMap(PackageState),
     conflicts: std.ArrayList([]const u8),
 
     // Stats
@@ -138,9 +139,9 @@ pub const Resolver = struct {
             .client = client,
             .cache = cache,
             .scheduler = scheduler_mod.FetchScheduler.init(allocator, client),
-            .resolved = std.StringHashMap(ResolvedPackage).init(allocator),
-            .pending = std.StringHashMap(pep508.Dependency).init(allocator),
-            .state = std.StringHashMap(PackageState).init(allocator),
+            .resolved = hashmap_helper.StringHashMap(ResolvedPackage).init(allocator),
+            .pending = hashmap_helper.StringHashMap(pep508.Dependency).init(allocator),
+            .state = hashmap_helper.StringHashMap(PackageState).init(allocator),
             .conflicts = std.ArrayList([]const u8){},
         };
     }
@@ -197,9 +198,7 @@ pub const Resolver = struct {
             var all_pending = std.ArrayList([]const u8){};
             defer all_pending.deinit(self.allocator);
 
-            var pending_it = self.pending.keyIterator();
-            while (pending_it.next()) |key_ptr| {
-                const name = key_ptr.*;
+            for (self.pending.keys()) |name| {
                 // Skip if already resolved
                 if (self.state.get(name)) |s| {
                     if (s == .resolved) continue;
@@ -350,7 +349,7 @@ pub const Resolver = struct {
                             s.* = .failed;
                         }
                         // Remove from pending to avoid infinite loop
-                        if (self.pending.fetchRemove(pkg_name)) |kv| {
+                        if (self.pending.fetchSwapRemove(pkg_name)) |kv| {
                             self.allocator.free(kv.key);
                             var dep_to_free = kv.value;
                             pep508.freeDependency(self.allocator, &dep_to_free);
@@ -372,9 +371,8 @@ pub const Resolver = struct {
 
         // Clear resolved to avoid double-free (ownership transferred to result)
         // Just free the keys - values are now owned by packages
-        var key_it = self.resolved.keyIterator();
-        while (key_it.next()) |key_ptr| {
-            self.allocator.free(key_ptr.*);
+        for (self.resolved.keys()) |key| {
+            self.allocator.free(key);
         }
         self.resolved.clearRetainingCapacity();
 
@@ -459,7 +457,7 @@ pub const Resolver = struct {
         }
 
         // Remove from pending - free both key and dependency value
-        if (self.pending.fetchRemove(name)) |kv| {
+        if (self.pending.fetchSwapRemove(name)) |kv| {
             self.allocator.free(kv.key);
             var dep_to_free = kv.value;
             pep508.freeDependency(self.allocator, &dep_to_free);
@@ -495,7 +493,7 @@ pub const Resolver = struct {
         }
 
         // Remove from pending - free both key and dependency value
-        if (self.pending.fetchRemove(name)) |kv| {
+        if (self.pending.fetchSwapRemove(name)) |kv| {
             self.allocator.free(kv.key);
             var dep_to_free = kv.value;
             pep508.freeDependency(self.allocator, &dep_to_free);
@@ -633,7 +631,7 @@ pub const Resolver = struct {
         // Phase 2: Collect wheel URLs that have PEP 658 metadata
         var wheel_urls = std.ArrayList([]const u8){};
         defer wheel_urls.deinit(self.allocator);
-        var url_to_name = std.StringHashMap(usize).init(self.allocator);
+        var url_to_name = hashmap_helper.StringHashMap(usize).init(self.allocator);
         defer url_to_name.deinit();
 
         for (simple_contexts, 0..) |ctx, i| {

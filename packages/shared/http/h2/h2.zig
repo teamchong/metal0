@@ -9,6 +9,7 @@
 //! - Connection pooling per host
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const frame = @import("frame.zig");
 const hpack = @import("hpack.zig");
 const connection = @import("connection.zig");
@@ -67,7 +68,7 @@ pub const Response = struct {
 /// Response cache for H2 client
 pub const ResponseCache = struct {
     allocator: std.mem.Allocator,
-    entries: std.StringHashMap(CacheEntry),
+    entries: hashmap_helper.StringHashMap(CacheEntry),
     max_size: usize,
     ttl_seconds: i64,
 
@@ -80,7 +81,7 @@ pub const ResponseCache = struct {
     pub fn init(allocator: std.mem.Allocator, max_size: usize, ttl_seconds: i64) ResponseCache {
         return .{
             .allocator = allocator,
-            .entries = std.StringHashMap(CacheEntry).init(allocator),
+            .entries = hashmap_helper.StringHashMap(CacheEntry).init(allocator),
             .max_size = max_size,
             .ttl_seconds = ttl_seconds,
         };
@@ -102,7 +103,7 @@ pub const ResponseCache = struct {
                 return entry;
             }
             // Expired - remove
-            if (self.entries.fetchRemove(url)) |kv| {
+            if (self.entries.fetchSwapRemove(url)) |kv| {
                 self.allocator.free(kv.key);
                 self.allocator.free(kv.value.body);
             }
@@ -139,7 +140,7 @@ pub const HttpVersion = enum {
 /// HTTP/2 Client with connection pooling and optional response cache
 pub const Client = struct {
     allocator: std.mem.Allocator,
-    connections: std.StringHashMap(*H2Connection),
+    connections: hashmap_helper.StringHashMap(*H2Connection),
     connections_mutex: std.Thread.Mutex,
     max_connections_per_host: usize,
     cache: ?*ResponseCache,
@@ -157,7 +158,7 @@ pub const Client = struct {
     pub fn init(allocator: std.mem.Allocator) Client {
         return .{
             .allocator = allocator,
-            .connections = std.StringHashMap(*H2Connection).init(allocator),
+            .connections = hashmap_helper.StringHashMap(*H2Connection).init(allocator),
             .connections_mutex = .{},
             .max_connections_per_host = 1, // HTTP/2 multiplexing means 1 is enough
             .cache = null,
@@ -171,7 +172,7 @@ pub const Client = struct {
     pub fn initWithVersion(allocator: std.mem.Allocator, version: HttpVersion) Client {
         return .{
             .allocator = allocator,
-            .connections = std.StringHashMap(*H2Connection).init(allocator),
+            .connections = hashmap_helper.StringHashMap(*H2Connection).init(allocator),
             .connections_mutex = .{},
             .max_connections_per_host = 1,
             .cache = null,
@@ -184,7 +185,7 @@ pub const Client = struct {
     pub fn initWithCache(allocator: std.mem.Allocator, cache: *ResponseCache) Client {
         return .{
             .allocator = allocator,
-            .connections = std.StringHashMap(*H2Connection).init(allocator),
+            .connections = hashmap_helper.StringHashMap(*H2Connection).init(allocator),
             .connections_mutex = .{},
             .max_connections_per_host = 1,
             .cache = cache,
@@ -198,7 +199,7 @@ pub const Client = struct {
     pub fn initAsync(allocator: std.mem.Allocator, netpoller: *Netpoller, green_thread: *GreenThread) Client {
         return .{
             .allocator = allocator,
-            .connections = std.StringHashMap(*H2Connection).init(allocator),
+            .connections = hashmap_helper.StringHashMap(*H2Connection).init(allocator),
             .connections_mutex = .{},
             .max_connections_per_host = 1,
             .cache = null,
@@ -533,7 +534,7 @@ pub const Client = struct {
         if (urls.len == 0) return &[_]Response{};
 
         // Group URLs by host
-        var by_host = std.StringHashMap(UrlIndexList).init(self.allocator);
+        var by_host = hashmap_helper.StringHashMap(UrlIndexList).init(self.allocator);
         defer {
             var it = by_host.iterator();
             while (it.next()) |entry| {

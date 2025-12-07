@@ -10,6 +10,7 @@
 //! This is the "best" dependency resolver, used by Dart's pub, uv, and others.
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const Term = @import("term.zig").Term;
 const Range = @import("range.zig").Range;
 const Version = @import("version.zig").Version;
@@ -63,21 +64,19 @@ pub const DependencyProvider = struct {
 /// Resolution result
 pub const Resolution = struct {
     /// Selected packages and versions
-    packages: std.StringHashMap(Version),
+    packages: hashmap_helper.StringHashMap(Version),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Resolution {
         return .{
-            .packages = std.StringHashMap(Version).init(allocator),
+            .packages = hashmap_helper.StringHashMap(Version).init(allocator),
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Resolution) void {
-        var iter = self.packages.valueIterator();
-        while (iter.next()) |v| {
-            var version = v;
-            version.deinit(self.allocator);
+        for (self.packages.values()) |*v| {
+            v.deinit(self.allocator);
         }
         self.packages.deinit();
     }
@@ -103,7 +102,7 @@ pub const Solver = struct {
     provider: DependencyProvider,
 
     /// Package name -> ID mapping
-    package_ids: std.StringHashMap(PackageId),
+    package_ids: hashmap_helper.StringHashMap(PackageId),
     /// ID -> Package name mapping
     package_names: std.ArrayList([]const u8),
     /// Next package ID
@@ -125,7 +124,7 @@ pub const Solver = struct {
         return .{
             .allocator = allocator,
             .provider = provider,
-            .package_ids = std.StringHashMap(PackageId).init(allocator),
+            .package_ids = hashmap_helper.StringHashMap(PackageId).init(allocator),
             .package_names = std.ArrayList([]const u8){},
             .next_package_id = 0,
             .incompatibilities = std.ArrayList(Incompatibility){},

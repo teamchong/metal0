@@ -113,17 +113,14 @@ pub const ModuleFinder = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        var it = self.modules.valueIterator();
-        while (it.next()) |mod| {
-            mod.*.deinit();
-            self.allocator.destroy(mod.*);
+        for (self.modules.values()) |mod| {
+            mod.deinit();
+            self.allocator.destroy(mod);
         }
         self.modules.deinit();
 
-        var bad_it = self.badmodules.valueIterator();
-        while (bad_it.next()) |bad| {
-            var b = bad.*;
-            b.deinit();
+        for (self.badmodules.values()) |*bad| {
+            bad.deinit();
         }
         self.badmodules.deinit();
 
@@ -320,9 +317,8 @@ pub const ModuleFinder = struct {
     /// Get any missing modules
     pub fn anyMissing(self: *Self) []const []const u8 {
         var result = std.ArrayList([]const u8).init(self.allocator);
-        var it = self.badmodules.keyIterator();
-        while (it.next()) |name| {
-            result.append(name.*) catch {};
+        for (self.badmodules.keys()) |name| {
+            result.append(name) catch {};
         }
         return result.toOwnedSlice() catch &[_][]const u8{};
     }

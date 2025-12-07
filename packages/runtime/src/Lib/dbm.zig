@@ -177,9 +177,8 @@ pub fn Database(comptime K: type, comptime V: type) type {
             var result = std.ArrayList(K).init(self.allocator);
             errdefer result.deinit();
 
-            var iter = self.data.keyIterator();
-            while (iter.next()) |key| {
-                try result.append(key.*);
+            for (self.data.keys()) |key| {
+                try result.append(key);
             }
 
             return result.toOwnedSlice();
@@ -220,9 +219,9 @@ pub fn Database(comptime K: type, comptime V: type) type {
 
         /// Get first key
         pub fn firstKey(self: *Self) ?K {
-            var iter = self.data.keyIterator();
-            if (iter.next()) |key| {
-                return key.*;
+            const key_slice = self.data.keys();
+            if (key_slice.len > 0) {
+                return key_slice[0];
             }
             return null;
         }

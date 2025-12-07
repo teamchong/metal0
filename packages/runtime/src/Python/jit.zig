@@ -180,7 +180,7 @@ pub const JITCompiler = struct {
 
     /// Invalidate compiled code
     pub fn invalidate(self: *Self, code_id: u64) void {
-        if (self.cache.fetchRemove(code_id)) |entry| {
+        if (self.cache.fetchSwapRemove(code_id)) |entry| {
             self.total_size -= entry.value.size;
             self.allocator.free(entry.value.native_code);
         }

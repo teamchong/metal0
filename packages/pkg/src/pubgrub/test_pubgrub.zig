@@ -3,6 +3,7 @@
 //! Tests the complete dependency resolution flow.
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const pubgrub = @import("pubgrub.zig");
 const Version = pubgrub.Version;
 const Range = pubgrub.Range;
@@ -16,9 +17,9 @@ const Dependency = pubgrub.Dependency;
 const TestProvider = struct {
     allocator: std.mem.Allocator,
     /// package -> [versions]
-    versions: std.StringHashMap([]const []const u8),
+    versions: hashmap_helper.StringHashMap([]const []const u8),
     /// "package@version" -> [dependencies]
-    dependencies: std.StringHashMap([]const TestDep),
+    dependencies: hashmap_helper.StringHashMap([]const TestDep),
 
     const TestDep = struct {
         name: []const u8,
@@ -28,8 +29,8 @@ const TestProvider = struct {
     fn init(allocator: std.mem.Allocator) TestProvider {
         return .{
             .allocator = allocator,
-            .versions = std.StringHashMap([]const []const u8).init(allocator),
-            .dependencies = std.StringHashMap([]const TestDep).init(allocator),
+            .versions = hashmap_helper.StringHashMap([]const []const u8).init(allocator),
+            .dependencies = hashmap_helper.StringHashMap([]const TestDep).init(allocator),
         };
     }
 
