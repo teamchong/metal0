@@ -17,6 +17,55 @@
 const std = @import("std");
 const pypi = @import("pypi.zig");
 
+// ============================================================================
+// Static Platform Tag Constants (Zero-Copy)
+// ============================================================================
+
+const UNIVERSAL_TAGS: []const []const u8 = &.{"any"};
+
+const LINUX_X86_64_TAGS: []const []const u8 = &.{
+    "linux_x86_64",
+    "manylinux1_x86_64",
+    "manylinux2010_x86_64",
+    "manylinux2014_x86_64",
+    "manylinux_2_17_x86_64",
+};
+
+const LINUX_AARCH64_TAGS: []const []const u8 = &.{
+    "linux_aarch64",
+    "manylinux2014_aarch64",
+    "manylinux_2_17_aarch64",
+};
+
+const MACOS_X86_64_TAGS: []const []const u8 = &.{
+    "macosx_10_9_x86_64",
+    "macosx_10_10_x86_64",
+    "macosx_10_11_x86_64",
+    "macosx_10_12_x86_64",
+    "macosx_10_13_x86_64",
+    "macosx_10_14_x86_64",
+    "macosx_10_15_x86_64",
+    "macosx_11_0_x86_64",
+    "macosx_10_9_universal2",
+    "macosx_11_0_universal2",
+};
+
+const MACOS_ARM64_TAGS: []const []const u8 = &.{
+    "macosx_11_0_arm64",
+    "macosx_12_0_arm64",
+    "macosx_13_0_arm64",
+    "macosx_14_0_arm64",
+    "macosx_11_0_universal2",
+    "macosx_12_0_universal2",
+};
+
+const WIN_AMD64_TAGS: []const []const u8 = &.{"win_amd64"};
+const WIN32_TAGS: []const []const u8 = &.{"win32"};
+const WIN_ARM64_TAGS: []const []const u8 = &.{"win_arm64"};
+
+const ABI3_TAG: []const u8 = "abi3";
+const NONE_TAG: []const u8 = "none";
+
 /// Parsed wheel filename components
 pub const WheelInfo = struct {
     distribution: []const u8,
@@ -144,31 +193,22 @@ pub const Platform = struct {
         };
     }
 
-    /// Get platform tag strings for this platform
-    pub fn getPlatformTags(self: Platform, allocator: std.mem.Allocator) ![][]const u8 {
+    /// Get platform tag strings for this platform (zero-copy, returns borrowed slices)
+    pub fn getPlatformTags(self: Platform, allocator: std.mem.Allocator) ![]const []const u8 {
         var tags = std.ArrayList([]const u8){};
-        errdefer {
-            for (tags.items) |t| allocator.free(t);
-            tags.deinit(allocator);
-        }
+        errdefer tags.deinit(allocator);
 
         // Add "any" tag (universal wheels)
-        try tags.append(allocator, try allocator.dupe(u8, "any"));
+        try tags.append(allocator, UNIVERSAL_TAGS[0]);
 
         switch (self.os) {
             .linux => {
                 switch (self.arch) {
                     .x86_64 => {
-                        try tags.append(allocator, try allocator.dupe(u8, "linux_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "manylinux1_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "manylinux2010_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "manylinux2014_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "manylinux_2_17_x86_64"));
+                        for (LINUX_X86_64_TAGS) |tag| try tags.append(allocator, tag);
                     },
                     .aarch64 => {
-                        try tags.append(allocator, try allocator.dupe(u8, "linux_aarch64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "manylinux2014_aarch64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "manylinux_2_17_aarch64"));
+                        for (LINUX_AARCH64_TAGS) |tag| try tags.append(allocator, tag);
                     },
                     else => {},
                 }
@@ -176,24 +216,10 @@ pub const Platform = struct {
             .macos => {
                 switch (self.arch) {
                     .x86_64 => {
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_10_9_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_10_10_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_10_11_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_10_12_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_10_13_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_10_14_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_10_15_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_11_0_x86_64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_10_9_universal2"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_11_0_universal2"));
+                        for (MACOS_X86_64_TAGS) |tag| try tags.append(allocator, tag);
                     },
                     .aarch64 => {
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_11_0_arm64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_12_0_arm64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_13_0_arm64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_14_0_arm64"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_11_0_universal2"));
-                        try tags.append(allocator, try allocator.dupe(u8, "macosx_12_0_universal2"));
+                        for (MACOS_ARM64_TAGS) |tag| try tags.append(allocator, tag);
                     },
                     else => {},
                 }
@@ -201,13 +227,13 @@ pub const Platform = struct {
             .windows => {
                 switch (self.arch) {
                     .x86_64 => {
-                        try tags.append(allocator, try allocator.dupe(u8, "win_amd64"));
+                        for (WIN_AMD64_TAGS) |tag| try tags.append(allocator, tag);
                     },
                     .i686 => {
-                        try tags.append(allocator, try allocator.dupe(u8, "win32"));
+                        for (WIN32_TAGS) |tag| try tags.append(allocator, tag);
                     },
                     .aarch64 => {
-                        try tags.append(allocator, try allocator.dupe(u8, "win_arm64"));
+                        for (WIN_ARM64_TAGS) |tag| try tags.append(allocator, tag);
                     },
                     else => {},
                 }
@@ -241,23 +267,24 @@ pub const Platform = struct {
         return try tags.toOwnedSlice(allocator);
     }
 
-    /// Get ABI tags for this platform
-    pub fn getAbiTags(self: Platform, allocator: std.mem.Allocator) ![][]const u8 {
+    /// Get ABI tags for this platform (partially zero-copy)
+    pub fn getAbiTags(self: Platform, allocator: std.mem.Allocator) ![]const []const u8 {
         var tags = std.ArrayList([]const u8){};
         errdefer {
-            for (tags.items) |t| allocator.free(t);
+            // Only free the first tag (cp_abi), rest are borrowed
+            if (tags.items.len > 0) allocator.free(tags.items[0]);
             tags.deinit(allocator);
         }
 
-        // CPython ABI: cp311
+        // CPython ABI: cp311 (must be allocated - dynamic)
         const cp_abi = try std.fmt.allocPrint(allocator, "cp{d}{d}", .{ self.python_major, self.python_minor });
         try tags.append(allocator, cp_abi);
 
-        // ABI3 (stable ABI)
-        try tags.append(allocator, try allocator.dupe(u8, "abi3"));
+        // ABI3 (stable ABI) - borrowed from const
+        try tags.append(allocator, ABI3_TAG);
 
-        // None (pure Python)
-        try tags.append(allocator, try allocator.dupe(u8, "none"));
+        // None (pure Python) - borrowed from const
+        try tags.append(allocator, NONE_TAG);
 
         return try tags.toOwnedSlice(allocator);
     }
@@ -381,9 +408,9 @@ fn parseTags(allocator: std.mem.Allocator, tag_str: []const u8) ![][]const u8 {
 pub const WheelSelector = struct {
     allocator: std.mem.Allocator,
     platform: Platform,
-    python_tags: [][]const u8,
-    abi_tags: [][]const u8,
-    platform_tags: [][]const u8,
+    python_tags: []const []const u8,
+    abi_tags: []const []const u8,
+    platform_tags: []const []const u8,
 
     pub fn init(allocator: std.mem.Allocator) !WheelSelector {
         const platform = Platform.detect();
@@ -395,7 +422,8 @@ pub const WheelSelector = struct {
 
         const abi_tags = try platform.getAbiTags(allocator);
         errdefer {
-            for (abi_tags) |t| allocator.free(t);
+            // Only first tag (cp_abi) is allocated, rest are borrowed
+            if (abi_tags.len > 0) allocator.free(abi_tags[0]);
             allocator.free(abi_tags);
         }
 
@@ -411,11 +439,15 @@ pub const WheelSelector = struct {
     }
 
     pub fn deinit(self: *WheelSelector) void {
+        // Python tags are all allocated (dynamic version strings)
         for (self.python_tags) |t| self.allocator.free(t);
         self.allocator.free(self.python_tags);
-        for (self.abi_tags) |t| self.allocator.free(t);
+
+        // ABI tags: only first (cp_abi) is allocated, rest are borrowed
+        if (self.abi_tags.len > 0) self.allocator.free(self.abi_tags[0]);
         self.allocator.free(self.abi_tags);
-        for (self.platform_tags) |t| self.allocator.free(t);
+
+        // Platform tags are all borrowed (static consts) - only free the slice
         self.allocator.free(self.platform_tags);
     }
 

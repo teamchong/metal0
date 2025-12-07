@@ -33,13 +33,16 @@ pub const PyFloat = struct {
     pub fn toString(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
         const val = getValue(obj);
         // Python convention: nan never has sign
-        const str = if (std.math.isNan(val))
-            try allocator.dupe(u8, "nan")
-        else if (std.math.isInf(val))
-            try allocator.dupe(u8, if (val < 0) "-inf" else "inf")
-        else
-            try std.fmt.allocPrint(allocator, "{d}", .{val});
-        return try runtime.PyString.create(allocator, str);
+        // PyString.create already copies, so pass literals directly (zero-copy)
+        if (std.math.isNan(val)) {
+            return try runtime.PyString.create(allocator, "nan");
+        } else if (std.math.isInf(val)) {
+            return try runtime.PyString.create(allocator, if (val < 0) "-inf" else "inf");
+        } else {
+            const str = try std.fmt.allocPrint(allocator, "{d}", .{val});
+            defer allocator.free(str);
+            return try runtime.PyString.create(allocator, str);
+        }
     }
 };
 

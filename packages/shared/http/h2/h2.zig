@@ -511,11 +511,11 @@ pub const Client = struct {
         const status_str = parts.next() orelse return error.InvalidResponse;
         const status = std.fmt.parseInt(u16, status_str, 10) catch return error.InvalidResponse;
 
-        // Get body
+        // Get body (empty body uses empty slice literal - no allocation)
         const resp_body = if (body_start < data.len)
             try self.allocator.dupe(u8, data[body_start..])
         else
-            try self.allocator.dupe(u8, "");
+            "";
 
         return Response{
             .status = status,
