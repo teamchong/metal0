@@ -303,7 +303,7 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
         try self.emit("(");
         try genExpr(self, ie.condition.*);
         try self.emit(") != 0");
-    } else if (cond_type == .float) {
+    } else if (type_traits.isFloating(cond_type)) {
         // Float type - Python truthiness: non-zero is true
         try self.emit("(");
         try genExpr(self, ie.condition.*);

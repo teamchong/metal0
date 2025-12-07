@@ -183,7 +183,7 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
     if (all_comptime and dict.values.len > 0) {
         for (dict.values) |value| {
             const val_type = try self.type_inferrer.inferExpr(value);
-            if (val_type == .tuple) {
+            if (container_traits.isTuple(val_type)) {
                 for (val_type.tuple) |elem_type| {
                     if (elem_type == .bigint) {
                         all_comptime = false;
