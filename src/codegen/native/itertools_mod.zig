@@ -5,10 +5,11 @@ const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 const producesBlockExpression = @import("expressions.zig").producesBlockExpression;
+const container_traits = @import("../../analysis/traits/container_traits.zig");
 
 fn needsItems(self: *NativeCodegen, arg: ast.Node) bool {
     const t = self.type_inferrer.inferExpr(arg) catch return false;
-    return t == .list or t == .deque;
+    return container_traits.isList(t) or t == .deque;
 }
 
 fn predFilter(self: *NativeCodegen, args: []ast.Node, comptime label: []const u8, comptime body: []const u8) CodegenError!void {

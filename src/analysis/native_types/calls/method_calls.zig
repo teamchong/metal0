@@ -5,9 +5,9 @@ const core = @import("../core.zig");
 const fnv_hash = @import("utils.fnv_hash");
 const static_maps = @import("static_maps.zig");
 const expressions = @import("../expressions.zig");
-const string_traits = @import("../../traits/string_traits.zig");
-const container_traits = @import("../../traits/container_traits.zig");
-const type_traits = @import("../../traits/type_traits.zig");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;

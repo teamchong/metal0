@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
 
 /// Check if a node is a compile-time constant (can use comptime)
 pub fn isComptimeConstant(node: ast.Node) bool {
@@ -77,7 +78,7 @@ pub fn flattenConcat(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayList
         const left_type = try self.type_inferrer.inferExpr(node.binop.left.*);
         const right_type = try self.type_inferrer.inferExpr(node.binop.right.*);
 
-        if (left_type == .string or right_type == .string) {
+        if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
             // Recursively flatten left side
             try flattenConcat(self, node.binop.left.*, parts);
             // Recursively flatten right side

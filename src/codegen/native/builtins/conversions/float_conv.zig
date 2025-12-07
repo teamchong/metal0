@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 
 /// Generate the error handling suffix for failable float operations.
 /// Inside try blocks, use "try" to propagate errors to handlers.
@@ -83,7 +84,7 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Already a float - just return it
-    if (arg_type == .float) {
+    if (type_traits.isFloating(arg_type)) {
         try self.genExpr(args[0]);
         return;
     }
@@ -124,7 +125,7 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Cast int to float
     // BUT only if we're confident it's an int (not a variable that might be bytes/string)
-    if (arg_type == .int) {
+    if (type_traits.isIntegral(arg_type)) {
         // If this is a variable, be cautious - type inference may be wrong for loop vars
         // Use runtime fallback instead which handles all types
         if (args[0] == .name) {
@@ -146,7 +147,7 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Cast bool to float (True -> 1.0, False -> 0.0)
-    if (arg_type == .bool) {
+    if (type_traits.isBoolean(arg_type)) {
         try self.emit("@as(f64, @floatFromInt(@intFromBool(");
         try self.genExpr(args[0]);
         try self.emit(")))");

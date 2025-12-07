@@ -5,6 +5,7 @@ const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const shared = @import("../../shared_maps.zig");
 const PythonBuiltinTypes = shared.PythonBuiltinTypes;
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 
 /// Generate code for type(obj) or type(name, bases, dict)
 /// For 1 arg: Returns compile-time type name as string
@@ -52,7 +53,7 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Check if argument has unknown type at inference time
     // This happens for anytype parameters or other dynamic types
     // In this case, generate a runtime type check using @TypeOf
-    const is_unknown_type = obj_type == .unknown and args[0] == .name;
+    const is_unknown_type = type_traits.isUnknown(obj_type) and args[0] == .name;
 
     // Perform type check based on type name
     if (type_name) |tname| {
@@ -69,7 +70,7 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // Reference argument to avoid unused parameter warning
             try self.emit("blk: { _ = @TypeOf(");
             try self.genExpr(args[0]);
-            if (obj_type == .bool) {
+            if (type_traits.isBoolean(obj_type)) {
                 try self.emit("); break :blk true; }");
             } else {
                 try self.emit("); break :blk false; }");
@@ -92,7 +93,7 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             }
             try self.emit("blk: { _ = @TypeOf(");
             try self.genExpr(args[0]);
-            if (obj_type == .float) {
+            if (type_traits.isFloating(obj_type)) {
                 try self.emit("); break :blk true; }");
             } else {
                 try self.emit("); break :blk false; }");
@@ -116,6 +117,7 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else if (std.mem.eql(u8, tname, "list")) {
             try self.emit("blk: { _ = @TypeOf(");
             try self.genExpr(args[0]);
+            // Note: Use switch instead of container_traits since we need exact .list match
             if (obj_type == .list) {
                 try self.emit("); break :blk true; }");
             } else {
@@ -125,6 +127,7 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else if (std.mem.eql(u8, tname, "dict")) {
             try self.emit("blk: { _ = @TypeOf(");
             try self.genExpr(args[0]);
+            // Note: Use switch instead of container_traits since we need exact .dict match
             if (obj_type == .dict) {
                 try self.emit("); break :blk true; }");
             } else {

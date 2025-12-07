@@ -9,6 +9,10 @@ const methods = @import("../methods.zig");
 const io_mod = @import("../io.zig");
 const unittest_mod = @import("../unittest/mod.zig");
 
+// Trait imports for type-aware dispatch
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
+
 /// Builtin types that support __new__ with value extraction
 const BuiltinNewTypes = std.StaticStringMap(void).initComptime(.{
     .{ "str", {} }, .{ "int", {} }, .{ "float", {} }, .{ "bool", {} },
@@ -361,7 +365,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // We need type-aware dispatch to avoid list.pop() being called on dicts
     if (DictMethods.get(method_name)) |handler| {
         // Only dispatch dict methods for dict-like types
-        if (obj_type == .dict or obj_type == .counter) {
+        if (container_traits.isDict(obj_type) or obj_type == .counter) {
             try handler(self, obj, call.args);
             return true;
         }
@@ -370,7 +374,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // Try list methods - but NOT if we know it's a dict or set
     if (ListMethods.get(method_name)) |handler| {
         // Skip list dispatch for dict/set types to avoid list.pop() on dicts
-        if (obj_type != .dict and obj_type != .set and obj_type != .counter) {
+        if (!container_traits.isDict(obj_type) and !container_traits.isSet(obj_type) and obj_type != .counter) {
             try handler(self, obj, call.args);
             return true;
         }
@@ -378,7 +382,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
 
     // Try dict methods for unknown types (fallback for untyped dicts)
     if (DictMethods.get(method_name)) |handler| {
-        if (obj_type == .unknown and !SetMethods.has(method_name)) {
+        if (type_traits.isUnknown(obj_type) and !SetMethods.has(method_name)) {
             try handler(self, obj, call.args);
             return true;
         }
@@ -388,7 +392,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // Set method names are unique enough (update, discard, intersection_update, etc.)
     // that we can safely dispatch on unknown and class_instance types too
     if (SetMethods.get(method_name)) |handler| {
-        if (obj_type == .set or obj_type == .unknown or obj_type == .class_instance) {
+        if (container_traits.isSet(obj_type) or type_traits.isUnknown(obj_type) or obj_type == .class_instance) {
             try handler(self, obj, call.args);
             return true;
         }
@@ -414,7 +418,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             if (try handleStreamMethod(self, method_name, obj, call.args)) {
                 return true;
             }
-        } else if (obj_type == .file or obj_type == .unknown) {
+        } else if (obj_type == .file or type_traits.isUnknown(obj_type)) {
             // File methods (PyFile) - only for actual file objects or unknown types
             // Skip if it's a known non-file type like sqlite_connection
             if (FileMethods.get(method_name)) |handler| {
@@ -504,12 +508,12 @@ fn handleSpecialMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: 
                 if (obj == .name) {
                     const var_name = obj.name.id;
                     if (self.getSymbolType(var_name)) |var_type| {
-                        break :blk var_type == .list;
+                        break :blk container_traits.isList(var_type);
                     }
                 }
                 // Infer from type_inferrer
-                const obj_type = self.type_inferrer.inferExpr(obj) catch .unknown;
-                break :blk obj_type == .list;
+                const obj_type_inferred = self.type_inferrer.inferExpr(obj) catch .unknown;
+                break :blk container_traits.isList(obj_type_inferred);
             };
 
             if (is_list) {
@@ -529,7 +533,7 @@ fn handleSpecialMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: 
                 if (obj == .name) {
                     const var_name = obj.name.id;
                     if (self.getSymbolType(var_name)) |var_type| {
-                        break :blk var_type == .list;
+                        break :blk container_traits.isList(var_type);
                     }
                 }
                 break :blk false;

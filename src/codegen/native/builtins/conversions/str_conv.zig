@@ -3,6 +3,8 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 
 /// Generate code for str(obj) or str(bytes, encoding)
 /// Converts to string representation
@@ -27,7 +29,7 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.inferExprScoped(args[0]) catch .unknown;
 
     // Already a string - just return it
-    if (arg_type == .string) {
+    if (string_traits.isString(arg_type)) {
         try self.genExpr(args[0]);
         return;
     }
@@ -60,7 +62,7 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emitFmt(").toDecimalString({s}) catch unreachable;\n}}", .{alloc_name});
         return;
-    } else if (arg_type == .int) {
+    } else if (type_traits.isIntegral(arg_type)) {
         // FAST PATH: Use stack buffer for int->str conversion (common in hot loops)
         // Stack buffer: i64 max is 19 digits + sign + null = 21 bytes, use 32 for safety
         try self.emitFmt("str_{d}: {{\n", .{str_label_id});
@@ -69,13 +71,13 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit("}) catch unreachable;\n}");
         return;
-    } else if (arg_type == .float and !is_float_error_union) {
+    } else if (type_traits.isFloating(arg_type) and !is_float_error_union) {
         // Use runtime formatFloat which handles NaN/Inf properly (Python: str(nan) == "nan" not "-nan")
         try self.emit("(try runtime.formatFloat(");
         try self.genExpr(args[0]);
         try self.emitFmt(", {s}))", .{alloc_name});
         return;
-    } else if (arg_type == .bool) {
+    } else if (type_traits.isBoolean(arg_type)) {
         // Python bool to string: True/False - no allocation needed!
         try self.emit("(if (");
         try self.genExpr(args[0]);
@@ -94,7 +96,7 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Check if this might be a PyObject (subscript on unknown type, function return, etc.)
     // If arg is subscript on unknown type, or the type is .unknown, use runtime.pyObjToStr
     const is_possible_pyobject = blk: {
-        if (arg_type == .unknown) {
+        if (type_traits.isUnknown(arg_type)) {
             // Subscript on unknown type is likely a PyList/PyDict access
             if (args[0] == .subscript) break :blk true;
             // Call returning unknown might be a PyObject
@@ -137,13 +139,13 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
     // Already a string/bytes - just return it
-    if (arg_type == .string) {
+    if (string_traits.isString(arg_type)) {
         try self.genExpr(args[0]);
         return;
     }
 
     // For integers, create bytes of that length filled with zeros
-    if (arg_type == .int) {
+    if (type_traits.isIntegral(arg_type)) {
         // bytes(n) creates a bytes object of n null bytes
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
         try self.emit("blk: {\n");
@@ -180,13 +182,13 @@ pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
     // Already a string/bytes - just return it
-    if (arg_type == .string) {
+    if (string_traits.isString(arg_type)) {
         try self.genExpr(args[0]);
         return;
     }
 
     // For integers, create bytearray of that length filled with zeros
-    if (arg_type == .int) {
+    if (type_traits.isIntegral(arg_type)) {
         // bytearray(n) creates a bytearray of n null bytes
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
         try self.emit("blk: {\n");
@@ -231,7 +233,7 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
     // For strings, wrap with quotes: "'string'"
-    if (arg_type == .string) {
+    if (string_traits.isString(arg_type)) {
         const repr_label_id = self.block_label_counter;
         self.block_label_counter += 1;
         try self.emitFmt("repr_{d}: {{\n", .{repr_label_id});
@@ -247,7 +249,7 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // For bools: True/False
-    if (arg_type == .bool) {
+    if (type_traits.isBoolean(arg_type)) {
         try self.emit("(if (");
         try self.genExpr(args[0]);
         try self.emit(") \"True\" else \"False\")");
@@ -280,7 +282,7 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For integers, use pyRepr which handles anytype params correctly
     // (closures generate anytype parameters whose actual type may differ from inference)
-    if (arg_type == .int) {
+    if (type_traits.isIntegral(arg_type)) {
         try self.emit("(try runtime.builtins.pyRepr(");
         try self.emit(alloc_name);
         try self.emit(", ");
@@ -290,7 +292,7 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // For floats, use runtime.builtins.pyRepr which handles nan/inf correctly
-    if (arg_type == .float and !is_float_error_union) {
+    if (type_traits.isFloating(arg_type) and !is_float_error_union) {
         try self.emit("(try runtime.builtins.pyRepr(");
         try self.emit(alloc_name);
         try self.emit(", ");
@@ -333,7 +335,7 @@ pub fn genAscii(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Get the repr and escape non-ASCII
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
-    if (arg_type == .string) {
+    if (string_traits.isString(arg_type)) {
         // For strings, wrap in quotes and escape non-ASCII
         try self.emit("runtime.asciiStr(");
         try self.genExpr(args[0]);

@@ -5,6 +5,9 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 const zig_keywords = @import("utils.zig_keywords");
+const type_traits = @import("../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../analysis/traits/container_traits.zig");
 
 /// Python type/constant names to Zig code
 const PyTypeNames = std.StaticStringMap([]const u8).initComptime(.{
@@ -286,7 +289,7 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
     if (cond_is_boolop or cond_is_compare) {
         // Boolean operations and comparisons generate bool directly, use as-is
         try genExpr(self, ie.condition.*);
-    } else if (cond_type == .unknown) {
+    } else if (type_traits.isUnknown(cond_type)) {
         // Unknown type (PyObject) - use runtime truthiness check
         try self.emit("runtime.pyTruthy(");
         try genExpr(self, ie.condition.*);
@@ -305,12 +308,12 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
         try self.emit("(");
         try genExpr(self, ie.condition.*);
         try self.emit(") != 0.0");
-    } else if (cond_type == .string) {
+    } else if (string_traits.isString(cond_type)) {
         // String type - Python truthiness: non-empty is true
         try self.emit("(");
         try genExpr(self, ie.condition.*);
         try self.emit(").len != 0");
-    } else if (cond_type == .list) {
+    } else if (container_traits.isList(cond_type)) {
         // List type - Python truthiness: non-empty is true
         try self.emit("(");
         try genExpr(self, ie.condition.*);
@@ -603,7 +606,7 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 // Handle conversion: !r = repr, !s = str, !a = ascii
                 if (ce.conversion == 'r') {
                     // repr() - for strings, wrap in quotes
-                    if (expr_type == .string) {
+                    if (string_traits.isString(expr_type)) {
                         try format_buf.writer(self.allocator).writeAll("'{s}'");
                         try args_list.append(self.allocator, expr_code);
                     } else {

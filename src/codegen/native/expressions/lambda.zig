@@ -7,6 +7,9 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const zig_keywords = @import("utils.zig_keywords");
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
 
 const ClosureError = error{
     NotAClosure,
@@ -442,11 +445,11 @@ fn analyzeParamUsage(self: *NativeCodegen, param_name: []const u8, node: ast.Nod
                 // Check if index is integer (string/list) or string (dict)
                 if (sub.slice == .index) {
                     const index_type = self.type_inferrer.inferExpr(sub.slice.index.*) catch .unknown;
-                    if (index_type == .int) {
+                    if (type_traits.isIntegral(index_type)) {
                         // Could be string or list - default to string for single char access
                         // Heuristic: if used with string operations elsewhere, it's string
                         return "[]const u8";
-                    } else if (index_type == .string) {
+                    } else if (string_traits.isString(index_type)) {
                         return "hashmap_helper.StringHashMap(i64)"; // Dict access
                     }
                 }
@@ -565,7 +568,7 @@ fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8
         if (sub.slice == .index) {
             // Check if the value being subscripted is a string
             const value_type = self.type_inferrer.inferExpr(sub.value.*) catch .unknown;
-            if (value_type == .string) {
+            if (string_traits.isString(value_type)) {
                 // Python: s[0] returns "h" (string)
                 // Zig: return []const u8 slice
                 return "[]const u8";

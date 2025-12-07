@@ -9,6 +9,7 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
+const type_traits = @import("../../analysis/traits/type_traits.zig");
 
 /// Handler function type (same as other modules)
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -35,7 +36,7 @@ fn handleEncode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     try self.emit("const __enc_tokens = try runtime.tokenizer.encode(__global_allocator, ");
     if (args.len > 0) {
-        if (arg_type == .unknown) {
+        if (type_traits.isUnknown(arg_type)) {
             // PyObject (PyString) - convert to native string
             try self.emit("runtime.PyString.getValue(");
             try self.genExpr(args[0]);

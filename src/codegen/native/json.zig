@@ -4,6 +4,8 @@ const ast = @import("analysis.ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const NativeType = @import("../../analysis/native_types.zig").NativeType;
+const type_traits = @import("../../analysis/traits/type_traits.zig");
+const container_traits = @import("../../analysis/traits/container_traits.zig");
 
 /// Handler function type
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -33,7 +35,7 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Check if argument is already a PyObject (e.g., from file.read())
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
-    if (arg_type == .unknown) {
+    if (type_traits.isUnknown(arg_type)) {
         // Already a PyObject - pass directly to json.loads
         try self.emit("try runtime.json.loads(");
         try self.genExpr(args[0]);
@@ -70,10 +72,10 @@ pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Check if argument is a dict type that needs conversion
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
-    if (arg_type == .dict) {
+    if (container_traits.isDict(arg_type)) {
         // Native dict (StringHashMap) needs conversion to PyDict
         try genJsonDumpsDict(self, args[0], arg_type.dict.value.*);
-    } else if (arg_type == .list) {
+    } else if (container_traits.isList(arg_type)) {
         // Native list (ArrayList) needs conversion to PyList
         try genJsonDumpsList(self, args[0], arg_type.list.*);
     } else {

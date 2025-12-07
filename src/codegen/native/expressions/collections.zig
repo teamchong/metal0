@@ -8,6 +8,7 @@ const expressions = @import("../expressions.zig");
 const genExpr = expressions.genExpr;
 const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
 
 // Re-export dict generation from dict.zig
 const dict = @import("dict.zig");
@@ -456,7 +457,7 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
 
     // Use StringHashMap for strings, AutoHashMap for primitives
     // Note: floats need special handling - use u64 bit representation as key
-    const is_string = (elem_type == .string);
+    const is_string = string_traits.isString(elem_type);
     const is_float = (elem_type == .float);
     if (is_string) {
         try self.emit("var _set = hashmap_helper.StringHashMap(void).init(__global_allocator);\n");

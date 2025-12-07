@@ -6,6 +6,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const NativeType = @import("../../../analysis/native_types.zig").NativeType;
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
 
 /// Generate code for dict.get(key, default)
 /// Returns value if key exists, otherwise returns default (or null if no default)
@@ -132,7 +133,7 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Infer dict type to get value type
     const dict_type = try self.type_inferrer.inferExpr(obj);
-    const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType{ .int = .bounded };
+    const val_type = if (container_traits.isDict(dict_type)) dict_type.dict.value.* else NativeType{ .int = .bounded };
 
     const needs_temp = producesBlockExpression(obj);
 
@@ -190,7 +191,7 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Infer dict type to get value type (keys are always []const u8)
     const dict_type = try self.type_inferrer.inferExpr(obj);
-    const val_type = if (dict_type == .dict) dict_type.dict.value.* else NativeType{ .int = .bounded };
+    const val_type = if (container_traits.isDict(dict_type)) dict_type.dict.value.* else NativeType{ .int = .bounded };
 
     const needs_temp = producesBlockExpression(obj);
 

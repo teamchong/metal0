@@ -10,6 +10,7 @@ const expressions = @import("../expressions.zig");
 const shared = @import("../shared_maps.zig");
 const zig_keywords = @import("utils.zig_keywords");
 const signature_utils = @import("functions/generators/signature.zig");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
 
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 

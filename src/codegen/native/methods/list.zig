@@ -4,6 +4,7 @@ const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
 
 /// Helper to emit object expression, wrapping in parens if it's a block expression
 fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
@@ -28,7 +29,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Check element type of list
     const elem_is_pyvalue = blk: {
-        if (list_type == .list) {
+        if (container_traits.isList(list_type)) {
             const elem_type = list_type.list.*;
             break :blk (@as(std.meta.Tag(@TypeOf(elem_type)), elem_type) == .pyvalue);
         }
@@ -37,7 +38,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Check if list expects PyCallable elements (for callable lists like [bytes, str, lambda: ...])
     const elem_is_callable = blk: {
-        if (list_type == .list) {
+        if (container_traits.isList(list_type)) {
             const elem_type = list_type.list.*;
             break :blk (@as(std.meta.Tag(@TypeOf(elem_type)), elem_type) == .callable);
         }
@@ -233,7 +234,7 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     // Also check if this is a dict variable (from our dict_vars tracking)
     const is_dict_var = if (obj == .name) self.dict_vars.contains(obj.name.id) else false;
 
-    if (obj_type == .dict or is_dict_var) {
+    if (container_traits.isDict(obj_type) or is_dict_var) {
         // std.AutoHashMap.clone() and std.HashMap.clone() take no arguments
         // (they use the allocator stored internally)
         try self.emit("try ");

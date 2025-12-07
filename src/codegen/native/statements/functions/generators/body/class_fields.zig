@@ -5,6 +5,8 @@ const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
 const signature = @import("../signature.zig");
 const zig_keywords = @import("utils.zig_keywords");
+const type_traits = @import("../../../../../../analysis/traits/type_traits.zig");
+const container_traits = @import("../../../../../../analysis/traits/container_traits.zig");
 
 /// Generate struct fields from __init__ method
 pub fn genClassFields(self: *NativeCodegen, class_name: []const u8, init: ast.Node.FunctionDef) CodegenError!void {
@@ -50,7 +52,7 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
         // Method 2: Try widened keyword arg type (stored as "ClassName.param_name")
         // This type is widened across ALL calls, so .unknown means incompatible types
         var found_kwarg_type = false;
-        if (param_type == .unknown) {
+        if (type_traits.isUnknown(param_type)) {
             var kwarg_key_buf: [256]u8 = undefined;
             const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_name, arg.name }) catch null;
             if (kwarg_key) |key| {
@@ -63,7 +65,7 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
 
         // Method 3: Fall back to positional constructor arg type (only if no kwarg type found)
         // Skip if Method 2 found a type (even .unknown) - widened types are authoritative
-        if (!found_kwarg_type and param_type == .unknown) {
+        if (!found_kwarg_type and type_traits.isUnknown(param_type)) {
             if (constructor_arg_types) |arg_types| {
                 const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
                 if (arg_idx < arg_types.len) {
@@ -72,7 +74,7 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
             }
         }
 
-        if (param_type != .unknown) {
+        if (!type_traits.isUnknown(param_type)) {
             self.type_inferrer.var_types.put(arg.name, param_type) catch {};
         }
     }
@@ -101,7 +103,7 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                                 // Try annotation first
                                 inferred = signature.pythonTypeToNativeType(arg.type_annotation);
                                 // Try keyword arg lookup
-                                if (inferred == .unknown) {
+                                if (type_traits.isUnknown(inferred)) {
                                     var kwarg_key_buf: [256]u8 = undefined;
                                     const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_name, arg.name }) catch null;
                                     if (kwarg_key) |key| {
@@ -111,7 +113,7 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                                     }
                                 }
                                 // Try positional constructor arg
-                                if (inferred == .unknown) {
+                                if (type_traits.isUnknown(inferred)) {
                                     if (constructor_arg_types) |arg_types| {
                                         const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
                                         if (arg_idx < arg_types.len) {
@@ -136,7 +138,7 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     // Self-referential classes need pointer type (*@This()) since struct is incomplete
                     // So we use *runtime.PyObject for dynamic typing instead
                     var is_self_referential = false;
-                    if (inferred == .class_instance) {
+                    if (@as(std.meta.Tag(@TypeOf(inferred)), inferred) == .class_instance) {
                         const nested_class_name = inferred.class_instance;
                         // Check if this is a self-referential field (same class)
                         if (std.mem.eql(u8, nested_class_name, class_name)) {
@@ -153,7 +155,7 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     // For self-referential, use *@This() (pointer to self)
                     const field_type_str = if (is_self_referential)
                         try self.allocator.dupe(u8, "*@This()")
-                    else if (inferred == .unknown)
+                    else if (type_traits.isUnknown(inferred))
                         try self.allocator.dupe(u8, "runtime.PyValue")
                     else
                         try self.nativeTypeToZigType(inferred);
@@ -220,7 +222,7 @@ pub fn genClassLevelFields(self: *NativeCodegen, class_body: []const ast.Node) C
 
                 // Use nativeTypeToZigType for proper type conversion
                 // For unknown types, use runtime.PyValue for dynamic dispatch
-                const field_type_str = if (inferred == .unknown)
+                const field_type_str = if (type_traits.isUnknown(inferred))
                     try self.allocator.dupe(u8, "runtime.PyValue")
                 else
                     try self.nativeTypeToZigType(inferred);
@@ -304,7 +306,7 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
     if (kwarg_key) |key| {
         if (self.type_inferrer.var_types.get(key)) |kwarg_type| {
             // Widened type is authoritative - if .unknown, use anytype for params
-            if (kwarg_type == .unknown) {
+            if (type_traits.isUnknown(kwarg_type)) {
                 return try self.allocator.dupe(u8, "anytype");
             }
             return try self.nativeTypeToZigType(kwarg_type);
@@ -329,7 +331,7 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
         if (param_idx < arg_types.len) {
             const inferred = arg_types[param_idx];
             // For unknown types, use anytype to accept any value
-            if (inferred == .unknown) {
+            if (type_traits.isUnknown(inferred)) {
                 return try self.allocator.dupe(u8, "anytype");
             }
             return try self.nativeTypeToZigType(inferred);
@@ -344,7 +346,7 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
                 // Found usage - infer type from the value
                 const inferred = try self.type_inferrer.inferExpr(assign.value.*);
                 // For unknown types, use anytype to accept any value
-                if (inferred == .unknown) {
+                if (type_traits.isUnknown(inferred)) {
                     return try self.allocator.dupe(u8, "anytype");
                 }
                 return try self.nativeTypeToZigType(inferred);

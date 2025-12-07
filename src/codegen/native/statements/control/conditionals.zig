@@ -4,6 +4,7 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const CodeBuilder = @import("../../code_builder.zig").CodeBuilder;
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 
 /// Information about a variable to be hoisted
 const HoistedVar = struct {
@@ -404,7 +405,7 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
     if (is_feature_macros_subscript) {
         // FeatureMacros subscript returns comptime bool - use directly
         try self.genExpr(if_stmt.condition.*);
-    } else if (cond_type == .unknown) {
+    } else if (type_traits.isUnknown(cond_type)) {
         // Unknown type (PyObject) - use runtime truthiness check
         _ = try builder.write("runtime.pyTruthy(");
         try self.genExpr(if_stmt.condition.*);
@@ -413,7 +414,7 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         // Optional type - check for non-null
         try self.genExpr(if_stmt.condition.*);
         _ = try builder.write(" != null");
-    } else if (cond_type == .bool) {
+    } else if (type_traits.isBoolean(cond_type)) {
         // Boolean - use directly
         try self.genExpr(if_stmt.condition.*);
     } else if (cond_tag == .class_instance) {

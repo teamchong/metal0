@@ -4,6 +4,7 @@ const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
+const container_traits = @import("../../analysis/traits/container_traits.zig");
 
 // Identity decorator helper - returns a function that returns its argument unchanged
 const IdentityDecorator = "struct { pub fn identity(f: anytype) @TypeOf(f) { return f; } }.identity";
@@ -98,7 +99,7 @@ pub fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const iter_type = self.type_inferrer.inferExpr(args[1]) catch .unknown;
     try self.emit("reduce_blk: { const _func = "); try self.genExpr(args[0]);
     try self.emit("; const _iterable = "); try self.genExpr(args[1]);
-    if (iter_type == .list or iter_type == .deque) try self.emit(".items");
+    if (container_traits.isList(iter_type) or iter_type == .deque) try self.emit(".items");
     try self.emit("; ");
     if (args.len > 2) {
         try self.emit("var _acc: @TypeOf(_iterable[0]) = "); try self.genExpr(args[2]);

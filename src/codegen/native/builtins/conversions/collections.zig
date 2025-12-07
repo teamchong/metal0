@@ -4,6 +4,9 @@ const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const producesBlockExpression = @import("../../expressions.zig").producesBlockExpression;
+const container_traits = @import("../../../../analysis/traits/container_traits.zig");
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 
 /// Generate code for list(iterable)
 /// Converts an iterable to a list (ArrayList)
@@ -284,12 +287,9 @@ pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
     // Already a tuple type - just return it
-    switch (arg_type) {
-        .tuple => {
-            try self.genExpr(args[0]);
-            return;
-        },
-        else => {},
+    if (container_traits.isTuple(arg_type)) {
+        try self.genExpr(args[0]);
+        return;
     }
 
     // For name references to iterators, exhaust them by calling next until done
@@ -339,12 +339,9 @@ pub fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
     // Already a dict - just return it
-    switch (arg_type) {
-        .dict => {
-            try self.genExpr(args[0]);
-            return;
-        },
-        else => {},
+    if (container_traits.isDict(arg_type)) {
+        try self.genExpr(args[0]);
+        return;
     }
 
     // For other cases, just pass through
@@ -402,32 +399,29 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
     // Already a set - just return it
-    switch (arg_type) {
-        .set => {
-            try self.genExpr(args[0]);
-            return;
-        },
-        else => {},
+    if (container_traits.isSet(arg_type)) {
+        try self.genExpr(args[0]);
+        return;
     }
 
     // Check if the iterable contains strings (e.g., list of strings or string itself)
     // In that case we need StringHashMap instead of AutoHashMap
     // Check for: string type (iterating chars), or list/set containing strings
     const is_string_set = blk: {
-        if (arg_type == .string) break :blk true;
+        if (string_traits.isString(arg_type)) break :blk true;
         // Check if it's a list/tuple of string literals
         if (args[0] == .list) {
             const list = args[0].list;
             if (list.elts.len > 0) {
                 const first_type = self.type_inferrer.inferExpr(list.elts[0]) catch .unknown;
-                if (first_type == .string) break :blk true;
+                if (string_traits.isString(first_type)) break :blk true;
             }
         }
         if (args[0] == .tuple) {
             const tup = args[0].tuple;
             if (tup.elts.len > 0) {
                 const first_type = self.type_inferrer.inferExpr(tup.elts[0]) catch .unknown;
-                if (first_type == .string) break :blk true;
+                if (string_traits.isString(first_type)) break :blk true;
             }
         }
         break :blk false;

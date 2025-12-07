@@ -6,6 +6,7 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 
 /// Parse a Python format specifier like "%.0f", "%5.2f", "%d"
 /// Returns the format type char and the number of characters consumed
@@ -276,7 +277,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                 // For %d/%i with bool, convert to int
                 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
                 const right_type = self.inferExprScoped(binop.right.*) catch NativeType.unknown;
-                if (right_type == .bool) {
+                if (type_traits.isBoolean(right_type)) {
                     try self.emit("@as(i64, @intFromBool(");
                     try genExpr(self, binop.right.*);
                     try self.emit("))");

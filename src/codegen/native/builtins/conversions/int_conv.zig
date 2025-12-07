@@ -4,6 +4,8 @@ const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const producesBlockExpression = @import("../../expressions.zig").producesBlockExpression;
+const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 
 /// Generate code for len(obj)
 /// Works with: strings, lists, dicts, tuples
@@ -47,18 +49,9 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk self.type_inferrer.inferExpr(args[0]) catch .unknown;
     };
 
-    const is_dict = switch (arg_type) {
-        .dict => true,
-        else => false,
-    };
-    const is_set = switch (arg_type) {
-        .set => true,
-        else => false,
-    };
-    const is_tuple = switch (arg_type) {
-        .tuple => true,
-        else => false,
-    };
+    const is_dict = container_traits.isDict(arg_type);
+    const is_set = container_traits.isSet(arg_type);
+    const is_tuple = container_traits.isTuple(arg_type);
     const is_deque = switch (arg_type) {
         .deque => true,
         else => false,
@@ -102,10 +95,7 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     };
 
     // Check if the type is unknown (PyObject*) - needs runtime dispatch
-    const is_pyobject = switch (arg_type) {
-        .unknown => true,
-        else => false,
-    };
+    const is_pyobject = type_traits.isUnknown(arg_type);
 
     // Check if the argument is a block expression that needs wrapping
     const needs_wrap = producesBlockExpression(args[0]);
@@ -321,7 +311,7 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Already an int - just return it
-    if (arg_type == .int) {
+    if (type_traits.isIntegral(arg_type)) {
         try self.genExpr(args[0]);
         return;
     }
@@ -370,7 +360,7 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Cast float to int
-    if (arg_type == .float) {
+    if (type_traits.isFloating(arg_type)) {
         // Extract float value from literal or negated literal
         const maybe_float_val: ?f64 = blk: {
             if (args[0] == .constant and args[0].constant.value == .float) {
@@ -413,7 +403,7 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Cast bool to int (True -> 1, False -> 0)
-    if (arg_type == .bool) {
+    if (type_traits.isBoolean(arg_type)) {
         try self.emit("@as(i64, @intFromBool(");
         try self.genExpr(args[0]);
         try self.emit("))");
