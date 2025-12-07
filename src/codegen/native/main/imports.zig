@@ -169,11 +169,25 @@ fn compileModuleAsStructWithPrefix(
     const module_code = try codegen.generate(tree.module);
     defer aa.free(module_code);
 
-    // Extract just the module struct (remove leading imports)
+    // Extract module struct AND module-level allocator declarations
+    // The codegen output looks like:
+    //   const std = @import("std");
+    //   ...imports...
+    //   var __gpa = ...;              <-- module-level decls (need to keep)
+    //   var __global_allocator = ...; <-- module-level decls (need to keep)
+    //   pub const mod = struct {...}; <-- the struct
     const module_body = blk: {
         // Find "pub const module_name = struct {"
-        if (std.mem.indexOf(u8, module_code, "pub const ")) |start| {
-            break :blk module_code[start..];
+        if (std.mem.indexOf(u8, module_code, "pub const ")) |struct_start| {
+            // Also check for module-level allocator vars before the struct
+            // They start with "var __gpa" and need to be included
+            if (std.mem.indexOf(u8, module_code, "var __gpa")) |gpa_start| {
+                if (gpa_start < struct_start) {
+                    // Include from __gpa onwards (captures both __gpa, __global_allocator, and struct)
+                    break :blk module_code[gpa_start..];
+                }
+            }
+            break :blk module_code[struct_start..];
         }
         break :blk module_code;
     };

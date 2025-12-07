@@ -31,6 +31,24 @@ fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8) ![
     return output.getModuleOutputPath(allocator, module_path);
 }
 
+/// Extract module-level variable declarations that appear before the struct
+/// These include __gpa and __global_allocator declarations
+/// Input: "var __gpa = ...;\nvar __global_allocator = ...;\npub const mod = struct {...};"
+/// Output: "var __gpa = ...;\nvar __global_allocator = ...;\n"
+fn extractModuleLevelDecls(code: []const u8) []const u8 {
+    // Find where "pub const" starts (the struct declaration)
+    if (std.mem.indexOf(u8, code, "pub const ")) |struct_start| {
+        // Search for "var __" patterns which indicate module-level allocator vars
+        if (std.mem.indexOf(u8, code, "var __gpa")) |gpa_start| {
+            if (gpa_start < struct_start) {
+                // Return everything from __gpa to struct start
+                return code[gpa_start..struct_start];
+            }
+        }
+    }
+    return "";
+}
+
 /// Extract the body of a struct from generated Zig code
 /// Input: "// comment\npub const mod = struct {\n    pub fn add...\n};"
 /// Output: "pub fn add...\n"
@@ -602,6 +620,15 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
             cache_file.writeAll(imports_header) catch {
                 continue;
             };
+
+            // Extract module-level declarations (e.g., __gpa, __global_allocator)
+            // These must be written before the struct body since functions may reference them
+            const module_decls = extractModuleLevelDecls(compiled);
+            if (module_decls.len > 0) {
+                cache_file.writeAll(module_decls) catch {
+                    continue;
+                };
+            }
 
             // Extract struct body - find "struct {" and extract contents
             // Input: "pub const mod = struct { pub fn add... };"
