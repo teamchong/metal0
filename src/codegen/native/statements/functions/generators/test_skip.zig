@@ -242,3 +242,59 @@ pub fn convertDefaultToZig(default_expr: ast.Node) ?[]const u8 {
         else => null,
     };
 }
+
+/// Check if test uses assertRaises with operator.eq/ne expecting TypeError
+/// Pattern: self.assertRaises(TypeError, eq, x, y) where eq is from operator module
+/// These tests rely on __eq__/ne = None raising TypeError at runtime, which
+/// requires runtime operator dispatch that we don't support yet.
+pub fn usesAssertRaisesWithOperatorEqNe(stmts: []const ast.Node) bool {
+    for (stmts) |stmt| {
+        if (stmtUsesAssertRaisesWithOperatorEqNe(stmt)) return true;
+    }
+    return false;
+}
+
+fn stmtUsesAssertRaisesWithOperatorEqNe(stmt: ast.Node) bool {
+    return switch (stmt) {
+        .expr_stmt => |e| exprUsesAssertRaisesWithOperatorEqNe(e.value.*),
+        .if_stmt => |i| blk: {
+            for (i.body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            for (i.else_body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            for (f.body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            for (w.body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            for (t.handlers) |h| {
+                for (h.body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+fn exprUsesAssertRaisesWithOperatorEqNe(expr: ast.Node) bool {
+    if (expr != .call) return false;
+    const c = expr.call;
+    // Check if it's self.assertRaises(TypeError, eq/ne, ...)
+    if (c.func.* != .attribute) return false;
+    const attr = c.func.attribute;
+    if (!std.mem.eql(u8, attr.attr, "assertRaises")) return false;
+    if (attr.value.* != .name or !std.mem.eql(u8, attr.value.name.id, "self")) return false;
+    // Check args: (TypeError, eq/ne, ...)
+    if (c.args.len < 2) return false;
+    // First arg should be TypeError
+    if (c.args[0] != .name or !std.mem.eql(u8, c.args[0].name.id, "TypeError")) return false;
+    // Second arg should be eq or ne (from operator import eq, ne)
+    if (c.args[1] != .name) return false;
+    const op_name = c.args[1].name.id;
+    return std.mem.eql(u8, op_name, "eq") or std.mem.eql(u8, op_name, "ne");
+}

@@ -426,6 +426,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         "Requires exception context manager support (assertRaisesRegex)"
                     else if (test_skip.hasNestedBuiltinSubclassInLambda(method.body))
                         "Uses nested builtin subclass (str/bytes/bytearray) in lambda factory"
+                    else if (test_skip.usesAssertRaisesWithOperatorEqNe(method.body))
+                        "Uses assertRaises with operator.eq/ne (requires __eq__=None runtime dispatch)"
                     else
                         null;
 
