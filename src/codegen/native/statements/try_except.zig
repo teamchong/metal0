@@ -52,8 +52,12 @@ fn detectOptionalImportPattern(try_node: ast.Node.Try, codegen: *NativeCodegen) 
                             false;
                         if (is_none) {
                             // Pattern matches! Check if module is available
-                            if (codegen.import_registry.lookup(module_name) == null) {
-                                // Module is not in registry - it's unavailable
+                            // First check the static stdlib list, then the dynamic registry
+                            const stdlib_gen = @import("../stdlib_modules_gen.zig");
+                            const in_stdlib = stdlib_gen.hasModule(module_name);
+                            const in_registry = codegen.import_registry.lookup(module_name) != null;
+                            if (!in_stdlib and !in_registry) {
+                                // Module is not in stdlib or registry - it's unavailable
                                 return module_name;
                             }
                         }

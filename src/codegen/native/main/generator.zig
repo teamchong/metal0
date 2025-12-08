@@ -241,8 +241,20 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     // or skipped (if unsupported)
                 },
             }
+        } else {
+            // Module not in registry - check if it's in stdlib_modules_gen
+            const stdlib_gen = @import("../stdlib_modules_gen.zig");
+            if (stdlib_gen.hasModule(mod_name)) {
+                // Generate import from runtime.Lib
+                try self.emit("const ");
+                try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                try self.emit(" = runtime.Lib.");
+                // Replace dots with @"" for nested modules
+                try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                try self.emit(";\n");
+            }
+            // User modules without registry entry are handled via @import above
         }
-        // User/stdlib modules without registry entry are handled via @import above
     }
 
     // PHASE 3.7.1: Emit import aliases (import X as Y -> const Y = @"X";)

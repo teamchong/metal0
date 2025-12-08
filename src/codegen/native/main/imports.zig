@@ -437,6 +437,15 @@ pub fn collectImports(
                 continue;
             }
 
+            // Check if it's in the auto-generated stdlib module list
+            // These modules have Zig implementations but aren't in the dynamic registry
+            const stdlib_gen = @import("../stdlib_modules_gen.zig");
+            if (stdlib_gen.hasModule(python_module)) {
+                // Module exists in runtime.Lib - add to imports list
+                try imports.append(self.allocator, python_module);
+                continue;
+            }
+
             // Check if it's a C extension first - C extensions loaded via c_interop at runtime
             const is_c_ext = import_resolver.isCExtension(python_module, self.allocator);
             if (is_c_ext) {

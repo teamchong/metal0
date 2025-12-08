@@ -1346,6 +1346,7 @@ pub const stdlib_module_count: usize = 1321;
 /// StaticStringMap for O(1) module lookup (DCE-friendly, comptime-only)
 /// This replaces the linear scan with a comptime-generated hash table
 pub const module_map = std.StaticStringMap(void).initComptime(blk: {
+    @setEvalBranchQuota(20000);
     var entries: [stdlib_module_names.len]struct { []const u8, void } = undefined;
     for (stdlib_module_names, 0..) |name, i| {
         entries[i] = .{ name, {} };
