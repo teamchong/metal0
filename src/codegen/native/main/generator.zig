@@ -230,9 +230,16 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     if (import_path) |path| {
                         try self.emit(path);
                     } else {
-                        try self.emit("struct {}; // TODO: ");
-                        try self.emit(mod_name);
-                        try self.emit(" not implemented");
+                        // No direct import path - try stdlib_modules_gen as fallback
+                        const stdlib_gen = @import("../stdlib_modules_gen.zig");
+                        if (stdlib_gen.hasModule(mod_name)) {
+                            try self.emit("runtime.Lib.");
+                            try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                        } else {
+                            try self.emit("struct {}; // TODO: ");
+                            try self.emit(mod_name);
+                            try self.emit(" not implemented");
+                        }
                     }
                     try self.emit(";\n");
                 },

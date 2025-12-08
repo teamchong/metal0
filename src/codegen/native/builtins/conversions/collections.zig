@@ -55,7 +55,9 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             return;
         }
         // Generate inline ArrayList initialization with string characters
-        try self.emit("list_str_blk: {\n");
+        const list_str_label = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("list_str_blk_{d}: {{\n", .{list_str_label});
         try self.emitFmt("var _list = std.ArrayListUnmanaged([]const u8){{}};\n", .{});
         // Iterate through UTF-8 characters
         var i: usize = 0;
@@ -85,7 +87,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit(");\n");
             i = end;
         }
-        try self.emit("break :list_str_blk _list;\n");
+        try self.emitFmt("break :list_str_blk_{d} _list;\n", .{list_str_label});
         try self.emit("}");
         return;
     }
@@ -101,7 +103,9 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // because the dict may have been mutated via @constCast (e.g., by setattr).
     // Copying a const dict after @constCast mutation gives stale data.
     const is_dict_attr = args[0] == .attribute and std.mem.eql(u8, args[0].attribute.attr, "__dict__");
-    try self.emit("list_blk: {\n");
+    const list_label = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.emitFmt("list_blk_{d}: {{\n", .{list_label});
     if (is_dict_attr) {
         // Use pointer access to see @constCast mutations
         try self.emit("const _raw_iterable = @constCast(&");
@@ -120,7 +124,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("for (_raw_iterable.keys()) |_key| {\n");
         try self.emitFmt("try _list.append({s}, _key);\n", .{alloc_name});
         try self.emit("}\n");
-        try self.emit("break :list_blk _list;\n");
+        try self.emitFmt("break :list_blk_{d} _list;\n", .{list_label});
         try self.emit("}"); // Close list_blk block
         return;
     }
@@ -132,7 +136,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("const _is_pyobject_ptr = _IterType == *runtime.PyObject or _IterType == *const runtime.PyObject;\n");
     try self.emit("if (_is_pyobject_ptr) {\n");
     // For PyObject pointer, convert via runtime
-    try self.emit("break :list_blk runtime.pyObjectToList(_iterable);\n");
+    try self.emitFmt("break :list_blk_{d} runtime.pyObjectToList(_iterable);\n", .{list_label});
     try self.emit("} else if (_is_pyvalue) {\n");
     // For PyValue input, extract contents and wrap result back as PyValue
     try self.emit("const _result_list: runtime.PyValue = switch (_iterable) {\n");
@@ -140,7 +144,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(".tuple => |_pv_items| .{ .list = _pv_items },\n"); // Tuple to list
     try self.emit("else => .{ .list = &[_]runtime.PyValue{} },\n"); // Empty list for other types
     try self.emit("};\n");
-    try self.emit("break :list_blk _result_list;\n");
+    try self.emitFmt("break :list_blk_{d} _result_list;\n", .{list_label});
     try self.emit("} else {\n");
     try self.emit("const _type_info = @typeInfo(_IterType);\n");
     // Check if this is a pointer to a builtin subclass (has __base_value__ field)
@@ -155,7 +159,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(".tuple => |_pv_items| .{ .list = _pv_items },\n");
     try self.emit("else => .{ .list = &[_]runtime.PyValue{} },\n");
     try self.emit("};\n");
-    try self.emit("break :list_blk _result_list;\n");
+    try self.emitFmt("break :list_blk_{d} _result_list;\n", .{list_label});
     try self.emit("} else {\n");
     // Check for dict types (ArrayHashMap) - they have keys() method
     try self.emit("const _is_dict = _pointed_type_info == .@\"struct\" and @hasDecl(if (_is_ptr) _type_info.pointer.child else _IterType, \"keys\");\n");
@@ -166,7 +170,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("for (_iterable.keys()) |_key| {\n");
     try self.emitFmt("try _list.append({s}, _key);\n", .{alloc_name});
     try self.emit("}\n");
-    try self.emit("break :list_blk _list;\n");
+    try self.emitFmt("break :list_blk_{d} _list;\n", .{list_label});
     try self.emit("} else {\n");
     // Tuples use PyValue for heterogeneous elements; others infer from slice child type
     // Use @typeInfo to get child type safely (handles empty slices)
@@ -191,7 +195,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitFmt("try _list.append({s}, _item);\n", .{alloc_name});
     try self.emit("}\n");
     try self.emit("}\n");
-    try self.emit("break :list_blk _list;\n");
+    try self.emitFmt("break :list_blk_{d} _list;\n", .{list_label});
     try self.emit("}\n");
     try self.emit("}\n");
     try self.emit("}\n");
@@ -386,12 +390,14 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (is_feature_macros) {
         // Generate set from FeatureMacros.keys()
-        try self.emit("set_blk: {\n");
+        const set_label_1 = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("set_blk_{d}: {{\n", .{set_label_1});
         try self.emitFmt("var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
         try self.emit("for (runtime.FeatureMacros.keys()) |_item| {\n");
         try self.emit("try _set.put(_item, {});\n");
         try self.emit("}\n");
-        try self.emit("break :set_blk _set;\n");
+        try self.emitFmt("break :set_blk_{d} _set;\n", .{set_label_1});
         try self.emit("}");
         return;
     }
@@ -431,7 +437,9 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Check if arg produces a block expression that needs to be stored in temp variable
     const needs_temp = producesBlockExpression(args[0]);
 
-    try self.emit("set_blk: {\n");
+    const set_label_2 = self.block_label_counter;
+    self.block_label_counter += 1;
+    try self.emitFmt("set_blk_{d}: {{\n", .{set_label_2});
 
     if (needs_temp) {
         // Store block expression in temp variable first
@@ -458,7 +466,7 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit("try _set.put(_item, {});\n");
     try self.emit("}\n");
-    try self.emit("break :set_blk _set;\n");
+    try self.emitFmt("break :set_blk_{d} _set;\n", .{set_label_2});
     try self.emit("}");
 }
 
