@@ -23,8 +23,9 @@ pub const PyList = struct {
         const list_obj = try allocator.create(PyListObject);
 
         // Allocate initial item array (start with capacity 4)
+        // Use c_allocator for item array - must match append() which uses c_allocator for realloc/free
         const initial_capacity: usize = 4;
-        const item_array = try allocator.alloc(*PyObject, initial_capacity);
+        const item_array = try std.heap.c_allocator.alloc(*PyObject, initial_capacity);
 
         list_obj.* = PyListObject{
             .ob_base = .{

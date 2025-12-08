@@ -545,8 +545,8 @@ pub const ExprParser = struct {
                 }
                 if (self.current.type != .RBracket) return ParseError.UnclosedParen;
                 try self.advance();
-                // Emit BUILD_LIST with count (uses Call opcode for now)
-                self.compiler.instructions.append(self.allocator, .{ .op = .Call, .arg = count }) catch return ParseError.OutOfMemory;
+                // Emit BUILD_LIST with count
+                self.compiler.instructions.append(self.allocator, .{ .op = .BuildList, .arg = count }) catch return ParseError.OutOfMemory;
             },
             else => return ParseError.UnexpectedToken,
         }

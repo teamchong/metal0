@@ -124,6 +124,7 @@ pub const OpCode = enum(u8) {
     // Control
     Return, // Return top of stack
     Call, // Call builtin function
+    BuildList, // Build list from N stack items
 };
 
 /// Bytecode instruction
@@ -432,6 +433,28 @@ pub const VM = struct {
                 .Return => {
                     if (self.stack.items.len == 0) return error.EmptyStack;
                     return self.stack.pop() orelse return error.EmptyStack;
+                },
+
+                .BuildList => {
+                    const count = inst.arg;
+                    const listobject = @import("../Objects/listobject.zig");
+
+                    // Create empty list
+                    const list = try listobject.PyList.create(self.allocator);
+
+                    // Append items from stack (first pushed = first element)
+                    if (count > 0) {
+                        const start_idx = self.stack.items.len - count;
+                        var i: usize = 0;
+                        while (i < count) : (i += 1) {
+                            const item = self.stack.items[start_idx + i];
+                            try listobject.PyList.append(list, item);
+                        }
+                        // Remove items from stack
+                        self.stack.items.len = start_idx;
+                    }
+
+                    try self.stack.append(self.allocator, list);
                 },
 
                 else => return error.NotImplemented,
