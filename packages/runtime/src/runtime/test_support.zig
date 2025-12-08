@@ -713,6 +713,16 @@ pub const IntMaxStrDigitsContext = struct {
         return .{ .old_limit = old };
     }
 
+    /// Python context manager __enter__ - returns self for `with ... as ctx:`
+    pub fn __enter__(self: *IntMaxStrDigitsContext, _: std.mem.Allocator) !*IntMaxStrDigitsContext {
+        return self;
+    }
+
+    /// Python context manager __exit__ - restores old limit
+    pub fn __exit__(self: *IntMaxStrDigitsContext, _: std.mem.Allocator) !void {
+        self.close();
+    }
+
     pub fn close(self: IntMaxStrDigitsContext) void {
         // Restore old limit
         _ = sys.set_int_max_str_digits(undefined, self.old_limit) catch {};
