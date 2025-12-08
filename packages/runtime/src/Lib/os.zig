@@ -361,35 +361,223 @@ pub fn write(fd: std.posix.fd_t, buf: []const u8) !usize {
 // Stat Result
 // ============================================================================
 
-pub const StatResult = struct {
-    st_mode: u32,
-    st_size: u64,
-    st_atime: i64,
-    st_mtime: i64,
-    st_ctime: i64,
+/// Python os.stat_result - complete file status information
+/// Mirrors all fields from CPython's stat_result
+pub const stat_result = struct {
+    // Core fields (always available)
+    st_mode: u32, // File mode (permissions + file type)
+    st_ino: u64, // Inode number
+    st_dev: u64, // Device ID
+    st_nlink: u64, // Number of hard links
+    st_uid: u32, // User ID of owner
+    st_gid: u32, // Group ID of owner
+    st_size: i64, // Total size in bytes
+    // Time fields (seconds since epoch)
+    st_atime: i64, // Time of last access
+    st_mtime: i64, // Time of last modification
+    st_ctime: i64, // Time of last status change (Unix) / creation (Windows)
+    // Nanosecond precision time fields
+    st_atime_ns: i128, // Access time in nanoseconds
+    st_mtime_ns: i128, // Modification time in nanoseconds
+    st_ctime_ns: i128, // Change/creation time in nanoseconds
+    // Platform-specific fields (0 on unsupported platforms)
+    st_blocks: i64, // Number of 512-byte blocks allocated
+    st_blksize: i64, // Preferred block size for I/O
+    st_rdev: u64, // Device ID (if special file)
+    // Additional fields for compatibility
+    st_flags: u32 = 0, // User-defined flags (BSD/macOS)
+    st_gen: u32 = 0, // File generation number (BSD/macOS)
 
-    pub fn isFile(self: StatResult) bool {
-        return (self.st_mode & 0o170000) == 0o100000;
+    /// Check if this is a regular file
+    pub fn isFile(self: stat_result) bool {
+        return (self.st_mode & 0o170000) == 0o100000; // S_IFREG
     }
 
-    pub fn isDir(self: StatResult) bool {
-        return (self.st_mode & 0o170000) == 0o040000;
+    /// Check if this is a directory
+    pub fn isDir(self: stat_result) bool {
+        return (self.st_mode & 0o170000) == 0o040000; // S_IFDIR
     }
 
-    pub fn isLink(self: StatResult) bool {
-        return (self.st_mode & 0o170000) == 0o120000;
+    /// Check if this is a symbolic link
+    pub fn isLink(self: stat_result) bool {
+        return (self.st_mode & 0o170000) == 0o120000; // S_IFLNK
+    }
+
+    /// Check if this is a block device
+    pub fn isBlockDevice(self: stat_result) bool {
+        return (self.st_mode & 0o170000) == 0o060000; // S_IFBLK
+    }
+
+    /// Check if this is a character device
+    pub fn isCharDevice(self: stat_result) bool {
+        return (self.st_mode & 0o170000) == 0o020000; // S_IFCHR
+    }
+
+    /// Check if this is a FIFO (named pipe)
+    pub fn isFifo(self: stat_result) bool {
+        return (self.st_mode & 0o170000) == 0o010000; // S_IFIFO
+    }
+
+    /// Check if this is a socket
+    pub fn isSocket(self: stat_result) bool {
+        return (self.st_mode & 0o170000) == 0o140000; // S_IFSOCK
     }
 };
 
-/// Get file status
-pub fn stat(path_: []const u8) !StatResult {
+/// Alias for backwards compatibility
+pub const StatResult = stat_result;
+
+/// Get file status (follows symlinks)
+pub fn stat(path_: []const u8) !stat_result {
+    // Use std.posix.stat for full stat info
+    const path_z = std.fs.cwd().realpathZ(path_, &path_buf) catch {
+        // If realpath fails, try direct stat
+        return statInternal(path_);
+    };
+    _ = path_z;
+    return statInternal(path_);
+}
+
+var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+
+fn statInternal(path_: []const u8) !stat_result {
+    // Get the file stat from Zig's filesystem
     const s = try std.fs.cwd().statFile(path_);
+
     return .{
         .st_mode = @intCast(s.mode),
-        .st_size = s.size,
+        .st_ino = s.inode,
+        .st_dev = 0, // Not directly available from std.fs.File.Stat
+        .st_nlink = 1, // Default to 1; full info requires POSIX stat
+        .st_uid = 0, // Not directly available from std.fs.File.Stat
+        .st_gid = 0, // Not directly available from std.fs.File.Stat
+        .st_size = @intCast(s.size),
         .st_atime = @intCast(@divFloor(s.atime, std.time.ns_per_s)),
         .st_mtime = @intCast(@divFloor(s.mtime, std.time.ns_per_s)),
         .st_ctime = @intCast(@divFloor(s.ctime, std.time.ns_per_s)),
+        .st_atime_ns = s.atime,
+        .st_mtime_ns = s.mtime,
+        .st_ctime_ns = s.ctime,
+        .st_blocks = 0, // Would need POSIX stat for this
+        .st_blksize = 4096, // Common default
+        .st_rdev = 0,
+    };
+}
+
+/// Get file status without following symlinks
+pub fn lstat(path_: []const u8) !stat_result {
+    // For now, same as stat - proper lstat requires different syscall
+    // TODO: Use std.posix.lstat when available
+    return stat(path_);
+}
+
+/// Get file status from file descriptor
+pub fn fstat(fd: std.posix.fd_t) !stat_result {
+    const s = try std.posix.fstat(fd);
+    return .{
+        .st_mode = s.mode,
+        .st_ino = s.ino,
+        .st_dev = s.dev,
+        .st_nlink = s.nlink,
+        .st_uid = s.uid,
+        .st_gid = s.gid,
+        .st_size = @intCast(s.size),
+        .st_atime = s.atime().sec,
+        .st_mtime = s.mtime().sec,
+        .st_ctime = s.ctime().sec,
+        .st_atime_ns = @as(i128, s.atime().sec) * std.time.ns_per_s + s.atime().nsec,
+        .st_mtime_ns = @as(i128, s.mtime().sec) * std.time.ns_per_s + s.mtime().nsec,
+        .st_ctime_ns = @as(i128, s.ctime().sec) * std.time.ns_per_s + s.ctime().nsec,
+        .st_blocks = s.blocks,
+        .st_blksize = s.blksize,
+        .st_rdev = s.rdev,
+    };
+}
+
+// ============================================================================
+// Directory Traversal
+// ============================================================================
+
+/// Entry from os.walk() - (dirpath, dirnames, filenames)
+pub const WalkEntry = struct {
+    dirpath: []const u8,
+    dirnames: [][]const u8,
+    filenames: [][]const u8,
+};
+
+/// Iterator for os.walk() - recursive directory traversal
+pub const WalkIterator = struct {
+    allocator: std.mem.Allocator,
+    stack: std.ArrayList([]const u8),
+    topdown: bool,
+
+    pub fn next(self: *WalkIterator) !?WalkEntry {
+        while (self.stack.items.len > 0) {
+            const dir_path = self.stack.pop();
+            defer self.allocator.free(dir_path);
+
+            var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch continue;
+            defer dir.close();
+
+            var dirnames = std.ArrayList([]const u8).init(self.allocator);
+            var filenames = std.ArrayList([]const u8).init(self.allocator);
+            errdefer {
+                for (dirnames.items) |d| self.allocator.free(d);
+                dirnames.deinit();
+                for (filenames.items) |f| self.allocator.free(f);
+                filenames.deinit();
+            }
+
+            var iter = dir.iterate();
+            while (iter.next() catch null) |entry| {
+                const entry_name = try self.allocator.dupe(u8, entry.name);
+                if (entry.kind == .directory) {
+                    try dirnames.append(entry_name);
+                } else {
+                    try filenames.append(entry_name);
+                }
+            }
+
+            // Add subdirectories to stack for traversal
+            if (self.topdown) {
+                // For topdown, add in reverse order so we process in order
+                var i: usize = dirnames.items.len;
+                while (i > 0) {
+                    i -= 1;
+                    const subdir = try path.join(self.allocator, &.{ dir_path, dirnames.items[i] });
+                    try self.stack.append(subdir);
+                }
+            }
+
+            return WalkEntry{
+                .dirpath = try self.allocator.dupe(u8, dir_path),
+                .dirnames = try dirnames.toOwnedSlice(),
+                .filenames = try filenames.toOwnedSlice(),
+            };
+        }
+        return null;
+    }
+
+    pub fn deinit(self: *WalkIterator) void {
+        for (self.stack.items) |p| self.allocator.free(p);
+        self.stack.deinit();
+    }
+};
+
+/// os.walk(top, topdown=True) - Directory tree generator
+/// Yields (dirpath, dirnames, filenames) for each directory in the tree
+pub fn walk(allocator: std.mem.Allocator, top: []const u8) !WalkIterator {
+    return walkTopdown(allocator, top, true);
+}
+
+/// os.walk with topdown parameter
+pub fn walkTopdown(allocator: std.mem.Allocator, top: []const u8, topdown: bool) !WalkIterator {
+    var stack = std.ArrayList([]const u8).init(allocator);
+    try stack.append(try allocator.dupe(u8, top));
+    return WalkIterator{
+        .allocator = allocator,
+        .stack = stack,
+        .topdown = topdown,
     };
 }
 

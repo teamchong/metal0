@@ -203,6 +203,119 @@ pub fn identity(x: anytype) @TypeOf(x) {
     return x;
 }
 
+/// Metadata wrapper for @functools.wraps decorator
+/// In Python, @wraps copies __name__, __doc__, __module__, __annotations__, etc.
+/// In AOT compilation, this is mostly a no-op since metadata is compile-time
+pub const WrappedFunction = struct {
+    __name__: []const u8 = "",
+    __doc__: ?[]const u8 = null,
+    __module__: []const u8 = "__main__",
+    __qualname__: []const u8 = "",
+    __annotations__: ?*anyopaque = null,
+    __dict__: ?*anyopaque = null,
+    __wrapped__: ?*anyopaque = null, // Reference to original wrapped function
+
+    pub fn init() WrappedFunction {
+        return .{};
+    }
+};
+
+/// wraps(wrapped) - Decorator factory to copy function attributes
+/// Usage: @functools.wraps(original_func)
+/// In AOT, this creates a WrappedFunction metadata struct
+pub fn wraps(comptime wrapped: anytype) WrapsDecorator(@TypeOf(wrapped)) {
+    return WrapsDecorator(@TypeOf(wrapped)).init(wrapped);
+}
+
+pub fn WrapsDecorator(comptime WrappedType: type) type {
+    return struct {
+        wrapped: WrappedType,
+        assigned: []const []const u8 = &.{ "__module__", "__name__", "__qualname__", "__annotations__", "__doc__" },
+        updated: []const []const u8 = &.{"__dict__"},
+
+        const Self = @This();
+
+        pub fn init(wrapped: WrappedType) Self {
+            return .{ .wrapped = wrapped };
+        }
+
+        /// Apply wraps to a wrapper function
+        /// In Python: @wraps(func) def wrapper(...): ...
+        /// Returns the wrapper with metadata copied from wrapped
+        pub fn apply(_: Self, comptime wrapper_func: anytype) @TypeOf(wrapper_func) {
+            // In AOT, we just return the wrapper function as-is
+            // The metadata copying is a Python runtime concept
+            return wrapper_func;
+        }
+
+        /// Get the wrapped function
+        pub fn getWrapped(self: Self) WrappedType {
+            return self.wrapped;
+        }
+    };
+}
+
+/// update_wrapper(wrapper, wrapped, assigned, updated) - Update wrapper function to look like wrapped
+/// Low-level function used by wraps()
+pub fn update_wrapper(
+    wrapper: anytype,
+    wrapped: anytype,
+    assigned: []const []const u8,
+    updated: []const []const u8,
+) @TypeOf(wrapper) {
+    // In AOT compilation, function attributes are compile-time
+    // This is essentially a no-op that returns the wrapper unchanged
+    _ = wrapped;
+    _ = assigned;
+    _ = updated;
+    return wrapper;
+}
+
+/// WRAPPER_ASSIGNMENTS - attributes copied by wraps()
+pub const WRAPPER_ASSIGNMENTS = [_][]const u8{
+    "__module__",
+    "__name__",
+    "__qualname__",
+    "__annotations__",
+    "__doc__",
+    "__type_params__",
+};
+
+/// WRAPPER_UPDATES - attributes merged by wraps()
+pub const WRAPPER_UPDATES = [_][]const u8{
+    "__dict__",
+};
+
+/// singledispatch - Single-dispatch generic function decorator (stub)
+/// Full implementation would require runtime type dispatch
+pub fn singledispatch(comptime func: anytype) SingleDispatch(@TypeOf(func)) {
+    return SingleDispatch(@TypeOf(func)).init(func);
+}
+
+pub fn SingleDispatch(comptime FuncType: type) type {
+    return struct {
+        base_func: FuncType,
+
+        const Self = @This();
+
+        pub fn init(func: FuncType) Self {
+            return .{ .base_func = func };
+        }
+
+        /// Register an implementation for a specific type
+        pub fn register(_: *Self, comptime _: type, comptime impl: anytype) @TypeOf(impl) {
+            // In AOT, dispatch is compile-time via comptime type parameters
+            return impl;
+        }
+
+        /// Dispatch to the appropriate implementation
+        pub fn dispatch(self: Self, comptime _: type) FuncType {
+            // Return base function - full dispatch would need runtime type info
+            return self.base_func;
+        }
+    };
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
