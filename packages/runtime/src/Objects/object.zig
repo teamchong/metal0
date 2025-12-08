@@ -1,6 +1,7 @@
 /// Dynamic value type for runtime attribute storage
 /// Supports comptime SIMD operations for string comparisons
 const std = @import("std");
+const bigint = @import("bigint");
 
 /// PyValue - Runtime-typed value for dynamic attributes
 /// Uses tagged union for type safety
@@ -13,6 +14,7 @@ pub const PyValue = union(enum) {
     none: void,
     list: []const PyValue,
     tuple: []const PyValue,
+    bigint: bigint.BigInt, // For integers that don't fit in i64
     ptr: *anyopaque, // For types that can't be represented
 
     /// Format value for printing
@@ -46,6 +48,7 @@ pub const PyValue = union(enum) {
                 if (items.len == 1) try writer.writeAll(",");
                 try writer.writeAll(")");
             },
+            .bigint => |v| try writer.print("{s}", .{v.toString(std.heap.page_allocator, 10) catch "<bigint>"}),
             .ptr => try writer.writeAll("<ptr>"),
         }
     }
@@ -56,6 +59,7 @@ pub const PyValue = union(enum) {
             .int => |v| v,
             .float => |v| @intFromFloat(v),
             .bool => |v| if (v) @as(i64, 1) else @as(i64, 0),
+            .bigint => |v| v.toInt(i64) catch null,
             else => null,
         };
     }
@@ -65,6 +69,7 @@ pub const PyValue = union(enum) {
         return switch (self) {
             .float => |v| v,
             .int => |v| @floatFromInt(v),
+            .bigint => |v| v.toFloat(),
             else => null,
         };
     }
@@ -79,6 +84,7 @@ pub const PyValue = union(enum) {
             .none => false,
             .list => |v| v.len > 0,
             .tuple => |v| v.len > 0,
+            .bigint => |v| !v.isZero(),
             .ptr => true,
         };
     }
@@ -99,10 +105,12 @@ pub const PyValue = union(enum) {
             .int => "int",
             .float => "float",
             .string => "str",
+            .bytes => "bytes",
             .bool => "bool",
             .none => "NoneType",
             .list => "list",
             .tuple => "tuple",
+            .bigint => "int",
             .ptr => "object",
         };
     }
@@ -228,7 +236,10 @@ pub const PyValue = union(enum) {
     /// Use this when you need to convert runtime values to PyValue
     pub fn fromAlloc(allocator: std.mem.Allocator, value: anytype) !PyValue {
         const T = @TypeOf(value);
-        if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize) {
+        // Handle BigInt first (before general struct handling)
+        if (T == bigint.BigInt) {
+            return .{ .bigint = value };
+        } else if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize) {
             return .{ .int = @intCast(value) };
         } else if (T == f64 or T == f32) {
             return .{ .float = @floatCast(value) };

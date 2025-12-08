@@ -858,6 +858,7 @@ pub fn pyToInt(value: anytype) PythonError!i64 {
                 .tuple => "'tuple' object cannot be interpreted as an integer",
                 .ptr => "'object' object cannot be interpreted as an integer",
                 .int => "'int' object cannot be interpreted as an integer", // shouldn't happen
+                .bigint => "'int' object cannot be interpreted as an integer", // shouldn't happen - bigint should convert
             };
             setException("TypeError", msg);
             return PythonError.TypeError;
