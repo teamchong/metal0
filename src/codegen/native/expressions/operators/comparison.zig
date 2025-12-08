@@ -996,6 +996,27 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             try genExpr(self, compare.comparators[i]);
             try self.emit(BigIntCompOps.get(@tagName(op)) orelse ", .eq)");
         }
+        // Handle complex number comparisons (PyComplex struct doesn't support ==)
+        else if (current_left_type == .complex or right_type == .complex) {
+            // Complex numbers only support == and != (not ordered comparisons)
+            if (op == .Eq) {
+                try self.emit("(");
+                try genExpr(self, current_left);
+                try self.emit(").eql(");
+                try genExpr(self, compare.comparators[i]);
+                try self.emit(")");
+            } else if (op == .NotEq) {
+                try self.emit("!(");
+                try genExpr(self, current_left);
+                try self.emit(").eql(");
+                try genExpr(self, compare.comparators[i]);
+                try self.emit(")");
+            } else {
+                // Complex numbers don't support <, >, <=, >= in Python
+                // Emit a compile error or fallback
+                try self.emit("@compileError(\"complex numbers do not support ordering comparisons\")");
+            }
+        }
         // Handle unknown type comparisons (anytype parameters)
         else if (type_traits.isUnknown(current_left_type) or type_traits.isUnknown(right_type)) {
             // Special case: anytype compared to None
