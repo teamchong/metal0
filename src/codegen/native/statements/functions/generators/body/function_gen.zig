@@ -1365,6 +1365,17 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             try self.emit("_ = &__gen_result;\n");
         }
 
+        // Check if this method returns an error union (__float__, __int__, __index__)
+        // If so, set inside_try_body so error-returning expressions use 'try' instead of 'catch'
+        const is_error_returning_method = std.mem.eql(u8, method.name, "__float__") or
+            std.mem.eql(u8, method.name, "__int__") or
+            std.mem.eql(u8, method.name, "__index__");
+        const saved_inside_try_body = self.inside_try_body;
+        if (is_error_returning_method) {
+            self.inside_try_body = true;
+        }
+        defer self.inside_try_body = saved_inside_try_body;
+
         // Generate method body normally
         for (method.body) |method_stmt| {
             try self.generateStmt(method_stmt);

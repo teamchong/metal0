@@ -736,6 +736,77 @@ pub fn assertEqual(a: anytype, b: anytype) void {
         }
     }
 
+    // Unwrap IntResult unions - for __floor__/__ceil__ with large floats
+    // IntResult can be .small (i64) or .big (BigInt), compare using eqlFloat/eqlInt
+    if (A == runtime.IntResult) {
+        // IntResult compared with f64 - use eqlFloat method
+        if (b_info == .float or b_info == .comptime_float) {
+            const b_float: f64 = if (b_info == .comptime_float) @as(f64, b) else b;
+            if (a.eqlFloat(b_float)) {
+                if (runner.global_result) |result| {
+                    result.addPass();
+                }
+                return;
+            } else {
+                std.debug.print("AssertionError: IntResult({any}) != {d}\n", .{ a, b_float });
+                if (runner.global_result) |result| {
+                    result.addFail("assertEqual failed") catch {};
+                }
+                @panic("assertEqual failed");
+            }
+        }
+        // IntResult compared with i64/int - use eqlInt or compare small values
+        if (b_info == .int or b_info == .comptime_int) {
+            const b_int: i64 = @intCast(b);
+            if (a.eqlInt(b_int)) {
+                if (runner.global_result) |result| {
+                    result.addPass();
+                }
+                return;
+            } else {
+                std.debug.print("AssertionError: IntResult({any}) != {d}\n", .{ a, b_int });
+                if (runner.global_result) |result| {
+                    result.addFail("assertEqual failed") catch {};
+                }
+                @panic("assertEqual failed");
+            }
+        }
+    }
+    if (B == runtime.IntResult) {
+        // f64 compared with IntResult
+        if (a_info == .float or a_info == .comptime_float) {
+            const a_float: f64 = if (a_info == .comptime_float) @as(f64, a) else a;
+            if (b.eqlFloat(a_float)) {
+                if (runner.global_result) |result| {
+                    result.addPass();
+                }
+                return;
+            } else {
+                std.debug.print("AssertionError: {d} != IntResult({any})\n", .{ a_float, b });
+                if (runner.global_result) |result| {
+                    result.addFail("assertEqual failed") catch {};
+                }
+                @panic("assertEqual failed");
+            }
+        }
+        // i64 compared with IntResult
+        if (a_info == .int or a_info == .comptime_int) {
+            const a_int: i64 = @intCast(a);
+            if (b.eqlInt(a_int)) {
+                if (runner.global_result) |result| {
+                    result.addPass();
+                }
+                return;
+            } else {
+                std.debug.print("AssertionError: {d} != IntResult({any})\n", .{ a_int, b });
+                if (runner.global_result) |result| {
+                    result.addFail("assertEqual failed") catch {};
+                }
+                @panic("assertEqual failed");
+            }
+        }
+    }
+
     // Handle AutoHashMap (set) comparison - compare contents not struct identity
     if (a_info == .@"struct" and b_info == .@"struct") {
         // Check if both are AutoHashMap types (used for sets)

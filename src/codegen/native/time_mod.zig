@@ -27,23 +27,24 @@ fn genSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return;
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
     const is_class_instance = type_traits.isClassInstance(arg_type) or (args[0] == .call and args[0].call.func.* == .name and std.ascii.isUpper(args[0].call.func.name.id[0]));
-    try self.emit("std.Thread.sleep(@as(u64, @intFromFloat(");
     if (is_class_instance) {
-        // When inside try body (or assertRaises), propagate errors with 'try'
-        // Otherwise, silently convert to 0.0 on error
+        // When inside try body (assertRaises), wrap in block that returns error union
+        // so expectError can catch the error. Otherwise, silently convert to 0.0 on error.
         if (self.inside_try_body) {
-            try self.emit("(try runtime.floatBuiltinCall(");
+            // Generate: __sleep_blk: { const _v = runtime.floatBuiltinCall(...) catch |e| break :__sleep_blk @as(anyerror!void, e); std.Thread.sleep(...); break :__sleep_blk @as(anyerror!void, {}); }
+            try self.emit("__sleep_blk: { const __sleep_v = runtime.floatBuiltinCall(");
             try self.genExpr(args[0]);
-            try self.emit(", .{}))");
+            try self.emit(", .{}) catch |e| break :__sleep_blk @as(anyerror!void, e); std.Thread.sleep(@as(u64, @intFromFloat(__sleep_v * 1_000_000_000))); break :__sleep_blk @as(anyerror!void, {}); }");
         } else {
-            try self.emit("(runtime.floatBuiltinCall(");
+            try self.emit("std.Thread.sleep(@as(u64, @intFromFloat((runtime.floatBuiltinCall(");
             try self.genExpr(args[0]);
-            try self.emit(", .{}) catch 0.0)");
+            try self.emit(", .{}) catch 0.0) * 1_000_000_000)))");
         }
     } else {
+        try self.emit("std.Thread.sleep(@as(u64, @intFromFloat(");
         try self.genExpr(args[0]);
+        try self.emit(" * 1_000_000_000)))");
     }
-    try self.emit(" * 1_000_000_000)))");
 }
 
 const gmtime_body = "; const _epoch = std.time.epoch.EpochSeconds{ .secs = @intCast(_ts) }; const _day = _epoch.getEpochDay(); const _year_day = _day.calculateYearDay(); const _day_seconds = _epoch.getDaySeconds(); break :blk .{ .tm_year = _year_day.year, .tm_mon = @as(i32, @intFromEnum(_year_day.month)), .tm_mday = _day.calculateYearDay().day_of_month, .tm_hour = _day_seconds.getHoursIntoDay(), .tm_min = _day_seconds.getMinutesIntoHour(), .tm_sec = _day_seconds.getSecondsIntoMinute(), .tm_wday = @as(i32, @intFromEnum(_day.dayOfWeek())), .tm_yday = _year_day.getDayOfYear(), .tm_isdst = 0 }; }";

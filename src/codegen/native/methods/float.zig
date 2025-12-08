@@ -55,30 +55,52 @@ pub fn genConjugate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 
 /// Generate float.__floor__() - returns largest int <= value
 /// Python: (1.7).__floor__() -> 1, (1e200).__floor__() -> BigInt
-/// For test values that fit in i64, we extract the value directly
-/// Zig: (runtime.floatFloorBig(allocator, f) catch unreachable).asI64() catch unreachable
+/// Returns IntResult which handles both small (i64) and large (BigInt) values
+/// assertEqual and comparison codegen handle IntResult appropriately
+/// In assertRaises context (inside_try_body), propagates errors for expectError to catch
+/// Zig: runtime.floatFloorBig(allocator, f) catch unreachable (or try in assertRaises context)
 pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    try self.emit("((runtime.floatFloorBig(");
-    try self.emit(alloc_name);
-    try self.emit(", ");
-    try self.genExpr(obj);
-    try self.emit(") catch unreachable).asI64() catch unreachable)");
+    if (self.inside_try_body) {
+        // In assertRaises context - return error union for expectError to catch
+        try self.emit("(runtime.floatFloorBig(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
+        try self.genExpr(obj);
+        try self.emit("))");
+    } else {
+        try self.emit("(runtime.floatFloorBig(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
+        try self.genExpr(obj);
+        try self.emit(") catch unreachable)");
+    }
 }
 
 /// Generate float.__ceil__() - returns smallest int >= value
 /// Python: (1.3).__ceil__() -> 2, (1e200).__ceil__() -> BigInt
-/// For test values that fit in i64, we extract the value directly
-/// Zig: (runtime.floatCeilBig(allocator, f) catch unreachable).asI64() catch unreachable
+/// Returns IntResult which handles both small (i64) and large (BigInt) values
+/// assertEqual and comparison codegen handle IntResult appropriately
+/// In assertRaises context (inside_try_body), propagates errors for expectError to catch
+/// Zig: runtime.floatCeilBig(allocator, f) catch unreachable (or try in assertRaises context)
 pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    try self.emit("((runtime.floatCeilBig(");
-    try self.emit(alloc_name);
-    try self.emit(", ");
-    try self.genExpr(obj);
-    try self.emit(") catch unreachable).asI64() catch unreachable)");
+    if (self.inside_try_body) {
+        // In assertRaises context - return error union for expectError to catch
+        try self.emit("(runtime.floatCeilBig(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
+        try self.genExpr(obj);
+        try self.emit("))");
+    } else {
+        try self.emit("(runtime.floatCeilBig(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
+        try self.genExpr(obj);
+        try self.emit(") catch unreachable)");
+    }
 }
 
 /// Generate float.__trunc__() - truncate towards zero (as BigInt for large values)

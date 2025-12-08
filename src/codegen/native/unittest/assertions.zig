@@ -30,8 +30,9 @@ const FloatMethods = std.StaticStringMap(FloatMethodInfo).initComptime(.{
     .{ "is_integer", FloatMethodInfo{ .func = "IsInteger", .needs_alloc = false } },
     .{ "hex", FloatMethodInfo{ .func = "Hex(__global_allocator, ", .needs_alloc = true } },
     .{ "conjugate", FloatMethodInfo{ .func = "Conjugate", .needs_alloc = false } },
-    .{ "__floor__", FloatMethodInfo{ .func = "Floor(__global_allocator, ", .needs_alloc = true } },
-    .{ "__ceil__", FloatMethodInfo{ .func = "Ceil(__global_allocator, ", .needs_alloc = true } },
+    // Use Big variants for __floor__/__ceil__ to handle large floats (1.23e167) without overflow
+    .{ "__floor__", FloatMethodInfo{ .func = "FloorBig(__global_allocator, ", .needs_alloc = true } },
+    .{ "__ceil__", FloatMethodInfo{ .func = "CeilBig(__global_allocator, ", .needs_alloc = true } },
     .{ "__trunc__", FloatMethodInfo{ .func = "Trunc(__global_allocator, ", .needs_alloc = true } },
     .{ "__round__", FloatMethodInfo{ .func = "Round(__global_allocator, ", .needs_alloc = true } },
 });
@@ -136,9 +137,22 @@ fn emitCallableInvocation(
                 if (FloatMethods.get(attr.attr)) |info| {
                     try self.emit("__ar_obj_blk: { const __ar_obj = ");
                     try parent.genExpr(self, attr.value.*);
-                    try self.emit("; break :__ar_obj_blk runtime.float");
+                    try self.emit("; break :__ar_obj_blk (runtime.float");
                     try self.emit(info.func);
                     try self.emit(if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
+                    // FloorBig/CeilBig return error unions
+                    // In assertRaises context (inside_try_body), let error propagate
+                    // Otherwise, catch unreachable for normal assertEqual context
+                    const is_big_variant = std.mem.indexOf(u8, info.func, "Big") != null;
+                    if (is_big_variant) {
+                        if (self.inside_try_body) {
+                            try self.emit(")"); // Let error propagate for assertRaises
+                        } else {
+                            try self.emit(" catch unreachable)");
+                        }
+                    } else {
+                        try self.emit(")");
+                    }
                     try self.emit("; }");
                 } else {
                     try self.emit("__ar_obj_blk: { const __ar_obj = ");
@@ -216,9 +230,22 @@ fn emitCallableInvocation(
         if (FloatMethods.get(attr.attr)) |info| {
             try self.emit("__ar_obj_blk: { const __ar_obj = ");
             try parent.genExpr(self, attr.value.*);
-            try self.emit("; break :__ar_obj_blk runtime.float");
+            try self.emit("; break :__ar_obj_blk (runtime.float");
             try self.emit(info.func);
             try self.emit(if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
+            // FloorBig/CeilBig return error unions
+            // In assertRaises context (inside_try_body), let error propagate
+            // Otherwise, catch unreachable for normal assertEqual context
+            const is_big_variant = std.mem.indexOf(u8, info.func, "Big") != null;
+            if (is_big_variant) {
+                if (self.inside_try_body) {
+                    try self.emit(")"); // Let error propagate for assertRaises
+                } else {
+                    try self.emit(" catch unreachable)");
+                }
+            } else {
+                try self.emit(")");
+            }
             try self.emit("; }");
             return;
         }

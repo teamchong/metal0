@@ -206,6 +206,19 @@ pub const PyValue = union(enum) {
             }
             // Store as ptr for unknown pointer types
             return .{ .ptr = @ptrCast(@constCast(value)) };
+        } else if (@typeInfo(T) == .@"struct") {
+            // Handle float/int/str subclasses with __base_value__ field
+            if (@hasField(T, "__base_value__")) {
+                const base = value.__base_value__;
+                const base_info = @typeInfo(@TypeOf(base));
+                if (base_info == .float or base_info == .comptime_float) {
+                    return .{ .float = @floatCast(base) };
+                }
+                if (base_info == .int or base_info == .comptime_int) {
+                    return .{ .int = @intCast(base) };
+                }
+            }
+            return .{ .none = {} };
         } else {
             return .{ .none = {} };
         }
@@ -260,6 +273,17 @@ pub const PyValue = union(enum) {
             return .{ .tuple = result };
         } else if (@typeInfo(T) == .@"struct") {
             const info = @typeInfo(T).@"struct";
+            // Handle float/int/str subclasses with __base_value__ field
+            if (@hasField(T, "__base_value__")) {
+                const base = value.__base_value__;
+                const base_info = @typeInfo(@TypeOf(base));
+                if (base_info == .float or base_info == .comptime_float) {
+                    return .{ .float = @floatCast(base) };
+                }
+                if (base_info == .int or base_info == .comptime_int) {
+                    return .{ .int = @intCast(base) };
+                }
+            }
             // Handle StringHashMap/AutoHashMap - store as pointer
             // These have unmanaged and entries fields
             if (@hasField(T, "unmanaged") and @hasField(T, "entries")) {
