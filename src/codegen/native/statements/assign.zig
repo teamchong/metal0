@@ -1067,25 +1067,35 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                 // If current value is int-typed, convert to BigInt
                 if (type_traits.isIntegral(current_value_type)) {
-                    // Check if this is an int() call - use parseIntToBigInt directly
+                    // Check if this is an int() call - handle based on argument type
                     // to avoid overflow when parsing very large strings like int('1' * 600)
+                    // or converting large floats like int(1e100)
                     if (assign.value.* == .call and assign.value.call.func.* == .name and
                         std.mem.eql(u8, assign.value.call.func.name.id, "int"))
                     {
                         const int_call = assign.value.call;
                         if (int_call.args.len >= 1) {
-                            // int(string) or int(string, base) -> use parseIntToBigInt
-                            try self.emit("(try runtime.parseIntToBigInt(__global_allocator, ");
-                            try self.genExpr(int_call.args[0]);
-                            try self.emit(", ");
-                            if (int_call.args.len >= 2) {
-                                try self.emit("@intCast(");
-                                try self.genExpr(int_call.args[1]);
-                                try self.emit(")");
+                            // Check the type of the argument to int()
+                            const arg_type = try self.inferExprScoped(int_call.args[0]);
+                            if (type_traits.isFloating(arg_type)) {
+                                // int(float) -> use BigInt.fromFloat
+                                try self.emit("(runtime.BigInt.fromFloat(__global_allocator, ");
+                                try self.genExpr(int_call.args[0]);
+                                try self.emit(") catch unreachable);\n");
                             } else {
-                                try self.emit("10");
+                                // int(string) or int(string, base) -> use parseIntToBigInt
+                                try self.emit("(try runtime.parseIntToBigInt(__global_allocator, ");
+                                try self.genExpr(int_call.args[0]);
+                                try self.emit(", ");
+                                if (int_call.args.len >= 2) {
+                                    try self.emit("@intCast(");
+                                    try self.genExpr(int_call.args[1]);
+                                    try self.emit(")");
+                                } else {
+                                    try self.emit("10");
+                                }
+                                try self.emit("));\n");
                             }
-                            try self.emit("));\n");
 
                             // Track variable metadata
                             try valueGen.trackVariableMetadata(

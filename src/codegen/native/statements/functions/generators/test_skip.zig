@@ -298,3 +298,144 @@ fn exprUsesAssertRaisesWithOperatorEqNe(expr: ast.Node) bool {
     const op_name = c.args[1].name.id;
     return std.mem.eql(u8, op_name, "eq") or std.mem.eql(u8, op_name, "ne");
 }
+
+/// Check if test body uses CPython internal modules (_pylong, _decimal)
+/// These modules are CPython-specific and not available in metal0
+pub fn usesCPythonInternalModules(stmts: []const ast.Node) bool {
+    for (stmts) |stmt| {
+        if (stmtUsesCPythonInternalModules(stmt)) return true;
+    }
+    return false;
+}
+
+fn stmtUsesCPythonInternalModules(stmt: ast.Node) bool {
+    switch (stmt) {
+        .expr_stmt => |e| return exprUsesCPythonInternalModules(e.value.*),
+        .assign => |a| {
+            if (exprUsesCPythonInternalModules(a.value.*)) return true;
+            for (a.targets) |target| {
+                if (exprUsesCPythonInternalModules(target)) return true;
+            }
+            return false;
+        },
+        .aug_assign => |a| return exprUsesCPythonInternalModules(a.target.*) or exprUsesCPythonInternalModules(a.value.*),
+        .ann_assign => |a| {
+            if (a.value) |v| if (exprUsesCPythonInternalModules(v.*)) return true;
+            return exprUsesCPythonInternalModules(a.target.*);
+        },
+        .if_stmt => |i| {
+            if (exprUsesCPythonInternalModules(i.condition.*)) return true;
+            for (i.body) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            for (i.else_body) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            return false;
+        },
+        .for_stmt => |f| {
+            if (exprUsesCPythonInternalModules(f.iter.*)) return true;
+            for (f.body) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            if (f.orelse_body) |orelse_stmts| {
+                for (orelse_stmts) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            }
+            return false;
+        },
+        .while_stmt => |w| {
+            if (exprUsesCPythonInternalModules(w.condition.*)) return true;
+            for (w.body) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            if (w.orelse_body) |orelse_stmts| {
+                for (orelse_stmts) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            }
+            return false;
+        },
+        .with_stmt => |wth| {
+            if (exprUsesCPythonInternalModules(wth.context_expr.*)) return true;
+            for (wth.body) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            return false;
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            for (t.else_body) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            for (t.finalbody) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            for (t.handlers) |h| {
+                for (h.body) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            }
+            return false;
+        },
+        .return_stmt => |r| {
+            if (r.value) |v| return exprUsesCPythonInternalModules(v.*);
+            return false;
+        },
+        else => return false,
+    }
+}
+
+fn exprUsesCPythonInternalModules(expr: ast.Node) bool {
+    switch (expr) {
+        .name => |n| {
+            // Check for direct usage of _pylong or _decimal
+            return std.mem.eql(u8, n.id, "_pylong") or std.mem.eql(u8, n.id, "_decimal");
+        },
+        .attribute => |a| {
+            // Check value for _pylong.xxx or _decimal.xxx
+            if (a.value.* == .name) {
+                const name = a.value.name.id;
+                if (std.mem.eql(u8, name, "_pylong") or std.mem.eql(u8, name, "_decimal")) return true;
+            }
+            return exprUsesCPythonInternalModules(a.value.*);
+        },
+        .call => |c| {
+            if (exprUsesCPythonInternalModules(c.func.*)) return true;
+            for (c.args) |arg| {
+                if (exprUsesCPythonInternalModules(arg)) return true;
+            }
+            for (c.keyword_args) |kw| {
+                if (exprUsesCPythonInternalModules(kw.value)) return true;
+            }
+            return false;
+        },
+        .binop => |b| return exprUsesCPythonInternalModules(b.left.*) or exprUsesCPythonInternalModules(b.right.*),
+        .unaryop => |u| return exprUsesCPythonInternalModules(u.operand.*),
+        .compare => |c| {
+            if (exprUsesCPythonInternalModules(c.left.*)) return true;
+            for (c.comparators) |comp| {
+                if (exprUsesCPythonInternalModules(comp)) return true;
+            }
+            return false;
+        },
+        .subscript => |s| {
+            if (exprUsesCPythonInternalModules(s.value.*)) return true;
+            switch (s.slice) {
+                .index => |i| return exprUsesCPythonInternalModules(i.*),
+                .slice => |sl| {
+                    if (sl.lower) |l| if (exprUsesCPythonInternalModules(l.*)) return true;
+                    if (sl.upper) |up| if (exprUsesCPythonInternalModules(up.*)) return true;
+                    if (sl.step) |st| if (exprUsesCPythonInternalModules(st.*)) return true;
+                    return false;
+                },
+            }
+        },
+        .if_expr => |i| return exprUsesCPythonInternalModules(i.condition.*) or exprUsesCPythonInternalModules(i.body.*) or exprUsesCPythonInternalModules(i.orelse_value.*),
+        .list => |lst| {
+            for (lst.elts) |e| {
+                if (exprUsesCPythonInternalModules(e)) return true;
+            }
+            return false;
+        },
+        .tuple => |t| {
+            for (t.elts) |e| {
+                if (exprUsesCPythonInternalModules(e)) return true;
+            }
+            return false;
+        },
+        .set => |st| {
+            for (st.elts) |e| {
+                if (exprUsesCPythonInternalModules(e)) return true;
+            }
+            return false;
+        },
+        .dict => |d| {
+            for (d.keys) |k| if (exprUsesCPythonInternalModules(k)) return true;
+            for (d.values) |v| if (exprUsesCPythonInternalModules(v)) return true;
+            return false;
+        },
+        else => return false,
+    }
+}

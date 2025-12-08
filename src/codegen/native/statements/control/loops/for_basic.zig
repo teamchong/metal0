@@ -571,10 +571,18 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Check if this is a heterogeneous tuple (mixed types)
         // For heterogeneous tuples, we can't declare a single-typed variable
         // e.g., ("0", 0.0, 0j, (), [], {}, None, Rat, unittest) has string, float, complex, etc.
+        // Also handles mixed int/bigint like (2**100, -2**100, 1, 37)
         const is_heterogeneous_tuple = if (iter_type.tuple.len > 1) blk: {
             const first_type = iter_type.tuple[0];
+            const first_tag = @as(std.meta.Tag(@TypeOf(first_type)), first_type);
             for (iter_type.tuple[1..]) |elem_type| {
-                // Types are "different" if they don't share the same category
+                const elem_tag = @as(std.meta.Tag(@TypeOf(elem_type)), elem_type);
+                // Check for exact type tag mismatch (e.g., .int vs .bigint)
+                // This catches mixed int/bigint tuples that isIntegral would miss
+                if (first_tag != elem_tag) {
+                    break :blk true;
+                }
+                // Also check type categories for broader compatibility
                 const first_is_int = type_traits.isIntegral(first_type);
                 const elem_is_int = type_traits.isIntegral(elem_type);
                 const first_is_float = type_traits.isFloating(first_type);
@@ -674,9 +682,16 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         } else false;
 
         // Re-check heterogeneous using the same logic as above
+        // Also handles mixed int/bigint like (2**100, -2**100, 1, 37)
         const is_heterogeneous_inner = if (iter_type.tuple.len > 1) inner_blk: {
             const first_type = iter_type.tuple[0];
+            const first_tag = @as(std.meta.Tag(@TypeOf(first_type)), first_type);
             for (iter_type.tuple[1..]) |elem_type| {
+                const elem_tag = @as(std.meta.Tag(@TypeOf(elem_type)), elem_type);
+                // Check for exact type tag mismatch (e.g., .int vs .bigint)
+                if (first_tag != elem_tag) {
+                    break :inner_blk true;
+                }
                 const first_is_int = type_traits.isIntegral(first_type);
                 const elem_is_int = type_traits.isIntegral(elem_type);
                 const first_is_float = type_traits.isFloating(first_type);

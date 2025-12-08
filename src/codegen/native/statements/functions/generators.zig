@@ -428,6 +428,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         "Uses nested builtin subclass (str/bytes/bytearray) in lambda factory"
                     else if (test_skip.usesAssertRaisesWithOperatorEqNe(method.body))
                         "Uses assertRaises with operator.eq/ne (requires __eq__=None runtime dispatch)"
+                    else if (test_skip.usesCPythonInternalModules(method.body))
+                        "Uses CPython internal modules (_pylong/_decimal)"
                     else
                         null;
 
