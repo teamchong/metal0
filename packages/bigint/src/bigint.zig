@@ -34,33 +34,58 @@ pub const BigInt = struct {
     }
 
     /// Create a BigInt from a float (truncates towards zero)
+    /// Uses IEEE 754 bit extraction to get exact integer value (like Python's int())
     pub fn fromFloat(allocator: Allocator, value: f64) !Self {
         var m = try Managed.init(allocator);
-        // Handle infinity and NaN
+
+        // Handle special cases
         if (std.math.isNan(value) or std.math.isInf(value)) {
             return error.InvalidFloat;
         }
-        // Truncate float to integer
-        const truncated = @trunc(value);
-        // Check if it fits in i128 first (fast path)
-        if (@abs(truncated) < @as(f64, @floatFromInt(@as(i128, std.math.maxInt(i128))))) {
-            const int_val: i128 = @intFromFloat(truncated);
-            try m.set(int_val);
-        } else {
-            // Large float - convert via string
-            var buf: [512]u8 = undefined;
-            const str = std.fmt.bufPrint(&buf, "{d:.0}", .{truncated}) catch return error.FloatTooLarge;
-            // Remove any trailing .0 and leading spaces
-            var clean = std.mem.trim(u8, str, " ");
-            if (std.mem.indexOf(u8, clean, ".")) |dot| {
-                clean = clean[0..dot];
-            }
-            // Remove negative sign temporarily for parsing
-            const is_negative = clean.len > 0 and clean[0] == '-';
-            if (is_negative) clean = clean[1..];
-            try m.setString(10, clean);
-            if (is_negative) m.negate();
+        if (value == 0.0) {
+            try m.set(@as(i64, 0));
+            return Self{ .managed = m };
         }
+
+        // Extract IEEE 754 components
+        const bits: u64 = @bitCast(value);
+        const sign = (bits >> 63) != 0;
+        const biased_exp = @as(i32, @intCast((bits >> 52) & 0x7FF));
+        const mantissa = bits & 0xFFFFFFFFFFFFF; // 52 bits
+
+        // Handle denormalized numbers (exponent = 0)
+        if (biased_exp == 0) {
+            // Denormalized: value = mantissa * 2^(-1022 - 52) - very small, truncates to 0
+            try m.set(@as(i64, 0));
+            return Self{ .managed = m };
+        }
+
+        const exponent = biased_exp - 1023; // Unbias
+
+        // For values with |value| < 1, result is 0
+        if (exponent < 0) {
+            try m.set(@as(i64, 0));
+            return Self{ .managed = m };
+        }
+
+        // The significand has an implicit leading 1: (1 + mantissa/2^52)
+        // Full value = (2^52 + mantissa) * 2^(exponent - 52)
+        const full_mantissa: u64 = (1 << 52) | mantissa;
+
+        // If exponent < 52, we need to right-shift (truncate fractional part)
+        if (exponent < 52) {
+            const shift = 52 - @as(u6, @intCast(exponent));
+            const int_val: i64 = @intCast(full_mantissa >> shift);
+            try m.set(if (sign) -int_val else int_val);
+        } else {
+            // exponent >= 52: left-shift the mantissa
+            // Result = full_mantissa * 2^(exponent - 52)
+            try m.set(full_mantissa);
+            const shift: usize = @intCast(exponent - 52);
+            try m.shiftLeft(&m, shift);
+            if (sign) m.negate();
+        }
+
         return Self{ .managed = m };
     }
 
@@ -197,6 +222,39 @@ pub const BigInt = struct {
     /// Returns number of bits required to represent the absolute value
     pub fn bit_length(self: *const Self) i64 {
         return @intCast(self.managed.bitCountAbs());
+    }
+
+    /// Python-compatible hash
+    /// Uses value mod (2^61 - 1), with -1 mapped to -2
+    pub fn hash(self: *const Self) i64 {
+        // Python uses sys.hash_info.modulus = 2^61 - 1 = 2305843009213693951
+        const HASH_MODULUS: u64 = 2305843009213693951;
+
+        // Get limbs and compute hash
+        const limbs = self.managed.toConst().limbs;
+        if (limbs.len == 0) return 0;
+
+        // Compute value mod HASH_MODULUS using Horner's method
+        var result: u64 = 0;
+        const LIMB_BASE: u128 = @as(u128, 1) << @bitSizeOf(std.math.big.Limb);
+        const limb_base_mod = LIMB_BASE % HASH_MODULUS;
+
+        // Process limbs from most significant to least significant
+        var i: usize = limbs.len;
+        while (i > 0) {
+            i -= 1;
+            const limb_val: u64 = @intCast(limbs[i] % HASH_MODULUS);
+            result = @intCast((@as(u128, result) * limb_base_mod + limb_val) % HASH_MODULUS);
+        }
+
+        // Apply sign
+        var signed_result: i64 = @intCast(result);
+        if (self.managed.toConst().positive == false) {
+            signed_result = -signed_result;
+        }
+
+        // Python maps -1 to -2 (reserved for error indicator in C API)
+        return if (signed_result == -1) -2 else signed_result;
     }
 
     /// Left shift

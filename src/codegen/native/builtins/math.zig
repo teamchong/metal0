@@ -241,9 +241,8 @@ pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     switch (arg_type) {
         .int => {
-            // For integers: hash is the value itself (Python behavior)
-            // Note: if arg is int(x), genInt already adds 'try', so don't add another
-            try self.emit("@as(i64, ");
+            // For integers: use runtime.pyHash to handle both i64 and IntResult (from int(large_float))
+            try self.emit("runtime.pyHash(");
             try self.genExpr(args[0]);
             try self.emit(")");
         },

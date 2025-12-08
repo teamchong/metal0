@@ -91,6 +91,41 @@ pub fn toInt(value: anytype) !i64 {
     return error.IntConversionFailed;
 }
 
+/// Import IntResult from float_ops for BigInt support
+pub const IntResult = @import("float_ops.zig").IntResult;
+
+/// Convert any value to int, returning BigInt for values outside i64 range
+/// Use this instead of toInt when the value might exceed i64 bounds (e.g., float_max)
+pub fn toIntBig(allocator: std.mem.Allocator, value: anytype) !IntResult {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // Handle floats - check bounds before converting
+    if (info == .float or info == .comptime_float) {
+        const f: f64 = @floatCast(value);
+        // Check i64 bounds
+        const min_f: f64 = @floatFromInt(std.math.minInt(i64));
+        const max_f: f64 = @floatFromInt(std.math.maxInt(i64));
+        if (f >= min_f and f <= max_f) {
+            return IntResult{ .small = @intFromFloat(f) };
+        }
+        // Use BigInt for large values
+        return IntResult{ .big = try BigInt.fromFloat(allocator, f) };
+    }
+
+    // Handle integers - pass through as small
+    if (info == .int or info == .comptime_int) {
+        return IntResult{ .small = @as(i64, @intCast(value)) };
+    }
+
+    // Handle bool
+    if (T == bool) {
+        return IntResult{ .small = @as(i64, @intFromBool(value)) };
+    }
+
+    return error.IntConversionFailed;
+}
+
 /// Integer division with zero check
 pub fn divideInt(a: i64, b: i64) PythonError!i64 {
     if (b == 0) {

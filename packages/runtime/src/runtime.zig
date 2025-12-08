@@ -2042,6 +2042,7 @@ pub const floatIsInteger = float_ops.floatIsInteger;
 // Import and re-export integer operations
 pub const int_ops = @import("runtime/int_ops.zig");
 pub const toInt = int_ops.toInt;
+pub const toIntBig = int_ops.toIntBig;
 
 /// Convert value to integer for struct.pack - handles BigInt and regular integers
 pub inline fn packInt(value: anytype) u64 {
@@ -2644,6 +2645,17 @@ pub fn pyHash(value: anytype) i64 {
     // Float: use Python's float hash algorithm
     if (type_info == .float or type_info == .comptime_float) {
         return floatHashInternal(@as(f64, value));
+    }
+
+    // Union (e.g., IntResult from toIntBig): extract and hash the contained value
+    if (type_info == .@"union") {
+        // Check if it's IntResult (has small: i64 and big: BigInt fields)
+        if (@hasField(T, "small") and @hasField(T, "big")) {
+            return switch (value) {
+                .small => |v| if (v == -1) -2 else v,
+                .big => |b| b.hash(),
+            };
+        }
     }
 
     // Struct (tuple): use Python's tuple hash algorithm
