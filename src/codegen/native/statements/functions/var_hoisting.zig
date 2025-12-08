@@ -326,11 +326,12 @@ pub fn inferFallbackType(init: ?*const ast.Node, source: scope_analyzer.EscapedS
     }
 
     // No init expr - base on source context
-    // Use runtime.PyValue as universal fallback since we don't know the actual type
-    // For for_loop, tuple unpacking can have string or int elements - PyValue handles both
+    // Use appropriate fallback types based on common patterns
     return switch (source) {
         .try_except => "runtime.PyValue",
-        .for_loop => "runtime.PyValue", // Tuple elements can be any type
+        // For for_loop, assume range() loops which always produce i64
+        // This is the most common pattern and @intCast doesn't work on PyValue
+        .for_loop => "i64",
         .if_stmt => "runtime.PyValue",
         .with_stmt => "runtime.PyValue",
     };
@@ -422,13 +423,23 @@ pub fn emitHoistedDeclarations(
             // This would cause circular reference in @TypeOf - use fallback type instead
             const has_self_reference = exprContainsName(init, escaped.name);
 
-            if (!has_self_reference and initExprIsSafe(init, &safe_vars)) {
-                // Safe to use @TypeOf - no forward references and no self-references
+            // Check if init is a literal constant - @TypeOf(literal) gives comptime types (comptime_int, etc.)
+            // which can't be used for runtime vars. Use concrete types instead.
+            // Also check for attribute access (method references) - @TypeOf(obj.method) gives function types
+            // which can't be used for var.
+            const is_literal = switch (init.*) {
+                .constant => true,
+                .attribute => true, // Method references like self.assertEqual
+                else => false,
+            };
+
+            if (!has_self_reference and !is_literal and initExprIsSafe(init, &safe_vars)) {
+                // Safe to use @TypeOf - no forward references, no self-references, and not a literal
                 try self.emit(": @TypeOf(");
                 try self.genExpr(init.*);
                 try self.emit(")");
             } else {
-                // Has forward refs or self-reference - use fallback type
+                // Has forward refs, self-reference, or is a literal - use fallback type
                 const fallback = inferFallbackType(init, escaped.source);
                 try self.emit(": ");
                 try self.emit(fallback);

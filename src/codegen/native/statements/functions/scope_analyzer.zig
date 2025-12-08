@@ -70,6 +70,9 @@ pub fn analyzeScopes(body: []const ast.Node, allocator: std.mem.Allocator) !Scop
     // Third pass: detect cross-loop escapes (var declared in for-loop A, used in for-loop B)
     try detectCrossLoopEscapes(body, &declared_in_inner, &used_at_outer, allocator);
 
+    // Fourth pass: detect cross-block escapes (var declared in if/for/while block A, used in sibling block B)
+    try detectCrossBlockEscapes(body, &declared_in_inner, &used_at_outer, allocator);
+
     // Find variables that are declared inner but used outer
     var iter = declared_in_inner.iterator();
     while (iter.next()) |entry| {
@@ -146,6 +149,154 @@ fn detectCrossLoopEscapes(
     }
 }
 
+/// Detect variables that escape across sibling blocks (if/for/while at same level)
+/// e.g., variable declared in an if-block used in a sibling for-block
+fn detectCrossBlockEscapes(
+    body: []const ast.Node,
+    declared: *hashmap_helper.StringHashMap(EscapedVar),
+    used_at_outer: *hashmap_helper.StringHashMap(void),
+    allocator: std.mem.Allocator,
+) !void {
+    // Track which variables are declared in which block by index
+    var block_decls = std.ArrayList(struct { idx: usize, vars: hashmap_helper.StringHashMap(void) }){};
+    defer {
+        for (block_decls.items) |*item| {
+            item.vars.deinit();
+        }
+        block_decls.deinit(allocator);
+    }
+
+    // Collect declarations from each block (if, for, while, try) - including nested declarations
+    for (body, 0..) |stmt, idx| {
+        var vars = hashmap_helper.StringHashMap(void).init(allocator);
+        switch (stmt) {
+            .if_stmt => |if_s| {
+                // Collect from if body and else body (RECURSIVELY including nested for-loops)
+                for (if_s.body) |s| {
+                    try collectAllDeclsInStmt(&vars, s, allocator);
+                }
+                for (if_s.else_body) |s| {
+                    try collectAllDeclsInStmt(&vars, s, allocator);
+                }
+            },
+            .for_stmt => |for_s| {
+                try collectForLoopDecls(&vars, for_s, allocator);
+            },
+            .while_stmt => |while_s| {
+                for (while_s.body) |s| {
+                    try collectAllDeclsInStmt(&vars, s, allocator);
+                }
+            },
+            .try_stmt => |try_s| {
+                for (try_s.body) |s| {
+                    try collectAllDeclsInStmt(&vars, s, allocator);
+                }
+                for (try_s.handlers) |h| {
+                    if (h.name) |name| {
+                        try vars.put(name, {});
+                    }
+                    for (h.body) |s| {
+                        try collectAllDeclsInStmt(&vars, s, allocator);
+                    }
+                }
+            },
+            else => continue, // Not a block statement, skip
+        }
+        if (vars.count() > 0) {
+            try block_decls.append(allocator, .{ .idx = idx, .vars = vars });
+        } else {
+            vars.deinit();
+        }
+    }
+
+    // For each block, check if its vars are used in later sibling blocks
+    for (block_decls.items) |decl_block| {
+        var var_iter = decl_block.vars.iterator();
+        while (var_iter.next()) |var_entry| {
+            const var_name = var_entry.key_ptr.*;
+            // Check if used in ANY block after this one
+            for (body[decl_block.idx + 1 ..]) |stmt| {
+                const is_block = switch (stmt) {
+                    .if_stmt, .for_stmt, .while_stmt, .try_stmt => true,
+                    else => false,
+                };
+                if (!is_block) continue;
+
+                // Check if this later block uses the variable
+                var uses = hashmap_helper.StringHashMap(void).init(allocator);
+                defer uses.deinit();
+                try collectAllVarRefsInStmt(&uses, stmt, allocator);
+
+                // NOTE: We DON'T skip when a later for-loop has the same target variable.
+                // In Python, `for i in ...` in one block and `for i in ...` in another
+                // are the SAME function-scoped variable, so this IS an escape.
+
+                if (uses.contains(var_name)) {
+                    // Variable escapes! Mark it as used at outer level
+                    try used_at_outer.put(var_name, {});
+                    // Make sure it's in declared_in_inner too
+                    if (!declared.contains(var_name)) {
+                        try declared.put(var_name, .{
+                            .name = var_name,
+                            .init_expr = null,
+                            .source = .for_loop,
+                        });
+                    }
+                    break; // Found an escape, no need to check more blocks
+                }
+            }
+        }
+    }
+}
+
+/// Collect ALL variable declarations in a statement recursively (for-loop targets, assignments)
+fn collectAllDeclsInStmt(
+    vars: *hashmap_helper.StringHashMap(void),
+    node: ast.Node,
+    allocator: std.mem.Allocator,
+) error{OutOfMemory}!void {
+    switch (node) {
+        .assign => |assign| {
+            for (assign.targets) |target| {
+                if (target == .name) {
+                    try vars.put(target.name.id, {});
+                }
+            }
+        },
+        .for_stmt => |for_s| {
+            // Collect for-loop target variable(s)
+            try collectForLoopDecls(vars, for_s, allocator);
+        },
+        .if_stmt => |if_s| {
+            for (if_s.body) |stmt| {
+                try collectAllDeclsInStmt(vars, stmt, allocator);
+            }
+            for (if_s.else_body) |stmt| {
+                try collectAllDeclsInStmt(vars, stmt, allocator);
+            }
+        },
+        .while_stmt => |while_s| {
+            for (while_s.body) |stmt| {
+                try collectAllDeclsInStmt(vars, stmt, allocator);
+            }
+        },
+        .try_stmt => |try_s| {
+            for (try_s.body) |stmt| {
+                try collectAllDeclsInStmt(vars, stmt, allocator);
+            }
+            for (try_s.handlers) |h| {
+                if (h.name) |name| {
+                    try vars.put(name, {});
+                }
+                for (h.body) |stmt| {
+                    try collectAllDeclsInStmt(vars, stmt, allocator);
+                }
+            }
+        },
+        else => {},
+    }
+}
+
 /// Collect all variables declared in a for-loop (loop var + assignments in body)
 fn collectForLoopDecls(
     vars: *hashmap_helper.StringHashMap(void),
@@ -208,6 +359,18 @@ fn collectAllVarRefsInForLoop(
     var nested_decls = hashmap_helper.StringHashMap(void).init(allocator);
     defer nested_decls.deinit();
     try collectNestedForLoopTargets(&nested_decls, for_stmt.body, allocator);
+
+    // The for-loop target is a USE of the variable (Python needs it to exist at function scope)
+    // This is important for cross-block escape detection
+    if (for_stmt.target.* == .name) {
+        try uses.put(for_stmt.target.name.id, {});
+    } else if (for_stmt.target.* == .tuple) {
+        for (for_stmt.target.tuple.elts) |elt| {
+            if (elt == .name) {
+                try uses.put(elt.name.id, {});
+            }
+        }
+    }
 
     // Iterator expression (doesn't contain declarations)
     try collectVarRefs(uses, for_stmt.iter.*, allocator);
