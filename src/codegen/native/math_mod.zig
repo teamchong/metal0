@@ -63,8 +63,8 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 const genFactorial = h.wrap("blk: { var n = @as(i64, ", "); var result: i64 = 1; while (n > 1) : (n -= 1) { result *= n; } break :blk result; }", "@as(i64, 1)");
 
-const genGcd = h.wrap2("blk: { var a = @abs(@as(i64, ", ")); var b = @abs(@as(i64, ", ")); while (b != 0) { const t = b; b = @mod(a, b); a = t; } break :blk a; }", "@as(i64, 0)");
-const genLcm = h.wrap2("blk: { const a = @abs(@as(i64, ", ")); const b = @abs(@as(i64, ", ")); if (a == 0 or b == 0) break :blk @as(i64, 0); var aa = a; var bb = b; while (bb != 0) { const t = bb; bb = @mod(aa, bb); aa = t; } break :blk @divExact(a, aa) * b; }", "@as(i64, 0)");
+const genGcd = h.wrap2("blk: { var __gcd_a = @abs(@as(i64, ", ")); var __gcd_b = @abs(@as(i64, ", ")); while (__gcd_b != 0) { const __gcd_t = __gcd_b; __gcd_b = @mod(__gcd_a, __gcd_b); __gcd_a = __gcd_t; } break :blk __gcd_a; }", "@as(i64, 0)");
+const genLcm = h.wrap2("blk: { const __lcm_a = @abs(@as(i64, ", ")); const __lcm_b = @abs(@as(i64, ", ")); if (__lcm_a == 0 or __lcm_b == 0) break :blk @as(i64, 0); var __lcm_aa = __lcm_a; var __lcm_bb = __lcm_b; while (__lcm_bb != 0) { const __lcm_t = __lcm_bb; __lcm_bb = @mod(__lcm_aa, __lcm_bb); __lcm_aa = __lcm_t; } break :blk @divExact(__lcm_a, __lcm_aa) * __lcm_b; }", "@as(i64, 0)");
 const genComb = h.wrap2("blk: { const n = @as(u64, @intCast(", ")); const k = @as(u64, @intCast(", ")); if (k > n) break :blk @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) { result = result * (n - i) / (i + 1); } break :blk @as(i64, @intCast(result)); }", "@as(i64, 0)");
 
 fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
