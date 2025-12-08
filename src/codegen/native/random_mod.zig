@@ -50,7 +50,40 @@ pub fn genRandrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Use unique label and variable names to avoid shadowing outer scope variables
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
-    if (args.len == 1) {
+
+    // Check if any argument might produce BigInt (e.g., bit shift operations with large values)
+    const is_bigint = blk: {
+        for (args) |arg| {
+            const t = self.type_inferrer.inferExpr(arg) catch .unknown;
+            if (t == .bigint) break :blk true;
+        }
+        break :blk false;
+    };
+
+    if (is_bigint) {
+        // BigInt version - use BigInt arithmetic
+        // For BigInt randrange, we generate a random BigInt in range [start, stop)
+        // This is a simplified implementation that may not be perfectly uniform for very large ranges
+        if (args.len == 1) {
+            // Single arg: randrange(stop) - range is [0, stop)
+            const w = self.output.writer(self.allocator);
+            try w.print("rng_{d}: {{ const __rng_stop_{d} = ", .{ label_id, label_id });
+            try self.genExpr(args[0]);
+            try w.print("; " ++ prng ++ "const __rng_bits_{d} = try runtime.BigInt.fromInt(__global_allocator, _r.int(u64)); ", .{label_id});
+            try w.print("break :rng_{d} try __rng_bits_{d}.mod(&__rng_stop_{d}, __global_allocator); }}", .{ label_id, label_id, label_id });
+        } else {
+            // Two args: randrange(start, stop) - range is [start, stop)
+            const w = self.output.writer(self.allocator);
+            try w.print("rng_{d}: {{ const __rng_start_{d} = ", .{ label_id, label_id });
+            try self.genExpr(args[0]);
+            try w.print("; const __rng_stop_{d} = ", .{label_id});
+            try self.genExpr(args[1]);
+            // For BigInt: start + (random_bits % (stop - start))
+            try w.print("; " ++ prng ++ "const __rng_bits_{d} = try runtime.BigInt.fromInt(__global_allocator, _r.int(u64)); ", .{label_id});
+            try w.print("const __rng_range_{d} = try __rng_stop_{d}.sub(&__rng_start_{d}, __global_allocator); ", .{ label_id, label_id, label_id });
+            try w.print("break :rng_{d} try __rng_start_{d}.add(&(try __rng_bits_{d}.mod(&__rng_range_{d}, __global_allocator)), __global_allocator); }}", .{ label_id, label_id, label_id, label_id });
+        }
+    } else if (args.len == 1) {
         try self.output.writer(self.allocator).print("rng_{d}: {{ const __rng_stop_{d}: i64 = @intCast(", .{ label_id, label_id });
         try self.genExpr(args[0]);
         try self.output.writer(self.allocator).print("); " ++ prng ++ "break :rng_{d} @as(i64, @intCast(_r.int(u64) % @as(u64, @intCast(__rng_stop_{d})))); }}", .{ label_id, label_id });

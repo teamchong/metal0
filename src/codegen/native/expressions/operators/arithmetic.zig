@@ -303,6 +303,110 @@ fn needsBigInt(t: NativeType) bool {
     return t == .bigint or (t == .int and t.int.needsBigInt());
 }
 
+/// Check if a type is UnifiedInt (handles both small i64 and large BigInt)
+fn isUnifiedInt(t: NativeType) bool {
+    return t == .unified_int;
+}
+
+/// UnifiedInt method names for standard binary operations
+const UnifiedIntMethods = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "add" }, .{ "Sub", "sub" }, .{ "Mult", "mul" },
+    .{ "FloorDiv", "floorDiv" }, .{ "Mod", "mod" },
+    .{ "BitAnd", "bitAnd" }, .{ "BitOr", "bitOr" }, .{ "BitXor", "bitXor" },
+});
+
+/// Generate UnifiedInt binary operations using method calls
+/// UnifiedInt handles both small (i64) and large (BigInt) integers automatically
+fn genUnifiedIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
+    const alloc_name = "__global_allocator";
+
+    // Helper to emit operand wrapped in UnifiedInt if needed
+    const emitAsUnifiedInt = struct {
+        fn emit(s: *NativeCodegen, node: *const ast.Node, t: NativeType, aname: []const u8) CodegenError!void {
+            if (isUnifiedInt(t)) {
+                // Already UnifiedInt
+                try genExpr(s, node.*);
+            } else if (t == .bigint) {
+                // BigInt -> UnifiedInt.fromBigInt
+                try s.emit("runtime.UnifiedInt.fromBigInt(");
+                try genExpr(s, node.*);
+                try s.emit(")");
+            } else if (t == .int or t == .usize) {
+                // i64/usize -> UnifiedInt.fromI64
+                try s.emit("runtime.UnifiedInt.fromI64(@as(i64, ");
+                try genExpr(s, node.*);
+                try s.emit("))");
+            } else {
+                // Unknown - try to convert as i64
+                _ = aname;
+                try s.emit("runtime.UnifiedInt.fromI64(@as(i64, ");
+                try genExpr(s, node.*);
+                try s.emit("))");
+            }
+        }
+    }.emit;
+
+    // Standard operations use UnifiedInt methods
+    const op_name = @tagName(binop.op);
+    if (UnifiedIntMethods.get(op_name)) |method| {
+        try self.emit("(try ");
+        try emitAsUnifiedInt(self, binop.left, left_type, alloc_name);
+        try self.emit(".");
+        try self.emit(method);
+        try self.emit("(");
+        try emitAsUnifiedInt(self, binop.right, right_type, alloc_name);
+        try self.emit(", ");
+        try self.emit(alloc_name);
+        try self.emit("))");
+        return;
+    }
+
+    switch (binop.op) {
+        .RShift => {
+            // UnifiedInt.shr(shift_amount, allocator)
+            try self.emit("(try ");
+            try emitAsUnifiedInt(self, binop.left, left_type, alloc_name);
+            try self.emit(".shr(@as(usize, @intCast(");
+            try genExpr(self, binop.right.*);
+            try self.emit(")), ");
+            try self.emit(alloc_name);
+            try self.emit("))");
+        },
+        .LShift => {
+            // UnifiedInt.shl(shift_amount, allocator)
+            try self.emit("(try ");
+            try emitAsUnifiedInt(self, binop.left, left_type, alloc_name);
+            try self.emit(".shl(@as(usize, @intCast(");
+            try genExpr(self, binop.right.*);
+            try self.emit(")), ");
+            try self.emit(alloc_name);
+            try self.emit("))");
+        },
+        .Pow => {
+            // UnifiedInt.pow(exp, allocator)
+            try self.emit("(try ");
+            try emitAsUnifiedInt(self, binop.left, left_type, alloc_name);
+            try self.emit(".pow(@as(u32, @intCast(");
+            try genExpr(self, binop.right.*);
+            try self.emit(")), ");
+            try self.emit(alloc_name);
+            try self.emit("))");
+        },
+        .Div => {
+            // Python division always returns float
+            try self.emit("try runtime.divideFloat(");
+            try emitAsUnifiedInt(self, binop.left, left_type, alloc_name);
+            try self.emit(".toI64(), ");
+            try emitAsUnifiedInt(self, binop.right, right_type, alloc_name);
+            try self.emit(".toI64())");
+        },
+        else => {
+            // Unsupported UnifiedInt op - fall back to error
+            try self.emit("@compileError(\"Unsupported UnifiedInt operation\")");
+        },
+    }
+}
+
 /// Generate complex number binary operations
 /// Handles: complex + complex, int/float + complex, complex + int/float
 fn genComplexBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
@@ -378,6 +482,12 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // If right operand needs BigInt (e.g., 0 - bigint), convert left to BigInt and use BigInt ops
     if (needsBigInt(bigint_right_type)) {
         try genBigIntBinOpRightBig(self, binop, bigint_left_type, bigint_right_type);
+        return;
+    }
+
+    // If either operand is UnifiedInt, use UnifiedInt method calls
+    if (isUnifiedInt(bigint_left_type) or isUnifiedInt(bigint_right_type)) {
+        try genUnifiedIntBinOp(self, binop, bigint_left_type, bigint_right_type);
         return;
     }
 

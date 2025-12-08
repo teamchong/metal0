@@ -36,18 +36,26 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
     const right_needs_bigint = right_tag == .bigint or
         (right_tag == .int and right.int.needsBigInt());
 
+    // Check if either operand is unified_int
+    const left_is_unified = left_tag == .unified_int;
+    const right_is_unified = right_tag == .unified_int;
+
     switch (op) {
         .Add => {
             // String/bytes concatenation
             if (string_traits.canConcat(left, right)) return string_traits.getConcatResultType(left, right) orelse .unknown;
             // List concatenation: list + list → pyvalue (concatRuntime returns PyValue)
             if (container_traits.isList(left) and container_traits.isList(right)) return .pyvalue;
+            // UnifiedInt propagation (unified_int preserves ability to hold small or big)
+            if (left_is_unified or right_is_unified) return .unified_int;
             // BigInt propagation
             if (left_needs_bigint or right_needs_bigint) return .bigint;
             // Numeric promotion
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
         },
         .Sub => {
+            // UnifiedInt propagation
+            if (left_is_unified or right_is_unified) return .unified_int;
             // BigInt propagation
             if (left_needs_bigint or right_needs_bigint) return .bigint;
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
@@ -55,6 +63,8 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
         .Mod => {
             // String formatting: str % value → runtime string
             if (string_traits.isString(left)) return .{ .string = .runtime };
+            // UnifiedInt propagation
+            if (left_is_unified or right_is_unified) return .unified_int;
             // BigInt propagation
             if (left_needs_bigint or right_needs_bigint) return .bigint;
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
@@ -66,6 +76,8 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             // List repetition: list * int → pyvalue (repeatRuntime returns PyValue)
             if (container_traits.isList(left) and isIntegral(right)) return .pyvalue;
             if (container_traits.isList(right) and isIntegral(left)) return .pyvalue;
+            // UnifiedInt propagation
+            if (left_is_unified or right_is_unified) return .unified_int;
             // BigInt propagation
             if (left_needs_bigint or right_needs_bigint) return .bigint;
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
@@ -77,6 +89,8 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             if (isNumeric(left) and isNumeric(right)) return .float;
         },
         .FloorDiv => {
+            // UnifiedInt propagation
+            if (left_is_unified or right_is_unified) return .unified_int;
             // BigInt propagation
             if (left_needs_bigint or right_needs_bigint) return .bigint;
             if (isNumeric(left) and isNumeric(right)) {
@@ -89,6 +103,8 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             if (hints.exponent) |exp| {
                 if (exp >= 20) return .bigint;
             }
+            // UnifiedInt propagation
+            if (left_is_unified or right_is_unified) return .unified_int;
             // BigInt propagation
             if (left_needs_bigint or right_needs_bigint) return .bigint;
             if (isNumeric(left) and isNumeric(right)) {
@@ -101,14 +117,19 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             if (hints.shift_amount) |shift| {
                 if (shift >= 63) return .bigint;
             } else {
-                // Shift amount not comptime-known - use BigInt for safety
+                // Shift amount not comptime-known - use unified_int or BigInt for safety
+                if (left_is_unified or right_is_unified) return .unified_int;
                 return .bigint;
             }
+            // UnifiedInt propagation
+            if (left_is_unified or right_is_unified) return .unified_int;
             // BigInt propagation
             if (left_needs_bigint or right_needs_bigint) return .bigint;
             if (isIntegral(left) and isIntegral(right)) return promoteNumeric(left, right);
         },
         .RShift, .BitAnd, .BitOr, .BitXor => {
+            // UnifiedInt propagation
+            if (left_is_unified or right_is_unified) return .unified_int;
             // BigInt propagation
             if (left_needs_bigint or right_needs_bigint) return .bigint;
             if (isIntegral(left) and isIntegral(right)) return promoteNumeric(left, right);
@@ -128,6 +149,8 @@ fn promoteNumeric(left: NativeType, right: NativeType) NativeType {
     const right_tag = @as(std.meta.Tag(@TypeOf(right)), right);
     if (left_tag == .complex or right_tag == .complex) return .complex;
     if (left_tag == .float or right_tag == .float) return .float;
+    // UnifiedInt absorbs other int types (it can hold both small and big)
+    if (left_tag == .unified_int or right_tag == .unified_int) return .unified_int;
     if (left_tag == .bigint or right_tag == .bigint) return .bigint;
     if (left_tag == .int and right_tag == .int) {
         if (left.int == .unbounded or right.int == .unbounded) return .{ .int = .unbounded };

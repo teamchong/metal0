@@ -64,6 +64,7 @@ pub const NativeType = union(enum) {
     // Primitives - stack allocated, zero overhead
     int: IntKind, // i64 (bounded) or BigInt (unbounded)
     bigint: void, // runtime.BigInt - arbitrary precision integer (always)
+    unified_int: void, // runtime.UnifiedInt - tagged union (i64 fast path, BigInt fallback)
     usize: void, // usize (for array indices, always bounded)
     float: void, // f64
     bool: void, // bool
@@ -149,13 +150,13 @@ pub const NativeType = union(enum) {
     // Iterator types
     list_iterator: void, // iter() on list - SequenceIterator(i64)
 
-    /// Check if this is a simple type (int, bigint, float, bool, string, class_instance, optional)
+    /// Check if this is a simple type (int, bigint, unified_int, float, bool, string, class_instance, optional)
     /// Simple types can be const even if semantic analyzer reports them as mutated
     /// (workaround for semantic analyzer false positives)
     pub fn isSimpleType(self: NativeType) bool {
         return switch (self) {
             .int => true,
-            .bigint, .usize, .float, .bool, .string, .class_instance, .optional, .none => true,
+            .bigint, .unified_int, .usize, .float, .bool, .string, .class_instance, .optional, .none => true,
             else => false,
         };
     }
@@ -198,7 +199,7 @@ pub const NativeType = union(enum) {
     pub fn getPrintFormat(self: NativeType) []const u8 {
         return switch (self) {
             .int => "{d}",
-            .bigint, .usize => "{d}",
+            .bigint, .unified_int, .usize => "{d}",
             .float => "{d}",
             .bool => "{}",
             .string => "{s}",
@@ -211,6 +212,7 @@ pub const NativeType = union(enum) {
         return switch (self) {
             .int => |kind| if (kind.needsBigInt()) "runtime.BigInt" else "i64",
             .bigint => "runtime.BigInt",
+            .unified_int => "runtime.UnifiedInt",
             .float => "f64",
             .bool => "bool",
             .string => "[]const u8",
@@ -237,6 +239,7 @@ pub const NativeType = union(enum) {
                 }
             },
             .bigint => try buf.appendSlice(allocator, "runtime.BigInt"),
+            .unified_int => try buf.appendSlice(allocator, "runtime.UnifiedInt"),
             .usize => try buf.appendSlice(allocator, "usize"),
             .float => try buf.appendSlice(allocator, "f64"),
             .bool => try buf.appendSlice(allocator, "bool"),
@@ -479,6 +482,20 @@ pub const NativeType = union(enum) {
             (self_tag == .int and other_tag == .bigint)) return .bigint;
         if ((self_tag == .bigint and other_tag == .usize) or
             (self_tag == .usize and other_tag == .bigint)) return .bigint;
+
+        // UnifiedInt widening: unified_int + int/bigint/usize = unified_int (it can hold both)
+        if (self_tag == .unified_int or other_tag == .unified_int) {
+            // unified_int + float = float (Python numeric promotion)
+            if (self_tag == .float or other_tag == .float) return .float;
+            // unified_int with any other integer type stays unified_int
+            if ((self_tag == .unified_int and (other_tag == .int or other_tag == .bigint or other_tag == .usize)) or
+                (other_tag == .unified_int and (self_tag == .int or self_tag == .bigint or self_tag == .usize)))
+            {
+                return .unified_int;
+            }
+            // unified_int + unified_int = unified_int
+            return .unified_int;
+        }
 
         // Float can hold ints and bigints (with precision loss), so float "wins"
         if ((self_tag == .float and other_tag == .int) or

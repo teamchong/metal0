@@ -213,7 +213,7 @@ pub fn getIteratorElementType(t: NativeType) NativeType {
         .tuple => .unknown, // Unknown at compile time
         .array => t.array.element_type.*,
         .dict => t.dict.key.*, // Iterating dict yields keys
-        .frozenset => t.frozenset.*,
+        // .frozenset not in NativeType enum
         else => .unknown,
     };
 }

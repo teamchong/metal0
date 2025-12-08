@@ -33,6 +33,12 @@ const pyfile = @import("Objects/fileobject.zig");
 pub const bigint = @import("bigint");
 pub const BigInt = bigint.BigInt;
 
+/// UnifiedInt - Unified integer type that auto-promotes i64 to BigInt on overflow
+/// Use for: function params/returns, user input, arithmetic that may overflow
+/// See CLAUDE.md "Integer Type Strategy" for usage guide
+pub const unified_int_mod = @import("Objects/pyint.zig");
+pub const UnifiedInt = unified_int_mod.UnifiedInt;
+
 /// Export string utilities for native codegen
 pub const string_utils = @import("runtime/string_utils.zig");
 

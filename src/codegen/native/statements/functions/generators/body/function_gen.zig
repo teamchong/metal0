@@ -515,7 +515,8 @@ pub fn genFunctionBody(
 
     // Emit hoisted variable declarations using shared hoisting module
     // This handles forward reference detection and fallback types
-    try var_hoisting.emitHoistedDeclarations(self, scope_analysis.escaped_vars.items, func.args);
+    // Pass func.body for pre-scan type inference (Solution 3 for forward refs)
+    try var_hoisting.emitHoistedDeclarations(self, scope_analysis.escaped_vars.items, func.args, func.body);
 
     // For generator functions, yield body becomes `// pass` which loses param usage.
     // We need to emit `_ = param;` ONLY for params that:
@@ -1209,7 +1210,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
 
     // Emit hoisted variable declarations using shared hoisting module
     // This handles forward reference detection and fallback types
-    try var_hoisting.emitHoistedDeclarations(self, scope_analysis_method.escaped_vars.items, method.args);
+    // Pass method.body for pre-scan type inference (Solution 3 for forward refs)
+    try var_hoisting.emitHoistedDeclarations(self, scope_analysis_method.escaped_vars.items, method.args, method.body);
 
     // Clear local variable types (new method scope)
     self.clearLocalVarTypes();
