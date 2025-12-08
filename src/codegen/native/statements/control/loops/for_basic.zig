@@ -547,10 +547,32 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Python for-loop variables persist after the loop, so we declare before
     // and assign inside to make the variable available after the loop ends.
     if (container_traits.isTuple(iter_type)) {
+        // Check if this is a tuple of TYPE REFERENCES (e.g., for T in (int, float, complex))
+        // Type references in Python become Zig types (i64, f64, etc.) which can't be stored in runtime vars
+        // In this case, skip variable declaration and use inline for capture variable directly
+        const is_type_tuple = if (for_stmt.iter.* == .tuple) blk: {
+            for (for_stmt.iter.tuple.elts) |elt| {
+                if (elt != .name) break :blk false;
+                const name = elt.name.id;
+                // Check for Python type names that become Zig types
+                if (!std.mem.eql(u8, name, "int") and
+                    !std.mem.eql(u8, name, "float") and
+                    !std.mem.eql(u8, name, "complex") and
+                    !std.mem.eql(u8, name, "bool") and
+                    !std.mem.eql(u8, name, "str") and
+                    !std.mem.eql(u8, name, "bytes"))
+                {
+                    break :blk false;
+                }
+            }
+            break :blk for_stmt.iter.tuple.elts.len > 0;
+        } else false;
+
         // Declare variable before loop so it persists after (Python semantics)
         // Only declare if not already declared in current scope (handles reuse like `for index in ...` twice)
         // Also skip if variable was hoisted at function start (avoids redeclaration)
-        if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+        // Skip for type tuples - types can't be stored in runtime variables
+        if (!is_type_tuple and !self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
             try self.emitIndent();
             try self.emit("var ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
@@ -604,10 +626,37 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             }
         }
 
-        // Assign loop value to outer variable so it persists
+        // For type tuples, create a const alias (types must be comptime)
+        // For value tuples, assign to outer variable so it persists after loop
+        // Check is_type_tuple from earlier detection
+        const is_type_tuple_inner = if (for_stmt.iter.* == .tuple) inner_blk: {
+            for (for_stmt.iter.tuple.elts) |elt| {
+                if (elt != .name) break :inner_blk false;
+                const name = elt.name.id;
+                if (!std.mem.eql(u8, name, "int") and
+                    !std.mem.eql(u8, name, "float") and
+                    !std.mem.eql(u8, name, "complex") and
+                    !std.mem.eql(u8, name, "bool") and
+                    !std.mem.eql(u8, name, "str") and
+                    !std.mem.eql(u8, name, "bytes"))
+                {
+                    break :inner_blk false;
+                }
+            }
+            break :inner_blk for_stmt.iter.tuple.elts.len > 0;
+        } else false;
+
         try self.emitIndent();
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
+        if (is_type_tuple_inner) {
+            // For type tuples: const T = __loop_val_N (comptime const)
+            try self.emit("const ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
+        } else {
+            // For value tuples: T = __loop_val_N (runtime assignment to outer var)
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
+        }
 
         // Register loop variable type as widened tuple element type
         // This allows type inference inside the loop body to know f's type
