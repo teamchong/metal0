@@ -6,6 +6,20 @@ const builtin = @import("builtin");
 /// Browser WASM (freestanding) has no threading or OS support
 pub const is_freestanding = builtin.os.tag == .freestanding;
 
+/// Cross-platform print function
+/// - Native/WASI: uses std.debug.print (stderr)
+/// - Freestanding (browser): no-op (JS should use exported functions)
+pub fn print(comptime fmt: []const u8, args: anytype) void {
+    if (comptime !is_freestanding) {
+        std.debug.print(fmt, args);
+    }
+}
+
+/// Print a newline
+pub fn println() void {
+    print("\n", .{});
+}
+
 const hashmap_helper = @import("utils.hashmap_helper");
 const pyint = @import("Objects/intobject.zig");
 const pyfloat = @import("Objects/floatobject.zig");
@@ -757,6 +771,8 @@ pub fn validateBoolReturn(value: anytype) PythonError!bool {
 
 /// Validate that __float__ returns float (Python 3 requirement)
 /// Returns error.TypeError if value is not float
+/// NOTE: In Python 3, returning a float subclass from __float__ is deprecated
+/// but still allowed (with DeprecationWarning). We extract __base_value__ for these cases.
 pub fn validateFloatReturn(value: anytype) PythonError!f64 {
     const T = @TypeOf(value);
     const type_info = @typeInfo(T);
@@ -777,6 +793,21 @@ pub fn validateFloatReturn(value: anytype) PythonError!f64 {
             const base_type = @typeInfo(@TypeOf(base_val));
             if (base_type == .float or base_type == .comptime_float) {
                 return @as(f64, base_val);
+            }
+        }
+    }
+    // Handle pointer to struct with __base_value__ (when __float__ returns self)
+    // Python 3 allows returning float subclass from __float__ (deprecated but working)
+    if (type_info == .pointer) {
+        const child_type = type_info.pointer.child;
+        const child_info = @typeInfo(child_type);
+        if (child_info == .@"struct") {
+            if (@hasField(child_type, "__base_value__")) {
+                const base_val = value.__base_value__;
+                const base_type = @typeInfo(@TypeOf(base_val));
+                if (base_type == .float or base_type == .comptime_float) {
+                    return @as(f64, base_val);
+                }
             }
         }
     }

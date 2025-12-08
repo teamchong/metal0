@@ -28,7 +28,21 @@ fn genSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
     const is_class_instance = type_traits.isClassInstance(arg_type) or (args[0] == .call and args[0].call.func.* == .name and std.ascii.isUpper(args[0].call.func.name.id[0]));
     try self.emit("std.Thread.sleep(@as(u64, @intFromFloat(");
-    if (is_class_instance) { try self.emit("(runtime.floatBuiltinCall("); try self.genExpr(args[0]); try self.emit(", .{}) catch 0.0)"); } else { try self.genExpr(args[0]); }
+    if (is_class_instance) {
+        // When inside try body (or assertRaises), propagate errors with 'try'
+        // Otherwise, silently convert to 0.0 on error
+        if (self.inside_try_body) {
+            try self.emit("(try runtime.floatBuiltinCall(");
+            try self.genExpr(args[0]);
+            try self.emit(", .{}))");
+        } else {
+            try self.emit("(runtime.floatBuiltinCall(");
+            try self.genExpr(args[0]);
+            try self.emit(", .{}) catch 0.0)");
+        }
+    } else {
+        try self.genExpr(args[0]);
+    }
     try self.emit(" * 1_000_000_000)))");
 }
 

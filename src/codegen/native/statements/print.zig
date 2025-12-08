@@ -47,7 +47,7 @@ fn isAllocatingMethodCall(self: *NativeCodegen, node: ast.Node) bool {
 /// Generate print() function call
 pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("std.debug.print(\"\\n\", .{});\n");
+        try self.emit("runtime.print(\"\\n\", .{});\n");
         return;
     }
 
@@ -86,13 +86,13 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 } else {
                     try self.emit("    for (__starred) |__elem| {\n");
                 }
-                try self.emit("        if (!__print_first) std.debug.print(\" \", .{});\n");
+                try self.emit("        if (!__print_first) runtime.print(\" \", .{});\n");
                 try self.emit("        __print_first = false;\n");
-                try self.emit("        std.debug.print(\"{d}\", .{__elem});\n");
+                try self.emit("        runtime.print(\"{d}\", .{__elem});\n");
                 try self.emit("    }\n");
             } else {
                 // Regular argument
-                try self.emit("    if (!__print_first) std.debug.print(\" \", .{});\n");
+                try self.emit("    if (!__print_first) runtime.print(\" \", .{});\n");
                 try self.emit("    __print_first = false;\n");
 
                 const arg_type = try self.type_inferrer.inferExpr(arg);
@@ -100,11 +100,11 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 const fmt = if (type_traits.isBoolean(arg_type)) "{s}" else arg_type.getPrintFormat();
 
                 if (type_traits.isBoolean(arg_type)) {
-                    try self.emit("    std.debug.print(\"{s}\", .{if (");
+                    try self.emit("    runtime.print(\"{s}\", .{if (");
                     try self.genExpr(arg);
                     try self.emit(") \"True\" else \"False\"});\n");
                 } else {
-                    try self.emit("    std.debug.print(\"");
+                    try self.emit("    runtime.print(\"");
                     try self.emit(fmt);
                     try self.emit("\", .{");
                     try self.genExpr(arg);
@@ -113,7 +113,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             }
         }
 
-        try self.emit("    std.debug.print(\"\\n\", .{});\n");
+        try self.emit("    runtime.print(\"\\n\", .{});\n");
         try self.emit("}\n");
         return;
     }
@@ -214,7 +214,7 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try genPrintDict(self, arg);
         } else if (string_traits.isBytes(arg_type)) {
             // PyBytes - print with b'...' repr format
-            try self.emit("std.debug.print(\"{s}\", .{runtime.builtins.bytesRepr(__global_allocator, (");
+            try self.emit("runtime.print(\"{s}\", .{runtime.builtins.bytesRepr(__global_allocator, (");
             try self.genExpr(arg);
             try self.emit(").data) catch \"<bytes>\"});\n");
         } else if (type_traits.isUnknown(arg_type)) {
@@ -225,7 +225,7 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else if (arg_type == .pyobject) {
             // C extension PyObjects - print address
             // Full string conversion requires unified type system (future work)
-            try self.emit("std.debug.print(\"<C extension object at {*}>\", .{");
+            try self.emit("runtime.print(\"<C extension object at {*}>\", .{");
             try self.genExpr(arg);
             try self.emit("});\n");
         } else if (arg_type == .sqlite_row) {
@@ -237,20 +237,20 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // This case shouldn't normally be hit directly, but handle it anyway
             try self.emit("for (");
             try self.genExpr(arg);
-            try self.emit(") |__row| { __row.print(); std.debug.print(\"\\n\", .{}); }\n");
+            try self.emit(") |__row| { __row.print(); runtime.print(\"\\n\", .{}); }\n");
         } else if (type_traits.isBoolean(arg_type)) {
             // Print booleans as Python-style True/False
-            try self.emit("std.debug.print(\"{s}\", .{if (");
+            try self.emit("runtime.print(\"{s}\", .{if (");
             try self.genExpr(arg);
             try self.emit(") \"True\" else \"False\"});\n");
         } else if (type_traits.isNone(arg_type)) {
             // Print None
-            try self.emit("std.debug.print(\"None\", .{});\n");
+            try self.emit("runtime.print(\"None\", .{});\n");
         } else {
-            // For non-list/tuple/bool args in mixed print, use std.debug.print
+            // For non-list/tuple/bool args in mixed print, use runtime.print
             // Note: unknown types try {s} (works for string constants)
             const fmt = if (type_traits.isUnknown(arg_type)) "{s}" else arg_type.getPrintFormat();
-            try self.emit("std.debug.print(\"");
+            try self.emit("runtime.print(\"");
             try self.emit(fmt);
             try self.emit("\", .{");
             try self.genExpr(arg);
@@ -258,11 +258,11 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
         // Print space between args (except last)
         if (i < args.len - 1) {
-            try self.emit("std.debug.print(\" \", .{});\n");
+            try self.emit("runtime.print(\" \", .{});\n");
         }
     }
     // Print newline at end
-    try self.emit("std.debug.print(\"\\n\", .{});\n");
+    try self.emit("runtime.print(\"\\n\", .{});\n");
 }
 
 /// Generate print for list/array types
@@ -278,7 +278,7 @@ fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenE
     try self.emit("    const __list = ");
     try self.genExpr(arg);
     try self.emit(";\n");
-    try self.emit("    std.debug.print(\"[\", .{});\n");
+    try self.emit("    runtime.print(\"[\", .{});\n");
 
     // ArrayList uses .items, plain arrays and slices iterate directly
     if (is_arraylist) {
@@ -290,7 +290,7 @@ fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenE
         try self.emit("    for (__list.items, 0..) |__elem, __idx| {\n");
     }
 
-    try self.emit("        if (__idx > 0) std.debug.print(\", \", .{});\n");
+    try self.emit("        if (__idx > 0) runtime.print(\", \", .{});\n");
 
     // Get element format based on element type
     const elem_fmt = if (container_traits.isList(arg_type)) blk: {
@@ -303,11 +303,11 @@ fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenE
         break :blk elem_type.getPrintFormat();
     } else "{d}"; // Default to integer format
 
-    try self.emit("        std.debug.print(\"");
+    try self.emit("        runtime.print(\"");
     try self.emit(elem_fmt);
     try self.emit("\", .{__elem});\n");
     try self.emit("    }\n");
-    try self.emit("    std.debug.print(\"]\", .{});\n");
+    try self.emit("    runtime.print(\"]\", .{});\n");
     try self.emit("}\n");
 }
 
@@ -318,12 +318,12 @@ fn genPrintTuple(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) Codegen
     try self.emit("    const __tuple = ");
     try self.genExpr(arg);
     try self.emit(";\n");
-    try self.emit("    std.debug.print(\"(\", .{});\n");
+    try self.emit("    runtime.print(\"(\", .{});\n");
     // Get tuple type to know how many elements
     if (arg_type.tuple.len > 0) {
         for (0..arg_type.tuple.len) |elem_idx| {
             if (elem_idx > 0) {
-                try self.emit("    std.debug.print(\", \", .{});\n");
+                try self.emit("    runtime.print(\", \", .{});\n");
             }
             // Determine format based on element type
             const elem_type = arg_type.tuple[elem_idx];
@@ -331,13 +331,13 @@ fn genPrintTuple(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) Codegen
             const fmt = if (type_traits.isBoolean(elem_type)) "{s}" else elem_type.getPrintFormat();
             if (type_traits.isBoolean(elem_type)) {
                 // Boolean elements need conditional formatting
-                try self.emitFmt("    std.debug.print(\"{{s}}\", .{{if (__tuple.@\"{d}\") \"True\" else \"False\"}});\n", .{elem_idx});
+                try self.emitFmt("    runtime.print(\"{{s}}\", .{{if (__tuple.@\"{d}\") \"True\" else \"False\"}});\n", .{elem_idx});
             } else {
-                try self.emitFmt("    std.debug.print(\"{s}\", .{{__tuple.@\"{d}\"}});\n", .{ fmt, elem_idx });
+                try self.emitFmt("    runtime.print(\"{s}\", .{{__tuple.@\"{d}\"}});\n", .{ fmt, elem_idx });
             }
         }
     }
-    try self.emit("    std.debug.print(\")\", .{});\n");
+    try self.emit("    runtime.print(\")\", .{});\n");
     try self.emit("}\n");
 }
 
@@ -351,20 +351,20 @@ fn genPrintDict(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
     try self.emit(";\n");
     try self.emit("    var __dict_iter = __dict.iterator();\n");
     try self.emit("    var __dict_idx: usize = 0;\n");
-    try self.emit("    std.debug.print(\"{{\", .{});\n");
+    try self.emit("    runtime.print(\"{{\", .{});\n");
     try self.emit("    while (__dict_iter.next()) |__entry| {\n");
-    try self.emit("        if (__dict_idx > 0) std.debug.print(\", \", .{});\n");
+    try self.emit("        if (__dict_idx > 0) runtime.print(\", \", .{});\n");
     // Use comptime to detect key type: string keys get 'quotes', int keys don't
     try self.emit("        const __key = __entry.key_ptr.*;\n");
     try self.emit("        if (comptime @typeInfo(@TypeOf(__key)) == .pointer) {\n");
-    try self.emit("            std.debug.print(\"'{s}': \", .{__key});\n");
+    try self.emit("            runtime.print(\"'{s}': \", .{__key});\n");
     try self.emit("        } else {\n");
-    try self.emit("            std.debug.print(\"{d}: \", .{__key});\n");
+    try self.emit("            runtime.print(\"{d}: \", .{__key});\n");
     try self.emit("        }\n");
     try self.emit("        runtime.printValue(__entry.value_ptr.*);\n");
     try self.emit("        __dict_idx += 1;\n");
     try self.emit("    }\n");
-    try self.emit("    std.debug.print(\"}}\", .{});\n");
+    try self.emit("    runtime.print(\"}}\", .{});\n");
     try self.emit("}\n");
 }
 
@@ -420,7 +420,7 @@ fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
 
     // Emit print statement
     try self.emitIndent();
-    try self.emit("std.debug.print(\"");
+    try self.emit("runtime.print(\"");
 
     // Generate format string
     for (args, 0..) |arg, i| {
@@ -470,7 +470,7 @@ fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
 /// Generate simple print (no string concatenation or complex types)
 fn genPrintSimple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
-    try self.emit("std.debug.print(\"");
+    try self.emit("runtime.print(\"");
 
     // Generate format string
     for (args, 0..) |arg, i| {

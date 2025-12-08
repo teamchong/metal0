@@ -415,6 +415,14 @@ pub const IntResult = union(enum) {
         return self.toFloat() == f;
     }
 
+    /// Check equality with i64
+    pub fn eqlInt(self: IntResult, other: i64) bool {
+        return switch (self) {
+            .small => |v| v == other,
+            .big => false, // BigInt can never equal i64
+        };
+    }
+
     /// Get as i64 if small, otherwise error
     pub fn asI64(self: IntResult) PythonError!i64 {
         return switch (self) {
@@ -640,10 +648,13 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
                 if (result_info == .error_union) {
                     return result catch return PythonError.ValueError;
                 }
+                // Python requires __float__ to return exactly float, not int
+                // TypeError: __float__ returned non-float (type int)
                 if (result_info == .float or result_info == .comptime_float) {
                     return result;
                 }
-                return @as(f64, @floatFromInt(result));
+                // __float__ returned non-float (e.g., int) - this is a TypeError in Python
+                return PythonError.TypeError;
             }
             // Fall back to __base_value__ for float subclasses without __float__ override
             if (@hasField(child_type, "__base_value__")) {
@@ -706,11 +717,13 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
             if (result_info == .error_union) {
                 return result catch return PythonError.ValueError;
             }
-            // __float__ should return f64, but handle legacy code that returns int
+            // Python requires __float__ to return exactly float, not int
+            // TypeError: __float__ returned non-float (type int)
             if (result_info == .float or result_info == .comptime_float) {
                 return result;
             }
-            return @as(f64, @floatFromInt(result));
+            // __float__ returned non-float (e.g., int) - this is a TypeError in Python
+            return PythonError.TypeError;
         }
         // Check for __index__ method (returns int, convert to float)
         if (@hasDecl(FirstType, "__index__")) {

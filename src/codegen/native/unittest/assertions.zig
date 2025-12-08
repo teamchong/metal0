@@ -617,8 +617,12 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     // For assertRaises, we need to check if the callable raises an error
     // Use unittest.expectError helper which handles both error and non-error types
     const call_args: []const ast.Node = if (args.len > 2) args[2..] else &.{};
+    // Set inside_try_body so error-returning functions propagate errors instead of swallowing them
+    const prev_inside_try = self.inside_try_body;
+    self.inside_try_body = true;
     try self.emit("if (runtime.unittest.expectError(");
     try emitCallableInvocation(self, args[1], call_args, &.{});
+    self.inside_try_body = prev_inside_try;
     // expectError returns true if NO error was raised (test should fail)
     try self.emit(")) @panic(\"assertRaises: expected exception\")");
 }
@@ -637,9 +641,13 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
     }
 
     const call_args: []const ast.Node = if (args.len > 2) args[2..] else &.{};
+    // Set inside_try_body so error-returning functions propagate errors instead of swallowing them
+    const prev_inside_try = self.inside_try_body;
+    self.inside_try_body = true;
     // Generate: if (runtime.unittest.expectError(<call_with_kwargs>)) @panic(...)
     try self.emit("if (runtime.unittest.expectError(");
     try emitCallableInvocation(self, args[1], call_args, keyword_args);
+    self.inside_try_body = prev_inside_try;
     try self.emit(")) @panic(\"assertRaises: expected exception\")");
 }
 
@@ -657,11 +665,15 @@ pub fn genAssertRaisesRegexWithKwargs(self: *NativeCodegen, obj: ast.Node, args:
     }
 
     const call_args: []const ast.Node = if (args.len > 3) args[3..] else &.{};
+    // Set inside_try_body so error-returning functions propagate errors instead of swallowing them
+    const prev_inside_try = self.inside_try_body;
+    self.inside_try_body = true;
     // Generate: __ar_blk: { _ = <regex>; _ = <call_with_kwargs> catch break :__ar_blk {}; @panic(...); }
     try self.emit("__ar_blk: { _ = ");
     try parent.genExpr(self, args[1]); // regex parameter
     try self.emit("; _ = ");
     try emitCallableInvocation(self, args[2], call_args, keyword_args);
+    self.inside_try_body = prev_inside_try;
     try self.emit(" catch break :__ar_blk {}; @panic(\"assertRaisesRegex: expected exception\"); }");
 }
 
@@ -673,6 +685,9 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
         return;
     }
     const call_args: []const ast.Node = if (args.len > 3) args[3..] else &.{};
+    // Set inside_try_body so error-returning functions propagate errors instead of swallowing them
+    const prev_inside_try = self.inside_try_body;
+    self.inside_try_body = true;
     // Similar to assertRaises but with regex check on error message
     // For AOT, we just check that an error is raised
     // Reference the regex parameter to avoid unused variable warning
@@ -682,6 +697,7 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
     try self.emit("; _ = ");
 
     try emitCallableInvocation(self, args[2], call_args, &.{});
+    self.inside_try_body = prev_inside_try;
     // Catch error directly on call - can't store first since error propagates immediately
     try self.emit(" catch break :__ar_blk {}; @panic(\"assertRaisesRegex: expected exception\"); }");
 }

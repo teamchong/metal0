@@ -52,7 +52,8 @@ fn getMagicMethodConversion(method_name: []const u8) ?MagicMethodConversion {
         .{ "__hash__", MagicMethodConversion{ .prefix = "runtime.pyToInt(", .suffix = ")" } },
         .{ "__int__", MagicMethodConversion{ .prefix = "runtime.pyToInt(", .suffix = ")" } },
         .{ "__index__", MagicMethodConversion{ .prefix = "runtime.pyToInt(", .suffix = ")" } },
-        .{ "__float__", MagicMethodConversion{ .prefix = "runtime.toFloat(", .suffix = ")" } },
+        // Python 3: __float__ must return exactly float, not int - raises TypeError otherwise
+        .{ "__float__", MagicMethodConversion{ .prefix = "runtime.validateFloatReturn(", .suffix = ")" } },
     });
     return converters.get(method_name);
 }

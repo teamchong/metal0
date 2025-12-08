@@ -37,6 +37,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     const analysis = try analyzer.analyzeModule(module, self.allocator);
     defer if (analysis.global_vars.len > 0) self.allocator.free(analysis.global_vars);
 
+    // PHASE 1.1: Build call graph for function trait analysis (error handling, allocator needs, etc.)
+    try self.buildCallGraph(module);
+
     // Pre-register global variables so they can be detected during method generation
     // This prevents local variables with the same name from shadowing module-level vars
     for (analysis.global_vars) |var_name| {

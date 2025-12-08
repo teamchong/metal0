@@ -504,7 +504,7 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
                     const func_name = call.func.*.name.id;
                     if (std.mem.eql(u8, func_name, "print")) {
                         try self.emit("            ");
-                        try self.emit("std.debug.print(\"{s}\\n\", .{");
+                        try self.emit("runtime.print(\"{s}\\n\", .{");
                         if (call.args.len > 0) {
                             try genExprInFrame(self, call.args[0], frame_fields);
                         }

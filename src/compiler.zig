@@ -361,24 +361,7 @@ fn compileWasmInternal(allocator: std.mem.Allocator, zig_code: []const u8, outpu
     try args.append(aa, zig_path);
     try args.append(aa, "build-exe");
 
-    // Add all module definitions (excluding gzip for WASM - uses C code)
-    // For WASM, we need a subset of modules that don't depend on C code
-    // TODO: Create WASM-specific module list without gzip/libdeflate
-
-    // Add main module
-    const main_flag = try std.fmt.allocPrint(aa, "-Mmain={s}", .{tmp_path});
-    try args.append(aa, main_flag);
-
-    // Basic modules for WASM (no C dependencies)
-    try args.append(aa, "-Mutils.hashmap_helper=src/utils/hashmap_helper.zig");
-    try args.append(aa, "-Mutils.allocator_helper=src/utils/allocator_helper.zig");
-    try args.append(aa, "-Mbigint=packages/bigint/src/bigint.zig");
-    try args.append(aa, "--dep");
-    try args.append(aa, "utils.hashmap_helper");
-    try args.append(aa, "--dep");
-    try args.append(aa, "utils.allocator_helper");
-
-    // WASM target selection
+    // WASM target selection - MUST come before -M flags in Zig 0.15
     try args.append(aa, "-target");
     switch (target) {
         .wasm_browser => {
@@ -395,6 +378,30 @@ fn compileWasmInternal(allocator: std.mem.Allocator, zig_code: []const u8, outpu
         },
     }
     try args.append(aa, "-fno-stack-check");
+
+    // Module declarations with proper --dep chains (Zig 0.15 requirement)
+    // Each --dep adds to the NEXT module's import table
+    // Main module needs: runtime, utils.hashmap_helper, utils.allocator_helper
+    try args.append(aa, "--dep");
+    try args.append(aa, "runtime");
+    try args.append(aa, "--dep");
+    try args.append(aa, "utils.hashmap_helper");
+    try args.append(aa, "--dep");
+    try args.append(aa, "utils.allocator_helper");
+    const main_flag = try std.fmt.allocPrint(aa, "-Mmain={s}", .{tmp_path});
+    try args.append(aa, main_flag);
+
+    // Runtime module needs: utils.hashmap_helper, bigint
+    try args.append(aa, "--dep");
+    try args.append(aa, "utils.hashmap_helper");
+    try args.append(aa, "--dep");
+    try args.append(aa, "bigint");
+    try args.append(aa, "-Mruntime=packages/runtime/src/runtime.zig");
+
+    // Utility modules (no deps)
+    try args.append(aa, "-Mutils.hashmap_helper=src/utils/hashmap_helper.zig");
+    try args.append(aa, "-Mutils.allocator_helper=src/utils/allocator_helper.zig");
+    try args.append(aa, "-Mbigint=packages/bigint/src/bigint.zig");
 
     // Add --export flags for each function to export
     for (exports) |export_name| {

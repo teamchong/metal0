@@ -25,6 +25,52 @@ pub const hasSelfAttrAssign = local_class_hoisting.hasSelfAttrAssign;
 // Type alias for builtin base info
 const BuiltinBaseInfo = generators.BuiltinBaseInfo;
 
+/// Extract the transformation expression from __new__ body for builtin subclasses.
+/// Searches for patterns like:
+/// - `return float.__new__(cls, expr)` - returns expr
+/// - `return super().__new__(cls, expr)` - returns expr
+/// - `obj = float.__new__(cls, expr)` - returns expr
+/// Returns null if no such pattern is found (fallback to first param).
+fn extractBuiltinNewExpr(new_method: ast.Node.FunctionDef) ?ast.Node {
+    for (new_method.body) |stmt| {
+        // Pattern 1: return <parent>.__new__(cls, expr)
+        if (stmt == .return_stmt) {
+            if (stmt.return_stmt.value) |return_val| {
+                if (extractNewCallExpr(return_val)) |expr| {
+                    return expr;
+                }
+            }
+        }
+        // Pattern 2: obj = <parent>.__new__(cls, expr)
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (extractNewCallExpr(assign.value)) |expr| {
+                return expr;
+            }
+        }
+    }
+    return null;
+}
+
+/// Extract the second argument (after cls) from a __new__ call.
+/// Matches: float.__new__(cls, expr), super().__new__(cls, expr), int.__new__(cls, expr), etc.
+fn extractNewCallExpr(node: *ast.Node) ?ast.Node {
+    if (node.* != .call) return null;
+    const call = node.call;
+
+    // Check if it's a __new__ method call
+    if (call.func.* != .attribute) return null;
+    const attr = call.func.attribute;
+    if (!std.mem.eql(u8, attr.attr, "__new__")) return null;
+
+    // __new__ call found - extract second argument (first is cls)
+    // float.__new__(cls, expr) or super().__new__(cls, expr)
+    if (call.args.len >= 2) {
+        return call.args[1]; // The transformation expression (after cls)
+    }
+    return null;
+}
+
 /// Emit comptime type guard for anytype params (DRY helper)
 fn emitComptimeTypeGuard(self: *NativeCodegen, checks: []const function_gen.TypeCheckInfo) CodegenError!void {
     if (checks.len == 0) return;
@@ -1128,16 +1174,23 @@ pub fn genInitMethodFromNew(
     }
 
     // Initialize builtin base value first if present
+    // For __new__ methods that transform the value (e.g., float.__new__(cls, 2*value)),
+    // we extract the transformation expression instead of using the raw parameter.
     if (builtin_base) |_| {
         try self.emitIndent();
-        // Use the first non-cls parameter as the base value
-        for (new_method.args) |arg| {
-            if (std.mem.eql(u8, arg.name, "cls")) continue;
-            try self.emit(".__base_value__ = ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-            try self.emit(",\n");
-            break;
+        try self.emit(".__base_value__ = ");
+        // Extract transformation expr from float.__new__(cls, expr) or super().__new__(cls, expr)
+        if (extractBuiltinNewExpr(new_method)) |expr| {
+            try self.genExpr(expr);
+        } else {
+            // Fallback: use first non-cls parameter
+            for (new_method.args) |arg| {
+                if (std.mem.eql(u8, arg.name, "cls")) continue;
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                break;
+            }
         }
+        try self.emit(",\n");
     }
 
     // Initialize complex parent fields

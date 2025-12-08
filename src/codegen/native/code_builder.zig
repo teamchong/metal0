@@ -8,7 +8,7 @@
 //! ```zig
 //! var builder = CodeBuilder.init(codegen);
 //! try builder.forLoop("items", "item").beginBlock();
-//! try builder.line("std.debug.print(\"{}\", .{item});");
+//! try builder.line("runtime.print(\"{}\", .{item});");
 //! try builder.endBlock();
 //! ```
 //!

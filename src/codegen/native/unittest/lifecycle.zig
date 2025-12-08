@@ -32,7 +32,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
         for (class_info.test_methods) |method_info| {
             if (method_info.skip_reason) |reason| {
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("std.debug.print(\"test_{s}_{s} ... SKIP: {s}\\\\n\", .{{}});\n", .{ class_info.class_name, method_info.name, reason });
+                try self.output.writer(self.allocator).print("runtime.print(\"test_{s}_{s} ... SKIP: {s}\\\\n\", .{{}});\n", .{ class_info.class_name, method_info.name, reason });
             }
         }
     }
@@ -211,13 +211,13 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emit("if (result == 1) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("std.debug.print(\"{s} ... ok\\n\", .{name});\n");
+    try self.emit("runtime.print(\"{s} ... ok\\n\", .{name});\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("} else {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("std.debug.print(\"{s} ... FAIL\\n\", .{name});\n");
+    try self.emit("runtime.print(\"{s} ... FAIL\\n\", .{name});\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

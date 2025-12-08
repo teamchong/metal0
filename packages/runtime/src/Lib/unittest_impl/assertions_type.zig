@@ -100,17 +100,23 @@ pub fn assertIsInstance(obj: anytype, expected_type_name: []const u8) void {
             }
         }
 
+        // Handle IntResult union type (from floatFloorBig/floatCeilBig) - both variants are int
+        // MUST check IntResult FIRST because it's a more specific match
+        if (comptime std.mem.indexOf(u8, actual_type_name, "IntResult") != null) {
+            // IntResult has .small (i64) and .big (BigInt) - both are "int" in Python
+            if (std.mem.eql(u8, expected_type_name, "int")) {
+                break :blk true; // Both variants are integers
+            }
+        }
+
         // Handle FloorCeilResult union type - check which variant is active
-        if (std.mem.indexOf(u8, actual_type_name, "FloorCeilResult") != null) {
-            const info = @typeInfo(T);
-            if (info == .@"union") {
-                const tag = std.meta.activeTag(obj);
-                if (std.mem.eql(u8, expected_type_name, "int")) {
-                    break :blk tag == .int;
-                }
-                if (std.mem.eql(u8, expected_type_name, "float")) {
-                    break :blk tag == .float;
-                }
+        if (comptime std.mem.indexOf(u8, actual_type_name, "FloorCeilResult") != null) {
+            const tag = std.meta.activeTag(obj);
+            if (std.mem.eql(u8, expected_type_name, "int")) {
+                break :blk tag == .int;
+            }
+            if (std.mem.eql(u8, expected_type_name, "float")) {
+                break :blk tag == .float;
             }
         }
 

@@ -1303,6 +1303,24 @@ fn valueStr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
         return sliceAsTupleRepr(allocator, value);
     }
 
+    // Pointer to struct with __base_value__ (builtin subclass like str subclass)
+    // str(FooStr("8")) should return "8" (the base string value)
+    if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .one) {
+        const child_type = @typeInfo(T).pointer.child;
+        if (@typeInfo(child_type) == .@"struct") {
+            // Check for __str__ method first
+            if (@hasDecl(child_type, "__str__")) {
+                return value.__str__(allocator);
+            }
+            // Fall back to __base_value__ for builtin subclasses
+            if (@hasField(child_type, "__base_value__")) {
+                const base_val = value.__base_value__;
+                // Recursively call valueStr on the base value
+                return valueStr(allocator, base_val);
+            }
+        }
+    }
+
     // Fallback
     return std.fmt.allocPrint(allocator, "{any}", .{value});
 }

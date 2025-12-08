@@ -1723,6 +1723,11 @@ const ErrorFunctions = std.StaticStringMap(ErrorSet).initComptime(.{
     .{ "exec", ErrorSet{ .RuntimeError = true } },
     .{ "next", ErrorSet{ .StopIteration = true } },
     .{ "getattr", ErrorSet{ .AttributeError = true } },
+    // Float magic methods that can raise (NaN -> ValueError, Inf -> OverflowError)
+    .{ "__floor__", ErrorSet{ .ValueError = true, .OverflowError = true } },
+    .{ "__ceil__", ErrorSet{ .ValueError = true, .OverflowError = true } },
+    .{ "__trunc__", ErrorSet{ .ValueError = true, .OverflowError = true } },
+    .{ "__round__", ErrorSet{ .ValueError = true, .OverflowError = true } },
 });
 
 /// Functions that require allocator
@@ -2024,6 +2029,14 @@ fn analyzeStmtForTraits(stmt: ast.Node, ctx: *AnalyzerContext) !void {
         .yield_stmt, .yield_from_stmt => {
             ctx.is_generator = true;
         },
+        .assert_stmt => |assert_stmt| {
+            // Assert statement: analyze the condition for error-raising calls
+            try analyzeExprForTraits(assert_stmt.condition.*, ctx);
+            if (assert_stmt.msg) |msg| {
+                try analyzeExprForTraits(msg.*, ctx);
+            }
+            ctx.op_count += 1;
+        },
         else => {
             ctx.op_count += 1;
         },
@@ -2085,6 +2098,12 @@ fn analyzeExprForTraits(expr: ast.Node, ctx: *AnalyzerContext) error{OutOfMemory
                 if (IoFunctions.has(method_name) or IoMethods.has(method_name)) {
                     ctx.has_io = true;
                     ctx.is_pure = false;
+                }
+
+                // Error-raising methods with precise error types (e.g., __floor__, __ceil__)
+                if (ErrorFunctions.get(method_name)) |errors| {
+                    ctx.can_error = true;
+                    ctx.error_types = ctx.error_types.merge(errors);
                 }
 
                 // Mutating list methods

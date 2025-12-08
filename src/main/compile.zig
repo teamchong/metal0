@@ -694,19 +694,6 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         try compiler.compileWasmWithTarget(aa, zig_code, wasm_path, opts.target, &.{});
         std.debug.print("✓ Compiled successfully to: {s}\n", .{wasm_path});
 
-        // Optimize WASM with wasm-opt if available (binaryen)
-        // wasm-opt -Oz reduces size significantly for both browser and edge targets
-        var wasm_opt = std.process.Child.init(&.{ "wasm-opt", "-Oz", wasm_path, "-o", wasm_path }, aa);
-        wasm_opt.stderr_behavior = .Ignore;
-        wasm_opt.stdout_behavior = .Ignore;
-        if (wasm_opt.spawnAndWait()) |term| {
-            if (term.Exited == 0) {
-                std.debug.print("✓ Optimized with wasm-opt -Oz\n", .{});
-            }
-        } else |_| {
-            // wasm-opt not installed, skip silently
-        }
-
         // Generate TypeScript definitions (module-specific)
         const module_name = std.fs.path.stem(opts.input_file);
         const base_path = wasm_path[0 .. wasm_path.len - 5]; // remove .wasm

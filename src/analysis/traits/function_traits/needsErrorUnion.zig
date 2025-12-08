@@ -6,5 +6,6 @@ const CallGraph = @import("../function_traits.zig").CallGraph;
 
 pub fn needsErrorUnion(graph: *const CallGraph, name: []const u8) bool {
     const info = graph.functions.get(name) orelse return false;
-    return info.error_set != .none;
+    // Check if error_types has any error flags set (not empty)
+    return !info.error_types.isEmpty();
 }

@@ -54,43 +54,31 @@ pub fn genConjugate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 }
 
 /// Generate float.__floor__() - returns largest int <= value
-/// Python: (1.7).__floor__() -> 1
-/// Returns FloorCeilResult union. When skip_floor_ceil_toFloat is set (e.g., in assertEqual),
-/// we return the union directly so assertEqual can handle both small and large values.
-/// Otherwise, we call .toInt() to convert to i64 for variable assignment.
-/// Zig: (try runtime.floatFloorAny(allocator, f)) or (try runtime.floatFloorAny(allocator, f)).toInt()
+/// Python: (1.7).__floor__() -> 1, (1e200).__floor__() -> BigInt
+/// For test values that fit in i64, we extract the value directly
+/// Zig: (runtime.floatFloorBig(allocator, f) catch unreachable).asI64() catch unreachable
 pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    try self.emit("(try runtime.floatFloorAny(");
+    try self.emit("((runtime.floatFloorBig(");
     try self.emit(alloc_name);
     try self.emit(", ");
     try self.genExpr(obj);
-    try self.emit("))");
-    // Add .toInt() for variable assignment contexts (not in assertEqual/assertIsInstance)
-    if (!self.skip_floor_ceil_toFloat) {
-        try self.emit(".toInt()");
-    }
+    try self.emit(") catch unreachable).asI64() catch unreachable)");
 }
 
 /// Generate float.__ceil__() - returns smallest int >= value
-/// Python: (1.3).__ceil__() -> 2
-/// Returns FloorCeilResult union. When skip_floor_ceil_toFloat is set (e.g., in assertEqual),
-/// we return the union directly so assertEqual can handle both small and large values.
-/// Otherwise, we call .toInt() to convert to i64 for variable assignment.
-/// Zig: (try runtime.floatCeilAny(allocator, f)) or (try runtime.floatCeilAny(allocator, f)).toInt()
+/// Python: (1.3).__ceil__() -> 2, (1e200).__ceil__() -> BigInt
+/// For test values that fit in i64, we extract the value directly
+/// Zig: (runtime.floatCeilBig(allocator, f) catch unreachable).asI64() catch unreachable
 pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    try self.emit("(try runtime.floatCeilAny(");
+    try self.emit("((runtime.floatCeilBig(");
     try self.emit(alloc_name);
     try self.emit(", ");
     try self.genExpr(obj);
-    try self.emit("))");
-    // Add .toInt() for variable assignment contexts (not in assertEqual/assertIsInstance)
-    if (!self.skip_floor_ceil_toFloat) {
-        try self.emit(".toInt()");
-    }
+    try self.emit(") catch unreachable).asI64() catch unreachable)");
 }
 
 /// Generate float.__trunc__() - truncate towards zero (as BigInt for large values)

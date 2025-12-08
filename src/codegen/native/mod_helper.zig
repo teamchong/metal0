@@ -292,7 +292,7 @@ pub fn checkCond(comptime cond: []const u8) H {
 pub fn debugPrint(comptime prefix: []const u8, comptime fmt: []const u8, comptime default: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) { try self.emit(default); return; }
-        try self.emit("std.debug.print(\"" ++ prefix ++ fmt ++ "\\n\", .{"); try self.genExpr(args[0]); try self.emit("})");
+        try self.emit("runtime.print(\"" ++ prefix ++ fmt ++ "\\n\", .{"); try self.genExpr(args[0]); try self.emit("})");
     } }.f;
 }
 
