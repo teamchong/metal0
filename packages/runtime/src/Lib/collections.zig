@@ -9,6 +9,12 @@ const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
+// Re-export collections.abc (alias for _collections_abc)
+// In Python: from collections.abc import MappingView, KeysView, etc.
+// ============================================================================
+pub const abc = @import("_collections_abc.zig");
+
+// ============================================================================
 // namedtuple
 // ============================================================================
 

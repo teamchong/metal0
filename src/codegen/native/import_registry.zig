@@ -300,8 +300,8 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("hmac", .zig_runtime, "std", null);
     try registry.register("socket", .zig_runtime, "std", null);
     try registry.register("random", .zig_runtime, null, null);
-    try registry.register("collections", .zig_runtime, null, null);
-    try registry.register("collections.abc", .zig_runtime, null, null);
+    try registry.registerDirect("collections", .zig_runtime, null, "runtime.Lib.collections", null);
+    try registry.registerDirect("collections.abc", .zig_runtime, null, "runtime.Lib.collections.abc", null);
     try registry.register("functools", .zig_runtime, "std", null);
     try registry.register("logging", .zig_runtime, "std", null);
     try registry.register("threading", .zig_runtime, "std", null);
