@@ -859,14 +859,35 @@ pub const TlsConnection = struct {
     }
 
     pub fn recv(self: *TlsConnection, buffer: []u8) !usize {
-        const record = try self.receiveEncryptedRecord();
-        // Free allocated payload when done
-        defer if (record.allocated) self.allocator.free(@constCast(record.payload));
-        if (record.content_type != .application_data) return error.UnexpectedRecord;
+        while (true) {
+            const record = try self.receiveEncryptedRecord();
+            // Free allocated payload when done
+            defer if (record.allocated) self.allocator.free(@constCast(record.payload));
 
-        const len = @min(buffer.len, record.payload.len);
-        @memcpy(buffer[0..len], record.payload[0..len]);
-        return len;
+            switch (record.content_type) {
+                .application_data => {
+                    const len = @min(buffer.len, record.payload.len);
+                    @memcpy(buffer[0..len], record.payload[0..len]);
+                    return len;
+                },
+                .handshake => {
+                    // Skip post-handshake messages like NewSessionTicket (type=4)
+                    // These are sent by servers after handshake completion
+                    if (record.payload.len > 0 and record.payload[0] == @intFromEnum(HandshakeType.new_session_ticket)) {
+                        continue;
+                    }
+                    return error.UnexpectedRecord;
+                },
+                .alert => {
+                    // Handle close_notify (alert level=1, description=0) gracefully
+                    if (record.payload.len >= 2 and record.payload[0] == 1 and record.payload[1] == 0) {
+                        return 0; // Clean connection close
+                    }
+                    return error.TlsAlert;
+                },
+                else => return error.UnexpectedRecord,
+            }
+        }
     }
 };
 
