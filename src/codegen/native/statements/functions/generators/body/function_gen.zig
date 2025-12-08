@@ -170,6 +170,8 @@ fn generateComptimeTypeDispatch(
 
     // Push scope for int branch (each comptime branch needs independent variable tracking)
     try self.pushScope();
+    // Reset control flow flag - each comptime branch is independent
+    self.control_flow_terminated = false;
 
     if (has_type_changing_assign) {
         // Pattern 1: Convert param and use isClassName body
@@ -207,6 +209,8 @@ fn generateComptimeTypeDispatch(
 
     // Push scope for class branch
     try self.pushScope();
+    // Reset control flow flag - each comptime branch is independent
+    self.control_flow_terminated = false;
     // Generate the class case body directly
     try generateBodyForTypeCheck(self, method, class_name, true);
     self.popScope();
@@ -215,6 +219,8 @@ fn generateComptimeTypeDispatch(
     try self.emitIndent();
     try self.emit("} else if (comptime @typeInfo(__T) == .float or @typeInfo(__T) == .comptime_float) {\n");
     self.indent();
+    // Reset control flow flag - each comptime branch is independent
+    self.control_flow_terminated = false;
 
     // Generate float case - look for isnum block
     for (method.body) |stmt| {
@@ -295,7 +301,7 @@ fn generateBodyForTypeCheck(
             if (!std.mem.eql(u8, func_name, "isint") and !std.mem.eql(u8, func_name, "isinstance")) continue;
         }
 
-        // Generate body
+        // Generate body - found matching type check
         for (if_stmt.body) |body_stmt| {
             try self.generateStmt(body_stmt);
         }

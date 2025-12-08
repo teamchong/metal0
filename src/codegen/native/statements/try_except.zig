@@ -762,19 +762,23 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
             // Get actual type from type inference (local scope first, then global)
             const var_type = self.getVarType(var_name);
-            var zig_type = if (var_type) |vt| blk: {
+            // For class instances, use the class name directly (not *runtime.PyObject)
+            // because user-defined classes like Rat should be passed as *Rat, not **runtime.PyObject
+            if (var_type) |vt| {
+                if (type_traits.isClassInstance(vt)) {
+                    // Use renamed class name if available (e.g., metal0_main.Rat)
+                    const class_name = self.var_renames.get(vt.class_instance) orelse vt.class_instance;
+                    try self.emit(": *");
+                    try self.emit(class_name);
+                    param_count += 1;
+                    continue;
+                }
+            }
+            // For non-class types, use the standard type conversion
+            const zig_type = if (var_type) |vt| blk: {
                 break :blk try self.nativeTypeToZigType(vt);
             } else "i64";
             defer if (var_type != null) self.allocator.free(zig_type);
-            // Check for class renames (e.g., Rat -> metal0_main.Rat)
-            if (var_type) |vt| {
-                if (type_traits.isClassInstance(vt)) {
-                    if (self.var_renames.get(vt.class_instance)) |renamed| {
-                        self.allocator.free(zig_type);
-                        zig_type = try self.allocator.dupe(u8, renamed);
-                    }
-                }
-            }
             try self.emit(": *");
             try self.emit(zig_type); // Pointer for mutable access
             param_count += 1;
@@ -793,21 +797,25 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (param_count > 0) try self.emit(", ");
             try self.output.writer(self.allocator).print("p_{s}_{d}", .{ hoisted.name, helper_id });
             const var_type = self.type_inferrer.inferExpr(hoisted.value) catch null;
-            var zig_type = if (var_type) |vt| blk: {
-                break :blk try self.nativeTypeToZigType(vt);
-            } else "i64";
-            defer if (var_type != null) self.allocator.free(zig_type);
-            // Check for class renames
+            // For class instances, use the class name directly (not *runtime.PyObject)
+            // because user-defined classes like Rat should be passed as *Rat, not **runtime.PyObject
             if (var_type) |vt| {
                 if (type_traits.isClassInstance(vt)) {
-                    if (self.var_renames.get(vt.class_instance)) |renamed| {
-                        self.allocator.free(zig_type);
-                        zig_type = try self.allocator.dupe(u8, renamed);
-                    }
+                    // Use renamed class name if available (e.g., metal0_main.Rat)
+                    const class_name = self.var_renames.get(vt.class_instance) orelse vt.class_instance;
+                    try self.emit(": *");
+                    try self.emit(class_name);
+                    param_count += 1;
+                    continue;
                 }
             }
+            // For non-class types, use the standard type conversion
+            const zig_type2 = if (var_type) |vt| blk: {
+                break :blk try self.nativeTypeToZigType(vt);
+            } else "i64";
+            defer if (var_type != null) self.allocator.free(zig_type2);
             try self.emit(": *");
-            try self.emit(zig_type); // Pointer for mutable access
+            try self.emit(zig_type2); // Pointer for mutable access
             param_count += 1;
         }
 
@@ -828,22 +836,21 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         }
 
         // Create aliases for read-only captured variables (by value)
-        // Note: Use 'var' instead of 'const' because some types like iterators need mutable access
-        // even though they appear "read-only" in Python (e.g., next(it) mutates the iterator)
-        // EXCEPTION: Class types (nested_class_names) must be 'const' in Zig - types are not available at runtime
+        // Always use 'const' - read-only vars don't need mutation, and some types
+        // like null and type references require const in Zig
         for (read_only_vars.items) |var_name| {
             try self.emitIndent();
-            // Classes/types must be const, not var - Zig types are comptime-only
-            const is_class_type = self.nested_class_names.contains(var_name);
-            const var_or_const = if (is_class_type) "const" else "var";
-            try self.output.writer(self.allocator).print("{s} __local_{s}_{d}: @TypeOf(p_{s}_{d}) = p_{s}_{d};\n", .{ var_or_const, var_name, helper_id, var_name, helper_id, var_name, helper_id });
+            // Check if this is a class type (for skipping discard)
+            const is_nested_class = self.nested_class_names.contains(var_name);
+            const is_toplevel_class = self.class_registry.getClass(var_name) != null;
+            const is_class_type = is_nested_class or is_toplevel_class;
+            try self.output.writer(self.allocator).print("const __local_{s}_{d}: @TypeOf(p_{s}_{d}) = p_{s}_{d};\n", .{ var_name, helper_id, var_name, helper_id, var_name, helper_id });
 
-            // Always emit discard using runtime.discard() to prevent "unused local variable"
-            // errors while avoiding "pointless discard of local variable" issues
-            // Skip discard for const class types - can't take address of const comptime value
+            // Emit discard using _ = &var to mark as used but prevent mutation errors
+            // Skip discard for class types - can't take address of const comptime value
             if (!is_class_type) {
                 try self.emitIndent();
-                try self.output.writer(self.allocator).print("runtime.discard(&__local_{s}_{d});\n", .{ var_name, helper_id });
+                try self.output.writer(self.allocator).print("_ = &__local_{s}_{d};\n", .{ var_name, helper_id });
             }
 
             // Add to rename map

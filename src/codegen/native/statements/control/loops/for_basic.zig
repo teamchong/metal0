@@ -568,11 +568,37 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             break :blk for_stmt.iter.tuple.elts.len > 0;
         } else false;
 
+        // Check if this is a heterogeneous tuple (mixed types)
+        // For heterogeneous tuples, we can't declare a single-typed variable
+        // e.g., ("0", 0.0, 0j, (), [], {}, None, Rat, unittest) has string, float, complex, etc.
+        const is_heterogeneous_tuple = if (iter_type.tuple.len > 1) blk: {
+            const first_type = iter_type.tuple[0];
+            for (iter_type.tuple[1..]) |elem_type| {
+                // Types are "different" if they don't share the same category
+                const first_is_int = type_traits.isIntegral(first_type);
+                const elem_is_int = type_traits.isIntegral(elem_type);
+                const first_is_float = type_traits.isFloating(first_type);
+                const elem_is_float = type_traits.isFloating(elem_type);
+                const first_is_str = string_traits.isString(first_type);
+                const elem_is_str = string_traits.isString(elem_type);
+                const first_is_bool = type_traits.isBoolean(first_type);
+                const elem_is_bool = type_traits.isBoolean(elem_type);
+                // If categories don't match, it's heterogeneous
+                if (first_is_int != elem_is_int or first_is_float != elem_is_float or
+                    first_is_str != elem_is_str or first_is_bool != elem_is_bool)
+                {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        } else false;
+
         // Declare variable before loop so it persists after (Python semantics)
         // Only declare if not already declared in current scope (handles reuse like `for index in ...` twice)
         // Also skip if variable was hoisted at function start (avoids redeclaration)
         // Skip for type tuples - types can't be stored in runtime variables
-        if (!is_type_tuple and !self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+        // Skip for heterogeneous tuples - can't use a single type for mixed-type elements
+        if (!is_type_tuple and !is_heterogeneous_tuple and !self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
             try self.emitIndent();
             try self.emit("var ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
@@ -627,7 +653,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         }
 
         // For type tuples, create a const alias (types must be comptime)
-        // For value tuples, assign to outer variable so it persists after loop
+        // For heterogeneous tuples, also use const (can't assign different types to one var)
+        // For homogeneous value tuples, assign to outer variable so it persists after loop
         // Check is_type_tuple from earlier detection
         const is_type_tuple_inner = if (for_stmt.iter.* == .tuple) inner_blk: {
             for (for_stmt.iter.tuple.elts) |elt| {
@@ -646,14 +673,36 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             break :inner_blk for_stmt.iter.tuple.elts.len > 0;
         } else false;
 
+        // Re-check heterogeneous using the same logic as above
+        const is_heterogeneous_inner = if (iter_type.tuple.len > 1) inner_blk: {
+            const first_type = iter_type.tuple[0];
+            for (iter_type.tuple[1..]) |elem_type| {
+                const first_is_int = type_traits.isIntegral(first_type);
+                const elem_is_int = type_traits.isIntegral(elem_type);
+                const first_is_float = type_traits.isFloating(first_type);
+                const elem_is_float = type_traits.isFloating(elem_type);
+                const first_is_str = string_traits.isString(first_type);
+                const elem_is_str = string_traits.isString(elem_type);
+                const first_is_bool = type_traits.isBoolean(first_type);
+                const elem_is_bool = type_traits.isBoolean(elem_type);
+                if (first_is_int != elem_is_int or first_is_float != elem_is_float or
+                    first_is_str != elem_is_str or first_is_bool != elem_is_bool)
+                {
+                    break :inner_blk true;
+                }
+            }
+            break :inner_blk false;
+        } else false;
+
         try self.emitIndent();
-        if (is_type_tuple_inner) {
-            // For type tuples: const T = __loop_val_N (comptime const)
+        if (is_type_tuple_inner or is_heterogeneous_inner) {
+            // For type tuples and heterogeneous tuples: const var = __loop_val_N
+            // Types must be comptime, heterogeneous values can't share a single type
             try self.emit("const ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
             try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
         } else {
-            // For value tuples: T = __loop_val_N (runtime assignment to outer var)
+            // For homogeneous value tuples: T = __loop_val_N (runtime assignment to outer var)
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
             try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
         }
