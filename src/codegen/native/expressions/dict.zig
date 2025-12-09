@@ -79,12 +79,10 @@ pub fn isComptimeConstant(node: ast.Node) bool {
             }
             return true;
         },
-        .list => |l| {
-            // List is comptime if all elements are comptime
-            for (l.elts) |elt| {
-                if (!isComptimeConstant(elt)) return false;
-            }
-            return true;
+        .list => {
+            // Lists are NOT comptime - they generate runtime ArrayList allocations
+            // Even if elements are constants, the ArrayList creation is runtime
+            return false;
         },
         else => false,
     };

@@ -141,7 +141,7 @@ pub const VarTypeContext = struct {
                 .source = .tuple_literal,
             },
             .list => |l| .{
-                .zig_type = "std.ArrayList(runtime.PyValue)",
+                .zig_type = "runtime.NativeList",
                 .element_type = analyzeCollectionElements(l.elts),
                 .source = .list_literal,
             },

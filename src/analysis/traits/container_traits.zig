@@ -109,7 +109,6 @@ pub fn getElementType(t: NativeType) NativeType {
         .set => t.set.*,
         .tuple => .unknown, // Tuples can have heterogeneous elements
         .array => t.array.element_type.*,
-        .frozenset => t.frozenset.*,
         else => .unknown,
     };
 }

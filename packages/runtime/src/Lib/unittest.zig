@@ -18,6 +18,9 @@ pub const MockValue = runner.MockValue;
 
 // Re-export basic assertions
 pub const assertEqual = assertions_basic.assertEqual;
+pub const assertEqualPyValue = assertions_basic.assertEqualPyValue;
+pub const toPyValue = assertions_basic.toPyValue;
+pub const pyValueEql = assertions_basic.pyValueEql;
 pub const assertTrue = assertions_basic.assertTrue;
 pub const assertFalse = assertions_basic.assertFalse;
 pub const assertIsNone = assertions_basic.assertIsNone;

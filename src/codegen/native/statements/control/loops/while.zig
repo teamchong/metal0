@@ -4,6 +4,7 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const type_traits = @import("../../../../../analysis/traits/type_traits.zig");
+const bool_conv = @import("../../../helpers/bool_conv.zig");
 
 /// Generate while loop
 pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!void {
@@ -20,23 +21,13 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
         _ = try builder.write("runtime.pyTruthy(");
         try self.genExpr(while_stmt.condition.*);
         _ = try builder.write(")");
-    } else if (cond_type == .optional) {
-        // Optional type - check for non-null
-        try self.genExpr(while_stmt.condition.*);
-        _ = try builder.write(" != null");
-    } else if (type_traits.isBoolean(cond_type)) {
-        // Boolean - use directly
-        try self.genExpr(while_stmt.condition.*);
-    } else if (type_traits.isClassInstance(cond_type)) {
-        // Class instance - use runtime.toBool for duck typing (__bool__ support)
-        _ = try builder.write("runtime.toBool(");
-        try self.genExpr(while_stmt.condition.*);
-        _ = try builder.write(")");
     } else {
-        // Other types (int, float, string, etc.) - use runtime.toBool
-        _ = try builder.write("runtime.toBool(");
+        // Use type-specific inline bool conversion to avoid anytype monomorphization
+        const prefix = bool_conv.getBoolPrefix(cond_type);
+        const suffix = bool_conv.getBoolSuffix(cond_type);
+        _ = try builder.write(prefix);
         try self.genExpr(while_stmt.condition.*);
-        _ = try builder.write(")");
+        _ = try builder.write(suffix);
     }
 
     _ = try builder.write(")");

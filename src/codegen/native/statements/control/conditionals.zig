@@ -5,6 +5,7 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const CodeBuilder = @import("../../code_builder.zig").CodeBuilder;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const bool_conv = @import("../../helpers/bool_conv.zig");
 
 /// Information about a variable to be hoisted
 const HoistedVar = struct {
@@ -221,6 +222,33 @@ fn collectAssignedVars(self: *NativeCodegen, stmts: []const ast.Node, vars: *std
     }
 }
 
+/// Collect function definition names from statements
+/// Used to identify functions defined in if/else branches that need hoisting
+fn collectFunctionDefs(stmts: []const ast.Node, funcs: *std.ArrayList([]const u8), allocator: std.mem.Allocator) !void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .function_def => |fd| {
+                // Check if this function name is already in our list
+                var found = false;
+                for (funcs.items) |name| {
+                    if (std.mem.eql(u8, name, fd.name)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    try funcs.append(allocator, fd.name);
+                }
+            },
+            .if_stmt => |nested_if| {
+                try collectFunctionDefs(nested_if.body, funcs, allocator);
+                try collectFunctionDefs(nested_if.else_body, funcs, allocator);
+            },
+            else => {},
+        }
+    }
+}
+
 /// Collect class names defined in a list of statements
 /// Used to prevent hoisting variables whose types are defined inside the block
 fn collectNestedClassNames(stmts: []const ast.Node, classes: *std.ArrayList([]const u8), allocator: std.mem.Allocator) !void {
@@ -409,24 +437,13 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         _ = try builder.write("runtime.pyTruthy(");
         try self.genExpr(if_stmt.condition.*);
         _ = try builder.write(")");
-    } else if (cond_type == .optional) {
-        // Optional type - check for non-null
-        try self.genExpr(if_stmt.condition.*);
-        _ = try builder.write(" != null");
-    } else if (type_traits.isBoolean(cond_type)) {
-        // Boolean - use directly
-        try self.genExpr(if_stmt.condition.*);
-    } else if (type_traits.isClassInstance(cond_type)) {
-        // Class instance - use runtime.toBool for duck typing (__bool__ support)
-        _ = try builder.write("runtime.toBool(");
-        try self.genExpr(if_stmt.condition.*);
-        _ = try builder.write(")");
     } else {
-        // Other types (int, float, string, etc.) - use runtime.toBool
-        // This handles Python truthiness semantics (0 is false, "" is false, etc.)
-        _ = try builder.write("runtime.toBool(");
+        // Use type-specific inline bool conversion to avoid anytype monomorphization
+        const prefix = bool_conv.getBoolPrefix(cond_type);
+        const suffix = bool_conv.getBoolSuffix(cond_type);
+        _ = try builder.write(prefix);
         try self.genExpr(if_stmt.condition.*);
-        _ = try builder.write(")");
+        _ = try builder.write(suffix);
     }
     _ = try builder.write(")");
     _ = try builder.beginBlock();

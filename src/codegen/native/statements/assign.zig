@@ -1670,29 +1670,74 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         try self.emit("}\n");
                     }
                 } else {
-                    // Fixed array/slice: copy items
-                    try self.emitIndent();
-                    if (slice.lower) |lower| {
-                        try self.emit("const __slice_start: usize = @intCast(");
-                        try self.genExpr(lower.*);
-                        try self.emit(");\n");
-                    } else {
-                        try self.emit("const __slice_start: usize = 0;\n");
-                    }
+                    // Fixed array/slice/ArrayList: copy items
+                    if (slice.step != null) {
+                        // Stepped slice assignment: a[start::step] = src
+                        // Replace elements at indices start, start+step, start+2*step, ...
+                        try self.emitIndent();
+                        if (slice.lower) |lower| {
+                            try self.emit("var __idx: usize = @intCast(");
+                            try self.genExpr(lower.*);
+                            try self.emit(");\n");
+                        } else {
+                            try self.emit("var __idx: usize = 0;\n");
+                        }
 
-                    try self.emitIndent();
-                    if (slice.upper) |upper| {
-                        try self.emit("const __slice_end: usize = @intCast(");
-                        try self.genExpr(upper.*);
+                        try self.emitIndent();
+                        try self.emit("const __step: usize = @intCast(");
+                        try self.genExpr(slice.step.?.*);
                         try self.emit(");\n");
-                    } else {
-                        try self.emit("const __slice_end: usize = __slice_target.len;\n");
-                    }
 
-                    try self.emitIndent();
-                    try self.emit("const __copy_len = @min(__slice_end - __slice_start, __slice_src.len);\n");
-                    try self.emitIndent();
-                    try self.emit("@memcpy(__slice_target.*[__slice_start..][0..__copy_len], __slice_src[0..__copy_len]);\n");
+                        try self.emitIndent();
+                        try self.emit("const __target_len = if (@hasField(@TypeOf(__slice_target.*), \"items\")) __slice_target.items.len else __slice_target.len;\n");
+                        try self.emitIndent();
+                        try self.emit("const __src_data = if (@hasField(@TypeOf(__slice_src), \"items\")) __slice_src.items else &__slice_src;\n");
+                        try self.emitIndent();
+                        try self.emit("var __src_idx: usize = 0;\n");
+                        try self.emitIndent();
+                        try self.emit("while (__idx < __target_len and __src_idx < __src_data.len) {\n");
+                        self.indent_level += 1;
+                        try self.emitIndent();
+                        try self.emit("if (@hasField(@TypeOf(__slice_target.*), \"items\")) { __slice_target.items[__idx] = __src_data[__src_idx]; } else { __slice_target.*[__idx] = __src_data[__src_idx]; }\n");
+                        try self.emitIndent();
+                        try self.emit("__idx += __step;\n");
+                        try self.emitIndent();
+                        try self.emit("__src_idx += 1;\n");
+                        self.indent_level -= 1;
+                        try self.emitIndent();
+                        try self.emit("}\n");
+                    } else {
+                        // Contiguous slice assignment
+                        try self.emitIndent();
+                        if (slice.lower) |lower| {
+                            try self.emit("const __slice_start: usize = @intCast(");
+                            try self.genExpr(lower.*);
+                            try self.emit(");\n");
+                        } else {
+                            try self.emit("const __slice_start: usize = 0;\n");
+                        }
+
+                        try self.emitIndent();
+                        if (slice.upper) |upper| {
+                            try self.emit("const __slice_end: usize = @intCast(");
+                            try self.genExpr(upper.*);
+                            try self.emit(");\n");
+                        } else {
+                            // Use comptime check to handle both fixed arrays and ArrayListUnmanaged
+                            try self.emit("const __slice_end: usize = if (@hasField(@TypeOf(__slice_target.*), \"items\")) __slice_target.items.len else __slice_target.len;\n");
+                        }
+
+                        try self.emitIndent();
+                        // Use comptime check for source length too
+                        try self.emit("const __copy_len = @min(__slice_end - __slice_start, if (@hasField(@TypeOf(__slice_src), \"items\")) __slice_src.items.len else __slice_src.len);\n");
+                        try self.emitIndent();
+                        // Use comptime check to access the right slice
+                        try self.emit("const __target_slice = if (@hasField(@TypeOf(__slice_target.*), \"items\")) __slice_target.items else __slice_target.*;\n");
+                        try self.emitIndent();
+                        try self.emit("const __src_slice = if (@hasField(@TypeOf(__slice_src), \"items\")) __slice_src.items else &__slice_src;\n");
+                        try self.emitIndent();
+                        try self.emit("@memcpy(__target_slice[__slice_start..][0..__copy_len], __src_slice[0..__copy_len]);\n");
+                    }
                 }
 
                 self.indent_level -= 1;

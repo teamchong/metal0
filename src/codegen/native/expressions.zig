@@ -142,6 +142,9 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 // In Zig, you can't refer to a struct by name from inside it - use @This() instead
                 if (std.mem.eql(u8, name_to_use, class_name)) {
                     try self.emit("@This()");
+                } else if (std.mem.eql(u8, name_to_use, "__class__")) {
+                    // Python __class__ refers to the current class - use @This() in Zig
+                    try self.emit("@This()");
                 } else {
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
                     if (self.nested_class_names.contains(name_to_use)) {

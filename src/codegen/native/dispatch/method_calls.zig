@@ -64,6 +64,7 @@ const StringMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "encode", methods.genEncode },
     .{ "decode", methods.genDecode },
     .{ "splitlines", methods.genSplitlines },
+    // Note: 'format' is handled specially below (needs keyword args)
 });
 
 // List methods - O(1) lookup via StaticStringMap
@@ -353,6 +354,12 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
                 return true;
             }
         }
+    }
+
+    // Special handling for str.format() - needs keyword args
+    if (std.mem.eql(u8, method_name, "format")) {
+        try methods.genStrFormat(self, obj, call.args, call.keyword_args);
+        return true;
     }
 
     // Try string methods first (most common)

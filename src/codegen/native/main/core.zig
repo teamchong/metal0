@@ -138,6 +138,10 @@ pub const NativeCodegen = struct {
     // Used to determine if exception variables should be local (inside TryHelper) or hoisted (outside)
     try_helper_depth: usize,
 
+    // Depth of nested if/else conditionals. 0 = not inside any conditional
+    // Used to determine if closures need hoisting for Python scope semantics
+    conditional_depth: usize,
+
     // When inside a try helper that contains break/continue, stores the helper ID for special handling
     // null = not in try helper with break/continue, non-null = emit return error.BreakRequested
     try_break_helper_id: ?usize,
@@ -571,6 +575,12 @@ pub const NativeCodegen = struct {
     // These are emitted as `const R = type` not pre-declared as variables
     type_alias_vars: FnvVoidMap,
 
+    // Track function names that are hoisted from if-else branches
+    // These functions are defined in multiple if-else branches but used after the block
+    // Maps function name -> void (e.g., "get_output" -> {})
+    // When generating closures for these functions, skip var_renames to avoid scoping issues
+    hoisted_branch_funcs: FnvVoidMap,
+
     // Function traits call graph for unified analysis (built lazily on first generate())
     // Query via function_traits.isPure(), .needsAllocator(), .canUseTCO(), etc.
     call_graph: ?function_traits.CallGraph,
@@ -642,6 +652,7 @@ pub const NativeCodegen = struct {
             .unpack_counter = 0,
             .try_helper_counter = 0,
             .try_helper_depth = 0,
+            .conditional_depth = 0,
             .try_break_helper_id = null,
             .lambda_counter = 0,
             .lambda_functions = std.ArrayList([]const u8){},
@@ -752,6 +763,7 @@ pub const NativeCodegen = struct {
             .import_module_vars = FnvVoidMap.init(allocator),
             .csv_iterators = FnvVoidMap.init(allocator),
             .type_alias_vars = FnvVoidMap.init(allocator),
+            .hoisted_branch_funcs = FnvVoidMap.init(allocator),
             .forward_declared_vars = FnvVoidMap.init(allocator),
             .call_graph = null,
             .generic_type_params = FnvVoidMap.init(allocator),

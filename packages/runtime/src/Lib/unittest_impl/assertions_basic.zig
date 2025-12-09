@@ -1,6 +1,8 @@
 /// metal0 unittest assertions - basic comparison assertions
 const std = @import("std");
 const runner = @import("../unittest/runner.zig");
+const runtime = @import("../../runtime.zig");
+const PyValue = runtime.PyValue;
 
 /// Python-compatible value equality check (handles NaN identity)
 /// In Python: nan == nan is False, but nan in [nan] is True (identity check first)
@@ -561,7 +563,6 @@ fn equalValues(a: anytype, b: anytype) bool {
 
 /// Assertion: assertEqual(a, b) - values must be equal
 pub fn assertEqual(a: anytype, b: anytype) void {
-    const runtime = @import("../../runtime.zig");
     const A = @TypeOf(a);
     const B = @TypeOf(b);
     const a_info = @typeInfo(A);
@@ -1336,7 +1337,6 @@ pub fn assertEqual(a: anytype, b: anytype) void {
 /// For bool: direct check
 /// For numbers: non-zero is truthy
 pub fn assertTrue(value: anytype) void {
-    const runtime = @import("../../runtime.zig");
     const is_truthy = runtime.toBool(value);
 
     if (!is_truthy) {
@@ -1355,7 +1355,6 @@ pub fn assertTrue(value: anytype) void {
 /// Assertion: assertFalse(x) - value must be falsy
 /// Uses runtime.toBool for Python-compatible truthiness
 pub fn assertFalse(value: anytype) void {
-    const runtime = @import("../../runtime.zig");
     const is_truthy = runtime.toBool(value);
 
     if (is_truthy) {
@@ -1373,7 +1372,7 @@ pub fn assertFalse(value: anytype) void {
 
 /// Assertion: assertIsNone(x) - value must be None/null
 pub fn assertIsNone(value: anytype) void {
-    const runtime = @import("../../runtime.zig");
+    _ = runtime; // Mark as used (imported at top)
     const T = @TypeOf(value);
     const is_none = switch (@typeInfo(T)) {
         .null => true, // Zig's null literal type
@@ -1554,7 +1553,7 @@ pub fn assertNotEqual(a: anytype, b: anytype) void {
 
 /// Assertion: assertIs(a, b) - pointer identity check (a is b)
 pub fn assertIs(a: anytype, b: anytype) void {
-    const runtime = @import("../../runtime.zig");
+    _ = runtime; // Mark as used (imported at top)
     const A = @TypeOf(a);
     const B = @TypeOf(b);
     const same = blk: {
@@ -2212,4 +2211,74 @@ pub fn assertFloatsAreIdentical(a: f64, b: f64) void {
             result.addPass();
         }
     }
+}
+
+// =============================================================================
+// PyValue-based assertions - NO ANYTYPE to avoid monomorphization explosion
+// =============================================================================
+
+/// Concrete PyValue equality check - no anytype, no monomorphization
+/// This is the core comparison function used by all assertEqual variants
+pub fn pyValueEql(a: PyValue, b: PyValue) bool {
+    return switch (a) {
+        .int => |av| switch (b) {
+            .int => |bv| av == bv,
+            else => false,
+        },
+        .float => |av| switch (b) {
+            .float => |bv| av == bv or (@as(u64, @bitCast(av)) == @as(u64, @bitCast(bv))),
+            else => false,
+        },
+        .bool => |av| switch (b) {
+            .bool => |bv| av == bv,
+            else => false,
+        },
+        .string => |av| switch (b) {
+            .string => |bv| std.mem.eql(u8, av, bv),
+            else => false,
+        },
+        .none => b == .none,
+        .list => |av| switch (b) {
+            .list => |bv| blk: {
+                if (av.len != bv.len) break :blk false;
+                for (av, bv) |ae, be| {
+                    if (!pyValueEql(ae, be)) break :blk false;
+                }
+                break :blk true;
+            },
+            else => false,
+        },
+        .tuple => |av| switch (b) {
+            .tuple => |bv| blk: {
+                if (av.len != bv.len) break :blk false;
+                for (av, bv) |ae, be| {
+                    if (!pyValueEql(ae, be)) break :blk false;
+                }
+                break :blk true;
+            },
+            else => false,
+        },
+        else => false,
+    };
+}
+
+/// assertEqual using PyValue - converts both args to PyValue then compares
+/// This avoids anytype explosion by using runtime type erasure
+pub fn assertEqualPyValue(a: PyValue, b: PyValue) void {
+    if (pyValueEql(a, b)) {
+        if (runner.global_result) |result| {
+            result.addPass();
+        }
+    } else {
+        std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
+        if (runner.global_result) |result| {
+            result.addFail("assertEqual failed") catch {};
+        }
+        @panic("assertEqual failed");
+    }
+}
+
+/// Convert any value to PyValue - small wrapper for codegen
+pub fn toPyValue(value: anytype) PyValue {
+    return PyValue.from(value);
 }

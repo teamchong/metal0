@@ -253,7 +253,9 @@ pub const NativeType = union(enum) {
                 try arr.element_type.toZigType(allocator, buf);
             },
             .list => |elem_type| {
-                try buf.appendSlice(allocator, "std.ArrayList(");
+                // Generate std.ArrayListUnmanaged(ElementType) for typed lists
+                // This preserves element type information for proper codegen
+                try buf.appendSlice(allocator, "std.ArrayListUnmanaged(");
                 try elem_type.toZigType(allocator, buf);
                 try buf.appendSlice(allocator, ")");
             },

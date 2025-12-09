@@ -623,3 +623,35 @@ pub fn genCasefold(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
     try self.emitFmt("    break :casefold_{d} _result;\n", .{label_id});
     try self.emit("}");
 }
+
+/// Generate code for text.format(*args, **kwargs)
+/// Python new-style string formatting: "Hello {name}".format(name="World")
+pub fn genFormat(self: *NativeCodegen, obj: ast.Node, args: []ast.Node, keywords: []ast.Node.KeywordArg) CodegenError!void {
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    try self.emitFmt("format_{d}: {{\n", .{label_id});
+    try self.emit("break :format_");
+    try self.emitFmt("{d}", .{label_id});
+    try self.emit(" try runtime.string_utils.pyStrFormat(__global_allocator, ");
+    try self.genExpr(obj);
+    try self.emit(", .{");
+
+    // Generate positional arguments first
+    for (args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try self.genExpr(arg);
+    }
+
+    // Generate keyword arguments as tuples: .{"name", value}
+    for (keywords, 0..) |kw, i| {
+        if (i > 0 or args.len > 0) try self.emit(", ");
+        try self.emit(".{\"");
+        try self.emit(kw.name);
+        try self.emit("\", ");
+        try self.genExpr(kw.value);
+        try self.emit("}");
+    }
+
+    try self.emit("});\n}");
+}

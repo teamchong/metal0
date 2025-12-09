@@ -42,6 +42,7 @@ pub const genIsnumeric = string.genIsnumeric;
 pub const genEncode = string.genEncode;
 pub const genDecode = string.genDecode;
 pub const genSplitlines = string.genSplitlines;
+pub const genStrFormat = string.genFormat; // Takes (self, obj, args, keywords)
 
 // List methods
 pub const genAppend = list.genAppend;

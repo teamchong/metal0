@@ -7,6 +7,7 @@ const parent = @import("../expressions.zig");
 const shared = @import("../shared_maps.zig");
 const PyToZigTypes = shared.PyTypeToZig;
 const zig_keywords = @import("utils.zig_keywords");
+const NativeType = @import("../../../analysis/native_types/core.zig").NativeType;
 
 /// Check if a name is a Python builtin type name (not a user variable)
 fn isBuiltinTypeName(name: []const u8) bool {
@@ -405,7 +406,243 @@ fn emitCallableInvocation(
 }
 
 // Simple assertions via comptime generators
-pub const genAssertEqual = gen2ArgAssert("assertEqual");
+
+/// Builtins that return simple i64 type - safe for inline comparison
+const SafeBuiltins = std.StaticStringMap(void).initComptime(.{
+    .{ "len", {} },
+    .{ "ord", {} },
+    .{ "hash", {} },
+    .{ "id", {} },
+    .{ "abs", {} },
+});
+
+/// Check if an expression has a simple, predictable type at codegen time.
+/// Function calls may return complex types (IntResult, error unions) that don't match
+/// the simple types (i64, f64) inferred by the type inferrer.
+fn isSimpleExpr(node: ast.Node) bool {
+    return switch (node) {
+        .constant, .name, .unaryop, .binop => true,
+        // Allow calls to known builtins that return i64
+        .call => |call| {
+            if (call.func.* == .name) {
+                return SafeBuiltins.has(call.func.name.id);
+            }
+            return false;
+        },
+        // Attribute access on method calls (e.g., (0.5).__floor__()) is also unsafe
+        .attribute => |attr| isSimpleExpr(attr.value.*),
+        else => false,
+    };
+}
+
+/// Check if AST node is an empty list literal `[]`
+fn isEmptyListLiteral(node: ast.Node) bool {
+    if (node != .list) return false;
+    return node.list.elts.len == 0;
+}
+
+/// Check if AST node is a non-empty list literal `[a, b, c]`
+fn isNonEmptyListLiteral(node: ast.Node) bool {
+    if (node != .list) return false;
+    return node.list.elts.len > 0;
+}
+
+/// Get the element type string for a list type (e.g., "i64" for list of ints)
+fn getListElementTypeStr(list_type: NativeType) ?[]const u8 {
+    return switch (list_type) {
+        .list => |elem| switch (elem.*) {
+            .int => "i64",
+            .float => "f64",
+            .bool => "bool",
+            .string => "[]const u8",
+            else => null,
+        },
+        else => null,
+    };
+}
+
+/// Get Zig slice type string for a list type
+fn getSliceTypeStr(list_type: NativeType) ?[]const u8 {
+    return switch (list_type) {
+        .list => |elem| switch (elem.*) {
+            .int => "[]const i64",
+            .float => "[]const f64",
+            .bool => "[]const bool",
+            .string => "[]const []const u8",
+            else => null,
+        },
+        else => null,
+    };
+}
+
+/// Check if an AST node produces a NativeList with PyValue items
+/// (as opposed to a fixed array with concrete element types)
+/// This includes: list() calls, list comprehensions with runtime elements, etc.
+fn producesNativeList(node: ast.Node) bool {
+    return switch (node) {
+        // Calls to list() builtin produce NativeList
+        .call => |call| {
+            if (call.func.* == .name) {
+                const name = call.func.name.id;
+                if (std.mem.eql(u8, name, "list")) return true;
+            }
+            return false;
+        },
+        // List comprehensions produce NativeList when they have runtime evaluation
+        .listcomp => true,
+        // Generator expressions produce iterators, when converted to list give NativeList
+        .genexp => true,
+        else => false,
+    };
+}
+
+/// Generate inline assertEqual - avoids anytype monomorphization explosion
+/// Strategy: Generate type-specific inline comparisons at codegen time.
+/// Key insight: Use explicit type annotations to force type coercion and avoid
+/// anonymous types that cause monomorphization explosion.
+pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 2) {
+        try self.emit("@compileError(\"assertEqual requires 2 arguments\")");
+        return;
+    }
+
+    // Infer types for type-specific code generation
+    const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
+    const tag_a: std.meta.Tag(NativeType) = type_a;
+    const tag_b: std.meta.Tag(NativeType) = type_b;
+
+    // === PRIMITIVE TYPES: Direct comparison ===
+    // For known primitive types, use optimized inline comparisons (no monomorphization)
+    if (tag_a == tag_b) {
+        switch (type_a) {
+            .int, .usize => {
+                try self.emit("if ((");
+                try parent.genExpr(self, args[0]);
+                try self.emit(") != (");
+                try parent.genExpr(self, args[1]);
+                try self.emit(")) @panic(\"assertEqual failed\")");
+                return;
+            },
+            .float => {
+                try self.emit("if ((");
+                try parent.genExpr(self, args[0]);
+                try self.emit(") != (");
+                try parent.genExpr(self, args[1]);
+                try self.emit(")) @panic(\"assertEqual failed\")");
+                return;
+            },
+            .bool => {
+                try self.emit("if ((");
+                try parent.genExpr(self, args[0]);
+                try self.emit(") != (");
+                try parent.genExpr(self, args[1]);
+                try self.emit(")) @panic(\"assertEqual failed\")");
+                return;
+            },
+            .string => {
+                try self.emit("if (!std.mem.eql(u8, ");
+                try parent.genExpr(self, args[0]);
+                try self.emit(", ");
+                try parent.genExpr(self, args[1]);
+                try self.emit(")) @panic(\"assertEqual failed\")");
+                return;
+            },
+            else => {},
+        }
+    }
+
+    // === EMPTY LIST: Length check ===
+    if (isEmptyListLiteral(args[1])) {
+        try self.emit("if (runtime.builtinLen(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(") != 0) @panic(\"assertEqual failed\")");
+        return;
+    }
+    if (isEmptyListLiteral(args[0])) {
+        try self.emit("if (runtime.builtinLen(");
+        try parent.genExpr(self, args[1]);
+        try self.emit(") != 0) @panic(\"assertEqual failed\")");
+        return;
+    }
+
+    // === LIST/SLICE COMPARISON WITH KNOWN ELEMENT TYPE ===
+    // This is the key optimization: use explicit type annotations to coerce
+    // different expression types (blocks, arrays, slices, ArrayLists) to a
+    // common slice type, avoiding anonymous type monomorphization.
+    //
+    // IMPORTANT: Skip this optimization if either side produces a NativeList
+    // with PyValue items (via list() calls, comprehensions, etc.) because
+    // NativeList.items is []PyValue, not []ConcreteType.
+
+    // Check if either expression produces NativeList with PyValue items
+    const a_produces_native_list = producesNativeList(args[0]);
+    const b_produces_native_list = producesNativeList(args[1]);
+
+    // Get element types for both sides (handles list, also check the other side)
+    const elem_type_a = getListElementTypeStr(type_a);
+    const elem_type_b = getListElementTypeStr(type_b);
+    const slice_type_a = getSliceTypeStr(type_a);
+    const slice_type_b = getSliceTypeStr(type_b);
+
+    // Use element type from either side (prefer the known one)
+    const elem_type = elem_type_a orelse elem_type_b;
+    const slice_type = slice_type_a orelse slice_type_b;
+
+    // If we have a known element type AND neither side produces NativeList, use slice comparison
+    if (elem_type != null and slice_type != null and !a_produces_native_list and !b_produces_native_list) {
+        // Generate a comparison block that:
+        // 1. Evaluates both expressions
+        // 2. Extracts slices with explicit type annotation (forces coercion)
+        // 3. Compares with std.mem.eql using concrete type (no monomorphization)
+        try self.emit("if (__ae_blk: { const __ae_raw_a = ");
+        try parent.genExpr(self, args[0]);
+        try self.emit("; const __ae_raw_b = ");
+        try parent.genExpr(self, args[1]);
+        // Extract slice with comptime type check - handles arrays, slices, ArrayListUnmanaged
+        try self.emit("; const __ae_slice_a: ");
+        try self.emit(slice_type.?);
+        try self.emit(" = __ae_get_slice_blk: { const __T = @typeInfo(@TypeOf(__ae_raw_a)); ");
+        try self.emit("break :__ae_get_slice_blk if (__T == .@\"struct\" and @hasField(@TypeOf(__ae_raw_a), \"items\")) __ae_raw_a.items ");
+        try self.emit("else if (__T == .pointer and __T.pointer.size == .slice) __ae_raw_a ");
+        try self.emit("else if (__T == .array) &__ae_raw_a else __ae_raw_a; };");
+        // Same for b
+        try self.emit(" const __ae_slice_b: ");
+        try self.emit(slice_type.?);
+        try self.emit(" = __ae_get_slice_blk2: { const __T2 = @typeInfo(@TypeOf(__ae_raw_b)); ");
+        try self.emit("break :__ae_get_slice_blk2 if (__T2 == .@\"struct\" and @hasField(@TypeOf(__ae_raw_b), \"items\")) __ae_raw_b.items ");
+        try self.emit("else if (__T2 == .pointer and __T2.pointer.size == .slice) __ae_raw_b ");
+        try self.emit("else if (__T2 == .array) &__ae_raw_b else __ae_raw_b; };");
+        // Compare with concrete type
+        try self.emit(" break :__ae_blk !std.mem.eql(");
+        try self.emit(elem_type.?);
+        try self.emit(", __ae_slice_a, __ae_slice_b); }) @panic(\"assertEqual failed\")");
+        return;
+    }
+
+    // === TUPLE COMPARISON ===
+    if (tag_a == .tuple and tag_b == .tuple) {
+        // For tuples, compare element by element
+        try self.emit("if (!std.meta.eql(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(", ");
+        try parent.genExpr(self, args[1]);
+        try self.emit(")) @panic(\"assertEqual failed\")");
+        return;
+    }
+
+    // === GENERIC FALLBACK: Convert to PyValue and compare ===
+    // For unknown types or different types, we must convert to a common representation
+    // toPyValue returns a concrete PyValue type, so all comparisons become PyValue.eql(PyValue)
+    // This limits monomorphization to O(n) where n = number of unique input types
+    try self.emit("if (!(try runtime.toPyValue(__global_allocator, ");
+    try parent.genExpr(self, args[0]);
+    try self.emit(")).eql(try runtime.toPyValue(__global_allocator, ");
+    try parent.genExpr(self, args[1]);
+    try self.emit("))) @panic(\"assertEqual failed\")");
+}
+
 pub const genAssertTrue = gen1ArgAssert("assertTrue");
 pub const genAssertFalse = gen1ArgAssert("assertFalse");
 pub const genAssertIsNone = gen1ArgAssert("assertIsNone");

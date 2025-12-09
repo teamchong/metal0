@@ -534,3 +534,223 @@ pub fn PyList_SetItem(obj: *PyObject, idx: runtime.Py_ssize_t, item: *PyObject) 
     runtime.Py_DECREF(old_item);
     return 0;
 }
+
+// =============================================================================
+// NativeList - Unified list type for native codegen (avoids anytype monomorphization)
+// =============================================================================
+//
+// This type wraps ArrayListUnmanaged(PyValue) and provides typed accessors
+// for common element types (i64, f64, []const u8, bool) without using anytype.
+// This is critical for reducing Zig compilation time.
+//
+// Usage in codegen:
+//   var list = runtime.NativeList.init();
+//   try list.appendInt(allocator, 42);
+//   try list.appendFloat(allocator, 3.14);
+//   try list.appendString(allocator, "hello");
+//
+// Or from typed slices (no monomorphization):
+//   const list = runtime.NativeList.fromIntSlice(allocator, &[_]i64{1, 2, 3});
+
+/// NativeList - Unified Python list for native codegen
+/// Stores all elements as PyValue for heterogeneous support
+/// Provides typed accessors to avoid anytype monomorphization
+pub const NativeList = struct {
+    items: std.ArrayListUnmanaged(runtime.PyValue) = .{},
+
+    const Self = @This();
+
+    /// Create empty list
+    pub fn init() Self {
+        return .{};
+    }
+
+    /// Get number of items
+    pub fn len(self: *const Self) usize {
+        return self.items.items.len;
+    }
+
+    /// Check if empty
+    pub fn isEmpty(self: *const Self) bool {
+        return self.items.items.len == 0;
+    }
+
+    /// Get underlying slice
+    pub fn slice(self: *const Self) []const runtime.PyValue {
+        return self.items.items;
+    }
+
+    /// Get mutable slice
+    pub fn sliceMut(self: *Self) []runtime.PyValue {
+        return self.items.items;
+    }
+
+    // =========================================================================
+    // Typed append methods (no anytype - concrete types only)
+    // =========================================================================
+
+    /// Append an integer
+    pub fn appendInt(self: *Self, allocator: std.mem.Allocator, value: i64) !void {
+        try self.items.append(allocator, .{ .int = value });
+    }
+
+    /// Append a float
+    pub fn appendFloat(self: *Self, allocator: std.mem.Allocator, value: f64) !void {
+        try self.items.append(allocator, .{ .float = value });
+    }
+
+    /// Append a string
+    pub fn appendString(self: *Self, allocator: std.mem.Allocator, value: []const u8) !void {
+        try self.items.append(allocator, .{ .string = value });
+    }
+
+    /// Append a bool
+    pub fn appendBool(self: *Self, allocator: std.mem.Allocator, value: bool) !void {
+        try self.items.append(allocator, .{ .bool = value });
+    }
+
+    /// Append a PyValue directly
+    pub fn appendValue(self: *Self, allocator: std.mem.Allocator, value: runtime.PyValue) !void {
+        try self.items.append(allocator, value);
+    }
+
+    /// Append none
+    pub fn appendNone(self: *Self, allocator: std.mem.Allocator) !void {
+        try self.items.append(allocator, .none);
+    }
+
+    // =========================================================================
+    // Typed get methods (no anytype)
+    // =========================================================================
+
+    /// Get item at index
+    pub fn get(self: *const Self, index: usize) ?runtime.PyValue {
+        if (index >= self.items.items.len) return null;
+        return self.items.items[index];
+    }
+
+    /// Get item as int (returns null if not int or out of bounds)
+    pub fn getInt(self: *const Self, index: usize) ?i64 {
+        const val = self.get(index) orelse return null;
+        return switch (val) {
+            .int => |i| i,
+            else => null,
+        };
+    }
+
+    /// Get item as float (returns null if not float or out of bounds)
+    pub fn getFloat(self: *const Self, index: usize) ?f64 {
+        const val = self.get(index) orelse return null;
+        return switch (val) {
+            .float => |f| f,
+            .int => |i| @as(f64, @floatFromInt(i)), // int->float coercion
+            else => null,
+        };
+    }
+
+    /// Get item as string (returns null if not string or out of bounds)
+    pub fn getString(self: *const Self, index: usize) ?[]const u8 {
+        const val = self.get(index) orelse return null;
+        return switch (val) {
+            .string => |s| s,
+            else => null,
+        };
+    }
+
+    /// Get item as bool (returns null if not bool or out of bounds)
+    pub fn getBool(self: *const Self, index: usize) ?bool {
+        const val = self.get(index) orelse return null;
+        return switch (val) {
+            .bool => |b| b,
+            else => null,
+        };
+    }
+
+    // =========================================================================
+    // Conversion from typed slices (concrete types - no monomorphization)
+    // =========================================================================
+
+    /// Create list from i64 slice
+    pub fn fromIntSlice(allocator: std.mem.Allocator, values: []const i64) !Self {
+        var list = Self{};
+        try list.items.ensureTotalCapacity(allocator, values.len);
+        for (values) |v| {
+            list.items.appendAssumeCapacity(.{ .int = v });
+        }
+        return list;
+    }
+
+    /// Create list from f64 slice
+    pub fn fromFloatSlice(allocator: std.mem.Allocator, values: []const f64) !Self {
+        var list = Self{};
+        try list.items.ensureTotalCapacity(allocator, values.len);
+        for (values) |v| {
+            list.items.appendAssumeCapacity(.{ .float = v });
+        }
+        return list;
+    }
+
+    /// Create list from string slice
+    pub fn fromStringSlice(allocator: std.mem.Allocator, values: []const []const u8) !Self {
+        var list = Self{};
+        try list.items.ensureTotalCapacity(allocator, values.len);
+        for (values) |v| {
+            list.items.appendAssumeCapacity(.{ .string = v });
+        }
+        return list;
+    }
+
+    /// Create list from bool slice
+    pub fn fromBoolSlice(allocator: std.mem.Allocator, values: []const bool) !Self {
+        var list = Self{};
+        try list.items.ensureTotalCapacity(allocator, values.len);
+        for (values) |v| {
+            list.items.appendAssumeCapacity(.{ .bool = v });
+        }
+        return list;
+    }
+
+    /// Create list from PyValue slice
+    pub fn fromValueSlice(allocator: std.mem.Allocator, values: []const runtime.PyValue) !Self {
+        var list = Self{};
+        try list.items.ensureTotalCapacity(allocator, values.len);
+        for (values) |v| {
+            list.items.appendAssumeCapacity(v);
+        }
+        return list;
+    }
+
+    // =========================================================================
+    // List operations
+    // =========================================================================
+
+    /// Extend with another NativeList
+    pub fn extend(self: *Self, allocator: std.mem.Allocator, other: *const Self) !void {
+        try self.items.appendSlice(allocator, other.items.items);
+    }
+
+    /// Pop last item
+    pub fn pop(self: *Self) ?runtime.PyValue {
+        return self.items.popOrNull();
+    }
+
+    /// Clear all items
+    pub fn clear(self: *Self, allocator: std.mem.Allocator) void {
+        self.items.clearAndFree(allocator);
+    }
+
+    /// Deinit
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        self.items.deinit(allocator);
+    }
+
+    /// Convert to bool (Python semantics: empty list is false)
+    pub fn toBool(self: *const Self) bool {
+        return self.items.items.len > 0;
+    }
+
+    /// Iterate over items
+    pub fn iterator(self: *const Self) []const runtime.PyValue {
+        return self.items.items;
+    }
+};

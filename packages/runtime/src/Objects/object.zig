@@ -365,7 +365,117 @@ pub const PyValue = union(enum) {
             .list, .tuple, .ptr => try std.fmt.allocPrint(allocator, "{}", .{self}),
         };
     }
+
+    /// Check equality with another PyValue (single concrete function - no anytype)
+    pub fn eql(self: PyValue, other: PyValue) bool {
+        // Different types are not equal
+        if (std.meta.activeTag(self) != std.meta.activeTag(other)) {
+            // Special case: int vs float coercion
+            if (self == .int and other == .float) {
+                return @as(f64, @floatFromInt(self.int)) == other.float;
+            }
+            if (self == .float and other == .int) {
+                return self.float == @as(f64, @floatFromInt(other.int));
+            }
+            return false;
+        }
+
+        return switch (self) {
+            .int => |v| v == other.int,
+            .float => |v| v == other.float,
+            .string => |v| std.mem.eql(u8, v, other.string),
+            .bytes => |v| std.mem.eql(u8, v.data, other.bytes.data),
+            .bool => |v| v == other.bool,
+            .none => true,
+            .list => |v| blk: {
+                const w = other.list;
+                if (v.len != w.len) break :blk false;
+                for (v, w) |a, b| {
+                    if (!a.eql(b)) break :blk false;
+                }
+                break :blk true;
+            },
+            .tuple => |v| blk: {
+                const w = other.tuple;
+                if (v.len != w.len) break :blk false;
+                for (v, w) |a, b| {
+                    if (!a.eql(b)) break :blk false;
+                }
+                break :blk true;
+            },
+            .bigint => |v| v.eql(&other.bigint),
+            .ptr => |v| v == other.ptr,
+        };
+    }
 };
+
+/// Convert any value to PyValue (single-anytype function, O(n) instantiations)
+/// Use this instead of pyAnyEql which has O(n²) instantiations
+pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // Direct matches
+    if (T == PyValue) return value;
+    if (T == i64 or T == i32 or T == i16 or T == i8) return .{ .int = @intCast(value) };
+    if (T == u64 or T == u32 or T == u16 or T == u8 or T == usize) return .{ .int = @intCast(value) };
+    if (T == f64 or T == f32) return .{ .float = @floatCast(value) };
+    if (T == bool) return .{ .bool = value };
+    if (info == .comptime_int) return .{ .int = @intCast(value) };
+    if (info == .comptime_float) return .{ .float = @floatCast(value) };
+
+    // String slices
+    if (T == []const u8) return .{ .string = value };
+    if (T == []u8) return .{ .string = value };
+
+    // Fixed arrays of u8 (strings)
+    if (info == .array and info.array.child == u8) {
+        return .{ .string = &value };
+    }
+
+    // NativeList - special handling (has .items which is ArrayListUnmanaged)
+    // NativeList.items contains PyValue items, so just return them directly
+    if (info == .@"struct" and @hasDecl(T, "init") and @hasField(T, "items")) {
+        // Check if items field is an ArrayListUnmanaged by checking for items.items
+        const ItemsT = @TypeOf(value.items);
+        if (@typeInfo(ItemsT) == .@"struct" and @hasField(ItemsT, "items")) {
+            // This is NativeList or similar wrapper - items.items is the slice
+            return .{ .list = value.items.items };
+        }
+    }
+
+    // ArrayLists - convert items to PyValue list
+    if (info == .@"struct" and @hasField(T, "items") and @hasField(T, "capacity")) {
+        const ElemT = std.meta.Elem(@TypeOf(value.items));
+        var list = try allocator.alloc(PyValue, value.items.len);
+        for (value.items, 0..) |item, i| {
+            list[i] = try toPyValue(allocator, item);
+            _ = ElemT; // Reference to avoid unused warning
+        }
+        return .{ .list = list };
+    }
+
+    // Fixed arrays
+    if (info == .array) {
+        var list = try allocator.alloc(PyValue, info.array.len);
+        for (value, 0..) |item, i| {
+            list[i] = try toPyValue(allocator, item);
+        }
+        return .{ .list = list };
+    }
+
+    // Slices of non-u8
+    if (info == .pointer and info.pointer.size == .slice and info.pointer.child != u8) {
+        var list = try allocator.alloc(PyValue, value.len);
+        for (value, 0..) |item, i| {
+            list[i] = try toPyValue(allocator, item);
+        }
+        return .{ .list = list };
+    }
+
+    // Fallback: store as opaque pointer
+    return .{ .ptr = @ptrCast(@constCast(&value)) };
+}
 
 /// Optimized string comparison using comptime SIMD if available
 /// Falls back to std.mem.eql for smaller strings

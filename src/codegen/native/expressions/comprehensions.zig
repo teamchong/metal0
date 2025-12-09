@@ -961,7 +961,15 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                         if (std.mem.eql(u8, var_name, "_")) {
                             try self.output.writer(self.allocator).print("_ = __tuple_{d}_{d}__.@\"{d}\";\n", .{ label_id, gen_idx, idx });
                         } else {
-                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
+                            // Check if this would shadow an outer variable - use unique name if so
+                            if (self.isDeclared(var_name)) {
+                                const renamed = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ var_name, label_id });
+                                // Register rename so references within comprehension use the new name
+                                try self.var_renames.put(var_name, renamed);
+                                try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ renamed, label_id, gen_idx, idx });
+                            } else {
+                                try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
+                            }
                         }
                     }
                 }
@@ -1149,7 +1157,15 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
                         if (std.mem.eql(u8, var_name, "_")) {
                             try self.output.writer(self.allocator).print("_ = __tuple_{d}_{d}__.@\"{d}\";\n", .{ label_id, gen_idx, idx });
                         } else {
-                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
+                            // Check if this would shadow an outer variable - use unique name if so
+                            if (self.isDeclared(var_name)) {
+                                const renamed = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ var_name, label_id });
+                                // Register rename so references within comprehension use the new name
+                                try self.var_renames.put(var_name, renamed);
+                                try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ renamed, label_id, gen_idx, idx });
+                            } else {
+                                try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
+                            }
                         }
                     }
                 }
@@ -1347,7 +1363,15 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
                         if (std.mem.eql(u8, var_name, "_")) {
                             try self.output.writer(self.allocator).print("_ = __tuple_{d}_{d}__.@\"{d}\";\n", .{ label_id, gen_idx, idx });
                         } else {
-                            try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
+                            // Check if this would shadow an outer variable - use unique name if so
+                            if (self.isDeclared(var_name)) {
+                                const renamed = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ var_name, label_id });
+                                // Register rename so references within comprehension use the new name
+                                try self.var_renames.put(var_name, renamed);
+                                try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ renamed, label_id, gen_idx, idx });
+                            } else {
+                                try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
+                            }
                         }
                     }
                 }

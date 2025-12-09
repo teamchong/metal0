@@ -7,16 +7,29 @@ const producesBlockExpression = @import("../../expressions.zig").producesBlockEx
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
+const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
+
+/// Get the appropriate NativeList append method for a given type
+/// This avoids anytype monomorphization by using typed append methods
+fn getAppendMethodForType(t: NativeType) []const u8 {
+    return switch (t) {
+        .int => "appendInt",
+        .float => "appendFloat",
+        .string => "appendString",
+        .bool => "appendBool",
+        .none => "appendNone",
+        else => "appendValue", // Falls back to PyValue-based append
+    };
+}
 
 /// Generate code for list(iterable)
 /// Converts an iterable to a list (ArrayList)
 pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
-    // list() with no args returns empty list
-    // Default to i64 element type since it's the most common case
+    // list() with no args returns empty NativeList
     if (args.len == 0) {
-        try self.emit("std.ArrayListUnmanaged(i64){}");
+        try self.emit("runtime.NativeList.init()");
         return;
     }
 
@@ -28,6 +41,31 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args[0] == .list) {
         // List literal - already generates ArrayList
         try self.genExpr(args[0]);
+        return;
+    }
+
+    // Handle tuple literals - convert to NativeList inline
+    // list((1, 2, 3)) -> NativeList with typed append methods (no monomorphization)
+    if (args[0] == .tuple) {
+        const tup = args[0].tuple;
+        if (tup.elts.len == 0) {
+            try self.emit("runtime.NativeList.init()");
+            return;
+        }
+        const list_label = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("list_tup_blk_{d}: {{\n", .{list_label});
+        try self.emit("var _list = runtime.NativeList.init();\n");
+        for (tup.elts) |elt| {
+            // Infer element type to choose typed append method
+            const elt_type = self.type_inferrer.inferExpr(elt) catch .unknown;
+            const append_method = getAppendMethodForType(elt_type);
+            try self.emitFmt("try _list.{s}({s}, ", .{ append_method, alloc_name });
+            try self.genExpr(elt);
+            try self.emit(");\n");
+        }
+        try self.emitFmt("break :list_tup_blk_{d} _list;\n", .{list_label});
+        try self.emit("}");
         return;
     }
 
@@ -45,20 +83,20 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Handle literal strings - convert to list of single-character strings
-    // list("abc") -> ArrayList with ["a", "b", "c"]
+    // Handle literal strings - convert to NativeList of single-character strings
+    // list("abc") -> NativeList with ["a", "b", "c"]
     // In Python, list("spam") yields ['s', 'p', 'a', 'm']
     if (args[0] == .constant and args[0].constant.value == .string) {
         const str = args[0].constant.value.string;
         if (str.len == 0) {
-            try self.emit("std.ArrayListUnmanaged([]const u8){}");
+            try self.emit("runtime.NativeList.init()");
             return;
         }
-        // Generate inline ArrayList initialization with string characters
+        // Generate inline NativeList initialization with string characters
         const list_str_label = self.block_label_counter;
         self.block_label_counter += 1;
         try self.emitFmt("list_str_blk_{d}: {{\n", .{list_str_label});
-        try self.emitFmt("var _list = std.ArrayListUnmanaged([]const u8){{}};\n", .{});
+        try self.emit("var _list = runtime.NativeList.init();\n");
         // Iterate through UTF-8 characters
         var i: usize = 0;
         while (i < str.len) {
@@ -68,7 +106,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const end = @min(i + char_len, str.len);
             // Escape special characters
             const char = str[i..end];
-            try self.emitFmt("try _list.append({s}, ", .{alloc_name});
+            try self.emitFmt("try _list.appendString({s}, ", .{alloc_name});
             if (char.len == 1 and (char[0] == '"' or char[0] == '\\')) {
                 try self.emit("\"\\");
                 try self.emit(char);
@@ -92,114 +130,77 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Convert iterable to ArrayList
-    // Special handling for:
-    // 1. Tuples: use PyValue tagged union for heterogeneous elements
-    // 2. PyValue: extract the list/tuple inside and convert
-    // 3. Dicts (ArrayHashMap): iterate over keys
-    // For homogeneous iterables: infer element type from first element
-    //
-    // IMPORTANT: For dict attribute access (o.__dict__), we need to use @constCast
-    // because the dict may have been mutated via @constCast (e.g., by setattr).
-    // Copying a const dict after @constCast mutation gives stale data.
+    // Use type inference to generate optimized code paths
+    // This avoids the slow inline comptime type checks
+    const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
     const is_dict_attr = args[0] == .attribute and std.mem.eql(u8, args[0].attribute.attr, "__dict__");
-    const list_label = self.block_label_counter;
-    self.block_label_counter += 1;
-    try self.emitFmt("list_blk_{d}: {{\n", .{list_label});
-    if (is_dict_attr) {
-        // Use pointer access to see @constCast mutations
-        try self.emit("const _raw_iterable = @constCast(&");
+
+    // Fast path: already a list type - just pass through
+    if (container_traits.isList(arg_type)) {
         try self.genExpr(args[0]);
-        try self.emit(");\n");
-    } else {
-        try self.emit("const _raw_iterable = ");
-        try self.genExpr(args[0]);
-        try self.emit(";\n");
-    }
-    // For __dict__ attribute access, _raw_iterable is a pointer (from @constCast)
-    // Handle this specially to avoid type-checking issues with .* on non-pointers
-    if (is_dict_attr) {
-        // _raw_iterable is a pointer to the dict - iterate directly via pointer
-        try self.emit("var _list = std.ArrayListUnmanaged([]const u8){};\n");
-        try self.emit("for (_raw_iterable.keys()) |_key| {\n");
-        try self.emitFmt("try _list.append({s}, _key);\n", .{alloc_name});
-        try self.emit("}\n");
-        try self.emitFmt("break :list_blk_{d} _list;\n", .{list_label});
-        try self.emit("}"); // Close list_blk block
         return;
     }
-    try self.emit("const _iterable = if (@typeInfo(@TypeOf(_raw_iterable)) == .error_union) try _raw_iterable else _raw_iterable;\n");
-    try self.emit("const _IterType = @TypeOf(_iterable);\n");
-    // Check if input is already a PyValue (from heterogeneous list element access)
-    try self.emit("const _is_pyvalue = _IterType == runtime.PyValue;\n");
-    // Check if input is a *runtime.PyObject (pointer to CPython object)
-    try self.emit("const _is_pyobject_ptr = _IterType == *runtime.PyObject or _IterType == *const runtime.PyObject;\n");
-    try self.emit("if (_is_pyobject_ptr) {\n");
-    // For PyObject pointer, convert via runtime
-    try self.emitFmt("break :list_blk_{d} runtime.pyObjectToList(_iterable);\n", .{list_label});
-    try self.emit("} else if (_is_pyvalue) {\n");
-    // For PyValue input, extract contents and wrap result back as PyValue
-    try self.emit("const _result_list: runtime.PyValue = switch (_iterable) {\n");
-    try self.emit(".list => |_pv_items| .{ .list = _pv_items },\n"); // Already a list, keep as PyValue
-    try self.emit(".tuple => |_pv_items| .{ .list = _pv_items },\n"); // Tuple to list
-    try self.emit("else => .{ .list = &[_]runtime.PyValue{} },\n"); // Empty list for other types
-    try self.emit("};\n");
-    try self.emitFmt("break :list_blk_{d} _result_list;\n", .{list_label});
-    try self.emit("} else {\n");
-    try self.emit("const _type_info = @typeInfo(_IterType);\n");
-    // Check if this is a pointer to a builtin subclass (has __base_value__ field)
-    // Python subclasses of tuple/list store their elements in __base_value__
-    try self.emit("const _is_ptr = _type_info == .pointer;\n");
-    try self.emit("const _pointed_type_info = if (_is_ptr) @typeInfo(_type_info.pointer.child) else _type_info;\n");
-    try self.emit("const _is_builtin_subclass = _is_ptr and _pointed_type_info == .@\"struct\" and @hasField(_type_info.pointer.child, \"__base_value__\");\n");
-    try self.emit("if (_is_builtin_subclass) {\n");
-    // For builtin subclasses, convert __base_value__ (PyValue) to list
-    try self.emit("const _result_list: runtime.PyValue = switch (_iterable.__base_value__) {\n");
-    try self.emit(".list => |_pv_items| .{ .list = _pv_items },\n");
-    try self.emit(".tuple => |_pv_items| .{ .list = _pv_items },\n");
-    try self.emit("else => .{ .list = &[_]runtime.PyValue{} },\n");
-    try self.emit("};\n");
-    try self.emitFmt("break :list_blk_{d} _result_list;\n", .{list_label});
-    try self.emit("} else {\n");
-    // Check for dict types (ArrayHashMap) - they have keys() method
-    try self.emit("const _is_dict = _pointed_type_info == .@\"struct\" and @hasDecl(if (_is_ptr) _type_info.pointer.child else _IterType, \"keys\");\n");
-    try self.emit("const _is_tuple = _pointed_type_info == .@\"struct\" and _pointed_type_info.@\"struct\".is_tuple;\n");
-    // Handle dict by iterating keys
-    try self.emit("if (_is_dict) {\n");
-    try self.emit("var _list = std.ArrayListUnmanaged([]const u8){};\n");
-    try self.emit("for (_iterable.keys()) |_key| {\n");
-    try self.emitFmt("try _list.append({s}, _key);\n", .{alloc_name});
-    try self.emit("}\n");
-    try self.emitFmt("break :list_blk_{d} _list;\n", .{list_label});
-    try self.emit("} else {\n");
-    // Tuples use PyValue for heterogeneous elements; others infer from slice child type
-    // Use @typeInfo to get child type safely (handles empty slices)
-    // Special case: strings ([]const u8) should produce list of single-char strings, not list of u8
-    try self.emit("const _is_string = _type_info == .pointer and _type_info.pointer.size == .slice and _type_info.pointer.child == u8;\n");
-    try self.emit("const _ElemType = if (_is_string) []const u8 else if (_is_tuple) runtime.PyValue else blk: { ");
-    try self.emit("const __slice_info = if (_pointed_type_info == .@\"struct\" and @hasField(if (_is_ptr) _type_info.pointer.child else _IterType, \"items\")) @typeInfo(@TypeOf(_iterable.items)) else if (_pointed_type_info == .pointer) _pointed_type_info else @typeInfo(_IterType); ");
-    try self.emit("break :blk if (__slice_info == .pointer and __slice_info.pointer.size == .slice) __slice_info.pointer.child else if (__slice_info == .array) __slice_info.array.child else runtime.PyValue; };\n");
-    try self.emit("var _list = std.ArrayListUnmanaged(_ElemType){};\n");
-    try self.emit("if (_is_tuple) {\n");
-    try self.emit("inline for (0.._pointed_type_info.@\"struct\".fields.len) |_i| {\n");
-    try self.emitFmt("try _list.append({s}, try runtime.PyValue.fromAlloc({s}, _iterable[_i]));\n", .{ alloc_name, alloc_name });
-    try self.emit("}\n");
-    try self.emit("} else if (_is_string) {\n");
-    // For strings, convert each byte to a single-character slice
-    try self.emit("for (_iterable, 0..) |_, _i| {\n");
-    try self.emitFmt("try _list.append({s}, _iterable[_i.._i+1]);\n", .{alloc_name});
-    try self.emit("}\n");
-    try self.emit("} else {\n");
-    try self.emit("const _slice = if (_pointed_type_info == .@\"struct\" and @hasField(if (_is_ptr) _type_info.pointer.child else _IterType, \"items\")) _iterable.items else _iterable;\n");
-    try self.emit("for (_slice) |_item| {\n");
-    try self.emitFmt("try _list.append({s}, _item);\n", .{alloc_name});
-    try self.emit("}\n");
-    try self.emit("}\n");
-    try self.emitFmt("break :list_blk_{d} _list;\n", .{list_label});
-    try self.emit("}\n");
-    try self.emit("}\n");
-    try self.emit("}\n");
-    try self.emit("}");
+
+    // Note: tuple literals are handled above by AST check (args[0] == .tuple)
+    // If we get here with a tuple type, it's from a variable/call, which we
+    // can handle via generic iteration (tuples implement iterator protocol)
+
+    // Fast path: string type - use runtime.listFromString
+    if (string_traits.isString(arg_type)) {
+        try self.emitFmt("runtime.listFromString({s}, ", .{alloc_name});
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
+
+    // Fast path: dict type - iterate keys using NativeList
+    if (container_traits.isDict(arg_type) or is_dict_attr) {
+        const list_label = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("list_blk_{d}: {{\n", .{list_label});
+        if (is_dict_attr) {
+            try self.emit("const _dict = @constCast(&");
+            try self.genExpr(args[0]);
+            try self.emit(");\n");
+        } else {
+            try self.emit("const _dict = ");
+            try self.genExpr(args[0]);
+            try self.emit(";\n");
+        }
+        try self.emit("var _list = runtime.NativeList.init();\n");
+        try self.emit("for (_dict.keys()) |_key| {\n");
+        try self.emitFmt("try _list.appendString({s}, _key);\n", .{alloc_name});
+        try self.emit("}\n");
+        try self.emitFmt("break :list_blk_{d} _list;\n", .{list_label});
+        try self.emit("}");
+        return;
+    }
+
+    // Fast path: array/slice type with known element type using NativeList
+    const elem_type = container_traits.getElementType(arg_type);
+    if (elem_type != .unknown) {
+        const list_label = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("list_blk_{d}: {{\n", .{list_label});
+        try self.emit("const _iterable = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+        // Use typed append method based on element type (avoids anytype monomorphization)
+        const append_method = getAppendMethodForType(elem_type);
+        try self.emit("var _list = runtime.NativeList.init();\n");
+        try self.emit("for (_iterable) |_item| {\n");
+        try self.emitFmt("try _list.{s}({s}, _item);\n", .{ append_method, alloc_name });
+        try self.emit("}\n");
+        try self.emitFmt("break :list_blk_{d} _list;\n", .{list_label});
+        try self.emit("}");
+        return;
+    }
+
+    // Fallback: generic runtime conversion (compact version)
+    // Only generate the full type-checking code when we truly can't infer the type
+    try self.emitFmt("runtime.listFromAny({s}, ", .{alloc_name});
+    try self.genExpr(args[0]);
+    try self.emit(")");
 }
 
 /// Generate code for tuple(iterable)

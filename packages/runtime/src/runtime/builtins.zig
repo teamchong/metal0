@@ -966,11 +966,13 @@ pub fn len(obj: anytype) usize {
             return obj.len;
         }
     } else if (@typeInfo(T) == .@"struct") {
-        // Handle struct types like std.ArrayListUnmanaged directly (not pointer)
-        if (@hasField(T, "items")) {
-            return obj.items.len;
-        } else if (@hasDecl(T, "len")) {
+        // Handle struct types directly (not pointer)
+        // Check for len() method first (NativeList has one)
+        if (@hasDecl(T, "len")) {
             return obj.len();
+        } else if (@hasField(T, "items")) {
+            // Fallback for raw ArrayListUnmanaged access
+            return obj.items.len;
         }
     } else if (@typeInfo(T) == .array) {
         return @typeInfo(T).array.len;

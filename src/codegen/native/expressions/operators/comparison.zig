@@ -766,10 +766,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // Check if operand is a slice subscript (e.g., a[1:3]) - these return []T directly, not ArrayList
             const left_is_slice_subscript = current_left == .subscript and current_left.subscript.slice == .slice;
             const right_is_slice_subscript = compare.comparators[i] == .subscript and compare.comparators[i].subscript.slice == .slice;
+            // Check if operand's type is a slice type (e.g., []const T from previous slice assignment)
+            const left_is_slice_type = current_left_type == .slice or current_left_type == .usize_slice;
+            const right_is_slice_type = right_type == .slice or right_type == .usize_slice;
             const left_is_array = ((left_is_literal and !left_is_empty_list and collections.isComptimeConstant(current_left)) or
-                type_traits.isArray(current_left_type) or left_is_slice_subscript) and !left_is_arraylist_var;
+                type_traits.isArray(current_left_type) or left_is_slice_subscript or left_is_slice_type) and !left_is_arraylist_var;
             const right_is_array = (right_is_literal and !right_is_empty_list and collections.isComptimeConstant(compare.comparators[i])) or
-                type_traits.isArray(right_type) or right_is_slice_subscript;
+                type_traits.isArray(right_type) or right_is_slice_subscript or right_is_slice_type;
 
             // Special case: when comparing with an empty list literal, just check length == 0
             // This avoids type mismatch issues when comparing function results (e.g. list([])) with []
@@ -874,11 +877,11 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try genExpr(self, current_left);
                 try self.emit(").items");
             } else {
-                // ArrayList variable or call returning ArrayList: use .items
-                // Wrap in parens to handle inline struct literals like std.ArrayListUnmanaged(i64){}
-                try self.emit("(");
+                // ArrayList variable or call returning ArrayList OR slice variable
+                // Use comptime check: if struct with .items field -> ArrayList, else slice/array
+                try self.emit("(blk_cmp_l: { const __v = ");
                 try genExpr(self, current_left);
-                try self.emit(").items");
+                try self.emit("; const __T = @typeInfo(@TypeOf(__v)); break :blk_cmp_l if (__T == .@\"struct\" and @hasField(@TypeOf(__v), \"items\")) __v.items else __v; })");
             }
             try self.emit(", ");
 
@@ -897,11 +900,11 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try genExpr(self, compare.comparators[i]);
                 try self.emit(").items");
             } else {
-                // ArrayList variable or call returning ArrayList: use .items
-                // Wrap in parens to handle inline struct literals like std.ArrayListUnmanaged(i64){}
-                try self.emit("(");
+                // ArrayList variable or call returning ArrayList OR slice variable
+                // Use comptime check: if struct with .items field -> ArrayList, else slice/array
+                try self.emit("(blk_cmp_r: { const __v = ");
                 try genExpr(self, compare.comparators[i]);
-                try self.emit(").items");
+                try self.emit("; const __T = @typeInfo(@TypeOf(__v)); break :blk_cmp_r if (__T == .@\"struct\" and @hasField(@TypeOf(__v), \"items\")) __v.items else __v; })");
             }
             try self.emit(")");
             }

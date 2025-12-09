@@ -692,15 +692,19 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // For unknown types, try to create an iterator at runtime
+    // For unknown types, return the underlying iterable directly
     // This handles cases where the type can't be inferred at compile time
+    // Note: iter() in for-loops just returns the iterable; Zig's for can iterate it
+    // For explicit next() usage, users should use while loops with .next() calls
     try self.emit("iter_blk: { const _iterable = ");
     try self.genExpr(args[0]);
     try self.emit("; const _iter_type = @typeInfo(@TypeOf(_iterable)); ");
-    try self.emit("break :iter_blk if (_iter_type == .pointer and _iter_type.pointer.size == .slice) ");
-    try self.emit("runtime.iterators.SequenceIterator(@typeInfo(_iter_type.pointer.child).array.child).init(_iterable) ");
-    try self.emit("else if (_iter_type == .array) ");
-    try self.emit("runtime.iterators.SequenceIterator(_iter_type.array.child).init(&_iterable) ");
+    // Return slice directly for for-loop compatibility
+    try self.emit("break :iter_blk if (_iter_type == .pointer and _iter_type.pointer.size == .slice) _iterable ");
+    // Return pointer to array for arrays
+    try self.emit("else if (_iter_type == .array) &_iterable ");
+    // For ArrayListUnmanaged (struct with items field), return .items slice
+    try self.emit("else if (_iter_type == .@\"struct\" and @hasField(@TypeOf(_iterable), \"items\")) _iterable.items ");
     try self.emit("else _iterable; }");
 }
 
