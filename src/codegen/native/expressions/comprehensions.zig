@@ -770,9 +770,90 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     try self.emit(try std.fmt.allocPrint(self.allocator, "(comp_{d}: {{\n", .{label_id}));
     self.indent();
 
+    // Check if element is a lambda - requires special handling for closure type
+    // We need to define the closure type ONCE before the loop, then instantiate in the loop
+    var lambda_closure_type_name: ?[]const u8 = null;
+    var lambda_capture_var_name: ?[]const u8 = null;
+    var lambda_capture_field_name: ?[]const u8 = null;  // The struct field name in closure
+
+    if (listcomp.elt.* == .lambda) {
+        const lambda = listcomp.elt.lambda;
+
+        // For lambdas that capture loop variables, generate:
+        // 1. Capture struct type
+        // 2. Implementation function
+        // 3. Closure type using runtime.Closure0
+        //
+        // Two patterns:
+        // 1. (lambda i=i: i) - default param captures value
+        // 2. (lambda: i) - body references outer scope variable
+
+        // Check if first generator target is referenced in lambda body
+        if (listcomp.generators.len > 0) {
+            const first_gen = listcomp.generators[0];
+            if (first_gen.target.* == .name) {
+                const orig_var = first_gen.target.name.id;
+
+                // Check if this variable is used in the lambda (either default or body)
+                var is_captured = false;
+                var capture_name: []const u8 = orig_var;
+
+                // Check default params (lambda i=i: i)
+                if (lambda.args.len > 0 and lambda.args[0].default != null) {
+                    is_captured = true;
+                    capture_name = lambda.args[0].name;
+                }
+
+                // Check body for reference to loop variable (lambda: i)
+                if (!is_captured and lambda.body.* == .name) {
+                    if (std.mem.eql(u8, lambda.body.name.id, orig_var)) {
+                        is_captured = true;
+                    }
+                }
+
+                if (is_captured) {
+                    const mangled_var = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ orig_var, comp_id });
+
+                    // Pre-add to var_renames so lambda body generation can reference it
+                    try subs.put(orig_var, mangled_var);
+                    try self.var_renames.put(orig_var, mangled_var);
+
+                    lambda_capture_var_name = mangled_var;
+                    lambda_capture_field_name = capture_name;  // Store for element generation
+
+                    // Generate closure type definitions
+                    const closure_type_name = try std.fmt.allocPrint(self.allocator, "__ClosureType_{d}", .{label_id});
+                    lambda_closure_type_name = closure_type_name;
+
+                    // Generate: const __CaptureType_N = struct { <capture_name>: i64 };
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("const __CaptureType_{d} = struct {{ ", .{label_id});
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), capture_name);
+                    try self.emit(": i64 };\n");
+
+                    // Generate impl function wrapped in struct (can't have bare fn in block)
+                    // const __ClosureImpl_N = struct { fn call(__cap: __CaptureType_N) i64 { return __cap.<capture_name>; } };
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("const __ClosureImpl_{d} = struct {{ fn call(__cap: __CaptureType_{d}) i64 {{ return __cap.", .{ label_id, label_id });
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), capture_name);
+                    try self.emit("; } };\n");
+
+                    // Generate: const __ClosureType_N = runtime.Closure0(__CaptureType_N, i64, __ClosureImpl_N.call);
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("const {s} = runtime.Closure0(__CaptureType_{d}, i64, __ClosureImpl_{d}.call);\n", .{ closure_type_name, label_id, label_id });
+                }
+            }
+        }
+    }
+
     // Determine element type from the expression
     // For tuple elements, we need to generate a struct type dynamically
     const element_type: []const u8 = blk: {
+        // Check if we already have a lambda closure type
+        if (lambda_closure_type_name) |closure_type| {
+            break :blk closure_type;
+        }
+
         // Only access .tuple if it's actually a tuple AST node
         if (listcomp.elt.* == .tuple) {
             // Tuple element like (a,) - need to infer types of each element
@@ -997,7 +1078,16 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     // Generate: try __comp_result_N.append(__global_allocator, <elt_expr>);
     try self.emitIndent();
     try self.output.writer(self.allocator).print("try __comp_result_{d}.append(__global_allocator, ", .{label_id});
-    try genExprWithSubs(self, listcomp.elt.*, &subs);
+
+    // For lambda elements with pre-defined closure type, generate instantiation
+    if (lambda_closure_type_name != null and lambda_capture_var_name != null and lambda_capture_field_name != null) {
+        // Generate: __ClosureType_N{ .captures = .{ .i = __comp_i_N } }
+        try self.output.writer(self.allocator).print("{s}{{ .captures = .{{ .", .{lambda_closure_type_name.?});
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), lambda_capture_field_name.?);
+        try self.output.writer(self.allocator).print(" = {s} }} }}", .{lambda_capture_var_name.?});
+    } else {
+        try genExprWithSubs(self, listcomp.elt.*, &subs);
+    }
     try self.emit(");\n");
 
     // Close all if conditions and for loops
