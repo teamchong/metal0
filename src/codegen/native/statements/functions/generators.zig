@@ -104,6 +104,44 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     self.clearDeferredClosureInstantiations();
     try body.analyzeNestedClassCaptures(self, func);
 
+    // Set up parameter renames BEFORE signature generation
+    // These will be used by BOTH signature and body generation for consistency
+    // Clear old renames first to prevent cross-function pollution
+    self.var_renames.clearRetainingCapacity();
+    for (func.args) |arg| {
+        const shadows_module_level = self.module_level_funcs.contains(arg.name) or
+            self.module_level_vars.contains(arg.name) or
+            self.imported_modules.contains(arg.name) or
+            zig_keywords.wouldShadowModule(arg.name);
+
+        // Check if parameter shadows a sibling method or class-level attribute
+        const shadows_class_member = if (self.current_class_body) |class_body| blk: {
+            for (class_body) |stmt| {
+                if (stmt == .function_def) {
+                    if (std.mem.eql(u8, stmt.function_def.name, arg.name)) {
+                        break :blk true;
+                    }
+                }
+                if (stmt == .assign) {
+                    for (stmt.assign.targets) |target| {
+                        if (target == .name) {
+                            if (std.mem.eql(u8, target.name.id, arg.name)) {
+                                break :blk true;
+                            }
+                        }
+                    }
+                }
+            }
+            break :blk false;
+        } else false;
+
+        if (shadows_module_level or shadows_class_member) {
+            // Use NameGen to generate unique name
+            const unique_name = try self.name_gen.param(arg.name);
+            try self.var_renames.put(arg.name, unique_name);
+        }
+    }
+
     // Generate function signature
     try signature.genFunctionSignature(self, func, needs_allocator);
 
@@ -133,6 +171,10 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     // Clear global vars after function exits (they're function-scoped)
     self.clearGlobalVars();
+
+    // Clear var_renames after function exits to prevent leaking into module-level code
+    // (e.g., parameter `a` renamed to `__m0_p_a` should not affect module-level `a = 10`)
+    self.var_renames.clearRetainingCapacity();
 
     // Reset control flow termination flag after function exits
     // This is critical: a raise/return inside the function body should not

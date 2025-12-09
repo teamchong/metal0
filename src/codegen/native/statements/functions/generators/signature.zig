@@ -598,11 +598,12 @@ pub fn genFunctionSignature(
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
 
-        // Check if parameter name shadows a module-level function or imported module
+        // Check if parameter name shadows a module-level function, variable, or imported module
         // If so, we need to rename it to avoid Zig shadowing errors
         // Also check zig_keywords.wouldShadowModule for common Python stdlib modules that
         // get aliased at module level (e.g., `const types = std;`)
-        const shadows_module_func = self.module_level_funcs.contains(arg.name) or
+        const shadows_module_level = self.module_level_funcs.contains(arg.name) or
+            self.module_level_vars.contains(arg.name) or
             self.imported_modules.contains(arg.name) or
             zig_keywords.wouldShadowModule(arg.name);
 
@@ -639,7 +640,7 @@ pub fn genFunctionSignature(
         // For generators, always mark params as used since yield body isn't properly generated
         const is_used_directly = if (is_generator) true else param_analyzer.isNameUsedInBody(func.body, arg.name);
         const is_captured = self.isVarCapturedByAnyNestedClass(arg.name);
-        const is_used = is_used_directly or is_captured or shadows_module_func or shadows_class_member;
+        const is_used = is_used_directly or is_captured or shadows_module_level or shadows_class_member;
 
         // For unused parameters, use "_" (anonymous) instead of "_name" in Zig 0.15+
         // "_name" still triggers unused warnings - only "_" fully ignores
@@ -647,14 +648,12 @@ pub fn genFunctionSignature(
             try self.emit("_: ");
             // Skip straight to type - no name, no suffix
         } else {
-            // Add suffix for parameters that shadow module-level functions, imported modules, or class members
-            // When adding suffix, don't use escaped form (@"name") because @"name"__local is invalid
-            // Instead use: name__local (suffix makes it a valid non-keyword identifier)
-            if (shadows_module_func or shadows_class_member) {
-                try self.emit(arg.name);
-                try self.emit("__local");
+            // Check if this parameter was renamed (set up in generators.zig before signature generation)
+            // This ensures signature and body use the same renamed parameter name
+            if (self.var_renames.get(arg.name)) |renamed| {
+                try self.emit(renamed);
             } else {
-                // Only escape reserved keywords if we're NOT adding a suffix
+                // Only escape reserved keywords if we're NOT renaming
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
             }
 

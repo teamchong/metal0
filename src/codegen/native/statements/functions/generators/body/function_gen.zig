@@ -448,47 +448,11 @@ pub fn genFunctionBody(
     self.hoisted_dynamic_closures.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
     self.class_instance_aliases.clearRetainingCapacity();
-    // Clear variable renames from previous functions to avoid cross-function pollution
-    // (e.g., gcd's a->a__mut rename shouldn't affect test_constructor's local var 'a')
-    self.var_renames.clearRetainingCapacity();
+    // NOTE: var_renames is NOT cleared here anymore.
+    // Parameter renames are set up in generators.zig BEFORE signature generation,
+    // so both signature and body use the same renamed names.
     // Track function start position for scope-limited variable usage detection
     self.function_start_pos = self.output.items.len;
-
-    // Register parameter renames for parameters that shadow module-level functions
-    // or sibling class methods
-    // This must happen AFTER the clear and BEFORE body generation
-    for (func.args) |arg| {
-        const shadows_module = self.module_level_funcs.contains(arg.name);
-
-        // Check if parameter shadows a sibling method in the class
-        const shadows_class_method = if (self.current_class_body) |class_body| blk: {
-            for (class_body) |stmt| {
-                if (stmt == .function_def) {
-                    if (std.mem.eql(u8, stmt.function_def.name, arg.name)) {
-                        break :blk true;
-                    }
-                }
-                // Check class attributes assigned to None - these become stub methods
-                if (stmt == .assign) {
-                    for (stmt.assign.targets) |target| {
-                        if (target == .name and stmt.assign.value.* == .constant and
-                            stmt.assign.value.constant.value == .none)
-                        {
-                            if (std.mem.eql(u8, target.name.id, arg.name)) {
-                                break :blk true;
-                            }
-                        }
-                    }
-                }
-            }
-            break :blk false;
-        } else false;
-
-        if (shadows_module or shadows_class_method) {
-            const renamed = try std.fmt.allocPrint(self.allocator, "{s}__local", .{arg.name});
-            try self.var_renames.put(arg.name, renamed);
-        }
-    }
 
     try mutation_analysis.analyzeFunctionLocalMutations(self, func);
 
@@ -630,15 +594,19 @@ pub fn genFunctionBody(
                 continue;
             }
 
-            // Create a mutable copy of the parameter
+            // Get the actual parameter name in generated code (may have been renamed by signature.zig)
+            const actual_param_name = self.var_renames.get(arg.name) orelse arg.name;
+
+            // Create a mutable copy of the parameter using NameGen for unique naming
+            const mut_name = try self.name_gen.mutable(arg.name);
             try self.emitIndent();
             try self.emit("var ");
-            try self.emit(arg.name);
-            try self.emit("__mut = ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            try self.emit(mut_name);
+            try self.emit(" = ");
+            try self.emit(actual_param_name);
             try self.emit(";\n");
             // Rename all references to use the mutable copy
-            try self.var_renames.put(arg.name, try std.fmt.allocPrint(self.allocator, "{s}__mut", .{arg.name}));
+            try self.var_renames.put(arg.name, mut_name);
         }
     }
 

@@ -17,6 +17,7 @@ const import_registry = @import("../import_registry.zig");
 const fnv_hash = @import("utils.fnv_hash");
 const cleanup = @import("cleanup.zig");
 const debug_info = @import("debug.debug_info");
+const name_gen_mod = @import("codegen.name_gen");
 
 const hashmap_helper = @import("utils.hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
@@ -636,6 +637,11 @@ pub const NativeCodegen = struct {
     keyword_raise_count: u32,
     keyword_assert_count: u32,
 
+    // Unified name generator for conflict-free naming
+    // All generated names use _$prefix which is impossible in Python source
+    // This eliminates the need for shadowing detection entirely
+    name_gen: name_gen_mod.NameGen,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         const self = try allocator.create(NativeCodegen);
 
@@ -795,6 +801,7 @@ pub const NativeCodegen = struct {
             .token_lines = null,
             .keyword_raise_count = 0,
             .keyword_assert_count = 0,
+            .name_gen = name_gen_mod.init(allocator),
         };
         return self;
     }
@@ -1358,9 +1365,10 @@ pub const NativeCodegen = struct {
     /// Clear local variable types (call when entering a new function/method)
     pub fn clearLocalVarTypes(self: *NativeCodegen) void {
         self.local_var_types.clearRetainingCapacity();
-        // Also clear var_renames - these are function-local shadow renames
-        // (e.g., rslices -> __local_rslices_1 inside a function that has local `rslices = [0]*ndim`)
-        self.var_renames.clearRetainingCapacity();
+        // NOTE: We no longer clear var_renames here.
+        // Parameter renames are set up in generators.zig BEFORE signature generation
+        // and must persist through to body generation. The clear happens at the start
+        // of each function in generators.zig, not here.
     }
 
     /// Check if a variable is mutated (reassigned after first assignment)

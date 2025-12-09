@@ -43,6 +43,10 @@ pub fn build(b: *std.Build) void {
     const zig_keywords = b.addModule("utils.zig_keywords", .{
         .root_source_file = b.path("src/utils/zig_keywords.zig"),
     });
+    const name_gen = b.addModule("codegen.name_gen", .{
+        .root_source_file = b.path("src/codegen/native/name_gen.zig"),
+    });
+    name_gen.addImport("utils.zig_keywords", zig_keywords);
     const ast = b.addModule("analysis.ast", .{
         .root_source_file = b.path("src/ast.zig"),
     });
@@ -205,6 +209,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("collections", collections);
     exe.root_module.addImport("utils.fnv_hash", fnv_hash);
     exe.root_module.addImport("utils.zig_keywords", zig_keywords);
+    exe.root_module.addImport("codegen.name_gen", name_gen);
     exe.root_module.addImport("analysis.ast", ast);
     // lexer and parser are imported via relative paths from src/
     exe.root_module.addImport("c_interop", c_interop_mod);
