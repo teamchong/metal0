@@ -82,8 +82,8 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 try self.var_renames.put(var_name, prefixed_name);
             }
 
-            // Use renamed version if in var_renames map (for exception handling)
-            const actual_name = self.var_renames.get(var_name) orelse var_name;
+            // Use renamed version for declarations (filters out lazy attribute patterns)
+            const actual_name = self.getVarDeclName(var_name);
 
             // Check if renamed name is a pointer dereference (ends with ".*")
             // If so, this is a pointer assignment inside a try block helper - no const/var prefix needed
@@ -268,8 +268,8 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 try self.type_inferrer.var_types.put(var_name, source_type.array.element_type.*);
             }
 
-            // Use renamed version if in var_renames map (for exception handling)
-            const actual_name = self.var_renames.get(var_name) orelse var_name;
+            // Use renamed version for declarations (filters out lazy attribute patterns)
+            const actual_name = self.getVarDeclName(var_name);
 
             // Check if renamed name is a pointer dereference (ends with ".*")
             // If so, this is a pointer assignment inside a try block helper - no const/var prefix needed
