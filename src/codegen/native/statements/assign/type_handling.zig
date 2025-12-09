@@ -83,7 +83,6 @@ pub fn isArrayList(self: *NativeCodegen, assign: ast.Node.Assign, var_name: []co
     }
 
     if (assign.value.* != .list) return false;
-    const list = assign.value.list;
 
     // Check if variable has explicit list[T] type annotation
     // Type annotations take priority over value inference
@@ -94,18 +93,12 @@ pub fn isArrayList(self: *NativeCodegen, assign: ast.Node.Assign, var_name: []co
         }
     }
 
-    // Non-constant lists always become ArrayList
-    if (!isConstantList(list) or !allSameType(list.elts)) return true;
-
-    // Constant lists that will be mutated become ArrayList
-    if (self.mutation_info) |mutations| {
-        const mutation_analyzer = @import("../../../../analysis/native_types/mutation_analyzer.zig");
-        if (mutation_analyzer.hasListMutation(mutations.*, var_name)) {
-            return true; // Will be mutated -> ArrayList
-        }
-    }
-
-    return false; // Constant, homogeneous, not mutated -> fixed array
+    // All list literals become ArrayList for consistency with type inference
+    // Type inference always returns .list (not .array) for list literals,
+    // so codegen must also produce ArrayList to match.
+    // The array optimization is now only used for truly immutable contexts like
+    // function call arguments where the list is consumed immediately.
+    return true;
 }
 
 /// Check if value allocates memory (string operations, sorted, etc.)

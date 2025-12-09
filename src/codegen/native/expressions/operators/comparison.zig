@@ -238,8 +238,10 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         // Handle 'in' operator for lists
         else if (op == .In or op == .NotIn) {
             // Check for ArrayList: type == .list OR tracked as ArrayList variable via isArrayListVar
+            // BUT: also verify right_type is list/array, not dict (since arraylist_vars may have stale entries)
             const right_is_arraylist_var = compare.comparators[i] == .name and
-                self.isArrayListVar(compare.comparators[i].name.id);
+                self.isArrayListVar(compare.comparators[i].name.id) and
+                (container_traits.isList(right_type) or type_traits.isArray(right_type) or type_traits.isUnknown(right_type));
             if (container_traits.isList(right_type) or right_is_arraylist_var) {
                 // List membership check using runtime.pyContains for Python semantics
                 // Handles NaN identity: NaN in [NaN] == True
@@ -269,7 +271,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try genExpr(self, current_left); // item to search for
                     try self.emit("); })");
                 } else {
-                    // For variables, .items access works directly
+                    // For variables, .items access needed for ArrayList, but not for arrays
                     if (op == .In) {
                         try self.emit("(runtime.pyContains(");
                     } else {
@@ -277,8 +279,17 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     }
                     try self.emit(type_str);
                     try self.emit(", ");
-                    try genExpr(self, compare.comparators[i]); // list variable
-                    try self.emit(".items, ");
+                    // Check if the container is an array type (no .items) vs ArrayList (.items needed)
+                    const needs_items_access = container_traits.isList(right_type) or right_is_arraylist_var;
+                    if (needs_items_access) {
+                        try genExpr(self, compare.comparators[i]); // list variable
+                        try self.emit(".items, ");
+                    } else {
+                        // Array type - use &arr to get slice
+                        try self.emit("&");
+                        try genExpr(self, compare.comparators[i]); // array variable
+                        try self.emit(", ");
+                    }
                     try genExpr(self, current_left); // item to search for
                     try self.emit("))");
                 }

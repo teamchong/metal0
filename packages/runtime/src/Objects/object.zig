@@ -81,6 +81,7 @@ pub const PyValue = union(enum) {
             .int => |v| v != 0,
             .float => |v| v != 0.0,
             .string => |v| v.len > 0,
+            .bytes => |v| v.data.len > 0,
             .none => false,
             .list => |v| v.len > 0,
             .tuple => |v| v.len > 0,

@@ -92,7 +92,7 @@ pub const DynamicClosure = struct {
 /// Returns a if truthy, else b (as PyValue)
 pub fn pyOr(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
     const a_val = try toPyValue(allocator, a);
-    if (pyTruthy(a_val)) {
+    if (a_val.isTruthy()) {
         return a_val;
     }
     return try toPyValue(allocator, b);
@@ -102,7 +102,7 @@ pub fn pyOr(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
 /// Returns a if falsy, else b (as PyValue)
 pub fn pyAnd(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
     const a_val = try toPyValue(allocator, a);
-    if (!pyTruthy(a_val)) {
+    if (!a_val.isTruthy()) {
         return a_val;
     }
     return try toPyValue(allocator, b);
