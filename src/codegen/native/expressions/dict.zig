@@ -218,6 +218,11 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emitIndent();
 
     // Generate comptime tuple of key-value pairs
+    // Track that we're inside a dict for proper nested list generation
+    // Dict values should generate as ArrayList, not fixed arrays
+    self.inside_list_depth += 1;
+    defer self.inside_list_depth -= 1;
+
     try self.emit("const _kvs = .{\n");
     self.indent();
     for (dict.keys, dict.values) |key, value| {
@@ -416,6 +421,11 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
             }
         }
     }
+
+    // Track that we're inside a dict for proper nested list generation
+    // Dict values should generate as ArrayList, not fixed arrays
+    self.inside_list_depth += 1;
+    defer self.inside_list_depth -= 1;
 
     // Add all key-value pairs
     for (dict.keys, dict.values) |key, value| {
