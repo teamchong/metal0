@@ -172,6 +172,14 @@ pub const BigInt = struct {
         return self.compare(other) == 0;
     }
 
+    /// Check equality with i64 (Python int semantics)
+    /// Returns true if BigInt value equals the i64 value
+    pub fn eqlInt(self: *const Self, other: i64) bool {
+        // Try to convert BigInt to i64 - if it fails, they can't be equal
+        const self_as_i64 = self.toInt64() orelse return false;
+        return self_as_i64 == other;
+    }
+
     /// Check if zero
     pub fn isZero(self: *const Self) bool {
         return self.managed.eqlZero();

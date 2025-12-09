@@ -433,15 +433,25 @@ pub const PyValue = union(enum) {
             };
         }
 
-        // Python numeric coercion: bool < int < float < complex
+        // Python numeric coercion: bool < int < float < complex < bigint
         // Convert both to the "higher" type and compare
 
+        // Special case: BigInt vs int - compare as BigInt for precision
+        if (self_tag == .bigint and other_tag == .int) {
+            return self.bigint.eqlInt(other.int);
+        }
+        if (self_tag == .int and other_tag == .bigint) {
+            return other.bigint.eqlInt(self.int);
+        }
+
         // Helper to get numeric value as complex (real, imag)
+        // NOTE: BigInt.toFloat() may lose precision for very large numbers
         const self_num: ?struct { real: f64, imag: f64 } = switch (self) {
             .bool => |v| .{ .real = if (v) 1.0 else 0.0, .imag = 0.0 },
             .int => |v| .{ .real = @floatFromInt(v), .imag = 0.0 },
             .float => |v| .{ .real = v, .imag = 0.0 },
             .complex => |v| .{ .real = v.real, .imag = v.imag },
+            .bigint => |v| .{ .real = v.toFloat(), .imag = 0.0 },
             else => null,
         };
 
@@ -450,6 +460,7 @@ pub const PyValue = union(enum) {
             .int => |v| .{ .real = @floatFromInt(v), .imag = 0.0 },
             .float => |v| .{ .real = v, .imag = 0.0 },
             .complex => |v| .{ .real = v.real, .imag = v.imag },
+            .bigint => |v| .{ .real = v.toFloat(), .imag = 0.0 },
             else => null,
         };
 
@@ -471,6 +482,7 @@ pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
 
     // Direct matches
     if (T == PyValue) return value;
+    if (T == bigint.BigInt) return .{ .bigint = value };
     if (T == i64 or T == i32 or T == i16 or T == i8) return .{ .int = @intCast(value) };
     if (T == u64 or T == u32 or T == u16 or T == u8 or T == usize) return .{ .int = @intCast(value) };
     if (T == f64 or T == f32) return .{ .float = @floatCast(value) };
@@ -517,6 +529,15 @@ pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
     // String slices
     if (T == []const u8) return .{ .string = value };
     if (T == []u8) return .{ .string = value };
+
+    // String literals: *const [N:0]u8 - pointer to null-terminated array
+    if (info == .pointer and info.pointer.size == .one) {
+        const child_info = @typeInfo(info.pointer.child);
+        if (child_info == .array and child_info.array.child == u8) {
+            // Convert *const [N]u8 or *const [N:0]u8 to []const u8
+            return .{ .string = value[0..child_info.array.len] };
+        }
+    }
 
     // Fixed arrays of u8 (strings)
     if (info == .array and info.array.child == u8) {

@@ -2396,39 +2396,11 @@ pub fn classInstanceNe(a: anytype, b: anytype, allocator: std.mem.Allocator) boo
     return !classInstanceEq(a, b, allocator);
 }
 
-/// Generic assertEqual helper that tries classInstanceEq first, then PyValue fallback
+/// Generic assertEqual helper - delegates to pyEqual for comprehensive handling
 /// This handles cases where type inference fails but the actual value has __eq__
+/// NOTE: This is now a wrapper around pyEqual for backwards compatibility
 pub fn assertEqualGeneric(a: anytype, b: anytype, allocator: std.mem.Allocator) !bool {
-    const TypeA = @TypeOf(a);
-    const TypeB = @TypeOf(b);
-    const info_a = @typeInfo(TypeA);
-    const info_b = @typeInfo(TypeB);
-
-    // Check if either type has __eq__ at comptime
-    const a_has_eq = info_a == .@"struct" and @hasDecl(TypeA, "__eq__");
-    const b_has_eq = info_b == .@"struct" and @hasDecl(TypeB, "__eq__");
-
-    // Check if either is a pointer to a struct with __eq__
-    const a_ptr_has_eq = info_a == .pointer and info_a.pointer.size == .one and
-        @typeInfo(info_a.pointer.child) == .@"struct" and @hasDecl(info_a.pointer.child, "__eq__");
-    const b_ptr_has_eq = info_b == .pointer and info_b.pointer.size == .one and
-        @typeInfo(info_b.pointer.child) == .@"struct" and @hasDecl(info_b.pointer.child, "__eq__");
-
-    if (a_has_eq or a_ptr_has_eq) {
-        // Left has __eq__ - use it
-        return classInstanceEq(a, b, allocator);
-    }
-
-    if (b_has_eq or b_ptr_has_eq) {
-        // Right has __eq__ - swap and use it (reflected comparison)
-        return classInstanceEq(b, a, allocator);
-    }
-
-    // Neither has __eq__, fall back to PyValue comparison
-    const object = @import("../Objects/object.zig");
-    const a_val = try object.toPyValue(allocator, a);
-    const b_val = try object.toPyValue(allocator, b);
-    return a_val.eql(b_val);
+    return pyEqual(allocator, a, b);
 }
 
 /// Universal Python-semantic equality comparison
@@ -2450,9 +2422,16 @@ pub fn pyEqual(allocator: std.mem.Allocator, a: anytype, b: anytype) !bool {
     // === SAME TYPE FAST PATH ===
     // If exact same type, use direct comparison (except for structs which may need element-wise)
     if (TypeA == TypeB) {
+        // Special case: floats use bit-level comparison for NaN identity (Python container semantics)
+        // In Python, [nan] == [nan] returns True when nan is the same object
+        if (TypeA == f64) {
+            return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
+        }
+        if (TypeA == f32) {
+            return @as(u32, @bitCast(a)) == @as(u32, @bitCast(b));
+        }
         if (info_a == .int or info_a == .comptime_int or
-            info_a == .float or info_a == .comptime_float or
-            info_a == .bool)
+            info_a == .comptime_float or info_a == .bool)
         {
             return a == b;
         }
@@ -2485,23 +2464,40 @@ pub fn pyEqual(allocator: std.mem.Allocator, a: anytype, b: anytype) !bool {
         }
     }
 
+    // === BUILTIN SUBCLASS HANDLING ===
+    // Classes that inherit from builtin types (float, int, str) have __base_value__
+    // Extract the base value and compare with Python semantics
+    // This handles FloatSubclass(42.0) == 42.0
+    if (info_a == .@"struct" and @hasField(TypeA, "__base_value__")) {
+        return pyEqual(allocator, a.__base_value__, b);
+    }
+    if (info_b == .@"struct" and @hasField(TypeB, "__base_value__")) {
+        return pyEqual(allocator, a, b.__base_value__);
+    }
+
     // === TUPLE/STRUCT ELEMENT-WISE COMPARISON ===
     // For anonymous structs (tuples), compare element by element with pyEqual
     // This handles (BigInt, BigInt) == (i64, i64) by recursively comparing elements
+    // Only apply to anonymous structs (no __name__), not Python classes
     if (info_a == .@"struct" and info_b == .@"struct") {
-        const fields_a = info_a.@"struct".fields;
-        const fields_b = info_b.@"struct".fields;
+        // Skip if either is a Python class (has __name__)
+        const a_is_class = @hasDecl(TypeA, "__name__");
+        const b_is_class = @hasDecl(TypeB, "__name__");
+        if (!a_is_class and !b_is_class) {
+            const fields_a = info_a.@"struct".fields;
+            const fields_b = info_b.@"struct".fields;
 
-        // Must have same number of fields
-        if (fields_a.len != fields_b.len) return false;
+            // Must have same number of fields
+            if (fields_a.len != fields_b.len) return false;
 
-        // Compare each field using pyEqual (handles type coercion)
-        inline for (fields_a, 0..) |field_a, i| {
-            const a_val = @field(a, field_a.name);
-            const b_val = @field(b, fields_b[i].name);
-            if (!try pyEqual(allocator, a_val, b_val)) return false;
+            // Compare each field using pyEqual (handles type coercion)
+            inline for (fields_a, 0..) |field_a, i| {
+                const a_val = @field(a, field_a.name);
+                const b_val = @field(b, fields_b[i].name);
+                if (!try pyEqual(allocator, a_val, b_val)) return false;
+            }
+            return true;
         }
-        return true;
     }
 
     // === CUSTOM __eq__ METHOD ===

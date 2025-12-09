@@ -452,6 +452,15 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
 
     // Same type: use std.meta.eql (single instantiation per type, not per pair)
     if (A == B) {
+        // Special case: floats need bit-level identity for NaN (Python container semantics)
+        // In Python, [nan] == [nan] returns True when nan is the same object (identity check)
+        // We simulate this by comparing bit patterns - same bits = same identity
+        if (A == f64) {
+            return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
+        }
+        if (A == f32) {
+            return @as(u32, @bitCast(a)) == @as(u32, @bitCast(b));
+        }
         // Special case: slices need std.mem.eql
         if (a_info == .pointer and a_info.pointer.size == .slice) {
             return std.mem.eql(a_info.pointer.child, a, b);
@@ -460,6 +469,16 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         if (a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity")) {
             const ElemT = std.meta.Elem(@TypeOf(a.items));
             return std.mem.eql(ElemT, a.items, b.items);
+        }
+        // Special case: structs (tuples) need element-wise pyAnyEql for NaN handling
+        // std.meta.eql uses == which fails for NaN
+        if (a_info == .@"struct") {
+            inline for (a_info.@"struct".fields) |field| {
+                if (!pyAnyEql(@field(a, field.name), @field(b, field.name))) {
+                    return false;
+                }
+            }
+            return true;
         }
         return std.meta.eql(a, b);
     }
