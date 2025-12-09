@@ -54,6 +54,9 @@ pub const tuple_ops = @import("runtime/tuple_ops.zig");
 /// Export copy operations for native codegen (fixes comptime explosion in copy/deepcopy)
 pub const copy_ops = @import("runtime/copy_ops.zig");
 
+/// Export itertools operations for native codegen (fixes comptime explosion in itertools functions)
+pub const itertools_ops = @import("runtime/itertools_ops.zig");
+
 /// Export _string module (formatter_parser, etc.)
 pub const _string = @import("Modules/_string.zig");
 

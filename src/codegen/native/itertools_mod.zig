@@ -159,9 +159,10 @@ fn genStarmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("std.ArrayListUnmanaged(i64){}"); return; }
+    // Use runtime helper to avoid comptime explosion
     try self.emit("compress_blk: { const _data = "); try emitIter(self, args[0]);
     try self.emit("; const _selectors = "); try emitIter(self, args[1]);
-    try self.emit("; var _result = std.ArrayListUnmanaged(@TypeOf(_data[0])){}; const _len = @min(_data.len, _selectors.len); for (0.._len) |i| { if (_selectors[i] != 0) _result.append(__global_allocator, _data[i]) catch continue; } break :compress_blk _result; }");
+    try self.emit("; break :compress_blk (try runtime.itertools_ops.compress(@TypeOf(_data[0]), __global_allocator, _data, _selectors)).items; }");
 }
 
 fn genTee(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -171,8 +172,9 @@ fn genTee(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genPairwise(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayListUnmanaged(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
+    // Use runtime helper to avoid comptime explosion
     try self.emit("pairwise_blk: { const _iter = "); try emitIter(self, args[0]);
-    try self.emit("; var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_iter[0]), @\"1\": @TypeOf(_iter[0]) }){}; if (_iter.len > 1) { for (0.._iter.len - 1) |i| { _result.append(__global_allocator, .{ .@\"0\" = _iter[i], .@\"1\" = _iter[i + 1] }) catch continue; } } break :pairwise_blk _result; }");
+    try self.emit("; break :pairwise_blk (try runtime.itertools_ops.pairwise(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }");
 }
 
 /// itertools.cycle(iterable) - cycle through iterable indefinitely (returns slice for bounded use)
@@ -220,42 +222,32 @@ fn genPermutations(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// itertools.combinations(iterable, r) - r-length combinations
 fn genCombinations(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayListUnmanaged(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
-    // Generate 2-combinations (most common case)
+    // Use runtime helper to avoid comptime explosion
     try self.emit("combs_blk: { const _iter = "); try emitIter(self, args[0]);
-    try self.emit("; var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_iter[0]), @\"1\": @TypeOf(_iter[0]) }){}; ");
-    try self.emit("for (_iter[0.._iter.len -| 1], 0..) |a, i| { for (_iter[i + 1..]) |b| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } } ");
-    try self.emit("break :combs_blk _result; }");
+    try self.emit("; break :combs_blk (try runtime.itertools_ops.combinations(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }");
 }
 
 /// itertools.combinations_with_replacement(iterable, r) - r-length combinations with replacement
 fn genCombinationsWithReplacement(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayListUnmanaged(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
+    // Use runtime helper to avoid comptime explosion
     try self.emit("combswr_blk: { const _iter = "); try emitIter(self, args[0]);
-    try self.emit("; var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_iter[0]), @\"1\": @TypeOf(_iter[0]) }){}; ");
-    try self.emit("for (_iter, 0..) |a, i| { for (_iter[i..]) |b| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } } ");
-    try self.emit("break :combswr_blk _result; }");
+    try self.emit("; break :combswr_blk (try runtime.itertools_ops.combinationsWithReplacement(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }");
 }
 
 /// itertools.groupby(iterable, key=None) - group consecutive equal elements
 fn genGroupby(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayListUnmanaged(struct { key: i64, group: std.ArrayListUnmanaged(i64) }){}"); return; }
+    // Use runtime helper to avoid comptime explosion
     try self.emit("groupby_blk: { const _iter = "); try emitIter(self, args[0]);
-    try self.emit("; var _result = std.ArrayListUnmanaged(struct { key: @TypeOf(_iter[0]), group: std.ArrayListUnmanaged(@TypeOf(_iter[0])) }){}; ");
-    try self.emit("if (_iter.len > 0) { var _cur_key = _iter[0]; var _cur_group = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; ");
-    try self.emit("for (_iter) |item| { if (item == _cur_key) { _cur_group.append(__global_allocator, item) catch continue; } ");
-    try self.emit("else { _result.append(__global_allocator, .{ .key = _cur_key, .group = _cur_group }) catch {}; _cur_key = item; _cur_group = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; _cur_group.append(__global_allocator, item) catch {}; } } ");
-    try self.emit("_result.append(__global_allocator, .{ .key = _cur_key, .group = _cur_group }) catch {}; } ");
-    try self.emit("break :groupby_blk _result; }");
+    try self.emit("; break :groupby_blk (try runtime.itertools_ops.groupby(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }");
 }
 
 /// itertools.batched(iterable, n) - batch iterable into tuples of size n
 fn genBatched(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("std.ArrayListUnmanaged(std.ArrayListUnmanaged(i64)){}"); return; }
+    // Use runtime helper to avoid comptime explosion
     try self.emit("batched_blk: { const _iter = "); try emitIter(self, args[0]);
     try self.emit("; const _n = @as(usize, @intCast("); try self.genExpr(args[1]);
-    try self.emit(")); var _result = std.ArrayListUnmanaged(std.ArrayListUnmanaged(@TypeOf(_iter[0]))){}; ");
-    try self.emit("var _i: usize = 0; while (_i < _iter.len) : (_i += _n) { var _batch = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; ");
-    try self.emit("const _end = @min(_i + _n, _iter.len); for (_iter[_i.._end]) |item| { _batch.append(__global_allocator, item) catch continue; } ");
-    try self.emit("_result.append(__global_allocator, _batch) catch continue; } ");
-    try self.emit("break :batched_blk _result; }");
+    try self.emit(")); break :batched_blk (try runtime.itertools_ops.batched(@TypeOf(_iter[0]), __global_allocator, _iter, _n)).items; }");
 }
