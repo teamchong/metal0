@@ -857,6 +857,7 @@ pub fn toBoolValue(value: PyValue) bool {
         .tuple => |t| t.len > 0,
         .bytes => |b| b.data.len > 0,
         .bigint => |b| !b.isZero(),
+        .complex => |c| c.real != 0.0 or c.imag != 0.0, // 0j is falsy
         .ptr => true, // Pointers are truthy
     };
 }
@@ -939,6 +940,7 @@ pub fn pyToInt(value: anytype) PythonError!i64 {
                 .none => "'NoneType' object cannot be interpreted as an integer",
                 .list => "'list' object cannot be interpreted as an integer",
                 .tuple => "'tuple' object cannot be interpreted as an integer",
+                .complex => "'complex' object cannot be interpreted as an integer",
                 .ptr => "'object' object cannot be interpreted as an integer",
                 .int => "'int' object cannot be interpreted as an integer", // shouldn't happen
                 .bigint => "'int' object cannot be interpreted as an integer", // shouldn't happen - bigint should convert

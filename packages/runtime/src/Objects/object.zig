@@ -15,7 +15,10 @@ pub const PyValue = union(enum) {
     list: []const PyValue,
     tuple: []const PyValue,
     bigint: bigint.BigInt, // For integers that don't fit in i64
+    complex: Complex, // Python complex number
     ptr: *anyopaque, // For types that can't be represented
+
+    pub const Complex = struct { real: f64, imag: f64 };
 
     /// Format value for printing
     pub fn format(
@@ -49,6 +52,13 @@ pub const PyValue = union(enum) {
                 try writer.writeAll(")");
             },
             .bigint => |v| try writer.print("{s}", .{v.toString(std.heap.page_allocator, 10) catch "<bigint>"}),
+            .complex => |v| {
+                if (v.imag >= 0) {
+                    try writer.print("({d}+{d}j)", .{ v.real, v.imag });
+                } else {
+                    try writer.print("({d}{d}j)", .{ v.real, v.imag });
+                }
+            },
             .ptr => try writer.writeAll("<ptr>"),
         }
     }
@@ -86,6 +96,7 @@ pub const PyValue = union(enum) {
             .list => |v| v.len > 0,
             .tuple => |v| v.len > 0,
             .bigint => |v| !v.isZero(),
+            .complex => |v| v.real != 0.0 or v.imag != 0.0, // 0j is falsy
             .ptr => true,
         };
     }
@@ -112,6 +123,7 @@ pub const PyValue = union(enum) {
             .list => "list",
             .tuple => "tuple",
             .bigint => "int",
+            .complex => "complex",
             .ptr => "object",
         };
     }
@@ -346,7 +358,14 @@ pub const PyValue = union(enum) {
             .string => |v| v,
             .bool => |v| if (v) "True" else "False",
             .none => "None",
-            .list, .tuple, .ptr => try std.fmt.allocPrint(allocator, "{}", .{self}),
+            .complex => |v| blk: {
+                if (v.imag >= 0) {
+                    break :blk try std.fmt.allocPrint(allocator, "({d}+{d}j)", .{ v.real, v.imag });
+                } else {
+                    break :blk try std.fmt.allocPrint(allocator, "({d}{d}j)", .{ v.real, v.imag });
+                }
+            },
+            .list, .tuple, .bigint, .bytes, .ptr => try std.fmt.allocPrint(allocator, "{}", .{self}),
         };
     }
 
@@ -363,50 +382,84 @@ pub const PyValue = union(enum) {
             .string => |v| try std.fmt.allocPrint(allocator, "'{s}'", .{v}),
             .bool => |v| if (v) "True" else "False",
             .none => "None",
-            .list, .tuple, .ptr => try std.fmt.allocPrint(allocator, "{}", .{self}),
+            .complex => |v| blk: {
+                if (v.imag >= 0) {
+                    break :blk try std.fmt.allocPrint(allocator, "({d}+{d}j)", .{ v.real, v.imag });
+                } else {
+                    break :blk try std.fmt.allocPrint(allocator, "({d}{d}j)", .{ v.real, v.imag });
+                }
+            },
+            .list, .tuple, .bigint, .bytes, .ptr => try std.fmt.allocPrint(allocator, "{}", .{self}),
         };
     }
 
     /// Check equality with another PyValue (single concrete function - no anytype)
+    /// Implements Python's rich comparison semantics:
+    /// - bool is subtype of int (True=1, False=0)
+    /// - int and float are comparable
+    /// - complex with zero imaginary part is comparable to real numbers
     pub fn eql(self: PyValue, other: PyValue) bool {
-        // Different types are not equal
-        if (std.meta.activeTag(self) != std.meta.activeTag(other)) {
-            // Special case: int vs float coercion
-            if (self == .int and other == .float) {
-                return @as(f64, @floatFromInt(self.int)) == other.float;
-            }
-            if (self == .float and other == .int) {
-                return self.float == @as(f64, @floatFromInt(other.int));
-            }
-            return false;
+        const self_tag = std.meta.activeTag(self);
+        const other_tag = std.meta.activeTag(other);
+
+        // Same type - direct comparison
+        if (self_tag == other_tag) {
+            return switch (self) {
+                .int => |v| v == other.int,
+                .float => |v| v == other.float,
+                .string => |v| std.mem.eql(u8, v, other.string),
+                .bytes => |v| std.mem.eql(u8, v.data, other.bytes.data),
+                .bool => |v| v == other.bool,
+                .none => true,
+                .list => |v| blk: {
+                    const w = other.list;
+                    if (v.len != w.len) break :blk false;
+                    for (v, w) |a, b| {
+                        if (!a.eql(b)) break :blk false;
+                    }
+                    break :blk true;
+                },
+                .tuple => |v| blk: {
+                    const w = other.tuple;
+                    if (v.len != w.len) break :blk false;
+                    for (v, w) |a, b| {
+                        if (!a.eql(b)) break :blk false;
+                    }
+                    break :blk true;
+                },
+                .bigint => |v| v.eql(&other.bigint),
+                .complex => |v| v.real == other.complex.real and v.imag == other.complex.imag,
+                .ptr => |v| v == other.ptr,
+            };
         }
 
-        return switch (self) {
-            .int => |v| v == other.int,
-            .float => |v| v == other.float,
-            .string => |v| std.mem.eql(u8, v, other.string),
-            .bytes => |v| std.mem.eql(u8, v.data, other.bytes.data),
-            .bool => |v| v == other.bool,
-            .none => true,
-            .list => |v| blk: {
-                const w = other.list;
-                if (v.len != w.len) break :blk false;
-                for (v, w) |a, b| {
-                    if (!a.eql(b)) break :blk false;
-                }
-                break :blk true;
-            },
-            .tuple => |v| blk: {
-                const w = other.tuple;
-                if (v.len != w.len) break :blk false;
-                for (v, w) |a, b| {
-                    if (!a.eql(b)) break :blk false;
-                }
-                break :blk true;
-            },
-            .bigint => |v| v.eql(&other.bigint),
-            .ptr => |v| v == other.ptr,
+        // Python numeric coercion: bool < int < float < complex
+        // Convert both to the "higher" type and compare
+
+        // Helper to get numeric value as complex (real, imag)
+        const self_num: ?struct { real: f64, imag: f64 } = switch (self) {
+            .bool => |v| .{ .real = if (v) 1.0 else 0.0, .imag = 0.0 },
+            .int => |v| .{ .real = @floatFromInt(v), .imag = 0.0 },
+            .float => |v| .{ .real = v, .imag = 0.0 },
+            .complex => |v| .{ .real = v.real, .imag = v.imag },
+            else => null,
         };
+
+        const other_num: ?struct { real: f64, imag: f64 } = switch (other) {
+            .bool => |v| .{ .real = if (v) 1.0 else 0.0, .imag = 0.0 },
+            .int => |v| .{ .real = @floatFromInt(v), .imag = 0.0 },
+            .float => |v| .{ .real = v, .imag = 0.0 },
+            .complex => |v| .{ .real = v.real, .imag = v.imag },
+            else => null,
+        };
+
+        // If both are numeric types, compare as complex
+        if (self_num != null and other_num != null) {
+            return self_num.?.real == other_num.?.real and self_num.?.imag == other_num.?.imag;
+        }
+
+        // Non-numeric different types are not equal
+        return false;
     }
 };
 
@@ -424,6 +477,11 @@ pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
     if (T == bool) return .{ .bool = value };
     if (info == .comptime_int) return .{ .int = @intCast(value) };
     if (info == .comptime_float) return .{ .float = @floatCast(value) };
+
+    // Complex numbers (PyComplex struct has .real and .imag fields)
+    if (info == .@"struct" and @hasField(T, "real") and @hasField(T, "imag")) {
+        return .{ .complex = .{ .real = value.real, .imag = value.imag } };
+    }
 
     // String slices
     if (T == []const u8) return .{ .string = value };
