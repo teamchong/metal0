@@ -29,7 +29,19 @@ pub fn pyJoin(allocator: std.mem.Allocator, separator: []const u8, list: anytype
     }
     // Handle ArrayList/struct with items field
     else if (info == .@"struct" and @hasField(T, "items")) {
-        return pyJoinSlice(allocator, separator, list.items);
+        const items = list.items;
+        const ItemsInfo = @typeInfo(@TypeOf(items));
+        // Check if items is a slice of strings ([]u8 or []const u8)
+        if (ItemsInfo == .pointer and ItemsInfo.pointer.size == .slice) {
+            const ChildType = ItemsInfo.pointer.child;
+            const ChildInfo = @typeInfo(ChildType);
+            // If it's a slice of slices of u8 (i.e., [][]u8 or [][]const u8)
+            if (ChildInfo == .pointer and ChildInfo.pointer.size == .slice and ChildInfo.pointer.child == u8) {
+                return std.mem.join(allocator, separator, items);
+            }
+        }
+        // Fall back to PyValue slice for other types
+        return pyJoinSlice(allocator, separator, items);
     }
     else {
         @compileError("pyJoin: unsupported type " ++ @typeName(T));
