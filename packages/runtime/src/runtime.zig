@@ -90,20 +90,26 @@ pub const DynamicClosure = struct {
 
 /// Python `or` semantics for incompatible types
 /// Returns a if truthy, else b (as PyValue)
+/// IMPORTANT: Must call toBool() BEFORE toPyValue() to invoke __bool__ methods
 pub fn pyOr(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
-    const a_val = try toPyValue(allocator, a);
-    if (a_val.isTruthy()) {
-        return a_val;
+    // Check truthiness using toBool which handles __bool__ methods via comptime introspection
+    // This must happen BEFORE toPyValue conversion which loses method information
+    const a_truthy = try toBoolWithError(a);
+    if (a_truthy) {
+        return try toPyValue(allocator, a);
     }
     return try toPyValue(allocator, b);
 }
 
 /// Python `and` semantics for incompatible types
 /// Returns a if falsy, else b (as PyValue)
+/// IMPORTANT: Must call toBool() BEFORE toPyValue() to invoke __bool__ methods
 pub fn pyAnd(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
-    const a_val = try toPyValue(allocator, a);
-    if (!a_val.isTruthy()) {
-        return a_val;
+    // Check truthiness using toBool which handles __bool__ methods via comptime introspection
+    // This must happen BEFORE toPyValue conversion which loses method information
+    const a_truthy = try toBoolWithError(a);
+    if (!a_truthy) {
+        return try toPyValue(allocator, a);
     }
     return try toPyValue(allocator, b);
 }
@@ -833,6 +839,170 @@ pub fn toBool(value: anytype) bool {
 
     // Handle tuples (anonymous structs with numbered fields) - empty tuple is falsy
     // This catches `struct {}` (empty tuple) and `struct { i64, i64 }` etc.
+    if (info == .@"struct" and info.@"struct".is_tuple) {
+        return info.@"struct".fields.len > 0;
+    }
+
+    // Default: truthy for everything else (non-empty types)
+    return true;
+}
+
+/// Error-propagating version of toBool for use in contexts where __bool__ errors should propagate
+/// This is used by pyOr/pyAnd which need to report __bool__ errors instead of swallowing them
+pub fn toBoolWithError(value: anytype) !bool {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // Handle integers
+    if (info == .int or info == .comptime_int) {
+        return value != 0;
+    }
+
+    // Handle floats
+    if (info == .float or info == .comptime_float) {
+        return value != 0.0;
+    }
+
+    // Handle bool
+    if (T == bool) {
+        return value;
+    }
+
+    // Handle slices (including strings)
+    if (info == .pointer and info.pointer.size == .slice) {
+        return value.len > 0;
+    }
+
+    // Handle single-item pointers to arrays (string literals)
+    if (info == .pointer and info.pointer.size == .one) {
+        const child_info = @typeInfo(info.pointer.child);
+        if (child_info == .array) {
+            return child_info.array.len > 0;
+        }
+        // Handle pointers to structs with __bool__ method (Python objects)
+        if (child_info == .@"struct") {
+            const ChildT = info.pointer.child;
+            if (@hasDecl(ChildT, "__bool__")) {
+                // Check if __bool__ takes a mutable pointer (self-mutating method)
+                const bool_fn_info = @typeInfo(@TypeOf(ChildT.__bool__));
+                const first_param_type = bool_fn_info.@"fn".params[0].type.?;
+                const first_param_info = @typeInfo(first_param_type);
+
+                const result = blk: {
+                    if (first_param_info == .pointer and !first_param_info.pointer.is_const) {
+                        // __bool__ takes *@This() (mutable) - value is already a pointer
+                        if (info.pointer.is_const) {
+                            // Cast away const if needed
+                            break :blk @constCast(value).__bool__();
+                        } else {
+                            break :blk value.__bool__();
+                        }
+                    } else {
+                        // __bool__ takes *const @This() or value - call directly
+                        break :blk value.__bool__();
+                    }
+                };
+                const ResultT = @TypeOf(result);
+                if (@typeInfo(ResultT) == .bool) {
+                    return result;
+                }
+                // Handle error union wrapping bool - propagate error
+                if (@typeInfo(ResultT) == .error_union) {
+                    const unwrapped = try result; // Propagate error
+                    const UnwrappedT = @TypeOf(unwrapped);
+                    if (@typeInfo(UnwrappedT) == .bool) {
+                        return unwrapped;
+                    }
+                    return error.TypeError;
+                }
+                return error.TypeError;
+            }
+            // Check for __len__ as fallback (containers with 0 length are falsy)
+            if (@hasDecl(ChildT, "__len__")) {
+                const len = try value.__len__();
+                return len > 0;
+            }
+        }
+    }
+
+    // Handle PyString
+    if (T == PyString) {
+        return value.len() > 0;
+    }
+
+    // Handle PyInt
+    if (T == PyInt) {
+        return value.value != 0;
+    }
+
+    // Handle PyBool
+    if (T == PyBool) {
+        return value.value;
+    }
+
+    // Handle optional
+    if (info == .optional) {
+        return value != null;
+    }
+
+    // Handle structs with __bool__ method (Python protocol)
+    if (info == .@"struct") {
+        if (@hasDecl(T, "__bool__")) {
+            // Check if __bool__ takes a mutable pointer (self-mutating method)
+            const bool_fn_info = @typeInfo(@TypeOf(T.__bool__));
+            const first_param_type = bool_fn_info.@"fn".params[0].type.?;
+            const first_param_info = @typeInfo(first_param_type);
+
+            const result = blk: {
+                if (first_param_info == .pointer and !first_param_info.pointer.is_const) {
+                    // __bool__ takes *@This() (mutable) - need to cast away const
+                    var mutable = @constCast(&value);
+                    break :blk mutable.__bool__();
+                } else {
+                    // __bool__ takes *const @This() or value - call directly
+                    break :blk value.__bool__();
+                }
+            };
+            const ResultT = @TypeOf(result);
+            if (@typeInfo(ResultT) == .bool) {
+                return result;
+            }
+            // Handle error union wrapping bool - propagate error
+            if (@typeInfo(ResultT) == .error_union) {
+                const unwrapped = try result; // Propagate error
+                const UnwrappedT = @TypeOf(unwrapped);
+                if (@typeInfo(UnwrappedT) == .bool) {
+                    return unwrapped;
+                }
+                return error.TypeError;
+            }
+            return error.TypeError;
+        }
+        // Check for __len__ as fallback (containers with 0 length are falsy)
+        if (@hasDecl(T, "__len__")) {
+            const len = try value.__len__();
+            return len > 0;
+        }
+        // Check for NativeList first (has .items which is ArrayList, not slice)
+        if (T == NativeList) {
+            return value.items.items.len > 0;
+        }
+        // Check for .items field (ArrayListUnmanaged, etc.) - empty list is falsy
+        if (@hasField(T, "items")) {
+            return value.items.len > 0;
+        }
+        // Check for .count() method (HashMap/ArrayHashMap) - empty dict is falsy
+        if (@hasDecl(T, "count")) {
+            return value.count() > 0;
+        }
+    }
+
+    // Handle arrays (fixed-size arrays) - empty is falsy, non-empty is truthy
+    if (info == .array) {
+        return info.array.len > 0;
+    }
+
+    // Handle tuples (anonymous structs with numbered fields) - empty tuple is falsy
     if (info == .@"struct" and info.@"struct".is_tuple) {
         return info.@"struct".fields.len > 0;
     }
