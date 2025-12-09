@@ -36,6 +36,7 @@ pub const Constant = union(enum) {
     int: i64,
     float: f64,
     string: []const u8,
+    bool: bool,
 };
 
 /// Compiled bytecode program
@@ -78,6 +79,10 @@ pub const BytecodeProgram = struct {
                     try buffer.append(allocator, 1); // type tag: string
                     try buffer.appendSlice(allocator, &std.mem.toBytes(@as(u32, @intCast(s.len))));
                     try buffer.appendSlice(allocator, s);
+                },
+                .bool => |b| {
+                    try buffer.append(allocator, 3); // type tag: bool (matches runtime)
+                    try buffer.append(allocator, @intFromBool(b));
                 },
             }
         }
@@ -140,6 +145,7 @@ pub const Compiler = struct {
                     .int => |i| .{ .int = i },
                     .float => |f| .{ .float = f },
                     .string => |s| .{ .string = s },
+                    .bool => |b| .{ .bool = b },
                     else => return error.UnsupportedConstant,
                 };
                 try self.constants.append(self.allocator, constant);

@@ -483,6 +483,37 @@ pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
         return .{ .complex = .{ .real = value.real, .imag = value.imag } };
     }
 
+    // PyObject pointer - extract the actual value from CPython-style object
+    // This handles results from BytecodeVM.execute() which returns *PyObject
+    if (info == .pointer and info.pointer.size == .one) {
+        const Child = info.pointer.child;
+        const runtime = @import("../runtime.zig");
+        // Check if it's a *PyObject (the base type) or compatible pointer
+        if (Child == runtime.PyObject or
+            (@typeInfo(Child) == .@"struct" and @hasField(Child, "ob_base")))
+        {
+            // Cast to *PyObject and extract value based on type
+            const obj: *runtime.PyObject = @ptrCast(@alignCast(value));
+            if (runtime.PyLong_Check(obj)) {
+                const PyInt = @import("intobject.zig").PyInt;
+                return .{ .int = PyInt.getValue(obj) };
+            }
+            if (runtime.PyFloat_Check(obj)) {
+                const PyFloat = @import("floatobject.zig").PyFloat;
+                return .{ .float = PyFloat.getValue(obj) };
+            }
+            if (runtime.PyBool_Check(obj)) {
+                const PyBool = @import("boolobject.zig").PyBool;
+                return .{ .bool = PyBool.getValue(obj) };
+            }
+            if (runtime.PyUnicode_Check(obj)) {
+                const PyString = @import("stringlib/core.zig").PyString;
+                return .{ .string = PyString.getValue(obj) };
+            }
+            // Fall through to ptr for other PyObject types
+        }
+    }
+
     // String slices
     if (T == []const u8) return .{ .string = value };
     if (T == []u8) return .{ .string = value };
