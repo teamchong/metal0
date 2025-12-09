@@ -113,15 +113,15 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     try genExpr(self, subscript.value.*);
                     try self.emit("; break :blk try @as(anyerror!@TypeOf({}), error.TypeError); }");
                 } else {
-                    // Non-constant tuple index - use inline for with runtime comparison
-                    // This generates: blk: { const __t = tuple; const __i = index; inline for (std.meta.fields(@TypeOf(__t)), 0..) |f, fi| { if (fi == __i) break :blk @field(__t, f.name); } unreachable; }
+                    // Non-constant tuple index - use runtime helper to avoid comptime explosion
+                    // The inline for is still needed internally, but it's compiled once per tuple type
                     const label_id = self.block_label_counter;
                     self.block_label_counter += 1;
                     try self.output.writer(self.allocator).print("tup_{d}: {{ const __t = ", .{label_id});
                     try genExpr(self, subscript.value.*);
-                    try self.emit("; const __i: usize = @intCast(");
+                    try self.output.writer(self.allocator).print("; break :tup_{d} runtime.tuple_ops.TupleOps(@TypeOf(__t)).get(__t, @intCast(", .{label_id});
                     try genExpr(self, subscript.slice.index.*);
-                    try self.output.writer(self.allocator).print("); inline for (std.meta.fields(@TypeOf(__t)), 0..) |f, fi| {{ if (fi == __i) break :tup_{d} @field(__t, f.name); }} unreachable; }}", .{label_id});
+                    try self.emit(")); }");
                 }
             }
             return;

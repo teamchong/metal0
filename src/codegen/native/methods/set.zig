@@ -35,20 +35,15 @@ pub fn genAdd(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: if (!(if (@hasDecl(@TypeOf(set), "swapRemove")) set.swapRemove(elem) else set.remove(elem))) return error.KeyError;
-    // AutoHashMap uses .remove(), ArrayHashMap uses .swapRemove()
-    // Both return bool (true if removed, false if not present)
-    try self.emit("if (!(if (@hasDecl(@TypeOf(");
-    try emitObjExpr(self, obj);
-    try self.emit("), \"swapRemove\")) ");
-    try emitObjExpr(self, obj);
-    try self.emit(".swapRemove(");
+    // Use runtime helper to avoid comptime explosion from @hasDecl/@TypeOf inline checks
+    // runtime.set_ops.SetOps(KeyType).remove(&set, key) handles AutoHashMap vs ArrayHashMap
+    try self.emit("try runtime.set_ops.SetOps(@TypeOf(");
     try self.genExpr(args[0]);
-    try self.emit(") else ");
+    try self.emit(")).remove(&");
     try emitObjExpr(self, obj);
-    try self.emit(".remove(");
+    try self.emit(", ");
     try self.genExpr(args[0]);
-    try self.emit("))) return error.KeyError");
+    try self.emit(")");
 }
 
 /// Generate code for set.discard(elem)
@@ -56,21 +51,14 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 pub fn genDiscard(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
-    // Generate: { _ = (if (@hasDecl(@TypeOf(set), "swapRemove")) set.swapRemove(elem) else set.remove(elem)); }
-    // AutoHashMap uses .remove(), ArrayHashMap uses .swapRemove()
-    // Both return bool (true if removed, false if not present) - discard ignores result
-    // Wrapping in a block makes this a statement that evaluates to void
-    try self.emit("{ _ = (if (@hasDecl(@TypeOf(");
-    try emitObjExpr(self, obj);
-    try self.emit("), \"swapRemove\")) ");
-    try emitObjExpr(self, obj);
-    try self.emit(".swapRemove(");
+    // Use runtime helper to avoid comptime explosion from @hasDecl/@TypeOf inline checks
+    try self.emit("runtime.set_ops.SetOps(@TypeOf(");
     try self.genExpr(args[0]);
-    try self.emit(") else ");
+    try self.emit(")).discard(&");
     try emitObjExpr(self, obj);
-    try self.emit(".remove(");
+    try self.emit(", ");
     try self.genExpr(args[0]);
-    try self.emit(")); }");
+    try self.emit(")");
 }
 
 /// Generate code for set.clear()
@@ -85,18 +73,13 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Remove and return arbitrary element, raises KeyError if empty
 pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    // Generate: blk: { var iter = set.iterator(); const entry = iter.next() orelse return error.KeyError;
-    //           const key = entry.key_ptr.*; _ = (if hasDecl then swapRemove else remove)(key); break :blk key; }
-    // AutoHashMap uses .remove(), ArrayHashMap uses .swapRemove()
-    try self.emit("blk: { var __set_iter = ");
+    // Use runtime helper to avoid comptime explosion
+    // Get key type from set's KV struct
+    try self.emit("try runtime.set_ops.SetOps(std.meta.fieldInfo(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator(); const __entry = __set_iter.next() orelse return error.KeyError; const __key = __entry.key_ptr.*; _ = (if (@hasDecl(@TypeOf(");
+    try self.emit(").Unmanaged.KV, .key).type).pop(&");
     try emitObjExpr(self, obj);
-    try self.emit("), \"swapRemove\")) ");
-    try emitObjExpr(self, obj);
-    try self.emit(".swapRemove(__key) else ");
-    try emitObjExpr(self, obj);
-    try self.emit(".remove(__key)); break :blk __key; }");
+    try self.emit(")");
 }
 
 /// Generate code for set.copy()
@@ -608,15 +591,11 @@ pub fn genIntersectionUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.No
     try self.emitIndent();
     try self.emit("}\n");
 
-    // Remove collected keys (handle both AutoHashMap and ArrayHashMap)
+    // Remove collected keys - use runtime helper to avoid comptime explosion
     try self.emitIndent();
-    try self.emit("for (__to_remove.items) |key| { _ = (if (@hasDecl(@TypeOf(");
+    try self.emit("for (__to_remove.items) |key| { runtime.set_ops.SetOps(@TypeOf(key)).discard(&");
     try emitObjExpr(self, obj);
-    try self.emit("), \"swapRemove\")) ");
-    try emitObjExpr(self, obj);
-    try self.emit(".swapRemove(key) else ");
-    try emitObjExpr(self, obj);
-    try self.emit(".remove(key)); }\n");
+    try self.emit(", key); }\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :sinterupd_{d} null;\n", .{label_id});
@@ -654,14 +633,10 @@ pub fn genDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         try self.output.writer(self.allocator).print("while (__other_{d}.next()) |entry| {{\n", .{i});
         self.indent_level += 1;
         try self.emitIndent();
-        // Handle both AutoHashMap (.remove) and ArrayHashMap (.swapRemove)
-        try self.emit("_ = (if (@hasDecl(@TypeOf(");
+        // Use runtime helper to avoid comptime explosion
+        try self.emit("runtime.set_ops.SetOps(@TypeOf(entry.key_ptr.*)).discard(&");
         try emitObjExpr(self, obj);
-        try self.emit("), \"swapRemove\")) ");
-        try emitObjExpr(self, obj);
-        try self.emit(".swapRemove(entry.key_ptr.*) else ");
-        try emitObjExpr(self, obj);
-        try self.emit(".remove(entry.key_ptr.*));\n");
+        try self.emit(", entry.key_ptr.*);\n");
         self.indent_level -= 1;
         try self.emitIndent();
         try self.emit("}\n");
@@ -738,15 +713,11 @@ pub fn genSymmetricDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: [
     try self.emitIndent();
     try self.emit("}\n");
 
-    // Apply changes (handle both AutoHashMap and ArrayHashMap)
+    // Apply changes - use runtime helper to avoid comptime explosion
     try self.emitIndent();
-    try self.emit("for (__to_remove.items) |key| { _ = (if (@hasDecl(@TypeOf(");
+    try self.emit("for (__to_remove.items) |key| { runtime.set_ops.SetOps(@TypeOf(key)).discard(&");
     try emitObjExpr(self, obj);
-    try self.emit("), \"swapRemove\")) ");
-    try emitObjExpr(self, obj);
-    try self.emit(".swapRemove(key) else ");
-    try emitObjExpr(self, obj);
-    try self.emit(".remove(key)); }\n");
+    try self.emit(", key); }\n");
 
     try self.emitIndent();
     try self.emit("for (__to_add.items) |key| { try ");

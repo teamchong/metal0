@@ -539,137 +539,125 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             }
 
             if (has_step) {
-                // With step: use slice with step calculation
+                // With step: use runtime slice helpers (fixes comptime explosion)
+                // Runtime helpers handle: negative indices, step=0 error, bounds clamping
                 if (string_traits.isString(value_type)) {
-                    // String slicing with step (supports negative step for reverse iteration)
-                    const label_id = self.block_label_counter;
-                    self.block_label_counter += 1;
-                    try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
+                    // String slicing with step - use runtime helper
+                    try self.emit("try runtime.slice_ops.stringSliceWithStep(__global_allocator, ");
                     try genExpr(self, subscript.value.*);
-                    try self.emit("; const __step: i64 = ");
-                    try genExpr(self, slice_range.step.?.*);
-                    try self.emit("; const __start: usize = ");
+                    try self.emit(", ");
 
+                    // Start (null = default based on step direction)
                     if (slice_range.lower) |lower| {
-                        try genSliceIndex(self, lower.*, true, false);
+                        try genExpr(self, lower.*);
                     } else {
-                        // Default start: 0 for positive step, len-1 for negative step
-                        try self.emit("if (__step > 0) 0 else if (__s.len > 0) __s.len - 1 else 0");
+                        try self.emit("null");
                     }
+                    try self.emit(", ");
 
-                    try self.emit("; const __end_i64: i64 = ");
-
+                    // End (null = default based on step direction)
                     if (slice_range.upper) |upper| {
-                        try self.emit("@intCast(");
-                        try genSliceIndex(self, upper.*, true, false);
-                        try self.emit(")");
+                        try genExpr(self, upper.*);
                     } else {
-                        // Default end: len for positive step, -1 for negative step
-                        try self.emit("if (__step > 0) @as(i64, @intCast(__s.len)) else -1");
+                        try self.emit("null");
                     }
+                    try self.emit(", ");
 
-                    try self.emitFmt("; var __result = std.ArrayListUnmanaged(u8){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(__global_allocator, __s[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(__global_allocator, __s[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(__global_allocator); }}", .{label_id});
+                    // Step
+                    try genExpr(self, slice_range.step.?.*);
+                    try self.emit(")");
                 } else if (container_traits.isList(value_type)) {
-                    // List slicing with step (supports negative step for reverse iteration)
-                    // Get element type to generate proper ArrayList
+                    // List slicing with step - use runtime helper
+                    // Access .items from SliceResult to get raw slice for comparison compatibility
                     const elem_type = value_type.list.*;
 
-                    const label_id = self.block_label_counter;
-                    self.block_label_counter += 1;
-                    try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
-                    try genExpr(self, subscript.value.*);
-                    try self.emit("; const __step: i64 = ");
-                    try genExpr(self, slice_range.step.?.*);
-                    try self.emit("; const __start: usize = ");
-
-                    if (slice_range.lower) |lower| {
-                        try genSliceIndex(self, lower.*, true, true);
-                    } else {
-                        // Default start: 0 for positive step, len-1 for negative step
-                        try self.emit("if (__step > 0) 0 else if (__s.items.len > 0) __s.items.len - 1 else 0");
-                    }
-
-                    try self.emit("; const __end_i64: i64 = ");
-
-                    if (slice_range.upper) |upper| {
-                        try self.emit("@intCast(");
-                        try genSliceIndex(self, upper.*, true, true);
-                        try self.emit(")");
-                    } else {
-                        // Default end: len for positive step, -1 for negative step
-                        try self.emit("if (__step > 0) @as(i64, @intCast(__s.items.len)) else -1");
-                    }
-
-                    try self.emit("; var __result = std.ArrayListUnmanaged(");
-
-                    // Generate element type
+                    try self.emit("(try runtime.slice_ops.sliceWithStep(");
+                    // Element type as comptime parameter
                     try elem_type.toZigType(self.allocator, &self.output);
+                    try self.emit(", __global_allocator, ");
+                    try genExpr(self, subscript.value.*);
+                    try self.emit(".items, ");
 
-                    try self.emitFmt("){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(__global_allocator, __s.items[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(__global_allocator, __s.items[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(__global_allocator); }}", .{label_id});
+                    // Start
+                    if (slice_range.lower) |lower| {
+                        try genExpr(self, lower.*);
+                    } else {
+                        try self.emit("null");
+                    }
+                    try self.emit(", ");
+
+                    // End
+                    if (slice_range.upper) |upper| {
+                        try genExpr(self, upper.*);
+                    } else {
+                        try self.emit("null");
+                    }
+                    try self.emit(", ");
+
+                    // Step
+                    try genExpr(self, slice_range.step.?.*);
+                    try self.emit(")).items");
                 } else if (container_traits.isTuple(value_type)) {
-                    // Tuple slicing with step - convert to runtime array slice
-                    // Python tuples are immutable but we can slice them
+                    // Tuple slicing with step - convert tuple to array then use runtime helper
+                    // This avoids the exponential comptime from inline for inside loop
+                    // Access .items from SliceResult
                     const label_id = self.block_label_counter;
                     self.block_label_counter += 1;
-                    try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
+                    try self.emitFmt("slice_{d}: {{ const __t = ", .{label_id});
                     try genExpr(self, subscript.value.*);
-                    try self.emit("; const __step: i64 = ");
-                    try genExpr(self, slice_range.step.?.*);
-                    try self.emit("; const __len = ");
-                    // Get tuple length using inline for
-                    try self.emit("comptime blk: { var count: usize = 0; inline for (std.meta.fields(@TypeOf(__s))) |_| count += 1; break :blk count; }");
-                    try self.emit("; const __start: usize = ");
+                    // Convert tuple to array using inline for (done ONCE, not per iteration)
+                    try self.emit("; const __arr = comptime blk: { const fields = std.meta.fields(@TypeOf(__t)); var arr: [fields.len]@TypeOf(__t.@\"0\") = undefined; inline for (fields, 0..) |f, i| { arr[i] = @field(__t, f.name); } break :blk arr; }");
+                    try self.emitFmt("; break :slice_{d} (try runtime.slice_ops.sliceWithStep(@TypeOf(__arr[0]), __global_allocator, &__arr, ", .{label_id});
 
+                    // Start
                     if (slice_range.lower) |lower| {
-                        try self.emit("@min(@as(usize, @intCast(");
                         try genExpr(self, lower.*);
-                        try self.emit(")), __len)");
                     } else {
-                        try self.emit("if (__step > 0) 0 else if (__len > 0) __len - 1 else 0");
+                        try self.emit("null");
                     }
+                    try self.emit(", ");
 
-                    try self.emit("; const __end: usize = ");
-
+                    // End
                     if (slice_range.upper) |upper| {
-                        try self.emit("@min(@as(usize, @intCast(");
                         try genExpr(self, upper.*);
-                        try self.emit(")), __len)");
                     } else {
-                        try self.emit("if (__step > 0) __len else 0");
+                        try self.emit("null");
                     }
+                    try self.emit(", ");
 
-                    // For tuple step slicing, we need runtime array conversion
-                    // This is a simplified version that works for common cases
-                    try self.emitFmt("; var __result = std.ArrayListUnmanaged(@TypeOf(__s.@\"0\")){{}}; var __i: i64 = if (__step > 0) @intCast(__start) else @intCast(__start); const __end_i64: i64 = if (__step > 0) @intCast(__end) else -1; while (if (__step > 0) __i < __end_i64 else __i > __end_i64) : (__i += __step) {{ const __idx: usize = @intCast(__i); inline for (std.meta.fields(@TypeOf(__s)), 0..) |f, fi| {{ if (fi == __idx) try __result.append(__global_allocator, @field(__s, f.name)); }} }} break :slice_{d} __result; }}", .{label_id});
+                    // Step
+                    try genExpr(self, slice_range.step.?.*);
+                    try self.emit(")).items; }");
                 } else {
-                    // Unknown type - treat as generic slice (like raw []T)
+                    // Unknown type - use runtime helper with generic element type detection
+                    // Access .items from SliceResult
                     const label_id = self.block_label_counter;
                     self.block_label_counter += 1;
                     try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
                     try genExpr(self, subscript.value.*);
-                    try self.emit("; const __step: i64 = ");
-                    try genExpr(self, slice_range.step.?.*);
-                    try self.emit("; const __start: usize = ");
+                    // Get items array (works for both ArrayListUnmanaged and fixed arrays)
+                    try self.emit("; const __items = if (@hasField(@TypeOf(__s), \"items\")) __s.items else &__s");
+                    try self.emitFmt("; break :slice_{d} (try runtime.slice_ops.sliceWithStep(@TypeOf(__items[0]), __global_allocator, __items, ", .{label_id});
 
+                    // Start
                     if (slice_range.lower) |lower| {
-                        try self.emit("@min(@as(usize, @intCast(");
                         try genExpr(self, lower.*);
-                        try self.emit(")), __s.len)");
                     } else {
-                        try self.emit("if (__step > 0) 0 else if (__s.len > 0) __s.len - 1 else 0");
+                        try self.emit("null");
                     }
+                    try self.emit(", ");
 
-                    try self.emit("; const __end_i64: i64 = ");
-
+                    // End
                     if (slice_range.upper) |upper| {
-                        try self.emit("@intCast(@min(@as(usize, @intCast(");
                         try genExpr(self, upper.*);
-                        try self.emit(")), __s.len))");
                     } else {
-                        try self.emit("if (__step > 0) @as(i64, @intCast(__s.len)) else -1");
+                        try self.emit("null");
                     }
+                    try self.emit(", ");
 
-                    try self.emitFmt("; var __result = std.ArrayListUnmanaged(@TypeOf(__s[0])){{}}; if (__step > 0) {{ var __i = __start; while (@as(i64, @intCast(__i)) < __end_i64) : (__i += @intCast(__step)) {{ try __result.append(__global_allocator, __s[__i]); }} }} else if (__step < 0) {{ var __i: i64 = @intCast(__start); while (__i > __end_i64) : (__i += __step) {{ try __result.append(__global_allocator, __s[@intCast(__i)]); }} }} break :slice_{d} try __result.toOwnedSlice(__global_allocator); }}", .{label_id});
+                    // Step
+                    try genExpr(self, slice_range.step.?.*);
+                    try self.emit(")).items; }");
                 }
             } else if (needs_len) {
                 // Need length for upper bound - use block expression with bounds checking

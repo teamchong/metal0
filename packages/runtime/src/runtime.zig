@@ -42,6 +42,18 @@ pub const UnifiedInt = unified_int_mod.UnifiedInt;
 /// Export string utilities for native codegen
 pub const string_utils = @import("runtime/string_utils.zig");
 
+/// Export slice operations for native codegen (fixes comptime explosion in stepped slices)
+pub const slice_ops = @import("runtime/slice_ops.zig");
+
+/// Export set operations for native codegen (fixes comptime explosion in set methods)
+pub const set_ops = @import("runtime/set_ops.zig");
+
+/// Export tuple operations for native codegen (fixes comptime explosion in dynamic tuple indexing)
+pub const tuple_ops = @import("runtime/tuple_ops.zig");
+
+/// Export copy operations for native codegen (fixes comptime explosion in copy/deepcopy)
+pub const copy_ops = @import("runtime/copy_ops.zig");
+
 /// Export _string module (formatter_parser, etc.)
 pub const _string = @import("Modules/_string.zig");
 
@@ -84,7 +96,10 @@ pub const typing = @import("Lib/typing.zig");
 const dynamic_attrs = @import("runtime/dynamic_attrs.zig");
 
 /// Export PyValue for dynamic attributes
-pub const PyValue = @import("Objects/object.zig").PyValue;
+const object_zig = @import("Objects/object.zig");
+pub const PyValue = object_zig.PyValue;
+/// Convert any value to PyValue (O(n) instantiations instead of O(n²))
+pub const toPyValue = object_zig.toPyValue;
 
 /// Export NativeList - unified list type for native codegen (avoids anytype monomorphization)
 /// See listobject.zig for full documentation
@@ -367,119 +382,89 @@ pub fn pyTupleEql(a: anytype, b: @TypeOf(a)) bool {
 }
 
 /// Python-style generic equality for any two types
-/// If types differ, returns false (Python semantics for `==` with different types)
-/// If types match, uses pyAnyEqlSameType for proper comparison
+/// SIMPLIFIED VERSION: Avoids recursive calls to prevent comptime explosion
+/// For complex types, use type-specific comparisons at codegen time instead
 pub fn pyAnyEql(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
     const a_info = @typeInfo(A);
     const b_info = @typeInfo(B);
 
-    // Different types are never equal in Python (for most cases)
-    if (A != B) {
-        // Special case: optional types - unwrap and compare
-        if (a_info == .optional) {
-            if (a) |unwrapped_a| {
-                return pyAnyEql(unwrapped_a, b);
-            }
-            return false;
+    // Same type: use std.meta.eql (single instantiation per type, not per pair)
+    if (A == B) {
+        // Special case: slices need std.mem.eql
+        if (a_info == .pointer and a_info.pointer.size == .slice) {
+            return std.mem.eql(a_info.pointer.child, a, b);
         }
-        if (b_info == .optional) {
-            if (b) |unwrapped_b| {
-                return pyAnyEql(a, unwrapped_b);
-            }
-            return false;
+        // Special case: ArrayLists need items comparison
+        if (a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity")) {
+            const ElemT = std.meta.Elem(@TypeOf(a.items));
+            return std.mem.eql(ElemT, a.items, b.items);
         }
-
-        // Special case: ArrayList vs fixed array - compare as slices
-        // This handles `x == [1,2,3]` where x is an ArrayList after mutation
-        const a_is_arraylist = a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity");
-        const b_is_arraylist = b_info == .@"struct" and @hasField(B, "items") and @hasField(B, "capacity");
-        const a_is_array = a_info == .array;
-        const b_is_array = b_info == .array;
-
-        if (a_is_arraylist and b_is_array) {
-            // ArrayList vs fixed array: compare items as slices
-            // Only compare if element types match
-            const AElem = std.meta.Elem(@TypeOf(a.items));
-            const BElem = b_info.array.child;
-            if (AElem != BElem) return false;
-            if (a.items.len != b.len) return false;
-            for (a.items, 0..) |item, idx| {
-                if (!std.meta.eql(item, b[idx])) return false;
-            }
-            return true;
-        }
-        if (a_is_array and b_is_arraylist) {
-            // Fixed array vs ArrayList: compare items as slices
-            // Only compare if element types match
-            const AElem = a_info.array.child;
-            const BElem = std.meta.Elem(@TypeOf(b.items));
-            if (AElem != BElem) return false;
-            if (a.len != b.items.len) return false;
-            for (b.items, 0..) |item, idx| {
-                if (!std.meta.eql(a[idx], item)) return false;
-            }
-            return true;
-        }
-
-        // Special case: PyValue vs primitive type - unwrap PyValue and compare
-        const a_is_pyvalue = A == PyValue;
-        const b_is_pyvalue = B == PyValue;
-        if (a_is_pyvalue and !b_is_pyvalue) {
-            // Unwrap PyValue and compare with b
-            return switch (a) {
-                .int => |v| if (b_info == .comptime_int or b_info == .int) v == @as(i64, b) else false,
-                .float => |v| if (b_info == .comptime_float or b_info == .float) v == @as(f64, b) else false,
-                .bool => |v| if (B == bool) v == b else false,
-                .string => |v| if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) std.mem.eql(u8, v, b) else false,
-                .list => |list| if (b_info == .array) blk: {
-                    if (list.len != b.len) break :blk false;
-                    for (list, 0..) |elem, i| {
-                        if (!pyAnyEql(elem, b[i])) break :blk false;
-                    }
-                    break :blk true;
-                } else false,
-                else => false,
-            };
-        }
-        if (b_is_pyvalue and !a_is_pyvalue) {
-            // Unwrap PyValue and compare with a
-            return switch (b) {
-                .int => |v| if (a_info == .comptime_int or a_info == .int) @as(i64, a) == v else false,
-                .float => |v| if (a_info == .comptime_float or a_info == .float) @as(f64, a) == v else false,
-                .bool => |v| if (A == bool) a == v else false,
-                .string => |v| if (a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8) std.mem.eql(u8, a, v) else false,
-                .list => |list| if (a_info == .array) blk: {
-                    if (a.len != list.len) break :blk false;
-                    for (a, 0..) |elem, i| {
-                        if (!pyAnyEql(elem, list[i])) break :blk false;
-                    }
-                    break :blk true;
-                } else false,
-                else => false,
-            };
-        }
-
-        // Special case: int/comptime_int comparison
-        // Runtime i64 vs comptime_int or vice versa
-        const a_is_int = a_info == .int or a_info == .comptime_int;
-        const b_is_int = b_info == .int or b_info == .comptime_int;
-        if (a_is_int and b_is_int) {
-            return @as(i64, a) == @as(i64, b);
-        }
-
-        // Special case: float/comptime_float comparison
-        const a_is_float = a_info == .float or a_info == .comptime_float;
-        const b_is_float = b_info == .float or b_info == .comptime_float;
-        if (a_is_float and b_is_float) {
-            return @as(f64, a) == @as(f64, b);
-        }
-
-        return false;
+        return std.meta.eql(a, b);
     }
 
-    return pyAnyEqlSameType(A, a, b);
+    // Different types: handle common cases without recursion
+    // ArrayList vs fixed array
+    const a_is_arraylist = a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity");
+    const b_is_arraylist = b_info == .@"struct" and @hasField(B, "items") and @hasField(B, "capacity");
+
+    if (a_is_arraylist and b_info == .array) {
+        const AElem = std.meta.Elem(@TypeOf(a.items));
+        const BElem = b_info.array.child;
+        if (AElem != BElem) return false;
+        if (a.items.len != b.len) return false;
+        return std.mem.eql(AElem, a.items, &b);
+    }
+    if (a_info == .array and b_is_arraylist) {
+        const AElem = a_info.array.child;
+        const BElem = std.meta.Elem(@TypeOf(b.items));
+        if (AElem != BElem) return false;
+        if (a.len != b.items.len) return false;
+        return std.mem.eql(AElem, &a, b.items);
+    }
+
+    // Numeric coercion: int vs comptime_int, float vs comptime_float
+    const a_is_int = a_info == .int or a_info == .comptime_int;
+    const b_is_int = b_info == .int or b_info == .comptime_int;
+    if (a_is_int and b_is_int) {
+        return @as(i64, a) == @as(i64, b);
+    }
+
+    const a_is_float = a_info == .float or a_info == .comptime_float;
+    const b_is_float = b_info == .float or b_info == .comptime_float;
+    if (a_is_float and b_is_float) {
+        return @as(f64, a) == @as(f64, b);
+    }
+
+    // String slices
+    if (a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8) {
+        if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) {
+            return std.mem.eql(u8, a, b);
+        }
+    }
+
+    // PyValue comparisons (without recursion)
+    if (A == PyValue) {
+        return switch (a) {
+            .int => |v| if (b_info == .comptime_int or b_info == .int) v == @as(i64, b) else false,
+            .float => |v| if (b_info == .comptime_float or b_info == .float) v == @as(f64, b) else false,
+            .bool => |v| if (B == bool) v == b else false,
+            .string => |v| if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) std.mem.eql(u8, v, b) else false,
+            else => false,
+        };
+    }
+    if (B == PyValue) {
+        return switch (b) {
+            .int => |v| if (a_info == .comptime_int or a_info == .int) @as(i64, a) == v else false,
+            .float => |v| if (a_info == .comptime_float or a_info == .float) @as(f64, a) == v else false,
+            .bool => |v| if (A == bool) a == v else false,
+            .string => |v| if (a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8) std.mem.eql(u8, a, v) else false,
+            else => false,
+        };
+    }
+
+    return false;
 }
 
 /// Python-style generic equality for any type (same type required)
@@ -487,6 +472,11 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
 /// Uses NaN identity semantics for floats
 fn pyAnyEqlSameType(comptime T: type, a: T, b: T) bool {
     const info = @typeInfo(T);
+
+    // Handle NativeList first (has .items which is ArrayList, not slice)
+    if (T == NativeList) {
+        return pySliceEql(PyValue, a.items.items, b.items.items);
+    }
 
     // ArrayList (Python list) - compare items with NaN semantics
     if (info == .@"struct" and @hasField(T, "items") and @hasField(T, "capacity")) {
@@ -550,6 +540,11 @@ fn pyAnyEqlSameType(comptime T: type, a: T, b: T) bool {
 pub inline fn iterSlice(value: anytype) IterSliceType(@TypeOf(value)) {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
+
+    // Handle NativeList first (has .items which is ArrayList, not slice)
+    if (T == NativeList) {
+        return value.items.items;
+    }
 
     // Handle ArrayList - extract .items slice
     if (info == .@"struct" and @hasField(T, "items") and @hasField(T, "capacity")) {
@@ -762,6 +757,10 @@ pub fn toBool(value: anytype) bool {
         if (@hasDecl(T, "__len__")) {
             const len = value.__len__() catch return false;
             return len > 0;
+        }
+        // Check for NativeList first (has .items which is ArrayList, not slice)
+        if (T == NativeList) {
+            return value.items.items.len > 0;
         }
         // Check for .items field (ArrayListUnmanaged, etc.) - empty list is falsy
         if (@hasField(T, "items")) {
@@ -2294,7 +2293,15 @@ pub fn containsGeneric(container: anytype, item: anytype) bool {
     const T = @TypeOf(container);
     const info = @typeInfo(T);
 
-    // ArrayList: check .items
+    // Check for NativeList type first (has .items which is an ArrayList, not a slice)
+    if (T == NativeList) {
+        for (container.items.items) |elem| {
+            if (std.meta.eql(elem, item)) return true;
+        }
+        return false;
+    }
+
+    // ArrayList: check .items (items is a slice)
     if (info == .@"struct" and @hasField(T, "items")) {
         for (container.items) |elem| {
             if (std.meta.eql(elem, item)) return true;
@@ -3289,6 +3296,14 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
         inline for (info.@"struct".fields) |field| {
             const val = @field(iterable, field.name);
             list.append(allocator, PyValue.from(val)) catch {};
+        }
+        return list;
+    }
+
+    // Handle NativeList first (has .items which is ArrayList, not slice)
+    if (T == NativeList) {
+        for (iterable.items.items) |item| {
+            list.append(allocator, item) catch {}; // NativeList items are already PyValue
         }
         return list;
     }

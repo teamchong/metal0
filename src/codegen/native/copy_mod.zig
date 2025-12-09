@@ -1,9 +1,35 @@
 /// Python copy module - copy, deepcopy
+/// Uses runtime helpers to avoid comptime explosion from @typeInfo/@TypeOf/@hasField inline checks
 const std = @import("std");
 const h = @import("mod_helper.zig");
 
-const genCopy = h.wrap("copy_blk: { const _src = ", "; if (@typeInfo(@TypeOf(_src)) == .@\"struct\" and @hasField(@TypeOf(_src), \"items\")) { var _copy = @TypeOf(_src).init(__global_allocator); _copy.appendSlice(__global_allocator, _src.items) catch {}; break :copy_blk _copy; } break :copy_blk _src; }", "void{}");
-pub const genDeepcopy = h.wrap("deepcopy_blk: { const _src = ", "; if (@TypeOf(_src) == i64 or @TypeOf(_src) == f64 or @TypeOf(_src) == bool or @TypeOf(_src) == []const u8) { break :deepcopy_blk _src; } if (@typeInfo(@TypeOf(_src)) == .@\"struct\" and @hasField(@TypeOf(_src), \"items\")) { var _copy = @TypeOf(_src).init(__global_allocator); for (_src.items) |item| { _copy.append(__global_allocator, item) catch continue; } break :deepcopy_blk _copy; } break :deepcopy_blk _src; }", "void{}");
+/// Generate copy.copy(obj) - shallow copy using runtime helper
+/// Emits: try runtime.copy_ops.shallowCopy(@TypeOf(obj), __global_allocator, obj)
+fn genCopy(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("void{}");
+        return;
+    }
+    try self.emit("try runtime.copy_ops.shallowCopy(@TypeOf(");
+    try self.genExpr(args[0]);
+    try self.emit("), __global_allocator, ");
+    try self.genExpr(args[0]);
+    try self.emit(")");
+}
+
+/// Generate copy.deepcopy(obj) - deep copy using runtime helper
+/// Emits: try runtime.copy_ops.deepCopy(@TypeOf(obj), __global_allocator, obj)
+pub fn genDeepcopy(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("void{}");
+        return;
+    }
+    try self.emit("try runtime.copy_ops.deepCopy(@TypeOf(");
+    try self.genExpr(args[0]);
+    try self.emit("), __global_allocator, ");
+    try self.genExpr(args[0]);
+    try self.emit(")");
+}
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "copy", genCopy }, .{ "deepcopy", genDeepcopy }, .{ "replace", h.pass("void{}") },
