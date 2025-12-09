@@ -1313,9 +1313,29 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             try self.emitIndent();
             try self.emit("var ");
             try self.emit(arg.name);
-            try self.emit("__mut = ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-            try self.emit(";\n");
+            // For parameters with defaults, check if default is None (null)
+            // If so, we can't use @TypeOf(null) - use runtime.PyValue as a safe fallback
+            if (arg.default) |default| {
+                const is_none_default = default.* == .constant and
+                    default.constant.value == .none;
+                if (is_none_default) {
+                    // None default: use runtime.PyValue which can hold null
+                    try self.emit("__mut: runtime.PyValue = runtime.PyValue.from(");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                    try self.emit(");\n");
+                } else {
+                    // Non-None default: use @TypeOf(default)
+                    try self.emit("__mut: @TypeOf(");
+                    try self.genExpr(default.*);
+                    try self.emit(") = ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                    try self.emit(";\n");
+                }
+            } else {
+                try self.emit("__mut = ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                try self.emit(";\n");
+            }
             // Rename all references to use the mutable copy
             try self.var_renames.put(arg.name, try std.fmt.allocPrint(self.allocator, "{s}__mut", .{arg.name}));
             try renamed_params.append(self.allocator, arg.name);

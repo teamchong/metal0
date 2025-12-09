@@ -60,15 +60,16 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
         };
 
         if (!types_compatible) {
-            // Types incompatible - generate bool-returning version
-            // Python's `x or y` where x and y have different types, when used as bool,
-            // is equivalent to `bool(x) or bool(y)`
-            const op_str = if (boolop.op == .And) " and " else " or ";
-            try self.emit("(runtime.toBool(");
+            // Types incompatible - use runtime helper for Python or/and semantics
+            // Python's `x or y` returns x if truthy, else y (preserving actual value)
+            // Use runtime.pyOr/pyAnd which returns PyValue
+            if (boolop.op == .Or) {
+                try self.emit("(try runtime.pyOr(__global_allocator, ");
+            } else {
+                try self.emit("(try runtime.pyAnd(__global_allocator, ");
+            }
             try genExpr(self, a);
-            try self.emit(")");
-            try self.emit(op_str);
-            try self.emit("runtime.toBool(");
+            try self.emit(", ");
             try genExpr(self, b);
             try self.emit("))");
             return;
