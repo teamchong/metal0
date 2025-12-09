@@ -1396,6 +1396,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         try self.output.writer(self.allocator).print("(__alloc: std.mem.Allocator) !{s} {{\n", .{zig_type});
                         self.indent();
 
+                        // Discard allocator if unused (some lazy attrs don't need allocation)
+                        try self.emitIndent();
+                        try self.emit("_ = __alloc;\n");
+
                         // Check cache
                         try self.emitIndent();
                         try self.output.writer(self.allocator).print("if (__{s}_cache) |cached| return cached;\n", .{attr_name});

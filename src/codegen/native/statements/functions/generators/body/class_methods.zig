@@ -79,7 +79,9 @@ fn emitComptimeTypeGuard(self: *NativeCodegen, checks: []const function_gen.Type
     for (checks, 0..) |check, i| {
         if (i > 0) try self.emit(" and ");
         try self.emit("runtime.istype(@TypeOf(");
-        try self.emit(check.param_name);
+        // Use renamed param if available (handles shadowing)
+        const param_name = self.var_renames.get(check.param_name) orelse check.param_name;
+        try self.emit(param_name);
         try self.emit("), \"");
         try self.emit(check.check_type);
         try self.emit("\")");
@@ -128,9 +130,10 @@ fn emitCapturedVarParams(self: *NativeCodegen, class_name: []const u8, captured_
 
 /// Check if a parameter name would shadow a method name in the class
 /// Python allows `def __init__(self, real):` and `def real(self):` in the same class,
-/// but in Zig these would conflict. We rename params that shadow methods.
+/// but in Zig these would conflict. We rename params that shadow methods or class attrs.
 fn wouldShadowMethodInClass(param_name: []const u8, class_body: []const ast.Node) bool {
     for (class_body) |stmt| {
+        // Check for method definitions
         if (stmt == .function_def) {
             const method_name = stmt.function_def.name;
             // Skip __init__ and __new__ - those are the methods we're checking params FOR
@@ -139,6 +142,16 @@ fn wouldShadowMethodInClass(param_name: []const u8, class_body: []const ast.Node
             }
             if (std.mem.eql(u8, param_name, method_name)) {
                 return true;
+            }
+        }
+        // Check for class-level assignments (become lazy attrs like `num = property(...)`)
+        if (stmt == .assign) {
+            for (stmt.assign.targets) |target| {
+                if (target == .name) {
+                    if (std.mem.eql(u8, target.name.id, param_name)) {
+                        return true;
+                    }
+                }
             }
         }
     }
@@ -349,11 +362,33 @@ pub fn genInitMethod(
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
 
+    // Track renamed parameters that shadow class members
+    var renamed_params = std.ArrayList([]const u8).init(self.allocator);
+    defer renamed_params.deinit();
+
     // Parameters (skip 'self')
     for (init_def.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
 
         try self.emit(", ");
+
+        // Check if parameter name shadows a class-level attribute (lazy method or field)
+        // e.g., num = property(...) creates a lazy method `num`, which conflicts with param `num`
+        const shadows_class_member = if (self.current_class_body) |class_body| blk: {
+            for (class_body) |stmt| {
+                // Check class-level assignments (become lazy attrs or fields)
+                if (stmt == .assign) {
+                    for (stmt.assign.targets) |target| {
+                        if (target == .name) {
+                            if (std.mem.eql(u8, target.name.id, arg.name)) {
+                                break :blk true;
+                            }
+                        }
+                    }
+                }
+            }
+            break :blk false;
+        } else false;
 
         // Check if parameter is used in init body (excluding parent __init__ calls)
         // Parent calls are skipped in codegen, so params only used there are unused
@@ -361,6 +396,12 @@ pub fn genInitMethod(
         if (!is_used) {
             // Zig requires unused params to be named just "_", not "_name"
             try self.emit("_: ");
+        } else if (shadows_class_member) {
+            // Rename parameter to avoid shadowing class-level attribute
+            try self.emit(arg.name);
+            try self.emit("__local: ");
+            // Track for var_renames setup later
+            try renamed_params.append(arg.name);
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
             try self.emit(": ");
@@ -390,6 +431,12 @@ pub fn genInitMethod(
     self.indent();
 
     // Note: allocator is always used for __dict__ initialization, so no discard needed
+
+    // Add var_renames for parameters that were renamed to avoid shadowing
+    for (renamed_params.items) |param_name| {
+        const renamed = try std.fmt.allocPrint(self.allocator, "{s}__local", .{param_name});
+        try self.var_renames.put(param_name, renamed);
+    }
 
     // Analyze local variable uses BEFORE generating code
     // This ensures variables like `g = gcd(...)` that are used in field assignments

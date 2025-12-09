@@ -606,13 +606,26 @@ pub fn genFunctionSignature(
             self.imported_modules.contains(arg.name) or
             zig_keywords.wouldShadowModule(arg.name);
 
-        // Check if parameter name shadows a sibling method in the same class
+        // Check if parameter name shadows a sibling method or class-level attribute
         // e.g., def __release_buffer__(self, buffer): ... where 'buffer' is also a method
-        const shadows_class_method = if (self.current_class_body) |class_body| blk: {
+        // Also check class-level assignments like 'num = property(...)' which become lazy methods
+        const shadows_class_member = if (self.current_class_body) |class_body| blk: {
             for (class_body) |stmt| {
+                // Check methods
                 if (stmt == .function_def) {
                     if (std.mem.eql(u8, stmt.function_def.name, arg.name)) {
                         break :blk true;
+                    }
+                }
+                // Check class-level assignments (become lazy attrs or fields)
+                // e.g., num = property(_get_num) or items = [lambda i=i: i for i in range(5)]
+                if (stmt == .assign) {
+                    for (stmt.assign.targets) |target| {
+                        if (target == .name) {
+                            if (std.mem.eql(u8, target.name.id, arg.name)) {
+                                break :blk true;
+                            }
+                        }
                     }
                 }
             }
@@ -626,7 +639,7 @@ pub fn genFunctionSignature(
         // For generators, always mark params as used since yield body isn't properly generated
         const is_used_directly = if (is_generator) true else param_analyzer.isNameUsedInBody(func.body, arg.name);
         const is_captured = self.isVarCapturedByAnyNestedClass(arg.name);
-        const is_used = is_used_directly or is_captured or shadows_module_func or shadows_class_method;
+        const is_used = is_used_directly or is_captured or shadows_module_func or shadows_class_member;
 
         // For unused parameters, use "_" (anonymous) instead of "_name" in Zig 0.15+
         // "_name" still triggers unused warnings - only "_" fully ignores
@@ -634,10 +647,10 @@ pub fn genFunctionSignature(
             try self.emit("_: ");
             // Skip straight to type - no name, no suffix
         } else {
-            // Add suffix for parameters that shadow module-level functions, imported modules, or class methods
+            // Add suffix for parameters that shadow module-level functions, imported modules, or class members
             // When adding suffix, don't use escaped form (@"name") because @"name"__local is invalid
             // Instead use: name__local (suffix makes it a valid non-keyword identifier)
-            if (shadows_module_func or shadows_class_method) {
+            if (shadows_module_func or shadows_class_member) {
                 try self.emit(arg.name);
                 try self.emit("__local");
             } else {
