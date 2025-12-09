@@ -1054,6 +1054,23 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         // Default - fall through to nativeTypeToZigType
                     }
                 }
+
+                // Check if this is a class instance for a known module-level class
+                // If so, use the class name directly instead of *runtime.PyObject
+                // This avoids type mismatch when assigning Class.init() to the variable
+                if (vt == .class_instance) {
+                    const class_name = vt.class_instance;
+                    // Check if this class is defined at module level in this file
+                    if (self.class_registry.classes.contains(class_name)) {
+                        break :blk class_name;
+                    }
+                    // Also check if it's registered as a module-level function (class constructors
+                    // are registered there during PHASE 2.1)
+                    if (self.module_level_funcs.contains(class_name)) {
+                        break :blk class_name;
+                    }
+                }
+
                 needs_free = true;
                 break :blk try self.nativeTypeToZigType(vt);
             } else "i64";
