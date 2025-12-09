@@ -563,6 +563,19 @@ pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
         return .{ .list = list };
     }
 
+    // Tagged unions (IntResult, PyPowResult, etc.) - extract active field and convert
+    // This handles unions like IntResult{ .small = 5 } -> PyValue{ .int = 5 }
+    if (info == .@"union" and info.@"union".tag_type != null) {
+        // Get the active tag and extract the value
+        const tag = std.meta.activeTag(value);
+        inline for (info.@"union".fields) |field| {
+            if (tag == @field(std.meta.Tag(T), field.name)) {
+                const field_value = @field(value, field.name);
+                return try toPyValue(allocator, field_value);
+            }
+        }
+    }
+
     // Fallback: store as opaque pointer
     return .{ .ptr = @ptrCast(@constCast(&value)) };
 }
