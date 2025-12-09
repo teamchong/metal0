@@ -1485,7 +1485,14 @@ pub const NativeCodegen = struct {
         const search_start = self.function_start_pos;
         var it = self.pending_discards.iterator();
         while (it.next()) |entry| {
+            const var_name = entry.key_ptr.*;
             const emit_name = entry.value_ptr.*;
+
+            // Skip variables that are not in the current scope
+            // This prevents emitting `_ = &exc;` for variables declared inside loops
+            // when we're at function level (outside the loop)
+            if (!self.symbol_table.isDeclaredInCurrentScope(var_name)) continue;
+
             // Count occurrences of the variable name as a complete identifier
             // If count <= 1, variable is only used in its own assignment (unused)
             var occurrence_count: usize = 0;
