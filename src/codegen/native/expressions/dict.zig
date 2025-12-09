@@ -443,7 +443,14 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
             try self.emit("while (iter.next()) |entry| {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("try map.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+            // If target dict expects PyValue, wrap the source value
+            if (val_type == .pyvalue) {
+                try self.emit("try map.put(entry.key_ptr.*, try runtime.PyValue.fromAlloc(");
+                try self.emit(alloc_name);
+                try self.emit(", entry.value_ptr.*));\n");
+            } else {
+                try self.emit("try map.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+            }
             self.dedent();
             try self.emitIndent();
             try self.emit("}\n");
