@@ -102,6 +102,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     const base_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
                     const base_tag = @as(std.meta.Tag(@TypeOf(base_type)), base_type);
                     const is_tuple = container_traits.isTuple(base_type);
+                    const is_list = container_traits.isList(base_type);
                     const is_pyvalue = base_tag == .pyvalue;
                     const is_unknown = type_traits.isUnknown(base_type);
                     const is_bytes = string_traits.isBytes(base_type);
@@ -116,6 +117,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.emit("__base.get(@as(usize, @intCast(");
                         try genExpr(self, index);
                         try self.emit(")))");
+                    } else if (is_list and is_int_index) {
+                        // List (ArrayList) indexing: use .items[idx]
+                        try self.emit("__base.items[@as(usize, @intCast(");
+                        try genExpr(self, index);
+                        try self.emit("))]");
                     } else if ((is_unknown or is_pyvalue) and is_int_index) {
                         // Unknown type or PyValue with int index - use PyValue.pyAt() method
                         // This handles PyValue containing tuple/list uniformly
