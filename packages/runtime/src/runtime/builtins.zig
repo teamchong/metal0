@@ -2396,6 +2396,41 @@ pub fn classInstanceNe(a: anytype, b: anytype, allocator: std.mem.Allocator) boo
     return !classInstanceEq(a, b, allocator);
 }
 
+/// Generic assertEqual helper that tries classInstanceEq first, then PyValue fallback
+/// This handles cases where type inference fails but the actual value has __eq__
+pub fn assertEqualGeneric(a: anytype, b: anytype, allocator: std.mem.Allocator) !bool {
+    const TypeA = @TypeOf(a);
+    const TypeB = @TypeOf(b);
+    const info_a = @typeInfo(TypeA);
+    const info_b = @typeInfo(TypeB);
+
+    // Check if either type has __eq__ at comptime
+    const a_has_eq = info_a == .@"struct" and @hasDecl(TypeA, "__eq__");
+    const b_has_eq = info_b == .@"struct" and @hasDecl(TypeB, "__eq__");
+
+    // Check if either is a pointer to a struct with __eq__
+    const a_ptr_has_eq = info_a == .pointer and info_a.pointer.size == .one and
+        @typeInfo(info_a.pointer.child) == .@"struct" and @hasDecl(info_a.pointer.child, "__eq__");
+    const b_ptr_has_eq = info_b == .pointer and info_b.pointer.size == .one and
+        @typeInfo(info_b.pointer.child) == .@"struct" and @hasDecl(info_b.pointer.child, "__eq__");
+
+    if (a_has_eq or a_ptr_has_eq) {
+        // Left has __eq__ - use it
+        return classInstanceEq(a, b, allocator);
+    }
+
+    if (b_has_eq or b_ptr_has_eq) {
+        // Right has __eq__ - swap and use it (reflected comparison)
+        return classInstanceEq(b, a, allocator);
+    }
+
+    // Neither has __eq__, fall back to PyValue comparison
+    const object = @import("../Objects/object.zig");
+    const a_val = try object.toPyValue(allocator, a);
+    const b_val = try object.toPyValue(allocator, b);
+    return a_val.eql(b_val);
+}
+
 // ============================================================================
 // Type constructor callables - for use as first-class values in lists
 // These allow patterns like: for constructor in list, tuple, set: ...
