@@ -22,6 +22,33 @@ const local_class_hoisting = @import("local_class_hoisting.zig");
 pub const hoistAllLocalClassesFromMethods = local_class_hoisting.hoistAllLocalClassesFromMethods;
 pub const hasSelfAttrAssign = local_class_hoisting.hasSelfAttrAssign;
 
+/// Check if a function body can raise an exception (contains raise statements)
+/// This is used to determine if init() should return !@This() instead of @This()
+fn bodyCanRaise(stmts: []const ast.Node) bool {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .raise_stmt => return true,
+            .if_stmt => |if_stmt| {
+                if (bodyCanRaise(if_stmt.body)) return true;
+                if (bodyCanRaise(if_stmt.else_body)) return true;
+            },
+            .for_stmt => |for_stmt| {
+                if (bodyCanRaise(for_stmt.body)) return true;
+            },
+            .while_stmt => |while_stmt| {
+                if (bodyCanRaise(while_stmt.body)) return true;
+            },
+            .with_stmt => |with_stmt| {
+                if (bodyCanRaise(with_stmt.body)) return true;
+            },
+            // Don't recurse into nested try blocks - their raise is handled locally
+            // Don't recurse into nested functions - their raise is local to them
+            else => {},
+        }
+    }
+    return false;
+}
+
 // Type alias for builtin base info
 const BuiltinBaseInfo = generators.BuiltinBaseInfo;
 
@@ -423,8 +450,18 @@ pub fn genInitMethod(
     }
 
     // Use @This() for self-referential return type - heap-allocate for nested classes
+    // Add error union if __init__ body can raise exceptions
+    const can_raise = bodyCanRaise(init_def.body);
+
+    // Track class as having error-returning init for `try` in instantiation calls
+    if (can_raise) {
+        try self.error_init_classes.put(class_name, {});
+    }
+
     if (is_nested) {
         try self.emit(") !*@This() {\n");
+    } else if (can_raise) {
+        try self.emit(") !@This() {\n");
     } else {
         try self.emit(") @This() {\n");
     }
@@ -702,16 +739,20 @@ pub fn genInitMethodWithBuiltinBase(
     const body_start_idx = type_checks.start_idx;
     const has_type_checks = type_checks.checks.len > 0;
 
+    // Check if __init__ body can raise exceptions
+    const can_raise = bodyCanRaise(init.body);
+
     // Track class as having error-returning init for `try` in instantiation calls
-    if (has_type_checks) {
+    if (has_type_checks or can_raise) {
         try self.error_init_classes.put(class_name, {});
     }
 
     // Use @This() or !@This() for self-referential return type
     // Use error union if we have type checks that may return error.TypeError
+    // or if __init__ body can raise exceptions
     if (is_nested) {
         try self.emit(") !*@This() {\n");
-    } else if (has_type_checks) {
+    } else if (has_type_checks or can_raise) {
         try self.emit(") !@This() {\n");
     } else {
         try self.emit(") @This() {\n");
@@ -1113,8 +1154,18 @@ pub fn genInitMethodFromNew(
 
     // Use @This() for self-referential return type
     // Nested classes need error union with pointer for heap allocation
+    // Also check if __new__ body can raise exceptions
+    const can_raise = bodyCanRaise(new_method.body);
+
+    // Track class as having error-returning init for `try` in instantiation calls
+    if (can_raise) {
+        try self.error_init_classes.put(class_name, {});
+    }
+
     if (is_nested) {
         try self.emit(") !*@This() {\n");
+    } else if (can_raise) {
+        try self.emit(") !@This() {\n");
     } else {
         try self.emit(") @This() {\n");
     }
