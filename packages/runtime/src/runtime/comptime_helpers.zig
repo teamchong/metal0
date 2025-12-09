@@ -390,6 +390,7 @@ pub fn InferDictValueType(comptime TupleType: type) type {
     comptime var result_type: type = i64;
     comptime var has_float = false;
     comptime var has_string = false;
+    comptime var has_bool = false;
     comptime var has_tuple = false;
     comptime var has_array = false;
     comptime var tuple_type: ?type = null;
@@ -418,6 +419,8 @@ pub fn InferDictValueType(comptime TupleType: type) type {
             has_float = true;
         } else if (V == []const u8 or V == []u8 or isStringLiteral(V)) {
             has_string = true;
+        } else if (V == bool) {
+            has_bool = true;
         }
     }
 
@@ -430,6 +433,8 @@ pub fn InferDictValueType(comptime TupleType: type) type {
         result_type = []const u8;
     } else if (has_float) {
         result_type = f64;
+    } else if (has_bool) {
+        result_type = bool;
     } else {
         result_type = i64;
     }
