@@ -569,6 +569,11 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
     const is_callable_list = type_traits.isCallable(elem_type);
     const is_pyvalue_list = (elem_type == .pyvalue);
 
+    // Track that we're inside a list for nested list generation
+    // This ensures nested lists generate as ArrayList, not fixed arrays
+    self.inside_list_depth += 1;
+    defer self.inside_list_depth -= 1;
+
     // Append elements
     for (list.elts) |elem| {
         try self.emitIndent();

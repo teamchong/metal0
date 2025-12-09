@@ -450,6 +450,10 @@ pub const NativeCodegen = struct {
     // Set during assignment generation, null otherwise
     current_assign_target: ?[]const u8,
 
+    // Depth of nested list literal context (> 0 means we're inside a list literal)
+    // Used to ensure inner lists generate as ArrayList, not fixed arrays
+    inside_list_depth: usize,
+
     // Captured variables for the current class (from parent scope)
     // Set when entering a class with captured variables, null otherwise
     // Used by expression generator to convert `var_name` to `self.__captured_var_name.*`
@@ -748,6 +752,7 @@ pub const NativeCodegen = struct {
             .current_class_name = null,
             .current_class_body = null,
             .current_assign_target = null,
+            .inside_list_depth = 0,
             .current_class_captures = null,
             .inside_init_method = false,
             .inside_new_method = false,

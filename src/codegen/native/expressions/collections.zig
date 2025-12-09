@@ -211,11 +211,31 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     }
 
     // Check if we can optimize to fixed-size array (constant + homogeneous)
-    if (isConstantList(list) and allSameType(list.elts)) {
+    // BUT: Only use array optimization at the top level (inside_list_depth == 0)
+    // Nested lists (inside other lists) must be ArrayLists to match parent's element type
+    // Also skip array optimization if elements are themselves lists (nested lists)
+    const has_nested_lists = blk: {
+        for (list.elts) |elem| {
+            if (elem == .list) break :blk true;
+        }
+        break :blk false;
+    };
+    // Only use array literal if:
+    // 1. We're at top level (not inside another list)
+    // 2. Elements are constants
+    // 3. Elements are homogeneous
+    // 4. No nested lists (which require ArrayList type)
+    if (self.inside_list_depth == 0 and isConstantList(list) and allSameType(list.elts) and !has_nested_lists) {
         return try genArrayLiteral(self, list);
     }
 
+    // Track that we're inside a list for nested list generation
+    self.inside_list_depth += 1;
+    defer self.inside_list_depth -= 1;
+
     // Check if all elements are compile-time constants → use comptime optimization!
+    // BUT: Skip comptime path if we have nested lists - the type inference doesn't
+    // work correctly for nested ArrayList structures
     var all_comptime = true;
     for (list.elts) |elem| {
         if (!isComptimeConstant(elem)) {
@@ -224,8 +244,9 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
         }
     }
 
-    // COMPTIME PATH: All elements known at compile time
-    if (all_comptime) {
+    // COMPTIME PATH: All elements known at compile time AND no nested lists
+    // Nested lists need runtime path because InferListType can't handle ArrayList element types
+    if (all_comptime and !has_nested_lists) {
         try genListComptime(self, list);
         return;
     }

@@ -424,22 +424,16 @@ pub fn inferExprWithInferrer(
                 }
             }
 
-            // Check if this is a constant, homogeneous list with array-compatible element type
-            // → use array type for fixed-size arrays
-            if (core.isConstantList(l) and core.allSameType(l.elts)) {
-                const elem_tag = @as(std.meta.Tag(NativeType), elem_type);
-                // Only use array type if element type is primitive or array (not list/pyvalue)
-                if (elem_tag != .list and elem_tag != .pyvalue and elem_tag != .unknown) {
-                    const elem_ptr = try allocator.create(NativeType);
-                    elem_ptr.* = elem_type;
-                    break :blk .{ .array = .{
-                        .element_type = elem_ptr,
-                        .length = l.elts.len,
-                    } };
-                }
-            }
+            // IMPORTANT: Always use ArrayList type for list literals, NEVER array type.
+            // Python lists are mutable and can grow/shrink, so they map to ArrayList.
+            // Using array type [N]T causes mismatches between type inference and codegen,
+            // especially for nested lists where inner lists generate as ArrayList but
+            // type inference said they should be arrays.
+            //
+            // The array type optimization is handled by genList/genArrayLiteral at codegen
+            // time for top-level constant lists, but type inference should always report list.
 
-            // Otherwise, use ArrayList for dynamic lists
+            // Use ArrayList for all lists
             const elem_ptr = try allocator.create(NativeType);
             elem_ptr.* = elem_type;
             break :blk .{ .list = elem_ptr };
