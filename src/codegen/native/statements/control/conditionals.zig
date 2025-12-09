@@ -324,6 +324,30 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         collectNestedClassNames(if_stmt.body, &nested_classes, self.allocator) catch {};
         collectNestedClassNames(if_stmt.else_body, &nested_classes, self.allocator) catch {};
 
+        // Collect function definitions from all branches
+        // Functions defined in if/else need their names hoisted for Python scope semantics
+        var func_defs = std.ArrayList([]const u8){};
+        defer func_defs.deinit(self.allocator);
+        collectFunctionDefs(if_stmt.body, &func_defs, self.allocator) catch {};
+        collectFunctionDefs(if_stmt.else_body, &func_defs, self.allocator) catch {};
+
+        // Hoist function names as anyopaque pointers (will be assigned in branches)
+        for (func_defs.items) |func_name| {
+            // Skip if already declared
+            if (self.isDeclared(func_name)) continue;
+
+            try self.emitIndent();
+            // Use a struct wrapper that can hold any closure and provides .call()
+            try self.output.writer(self.allocator).print(
+                "var {s}: runtime.DynamicClosure = undefined;\n",
+                .{func_name},
+            );
+            try self.declareVar(func_name);
+            // Mark as closure so calls use .call() syntax
+            const func_copy = try self.allocator.dupe(u8, func_name);
+            try self.closure_vars.put(func_copy, {});
+        }
+
         // Collect variables from all branches
         try collectAssignedVars(self, if_stmt.body, &assigned_vars);
         try collectAssignedVars(self, if_stmt.else_body, &assigned_vars);

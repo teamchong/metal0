@@ -429,36 +429,47 @@ pub fn genZeroCaptureClosure(
     // Python allows redefining function names: def f(): ... def f(): ... (second shadows first)
     const is_redefinition = self.isDeclared(func.name);
 
-    // If shadowing an import or redefinition, use a prefixed name to avoid Zig's "shadows declaration" error
-    const alias_name = if (shadows_import or is_redefinition)
-        try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ func.name, saved_counter })
-    else
-        try self.allocator.dupe(u8, func.name);
-    defer self.allocator.free(alias_name);
+    // Check if this function was hoisted as a DynamicClosure (from if/else branch)
+    // In this case, we assign to the existing var instead of creating a new const
+    const is_hoisted_closure = is_redefinition and self.closure_vars.contains(func.name);
 
-    try self.emitIndent();
-    try self.emit("const ");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
-    try self.output.writer(self.allocator).print(" = {s};\n", .{wrapper_name});
+    if (is_hoisted_closure) {
+        // Assign to hoisted DynamicClosure variable
+        try self.emitIndent();
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
+        try self.output.writer(self.allocator).print(" = runtime.DynamicClosure.init({s});\n", .{wrapper_name});
+    } else {
+        // If shadowing an import or redefinition, use a prefixed name to avoid Zig's "shadows declaration" error
+        const alias_name = if (shadows_import or is_redefinition)
+            try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ func.name, saved_counter })
+        else
+            try self.allocator.dupe(u8, func.name);
+        defer self.allocator.free(alias_name);
 
-    // If we renamed the function, also add a var_rename so calls use the prefixed name
-    if (shadows_import or is_redefinition) {
-        const alias_copy = try self.allocator.dupe(u8, alias_name);
-        try self.var_renames.put(func.name, alias_copy);
+        try self.emitIndent();
+        try self.emit("const ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
+        try self.output.writer(self.allocator).print(" = {s};\n", .{wrapper_name});
+
+        // If we renamed the function, also add a var_rename so calls use the prefixed name
+        if (shadows_import or is_redefinition) {
+            const alias_copy = try self.allocator.dupe(u8, alias_name);
+            try self.var_renames.put(func.name, alias_copy);
+        }
+
+        // Declare the alias name (using unique name if redefinition)
+        try self.declareVar(alias_name);
+
+        // Suppress unused local constant warning for the alias
+        try self.emitIndent();
+        try self.emit("_ = &");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
+        try self.emit(";\n");
+
+        // Mark as closure so calls use .call() syntax
+        const func_name_copy = try self.allocator.dupe(u8, func.name);
+        try self.closure_vars.put(func_name_copy, {});
     }
-
-    // Declare the alias name (using unique name if redefinition)
-    try self.declareVar(alias_name);
-
-    // Suppress unused local constant warning for the alias
-    try self.emitIndent();
-    try self.emit("_ = &");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
-    try self.emit(";\n");
-
-    // Mark as closure so calls use .call() syntax
-    const func_name_copy = try self.allocator.dupe(u8, func.name);
-    try self.closure_vars.put(func_name_copy, {});
 }
 
 /// Generate a zero-capture closure at module level.

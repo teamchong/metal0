@@ -699,13 +699,16 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Closure call: add_five(3) -> (try add_five.call(3))
             // Closures return error unions (!T) so we need to unwrap with try
             // EXCEPTION: void-returning closures don't need try wrapping
-            // Use the variable name which was already assigned the closure
-            // Use writeEscapedIdent (not writeLocalVarName) to match how the closure was defined
+            // Use the ORIGINAL variable name (raw_func_name) for hoisted DynamicClosures,
+            // not the potentially renamed func_name. Hoisted closures are declared with
+            // the original name: "var get_output: runtime.DynamicClosure = undefined;"
             const is_void_closure = self.void_closure_vars.contains(raw_func_name);
             if (!is_void_closure) {
                 try self.emit("(try ");
             }
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
+            // Use raw_func_name to emit the closure call - this ensures we use the
+            // hoisted variable name, not any internal __closure_*_N name
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), raw_func_name);
             try self.emit(".call(");
 
             // Pass args to closure - wrap integer literals with @as(i64, ...) to force
