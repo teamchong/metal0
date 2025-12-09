@@ -39,17 +39,32 @@ pub fn hasClassmethodDecorator(decorators: []const ast.Node) bool {
 fn getTypeFromCallSiteOrScope(self: *NativeCodegen, func: ast.Node.FunctionDef, arg: ast.Arg, param_idx: usize) CodegenError!?[]const u8 {
     // Try function_call_args first (more accurate than default i64)
     if (self.type_inferrer.function_call_args.get(func.name)) |call_arg_types| {
-        if (param_idx < call_arg_types.len) {
-            const call_type = call_arg_types[param_idx];
+        // For methods, func.args includes 'self' but call_arg_types doesn't
+        // Adjust the index: if first arg is 'self', offset by 1
+        const is_method = func.args.len > 0 and std.mem.eql(u8, func.args[0].name, "self");
+        const call_idx = if (is_method and param_idx > 0) param_idx - 1 else param_idx;
+
+        if (call_idx < call_arg_types.len) {
+            const call_type = call_arg_types[call_idx];
             const call_type_tag = @as(std.meta.Tag(@TypeOf(call_type)), call_type);
             if (call_type_tag != .unknown and call_type_tag != .int) {
+                // For dict types with =None default, use anytype since different call sites
+                // may pass dicts with different value types (e.g., {"x": [1]} vs {"y": [1,2,3]})
+                // This is a common Python pattern for optional dict parameters
+                if (call_type_tag == .dict and arg.default != null) {
+                    const is_none_default = arg.default.?.* == .constant and
+                        arg.default.?.constant.value == .none;
+                    if (is_none_default) {
+                        // Use anytype for optional dict parameters (polymorphic)
+                        return null; // Will fall through to other handling
+                    }
+                }
                 // Found non-default type from call site
                 return try self.nativeTypeToZigType(call_type);
             }
         }
     }
     // Not found in call args
-    _ = arg;
     return null;
 }
 
@@ -715,6 +730,17 @@ pub fn genFunctionSignature(
             // This avoids type pollution from variables with same name in other scopes
             const var_type_tag = @as(std.meta.Tag(@TypeOf(var_type)), var_type);
             if (var_type_tag != .unknown) {
+                // For dict types with =None default, use anytype since different call sites
+                // may pass dicts with different value types (polymorphic pattern)
+                if (var_type_tag == .dict and arg.default != null) {
+                    const is_none_default = arg.default.?.* == .constant and
+                        arg.default.?.constant.value == .none;
+                    if (is_none_default) {
+                        try self.emit("anytype");
+                        try self.anytype_params.put(arg.name, {});
+                        continue; // Skip to next parameter
+                    }
+                }
                 const zig_type = try self.nativeTypeToZigType(var_type);
                 defer self.allocator.free(zig_type);
                 // Make optional if has default value
@@ -1224,6 +1250,18 @@ pub fn genMethodSignatureWithSkip(
                         try self.emit(zig_type);
                     }
                 } else {
+                    // For dict types with =None default, use anytype since different call sites
+                    // may pass dicts with different value types (polymorphic pattern)
+                    if (var_type_tag == .dict and arg.default != null) {
+                        const is_none_default = arg.default.?.* == .constant and
+                            arg.default.?.constant.value == .none;
+                        if (is_none_default) {
+                            try self.emit("anytype");
+                            try self.anytype_params.put(arg.name, {});
+                            param_index += 1;
+                            continue; // Skip to next parameter
+                        }
+                    }
                     if (arg.default != null) {
                         try self.emit("?");
                     }
