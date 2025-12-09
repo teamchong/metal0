@@ -389,8 +389,9 @@ pub fn genInitMethod(
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
 
-    // Track renamed parameters that shadow class members
-    var renamed_params = std.ArrayList([]const u8).init(self.allocator);
+    // Track renamed parameters: original name -> renamed name
+    const RenamedParam = struct { original: []const u8, renamed: []const u8 };
+    var renamed_params = std.ArrayList(RenamedParam).init(self.allocator);
     defer renamed_params.deinit();
 
     // Parameters (skip 'self')
@@ -417,18 +418,24 @@ pub fn genInitMethod(
             break :blk false;
         } else false;
 
+        // Check if parameter shadows module-level declaration (var, function, import)
+        const shadows_module_level = self.module_level_funcs.contains(arg.name) or
+            self.module_level_vars.contains(arg.name) or
+            self.imported_modules.contains(arg.name);
+
         // Check if parameter is used in init body (excluding parent __init__ calls)
         // Parent calls are skipped in codegen, so params only used there are unused
         const is_used = param_analyzer.isNameUsedInInitBody(init_def.body, arg.name);
         if (!is_used) {
             // Zig requires unused params to be named just "_", not "_name"
             try self.emit("_: ");
-        } else if (shadows_class_member) {
-            // Rename parameter to avoid shadowing class-level attribute
-            try self.emit(arg.name);
-            try self.emit("__local: ");
-            // Track for var_renames setup later
-            try renamed_params.append(arg.name);
+        } else if (shadows_class_member or shadows_module_level) {
+            // Rename parameter to avoid shadowing using NameGen
+            const renamed = try self.name_gen.param(arg.name);
+            try self.emit(renamed);
+            try self.emit(": ");
+            // Track for var_renames setup later (store both original and renamed)
+            try renamed_params.append(.{ .original = arg.name, .renamed = renamed });
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
             try self.emit(": ");
@@ -470,10 +477,9 @@ pub fn genInitMethod(
     // Note: allocator is always used for __dict__ initialization, so no discard needed
 
     // Add var_renames for parameters that were renamed to avoid shadowing
-    // Use NameGen for consistent unique naming
-    for (renamed_params.items) |param_name| {
-        const renamed = try self.name_gen.local(param_name);
-        try self.var_renames.put(param_name, renamed);
+    // Use the same renamed name from signature generation
+    for (renamed_params.items) |entry| {
+        try self.var_renames.put(entry.original, entry.renamed);
     }
 
     // Analyze local variable uses BEFORE generating code
@@ -651,12 +657,13 @@ pub fn genInitMethodWithBuiltinBase(
     const is_nested = self.nested_class_names.contains(class_name);
     const alloc_name = if (is_nested) "__alloc" else "allocator";
 
-    // Track renamed params for cleanup at end (params that shadow methods)
-    var renamed_params = std.ArrayList([]const u8){};
+    // Track renamed params for cleanup at end (params that shadow methods or module-level decls)
+    const RenamedParamBuiltin = struct { original: []const u8, renamed: []const u8 };
+    var renamed_params = std.ArrayList(RenamedParamBuiltin){};
     defer {
         // Clean up var_renames for renamed params
-        for (renamed_params.items) |param_name| {
-            _ = self.var_renames.swapRemove(param_name);
+        for (renamed_params.items) |entry| {
+            _ = self.var_renames.swapRemove(entry.original);
         }
         renamed_params.deinit(self.allocator);
     }
@@ -700,11 +707,17 @@ pub fn genInitMethodWithBuiltinBase(
                 try self.emit("_: ");
             } else {
                 // Check if param would shadow a method in the class
-                // If so, register rename in var_renames for body generation
-                if (wouldShadowMethodInClass(arg.name, class_body)) {
-                    const renamed = try std.fmt.allocPrint(self.allocator, "{s}_param", .{arg.name});
+                const shadows_class_method = wouldShadowMethodInClass(arg.name, class_body);
+                // Check if param would shadow module-level declaration
+                const shadows_module_level = self.module_level_funcs.contains(arg.name) or
+                    self.module_level_vars.contains(arg.name) or
+                    self.imported_modules.contains(arg.name);
+
+                if (shadows_class_method or shadows_module_level) {
+                    // Rename parameter using NameGen for unique naming
+                    const renamed = try self.name_gen.param(arg.name);
                     try self.var_renames.put(arg.name, renamed);
-                    try renamed_params.append(self.allocator, arg.name);
+                    try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed });
                     try self.emit(renamed);
                 } else {
                     try writeInitParamName(self, arg.name, class_body);
@@ -1091,12 +1104,13 @@ pub fn genInitMethodFromNew(
     const is_nested = self.nested_class_names.contains(class_name);
     const alloc_name = if (is_nested) "__alloc" else "allocator";
 
-    // Track renamed params for cleanup at end (params that shadow methods)
-    var renamed_params = std.ArrayList([]const u8){};
+    // Track renamed params for cleanup at end (params that shadow methods or module-level decls)
+    const RenamedParamNew = struct { original: []const u8, renamed: []const u8 };
+    var renamed_params = std.ArrayList(RenamedParamNew){};
     defer {
         // Clean up var_renames for renamed params
-        for (renamed_params.items) |param_name| {
-            _ = self.var_renames.swapRemove(param_name);
+        for (renamed_params.items) |entry| {
+            _ = self.var_renames.swapRemove(entry.original);
         }
         renamed_params.deinit(self.allocator);
     }
@@ -1126,11 +1140,17 @@ pub fn genInitMethodFromNew(
             try self.emit("_: ");
         } else {
             // Check if param would shadow a method in the class
-            // If so, register rename in var_renames for body generation
-            if (wouldShadowMethodInClass(arg.name, class_body)) {
-                const renamed = try std.fmt.allocPrint(self.allocator, "{s}_param", .{arg.name});
+            const shadows_class_method = wouldShadowMethodInClass(arg.name, class_body);
+            // Check if param would shadow module-level declaration
+            const shadows_module_level = self.module_level_funcs.contains(arg.name) or
+                self.module_level_vars.contains(arg.name) or
+                self.imported_modules.contains(arg.name);
+
+            if (shadows_class_method or shadows_module_level) {
+                // Rename parameter using NameGen for unique naming
+                const renamed = try self.name_gen.param(arg.name);
                 try self.var_renames.put(arg.name, renamed);
-                try renamed_params.append(self.allocator, arg.name);
+                try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed });
                 try self.emit(renamed);
             } else {
                 try writeInitParamName(self, arg.name, class_body);
