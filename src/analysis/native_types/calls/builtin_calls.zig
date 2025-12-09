@@ -8,6 +8,7 @@ const expressions = @import("../expressions.zig");
 const string_traits = @import("../../traits/string_traits.zig");
 const container_traits = @import("../../traits/container_traits.zig");
 const type_traits = @import("../../traits/type_traits.zig");
+const inferrer_mod = @import("../inferrer.zig");
 
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
@@ -25,6 +26,7 @@ pub fn inferBuiltinCall(
     func_return_types: *FnvHashMap,
     func_name: []const u8,
     call: ast.Node.Call,
+    type_inferrer: ?*inferrer_mod.TypeInferrer,
 ) InferError!NativeType {
     // Check if the callee is a callable variable (from iterating over callable list)
     // PyCallable.call() returns []const u8 (bytes)
@@ -56,7 +58,7 @@ pub fn inferBuiltinCall(
     // Special case: abs() returns same type as input
     const ABS_HASH = comptime fnv_hash.hash("abs");
     if (fnv_hash.hash(func_name) == ABS_HASH and call.args.len > 0) {
-        return try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+        return try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
     }
 
     // Special case: int() - check argument source for boundedness
@@ -93,7 +95,7 @@ pub fn inferBuiltinCall(
         }
         // Check if argument comes from unbounded source (input(), file.read(), etc.)
         // by inferring the arg type and checking if it's a string (from external source)
-        const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, arg);
+        const arg_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, arg, type_inferrer);
         const arg_tag = @as(std.meta.Tag(NativeType), arg_type);
         // If arg is a RUNTIME string (not literal), it could be from input() - unbounded
         // Literal strings like "123" are bounded because we can verify the value at compile time
@@ -174,11 +176,11 @@ pub fn inferBuiltinCall(
         // Try to infer value type from kwargs if available
         if (call.keyword_args.len > 0) {
             // Infer from first kwarg value
-            const first_val_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.keyword_args[0].value);
+            const first_val_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.keyword_args[0].value, type_inferrer);
             value_type.* = first_val_type;
         } else if (call.args.len > 0) {
             // dict(iterable) - try to infer from iterable
-            const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+            const arg_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
             if (container_traits.isDict(arg_type)) {
                 // Already a dict - return same type
                 return arg_type;
@@ -196,7 +198,7 @@ pub fn inferBuiltinCall(
         const elem_type = try allocator.create(NativeType);
         if (call.args.len > 0) {
             // Infer from iterable argument
-            const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+            const arg_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
             if (container_traits.isSet(arg_type)) {
                 return arg_type;
             }
@@ -224,7 +226,7 @@ pub fn inferBuiltinCall(
         const elem_type = try allocator.create(NativeType);
         if (call.args.len > 0) {
             // Infer from iterable argument
-            const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+            const arg_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
             if (container_traits.isSet(arg_type)) {
                 return arg_type;
             }
@@ -250,7 +252,7 @@ pub fn inferBuiltinCall(
     if (fnv_hash.hash(func_name) == TUPLE_BUILTIN_HASH) {
         if (call.args.len > 0) {
             // Infer from argument
-            const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+            const arg_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
             if (container_traits.isTuple(arg_type)) {
                 return arg_type;
             }
@@ -284,7 +286,7 @@ pub fn inferBuiltinCall(
                 }
                 const elem_types = try allocator.alloc(NativeType, list.elts.len);
                 for (list.elts, 0..) |elt, idx| {
-                    elem_types[idx] = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, elt);
+                    elem_types[idx] = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, elt, type_inferrer);
                 }
                 return .{ .tuple = elem_types };
             }
@@ -298,7 +300,7 @@ pub fn inferBuiltinCall(
     if (fnv_hash.hash(func_name) == LIST_BUILTIN_HASH) {
         if (call.args.len > 0) {
             // Infer element type from the iterable argument
-            const arg_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+            const arg_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
             // If arg is already a list, return its type
             if (container_traits.isList(arg_type)) {
                 return arg_type;
@@ -400,7 +402,7 @@ pub fn inferBuiltinCall(
     // next() builtin - returns element type based on iterator type
     const NEXT_HASH = comptime fnv_hash.hash("next");
     if (func_hash == NEXT_HASH and call.args.len > 0) {
-        const iter_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, call.args[0]);
+        const iter_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
         if (iter_type == .list_iterator) {
             return .{ .int = .bounded }; // SequenceIterator(i64).next() returns i64
         }

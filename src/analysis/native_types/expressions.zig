@@ -185,7 +185,14 @@ pub fn inferExprWithInferrer(
         .constant => |c| inferConstant(c.value),
         .fstring => .{ .string = .runtime },
         .name => |n| blk: {
-            // Check if name is in var_types
+            // Check scoped variables first if TypeInferrer is available
+            // This ensures function-local variables like `result` in `return result` are found
+            if (type_inferrer) |ti| {
+                if (ti.getScopedVar(n.id)) |scoped_type| {
+                    break :blk scoped_type;
+                }
+            }
+            // Check if name is in global var_types
             if (var_types.get(n.id)) |vt| break :blk vt;
             // Check if name is a Python exception type - treat as int (ExceptionTypeId)
             if (isExceptionTypeName(n.id)) break :blk .{ .int = .bounded };
@@ -197,7 +204,7 @@ pub fn inferExprWithInferrer(
         .call => |c| try calls.inferCallWithInferrer(allocator, var_types, class_fields, func_return_types, c, type_inferrer),
         .subscript => |s| blk: {
             // Infer subscript type: obj[index] or obj[slice]
-            const obj_type = try inferExpr(allocator, var_types, class_fields, func_return_types, s.value.*);
+            const obj_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, s.value.*, type_inferrer);
 
             switch (s.slice) {
                 .index => |idx| {
@@ -354,7 +361,7 @@ pub fn inferExprWithInferrer(
             }
 
             // Try to infer from object type
-            const obj_type = try inferExpr(allocator, var_types, class_fields, func_return_types, a.value.*);
+            const obj_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, a.value.*, type_inferrer);
 
             // If object is a class instance, look up field type from class definition
             if (obj_type == .class_instance) {
@@ -405,14 +412,14 @@ pub fn inferExprWithInferrer(
         .list => |l| blk: {
             // Infer element type by widening across ALL elements
             var elem_type: NativeType = if (l.elts.len > 0)
-                try inferExpr(allocator, var_types, class_fields, func_return_types, l.elts[0])
+                try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, l.elts[0], type_inferrer)
             else
                 .unknown;
 
             // Widen type to accommodate all elements
             if (l.elts.len > 1) {
                 for (l.elts[1..]) |elem| {
-                    const this_type = try inferExpr(allocator, var_types, class_fields, func_return_types, elem);
+                    const this_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, elem, type_inferrer);
                     elem_type = elem_type.widen(this_type);
                 }
             }
@@ -446,14 +453,14 @@ pub fn inferExprWithInferrer(
                 // Check first entry - may be dict unpacking (**d) signaled by None key
                 if (d.keys[0] == .constant and d.keys[0].constant.value == .none) {
                     // Dict unpacking - get type from the unpacked dict
-                    const unpacked_type = try inferExpr(allocator, var_types, class_fields, func_return_types, d.values[0]);
+                    const unpacked_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, d.values[0], type_inferrer);
                     if (container_traits.isDict(unpacked_type)) {
                         val_type = unpacked_type.dict.value.*;
                     } else {
                         val_type = .unknown;
                     }
                 } else {
-                    val_type = try inferExpr(allocator, var_types, class_fields, func_return_types, d.values[0]);
+                    val_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, d.values[0], type_inferrer);
                 }
 
                 // Check if all values have same type
@@ -461,14 +468,14 @@ pub fn inferExprWithInferrer(
                     var this_type: NativeType = undefined;
                     if (key == .constant and key.constant.value == .none) {
                         // Dict unpacking
-                        const unpacked_type = try inferExpr(allocator, var_types, class_fields, func_return_types, value);
+                        const unpacked_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, value, type_inferrer);
                         if (container_traits.isDict(unpacked_type)) {
                             this_type = unpacked_type.dict.value.*;
                         } else {
                             this_type = .unknown;
                         }
                     } else {
-                        this_type = try inferExpr(allocator, var_types, class_fields, func_return_types, value);
+                        this_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, value, type_inferrer);
                     }
                     // Compare type tags
                     const tag1 = @as(std.meta.Tag(NativeType), val_type);
@@ -513,7 +520,7 @@ pub fn inferExprWithInferrer(
                 // Also check for tuples with BigInt elements - these need PyValue at runtime
                 if (val_type == .tuple) {
                     for (d.values) |value| {
-                        const vt = try inferExpr(allocator, var_types, class_fields, func_return_types, value);
+                        const vt = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, value, type_inferrer);
                         if (vt == .tuple) {
                             for (vt.tuple) |elem_type| {
                                 if (elem_type == .bigint) {
@@ -535,7 +542,7 @@ pub fn inferExprWithInferrer(
             var key_type: NativeType = .{ .string = .runtime };
             for (d.keys) |key| {
                 if (key != .constant or key.constant.value != .none) {
-                    key_type = try inferExpr(allocator, var_types, class_fields, func_return_types, key);
+                    key_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, key, type_inferrer);
                     break;
                 }
             }
@@ -563,7 +570,7 @@ pub fn inferExprWithInferrer(
             }
 
             // Infer element type from the comprehension expression
-            const elem_type = try inferExpr(allocator, var_types, class_fields, func_return_types, lc.elt.*);
+            const elem_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, lc.elt.*, type_inferrer);
 
             // List comprehensions produce ArrayList(T)
             const elem_ptr = try allocator.create(NativeType);
@@ -585,8 +592,8 @@ pub fn inferExprWithInferrer(
             }
 
             // Infer types from key and value expressions
-            const key_type = try inferExpr(allocator, var_types, class_fields, func_return_types, dc.key.*);
-            const val_type = try inferExpr(allocator, var_types, class_fields, func_return_types, dc.value.*);
+            const key_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, dc.key.*, type_inferrer);
+            const val_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, dc.value.*, type_inferrer);
 
             // Allocate key and value types on heap
             const key_ptr = try allocator.create(NativeType);
@@ -602,7 +609,7 @@ pub fn inferExprWithInferrer(
         .set => |s| blk: {
             // Infer element type from set elements
             const elem_type = if (s.elts.len > 0)
-                try inferExpr(allocator, var_types, class_fields, func_return_types, s.elts[0])
+                try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, s.elts[0], type_inferrer)
             else
                 .unknown;
 
@@ -638,7 +645,7 @@ pub fn inferExprWithInferrer(
             }
 
             // Infer element type from the generator expression
-            const elem_type = try inferExpr(allocator, var_types, class_fields, func_return_types, ge.elt.*);
+            const elem_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, ge.elt.*, type_inferrer);
 
             // Generator expressions produce ArrayList(T) (evaluated eagerly in AOT compilation)
             const elem_ptr = try allocator.create(NativeType);
@@ -649,7 +656,7 @@ pub fn inferExprWithInferrer(
             // Infer types of all tuple elements
             var elem_types = try allocator.alloc(NativeType, t.elts.len);
             for (t.elts, 0..) |elt, i| {
-                elem_types[i] = try inferExpr(allocator, var_types, class_fields, func_return_types, elt);
+                elem_types[i] = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, elt, type_inferrer);
             }
             break :blk .{ .tuple = elem_types };
         },
@@ -657,13 +664,13 @@ pub fn inferExprWithInferrer(
         .named_expr => |ne| blk: {
             // Named expression (walrus operator): (x := value)
             // The type of the named expression is the type of the value
-            break :blk try inferExpr(allocator, var_types, class_fields, func_return_types, ne.value.*);
+            break :blk try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, ne.value.*, type_inferrer);
         },
         .if_expr => |ie| blk: {
             // Conditional expression (ternary): body if condition else orelse_value
             // Return the wider type of body and orelse_value (they should match in Python)
-            const body_type = try inferExpr(allocator, var_types, class_fields, func_return_types, ie.body.*);
-            const orelse_type = try inferExpr(allocator, var_types, class_fields, func_return_types, ie.orelse_value.*);
+            const body_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, ie.body.*, type_inferrer);
+            const orelse_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, ie.orelse_value.*, type_inferrer);
             break :blk body_type.widen(orelse_type);
         },
         .lambda => |lam| blk: {
@@ -682,7 +689,7 @@ pub fn inferExprWithInferrer(
             } };
         },
         .unaryop => |u| blk: {
-            const operand_type = try inferExpr(allocator, var_types, class_fields, func_return_types, u.operand.*);
+            const operand_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, u.operand.*, type_inferrer);
             // In Python, +bool and -bool convert to int
             switch (u.op) {
                 .UAdd, .USub => {
@@ -705,7 +712,7 @@ pub fn inferExprWithInferrer(
             // Python's `a or b` and `a and b` return one of the operands, not a bool
             // Type is the type of the first operand (simplified inference)
             if (boolop.values.len > 0) {
-                const first_type = inferExpr(allocator, var_types, class_fields, func_return_types, boolop.values[0]) catch .unknown;
+                const first_type = inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, boolop.values[0], type_inferrer) catch .unknown;
                 break :blk first_type;
             }
             break :blk .unknown;

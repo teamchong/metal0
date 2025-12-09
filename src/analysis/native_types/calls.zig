@@ -97,6 +97,7 @@ pub fn inferCallWithInferrer(
             func_return_types,
             func_name,
             call,
+            type_inferrer,
         );
     }
 
@@ -273,7 +274,7 @@ pub fn inferCallWithInferrer(
         }
 
         // Infer object type and check for instance methods
-        const obj_type = try expressions.inferExpr(allocator, var_types, class_fields, func_return_types, attr.value.*);
+        const obj_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, attr.value.*, type_inferrer);
 
         // ctypes CDLL function calls: lib.strlen("hello") returns usize by default
         if (obj_type == .cdll) {
