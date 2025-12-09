@@ -1222,6 +1222,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // This will populate self.lambda_functions
     // Clear hoisted_vars before generating main body (for proper try/except variable tracking)
     self.hoisted_vars.clearRetainingCapacity();
+    self.hoisted_dynamic_closures.clearRetainingCapacity();
 
     // Analyze module-level mutations for scope-aware var/const determination
     // This populates func_local_mutations with aug_assign and multi-assign info

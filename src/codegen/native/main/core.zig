@@ -159,6 +159,11 @@ pub const NativeCodegen = struct {
     // Track which variables hold closures (for .call() generation)
     closure_vars: FnvVoidMap,
 
+    // Track closures hoisted as DynamicClosure (from if/else branches)
+    // These are declared as `var name: runtime.DynamicClosure = undefined;`
+    // and assigned inside branches, not declared as `const name = ...;`
+    hoisted_dynamic_closures: FnvVoidMap,
+
     // Track closures that return void (no catch needed)
     void_closure_vars: FnvVoidMap,
 
@@ -659,6 +664,7 @@ pub const NativeCodegen = struct {
             .block_label_counter = 0,
             .shadow_counter = 0,
             .closure_vars = FnvVoidMap.init(allocator),
+            .hoisted_dynamic_closures = FnvVoidMap.init(allocator),
             .void_closure_vars = FnvVoidMap.init(allocator),
             .callable_vars = FnvVoidMap.init(allocator),
             .error_callable_vars = FnvVoidMap.init(allocator),

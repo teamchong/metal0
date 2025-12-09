@@ -445,6 +445,7 @@ pub fn genFunctionBody(
     self.func_local_mutations.clearRetainingCapacity();
     self.func_local_aug_assigns.clearRetainingCapacity();
     self.hoisted_vars.clearRetainingCapacity();
+    self.hoisted_dynamic_closures.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
     self.class_instance_aliases.clearRetainingCapacity();
     // Clear variable renames from previous functions to avoid cross-function pollution
@@ -906,6 +907,7 @@ pub fn genAsyncFunctionBody(
     self.func_local_mutations.clearRetainingCapacity();
     self.func_local_aug_assigns.clearRetainingCapacity();
     self.hoisted_vars.clearRetainingCapacity();
+    self.hoisted_dynamic_closures.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
     self.class_instance_aliases.clearRetainingCapacity();
     try mutation_analysis.analyzeFunctionLocalMutations(self, func);
@@ -1102,6 +1104,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     }
 
     self.hoisted_vars.clearRetainingCapacity();
+    self.hoisted_dynamic_closures.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
     self.class_instance_aliases.clearRetainingCapacity();
     // Clear deferred closure instantiations from previous method

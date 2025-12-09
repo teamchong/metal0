@@ -22,6 +22,10 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.closure_vars);
     self.closure_vars.deinit();
 
+    // Clean up hoisted dynamic closures tracking
+    freeMapKeys(self.allocator, &self.hoisted_dynamic_closures);
+    self.hoisted_dynamic_closures.deinit();
+
     // Clean up void closure tracking
     freeMapKeys(self.allocator, &self.void_closure_vars);
     self.void_closure_vars.deinit();

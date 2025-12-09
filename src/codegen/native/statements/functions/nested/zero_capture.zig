@@ -431,7 +431,8 @@ pub fn genZeroCaptureClosure(
 
     // Check if this function was hoisted as a DynamicClosure (from if/else branch)
     // In this case, we assign to the existing var instead of creating a new const
-    const is_hoisted_closure = is_redefinition and self.closure_vars.contains(func.name);
+    // Use hoisted_dynamic_closures, not closure_vars - closure_vars includes ALL closures
+    const is_hoisted_closure = self.hoisted_dynamic_closures.contains(func.name);
 
     if (is_hoisted_closure) {
         // Assign to hoisted DynamicClosure variable

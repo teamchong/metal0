@@ -331,7 +331,7 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         collectFunctionDefs(if_stmt.body, &func_defs, self.allocator) catch {};
         collectFunctionDefs(if_stmt.else_body, &func_defs, self.allocator) catch {};
 
-        // Hoist function names as anyopaque pointers (will be assigned in branches)
+        // Hoist function names as DynamicClosure (will be assigned in branches)
         for (func_defs.items) |func_name| {
             // Skip if already declared
             if (self.isDeclared(func_name)) continue;
@@ -346,6 +346,9 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             // Mark as closure so calls use .call() syntax
             const func_copy = try self.allocator.dupe(u8, func_name);
             try self.closure_vars.put(func_copy, {});
+            // Also mark as hoisted DynamicClosure so zero_capture.zig knows to assign, not declare
+            const func_copy2 = try self.allocator.dupe(u8, func_name);
+            try self.hoisted_dynamic_closures.put(func_copy2, {});
         }
 
         // Collect variables from all branches
