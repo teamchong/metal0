@@ -218,6 +218,9 @@ pub const NativeCodegen = struct {
     // Track which variables hold array slices (result of slicing a constant array)
     array_slice_vars: FnvVoidMap,
 
+    // Track which variables hold lists of closures (for x.call() syntax when iterating)
+    closure_list_vars: FnvVoidMap,
+
     // Track ArrayList variables (for len() -> .items.len)
     arraylist_vars: FnvVoidMap,
 
@@ -681,6 +684,7 @@ pub const NativeCodegen = struct {
             .function_start_pos = 0,
             .array_vars = FnvVoidMap.init(allocator),
             .array_slice_vars = FnvVoidMap.init(allocator),
+            .closure_list_vars = FnvVoidMap.init(allocator),
             .arraylist_vars = FnvVoidMap.init(allocator),
             .arraylist_aliases = FnvStringMap.init(allocator),
             .class_instance_aliases = FnvStringMap.init(allocator),

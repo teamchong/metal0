@@ -1061,6 +1061,41 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                 try emitForLoopTarget(self, gen.target.*);
                 try self.emit("| {\n");
                 self.indent();
+
+                // Check if iterator source is a closure list - if so, register loop var as closure
+                // This enables x.call() syntax instead of x() when calling the element
+                if (gen.target.* == .name) {
+                    const target_name = gen.target.name.id;
+
+                    // First, check if iterator is a known closure list variable
+                    var is_closure_list = false;
+                    if (gen.iter.* == .name) {
+                        const iter_var_name = gen.iter.name.id;
+                        // Check both original name and renamed name
+                        if (self.closure_list_vars.contains(iter_var_name)) {
+                            is_closure_list = true;
+                        } else if (self.var_renames.get(iter_var_name)) |renamed| {
+                            if (self.closure_list_vars.contains(renamed)) {
+                                is_closure_list = true;
+                            }
+                        }
+                    }
+
+                    // Also check type inference as fallback
+                    if (!is_closure_list) {
+                        const iter_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
+                        if (iter_type == .list) {
+                            const elem_type = iter_type.list.*;
+                            if (elem_type == .closure or elem_type == .function) {
+                                is_closure_list = true;
+                            }
+                        }
+                    }
+
+                    if (is_closure_list) {
+                        try self.closure_vars.put(target_name, {});
+                    }
+                }
             }
         }
 

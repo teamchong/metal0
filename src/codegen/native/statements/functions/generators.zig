@@ -705,6 +705,17 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     // will correctly reference `__C_items` instead of `items`
                     try self.var_renames.put(attr_name, pregen_name);
 
+                    // If this is a list comprehension with lambda elements, mark as closure list
+                    // so iterating over it generates x.call() syntax
+                    if (assign.value.* == .listcomp) {
+                        const lc = assign.value.listcomp;
+                        if (lc.elt.* == .lambda) {
+                            try self.closure_list_vars.put(pregen_name, {});
+                            // Also mark original name for lookups
+                            try self.closure_list_vars.put(attr_name, {});
+                        }
+                    }
+
                     try self.emitIndent();
                     try self.output.writer(self.allocator).print("const {s} = init_blk: {{\n", .{pregen_name});
                     self.indent();

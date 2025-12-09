@@ -570,7 +570,13 @@ pub fn inferExprWithInferrer(
             }
 
             // Infer element type from the comprehension expression
-            const elem_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, lc.elt.*, type_inferrer);
+            var elem_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, lc.elt.*, type_inferrer);
+
+            // Lambda elements become closures (Closure0 struct) when stored in lists
+            // because each instance captures different values from the loop
+            if (lc.elt.* == .lambda) {
+                elem_type = .{ .closure = "__ListClosureType" };
+            }
 
             // List comprehensions produce ArrayList(T)
             const elem_ptr = try allocator.create(NativeType);

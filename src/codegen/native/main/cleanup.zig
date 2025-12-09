@@ -72,6 +72,10 @@ pub fn deinit(self: *NativeCodegen) void {
     freeMapKeys(self.allocator, &self.array_slice_vars);
     self.array_slice_vars.deinit();
 
+    // Clean up closure list vars tracking
+    freeMapKeys(self.allocator, &self.closure_list_vars);
+    self.closure_list_vars.deinit();
+
     // Clean up arraylist vars tracking
     freeMapKeys(self.allocator, &self.arraylist_vars);
     self.arraylist_vars.deinit();
