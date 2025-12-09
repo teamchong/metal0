@@ -431,7 +431,18 @@ pub fn emitVarDeclaration(
     }
 
     // Use renamed version if in var_renames map (for exception handling or shadowing)
-    const actual_name = self.var_renames.get(var_name) orelse var_name;
+    // BUT skip if the rename is a lazy class attribute call pattern "(try X(__alloc))"
+    // Those are only for READS, not for declaring new local variables
+    const actual_name = blk: {
+        if (self.var_renames.get(var_name)) |renamed| {
+            // Lazy attribute patterns start with "(try " - don't use for declarations
+            if (std.mem.startsWith(u8, renamed, "(try ")) {
+                break :blk var_name;
+            }
+            break :blk renamed;
+        }
+        break :blk var_name;
+    };
 
     // Check if renamed name is a pointer dereference (ends with ".*")
     // If so, this is a pointer assignment inside a try block helper - no const/var prefix needed

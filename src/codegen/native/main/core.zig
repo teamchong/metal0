@@ -1560,6 +1560,21 @@ pub const NativeCodegen = struct {
         return var_name;
     }
 
+    /// Get the renamed variable name for DECLARATIONS (const/var statements)
+    /// This filters out lazy class attribute patterns "(try X(__alloc))" which are
+    /// only for READS (expressions), not for declaring new local variables.
+    /// Lazy attribute patterns would produce invalid Zig: `const (try MIN(__alloc)) = ...`
+    pub fn getVarDeclName(self: *NativeCodegen, var_name: []const u8) []const u8 {
+        if (self.var_renames.get(var_name)) |renamed| {
+            // Lazy attribute patterns start with "(try " - don't use for declarations
+            if (std.mem.startsWith(u8, renamed, "(try ")) {
+                return var_name;
+            }
+            return renamed;
+        }
+        return var_name;
+    }
+
     /// Check if a variable is referenced in an eval/exec string
     pub fn isEvalStringVar(self: *NativeCodegen, var_name: []const u8) bool {
         return self.semantic_info.isEvalStringVar(var_name);
