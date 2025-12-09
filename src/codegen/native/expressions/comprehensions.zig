@@ -906,6 +906,9 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
             } else if (type_traits.isFloating(const_type)) {
                 break :blk "f64";
             }
+        } else if (listcomp.elt.* == .fstring) {
+            // F-string element produces string
+            break :blk "[]u8";
         } else if (listcomp.elt.* == .if_expr) {
             // Ternary expression - check body and orelse types
             const if_expr = listcomp.elt.if_expr;
@@ -1582,6 +1585,10 @@ fn isBoolExpr(node: ast.Node) bool {
 
 /// Get the Zig element type string for a generator expression element
 fn getGenExpElementType(elt: ast.Node) []const u8 {
+    // Check for f-string first - common in generator expressions
+    if (elt == .fstring) return "[]u8";
+    // Check for string constant
+    if (elt == .constant and elt.constant.value == .string) return "[]const u8";
     if (isBoolExpr(elt)) return "bool";
     if (isIntExpr(elt)) return "i64";
     // Default to i64 for unknown types
