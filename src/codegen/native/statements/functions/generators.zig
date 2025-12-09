@@ -652,12 +652,19 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
-    // Pre-generate complex class attributes (list comprehensions, calls, etc.) as
-    // module-level variables BEFORE the struct definition. These need to be outside
-    // the struct because they may contain `try` which is invalid in struct scope.
-    // Track which attributes were pre-generated so we can reference them inside the struct.
-    var pregenerated_attrs = std.StringHashMap([]const u8).init(self.allocator);
-    defer pregenerated_attrs.deinit();
+    // Track complex class attributes that need lazy-computed methods
+    // Instead of pre-generating outside the struct (which breaks Zig scope rules),
+    // we generate lazy-computed methods with threadlocal caching inside the struct.
+    // This preserves Python's "compute once at class definition" semantics.
+    const LazyAttrInfo = struct {
+        value: *ast.Node,
+        is_closure_list: bool,
+        closure_type_idx: ?usize,  // Index for generating unique closure types at struct level
+    };
+    var lazy_attrs = std.StringHashMap(LazyAttrInfo).init(self.allocator);
+    defer lazy_attrs.deinit();
+
+    var next_closure_type_idx: usize = 0;
 
     for (class.body) |stmt| {
         if (stmt == .assign) {
@@ -677,9 +684,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 // Skip private/dunder attributes
                 if (std.mem.startsWith(u8, attr_name, "__")) continue;
 
-                // Check if this is a complex expression that needs pre-generation
+                // Check if this is a complex expression that needs lazy computation
                 const is_complex = switch (assign.value.*) {
-                    .constant, .name => false, // Simple
+                    .constant, .name => false, // Simple - can use pub const
                     .tuple => |t| blk: {
                         for (t.elts) |elem| {
                             if (elem != .constant and elem != .name) break :blk true;
@@ -692,42 +699,48 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         }
                         break :blk false;
                     },
-                    else => true, // All other expressions are complex
+                    else => true, // All other expressions need lazy computation
                 };
 
                 if (is_complex) {
-                    // Generate: const __ClassName_attrname = blk: { ... };
-                    const pregen_name = try std.fmt.allocPrint(self.allocator, "__{s}_{s}", .{ effective_class_name, attr_name });
-                    try pregenerated_attrs.put(attr_name, pregen_name);
+                    // Check if this is a list comprehension with lambda elements
+                    var is_closure_list = false;
+                    var closure_type_idx: ?usize = null;
 
-                    // Add to var_renames so subsequent expressions can reference this attr
-                    // e.g., if `items` is pre-generated, then `y = [x() for x in items]`
-                    // will correctly reference `__C_items` instead of `items`
-                    try self.var_renames.put(attr_name, pregen_name);
-
-                    // If this is a list comprehension with lambda elements, mark as closure list
-                    // so iterating over it generates x.call() syntax
                     if (assign.value.* == .listcomp) {
                         const lc = assign.value.listcomp;
                         if (lc.elt.* == .lambda) {
-                            try self.closure_list_vars.put(pregen_name, {});
-                            // Also mark original name for lookups
+                            is_closure_list = true;
+                            closure_type_idx = next_closure_type_idx;
+                            next_closure_type_idx += 1;
+
+                            // Add to var_renames so subsequent attributes can reference via method call
+                            const lazy_call = try std.fmt.allocPrint(self.allocator, "(try {s}(__alloc))", .{attr_name});
+                            try self.var_renames.put(attr_name, lazy_call);
+
                             try self.closure_list_vars.put(attr_name, {});
+                            try self.closure_list_vars.put(lazy_call, {});
                         }
                     }
 
-                    try self.emitIndent();
-                    try self.output.writer(self.allocator).print("const {s} = init_blk: {{\n", .{pregen_name});
-                    self.indent();
-                    try self.emitIndent();
-                    try self.emit("const __result = ");
-                    try self.genExpr(assign.value.*);
-                    try self.emit(";\n");
-                    try self.emitIndent();
-                    try self.emit("break :init_blk __result;\n");
-                    self.dedent();
-                    try self.emitIndent();
-                    try self.emit("};\n");
+                    // Store for lazy method generation inside the struct
+                    try lazy_attrs.put(attr_name, .{
+                        .value = assign.value,
+                        .is_closure_list = is_closure_list,
+                        .closure_type_idx = closure_type_idx,
+                    });
+
+                    // Track this lazy attr for attribute access transformation
+                    // When we see C.attr, we'll generate (try C.attr(__alloc)) instead
+                    const lazy_key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, attr_name });
+                    try self.lazy_class_attrs.put(lazy_key, {});
+
+                    // Add to var_renames so subsequent attributes can reference via method call
+                    // e.g., `items` becomes `try items(__alloc)` when referenced
+                    if (!is_closure_list) {
+                        const lazy_call = try std.fmt.allocPrint(self.allocator, "(try {s}(__alloc))", .{attr_name});
+                        try self.var_renames.put(attr_name, lazy_call);
+                    }
                 }
             }
         }
@@ -812,6 +825,71 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // This MUST happen BEFORE generating any fields or methods, because Zig requires
     // all const declarations to appear before any pub fn declarations in a struct
     try body.hoistAllLocalClassesFromMethods(self, class);
+
+    // Pre-generate closure types for lazy class attributes at struct level
+    // This allows us to reference these types in function signatures without relying on @TypeOf
+    {
+        var lazy_iter = lazy_attrs.iterator();
+        while (lazy_iter.next()) |entry| {
+            const info = entry.value_ptr.*;
+            if (info.is_closure_list) {
+                if (info.closure_type_idx) |idx| {
+                    const lc = info.value.listcomp;
+                    const lambda = lc.elt.lambda;
+
+                    // Determine capture field name from lambda
+                    var capture_name: []const u8 = "i";
+                    if (lambda.args.len > 0 and lambda.args[0].default != null) {
+                        capture_name = lambda.args[0].name;
+                    } else if (lambda.body.* == .name) {
+                        capture_name = lambda.body.name.id;
+                    }
+
+                    try self.emit("\n");
+                    try self.emitIndent();
+                    try self.emit("// Closure types for class-level lambda comprehension\n");
+
+                    // Generate: const __ClassCaptureType_N = struct { <capture_name>: i64 };
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("const __ClassCaptureType_{d} = struct {{ ", .{idx});
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), capture_name);
+                    try self.emit(": i64 };\n");
+
+                    // Generate: const __ClassClosureImpl_N = struct { fn call(__cap: __ClassCaptureType_N) i64 { ... } };
+                    // Need to generate the actual lambda body, replacing capture var with __cap.<capture_name>
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("const __ClassClosureImpl_{d} = struct {{ fn call(__cap: __ClassCaptureType_{d}) i64 {{ return ", .{ idx, idx });
+
+                    // Set up var_rename so capture_name -> __cap.<capture_name>
+                    const cap_access = try std.fmt.allocPrint(self.allocator, "__cap.{s}", .{capture_name});
+                    try self.var_renames.put(capture_name, cap_access);
+
+                    // Also handle the case where the lambda param has a different name than the default
+                    // e.g., lambda i=j: i -> 'i' accesses __cap.i but was captured from 'j'
+                    if (lambda.args.len > 0) {
+                        const param_name = lambda.args[0].name;
+                        if (!std.mem.eql(u8, param_name, capture_name)) {
+                            try self.var_renames.put(param_name, cap_access);
+                        }
+                    }
+
+                    // Generate the lambda body
+                    try self.genExpr(lambda.body.*);
+                    try self.emit("; } };\n");
+
+                    // Clean up var_renames
+                    _ = self.var_renames.swapRemove(capture_name);
+                    if (lambda.args.len > 0) {
+                        _ = self.var_renames.swapRemove(lambda.args[0].name);
+                    }
+
+                    // Generate: const __ClassClosureType_N = runtime.Closure0(...);
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("const __ClassClosureType_{d} = runtime.Closure0(__ClassCaptureType_{d}, i64, __ClassClosureImpl_{d}.call);\n", .{ idx, idx, idx });
+                }
+            }
+        }
+    }
 
     // Add pointer fields for captured outer variables
     if (captured_vars) |vars| {
@@ -1170,20 +1248,183 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 // Skip private/dunder attributes (usually handled specially)
                 if (std.mem.startsWith(u8, attr_name, "__")) continue;
 
-                // Check if this was pre-generated (complex expression)
-                if (pregenerated_attrs.get(attr_name)) |pregen_name| {
-                    // Reference the pre-generated variable
+                // Check if this needs lazy computation (complex expression)
+                if (lazy_attrs.get(attr_name)) |info| {
+                    const value_node = info.value;
+
+                    // Generate lazy-computed method with threadlocal caching
+                    // This overcomes Zig's limitation where structs can't capture outer scope
                     try self.emit("\n");
                     try self.emitIndent();
-                    try self.emit("// Class-level attribute (pre-computed)\n");
-                    try self.emitIndent();
-                    try self.emit("pub const ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                    try self.emit(" = ");
-                    try self.emit(pregen_name);
-                    try self.emit(";\n");
+                    try self.emit("// Class-level attribute (lazy-computed)\n");
+
+                    // For closure lists, use the pre-generated struct-level closure type
+                    // For other expressions, we need to handle type inference differently
+                    if (info.is_closure_list) {
+                        if (info.closure_type_idx) |idx| {
+                            // Generate: threadlocal var __<attr>_cache: ?std.ArrayListUnmanaged(__ClassClosureType_N) = null;
+                            try self.emitIndent();
+                            try self.output.writer(self.allocator).print("threadlocal var __{s}_cache: ?std.ArrayListUnmanaged(__ClassClosureType_{d}) = null;\n", .{ attr_name, idx });
+
+                            // Generate: pub fn <attr>(__alloc: std.mem.Allocator) !std.ArrayListUnmanaged(__ClassClosureType_N)
+                            try self.emitIndent();
+                            try self.emit("pub fn ");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                            try self.output.writer(self.allocator).print("(__alloc: std.mem.Allocator) !std.ArrayListUnmanaged(__ClassClosureType_{d}) {{\n", .{idx});
+                            self.indent();
+
+                            // Check cache
+                            try self.emitIndent();
+                            try self.output.writer(self.allocator).print("if (__{s}_cache) |cached| return cached;\n", .{attr_name});
+
+                            // CRITICAL: Re-populate var_renames with ALL lazy attr mappings
+                            var lazy_iter = lazy_attrs.iterator();
+                            while (lazy_iter.next()) |entry| {
+                                const lazy_call = try std.fmt.allocPrint(self.allocator, "(try {s}(__alloc))", .{entry.key_ptr.*});
+                                try self.var_renames.put(entry.key_ptr.*, lazy_call);
+                            }
+
+                            // Generate the list comprehension manually using struct-level closure types
+                            // Instead of genExpr which would generate inline closure types
+                            const lc = value_node.listcomp;
+                            const lambda = lc.elt.lambda;
+
+                            // Determine capture field name
+                            var capture_name: []const u8 = "i";
+                            if (lambda.args.len > 0 and lambda.args[0].default != null) {
+                                capture_name = lambda.args[0].name;
+                            } else if (lambda.body.* == .name) {
+                                capture_name = lambda.body.name.id;
+                            }
+
+                            // Get the first generator
+                            if (lc.generators.len > 0) {
+                                const gen = lc.generators[0];
+
+                                try self.emitIndent();
+                                try self.output.writer(self.allocator).print("var __result = std.ArrayListUnmanaged(__ClassClosureType_{d}){{}};\n", .{idx});
+
+                                // Generate loop
+                                try self.emitIndent();
+                                try self.emit("var __loop_var: i64 = 0;\n");
+                                try self.emitIndent();
+                                try self.emit("while (__loop_var < ");
+                                // Get upper bound from range(N)
+                                if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
+                                    if (std.mem.eql(u8, gen.iter.call.func.name.id, "range")) {
+                                        if (gen.iter.call.args.len > 0) {
+                                            try self.genExpr(gen.iter.call.args[0]);
+                                        } else {
+                                            try self.emit("0");
+                                        }
+                                    } else {
+                                        try self.emit("0");
+                                    }
+                                } else {
+                                    try self.emit("0");
+                                }
+                                try self.emit(") {\n");
+                                self.indent();
+                                try self.emitIndent();
+                                try self.emit("defer __loop_var += 1;\n");
+                                try self.emitIndent();
+                                try self.output.writer(self.allocator).print("try __result.append(__alloc, __ClassClosureType_{d}{{ .captures = .{{ .{s} = __loop_var }} }});\n", .{ idx, capture_name });
+                                self.dedent();
+                                try self.emitIndent();
+                                try self.emit("}\n");
+                            }
+
+                            // Cache and return
+                            try self.emitIndent();
+                            try self.output.writer(self.allocator).print("__{s}_cache = __result;\n", .{attr_name});
+                            try self.emitIndent();
+                            try self.emit("return __result;\n");
+
+                            self.dedent();
+                            try self.emitIndent();
+                            try self.emit("}\n");
+                        }
+                    } else {
+                        // Non-closure-list complex expressions - use type inference from AST
+
+                        // Special case: comprehension iterating over a closure list and calling the closures
+                        // e.g., y = [x() for x in items] where items is a closure list
+                        // The result type is std.ArrayListUnmanaged(i64) (closure return type)
+                        var zig_type: []const u8 = "i64";
+
+                        if (value_node.* == .listcomp) {
+                            const lc = value_node.listcomp;
+                            // Check if element is a call to the loop variable
+                            if (lc.elt.* == .call and lc.elt.call.func.* == .name) {
+                                if (lc.generators.len > 0) {
+                                    const gen = lc.generators[0];
+                                    if (gen.target.* == .name) {
+                                        const loop_var = gen.target.name.id;
+                                        // Check if iterating over a lazy attr that's a closure list
+                                        if (gen.iter.* == .name) {
+                                            const iter_name = gen.iter.name.id;
+                                            if (self.closure_list_vars.contains(iter_name)) {
+                                                // y = [x() for x in items] -> ArrayListUnmanaged(i64)
+                                                if (std.mem.eql(u8, lc.elt.call.func.name.id, loop_var)) {
+                                                    zig_type = "std.ArrayListUnmanaged(i64)";
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // If not a special case, use type inference
+                        if (std.mem.eql(u8, zig_type, "i64")) {
+                            const expr_type = try self.inferExprScoped(value_node.*);
+                            var type_buf = std.ArrayList(u8){};
+                            try expr_type.toZigType(self.allocator, &type_buf);
+                            if (type_buf.items.len > 0) {
+                                zig_type = type_buf.items;
+                            }
+                        }
+
+                        // Generate: threadlocal var __<attr>_cache: ?<type> = null;
+                        try self.emitIndent();
+                        try self.output.writer(self.allocator).print("threadlocal var __{s}_cache: ?{s} = null;\n", .{ attr_name, zig_type });
+
+                        // Generate: pub fn <attr>(__alloc: std.mem.Allocator) !<type>
+                        try self.emitIndent();
+                        try self.emit("pub fn ");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                        try self.output.writer(self.allocator).print("(__alloc: std.mem.Allocator) !{s} {{\n", .{zig_type});
+                        self.indent();
+
+                        // Check cache
+                        try self.emitIndent();
+                        try self.output.writer(self.allocator).print("if (__{s}_cache) |cached| return cached;\n", .{attr_name});
+
+                        // CRITICAL: Re-populate var_renames with ALL lazy attr mappings
+                        var lazy_iter = lazy_attrs.iterator();
+                        while (lazy_iter.next()) |entry| {
+                            const lazy_call = try std.fmt.allocPrint(self.allocator, "(try {s}(__alloc))", .{entry.key_ptr.*});
+                            try self.var_renames.put(entry.key_ptr.*, lazy_call);
+                        }
+
+                        // Compute value
+                        try self.emitIndent();
+                        try self.emit("const __result = ");
+                        try self.genExpr(value_node.*);
+                        try self.emit(";\n");
+
+                        // Cache and return
+                        try self.emitIndent();
+                        try self.output.writer(self.allocator).print("__{s}_cache = __result;\n", .{attr_name});
+                        try self.emitIndent();
+                        try self.emit("return __result;\n");
+
+                        self.dedent();
+                        try self.emitIndent();
+                        try self.emit("}\n");
+                    }
                 } else {
-                    // Simple constant - emit directly
+                    // Simple constant - emit directly as pub const
                     try self.emit("\n");
                     try self.emitIndent();
                     try self.emit("// Class-level attribute\n");

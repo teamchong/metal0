@@ -191,6 +191,20 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         const module_name = attr.value.name.id;
         const attr_name = attr.attr;
 
+        // Check if this is a lazy class attribute access (C.items, C.y)
+        // Lazy attrs are methods, so C.attr becomes (try C.attr(__global_allocator))
+        // Use __global_allocator since the calling context may not have __alloc in scope
+        var lazy_key_buf: [256]u8 = undefined;
+        const lazy_key = std.fmt.bufPrint(&lazy_key_buf, "{s}.{s}", .{ module_name, attr_name }) catch module_name;
+        if (self.lazy_class_attrs.contains(lazy_key)) {
+            try self.emit("(try ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
+            try self.emit(".");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+            try self.emit("(__global_allocator))");
+            return;
+        }
+
         // Handle builtin type class methods (int.__new__, float.fromhex, float.hex, etc.)
         if (std.mem.eql(u8, module_name, "int")) {
             if (std.mem.eql(u8, attr_name, "__new__")) {

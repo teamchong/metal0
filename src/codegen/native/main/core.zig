@@ -221,6 +221,10 @@ pub const NativeCodegen = struct {
     // Track which variables hold lists of closures (for x.call() syntax when iterating)
     closure_list_vars: FnvVoidMap,
 
+    // Track lazy class attributes that became getter methods
+    // Maps "ClassName.attrName" -> void to indicate C.attr should become (try C.attr(__alloc))
+    lazy_class_attrs: FnvVoidMap,
+
     // Track ArrayList variables (for len() -> .items.len)
     arraylist_vars: FnvVoidMap,
 
@@ -685,6 +689,7 @@ pub const NativeCodegen = struct {
             .array_vars = FnvVoidMap.init(allocator),
             .array_slice_vars = FnvVoidMap.init(allocator),
             .closure_list_vars = FnvVoidMap.init(allocator),
+            .lazy_class_attrs = FnvVoidMap.init(allocator),
             .arraylist_vars = FnvVoidMap.init(allocator),
             .arraylist_aliases = FnvStringMap.init(allocator),
             .class_instance_aliases = FnvStringMap.init(allocator),
