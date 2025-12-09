@@ -203,6 +203,14 @@ fn findCapturedVars(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!
     // Find all variable references in lambda body
     try findVarReferences(self, lambda.body.*, &captured);
 
+    // Also find variable references in default parameter expressions
+    // e.g., (lambda i=i: i) - the default value 'i' references outer scope
+    for (lambda.args) |arg| {
+        if (arg.default) |default_expr| {
+            try findVarReferences(self, default_expr.*, &captured);
+        }
+    }
+
     // Remove lambda parameters from captured list
     var filtered = std.ArrayList([]const u8){};
     for (captured.items) |var_name| {

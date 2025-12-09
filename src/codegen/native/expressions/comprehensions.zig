@@ -870,6 +870,8 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
             // Create mangled name and add to substitution map
             const mangled_name = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ orig_var_name, comp_id });
             try subs.put(orig_var_name, mangled_name);
+            // Also add to var_renames so lambdas and other nested expressions can see it
+            try self.var_renames.put(orig_var_name, mangled_name);
 
             // Parse range arguments - handle both constants and variable expressions
             const start_expr: ?ast.Node = if (args.len >= 2) args[0] else null;

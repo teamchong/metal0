@@ -652,6 +652,76 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
+    // Pre-generate complex class attributes (list comprehensions, calls, etc.) as
+    // module-level variables BEFORE the struct definition. These need to be outside
+    // the struct because they may contain `try` which is invalid in struct scope.
+    // Track which attributes were pre-generated so we can reference them inside the struct.
+    var pregenerated_attrs = std.StringHashMap([]const u8).init(self.allocator);
+    defer pregenerated_attrs.deinit();
+
+    for (class.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                const attr_name = assign.targets[0].name.id;
+
+                // Skip type attributes (handled as functions)
+                if (assign.value.* == .name) {
+                    const type_name = assign.value.name.id;
+                    if (PyBuiltinTypes.has(type_name)) continue;
+                }
+
+                // Skip None attributes (handled as stub methods)
+                if (assign.value.* == .constant and assign.value.constant.value == .none) continue;
+
+                // Skip private/dunder attributes
+                if (std.mem.startsWith(u8, attr_name, "__")) continue;
+
+                // Check if this is a complex expression that needs pre-generation
+                const is_complex = switch (assign.value.*) {
+                    .constant, .name => false, // Simple
+                    .tuple => |t| blk: {
+                        for (t.elts) |elem| {
+                            if (elem != .constant and elem != .name) break :blk true;
+                        }
+                        break :blk false;
+                    },
+                    .list => |l| blk: {
+                        for (l.elts) |elem| {
+                            if (elem != .constant and elem != .name) break :blk true;
+                        }
+                        break :blk false;
+                    },
+                    else => true, // All other expressions are complex
+                };
+
+                if (is_complex) {
+                    // Generate: const __ClassName_attrname = blk: { ... };
+                    const pregen_name = try std.fmt.allocPrint(self.allocator, "__{s}_{s}", .{ effective_class_name, attr_name });
+                    try pregenerated_attrs.put(attr_name, pregen_name);
+
+                    // Add to var_renames so subsequent expressions can reference this attr
+                    // e.g., if `items` is pre-generated, then `y = [x() for x in items]`
+                    // will correctly reference `__C_items` instead of `items`
+                    try self.var_renames.put(attr_name, pregen_name);
+
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("const {s} = init_blk: {{\n", .{pregen_name});
+                    self.indent();
+                    try self.emitIndent();
+                    try self.emit("const __result = ");
+                    try self.genExpr(assign.value.*);
+                    try self.emit(";\n");
+                    try self.emitIndent();
+                    try self.emit("break :init_blk __result;\n");
+                    self.dedent();
+                    try self.emitIndent();
+                    try self.emit("};\n");
+                }
+            }
+        }
+    }
+
     // Generate: const ClassName = struct {
     // Use pub const for top-level classes in module mode so they're accessible from importers
     try self.emitIndent();
@@ -1063,6 +1133,55 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         try self.emitIndent();
                         try self.emit("}\n");
                     }
+                }
+            }
+        }
+    }
+
+    // Generate class-level value attributes (e.g., items = [...], y = x + 1)
+    // Simple constants become pub const fields directly.
+    // Complex expressions were pre-generated before the struct - reference them here.
+    for (class.body) |stmt| {
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                const attr_name = assign.targets[0].name.id;
+
+                // Skip type attributes (handled above as functions)
+                if (assign.value.* == .name) {
+                    const type_name = assign.value.name.id;
+                    if (PyBuiltinTypes.has(type_name)) continue;
+                }
+
+                // Skip None attributes (handled below as stub methods)
+                if (assign.value.* == .constant and assign.value.constant.value == .none) continue;
+
+                // Skip private/dunder attributes (usually handled specially)
+                if (std.mem.startsWith(u8, attr_name, "__")) continue;
+
+                // Check if this was pre-generated (complex expression)
+                if (pregenerated_attrs.get(attr_name)) |pregen_name| {
+                    // Reference the pre-generated variable
+                    try self.emit("\n");
+                    try self.emitIndent();
+                    try self.emit("// Class-level attribute (pre-computed)\n");
+                    try self.emitIndent();
+                    try self.emit("pub const ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                    try self.emit(" = ");
+                    try self.emit(pregen_name);
+                    try self.emit(";\n");
+                } else {
+                    // Simple constant - emit directly
+                    try self.emit("\n");
+                    try self.emitIndent();
+                    try self.emit("// Class-level attribute\n");
+                    try self.emitIndent();
+                    try self.emit("pub const ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                    try self.emit(" = ");
+                    try self.genExpr(assign.value.*);
+                    try self.emit(";\n");
                 }
             }
         }
