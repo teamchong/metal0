@@ -622,13 +622,13 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
     }
 
     // === TUPLE COMPARISON ===
+    // Use runtime.pyEqual for Python-semantic comparison (handles cross-type like BigInt vs i64)
     if (tag_a == .tuple and tag_b == .tuple) {
-        // For tuples, compare element by element
-        try self.emit("if (!std.meta.eql(");
+        try self.emit("if (!(try runtime.pyEqual(__global_allocator, ");
         try parent.genExpr(self, args[0]);
         try self.emit(", ");
         try parent.genExpr(self, args[1]);
-        try self.emit(")) @panic(\"assertEqual failed\")");
+        try self.emit("))) @panic(\"assertEqual failed\")");
         return;
     }
 

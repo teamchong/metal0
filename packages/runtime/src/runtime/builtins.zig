@@ -2431,6 +2431,112 @@ pub fn assertEqualGeneric(a: anytype, b: anytype, allocator: std.mem.Allocator) 
     return a_val.eql(b_val);
 }
 
+/// Universal Python-semantic equality comparison
+/// Handles all type combinations using comptime introspection:
+/// 1. Tagged unions → extract active field, recurse
+/// 2. Tuples/structs → element-wise pyEqual
+/// 3. Custom __eq__ → call method
+/// 4. Numerics → coerce via toPyValue + PyValue.eql
+/// 5. Same types → direct comparison
+///
+/// This function is designed to be used anywhere Python equality semantics are needed,
+/// not just in assertEqual. It prevents the patching loop by handling all cases uniformly.
+pub fn pyEqual(allocator: std.mem.Allocator, a: anytype, b: anytype) !bool {
+    const TypeA = @TypeOf(a);
+    const TypeB = @TypeOf(b);
+    const info_a = @typeInfo(TypeA);
+    const info_b = @typeInfo(TypeB);
+
+    // === SAME TYPE FAST PATH ===
+    // If exact same type, use direct comparison (except for structs which may need element-wise)
+    if (TypeA == TypeB) {
+        if (info_a == .int or info_a == .comptime_int or
+            info_a == .float or info_a == .comptime_float or
+            info_a == .bool)
+        {
+            return a == b;
+        }
+        // For slices, use mem.eql
+        if (info_a == .pointer and info_a.pointer.size == .slice) {
+            if (info_a.pointer.child == u8) {
+                return std.mem.eql(u8, a, b);
+            }
+        }
+    }
+
+    // === TAGGED UNION HANDLING ===
+    // Extract active field from union and recurse - handles IntResult, PyPowResult, etc.
+    if (info_a == .@"union" and info_a.@"union".tag_type != null) {
+        const tag = std.meta.activeTag(a);
+        inline for (info_a.@"union".fields) |field| {
+            if (tag == @field(std.meta.Tag(TypeA), field.name)) {
+                const field_value = @field(a, field.name);
+                return pyEqual(allocator, field_value, b);
+            }
+        }
+    }
+    if (info_b == .@"union" and info_b.@"union".tag_type != null) {
+        const tag = std.meta.activeTag(b);
+        inline for (info_b.@"union".fields) |field| {
+            if (tag == @field(std.meta.Tag(TypeB), field.name)) {
+                const field_value = @field(b, field.name);
+                return pyEqual(allocator, a, field_value);
+            }
+        }
+    }
+
+    // === TUPLE/STRUCT ELEMENT-WISE COMPARISON ===
+    // For anonymous structs (tuples), compare element by element with pyEqual
+    // This handles (BigInt, BigInt) == (i64, i64) by recursively comparing elements
+    if (info_a == .@"struct" and info_b == .@"struct") {
+        const fields_a = info_a.@"struct".fields;
+        const fields_b = info_b.@"struct".fields;
+
+        // Must have same number of fields
+        if (fields_a.len != fields_b.len) return false;
+
+        // Compare each field using pyEqual (handles type coercion)
+        inline for (fields_a, 0..) |field_a, i| {
+            const a_val = @field(a, field_a.name);
+            const b_val = @field(b, fields_b[i].name);
+            if (!try pyEqual(allocator, a_val, b_val)) return false;
+        }
+        return true;
+    }
+
+    // === CUSTOM __eq__ METHOD ===
+    // Check if either type has __eq__ method
+    const a_has_eq = info_a == .@"struct" and @hasDecl(TypeA, "__eq__");
+    const b_has_eq = info_b == .@"struct" and @hasDecl(TypeB, "__eq__");
+
+    if (a_has_eq) {
+        return classInstanceEq(a, b, allocator);
+    }
+    if (b_has_eq) {
+        return classInstanceEq(b, a, allocator);
+    }
+
+    // Check for pointer to struct with __eq__
+    const a_ptr_has_eq = info_a == .pointer and info_a.pointer.size == .one and
+        @typeInfo(info_a.pointer.child) == .@"struct" and @hasDecl(info_a.pointer.child, "__eq__");
+    const b_ptr_has_eq = info_b == .pointer and info_b.pointer.size == .one and
+        @typeInfo(info_b.pointer.child) == .@"struct" and @hasDecl(info_b.pointer.child, "__eq__");
+
+    if (a_ptr_has_eq) {
+        return classInstanceEq(a, b, allocator);
+    }
+    if (b_ptr_has_eq) {
+        return classInstanceEq(b, a, allocator);
+    }
+
+    // === NUMERIC COERCION FALLBACK ===
+    // Convert both to PyValue and use Python numeric coercion (bool→int→float→complex)
+    const object = @import("../Objects/object.zig");
+    const a_val = try object.toPyValue(allocator, a);
+    const b_val = try object.toPyValue(allocator, b);
+    return a_val.eql(b_val);
+}
+
 // ============================================================================
 // Type constructor callables - for use as first-class values in lists
 // These allow patterns like: for constructor in list, tuple, set: ...

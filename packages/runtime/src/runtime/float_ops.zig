@@ -442,6 +442,63 @@ pub const IntResult = union(enum) {
     }
 };
 
+/// Universal Python float coercion function
+/// Extracts f64 from any numeric type, including union types (PyPowResult, IntResult, etc.)
+/// This function is used when a function like copysign expects f64 but receives a union type.
+///
+/// Usage: runtime.pyFloat(value) where value can be:
+/// - f64, f32 → returns directly
+/// - i64, i32, etc. → converts to f64
+/// - PyPowResult → extracts .float_val or .complex_val.real
+/// - IntResult → extracts .small as f64 or .big.toFloat()
+/// - FloorCeilResult → extracts .int or .float
+pub fn pyFloat(value: anytype) f64 {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // Direct float types
+    if (T == f64) return value;
+    if (T == f32) return @floatCast(value);
+    if (info == .comptime_float) return @as(f64, value);
+
+    // Integer types
+    if (info == .int or info == .comptime_int) return @floatFromInt(value);
+
+    // Tagged unions - extract the active field
+    if (info == .@"union" and info.@"union".tag_type != null) {
+        // PyPowResult: has float_val and complex_val
+        if (@hasField(T, "float_val") and @hasField(T, "complex_val")) {
+            return switch (value) {
+                .float_val => |v| v,
+                .complex_val => |c| c.real, // For complex, return real part
+            };
+        }
+
+        // IntResult: has small and big
+        if (@hasField(T, "small") and @hasField(T, "big")) {
+            return switch (value) {
+                .small => |v| @floatFromInt(v),
+                .big => |b| b.toFloat(),
+            };
+        }
+
+        // FloorCeilResult: has int and float
+        if (@hasField(T, "int") and @hasField(T, "float")) {
+            return switch (value) {
+                .int => |v| @floatFromInt(v),
+                .float => |f| f,
+            };
+        }
+    }
+
+    // Fallback: try to use a toFloat method if it exists
+    if (@hasDecl(T, "toFloat")) {
+        return value.toFloat();
+    }
+
+    @compileError("pyFloat: cannot convert type to f64");
+}
+
 /// float.__floor__() - Returns largest integer <= value
 /// Python: (1.7).__floor__() -> 1, (1e200).__floor__() -> BigInt
 /// Returns i64 for small values, BigInt for large values

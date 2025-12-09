@@ -2265,6 +2265,8 @@ pub const operatorGe = builtins.operatorGe;
 pub const classInstanceEq = builtins.classInstanceEq;
 pub const classInstanceNe = builtins.classInstanceNe;
 pub const assertEqualGeneric = builtins.assertEqualGeneric;
+pub const pyEqual = builtins.pyEqual;
+pub const pyFloat = float_ops.pyFloat;
 pub const PyPowResult = builtins.PyPowResult;
 // pyPow is defined locally in this file with more comprehensive special case handling
 pub const PyBytes = builtins.PyBytes;
