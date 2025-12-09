@@ -510,12 +510,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         }
 
         // Check if var_name would shadow a module-level import or function
-        // If so, use a prefixed name to avoid Zig's "shadows declaration" error
+        // If so, use NameGen for consistent unique naming
         var actual_var_name = var_name;
         const shadows_module_level = self.imported_modules.contains(var_name) or self.module_level_funcs.contains(var_name);
         if (shadows_module_level and !self.var_renames.contains(var_name)) {
-            const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
-            self.lambda_counter += 1;
+            const prefixed_name = try self.name_gen.local(var_name);
             try self.var_renames.put(var_name, prefixed_name);
             actual_var_name = prefixed_name;
         } else if (self.var_renames.get(var_name)) |renamed| {

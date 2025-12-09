@@ -433,8 +433,9 @@ pub fn genInitMethod(
     // Note: allocator is always used for __dict__ initialization, so no discard needed
 
     // Add var_renames for parameters that were renamed to avoid shadowing
+    // Use NameGen for consistent unique naming
     for (renamed_params.items) |param_name| {
-        const renamed = try std.fmt.allocPrint(self.allocator, "{s}__local", .{param_name});
+        const renamed = try self.name_gen.local(param_name);
         try self.var_renames.put(param_name, renamed);
     }
 

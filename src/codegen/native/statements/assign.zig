@@ -426,8 +426,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             const type_attr_key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, var_name }) catch null;
                             if (type_attr_key) |key| {
                                 if (self.class_type_attrs.get(key)) |_| {
-                                    // Rename the local variable to avoid shadowing
-                                    const renamed = std.fmt.allocPrint(self.allocator, "_local_{s}", .{var_name}) catch var_name;
+                                    // Rename the local variable to avoid shadowing (using NameGen)
+                                    const renamed = self.name_gen.local(var_name) catch var_name;
                                     try self.var_renames.put(var_name, renamed);
                                     var_name = renamed;
                                 }
@@ -664,7 +664,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (is_first_assignment and !is_global) {
                 // Check if this var name exists as a module-level var (pre-declared global)
                 if (self.module_level_vars.contains(var_name)) {
-                    const shadow_name = try std.fmt.allocPrint(self.allocator, "{s}_local", .{var_name});
+                    const shadow_name = try self.name_gen.local(var_name);
                     try self.var_renames.put(try self.allocator.dupe(u8, var_name), shadow_name);
                     var_name = shadow_name;
                 }

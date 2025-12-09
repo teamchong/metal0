@@ -73,13 +73,12 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             }
 
             // Check if var_name would shadow a module-level import, function, or global var
-            // If so, use a prefixed name to avoid Zig's "shadows declaration" error
+            // If so, use NameGen for consistent unique naming
             const shadows_import = self.imported_modules.contains(var_name);
             const shadows_module_func = self.module_level_funcs.contains(var_name);
             const shadows_global = self.isGlobalVar(var_name);
             if ((shadows_import or shadows_module_func or shadows_global) and !self.var_renames.contains(var_name)) {
-                const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
-                self.lambda_counter += 1;
+                const prefixed_name = try self.name_gen.local(var_name);
                 try self.var_renames.put(var_name, prefixed_name);
             }
 
@@ -426,9 +425,8 @@ pub fn emitVarDeclaration(
     const shadows_module_func = self.module_level_funcs.contains(var_name);
     const shadows_global = self.isGlobalVar(var_name);
     if ((shadows_import or shadows_module_func or shadows_global) and !self.var_renames.contains(var_name)) {
-        // Create a unique prefixed name
-        const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
-        self.lambda_counter += 1;
+        // Create a unique prefixed name using NameGen
+        const prefixed_name = try self.name_gen.local(var_name);
         try self.var_renames.put(var_name, prefixed_name);
     }
 

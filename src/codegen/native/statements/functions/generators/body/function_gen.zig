@@ -536,8 +536,8 @@ pub fn genFunctionBody(
                     try self.emit("_param;\n");
                 } else {
                     // Rename local variable to avoid shadowing module-level variable
-                    // Use __local_X and add to var_renames so all references use the new name
-                    const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}", .{arg.name});
+                    // Use NameGen for consistent unique naming
+                    const renamed = try self.name_gen.local(arg.name);
                     try self.var_renames.put(arg.name, renamed);
 
                     try self.emitIndent();
@@ -625,8 +625,8 @@ pub fn genFunctionBody(
             self.module_level_vars.contains(fwd_var) or
             self.isGlobalVar(fwd_var);
         if (shadows_module_level) {
-            // Rename to avoid shadowing: set2 -> __local_set2
-            const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}", .{fwd_var});
+            // Rename to avoid shadowing using NameGen for consistent naming
+            const renamed = try self.name_gen.local(fwd_var);
             try self.var_renames.put(try self.allocator.dupe(u8, fwd_var), renamed);
             actual_fwd_var = renamed;
         }
@@ -1249,8 +1249,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         } else false;
 
         if (shadows_builtin_method or shadows_class_method) {
-            // Add rename mapping: original -> renamed
-            const renamed = try std.fmt.allocPrint(self.allocator, "{s}__local", .{arg.name});
+            // Add rename mapping using NameGen for consistent naming
+            const renamed = try self.name_gen.local(arg.name);
             try self.var_renames.put(arg.name, renamed);
             try renamed_params.append(self.allocator, arg.name);
         }
@@ -1304,8 +1304,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
                 try self.emit(";\n");
             }
-            // Rename all references to use the mutable copy
-            try self.var_renames.put(arg.name, try std.fmt.allocPrint(self.allocator, "{s}__mut", .{arg.name}));
+            // Rename all references to use the mutable copy (using NameGen for consistency)
+            try self.var_renames.put(arg.name, try self.name_gen.mutable(arg.name));
             try renamed_params.append(self.allocator, arg.name);
         }
     }
@@ -1325,7 +1325,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             self.module_level_vars.contains(fwd_var) or
             self.isGlobalVar(fwd_var);
         if (shadows_module_level) {
-            const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}", .{fwd_var});
+            const renamed = try self.name_gen.local(fwd_var);
             try self.var_renames.put(try self.allocator.dupe(u8, fwd_var), renamed);
             actual_fwd_var = renamed;
         }

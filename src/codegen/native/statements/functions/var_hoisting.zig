@@ -581,9 +581,10 @@ pub fn emitHoistedDeclarations(
 
         // Check if this hoisted var would shadow a module-level pre-declared global
         // If so, rename the local to avoid Zig's shadowing error
+        // Use NameGen for consistent unique naming across the codebase
         var actual_name = escaped.name;
         if (self.module_level_vars.contains(escaped.name)) {
-            const shadow_name = try std.fmt.allocPrint(self.allocator, "{s}_local", .{escaped.name});
+            const shadow_name = try self.name_gen.hoisted(escaped.name);
             try self.var_renames.put(try self.allocator.dupe(u8, escaped.name), shadow_name);
             actual_name = shadow_name;
         }

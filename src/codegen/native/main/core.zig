@@ -1552,10 +1552,10 @@ pub const NativeCodegen = struct {
     }
 
     /// Get a safe local variable name that won't shadow imported modules
-    /// Returns the original name if it doesn't conflict, or name_local if it does
+    /// Returns the original name if it doesn't conflict, or uses NameGen if it does
     pub fn getSafeLocalName(self: *NativeCodegen, var_name: []const u8) ![]const u8 {
         if (self.wouldShadowImport(var_name)) {
-            return try std.fmt.allocPrint(self.allocator, "{s}_local", .{var_name});
+            return try self.name_gen.local(var_name);
         }
         return var_name;
     }

@@ -714,8 +714,7 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                             const shadows_module_func = self.module_level_funcs.contains(var_name);
                             var actual_name = var_name;
                             if (shadows_module_func and !self.var_renames.contains(var_name)) {
-                                const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
-                                self.lambda_counter += 1;
+                                const prefixed_name = try self.name_gen.local(var_name);
                                 try self.var_renames.put(var_name, prefixed_name);
                                 actual_name = prefixed_name;
                             } else if (self.var_renames.get(var_name)) |renamed| {
@@ -748,8 +747,7 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                                 const shadows_cm = self.module_level_funcs.contains(cm_var_name);
                                 var actual_cm_name = cm_var_name;
                                 if (shadows_cm and !self.var_renames.contains(cm_var_name)) {
-                                    const prefixed_cm = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ cm_var_name, self.lambda_counter });
-                                    self.lambda_counter += 1;
+                                    const prefixed_cm = try self.name_gen.local(cm_var_name);
                                     try self.var_renames.put(cm_var_name, prefixed_cm);
                                     actual_cm_name = prefixed_cm;
                                 } else if (self.var_renames.get(cm_var_name)) |renamed_cm| {
@@ -828,8 +826,7 @@ fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *cons
         const shadows_module_func = self.module_level_funcs.contains(var_name);
         var actual_name = var_name;
         if (shadows_module_func and !self.var_renames.contains(var_name)) {
-            const prefixed_name = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
-            self.lambda_counter += 1;
+            const prefixed_name = try self.name_gen.local(var_name);
             try self.var_renames.put(var_name, prefixed_name);
             actual_name = prefixed_name;
         } else if (self.var_renames.get(var_name)) |renamed| {

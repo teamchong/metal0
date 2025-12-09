@@ -264,12 +264,8 @@ pub fn genStandardClosure(
     for (func.args) |arg| {
         if (param_renames.get(arg.name)) |renamed| {
             if (var_tracking.isParamReassignedInStmts(arg.name, func.body)) {
-                // Create: var __p_name_local = __p_name;
-                const local_name = try std.fmt.allocPrint(
-                    self.allocator,
-                    "{s}_local",
-                    .{renamed},
-                );
+                // Create mutable copy using NameGen for consistent naming
+                const local_name = try self.name_gen.mutable(arg.name);
                 try self.emitIndent();
                 try self.output.writer(self.allocator).print("var {s} = {s};\n", .{ local_name, renamed });
                 // Update rename to use local copy
@@ -462,9 +458,9 @@ pub fn genStandardClosure(
     // Python allows redefining function names: def f(): ... def f(): ... (second shadows first)
     const is_redefinition = self.isDeclared(func.name);
 
-    // If shadowing an import or redefinition, use a prefixed name to avoid Zig's "shadows declaration" error
+    // If shadowing an import or redefinition, use NameGen for consistent unique naming
     const alias_name = if (shadows_import or is_redefinition)
-        try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ func.name, saved_counter })
+        try self.name_gen.closure(func.name)
     else
         try self.allocator.dupe(u8, func.name);
     defer self.allocator.free(alias_name);
@@ -840,11 +836,8 @@ pub fn genNestedFunctionWithOuterCapture(
     for (func.args) |arg| {
         if (param_renames.get(arg.name)) |renamed| {
             if (var_tracking.isParamReassignedInStmts(arg.name, func.body)) {
-                const local_name = try std.fmt.allocPrint(
-                    self.allocator,
-                    "{s}_local",
-                    .{renamed},
-                );
+                // Create mutable copy using NameGen for consistent naming
+                const local_name = try self.name_gen.mutable(arg.name);
                 try self.emitIndent();
                 try self.output.writer(self.allocator).print("var {s} = {s};\n", .{ local_name, renamed });
                 try param_renames.put(arg.name, local_name);
@@ -1037,9 +1030,9 @@ pub fn genNestedFunctionWithOuterCapture(
     // Python allows redefining function names: def f(): ... def f(): ... (second shadows first)
     const is_redefinition2 = self.isDeclared(func.name);
 
-    // If shadowing an import or redefinition, use a prefixed name to avoid Zig's "shadows declaration" error
+    // If shadowing an import or redefinition, use NameGen for consistent unique naming
     const alias_name2 = if (shadows_import2 or is_redefinition2)
-        try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ func.name, saved_counter })
+        try self.name_gen.closure(func.name)
     else
         try self.allocator.dupe(u8, func.name);
     defer self.allocator.free(alias_name2);

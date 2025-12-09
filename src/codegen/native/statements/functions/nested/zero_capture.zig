@@ -440,9 +440,9 @@ pub fn genZeroCaptureClosure(
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
         try self.output.writer(self.allocator).print(" = runtime.DynamicClosure.init({s});\n", .{wrapper_name});
     } else {
-        // If shadowing an import or redefinition, use a prefixed name to avoid Zig's "shadows declaration" error
+        // If shadowing an import or redefinition, use NameGen for consistent unique naming
         const alias_name = if (shadows_import or is_redefinition)
-            try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ func.name, saved_counter })
+            try self.name_gen.closure(func.name)
         else
             try self.allocator.dupe(u8, func.name);
         defer self.allocator.free(alias_name);

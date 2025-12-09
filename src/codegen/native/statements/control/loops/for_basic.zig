@@ -420,8 +420,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             // Check if loop variable shadows a module-level function or imported module
             const shadows_module_func = self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
             if (shadows_module_func and !self.var_renames.contains(var_name)) {
-                const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
-                self.lambda_counter += 1;
+                const renamed = try self.name_gen.local(var_name);
                 try self.var_renames.put(var_name, renamed);
             }
             const actual_name = self.var_renames.get(var_name) orelse var_name;
@@ -1034,8 +1033,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // Check if loop variable shadows a module-level function or imported module
             const shadows_module_func = self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
             if (shadows_module_func and !self.var_renames.contains(var_name)) {
-                const renamed = try std.fmt.allocPrint(self.allocator, "__local_{s}_{d}", .{ var_name, self.lambda_counter });
-                self.lambda_counter += 1;
+                const renamed = try self.name_gen.local(var_name);
                 try self.var_renames.put(var_name, renamed);
             }
             const actual_name = self.var_renames.get(var_name) orelse var_name;
