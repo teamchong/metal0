@@ -424,16 +424,37 @@ pub fn inferExprWithInferrer(
                 }
             }
 
-            // IMPORTANT: Always use ArrayList type for list literals, NEVER array type.
-            // Python lists are mutable and can grow/shrink, so they map to ArrayList.
-            // Using array type [N]T causes mismatches between type inference and codegen,
-            // especially for nested lists where inner lists generate as ArrayList but
-            // type inference said they should be arrays.
+            // Type inference MUST match codegen output:
+            // - Codegen produces array [N]T for: constant, homogeneous, non-nested lists
+            // - Codegen produces ArrayList for: everything else
             //
-            // The array type optimization is handled by genList/genArrayLiteral at codegen
-            // time for top-level constant lists, but type inference should always report list.
+            // Check if list has nested lists (which force ArrayList)
+            const has_nested_lists = blk_nested: {
+                for (l.elts) |elem| {
+                    if (elem == .list) break :blk_nested true;
+                }
+                break :blk_nested false;
+            };
 
-            // Use ArrayList for all lists
+            // Check if this is a constant, homogeneous list eligible for array optimization
+            // Must mirror the logic in genList (collections.zig line ~228)
+            const is_constant = core.isConstantList(l);
+            const is_homogeneous = core.allSameType(l.elts);
+            const elem_tag = @as(std.meta.Tag(NativeType), elem_type);
+            // Only primitive types (not list/pyvalue/unknown) can be array elements
+            const elem_is_primitive = elem_tag != .list and elem_tag != .pyvalue and elem_tag != .unknown;
+
+            // Use array type if: constant, homogeneous, primitive elements, no nested lists
+            if (is_constant and is_homogeneous and elem_is_primitive and !has_nested_lists) {
+                const elem_ptr = try allocator.create(NativeType);
+                elem_ptr.* = elem_type;
+                break :blk .{ .array = .{
+                    .element_type = elem_ptr,
+                    .length = l.elts.len,
+                } };
+            }
+
+            // Otherwise use ArrayList
             const elem_ptr = try allocator.create(NativeType);
             elem_ptr.* = elem_type;
             break :blk .{ .list = elem_ptr };
