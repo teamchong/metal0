@@ -114,6 +114,29 @@ fn isAllCapsConstant(name: []const u8) bool {
     return name[0] >= 'A' and name[0] <= 'Z';
 }
 
+/// Check if a name is a Python builtin exception/type (not a user class).
+/// These are things like TypeError, ValueError, etc. that shouldn't be treated
+/// as local class constructors for type inference purposes.
+fn isBuiltinException(name: []const u8) bool {
+    const builtins = [_][]const u8{
+        "TypeError",      "ValueError",     "KeyError",       "IndexError",
+        "RuntimeError",   "ZeroDivisionError", "AttributeError", "ImportError",
+        "FileNotFoundError", "OSError",     "IOError",        "NameError",
+        "SyntaxError",    "AssertionError", "StopIteration",  "GeneratorExit",
+        "Exception",      "BaseException",  "Warning",        "DeprecationWarning",
+        "UserWarning",    "FutureWarning",  "PendingDeprecationWarning",
+        "SyntaxWarning",  "RuntimeWarning", "ResourceWarning", "UnicodeError",
+        "UnicodeDecodeError", "UnicodeEncodeError", "NotImplementedError",
+        "OverflowError",  "RecursionError", "SystemExit",     "KeyboardInterrupt",
+        // Also builtin types that start with uppercase
+        "True",           "False",          "None",
+    };
+    for (builtins) |b| {
+        if (std.mem.eql(u8, name, b)) return true;
+    }
+    return false;
+}
+
 /// Check if an init expression only references safe variables (no forward refs).
 /// Safe means: literals, function parameters, or previously-declared variables.
 /// This determines whether we can use @TypeOf(init_expr) safely.
@@ -586,7 +609,29 @@ pub fn emitHoistedDeclarations(
                 else => false,
             };
 
-            if (!has_self_reference and !is_literal and initExprIsSafe(init, &safe_vars)) {
+            // Check if this is a class constructor call - if so, use class type directly
+            // Class constructor calls like Rat(1, 0) would evaluate at comptime in @TypeOf
+            // and throw errors. Instead, use the class name directly.
+            const class_type: ?[]const u8 = if (init.* == .call and init.call.func.* == .name)
+                blk: {
+                    const func_name = init.call.func.name.id;
+                    // Check if this is a class (starts with uppercase and is not a builtin)
+                    if (func_name.len > 0 and func_name[0] >= 'A' and func_name[0] <= 'Z') {
+                        // Check if it's a known class in this module (not a builtin like TypeError)
+                        if (!isBuiltinException(func_name)) {
+                            break :blk func_name;
+                        }
+                    }
+                    break :blk null;
+                }
+            else
+                null;
+
+            if (class_type) |cls_name| {
+                // Use class type directly instead of @TypeOf(Class.init(...))
+                try self.emit(": ");
+                try self.emit(cls_name);
+            } else if (!has_self_reference and !is_literal and initExprIsSafe(init, &safe_vars)) {
                 // Safe to use @TypeOf - no forward references, no self-references, and not a literal
                 try self.emit(": @TypeOf(");
                 try self.genExpr(init.*);
