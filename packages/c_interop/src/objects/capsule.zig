@@ -160,11 +160,54 @@ fn capsule_dealloc(op: ?*cpython.PyObject) callconv(.C) void {
 fn capsule_repr(op: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     if (op == null) return null;
     const capsule: *PyCapsule = @ptrCast(@alignCast(op.?));
+    const pyunicode = @import("unicodeobject.zig");
 
     // Format: <capsule object "name" at 0xADDRESS> or <capsule object NULL at 0xADDRESS>
-    _ = capsule;
-    // TODO: Create PyUnicode string with proper format
-    return null;
+    var buf: [256]u8 = undefined;
+    var pos: usize = 0;
+
+    const prefix = "<capsule object ";
+    @memcpy(buf[pos..][0..prefix.len], prefix);
+    pos += prefix.len;
+
+    // Add name
+    if (capsule.name) |name| {
+        buf[pos] = '"';
+        pos += 1;
+        const name_slice = std.mem.span(name);
+        const name_len = @min(name_slice.len, buf.len - pos - 50);
+        @memcpy(buf[pos..][0..name_len], name_slice[0..name_len]);
+        pos += name_len;
+        buf[pos] = '"';
+        pos += 1;
+    } else {
+        const null_str = "NULL";
+        @memcpy(buf[pos..][0..null_str.len], null_str);
+        pos += null_str.len;
+    }
+
+    // Add address
+    const at_str = " at 0x";
+    @memcpy(buf[pos..][0..at_str.len], at_str);
+    pos += at_str.len;
+
+    // Format address as hex
+    const addr = @intFromPtr(op.?);
+    const hex_chars = "0123456789abcdef";
+    var hex_buf: [16]u8 = undefined;
+    var hex_len: usize = 0;
+    var temp_addr = addr;
+    while (temp_addr > 0 or hex_len == 0) : (temp_addr /= 16) {
+        hex_buf[15 - hex_len] = hex_chars[temp_addr % 16];
+        hex_len += 1;
+    }
+    @memcpy(buf[pos..][0..hex_len], hex_buf[16 - hex_len ..]);
+    pos += hex_len;
+
+    buf[pos] = '>';
+    pos += 1;
+
+    return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
 }
 
 /// Traverse function for GC
@@ -373,11 +416,72 @@ pub export fn PyCapsule_Import(name: ?[*:0]const u8, no_block: c_int) ?*anyopaqu
         return null;
     }
 
-    // TODO: Import module and traverse attributes to find capsule
-    // This requires PyImport_ImportModule and PyObject_GetAttrString
-    // which should be implemented in import.zig and abstract.zig
+    // Import module and traverse attributes to find capsule
+    const pyimport = @import("../include/import.zig");
+    const pyunicode = @import("unicodeobject.zig");
+    const object_mod = @import("object.zig");
 
-    return null;
+    // Get module name (up to first dot)
+    var module_name_buf: [256]u8 = undefined;
+    const module_len = @min(module_end, module_name_buf.len - 1);
+    @memcpy(module_name_buf[0..module_len], name_str[0..module_len]);
+    module_name_buf[module_len] = 0;
+
+    // Import the module
+    const module = pyimport.PyImport_ImportModule(&module_name_buf);
+    if (module == null) return null;
+    defer module.?.ob_refcnt -= 1;
+
+    // Traverse remaining attributes
+    var obj: ?*cpython.PyObject = module;
+    var attr_start: usize = module_end + 1;
+
+    while (attr_start < name_str.len) {
+        // Find next dot or end
+        var attr_end = attr_start;
+        while (attr_end < name_str.len and name_str[attr_end] != '.') : (attr_end += 1) {}
+
+        // Get attribute name
+        var attr_name_buf: [256]u8 = undefined;
+        const attr_len = @min(attr_end - attr_start, attr_name_buf.len - 1);
+        @memcpy(attr_name_buf[0..attr_len], name_str[attr_start..][0..attr_len]);
+        attr_name_buf[attr_len] = 0;
+
+        // Get attribute
+        const attr_name_obj = pyunicode.PyUnicode_FromString(&attr_name_buf);
+        if (attr_name_obj == null) return null;
+        defer attr_name_obj.?.ob_refcnt -= 1;
+
+        const next_obj = object_mod.PyObject_GetAttr(obj.?, attr_name_obj.?);
+        if (next_obj == null) return null;
+
+        // Release previous intermediate object (but not the original module)
+        if (obj != module) {
+            obj.?.ob_refcnt -= 1;
+        }
+        obj = next_obj;
+
+        attr_start = attr_end + 1;
+    }
+
+    // obj should now be the capsule
+    if (obj == null or obj.?.ob_type != &PyCapsule_Type) {
+        if (obj != null and obj != module) {
+            obj.?.ob_refcnt -= 1;
+        }
+        return null;
+    }
+
+    // Return the pointer from the capsule
+    const capsule: *PyCapsule = @ptrCast(@alignCast(obj.?));
+    const result = capsule.pointer;
+
+    // Release the capsule (we got the pointer)
+    if (obj != module) {
+        obj.?.ob_refcnt -= 1;
+    }
+
+    return result;
 }
 
 /// PyCapsule_CheckExact - Check if object is exactly a PyCapsule

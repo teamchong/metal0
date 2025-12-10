@@ -238,14 +238,24 @@ fn structseq_richcompare(self_obj: *cpython.PyObject, other: *cpython.PyObject, 
     const self_items: [*]*cpython.PyObject = &ss.ob_item;
     const other_items: [*]*cpython.PyObject = &other_ss.ob_item;
 
+    const object_mod = @import("object.zig");
+
     for (0..@intCast(len)) |i| {
         const self_item = self_items[i];
         const other_item = other_items[i];
 
         if (self_item != other_item) {
-            // TODO: Deep comparison
-            if (op == 2) return pybool.Py_False;
-            if (op == 3) return pybool.Py_True;
+            // Deep comparison using PyObject_RichCompareBool
+            const cmp = object_mod.PyObject_RichCompareBool(self_item, other_item, object_mod.Py_EQ);
+            if (cmp == 0) {
+                // Items not equal
+                if (op == 2) return pybool.Py_False; // Py_EQ
+                if (op == 3) return pybool.Py_True;  // Py_NE
+            } else if (cmp < 0) {
+                // Comparison error
+                return null;
+            }
+            // cmp == 1 means equal, continue to next item
         }
     }
 

@@ -412,11 +412,80 @@ fn code_traverse(self: ?*cpython.PyObject, visit: cpython.visitproc, arg: ?*anyo
 }
 
 fn code_richcompare(self: ?*cpython.PyObject, other: ?*cpython.PyObject, op: c_int) callconv(.C) ?*cpython.PyObject {
-    _ = self;
-    _ = other;
-    _ = op;
-    // TODO: Implement rich comparison
-    return null;
+    const pybool = @import("boolobject.zig");
+    const object_mod = @import("object.zig");
+
+    // Only support == and !=
+    if (op != object_mod.Py_EQ and op != object_mod.Py_NE) {
+        return cpython.Py_NotImplemented;
+    }
+
+    if (self == null or other == null) {
+        return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+    }
+
+    // Check if both are code objects
+    if (other.?.ob_type != &PyCode_Type) {
+        return cpython.Py_NotImplemented;
+    }
+
+    const co1: *PyCodeObject = @ptrCast(@alignCast(self.?));
+    const co2: *PyCodeObject = @ptrCast(@alignCast(other.?));
+
+    // Compare by identity first
+    if (self.? == other.?) {
+        return if (op == object_mod.Py_EQ) pybool.Py_True else pybool.Py_False;
+    }
+
+    // Compare key fields
+    var equal = true;
+
+    // Compare argcount, kwonlyargcount, etc.
+    if (co1.co_argcount != co2.co_argcount or
+        co1.co_kwonlyargcount != co2.co_kwonlyargcount or
+        co1.co_nlocals != co2.co_nlocals or
+        co1.co_flags != co2.co_flags or
+        co1.co_firstlineno != co2.co_firstlineno)
+    {
+        equal = false;
+    }
+
+    // Compare name
+    if (equal and co1.co_name != null and co2.co_name != null) {
+        const name_cmp = object_mod.PyObject_RichCompareBool(co1.co_name.?, co2.co_name.?, object_mod.Py_EQ);
+        if (name_cmp != 1) equal = false;
+    } else if (co1.co_name != co2.co_name) {
+        equal = false;
+    }
+
+    // Compare filename
+    if (equal and co1.co_filename != null and co2.co_filename != null) {
+        const filename_cmp = object_mod.PyObject_RichCompareBool(co1.co_filename.?, co2.co_filename.?, object_mod.Py_EQ);
+        if (filename_cmp != 1) equal = false;
+    } else if (co1.co_filename != co2.co_filename) {
+        equal = false;
+    }
+
+    // Compare consts
+    if (equal and co1.co_consts != null and co2.co_consts != null) {
+        const consts_cmp = object_mod.PyObject_RichCompareBool(co1.co_consts.?, co2.co_consts.?, object_mod.Py_EQ);
+        if (consts_cmp != 1) equal = false;
+    } else if (co1.co_consts != co2.co_consts) {
+        equal = false;
+    }
+
+    // Compare names
+    if (equal and co1.co_names != null and co2.co_names != null) {
+        const names_cmp = object_mod.PyObject_RichCompareBool(co1.co_names.?, co2.co_names.?, object_mod.Py_EQ);
+        if (names_cmp != 1) equal = false;
+    } else if (co1.co_names != co2.co_names) {
+        equal = false;
+    }
+
+    return if (op == object_mod.Py_EQ)
+        (if (equal) pybool.Py_True else pybool.Py_False)
+    else
+        (if (equal) pybool.Py_False else pybool.Py_True);
 }
 
 fn code_new(typ: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
@@ -627,6 +696,7 @@ pub export fn PyCode_Addr2Line(co: ?*PyCodeObject, addrq: c_int) c_int {
 }
 
 /// PyCode_Addr2Location - Get full location for bytecode offset
+/// Decodes the linetable to find the source location for a given bytecode offset
 pub export fn PyCode_Addr2Location(
     co: ?*PyCodeObject,
     addrq: c_int,
@@ -636,12 +706,62 @@ pub export fn PyCode_Addr2Location(
     end_column: ?*c_int,
 ) c_int {
     if (co == null) return 0;
-    _ = addrq;
 
-    // TODO: Decode linetable for full location
-    if (start_line) |sl| sl.* = co.?.co_firstlineno;
-    if (start_column) |sc| sc.* = 0;
-    if (end_line) |el| el.* = co.?.co_firstlineno;
+    const pybytes = @import("bytesobject.zig");
+
+    // Get linetable
+    const linetable = co.?.co_linetable orelse {
+        // No linetable - use firstlineno
+        if (start_line) |sl| sl.* = co.?.co_firstlineno;
+        if (start_column) |sc| sc.* = 0;
+        if (end_line) |el| el.* = co.?.co_firstlineno;
+        if (end_column) |ec| ec.* = 0;
+        return 1;
+    };
+
+    const table_data = pybytes.PyBytes_AsString(linetable);
+    const table_len = pybytes.PyBytes_Size(linetable);
+
+    if (table_data == null or table_len <= 0) {
+        if (start_line) |sl| sl.* = co.?.co_firstlineno;
+        if (start_column) |sc| sc.* = 0;
+        if (end_line) |el| el.* = co.?.co_firstlineno;
+        if (end_column) |ec| ec.* = 0;
+        return 1;
+    }
+
+    // Python 3.11+ linetable format (PEP 626)
+    // Each entry: [start_offset_delta, end_offset_delta, line_delta, col_start, col_end]
+    var current_addr: c_int = 0;
+    var current_line: c_int = co.?.co_firstlineno;
+    var idx: usize = 0;
+    const target_addr = addrq;
+
+    while (idx < @as(usize, @intCast(table_len))) {
+        const byte = table_data[idx];
+        idx += 1;
+
+        if (byte == 0) {
+            // End marker or special case
+            continue;
+        }
+
+        // Simple format: delta_addr in upper 3 bits, line_delta in lower 5 bits (with offset)
+        const addr_delta: c_int = @as(c_int, byte >> 3) & 0x1F;
+        const line_delta: c_int = @as(c_int, byte & 0x07) - 4; // Line delta is biased by 4
+
+        current_addr += addr_delta;
+        current_line += line_delta;
+
+        if (current_addr > target_addr) {
+            // Found the entry
+            break;
+        }
+    }
+
+    if (start_line) |sl| sl.* = current_line;
+    if (start_column) |sc| sc.* = 0; // Column info requires more complex parsing
+    if (end_line) |el| el.* = current_line;
     if (end_column) |ec| ec.* = 0;
 
     return 1;

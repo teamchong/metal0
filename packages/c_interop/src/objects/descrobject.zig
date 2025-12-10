@@ -929,24 +929,46 @@ fn property_descr_get(self_obj: *cpython.PyObject, obj: ?*cpython.PyObject, type
         return null; // Would raise AttributeError
     }
 
-    // Call getter with obj
-    // TODO: PyObject_CallOneArg(prop.prop_get, obj)
-    return null;
+    // Call getter with obj using PyObject_CallOneArg
+    const call = @import("call.zig");
+    return call.PyObject_CallOneArg(prop.prop_get, obj);
 }
 
 fn property_descr_set(self_obj: *cpython.PyObject, obj: *cpython.PyObject, value: ?*cpython.PyObject) callconv(.C) c_int {
     const prop: *propertyobject = @ptrCast(@alignCast(self_obj));
-    _ = obj;
+    const call = @import("call.zig");
 
-    const func = if (value == null) prop.prop_del else prop.prop_set;
+    if (value == null) {
+        // Delete operation
+        if (prop.prop_del == null) {
+            return -1; // Would raise AttributeError: can't delete
+        }
+        const result = call.PyObject_CallOneArg(prop.prop_del, obj);
+        if (result == null) return -1;
+        result.?.ob_refcnt -= 1; // Discard return value
+        return 0;
+    } else {
+        // Set operation
+        if (prop.prop_set == null) {
+            return -1; // Would raise AttributeError: can't set
+        }
+        // Need to call with two args: (obj, value)
+        const tuple = @import("tupleobject.zig");
+        const args = tuple.PyTuple_New(2);
+        if (args == null) return -1;
 
-    if (func == null) {
-        return -1; // Would raise AttributeError
+        obj.ob_refcnt += 1;
+        _ = tuple.PyTuple_SetItem(args.?, 0, obj);
+        value.?.ob_refcnt += 1;
+        _ = tuple.PyTuple_SetItem(args.?, 1, value.?);
+
+        const result = call.PyObject_Call(prop.prop_set, args, null);
+        args.?.ob_refcnt -= 1;
+
+        if (result == null) return -1;
+        result.?.ob_refcnt -= 1; // Discard return value
+        return 0;
     }
-
-    // Call setter/deleter
-    // TODO: PyObject_CallOneArg or PyObject_Vectorcall
-    return 0;
 }
 
 fn property_traverse(self_obj: ?*cpython.PyObject, visit: cpython.visitproc, arg: ?*anyopaque) callconv(.C) c_int {

@@ -393,7 +393,10 @@ pub export fn PySet_Clear(obj: *cpython.PyObject) callconv(.c) c_int {
     // Reset to smalltable if using external table
     const smalltable_ptr: *setentry = @ptrCast(&set.smalltable);
     if (set.table != smalltable_ptr) {
-        // TODO: Free external table
+        // Free external table
+        const table_size = @as(usize, @intCast(set.mask + 1));
+        const table_ptr: [*]u8 = @ptrCast(set.table);
+        allocator.free(table_ptr[0 .. table_size * @sizeOf(setentry)]);
         set.table = @ptrCast(&set.smalltable);
         set.mask = PySet_MINSIZE - 1;
     }

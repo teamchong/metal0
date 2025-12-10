@@ -450,16 +450,25 @@ fn typevartuple_dealloc(self_obj: ?*cpython.PyObject) callconv(.C) void {
 fn typevartuple_repr(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     if (self_obj == null) return null;
     const tvt: *typevartupleobject = @ptrCast(@alignCast(self_obj.?));
+    const pyunicode = @import("unicodeobject.zig");
 
     // Return *name for unpack notation
     if (tvt.name) |name| {
-        // TODO: Prepend *
+        // Prepend * to the name for TypeVarTuple repr
+        const name_str = pyunicode.PyUnicode_AsUTF8(name);
+        if (name_str) |ns| {
+            var buf: [256]u8 = undefined;
+            buf[0] = '*';
+            const name_slice = std.mem.span(ns);
+            const copy_len = @min(name_slice.len, buf.len - 1);
+            @memcpy(buf[1..][0..copy_len], name_slice[0..copy_len]);
+            return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(copy_len + 1));
+        }
         name.ob_refcnt += 1;
         return name;
     }
 
-    const pyunicode = @import("unicodeobject.zig");
-    return pyunicode.PyUnicode_FromString("TypeVarTuple");
+    return pyunicode.PyUnicode_FromString("*TypeVarTuple");
 }
 
 /// New for TypeVarTuple
