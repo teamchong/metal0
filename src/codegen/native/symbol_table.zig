@@ -2,7 +2,9 @@
 /// Provides scope-aware symbol resolution and class method lookup with inheritance support
 const std = @import("std");
 const ast = @import("analysis.ast");
-const NativeType = @import("../../analysis/native_types.zig").NativeType;
+const native_types = @import("../../analysis/native_types.zig");
+const NativeType = native_types.NativeType;
+const TypeInferrer = native_types.TypeInferrer;
 const hashmap_helper = @import("utils.hashmap_helper");
 
 const FnvSymbolMap = hashmap_helper.StringHashMap(SymbolInfo);
@@ -185,10 +187,22 @@ pub const ClassRegistry = struct {
     }
 
     /// Find method in class (searches inheritance chain)
+    /// Returns method info without return type inference. Use findMethodWithTypes for full type info.
     pub fn findMethod(
         self: *ClassRegistry,
         class_name: []const u8,
         method_name: []const u8,
+    ) ?MethodInfo {
+        return self.findMethodWithTypes(class_name, method_name, null);
+    }
+
+    /// Find method in class with return type inference from TypeInferrer
+    /// Pass a TypeInferrer to get the inferred return type, or null for no type inference
+    pub fn findMethodWithTypes(
+        self: *ClassRegistry,
+        class_name: []const u8,
+        method_name: []const u8,
+        type_inferrer: ?*TypeInferrer,
     ) ?MethodInfo {
         var current_class = class_name;
 
@@ -200,11 +214,26 @@ pub const ClassRegistry = struct {
                     if (stmt == .function_def) {
                         const func = stmt.function_def;
                         if (std.mem.eql(u8, func.name, method_name)) {
+                            // Infer return type from TypeInferrer if available
+                            // Method return types are stored as "ClassName.method_name" in func_return_types
+                            var return_type: ?NativeType = null;
+                            if (type_inferrer) |ti| {
+                                // Try scoped lookup first (ClassName.method_name)
+                                var key_buf: [256]u8 = undefined;
+                                const scoped_key = std.fmt.bufPrint(&key_buf, "{s}.{s}", .{ current_class, method_name }) catch null;
+                                if (scoped_key) |key| {
+                                    return_type = ti.func_return_types.get(key);
+                                }
+                                // Fall back to just method name if no scoped lookup
+                                if (return_type == null) {
+                                    return_type = ti.func_return_types.get(method_name);
+                                }
+                            }
                             return MethodInfo{
                                 .name = func.name,
                                 .class_name = current_class,
                                 .params = func.args,
-                                .return_type = null, // TODO: infer from body
+                                .return_type = return_type,
                                 .is_static = false,
                             };
                         }
@@ -233,10 +262,21 @@ pub const ClassRegistry = struct {
     }
 
     /// Get all methods in class (including inherited)
+    /// Pass a TypeInferrer to get inferred return types, or null for no type inference
     pub fn getMethods(
         self: *ClassRegistry,
         class_name: []const u8,
         allocator: std.mem.Allocator,
+    ) ![]MethodInfo {
+        return self.getMethodsWithTypes(class_name, allocator, null);
+    }
+
+    /// Get all methods in class (including inherited) with return type inference
+    pub fn getMethodsWithTypes(
+        self: *ClassRegistry,
+        class_name: []const u8,
+        allocator: std.mem.Allocator,
+        type_inferrer: ?*TypeInferrer,
     ) ![]MethodInfo {
         var methods = std.ArrayList(MethodInfo){};
 
@@ -246,11 +286,23 @@ pub const ClassRegistry = struct {
                 for (class_def.body) |stmt| {
                     if (stmt == .function_def) {
                         const func = stmt.function_def;
+                        // Infer return type from TypeInferrer if available
+                        var return_type: ?NativeType = null;
+                        if (type_inferrer) |ti| {
+                            var key_buf: [256]u8 = undefined;
+                            const scoped_key = std.fmt.bufPrint(&key_buf, "{s}.{s}", .{ current_class, func.name }) catch null;
+                            if (scoped_key) |key| {
+                                return_type = ti.func_return_types.get(key);
+                            }
+                            if (return_type == null) {
+                                return_type = ti.func_return_types.get(func.name);
+                            }
+                        }
                         const info = MethodInfo{
                             .name = func.name,
                             .class_name = current_class,
                             .params = func.args,
-                            .return_type = null,
+                            .return_type = return_type,
                             .is_static = false,
                         };
                         try methods.append(allocator, info);

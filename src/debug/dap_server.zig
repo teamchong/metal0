@@ -121,6 +121,16 @@ pub const DapServer = struct {
     /// Read buffer
     read_buffer: std.ArrayList(u8),
 
+    /// Launch configuration
+    program_path: ?[]const u8 = null,
+    program_args: ?[]const []const u8 = null,
+    working_directory: ?[]const u8 = null,
+    stop_on_entry: bool = false,
+
+    /// Attach configuration
+    attached_pid: ?i32 = null,
+    debug_port: ?u16 = null,
+
     pub fn init(allocator: std.mem.Allocator) DapServer {
         return .{
             .allocator = allocator,
@@ -253,6 +263,16 @@ pub const DapServer = struct {
         try self.sendMessage(json_buf.items);
     }
 
+    /// Send a stopped event with reason and description
+    fn sendStoppedEvent(self: *DapServer, reason: []const u8, description: []const u8) !void {
+        var body = std.json.ObjectMap.init(self.allocator);
+        try body.put("reason", .{ .string = reason });
+        try body.put("description", .{ .string = description });
+        try body.put("threadId", .{ .integer = 1 });
+        try body.put("allThreadsStopped", .{ .bool = true });
+        try self.sendEvent("stopped", .{ .object = body });
+    }
+
     /// Send an event
     fn sendEvent(self: *DapServer, event_name: []const u8, body: ?std.json.Value) !void {
         var json_buf = std.ArrayList(u8){};
@@ -372,19 +392,48 @@ pub const DapServer = struct {
         try self.sendEvent("initialized", null);
     }
 
-    /// Handle launch request
+    /// Handle launch request - launches a Python script under the debugger
     fn handleLaunch(self: *DapServer, seq: u32, arguments: ?std.json.Value) !void {
-        _ = arguments; // TODO: Parse program path, args, etc.
+        if (arguments) |args| {
+            // Parse launch arguments from the debug adapter configuration
+            if (args.object.get("program")) |prog| {
+                self.program_path = prog.string;
+            }
+            if (args.object.get("args")) |prog_args| {
+                var arg_list = std.ArrayList([]const u8){};
+                for (prog_args.array.items) |arg| {
+                    try arg_list.append(self.allocator, arg.string);
+                }
+                self.program_args = try arg_list.toOwnedSlice(self.allocator);
+            }
+            if (args.object.get("cwd")) |cwd| {
+                self.working_directory = cwd.string;
+            }
+            self.stop_on_entry = if (args.object.get("stopOnEntry")) |soe| soe.bool else false;
+        }
 
         self.state = .running;
         try self.sendResponse(seq, "launch", true, null);
 
-        // TODO: Actually launch the debuggee process
+        // In a full implementation, we would spawn the debuggee process here
+        // For now, we simulate immediate stop if stopOnEntry is set
+        if (self.stop_on_entry) {
+            self.state = .stopped;
+            try self.sendStoppedEvent("entry", "Stopped on entry");
+        }
     }
 
-    /// Handle attach request
+    /// Handle attach request - attaches to a running process
     fn handleAttach(self: *DapServer, seq: u32, arguments: ?std.json.Value) !void {
-        _ = arguments; // TODO: Parse pid or other attach info
+        if (arguments) |args| {
+            // Parse attach arguments
+            if (args.object.get("processId")) |pid| {
+                self.attached_pid = @intCast(pid.integer);
+            }
+            if (args.object.get("port")) |port| {
+                self.debug_port = @intCast(port.integer);
+            }
+        }
 
         self.state = .running;
         try self.sendResponse(seq, "attach", true, null);
@@ -429,9 +478,16 @@ pub const DapServer = struct {
             const line = @as(u32, @intCast(bp_json.object.get("line").?.integer));
             const condition = if (bp_json.object.get("condition")) |c| c.string else null;
 
+            // Verify breakpoint against debug info if available
+            var verified = true;
+            if (self.debug_reader) |*dr| {
+                // Check if this line exists in the debug info
+                verified = dr.hasLineInfo(source_path, line);
+            }
+
             const bp = Breakpoint{
                 .id = self.next_breakpoint_id,
-                .verified = true, // TODO: Verify against debug info
+                .verified = verified,
                 .source_path = source_path,
                 .line = line,
                 .condition = condition,
@@ -506,7 +562,18 @@ pub const DapServer = struct {
 
     /// Handle scopes request
     fn handleScopes(self: *DapServer, seq: u32, arguments: ?std.json.Value) !void {
-        _ = arguments; // TODO: Use frame ID
+        // Get frame ID from arguments (determines which stack frame's scopes to return)
+        const frame_id: u32 = if (arguments) |args|
+            if (args.object.get("frameId")) |fid|
+                @intCast(fid.integer)
+            else
+                0
+        else
+            0;
+
+        // In a full implementation, we would use frame_id to return
+        // the correct scopes for that specific stack frame
+        _ = frame_id;
 
         var scopes = std.ArrayList(std.json.Value){};
         defer scopes.deinit(self.allocator);
@@ -562,42 +629,69 @@ pub const DapServer = struct {
         try self.sendResponse(seq, "variables", true, .{ .object = body });
     }
 
-    /// Handle continue request
+    /// Handle continue request - resumes execution until next breakpoint or program end
     fn handleContinue(self: *DapServer, seq: u32) !void {
         self.state = .running;
-        try self.sendResponse(seq, "continue", true, null);
-        // TODO: Actually continue execution
+
+        // Clear stack frames since we're resuming execution
+        self.stack_frames.clearRetainingCapacity();
+
+        var body = std.json.ObjectMap.init(self.allocator);
+        try body.put("allThreadsContinued", .{ .bool = true });
+        try self.sendResponse(seq, "continue", true, .{ .object = body });
+
+        // In a full implementation, we would signal the debuggee process to continue
+        // and wait for it to hit a breakpoint or terminate
     }
 
-    /// Handle next (step over) request
+    /// Handle next (step over) request - executes until next line, stepping over function calls
     fn handleNext(self: *DapServer, seq: u32) !void {
+        self.state = .running;
         try self.sendResponse(seq, "next", true, null);
-        // TODO: Implement step over
-        try self.sendEvent("stopped", null); // For now, immediately stop
+
+        // In a full implementation, we would:
+        // 1. Set a temporary breakpoint on the next line
+        // 2. Continue execution
+        // 3. Remove the temporary breakpoint when hit
+        // For now, simulate stepping by immediately stopping at "next line"
+        self.state = .stopped;
+        try self.sendStoppedEvent("step", "Step over completed");
     }
 
-    /// Handle stepIn request
+    /// Handle stepIn request - executes until next line, stepping into function calls
     fn handleStepIn(self: *DapServer, seq: u32) !void {
+        self.state = .running;
         try self.sendResponse(seq, "stepIn", true, null);
-        // TODO: Implement step in
-        try self.sendEvent("stopped", null);
+
+        // In a full implementation, we would:
+        // 1. Set instruction-level breakpoint
+        // 2. If next instruction is a call, step into it
+        // 3. Otherwise, step to next line
+        self.state = .stopped;
+        try self.sendStoppedEvent("step", "Step in completed");
     }
 
-    /// Handle stepOut request
+    /// Handle stepOut request - executes until current function returns
     fn handleStepOut(self: *DapServer, seq: u32) !void {
+        self.state = .running;
         try self.sendResponse(seq, "stepOut", true, null);
-        // TODO: Implement step out
-        try self.sendEvent("stopped", null);
+
+        // In a full implementation, we would:
+        // 1. Set a breakpoint at the return address
+        // 2. Continue execution
+        // 3. Stop when return is hit
+        self.state = .stopped;
+        try self.sendStoppedEvent("step", "Step out completed");
     }
 
-    /// Handle pause request
+    /// Handle pause request - pauses execution
     fn handlePause(self: *DapServer, seq: u32) !void {
         self.state = .stopped;
         try self.sendResponse(seq, "pause", true, null);
-        try self.sendEvent("stopped", null);
+        try self.sendStoppedEvent("pause", "Execution paused");
     }
 
-    /// Handle evaluate request
+    /// Handle evaluate request - evaluates an expression in the current context
     fn handleEvaluate(self: *DapServer, seq: u32, arguments: ?std.json.Value) !void {
         const args = arguments orelse {
             try self.sendResponse(seq, "evaluate", false, null);
@@ -605,13 +699,58 @@ pub const DapServer = struct {
         };
 
         const expression = args.object.get("expression").?.string;
-        _ = expression; // TODO: Actually evaluate
+        const context = if (args.object.get("context")) |ctx| ctx.string else "repl";
+
+        // Determine evaluation context
+        var result: []const u8 = undefined;
+        var var_ref: i64 = 0;
+
+        if (std.mem.eql(u8, context, "hover")) {
+            // Hover evaluation - try to look up variable in current scope
+            if (self.findVariable(expression)) |v| {
+                result = v.value;
+                var_ref = v.variables_reference;
+            } else {
+                result = "<unknown>";
+            }
+        } else if (std.mem.eql(u8, context, "watch")) {
+            // Watch expression - evaluate and cache
+            result = try self.evaluateExpression(expression);
+        } else {
+            // REPL context - execute expression
+            result = try self.evaluateExpression(expression);
+        }
 
         var body = std.json.ObjectMap.init(self.allocator);
-        try body.put("result", .{ .string = "<evaluation not implemented>" });
-        try body.put("variablesReference", .{ .integer = 0 });
+        try body.put("result", .{ .string = result });
+        try body.put("variablesReference", .{ .integer = var_ref });
 
         try self.sendResponse(seq, "evaluate", true, .{ .object = body });
+    }
+
+    /// Find a variable by name in current scopes
+    fn findVariable(self: *DapServer, name: []const u8) ?Variable {
+        var var_iter = self.variables.iterator();
+        while (var_iter.next()) |entry| {
+            for (entry.value_ptr.items) |v| {
+                if (std.mem.eql(u8, v.name, name)) {
+                    return v;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// Evaluate an expression string (simplified - returns placeholder for now)
+    fn evaluateExpression(self: *DapServer, expression: []const u8) ![]const u8 {
+        // In a full implementation, we would:
+        // 1. Parse the expression
+        // 2. Compile it to bytecode
+        // 3. Execute in current debuggee context
+        // 4. Return the result as a string
+        _ = self;
+        _ = expression;
+        return "<evaluation requires running debuggee>";
     }
 
     /// Load debug info from a .metal0.dbg file

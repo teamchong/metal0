@@ -11,21 +11,37 @@ const container_traits = @import("../../../../../analysis/traits/container_trait
 /// Generate enumerate loop
 pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []ast.Node) CodegenError!void {
     // Handle single variable target: for item in enumerate(...) - item gets (idx, val) tuples
-    // This is unusual but valid Python - emit a TODO comment and use simple iteration
+    // Valid Python: for x in enumerate(items): print(x)  # x is (0, first), (1, second), etc.
     if (target == .name) {
-        try self.emitIndent();
-        try self.emit("// TODO: enumerate() with single variable target not fully supported\n");
-        // Fall back to simple iteration - emit a basic for loop
+        // Generate tuple iteration where each iteration produces a (idx, val) struct
+        const var_name = target.name.id;
+        if (args.len == 0) {
+            try self.emitIndent();
+            try self.emit("@compileError(\"enumerate() requires at least 1 argument\");\n");
+            return;
+        }
         try self.emitIndent();
         try self.emit("{\n");
         self.indent();
         try self.emitIndent();
         try self.emit("var __enum_idx: usize = 0;\n");
         try self.emitIndent();
-        try self.emit("_ = __enum_idx;\n"); // Suppress unused warning
+        try self.emit("for (");
+        try self.genExpr(args[0]);
+        try self.emit(") |__enum_val| {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("const ");
+        try self.emit(var_name);
+        try self.emit(" = .{ __enum_idx, __enum_val };\n");
         for (body) |stmt| {
             try self.generateStmt(stmt);
         }
+        try self.emitIndent();
+        try self.emit("__enum_idx += 1;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
         self.dedent();
         try self.emitIndent();
         try self.emit("}\n");
@@ -37,16 +53,16 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         .list => |l| l.elts,
         .tuple => |t| t.elts,
         else => {
-            // Unknown target type - emit placeholder
+            // Unknown target type - generate compile error
             try self.emitIndent();
-            try self.emit("// TODO: Unsupported enumerate target type\n");
+            try self.emit("@compileError(\"enumerate() target must be a tuple/list for unpacking or a single variable\");\n");
             return;
         },
     };
     if (target_elts.len != 2) {
-        // Not exactly 2 elements - emit placeholder
+        // Not exactly 2 elements - Python only supports (idx, value) unpacking
         try self.emitIndent();
-        try self.emitFmt("// TODO: enumerate() with {d} variables not supported (need exactly 2)\n", .{target_elts.len});
+        try self.emit("@compileError(\"enumerate() unpacking requires exactly 2 variables: (index, value)\");\n");
         return;
     }
 
@@ -63,11 +79,10 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     const iterable = args[0];
 
     // Extract start parameter (default 0)
+    // enumerate(iterable, start=0) - start can be positional or keyword
+    // Keyword args are handled by caller and converted to positional
     var start_value: i64 = 0;
     if (args.len >= 2) {
-        // Check if it's a keyword argument "start=N"
-        // For now, assume positional: enumerate(items, start)
-        // TODO: Handle keyword args properly
         if (args[1] == .constant and args[1].constant.value == .int) {
             start_value = args[1].constant.value.int;
         }

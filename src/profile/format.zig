@@ -152,17 +152,81 @@ pub fn readJson(allocator: std.mem.Allocator, path: []const u8) !Profile {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
 
-    _ = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
-    // Note: content is intentionally not freed - caller handles cleanup via Profile.deinit
+    const content = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+    defer allocator.free(content);
 
-    // Parse JSON manually (simple parser for our format)
-    // TODO: Implement proper JSON parsing
-    // For now, return empty profile
+    // Parse JSON
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, content, .{});
+    defer parsed.deinit();
+
+    const root = parsed.value.object;
+
+    // Parse source file
+    const source_file = if (root.get("source_file")) |sf|
+        try allocator.dupe(u8, sf.string)
+    else
+        try allocator.dupe(u8, "");
+
+    // Parse total samples
+    const total_samples: u64 = if (root.get("total_samples")) |ts|
+        @intCast(ts.integer)
+    else
+        0;
+
+    // Parse duration
+    const duration_ms: u64 = if (root.get("duration_ms")) |d|
+        @intCast(d.integer)
+    else
+        0;
+
+    // Parse functions array
+    var functions = std.ArrayList(FunctionProfile){};
+    var hot_functions = std.ArrayList([]const u8){};
+
+    if (root.get("functions")) |funcs_json| {
+        for (funcs_json.array.items) |func_json| {
+            const func_obj = func_json.object;
+
+            const name = try allocator.dupe(u8, func_obj.get("name").?.string);
+            const func_file = try allocator.dupe(u8, if (func_obj.get("file")) |f| f.string else "");
+            const line: u32 = if (func_obj.get("line")) |l| @intCast(l.integer) else 0;
+            const samples: u64 = if (func_obj.get("samples")) |s| @intCast(s.integer) else 0;
+            const percentage: f32 = if (func_obj.get("percentage")) |p| @floatCast(p.float) else 0.0;
+            const hot = if (func_obj.get("hot")) |h| h.bool else false;
+
+            // Parse children
+            var children = std.ArrayList(CallEdge){};
+            if (func_obj.get("children")) |children_json| {
+                for (children_json.array.items) |child_json| {
+                    const child_obj = child_json.object;
+                    try children.append(allocator, .{
+                        .callee = try allocator.dupe(u8, child_obj.get("callee").?.string),
+                        .samples = @intCast(child_obj.get("samples").?.integer),
+                    });
+                }
+            }
+
+            try functions.append(allocator, .{
+                .name = name,
+                .file = func_file,
+                .line = line,
+                .samples = samples,
+                .percentage = percentage,
+                .hot = hot,
+                .children = try children.toOwnedSlice(allocator),
+            });
+
+            if (hot) {
+                try hot_functions.append(allocator, name);
+            }
+        }
+    }
+
     return Profile{
-        .source_file = try allocator.dupe(u8, ""),
-        .total_samples = 0,
-        .duration_ms = 0,
-        .functions = &[_]FunctionProfile{},
-        .hot_functions = &[_][]const u8{},
+        .source_file = source_file,
+        .total_samples = total_samples,
+        .duration_ms = duration_ms,
+        .functions = try functions.toOwnedSlice(allocator),
+        .hot_functions = try hot_functions.toOwnedSlice(allocator),
     };
 }

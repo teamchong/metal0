@@ -153,12 +153,10 @@ pub fn parseNumber(data: []const u8, pos: usize, allocator: std.mem.Allocator) J
         return ParseResult(*runtime.PyObject).init(py_int, i - pos);
     }
 
-    // Parse as float - for now store as truncated int
-    // TODO: Add PyFloat type when needed
+    // Parse as float and create proper float object
     const float_value = std.fmt.parseFloat(f64, num_str) catch return JsonError.InvalidNumber;
-    const int_value: i64 = @intFromFloat(float_value);
-    const py_int = try runtime.PyInt.create(allocator, int_value);
-    return ParseResult(*runtime.PyObject).init(py_int, i - pos);
+    const py_float = try runtime.PyFloat.create(allocator, float_value);
+    return ParseResult(*runtime.PyObject).init(py_float, i - pos);
 }
 
 /// Check if character can continue a number

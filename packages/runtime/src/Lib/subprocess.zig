@@ -73,7 +73,26 @@ pub const Popen = struct {
 
     /// Check if process has terminated (non-blocking)
     pub fn poll(self: *Popen) ?i32 {
-        // TODO: Non-blocking wait
+        // If already have return code, return it
+        if (self.returncode) |code| {
+            return code;
+        }
+
+        // Try non-blocking wait using WNOHANG
+        const result = std.posix.waitpid(self.child.id, .{ .NOHANG = true });
+        if (result.pid == 0) {
+            // Process still running
+            return null;
+        }
+
+        // Process terminated - compute return code
+        const term = result.status;
+        self.returncode = switch (term) {
+            .exited => |code| @as(i32, code),
+            .signal => |sig| -@as(i32, @intCast(@intFromEnum(sig))),
+            .stopped => |sig| -@as(i32, @intCast(@intFromEnum(sig))),
+            .unknown => |val| @as(i32, @intCast(val)),
+        };
         return self.returncode;
     }
 
@@ -122,8 +141,6 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8, options: stru
     env: ?*const std.process.EnvMap = null,
     timeout: ?u64 = null,
 }) !CompletedProcess {
-    _ = options.timeout; // TODO: Implement timeout
-
     var child = std.process.Child.init(args, allocator);
 
     if (options.capture_output) {
@@ -138,6 +155,32 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8, options: stru
 
     var stdout_data: ?[]u8 = null;
     var stderr_data: ?[]u8 = null;
+
+    // Handle timeout if specified
+    if (options.timeout) |timeout_ns| {
+        const start_time = std.time.nanoTimestamp();
+        const deadline = start_time + @as(i128, timeout_ns);
+
+        // Poll for completion with timeout
+        while (true) {
+            const result = std.posix.waitpid(child.id, .{ .NOHANG = true });
+            if (result.pid != 0) {
+                // Process completed
+                break;
+            }
+
+            // Check timeout
+            if (std.time.nanoTimestamp() >= deadline) {
+                // Timeout - kill the process
+                std.posix.kill(child.id, std.posix.SIG.KILL) catch {};
+                _ = std.posix.waitpid(child.id, .{});
+                return error.TimeoutExpired;
+            }
+
+            // Sleep briefly before polling again
+            std.time.sleep(10 * std.time.ns_per_ms);
+        }
+    }
 
     if (options.capture_output) {
         if (child.stdout) |stdout| {

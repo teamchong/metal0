@@ -466,9 +466,26 @@ fn statInternal(path_: []const u8) !stat_result {
 
 /// Get file status without following symlinks
 pub fn lstat(path_: []const u8) !stat_result {
-    // For now, same as stat - proper lstat requires different syscall
-    // TODO: Use std.posix.lstat when available
-    return stat(path_);
+    // Use lstat syscall directly to avoid following symlinks
+    const s = try std.posix.lstat(path_);
+    return .{
+        .st_mode = s.mode,
+        .st_ino = s.ino,
+        .st_dev = s.dev,
+        .st_nlink = s.nlink,
+        .st_uid = s.uid,
+        .st_gid = s.gid,
+        .st_size = @intCast(s.size),
+        .st_atime = s.atime().sec,
+        .st_mtime = s.mtime().sec,
+        .st_ctime = s.ctime().sec,
+        .st_atime_ns = @as(i128, s.atime().sec) * std.time.ns_per_s + s.atime().nsec,
+        .st_mtime_ns = @as(i128, s.mtime().sec) * std.time.ns_per_s + s.mtime().nsec,
+        .st_ctime_ns = @as(i128, s.ctime().sec) * std.time.ns_per_s + s.ctime().nsec,
+        .st_blocks = 0,
+        .st_blksize = 4096,
+        .st_rdev = 0,
+    };
 }
 
 /// Get file status from file descriptor

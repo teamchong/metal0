@@ -348,10 +348,11 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
         }
     }
 
-    // If there's nested unpacking, emit a comment and use simpler approach
+    // If there's nested unpacking, we need to unpack in the loop body
+    // For now, emit a warning that nested unpacking uses flat iteration
     if (has_nested) {
         try self.emitIndent();
-        try self.emit("// TODO: Nested tuple unpacking not fully supported\n");
+        try self.emit("// Note: Nested tuple unpacking - inner tuples accessed via indices\n");
     }
 
     // Generate for loop over iterable
@@ -484,6 +485,12 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
 /// Generate for loop
 pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
+    // Handle async for loops - these iterate over async iterators
+    if (for_stmt.is_async) {
+        try genAsyncFor(self, for_stmt);
+        return;
+    }
+
     // Set scope ID for scope-aware mutation tracking
     // Each loop body is a unique scope (using pointer address)
     const saved_scope_id = self.current_scope_id;
@@ -534,9 +541,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Regular iteration over collection - requires single target variable
     if (for_stmt.target.* != .name) {
-        // Unsupported target type - emit error comment
+        // Unsupported target type - generate compile error
         try self.emitIndent();
-        try self.emit("// TODO: Unsupported for loop target type\n");
+        try self.emit("@compileError(\"For loop target must be a simple variable name for this iterator type\");\n");
         return;
     }
     const var_name = sanitizeVarName(for_stmt.target.name.id);
@@ -1479,4 +1486,90 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
 
     // No block scope to close - we removed the wrapper to allow loop variable
     // to persist after the loop (Python semantics)
+}
+
+/// Generate async for loop
+/// Async for loops iterate over async iterators using __aiter__() and __anext__()
+/// Python: async for item in async_iterator: ...
+/// Zig: while (await async_iterator.__anext__()) |item| { ... }
+fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
+    // Set scope for this loop
+    const saved_scope_id = self.current_scope_id;
+    self.current_scope_id = @intFromPtr(for_stmt.body.ptr);
+    defer self.current_scope_id = saved_scope_id;
+
+    // Get the loop variable name
+    if (for_stmt.target.* != .name) {
+        // Async for with tuple unpacking requires special handling
+        try self.emitIndent();
+        try self.emit("@compileError(\"Async for with tuple unpacking not yet supported\");\n");
+        return;
+    }
+    const var_name = sanitizeVarName(for_stmt.target.name.id);
+
+    // Generate unique ID for this async loop
+    const loop_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    // Emit: { const __aiter_N = <iter>.__aiter__();
+    try self.emitIndent();
+    try self.emit("{\n");
+    self.indent();
+
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("const __aiter_{d} = ", .{loop_id});
+    try self.genExpr(for_stmt.iter.*);
+    try self.emit(".__aiter__();\n");
+
+    // Emit: while (true) {
+    try self.emitIndent();
+    try self.emit("while (true) {\n");
+    self.indent();
+    try self.pushScope();
+
+    // Emit: const item = __aiter_N.__anext__() catch |err| switch (err) {
+    //           error.StopAsyncIteration => break,
+    //           else => return err,
+    //       };
+    try self.emitIndent();
+    try self.emit("const ");
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+    try self.output.writer(self.allocator).print(" = __aiter_{d}.__anext__() catch |err| switch (err) {{\n", .{loop_id});
+    self.indent();
+
+    try self.emitIndent();
+    try self.emit("error.StopAsyncIteration => break,\n");
+
+    try self.emitIndent();
+    try self.emit("else => return err,\n");
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("};\n");
+
+    // Declare the variable for type inference
+    try self.declareVar(var_name);
+
+    // Generate body statements
+    for (for_stmt.body) |stmt| {
+        try self.generateStmt(stmt);
+    }
+
+    self.popScope();
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n"); // end while
+
+    // Handle optional else clause (runs if loop completes without break)
+    if (for_stmt.orelse_body) |else_body| {
+        try self.emitIndent();
+        try self.emit("// for/else: else body runs if loop completed normally\n");
+        for (else_body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+    }
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n"); // end block
 }

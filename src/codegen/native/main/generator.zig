@@ -236,9 +236,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             try self.emit("runtime.Lib.");
                             try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                         } else {
-                            try self.emit("struct {}; // TODO: ");
-                            try self.emit(mod_name);
-                            try self.emit(" not implemented");
+                            // Module not implemented - emit compile error for clear failure
+                            try self.output.writer(self.allocator).print(
+                                "@compileError(\"Module '{s}' is not implemented in metal0 runtime\")",
+                                .{mod_name},
+                            );
                         }
                     }
                     try self.emit(";\n");

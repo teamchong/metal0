@@ -83,20 +83,56 @@ pub const PyMatch = struct {
     }
 };
 
+/// Compiled regex object wrapper
+pub const CompiledPattern = struct {
+    regex: Regex,
+    pattern: []const u8,
+    flags: i64,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *CompiledPattern) void {
+        self.regex.deinit();
+        self.allocator.free(self.pattern);
+        self.allocator.destroy(self);
+    }
+};
+
 /// Python-compatible compile() function
 /// Usage: pattern = re.compile(r"hello")
 pub fn compile(allocator: std.mem.Allocator, pattern: []const u8) !*runtime.PyObject {
-    // Compile the regex
-    const regex = try Regex.compile(allocator, pattern);
+    return compileWithFlags(allocator, pattern, 0);
+}
 
-    // Wrap in PyObject
-    // For now, we'll store it as an opaque pointer
-    // TODO: Add proper PyRegex type to PyObject.TypeId
+/// compile with flags
+pub fn compileWithFlags(allocator: std.mem.Allocator, pattern: []const u8, flags: i64) !*runtime.PyObject {
+    // Transform pattern based on flags
+    var actual_pattern = pattern;
+    if (flags & IGNORECASE != 0) {
+        // For case-insensitive, we'd need to transform the pattern
+        // Basic approach: wrap in (?i) if regex engine supports it
+        const prefixed = try std.fmt.allocPrint(allocator, "(?i){s}", .{pattern});
+        actual_pattern = prefixed;
+    }
+
+    // Compile the regex
+    const regex = try Regex.compile(allocator, actual_pattern);
+
+    // Create compiled pattern object
+    const compiled = try allocator.create(CompiledPattern);
+    compiled.* = .{
+        .regex = regex,
+        .pattern = try allocator.dupe(u8, pattern),
+        .flags = flags,
+        .allocator = allocator,
+    };
+
+    // Wrap in PyObject as opaque pointer
+    // Using .object type_id since regex is an object type
     const obj = try allocator.create(runtime.PyObject);
     obj.* = .{
         .ref_count = 1,
-        .type_id = .none, // TODO: Add .regex type
-        .data = @ptrCast(@constCast(&regex)),
+        .type_id = .object,
+        .data = @ptrCast(compiled),
     };
 
     return obj;
@@ -128,11 +164,21 @@ pub fn search(allocator: std.mem.Allocator, pattern: anytype, text: anytype) !*P
 
 /// search with flags - called when 3 args provided
 fn searchImpl(allocator: std.mem.Allocator, pattern: anytype, text: anytype, flags: anytype) !*PyMatch {
-    _ = flags; // TODO: implement flag support
     const pattern_str = if (@TypeOf(pattern) == []const u8) pattern else @as([]const u8, pattern);
     const text_str = if (@TypeOf(text) == []const u8) text else @as([]const u8, text);
+    const flags_val: i64 = if (@TypeOf(flags) == i64) flags else @as(i64, @intCast(flags));
 
-    var regex = try Regex.compile(allocator, pattern_str);
+    // Apply flags to pattern
+    var actual_pattern: []const u8 = pattern_str;
+    var owned_pattern: ?[]u8 = null;
+    defer if (owned_pattern) |p| allocator.free(p);
+
+    if (flags_val & IGNORECASE != 0) {
+        owned_pattern = try std.fmt.allocPrint(allocator, "(?i){s}", .{pattern_str});
+        actual_pattern = owned_pattern.?;
+    }
+
+    var regex = try Regex.compile(allocator, actual_pattern);
     defer regex.deinit();
 
     const match_opt = try regex.find(text_str);
@@ -154,11 +200,25 @@ pub fn match(allocator: std.mem.Allocator, pattern: anytype, text: anytype) !*Py
 
 /// match with flags - called when 3 args provided
 fn matchImpl(allocator: std.mem.Allocator, pattern: anytype, text: anytype, flags: anytype) !*PyMatch {
-    _ = flags; // TODO: implement flag support
     const pattern_str = if (@TypeOf(pattern) == []const u8) pattern else @as([]const u8, pattern);
     const text_str = if (@TypeOf(text) == []const u8) text else @as([]const u8, text);
+    const flags_val: i64 = if (@TypeOf(flags) == i64) flags else @as(i64, @intCast(flags));
 
-    var regex = try Regex.compile(allocator, pattern_str);
+    // Apply flags to pattern - add ^ anchor for match() behavior
+    var actual_pattern: []const u8 = pattern_str;
+    var owned_pattern: ?[]u8 = null;
+    defer if (owned_pattern) |p| allocator.free(p);
+
+    if (flags_val & IGNORECASE != 0) {
+        owned_pattern = try std.fmt.allocPrint(allocator, "(?i)^{s}", .{pattern_str});
+        actual_pattern = owned_pattern.?;
+    } else {
+        // Add ^ anchor to make match() only match at start
+        owned_pattern = try std.fmt.allocPrint(allocator, "^{s}", .{pattern_str});
+        actual_pattern = owned_pattern.?;
+    }
+
+    var regex = try Regex.compile(allocator, actual_pattern);
     defer regex.deinit();
 
     const match_opt = try regex.find(text_str);
@@ -166,9 +226,6 @@ fn matchImpl(allocator: std.mem.Allocator, pattern: anytype, text: anytype, flag
 
     var m = match_opt.?;
     defer m.deinit(allocator);
-
-    // match() only succeeds if pattern matches at start
-    if (m.span.start != 0) return try PyMatch.createNone(allocator);
 
     return try PyMatch.create(allocator, text_str, m);
 }

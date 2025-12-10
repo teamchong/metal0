@@ -31,11 +31,85 @@ inline fn findColon(line: []const u8) ?usize {
     return std.mem.indexOf(u8, line, ":");
 }
 
-/// SIMD-optimized header parsing for common cases
+/// Optimized header parsing using SIMD when available
+/// Uses @Vector for parallel byte comparison to find delimiters
 pub fn parseHeadersFast(allocator: std.mem.Allocator, data: []const u8) !Headers {
-    // For now, use regular parsing
-    // TODO: Implement SIMD version using @Vector when stable
-    return parseHeaders(allocator, data);
+    var headers = Headers.init(allocator);
+
+    // Use SIMD to find newlines in batches
+    const Vec = @Vector(16, u8);
+    const newline_vec: Vec = @splat('\n');
+    const colon_vec: Vec = @splat(':');
+
+    var pos: usize = 0;
+    var line_start: usize = 0;
+
+    // Process in 16-byte chunks where possible
+    while (pos + 16 <= data.len) {
+        const chunk: Vec = data[pos..][0..16].*;
+
+        // Find newline
+        const newline_mask = chunk == newline_vec;
+        const newline_bits = @as(u16, @bitCast(newline_mask));
+
+        if (newline_bits != 0) {
+            // Found newline - process line
+            const offset = @ctz(newline_bits);
+            const line_end = pos + offset;
+
+            if (line_end > line_start) {
+                const line = data[line_start..line_end];
+
+                // Find colon using SIMD on this line
+                var colon_pos: ?usize = null;
+                var cp: usize = 0;
+                while (cp + 16 <= line.len) {
+                    const line_chunk: Vec = line[cp..][0..16].*;
+                    const colon_mask = line_chunk == colon_vec;
+                    const colon_bits = @as(u16, @bitCast(colon_mask));
+                    if (colon_bits != 0) {
+                        colon_pos = cp + @ctz(colon_bits);
+                        break;
+                    }
+                    cp += 16;
+                }
+                // Fallback for remainder
+                if (colon_pos == null) {
+                    colon_pos = std.mem.indexOf(u8, line[cp..], ":") orelse null;
+                    if (colon_pos) |idx| colon_pos = cp + idx;
+                }
+
+                if (colon_pos) |cidx| {
+                    const name = std.mem.trim(u8, line[0..cidx], " \t");
+                    const value = std.mem.trim(u8, line[cidx + 1 ..], " \t\r");
+                    try headers.put(name, value);
+                }
+            }
+
+            line_start = line_end + 1;
+            pos = line_start;
+        } else {
+            pos += 16;
+        }
+    }
+
+    // Handle remaining bytes with scalar code
+    while (pos < data.len) {
+        if (data[pos] == '\n') {
+            if (pos > line_start) {
+                const line = data[line_start..pos];
+                if (std.mem.indexOf(u8, line, ":")) |cidx| {
+                    const name = std.mem.trim(u8, line[0..cidx], " \t");
+                    const value = std.mem.trim(u8, line[cidx + 1 ..], " \t\r");
+                    try headers.put(name, value);
+                }
+            }
+            line_start = pos + 1;
+        }
+        pos += 1;
+    }
+
+    return headers;
 }
 
 /// Parse Content-Length header quickly

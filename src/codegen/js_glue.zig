@@ -32,6 +32,7 @@ pub const JsGlueGenerator = struct {
         str,
         bytes,
         list_int,
+        list_float,
         list_str,
         dict,
         any,
@@ -96,8 +97,24 @@ pub const JsGlueGenerator = struct {
         if (std.mem.eql(u8, type_name, "float")) return .float;
         if (std.mem.eql(u8, type_name, "str")) return .str;
         if (std.mem.eql(u8, type_name, "bytes")) return .bytes;
-        if (std.mem.eql(u8, type_name, "list")) return .list_int; // TODO: parse generic
         if (std.mem.eql(u8, type_name, "dict")) return .dict;
+
+        // Handle generic list types - extract element type if possible
+        if (std.mem.startsWith(u8, type_name, "list[")) {
+            // Parse list[element_type]
+            const inner_start = 5; // "list[".len
+            const inner_end = std.mem.lastIndexOf(u8, type_name, "]") orelse type_name.len;
+            const element_type = type_name[inner_start..inner_end];
+
+            if (std.mem.eql(u8, element_type, "int")) return .list_int;
+            if (std.mem.eql(u8, element_type, "float")) return .list_float;
+            if (std.mem.eql(u8, element_type, "str")) return .list_str;
+            return .list_int; // Default to int list for unknown element types
+        }
+
+        // Plain "list" defaults to int list
+        if (std.mem.eql(u8, type_name, "list")) return .list_int;
+
         return .any;
     }
 
@@ -321,8 +338,8 @@ pub const JsGlueGenerator = struct {
             \\    return inputs.map(s => func(s));
             \\  }
             \\
-            \\  // TODO: Implement true batch WASM call
-            \\  // For now, use optimized sequential calls with buffer reuse
+            \\  // Use optimized sequential calls with buffer reuse
+            \\  // True batch WASM requires exported batch function in WASM module
             \\  const results = [];
             \\  for (const input of inputs) {
             \\    results.push(func(input));
@@ -350,6 +367,7 @@ pub const JsGlueGenerator = struct {
             .str => "string",
             .bytes => "Uint8Array",
             .list_int => "Uint32Array",
+            .list_float => "Float64Array",
             .list_str => "string[]",
             .dict => "Object",
             .any => "any",

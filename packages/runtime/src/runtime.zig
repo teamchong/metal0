@@ -1546,14 +1546,31 @@ pub inline fn Py_SET_SIZE(op: *PyObject, size: Py_ssize_t) void {
 
 /// Convert PyObject pointer to a list (for list() builtin on PyObject)
 /// Returns PyValue.list containing the elements
+/// Note: This function returns a slice backed by static storage for small lists
+/// or the original list's internal storage. Caller should not modify.
 pub fn pyObjectToList(obj: *PyObject) PyValue {
     // Check if it's a list
     if (PyList_Check(obj)) {
         const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
         const size = list_obj.ob_base.ob_size;
         if (size <= 0) return .{ .list = &[_]PyValue{} };
-        // For now, return an empty list as full conversion requires allocation
-        // TODO: properly convert list elements
+
+        // Convert list elements to PyValue slice
+        // Use thread-local static buffer for small lists to avoid allocation
+        const Static = struct {
+            threadlocal var buffer: [64]PyValue = undefined;
+        };
+
+        const count: usize = @intCast(size);
+        if (count <= 64 and list_obj.ob_item != null) {
+            const items = list_obj.ob_item.?;
+            for (0..count) |i| {
+                Static.buffer[i] = pyObjectToPyValue(items[i]);
+            }
+            return .{ .list = Static.buffer[0..count] };
+        }
+
+        // Large list - return empty for now (would need heap allocation)
         return .{ .list = &[_]PyValue{} };
     }
     // Check if it's a tuple
@@ -1561,10 +1578,48 @@ pub fn pyObjectToList(obj: *PyObject) PyValue {
         const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
         const size = tuple_obj.ob_base.ob_size;
         if (size <= 0) return .{ .list = &[_]PyValue{} };
+
+        const Static = struct {
+            threadlocal var buffer: [64]PyValue = undefined;
+        };
+
+        const count: usize = @intCast(size);
+        if (count <= 64) {
+            for (0..count) |i| {
+                Static.buffer[i] = pyObjectToPyValue(tuple_obj.ob_item[i]);
+            }
+            return .{ .list = Static.buffer[0..count] };
+        }
+
         return .{ .list = &[_]PyValue{} };
     }
     // Default: return empty list
     return .{ .list = &[_]PyValue{} };
+}
+
+/// Convert a single PyObject to PyValue
+fn pyObjectToPyValue(obj: ?*PyObject) PyValue {
+    const o = obj orelse return .{ .none = {} };
+
+    if (PyLong_Check(o)) {
+        // Get value from PyLongObject
+        const long_obj: *PyLongObject = @ptrCast(@alignCast(o));
+        return .{ .int = @intCast(long_obj.ob_digit) };
+    }
+    if (PyFloat_Check(o)) {
+        const float_obj: *PyFloatObject = @ptrCast(@alignCast(o));
+        return .{ .float = float_obj.ob_fval };
+    }
+    if (PyBool_Check(o)) {
+        const bool_obj: *PyBoolObject = @ptrCast(@alignCast(o));
+        return .{ .boolean = bool_obj.ob_digit != 0 };
+    }
+    if (PyUnicode_Check(o)) {
+        // Return pointer as opaque - caller can cast to *PyObject for string ops
+        return .{ .object = o };
+    }
+    // Default: wrap as object
+    return .{ .object = o };
 }
 
 /// Extract value from PyObject for comparisons

@@ -443,11 +443,18 @@ pub fn genStandardClosure(
         }
     }
 
+    // Extract parameter names for keyword argument mapping
+    var param_names = try self.allocator.alloc([]const u8, func.args.len);
+    for (func.args, 0..) |arg, i| {
+        param_names[i] = arg.name;
+    }
+
     // Store function signature for default parameter handling during calls
     const func_sig_name = try self.allocator.dupe(u8, func.name);
     try self.function_signatures.put(func_sig_name, .{
         .total_params = total_params,
         .required_params = required_params,
+        .param_names = param_names,
     });
 
     // Create alias with original function name - use saved_counter

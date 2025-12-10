@@ -940,8 +940,19 @@ pub fn callable(obj: anytype) bool {
     }
     // Check for PyObject with __call__
     if (T == *PyObject) {
-        // For now, return false for PyObjects (no callable detection yet)
-        // TODO: check for __call__ attribute
+        // Check if the PyObject has a __call__ attribute or is a function type
+        // In CPython, this checks tp_call slot or __call__ in type dict
+        if (obj.ob_type) |type_obj| {
+            // Function and method types are always callable
+            const type_id = type_obj.tp_flags & 0xFF; // Type category bits
+            if (type_id == 0x10 or type_id == 0x11) { // Function or Method
+                return true;
+            }
+            // Check for tp_call slot (indicates __call__ is defined)
+            if (@hasField(@TypeOf(type_obj.*), "tp_call")) {
+                if (type_obj.tp_call != null) return true;
+            }
+        }
         return false;
     }
     return false;

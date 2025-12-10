@@ -267,7 +267,6 @@ fn parseForTarget(self: *Parser) ParseError!ast.Node {
 }
 
 pub fn parseForInternal(self: *Parser, is_async: bool) ParseError!ast.Node {
-    _ = is_async; // TODO: Store in AST node if needed
     _ = try self.expect(.For);
 
     // Parse target (can be single var, subscript like values[i], starred like *rest, or tuple like: i, x)
@@ -380,6 +379,7 @@ pub fn parseForInternal(self: *Parser, is_async: bool) ParseError!ast.Node {
             .iter = try self.allocNode(iter),
             .body = body,
             .orelse_body = orelse_body,
+            .is_async = is_async,
         },
     };
 }

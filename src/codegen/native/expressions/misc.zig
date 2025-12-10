@@ -395,9 +395,33 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             try self.emit(".__dict__");
         } else {
             // Dynamic attribute: use __dict__.get() and extract value
-            // For now, assume int type. TODO: Add runtime type checking
+            // Determine the appropriate PyValue field from class field types if available
+            const obj_type = self.type_inferrer.inferExpr(attr.value.*) catch .unknown;
+            var value_field: []const u8 = "int"; // Default to int
+            if (type_traits.isClassInstance(obj_type)) {
+                const class_name = obj_type.class_instance;
+                if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                    if (class_info.fields.get(attr.attr)) |field_type| {
+                        // Map NativeType to PyValue field name
+                        const field_tag = @as(std.meta.Tag(@TypeOf(field_type)), field_type);
+                        value_field = switch (field_tag) {
+                            .int => "int",
+                            .float => "float",
+                            .bool => "bool",
+                            .string => "string",
+                            .bytes => "bytes",
+                            .none => "none",
+                            .list => "list",
+                            .dict => "dict",
+                            .set => "set",
+                            .tuple => "tuple",
+                            else => "int", // Fallback to int for unknown types
+                        };
+                    }
+                }
+            }
             try genExpr(self, attr.value.*);
-            try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.int", .{attr.attr});
+            try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.{s}", .{ attr.attr, value_field });
         }
     } else {
         // Known attribute: direct field access

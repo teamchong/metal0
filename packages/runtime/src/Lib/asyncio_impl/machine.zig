@@ -32,6 +32,11 @@ pub const Machine = struct {
     /// Spinning flag (looking for work without blocking)
     spinning: std.atomic.Value(bool),
 
+    /// Parking condition for efficient wake-up
+    park_mutex: std.Thread.Mutex,
+    park_cond: std.Thread.Condition,
+    parked_flag: std.atomic.Value(bool),
+
     /// Statistics
     tasks_executed: u64,
     context_switches: u64,
@@ -51,6 +56,9 @@ pub const Machine = struct {
             .thread = null,
             .running = std.atomic.Value(bool).init(false),
             .spinning = std.atomic.Value(bool).init(false),
+            .park_mutex = .{},
+            .park_cond = .{},
+            .parked_flag = std.atomic.Value(bool).init(false),
             .tasks_executed = 0,
             .context_switches = 0,
             .spin_count = 0,
@@ -123,17 +131,34 @@ pub const Machine = struct {
         return self.spinning.load(.acquire);
     }
 
-    /// Park machine (block until work available)
+    /// Park machine (block until work available using condition variable)
     pub fn park(self: *Machine) void {
         self.state = .parked;
-        // TODO: Implement actual parking with futex/condition variable
-        // For now, just sleep briefly
-        std.Thread.sleep(1_000_000); // 1ms
+        self.parked_flag.store(true, .release);
+
+        // Block on condition variable until unparked
+        self.park_mutex.lock();
+        defer self.park_mutex.unlock();
+
+        // Wait until parked_flag becomes false (signaled by unpark)
+        while (self.parked_flag.load(.acquire)) {
+            self.park_cond.wait(&self.park_mutex);
+        }
+
+        self.state = .running;
+        self.last_active = std.time.nanoTimestamp();
     }
 
-    /// Unpark machine (wake up from parked state)
+    /// Unpark machine (wake up from parked state using condition variable)
     pub fn unpark(self: *Machine) void {
         if (self.state == .parked) {
+            // Signal the parked thread to wake up
+            self.parked_flag.store(false, .release);
+
+            self.park_mutex.lock();
+            self.park_cond.signal();
+            self.park_mutex.unlock();
+
             self.state = .running;
             self.last_active = std.time.nanoTimestamp();
         }

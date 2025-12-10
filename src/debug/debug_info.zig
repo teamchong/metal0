@@ -536,6 +536,37 @@ pub const DebugInfoReader = struct {
         const di = self.debug_info orelse return false;
         return di.header.source_hash == computeHash(source_content);
     }
+
+    /// Check if a specific source line has debug info (for breakpoint verification)
+    pub fn hasLineInfo(self: *DebugInfoReader, source_path: []const u8, line: u32) bool {
+        const di = self.debug_info orelse return false;
+
+        // Check if this is the right source file
+        if (!std.mem.eql(u8, di.source_file, source_path)) {
+            // Check if it's just the filename portion
+            const basename = std.fs.path.basename(source_path);
+            const di_basename = std.fs.path.basename(di.source_file);
+            if (!std.mem.eql(u8, basename, di_basename)) {
+                return false;
+            }
+        }
+
+        // Check if we have a mapping for this line
+        for (di.mappings) |m| {
+            if (m.py_line == line) {
+                return true;
+            }
+        }
+
+        // Also check statement locations
+        for (di.stmt_locs) |sl| {
+            if (sl.loc.line == line) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 };
 
 /// Compute hash of source content for invalidation

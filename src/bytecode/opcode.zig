@@ -455,27 +455,226 @@ pub fn serialize(program: *const Program, allocator: std.mem.Allocator) ![]u8 {
     var buf = std.ArrayList(u8).init(allocator);
     errdefer buf.deinit();
 
+    const w = buf.writer();
+
     // Version header
-    try buf.writer().writeInt(u32, VERSION, .little);
+    try w.writeInt(u32, VERSION, .little);
 
     // Instructions
-    try buf.writer().writeInt(u32, @intCast(program.instructions.len), .little);
+    try w.writeInt(u32, @intCast(program.instructions.len), .little);
     for (program.instructions) |inst| {
-        try buf.writer().writeInt(u8, @intFromEnum(inst.opcode), .little);
-        try buf.writer().writeInt(u24, inst.arg, .little);
+        try w.writeInt(u8, @intFromEnum(inst.opcode), .little);
+        try w.writeInt(u24, inst.arg, .little);
     }
 
-    // TODO: serialize constants, names, source_map, etc.
+    // Constants
+    try w.writeInt(u32, @intCast(program.constants.len), .little);
+    for (program.constants) |constant| {
+        try serializeValue(constant, w);
+    }
 
-    return buf.toOwnedSlice();
+    // Varnames
+    try w.writeInt(u32, @intCast(program.varnames.len), .little);
+    for (program.varnames) |name| {
+        try w.writeInt(u32, @intCast(name.len), .little);
+        try w.writeAll(name);
+    }
+
+    // Names
+    try w.writeInt(u32, @intCast(program.names.len), .little);
+    for (program.names) |name| {
+        try w.writeInt(u32, @intCast(name.len), .little);
+        try w.writeAll(name);
+    }
+
+    // Source map
+    try w.writeInt(u32, @intCast(program.source_map.len), .little);
+    for (program.source_map) |loc| {
+        try w.writeInt(u32, loc.line, .little);
+        try w.writeInt(u16, loc.column, .little);
+        try w.writeInt(u32, loc.offset, .little);
+    }
+
+    // Filename
+    try w.writeInt(u32, @intCast(program.filename.len), .little);
+    try w.writeAll(program.filename);
+
+    // Name
+    try w.writeInt(u32, @intCast(program.name.len), .little);
+    try w.writeAll(program.name);
+
+    // Metadata
+    try w.writeInt(u32, program.firstlineno, .little);
+    try w.writeInt(u32, program.argcount, .little);
+    try w.writeInt(u32, program.posonlyargcount, .little);
+    try w.writeInt(u32, program.kwonlyargcount, .little);
+    try w.writeInt(u32, program.stacksize, .little);
+
+    return buf.toOwnedSlice(allocator);
+}
+
+fn serializeValue(value: Value, w: anytype) !void {
+    switch (value) {
+        .none => try w.writeByte(0),
+        .bool => |b| {
+            try w.writeByte(1);
+            try w.writeByte(if (b) 1 else 0);
+        },
+        .int => |i| {
+            try w.writeByte(2);
+            try w.writeInt(i64, i, .little);
+        },
+        .float => |f| {
+            try w.writeByte(3);
+            try w.writeInt(u64, @bitCast(f), .little);
+        },
+        .string => |s| {
+            try w.writeByte(4);
+            try w.writeInt(u32, @intCast(s.len), .little);
+            try w.writeAll(s);
+        },
+        .bytes => |b| {
+            try w.writeByte(5);
+            try w.writeInt(u32, @intCast(b.len), .little);
+            try w.writeAll(b);
+        },
+        .tuple => |t| {
+            try w.writeByte(6);
+            try w.writeInt(u32, @intCast(t.len), .little);
+            for (t) |elem| {
+                try serializeValue(elem, w);
+            }
+        },
+        .code => |_| {
+            // Nested code objects - write placeholder for now
+            try w.writeByte(7);
+        },
+        else => try w.writeByte(0xFF), // Unknown type marker
+    }
 }
 
 /// Deserialize program from bytes
 pub fn deserialize(data: []const u8, allocator: std.mem.Allocator) !*Program {
-    _ = data;
-    _ = allocator;
-    // TODO: implement deserialization
-    return error.NotImplemented;
+    var stream = std.io.fixedBufferStream(data);
+    const r = stream.reader();
+
+    // Version header
+    const version = try r.readInt(u32, .little);
+    if (version != VERSION) return error.VersionMismatch;
+
+    // Instructions
+    const instr_count = try r.readInt(u32, .little);
+    var instructions = try allocator.alloc(Instruction, instr_count);
+    for (instructions) |*inst| {
+        inst.opcode = @enumFromInt(try r.readByte());
+        inst.arg = try r.readInt(u24, .little);
+    }
+
+    // Constants
+    const const_count = try r.readInt(u32, .little);
+    var constants = try allocator.alloc(Value, const_count);
+    for (constants) |*constant| {
+        constant.* = try deserializeValue(r, allocator);
+    }
+
+    // Varnames
+    const varnames_count = try r.readInt(u32, .little);
+    var varnames = try allocator.alloc([]const u8, varnames_count);
+    for (varnames) |*name| {
+        const len = try r.readInt(u32, .little);
+        const buf = try allocator.alloc(u8, len);
+        _ = try r.readAll(buf);
+        name.* = buf;
+    }
+
+    // Names
+    const names_count = try r.readInt(u32, .little);
+    var names = try allocator.alloc([]const u8, names_count);
+    for (names) |*name| {
+        const len = try r.readInt(u32, .little);
+        const buf = try allocator.alloc(u8, len);
+        _ = try r.readAll(buf);
+        name.* = buf;
+    }
+
+    // Source map
+    const source_map_count = try r.readInt(u32, .little);
+    var source_map = try allocator.alloc(SourceLoc, source_map_count);
+    for (source_map) |*loc| {
+        loc.line = try r.readInt(u32, .little);
+        loc.column = try r.readInt(u16, .little);
+        loc.offset = try r.readInt(u32, .little);
+    }
+
+    // Filename
+    const filename_len = try r.readInt(u32, .little);
+    const filename = try allocator.alloc(u8, filename_len);
+    _ = try r.readAll(filename);
+
+    // Name
+    const name_len = try r.readInt(u32, .little);
+    const name = try allocator.alloc(u8, name_len);
+    _ = try r.readAll(name);
+
+    // Metadata
+    const firstlineno = try r.readInt(u32, .little);
+    const argcount = try r.readInt(u32, .little);
+    const posonlyargcount = try r.readInt(u32, .little);
+    const kwonlyargcount = try r.readInt(u32, .little);
+    const stacksize = try r.readInt(u32, .little);
+
+    const program = try allocator.create(Program);
+    program.* = .{
+        .instructions = instructions,
+        .constants = constants,
+        .varnames = varnames,
+        .names = names,
+        .cellvars = &.{},
+        .freevars = &.{},
+        .source_map = source_map,
+        .filename = filename,
+        .name = name,
+        .firstlineno = firstlineno,
+        .argcount = argcount,
+        .posonlyargcount = posonlyargcount,
+        .kwonlyargcount = kwonlyargcount,
+        .stacksize = stacksize,
+        .flags = .{},
+    };
+
+    return program;
+}
+
+fn deserializeValue(r: anytype, allocator: std.mem.Allocator) !Value {
+    const tag = try r.readByte();
+    return switch (tag) {
+        0 => .none,
+        1 => .{ .bool = try r.readByte() != 0 },
+        2 => .{ .int = try r.readInt(i64, .little) },
+        3 => .{ .float = @bitCast(try r.readInt(u64, .little)) },
+        4 => blk: {
+            const len = try r.readInt(u32, .little);
+            const buf = try allocator.alloc(u8, len);
+            _ = try r.readAll(buf);
+            break :blk .{ .string = buf };
+        },
+        5 => blk: {
+            const len = try r.readInt(u32, .little);
+            const buf = try allocator.alloc(u8, len);
+            _ = try r.readAll(buf);
+            break :blk .{ .bytes = buf };
+        },
+        6 => blk: {
+            const count = try r.readInt(u32, .little);
+            var tuple = try allocator.alloc(Value, count);
+            for (tuple) |*elem| {
+                elem.* = try deserializeValue(r, allocator);
+            }
+            break :blk .{ .tuple = tuple };
+        },
+        7 => .none, // Placeholder for nested code
+        else => .none,
+    };
 }
 
 test "opcode basics" {

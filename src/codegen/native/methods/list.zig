@@ -254,11 +254,18 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) return;
 
+    // Infer element type from the search item
+    const item_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    var type_buf = std.ArrayList(u8){};
+    defer type_buf.deinit(self.allocator);
+    item_type.toZigType(self.allocator, &type_buf) catch {};
+    const elem_type = if (type_buf.items.len > 0) type_buf.items else "i64";
+
     // Generate: @as(i64, @intCast(std.mem.indexOfScalar(T, list.items, item).?))
     // The .? asserts item exists (crashes if not found, like Python)
     try self.emit("@as(i64, @intCast(std.mem.indexOfScalar(");
-    // TODO: Need to infer element type
-    try self.emit("i64, "); // Assume i64 for now
+    try self.emit(elem_type);
+    try self.emit(", ");
     try self.genExpr(obj);
     try self.emit(".items, ");
     try self.genExpr(args[0]);

@@ -13,6 +13,60 @@ pub const InferError = core.InferError;
 pub const ClassInfo = core.ClassInfo;
 
 const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
+
+/// Parse a type annotation string into a NativeType
+/// Supports common Python type hints like "int", "str", "list[int]", etc.
+fn parseTypeAnnotation(annotation: []const u8) NativeType {
+    // Handle basic types
+    if (std.mem.eql(u8, annotation, "int")) return .{ .int = .bounded };
+    if (std.mem.eql(u8, annotation, "float")) return .{ .float = {} };
+    if (std.mem.eql(u8, annotation, "str")) return .{ .string = .runtime };
+    if (std.mem.eql(u8, annotation, "bool")) return .{ .bool = {} };
+    if (std.mem.eql(u8, annotation, "bytes")) return .{ .bytes = {} };
+    if (std.mem.eql(u8, annotation, "None") or std.mem.eql(u8, annotation, "NoneType")) return .{ .none = {} };
+    if (std.mem.eql(u8, annotation, "Any")) return .{ .unknown = {} };
+
+    // Handle generic types like list[int], dict[str, int], etc.
+    // For now, return unknown pointer since we can't allocate for element type here
+    if (std.mem.startsWith(u8, annotation, "list[")) {
+        return .{ .unknown = {} }; // Would need allocator for .list payload
+    }
+    if (std.mem.startsWith(u8, annotation, "dict[")) {
+        return .{ .unknown = {} }; // Would need allocator for .dict payload
+    }
+    if (std.mem.startsWith(u8, annotation, "set[")) {
+        return .{ .unknown = {} }; // Would need allocator for .set payload
+    }
+    if (std.mem.startsWith(u8, annotation, "tuple[")) {
+        return .{ .tuple = &[_]NativeType{} };
+    }
+    if (std.mem.startsWith(u8, annotation, "Optional[")) {
+        return .{ .unknown = {} };
+    }
+    if (std.mem.startsWith(u8, annotation, "Union[")) {
+        return .{ .unknown = {} };
+    }
+    if (std.mem.startsWith(u8, annotation, "Callable[")) {
+        return .{ .callable = {} };
+    }
+
+    // Handle List, Dict, Set, Tuple (capitalized versions from typing)
+    if (std.mem.eql(u8, annotation, "List") or std.mem.startsWith(u8, annotation, "List[")) {
+        return .{ .unknown = {} };
+    }
+    if (std.mem.eql(u8, annotation, "Dict") or std.mem.startsWith(u8, annotation, "Dict[")) {
+        return .{ .unknown = {} };
+    }
+    if (std.mem.eql(u8, annotation, "Set") or std.mem.startsWith(u8, annotation, "Set[")) {
+        return .{ .unknown = {} };
+    }
+    if (std.mem.eql(u8, annotation, "Tuple") or std.mem.startsWith(u8, annotation, "Tuple[")) {
+        return .{ .tuple = &[_]NativeType{} };
+    }
+
+    // Unknown type - might be a user-defined class
+    return .{ .unknown = {} };
+}
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 
 // ComptimeStringMaps for module attribute lookups (DCE-friendly)
@@ -810,14 +864,34 @@ pub fn inferExprWithInferrer(
         },
         .lambda => |lam| blk: {
             // Infer function type from lambda
-            // For now, default all params and return to i64
-            // TODO: Better type inference based on usage
+            // 1. Parameter types from annotations, or default to unknown
             const param_types = try allocator.alloc(NativeType, lam.args.len);
-            for (param_types) |*pt| {
-                pt.* = .{ .int = .bounded }; // Default to i64
+            for (lam.args, 0..) |arg, i| {
+                if (arg.type_annotation) |annotation| {
+                    // Parse type annotation string
+                    param_types[i] = parseTypeAnnotation(annotation);
+                } else {
+                    // Without annotation, infer from common patterns or default to unknown
+                    param_types[i] = .unknown;
+                }
             }
+
+            // 2. Return type from lambda body expression
+            // Create temporary scope with param types for inference
+            var temp_var_types = hashmap_helper.StringHashMap(NativeType).init(allocator);
+            defer temp_var_types.deinit();
+
+            // Add param types to temp scope
+            for (lam.args, 0..) |arg, i| {
+                temp_var_types.put(arg.name, param_types[i]) catch {};
+            }
+
+            // Infer body type with params in scope
+            const body_type = inferExprWithInferrer(allocator, &temp_var_types, class_fields, func_return_types, lam.body.*, type_inferrer) catch .unknown;
+
             const return_ptr = try allocator.create(NativeType);
-            return_ptr.* = .{ .int = .bounded }; // Default to i64
+            return_ptr.* = body_type;
+
             break :blk .{ .function = .{
                 .params = param_types,
                 .return_type = return_ptr,

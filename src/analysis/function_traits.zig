@@ -114,6 +114,8 @@ pub const FunctionTraits = struct {
     escaping_params: []bool = &.{},
     /// Local variables that escape (by name)
     escaping_locals: []const []const u8 = &.{},
+    /// All local variables defined in the function (for computing non-escaping set)
+    all_locals: []const []const u8 = &.{},
     /// If return value aliases a parameter, which one? (for ownership tracking)
     return_aliases_param: ?usize = null,
 
@@ -1861,6 +1863,15 @@ fn analyzeStatement(stmt: ast.Node, graph: *CallGraph, ctx: *AnalyzerContext) !v
             if (ctx.escaping_locals.items.len > 0) {
                 traits.escaping_locals = try ctx.allocator.dupe([]const u8, ctx.escaping_locals.items);
             }
+            // Copy all local variable names for escape analysis
+            if (ctx.local_vars.count() > 0) {
+                var all_locals_list = std.ArrayList([]const u8){};
+                var local_iter = ctx.local_vars.iterator();
+                while (local_iter.next()) |entry| {
+                    try all_locals_list.append(ctx.allocator, entry.key_ptr.*);
+                }
+                traits.all_locals = try all_locals_list.toOwnedSlice(ctx.allocator);
+            }
             traits.return_aliases_param = ctx.return_aliases_param;
 
             // Copy precise error types
@@ -2499,10 +2510,34 @@ pub fn getReturnAliasParam(graph: *const CallGraph, func_name: []const u8) ?usiz
 }
 
 /// Get all non-escaping locals in a function (candidates for stack allocation)
+/// Returns the set difference: all_locals - escaping_locals
 pub fn getNonEscapingLocals(graph: *const CallGraph, func_name: []const u8) []const []const u8 {
-    _ = graph;
-    _ = func_name;
-    // TODO: Return inverse of escaping_locals once we track all locals
+    if (graph.functions.get(func_name)) |traits| {
+        // If no locals tracked, return empty
+        if (traits.all_locals.len == 0) return &.{};
+
+        // If no escaping locals, all locals are non-escaping
+        if (traits.escaping_locals.len == 0) return traits.all_locals;
+
+        // Build set of escaping locals for O(1) lookup
+        // Note: This allocates but the result is cached in CallGraph
+        var escaping_set = std.StringHashMap(void).init(graph.allocator);
+        defer escaping_set.deinit();
+
+        for (traits.escaping_locals) |local| {
+            escaping_set.put(local, {}) catch continue;
+        }
+
+        // Filter all_locals to exclude escaping ones
+        var result = std.ArrayList([]const u8).init(graph.allocator);
+        for (traits.all_locals) |local| {
+            if (!escaping_set.contains(local)) {
+                result.append(graph.allocator, local) catch continue;
+            }
+        }
+
+        return result.toOwnedSlice(graph.allocator) catch &.{};
+    }
     return &.{};
 }
 

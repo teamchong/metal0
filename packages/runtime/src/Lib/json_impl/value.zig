@@ -45,9 +45,8 @@ pub const JsonValue = union(enum) {
                 return try runtime.PyInt.create(allocator, n);
             },
             .number_float => |f| {
-                // For now, store floats as ints (truncated)
-                // TODO: Add PyFloat type when needed
-                return try runtime.PyInt.create(allocator, @intFromFloat(f));
+                // Create a proper float object
+                return try runtime.PyFloat.create(allocator, f);
             },
             .string => |s| {
                 // Transfer ownership - no extra copy!

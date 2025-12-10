@@ -173,19 +173,72 @@ pub fn which(allocator: Allocator, cmd: []const u8) !?[]const u8 {
     return null;
 }
 
-/// Create archive (basic tar-like)
+/// Create archive (supports tar, gztar, zip formats)
 pub fn make_archive(
     allocator: Allocator,
     base_name: []const u8,
     format: []const u8,
     root_dir: []const u8,
 ) ![]const u8 {
-    _ = allocator;
-    _ = base_name;
-    _ = format;
-    _ = root_dir;
-    // TODO: Implement archive creation
-    return error.NotImplemented;
+    // Determine output filename and command based on format
+    const extension: []const u8 = if (std.mem.eql(u8, format, "tar"))
+        ".tar"
+    else if (std.mem.eql(u8, format, "gztar"))
+        ".tar.gz"
+    else if (std.mem.eql(u8, format, "bztar"))
+        ".tar.bz2"
+    else if (std.mem.eql(u8, format, "xztar"))
+        ".tar.xz"
+    else if (std.mem.eql(u8, format, "zip"))
+        ".zip"
+    else
+        return error.UnsupportedFormat;
+
+    const archive_name = try std.fmt.allocPrint(allocator, "{s}{s}", .{ base_name, extension });
+    errdefer allocator.free(archive_name);
+
+    // Use external commands for archive creation (most portable approach)
+    if (std.mem.eql(u8, format, "zip")) {
+        // Use zip command
+        var child = std.process.Child.init(&[_][]const u8{
+            "zip", "-r", archive_name, ".",
+        }, allocator);
+        child.cwd = root_dir;
+        try child.spawn();
+        const term = try child.wait();
+        if (term.Exited != 0) return error.ArchiveCreationFailed;
+    } else {
+        // Use tar command
+        const compress_flag: []const u8 = if (std.mem.eql(u8, format, "gztar"))
+            "-z"
+        else if (std.mem.eql(u8, format, "bztar"))
+            "-j"
+        else if (std.mem.eql(u8, format, "xztar"))
+            "-J"
+        else
+            "";
+
+        var args_list = std.ArrayList([]const u8).init(allocator);
+        defer args_list.deinit();
+
+        try args_list.append("tar");
+        try args_list.append("-c");
+        if (compress_flag.len > 0) {
+            try args_list.append(compress_flag);
+        }
+        try args_list.append("-f");
+        try args_list.append(archive_name);
+        try args_list.append("-C");
+        try args_list.append(root_dir);
+        try args_list.append(".");
+
+        var child = std.process.Child.init(args_list.items, allocator);
+        try child.spawn();
+        const term = try child.wait();
+        if (term.Exited != 0) return error.ArchiveCreationFailed;
+    }
+
+    return archive_name;
 }
 
 /// Get terminal size

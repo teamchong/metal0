@@ -25,10 +25,11 @@ const FnvStringMap = hashmap_helper.StringHashMap([]const u8);
 const FnvFuncDefMap = hashmap_helper.StringHashMap(ast.Node.FunctionDef);
 const FnvClassDefMap = hashmap_helper.StringHashMap(ast.Node.ClassDef);
 
-// Function signature info for default parameter handling
+// Function signature info for default parameter handling and keyword argument mapping
 const FuncSignature = struct {
     total_params: usize,
     required_params: usize, // params without defaults
+    param_names: []const []const u8, // parameter names in order (for keyword arg mapping)
 };
 const FnvFuncSigMap = hashmap_helper.StringHashMap(FuncSignature);
 

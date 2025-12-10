@@ -4,6 +4,8 @@ const std = @import("std");
 const runtime = @import("../runtime.zig");
 const PyObject = runtime.PyObject;
 const PyInt = @import("../Objects/intobject.zig").PyInt;
+const PyFloat = @import("../Objects/floatobject.zig").PyFloat;
+const PyBool = @import("../Objects/boolobject.zig").PyBool;
 const PyString = @import("../Objects/unicodeobject.zig").PyString;
 const PythonError = runtime.PythonError;
 
@@ -75,15 +77,15 @@ fn executeConstant(allocator: std.mem.Allocator, constant: Node.Constant) !*PyOb
         .int => |val| {
             return try PyInt.create(allocator, val);
         },
-        .float => {
-            return error.NotImplemented; // TODO: PyFloat.create
+        .float => |val| {
+            return try PyFloat.create(allocator, val);
         },
         .string => |val| {
             const str_copy = try allocator.dupe(u8, val);
             return try PyString.create(allocator, str_copy);
         },
-        .bool => {
-            return error.NotImplemented; // TODO: PyBool.create
+        .bool => |val| {
+            return try PyBool.create(allocator, val);
         },
     }
 }

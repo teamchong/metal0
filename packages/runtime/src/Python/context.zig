@@ -18,6 +18,11 @@ const hamt = @import("hamt.zig");
 /// Maximum number of context watchers
 pub const CONTEXT_MAX_WATCHERS: usize = 8;
 
+/// Sentinel value indicating a deleted variable in HAMT
+/// We use this pattern because HAMT doesn't support delete operations.
+/// A "deleted" variable is one whose value is set to this sentinel.
+const DELETED_SENTINEL: *anyopaque = @ptrFromInt(1);
+
 // ============================================================================
 // Context Events
 // ============================================================================
@@ -237,8 +242,12 @@ pub const Context = struct {
     }
 
     /// Get value for a ContextVar
+    /// Returns null if the variable is not set or was deleted
     pub fn getVar(self: *Self, cv: *ContextVar) ?*anyopaque {
-        return self.vars.get(cv);
+        const value = self.vars.get(cv) orelse return null;
+        // Check for deletion sentinel
+        if (value == DELETED_SENTINEL) return null;
+        return value;
     }
 
     /// Set value for a ContextVar (creates new context state)
@@ -247,12 +256,10 @@ pub const Context = struct {
     }
 
     /// Delete a ContextVar from context
+    /// Since HAMT doesn't support deletion, we set the value to a sentinel
+    /// that getVar treats as "not present".
     pub fn delVar(self: *Self, cv: *ContextVar) !void {
-        // HAMT doesn't have delete, so we need to rebuild without this key
-        // For now, just set to a sentinel value
-        // A proper implementation would add delete to HAMT
-        _ = cv;
-        // TODO: implement delete in HAMT
+        self.vars = try self.vars.set(cv, DELETED_SENTINEL);
     }
 
     /// Enter this context (push onto stack)

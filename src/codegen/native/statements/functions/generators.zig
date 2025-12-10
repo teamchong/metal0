@@ -88,10 +88,16 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     for (func.args) |arg| {
         if (arg.default == null) required_count += 1;
     }
+    // Extract parameter names for keyword argument mapping
+    var param_names = try self.allocator.alloc([]const u8, func.args.len);
+    for (func.args, 0..) |arg, i| {
+        param_names[i] = arg.name;
+    }
     const func_name_sig = try self.allocator.dupe(u8, func.name);
     try self.function_signatures.put(func_name_sig, .{
         .total_params = func.args.len,
         .required_params = required_count,
+        .param_names = param_names,
     });
 
     // Analyze nested class captures BEFORE generating signature

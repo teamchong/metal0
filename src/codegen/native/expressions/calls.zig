@@ -1294,9 +1294,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
         }
 
-        // Check if function has default parameters
+        // Get function signature for parameter mapping
         const func_sig = self.function_signatures.get(raw_func_name);
-        const has_defaults = if (func_sig) |sig| sig.total_params > sig.required_params else false;
 
         // Add regular arguments - wrap in slice for vararg functions
         if (is_vararg_func) {
@@ -1396,24 +1395,46 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try self.emit("}");
             } else {
                 // Add keyword arguments as positional arguments (non-kwarg functions)
-                // TODO: Map keyword args to correct parameter positions
-                for (call.keyword_args, 0..) |kwarg, i| {
-                    if (i > 0 or call.args.len > 0) try self.emit(", ");
-                    try genExpr(self, kwarg.value);
-                }
+                // Map keyword arguments to correct parameter positions using function signature
+                if (func_sig) |sig| {
+                    // Build array of argument values in parameter order
+                    // Start from position after positional arguments
+                    const start_pos = call.args.len;
+                    var remaining_params = sig.total_params - start_pos;
+                    var emitted_count: usize = 0;
 
-                // Pad with null for missing default parameters
-                if (has_defaults) {
-                    if (func_sig) |sig| {
-                        const provided_args = call.args.len + call.keyword_args.len;
-                        if (provided_args < sig.total_params) {
-                            var i: usize = provided_args;
-                            while (i < sig.total_params) : (i += 1) {
-                                if (i > 0) try self.emit(", ");
-                                try self.emit("null");
+                    // For each remaining parameter position, find matching keyword arg or emit null
+                    for (sig.param_names[start_pos..]) |param_name| {
+                        if (emitted_count > 0 or call.args.len > 0) try self.emit(", ");
+
+                        // Find keyword argument with this parameter name
+                        var found = false;
+                        for (call.keyword_args) |kwarg| {
+                            if (std.mem.eql(u8, kwarg.name, param_name)) {
+                                try genExpr(self, kwarg.value);
+                                found = true;
+                                break;
                             }
                         }
+
+                        // No matching keyword arg - use null for default parameter
+                        if (!found) {
+                            try self.emit("null");
+                        }
+
+                        emitted_count += 1;
+                        remaining_params -= 1;
+                        if (remaining_params == 0) break;
                     }
+                } else {
+                    // No function signature available - emit keyword args in order (fallback)
+                    for (call.keyword_args, 0..) |kwarg, i| {
+                        if (i > 0 or call.args.len > 0) try self.emit(", ");
+                        try genExpr(self, kwarg.value);
+                    }
+
+                    // Pad with null for missing default parameters (legacy behavior)
+                    // This path shouldn't normally be taken since we now track all function signatures
                 }
 
                 // Special case: calling a variable that's a renamed type attribute (e.g., int_class -> _local_int_class)

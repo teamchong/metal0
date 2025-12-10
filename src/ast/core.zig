@@ -1,6 +1,14 @@
 const std = @import("std");
 const fstring = @import("fstring.zig");
 
+/// Source location information for AST nodes
+pub const SourceLoc = struct {
+    line: u32 = 0,
+    col: u32 = 0,
+    end_line: u32 = 0,
+    end_col: u32 = 0,
+};
+
 /// AST node types matching Python's ast module
 pub const Node = union(enum) {
     module: Module,
@@ -122,6 +130,7 @@ pub const Node = union(enum) {
         iter: *Node,
         body: []Node,
         orelse_body: ?[]Node = null, // Optional else clause (for/else)
+        is_async: bool = false, // True for "async for" loops
     };
 
     pub const While = struct {
@@ -141,6 +150,7 @@ pub const Node = union(enum) {
         captured_vars: [][]const u8 = &[_][]const u8{},
         vararg: ?[]const u8 = null, // *args parameter name
         kwarg: ?[]const u8 = null, // **kwargs parameter name
+        loc: SourceLoc = .{}, // Source location
     };
 
     pub const Lambda = struct {
@@ -447,10 +457,189 @@ pub const Arg = struct {
 };
 
 /// Parse JSON AST from Python's ast.dump()
+/// This function is used when receiving AST from external Python tools
 pub fn parseFromJson(allocator: std.mem.Allocator, json_str: []const u8) !Node {
-    // TODO: Implement JSON → AST parsing
-    // For now, this is a stub that will be implemented in Phase 1
-    _ = allocator;
-    _ = json_str;
-    return error.NotImplemented;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+    defer parsed.deinit();
+
+    return try nodeFromJson(allocator, parsed.value);
+}
+
+/// Convert a JSON value to an AST Node
+fn nodeFromJson(allocator: std.mem.Allocator, json: std.json.Value) !Node {
+    const obj = json.object;
+    const node_type = obj.get("_type") orelse return error.MissingNodeType;
+
+    const type_str = node_type.string;
+
+    // Handle different node types
+    if (std.mem.eql(u8, type_str, "Module")) {
+        return try parseModule(allocator, obj);
+    } else if (std.mem.eql(u8, type_str, "Constant")) {
+        return try parseConstant(allocator, obj);
+    } else if (std.mem.eql(u8, type_str, "Name")) {
+        return try parseName(allocator, obj);
+    } else if (std.mem.eql(u8, type_str, "BinOp")) {
+        return try parseBinOp(allocator, obj);
+    } else if (std.mem.eql(u8, type_str, "UnaryOp")) {
+        return try parseUnaryOp(allocator, obj);
+    } else if (std.mem.eql(u8, type_str, "Call")) {
+        return try parseCall(allocator, obj);
+    } else if (std.mem.eql(u8, type_str, "Expr")) {
+        const value = obj.get("value") orelse return error.MissingValue;
+        const node = try allocator.create(Node);
+        node.* = try nodeFromJson(allocator, value);
+        return .{ .Expr = .{ .expression = node } };
+    } else if (std.mem.eql(u8, type_str, "Assign")) {
+        return try parseAssign(allocator, obj);
+    } else if (std.mem.eql(u8, type_str, "FunctionDef")) {
+        return try parseFunctionDef(allocator, obj);
+    } else {
+        return error.UnsupportedNodeType;
+    }
+}
+
+fn parseModule(allocator: std.mem.Allocator, obj: std.json.ObjectMap) !Node {
+    const body_json = obj.get("body") orelse return error.MissingBody;
+    var body = std.ArrayList(*Node){};
+
+    for (body_json.array.items) |item| {
+        const node = try allocator.create(Node);
+        node.* = try nodeFromJson(allocator, item);
+        try body.append(allocator, node);
+    }
+
+    return .{ .module = .{ .body = try body.toOwnedSlice(allocator) } };
+}
+
+fn parseConstant(allocator: std.mem.Allocator, obj: std.json.ObjectMap) !Node {
+    const value = obj.get("value") orelse return error.MissingValue;
+
+    const const_value: Value = switch (value) {
+        .null => .None,
+        .bool => |b| .{ .Bool = b },
+        .integer => |i| .{ .Int = i },
+        .float => |f| .{ .Float = f },
+        .string => |s| .{ .String = try allocator.dupe(u8, s) },
+        else => return error.UnsupportedConstantType,
+    };
+
+    return .{ .constant = .{ .value = const_value } };
+}
+
+fn parseName(allocator: std.mem.Allocator, obj: std.json.ObjectMap) !Node {
+    const id = obj.get("id") orelse return error.MissingId;
+    return .{ .name = .{
+        .id = try allocator.dupe(u8, id.string),
+        .ctx = .Load,
+    } };
+}
+
+fn parseBinOp(allocator: std.mem.Allocator, obj: std.json.ObjectMap) !Node {
+    const left_json = obj.get("left") orelse return error.MissingLeft;
+    const right_json = obj.get("right") orelse return error.MissingRight;
+    const op_json = obj.get("op") orelse return error.MissingOp;
+
+    const left = try allocator.create(Node);
+    left.* = try nodeFromJson(allocator, left_json);
+
+    const right = try allocator.create(Node);
+    right.* = try nodeFromJson(allocator, right_json);
+
+    const op_type = op_json.object.get("_type").?.string;
+    const op: Operator = if (std.mem.eql(u8, op_type, "Add"))
+        .Add
+    else if (std.mem.eql(u8, op_type, "Sub"))
+        .Sub
+    else if (std.mem.eql(u8, op_type, "Mult"))
+        .Mult
+    else if (std.mem.eql(u8, op_type, "Div"))
+        .Div
+    else
+        .Add;
+
+    return .{ .binop = .{ .left = left, .right = right, .op = op } };
+}
+
+fn parseUnaryOp(allocator: std.mem.Allocator, obj: std.json.ObjectMap) !Node {
+    const operand_json = obj.get("operand") orelse return error.MissingOperand;
+    const op_json = obj.get("op") orelse return error.MissingOp;
+
+    const operand = try allocator.create(Node);
+    operand.* = try nodeFromJson(allocator, operand_json);
+
+    const op_type = op_json.object.get("_type").?.string;
+    const op: UnaryOperator = if (std.mem.eql(u8, op_type, "UAdd"))
+        .UAdd
+    else if (std.mem.eql(u8, op_type, "USub"))
+        .USub
+    else if (std.mem.eql(u8, op_type, "Not"))
+        .Not
+    else
+        .UAdd;
+
+    return .{ .unaryop = .{ .operand = operand, .op = op } };
+}
+
+fn parseCall(allocator: std.mem.Allocator, obj: std.json.ObjectMap) !Node {
+    const func_json = obj.get("func") orelse return error.MissingFunc;
+    const args_json = obj.get("args") orelse return error.MissingArgs;
+
+    const func = try allocator.create(Node);
+    func.* = try nodeFromJson(allocator, func_json);
+
+    var args = std.ArrayList(*Node){};
+    for (args_json.array.items) |arg| {
+        const arg_node = try allocator.create(Node);
+        arg_node.* = try nodeFromJson(allocator, arg);
+        try args.append(allocator, arg_node);
+    }
+
+    return .{ .call = .{
+        .func = func,
+        .args = try args.toOwnedSlice(allocator),
+        .keyword_args = &.{},
+    } };
+}
+
+fn parseAssign(allocator: std.mem.Allocator, obj: std.json.ObjectMap) !Node {
+    const targets_json = obj.get("targets") orelse return error.MissingTargets;
+    const value_json = obj.get("value") orelse return error.MissingValue;
+
+    var targets = std.ArrayList(*Node){};
+    for (targets_json.array.items) |target| {
+        const target_node = try allocator.create(Node);
+        target_node.* = try nodeFromJson(allocator, target);
+        try targets.append(allocator, target_node);
+    }
+
+    const value = try allocator.create(Node);
+    value.* = try nodeFromJson(allocator, value_json);
+
+    return .{ .assign = .{
+        .targets = try targets.toOwnedSlice(allocator),
+        .value = value,
+    } };
+}
+
+fn parseFunctionDef(allocator: std.mem.Allocator, obj: std.json.ObjectMap) !Node {
+    const name = obj.get("name") orelse return error.MissingName;
+    const body_json = obj.get("body") orelse return error.MissingBody;
+
+    var body = std.ArrayList(Node){};
+    for (body_json.array.items) |item| {
+        try body.append(allocator, try nodeFromJson(allocator, item));
+    }
+
+    return .{ .function_def = .{
+        .name = try allocator.dupe(u8, name.string),
+        .args = &.{},
+        .body = try body.toOwnedSlice(allocator),
+        .decorator_list = &.{},
+        .returns = null,
+        .defaults = &.{},
+        .kwonly_args = &.{},
+        .kwonly_defaults = &.{},
+        .kw_defaults = &.{},
+    } };
 }

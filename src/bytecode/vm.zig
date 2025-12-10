@@ -237,8 +237,37 @@ pub const VM = struct {
                     i -= 1;
                     args[i] = try self.pop();
                 }
-                _ = try self.pop(); // function - TODO: call it
-                try self.push(.{ .none = {} }); // placeholder return
+
+                // Pop function object
+                const func = try self.pop();
+
+                // Dispatch based on function type
+                const result = try self.callFunction(func, args);
+                try self.push(result);
+            },
+
+            // Function calls with keyword arguments
+            .CALL_FUNCTION_KW => {
+                const argc = inst.arg;
+
+                // Pop keyword name tuple
+                _ = try self.pop();
+
+                // Pop arguments (both positional and keyword values)
+                const args = try self.allocator.alloc(StackValue, argc);
+                defer self.allocator.free(args);
+                var i: usize = argc;
+                while (i > 0) {
+                    i -= 1;
+                    args[i] = try self.pop();
+                }
+
+                // Pop function object
+                const func = try self.pop();
+
+                // Dispatch (keyword mapping happens in compiled code)
+                const result = try self.callFunction(func, args);
+                try self.push(result);
             },
 
             .RETURN_VALUE => {
@@ -411,6 +440,106 @@ pub const VM = struct {
             },
             else => op == .ne,
         } });
+    }
+
+    /// Call a function with the given arguments
+    fn callFunction(self: *VM, func: StackValue, args: []StackValue) VMError!StackValue {
+        switch (func) {
+            // Code object (user-defined function) - represented as ptr
+            .ptr => |ptr| {
+                const code: *const Program = @ptrCast(@alignCast(ptr));
+
+                // Create new call frame
+                var frame = Frame{
+                    .program = code,
+                    .ip = 0,
+                    .locals = hashmap_helper.StringHashMap(StackValue).init(self.allocator),
+                };
+
+                // Bind arguments to parameter names
+                const bind_count = @min(args.len, code.varnames.len);
+                for (0..bind_count) |i| {
+                    frame.locals.put(code.varnames[i], args[i]) catch return VMError.OutOfMemory;
+                }
+
+                // Push frame and execute
+                self.frames.append(self.allocator, frame) catch return VMError.OutOfMemory;
+
+                // Execute until return
+                while (self.frames.items.len > 0) {
+                    const current = &self.frames.items[self.frames.items.len - 1];
+                    if (current.ip >= current.program.instructions.len) break;
+                    try self.step();
+                }
+
+                return try self.pop();
+            },
+
+            // String - check for builtin function name
+            .string => |name| {
+                return self.callBuiltin(name, args);
+            },
+
+            else => return VMError.TypeError,
+        }
+    }
+
+    /// Call a builtin function by name
+    fn callBuiltin(_: *VM, name: []const u8, args: []StackValue) VMError!StackValue {
+        if (std.mem.eql(u8, name, "len")) {
+            if (args.len != 1) return VMError.TypeError;
+            return switch (args[0]) {
+                .string => |s| .{ .int = @intCast(s.len) },
+                .list => |l| .{ .int = @intCast(l.len) },
+                .tuple => |t| .{ .int = @intCast(t.len) },
+                else => VMError.TypeError,
+            };
+        }
+        if (std.mem.eql(u8, name, "int")) {
+            if (args.len != 1) return VMError.TypeError;
+            return switch (args[0]) {
+                .int => args[0],
+                .float => |f| .{ .int = @intFromFloat(f) },
+                .bool => |b| .{ .int = if (b) 1 else 0 },
+                else => VMError.TypeError,
+            };
+        }
+        if (std.mem.eql(u8, name, "float")) {
+            if (args.len != 1) return VMError.TypeError;
+            return switch (args[0]) {
+                .float => args[0],
+                .int => |i| .{ .float = @floatFromInt(i) },
+                .bool => |b| .{ .float = if (b) 1.0 else 0.0 },
+                else => VMError.TypeError,
+            };
+        }
+        if (std.mem.eql(u8, name, "bool")) {
+            if (args.len != 1) return VMError.TypeError;
+            return .{ .bool = args[0].isTruthy() };
+        }
+        if (std.mem.eql(u8, name, "abs")) {
+            if (args.len != 1) return VMError.TypeError;
+            return switch (args[0]) {
+                .int => |i| .{ .int = if (i < 0) -i else i },
+                .float => |f| .{ .float = @abs(f) },
+                else => VMError.TypeError,
+            };
+        }
+        if (std.mem.eql(u8, name, "print")) {
+            return .{ .none = {} };
+        }
+        if (std.mem.eql(u8, name, "type")) {
+            if (args.len != 1) return VMError.TypeError;
+            return switch (args[0]) {
+                .int => .{ .string = "<class 'int'>" },
+                .float => .{ .string = "<class 'float'>" },
+                .string => .{ .string = "<class 'str'>" },
+                .bool => .{ .string = "<class 'bool'>" },
+                .none => .{ .string = "<class 'NoneType'>" },
+                else => .{ .string = "<class 'object'>" },
+            };
+        }
+        return VMError.NameError;
     }
 };
 

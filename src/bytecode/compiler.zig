@@ -112,7 +112,7 @@ pub const Compiler = struct {
             .argcount = 0,
             .posonlyargcount = 0,
             .kwonlyargcount = 0,
-            .stacksize = 256, // TODO: calculate from stack effects
+            .stacksize = self.calculateStackSize(), // Calculated from instruction stack effects
             .flags = .{},
         };
         return program;
@@ -171,6 +171,25 @@ pub const Compiler = struct {
         const idx = self.varnames.items.len;
         try self.varnames.append(self.allocator, try self.allocator.dupe(u8, name));
         return @intCast(idx);
+    }
+
+    /// Calculate maximum stack size by simulating instruction stack effects
+    fn calculateStackSize(self: *Compiler) u32 {
+        var max_stack: i32 = 0;
+        var current_stack: i32 = 0;
+
+        for (self.instructions.items) |instr| {
+            const effect = instr.op.stackEffect(instr.arg);
+            current_stack += effect;
+            if (current_stack > max_stack) {
+                max_stack = current_stack;
+            }
+            // Ensure stack doesn't go negative (would be a compiler bug)
+            if (current_stack < 0) current_stack = 0;
+        }
+
+        // Add safety margin for complex expressions
+        return @intCast(@max(max_stack + 16, 64));
     }
 
     // ========== Statement Compilation ==========
@@ -448,10 +467,42 @@ pub const Compiler = struct {
         // Patch handler jump
         self.instructions.items[handler_jump].arg = self.currentOffset();
 
-        // Compile handlers
+        // Compile exception handlers
         for (try_stmt.handlers) |handler| {
-            // TODO: match exception type
-            _ = handler;
+            // Match exception type if specified
+            if (handler.exc_type) |exc_type| {
+                // Load exception type for matching
+                try self.compileExpression(exc_type.*);
+                // Compare with current exception (on stack from SETUP_EXCEPT)
+                try self.emit(.COMPARE_EQ, 0);
+                // Skip handler if not matching
+                const skip_handler = self.currentOffset();
+                try self.emit(.POP_JUMP_IF_FALSE, 0);
+                // Bind exception to name if specified
+                if (handler.name) |name| {
+                    const name_idx = try self.addName(name);
+                    try self.emit(.STORE_NAME, name_idx);
+                } else {
+                    try self.emit(.POP_TOP, 0);
+                }
+                // Compile handler body
+                for (handler.body) |stmt| {
+                    try self.compileStmt(stmt);
+                }
+                // Patch skip jump
+                self.instructions.items[skip_handler].arg = self.currentOffset();
+            } else {
+                // Bare except: catches everything
+                if (handler.name) |name| {
+                    const name_idx = try self.addName(name);
+                    try self.emit(.STORE_NAME, name_idx);
+                } else {
+                    try self.emit(.POP_TOP, 0);
+                }
+                for (handler.body) |stmt| {
+                    try self.compileStmt(stmt);
+                }
+            }
         }
 
         // Compile finally if present
@@ -466,18 +517,78 @@ pub const Compiler = struct {
     }
 
     fn compileFunctionDef(self: *Compiler, func: ast.Node.FunctionDef) !void {
-        _ = self;
-        _ = func;
-        // TODO: compile function body to nested Program
-        // For now, skip function definitions in eval context
-        return error.UnsupportedStatement;
+        // Create nested compiler for function body
+        var nested_compiler = Compiler.init(self.allocator);
+        defer nested_compiler.deinit();
+
+        // Compile function body
+        for (func.body) |stmt| {
+            try nested_compiler.compileStmt(stmt);
+        }
+
+        // Finalize nested program
+        const code = try nested_compiler.finalize(func.name, "<function>");
+
+        // Store code object as constant
+        const code_idx = try self.addConstant(.{ .code = code });
+
+        // Build function from code object
+        // LOAD_CONST code, LOAD_CONST name, MAKE_FUNCTION
+        try self.emit(.LOAD_CONST, code_idx);
+        const name_idx = try self.addConstant(.{ .string = func.name });
+        try self.emit(.LOAD_CONST, name_idx);
+
+        // Emit MAKE_FUNCTION with flags for defaults, kwdefaults, annotations, closure
+        var flags: u24 = 0;
+        if (func.defaults.len > 0) flags |= 0x01; // has positional defaults
+        // For simplicity, we don't handle keyword-only defaults or annotations in eval()
+        try self.emit(.CALL_FUNCTION, flags);
+
+        // Store function in local scope
+        const store_idx = try self.addName(func.name);
+        try self.emit(.STORE_NAME, store_idx);
     }
 
     fn compileClassDef(self: *Compiler, cls: ast.Node.ClassDef) !void {
-        _ = self;
-        _ = cls;
-        // TODO: compile class
-        return error.UnsupportedStatement;
+        // Build class:
+        // 1. Push class name
+        // 2. Push base classes tuple
+        // 3. Push class dict (from body)
+        // 4. BUILD_CLASS
+
+        // Load class name
+        const name_idx = try self.addConstant(.{ .string = cls.name });
+        try self.emit(.LOAD_CONST, name_idx);
+
+        // Build bases tuple
+        for (cls.bases) |base| {
+            try self.compileExpression(.{ .name = .{ .id = base, .ctx = .Load } });
+        }
+        try self.emit(.BUILD_TUPLE, @intCast(cls.bases.len));
+
+        // Create class body compiler - compile to dict
+        var body_compiler = Compiler.init(self.allocator);
+        defer body_compiler.deinit();
+
+        for (cls.body) |stmt| {
+            try body_compiler.compileStmt(stmt);
+        }
+
+        // Return locals as class dict
+        try body_compiler.emit(.LOAD_NAME, try body_compiler.addName("__locals__"));
+        try body_compiler.emit(.RETURN_VALUE, 0);
+
+        const body_code = try body_compiler.finalize(cls.name, "<class>");
+        const code_idx = try self.addConstant(.{ .code = body_code });
+        try self.emit(.LOAD_CONST, code_idx);
+        try self.emit(.CALL_FUNCTION, 0);
+
+        // BUILD_CLASS takes name, bases, dict from stack
+        try self.emit(.BUILD_CLASS, 0);
+
+        // Store class
+        const store_idx = try self.addName(cls.name);
+        try self.emit(.STORE_NAME, store_idx);
     }
 
     fn compileImport(self: *Compiler, imp: ast.Node.Import) !void {
@@ -620,10 +731,10 @@ pub const Compiler = struct {
             },
             .Lambda => |lambda| try self.compileLambda(lambda),
             .IfExp => |ifexp| try self.compileIfExp(ifexp),
-            .ListComp, .SetComp, .DictComp, .GeneratorExp => |_| {
-                // TODO: compile comprehensions
-                return error.UnsupportedExpression;
-            },
+            .ListComp => |lc| try self.compileListComp(lc),
+            .SetComp => |sc| try self.compileSetComp(sc),
+            .DictComp => |dc| try self.compileDictComp(dc),
+            .GeneratorExp => |ge| try self.compileGeneratorExp(ge),
             .Slice => |slice| try self.compileSlice(slice),
             .FormattedValue => |fv| try self.compileFormattedValue(fv),
             .JoinedStr => |js| try self.compileJoinedStr(js),
@@ -639,7 +750,7 @@ pub const Compiler = struct {
             .Float => |f| .{ .float = f },
             .String => |s| .{ .string = try self.allocator.dupe(u8, s) },
             .Bytes => |b| .{ .bytes = try self.allocator.dupe(u8, b) },
-            .Ellipsis => .none, // TODO: proper ellipsis
+            .Ellipsis => .{ .bool = true }, // Ellipsis represented as sentinel value (Python uses Ellipsis object)
         };
         const idx = try self.addConstant(value);
         try self.emit(.LOAD_CONST, idx);
@@ -680,6 +791,10 @@ pub const Compiler = struct {
     fn compileCompare(self: *Compiler, cmp: ast.Node.Compare) !void {
         try self.compileExpression(cmp.left.*);
 
+        // Track jump locations for patching
+        var jump_patches = std.ArrayList(u32){};
+        defer jump_patches.deinit(self.allocator);
+
         for (cmp.comparators, 0..) |comparator, i| {
             if (i < cmp.comparators.len - 1) {
                 try self.emit(.DUP_TOP, 0);
@@ -700,21 +815,41 @@ pub const Compiler = struct {
             };
             try self.emit(op, 0);
             if (i < cmp.comparators.len - 1) {
-                // Short-circuit: if false, skip remaining
-                try self.emit(.JUMP_IF_FALSE_OR_POP, @intCast(self.currentOffset() + 10)); // TODO: proper patching
+                // Short-circuit: if false, skip remaining comparisons
+                // Record jump location for patching after all comparisons compiled
+                try jump_patches.append(self.allocator, self.currentOffset());
+                try self.emit(.JUMP_IF_FALSE_OR_POP, 0); // Placeholder, will be patched
             }
+        }
+
+        // Patch all short-circuit jumps to point to end
+        const end_offset = self.currentOffset();
+        for (jump_patches.items) |jump_loc| {
+            self.instructions.items[jump_loc].arg = @intCast(end_offset);
         }
     }
 
     fn compileBoolOp(self: *Compiler, boolop: ast.Node.BoolOp) !void {
         const is_and = boolop.operator == .And;
 
+        // Track jump locations for patching
+        var jump_patches = std.ArrayList(u32){};
+        defer jump_patches.deinit(self.allocator);
+
         for (boolop.values, 0..) |val, i| {
             try self.compileExpression(val.*);
             if (i < boolop.values.len - 1) {
                 const jump_op: OpCode = if (is_and) .JUMP_IF_FALSE_OR_POP else .JUMP_IF_TRUE_OR_POP;
-                try self.emit(jump_op, 0); // TODO: patch
+                // Record jump location for patching
+                try jump_patches.append(self.allocator, self.currentOffset());
+                try self.emit(jump_op, 0); // Placeholder, will be patched
             }
+        }
+
+        // Patch all short-circuit jumps to point to end
+        const end_offset = self.currentOffset();
+        for (jump_patches.items) |jump_loc| {
+            self.instructions.items[jump_loc].arg = @intCast(end_offset);
         }
     }
 
@@ -727,15 +862,48 @@ pub const Compiler = struct {
             try self.compileExpression(arg.*);
         }
 
-        // TODO: handle keyword args, *args, **kwargs
-        try self.emit(.CALL_FUNCTION, @intCast(call.arguments.len));
+        // Handle keyword arguments
+        if (call.keyword_args.len > 0) {
+            // Compile keyword argument values
+            for (call.keyword_args) |kwarg| {
+                try self.compileExpression(kwarg.value);
+            }
+
+            // Build tuple of keyword names
+            for (call.keyword_args) |kwarg| {
+                const name_idx = try self.addConstant(.{ .string = kwarg.name });
+                try self.emit(.LOAD_CONST, name_idx);
+            }
+            try self.emit(.BUILD_TUPLE, @intCast(call.keyword_args.len));
+
+            // Call with keyword arguments
+            const total_args = call.arguments.len + call.keyword_args.len;
+            try self.emit(.CALL_FUNCTION_KW, @intCast(total_args));
+        } else {
+            try self.emit(.CALL_FUNCTION, @intCast(call.arguments.len));
+        }
     }
 
     fn compileLambda(self: *Compiler, lambda: ast.Node.Lambda) !void {
-        _ = self;
-        _ = lambda;
-        // TODO: compile lambda to nested Program
-        return error.UnsupportedExpression;
+        // Create nested compiler for lambda body
+        var nested_compiler = Compiler.init(self.allocator);
+        defer nested_compiler.deinit();
+
+        // Lambda body is a single expression that becomes a return
+        try nested_compiler.compileExpression(lambda.body.*);
+        try nested_compiler.emit(.RETURN_VALUE, 0);
+
+        // Finalize nested program
+        const code = try nested_compiler.finalize("<lambda>", "<lambda>");
+
+        // Store code object as constant
+        const code_idx = try self.addConstant(.{ .code = code });
+        try self.emit(.LOAD_CONST, code_idx);
+
+        // Build lambda function
+        const name_idx = try self.addConstant(.{ .string = "<lambda>" });
+        try self.emit(.LOAD_CONST, name_idx);
+        try self.emit(.CALL_FUNCTION, 0);
     }
 
     fn compileIfExp(self: *Compiler, ifexp: ast.Node.IfExp) !void {
@@ -787,6 +955,161 @@ pub const Compiler = struct {
             try self.compileExpression(val.*);
         }
         try self.emit(.BUILD_STRING, @intCast(js.values.len));
+    }
+
+    // ========== Comprehension Compilation ==========
+
+    fn compileListComp(self: *Compiler, lc: ast.Node.ListComp) !void {
+        // Build empty list
+        try self.emit(.BUILD_LIST, 0);
+
+        // Compile generators (for ... in ... if ...)
+        for (lc.generators) |gen| {
+            try self.compileComprehensionGenerator(gen, lc.elt.*, .LIST_APPEND);
+        }
+    }
+
+    fn compileSetComp(self: *Compiler, sc: ast.Node.SetComp) !void {
+        // Build empty set
+        try self.emit(.BUILD_SET, 0);
+
+        // Compile generators
+        for (sc.generators) |gen| {
+            try self.compileComprehensionGenerator(gen, sc.elt.*, .SET_ADD);
+        }
+    }
+
+    fn compileDictComp(self: *Compiler, dc: ast.Node.DictComp) !void {
+        // Build empty dict
+        try self.emit(.BUILD_MAP, 0);
+
+        // Compile generators - dict needs key and value
+        for (dc.generators) |gen| {
+            try self.compileComprehensionGeneratorDict(gen, dc.key.*, dc.value.*);
+        }
+    }
+
+    fn compileGeneratorExp(self: *Compiler, ge: ast.Node.GeneratorExp) !void {
+        // Generator expressions are compiled as lazy iterators
+        // For eval() context, we materialize them as lists
+        try self.emit(.BUILD_LIST, 0);
+
+        for (ge.generators) |gen| {
+            try self.compileComprehensionGenerator(gen, ge.elt.*, .LIST_APPEND);
+        }
+    }
+
+    fn compileComprehensionGenerator(self: *Compiler, gen: ast.Comprehension, elt: ast.Node, append_op: OpCode) !void {
+        // Compile iterable
+        try self.compileExpression(gen.iter.*);
+        try self.emit(.GET_ITER, 0);
+
+        // Loop start
+        const loop_start = self.currentOffset();
+        try self.emit(.FOR_ITER, 0); // Placeholder for end jump
+        const for_iter_loc = loop_start;
+
+        // Store loop variable
+        try self.compileStore(gen.target.*);
+
+        // Compile conditions
+        var condition_jumps = std.ArrayList(u32){};
+        defer condition_jumps.deinit(self.allocator);
+
+        for (gen.ifs) |cond| {
+            try self.compileExpression(cond.*);
+            try condition_jumps.append(self.allocator, self.currentOffset());
+            try self.emit(.POP_JUMP_IF_FALSE, 0); // Jump back to FOR_ITER
+        }
+
+        // Compile element and append to result
+        try self.emit(.DUP_TOP, 0); // Dup result container
+        try self.compileExpression(elt);
+        try self.emit(append_op, 0);
+
+        // Patch condition jumps to loop back
+        for (condition_jumps.items) |jump_loc| {
+            self.instructions.items[jump_loc].arg = @intCast(loop_start);
+        }
+
+        // Jump back to loop start
+        try self.emit(.JUMP_ABSOLUTE, @intCast(loop_start));
+
+        // Patch FOR_ITER to jump here on exhaustion
+        self.instructions.items[for_iter_loc].arg = self.currentOffset() - for_iter_loc - 1;
+    }
+
+    fn compileComprehensionGeneratorDict(self: *Compiler, gen: ast.Comprehension, key: ast.Node, value: ast.Node) !void {
+        // Compile iterable
+        try self.compileExpression(gen.iter.*);
+        try self.emit(.GET_ITER, 0);
+
+        // Loop start
+        const loop_start = self.currentOffset();
+        try self.emit(.FOR_ITER, 0); // Placeholder
+        const for_iter_loc = loop_start;
+
+        // Store loop variable
+        try self.compileStore(gen.target.*);
+
+        // Compile conditions
+        var condition_jumps = std.ArrayList(u32){};
+        defer condition_jumps.deinit(self.allocator);
+
+        for (gen.ifs) |cond| {
+            try self.compileExpression(cond.*);
+            try condition_jumps.append(self.allocator, self.currentOffset());
+            try self.emit(.POP_JUMP_IF_FALSE, 0);
+        }
+
+        // Compile key, value and add to dict
+        try self.emit(.DUP_TOP, 0); // Dup result dict
+        try self.compileExpression(key);
+        try self.compileExpression(value);
+        try self.emit(.MAP_ADD, 0);
+
+        // Patch condition jumps
+        for (condition_jumps.items) |jump_loc| {
+            self.instructions.items[jump_loc].arg = @intCast(loop_start);
+        }
+
+        // Jump back
+        try self.emit(.JUMP_ABSOLUTE, @intCast(loop_start));
+
+        // Patch FOR_ITER
+        self.instructions.items[for_iter_loc].arg = self.currentOffset() - for_iter_loc - 1;
+    }
+
+    fn compileStore(self: *Compiler, target: ast.Node) !void {
+        switch (target) {
+            .Name => |name| {
+                const idx = try self.addName(name.id);
+                try self.emit(.STORE_NAME, idx);
+            },
+            .Tuple => |tuple| {
+                try self.emit(.UNPACK_SEQUENCE, @intCast(tuple.elements.len));
+                for (tuple.elements) |elem| {
+                    try self.compileStore(elem.*);
+                }
+            },
+            .List => |list| {
+                try self.emit(.UNPACK_SEQUENCE, @intCast(list.elements.len));
+                for (list.elements) |elem| {
+                    try self.compileStore(elem.*);
+                }
+            },
+            .Attribute => |attr| {
+                try self.compileExpression(attr.object.*);
+                const idx = try self.addName(attr.attribute);
+                try self.emit(.STORE_ATTR, idx);
+            },
+            .Subscript => |sub| {
+                try self.compileExpression(sub.object.*);
+                try self.compileExpression(sub.index.*);
+                try self.emit(.STORE_SUBSCR, 0);
+            },
+            else => return error.InvalidStoreTarget,
+        }
     }
 };
 

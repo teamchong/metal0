@@ -202,8 +202,8 @@ pub const Netpoller = struct {
         if (builtin.os.tag == .macos or builtin.os.tag == .freebsd or builtin.os.tag == .netbsd or builtin.os.tag == .openbsd) {
             try self.kqueueAddTimer(timer_id, duration_ns);
         } else if (builtin.os.tag == .linux) {
-            // Linux uses timerfd - for now use simple polling
-            // TODO: implement timerfd for better efficiency
+            // Linux timerfd implementation
+            try self.linuxAddTimer(timer_id, duration_ns);
         }
 
         // Park the thread
@@ -307,6 +307,41 @@ pub const Netpoller = struct {
         std.posix.epoll_ctl(self.poll_fd, std.os.linux.EPOLL.CTL_DEL, fd, null) catch {};
     }
 
+    /// Create a timerfd and register it with epoll
+    fn linuxAddTimer(self: *Netpoller, timer_id: u64, duration_ns: u64) !void {
+        if (builtin.os.tag != .linux) return;
+
+        // Create a timerfd
+        const tfd = std.os.linux.timerfd_create(std.os.linux.CLOCK.MONOTONIC, .{
+            .CLOEXEC = true,
+            .NONBLOCK = true,
+        }) catch |err| {
+            // If timerfd fails, the timer will still fire via deadline checking
+            _ = err;
+            return;
+        };
+
+        // Set the timer to fire once after duration_ns
+        const secs: isize = @intCast(duration_ns / std.time.ns_per_s);
+        const nsecs: isize = @intCast(duration_ns % std.time.ns_per_s);
+        const new_value = std.os.linux.itimerspec{
+            .it_interval = .{ .sec = 0, .nsec = 0 }, // One-shot
+            .it_value = .{ .sec = secs, .nsec = nsecs },
+        };
+
+        _ = std.os.linux.timerfd_settime(@intCast(tfd), .{}, &new_value, null);
+
+        // Add timerfd to epoll
+        var event: std.os.linux.epoll_event = .{
+            .events = std.os.linux.EPOLL.IN,
+            .data = .{ .u64 = timer_id | (1 << 63) }, // High bit indicates timer
+        };
+
+        std.posix.epoll_ctl(self.poll_fd, std.os.linux.EPOLL.CTL_ADD, @intCast(tfd), &event) catch {
+            std.posix.close(@intCast(tfd));
+        };
+    }
+
     // === Poll loop (runs in background thread) ===
 
     fn pollLoop(self: *Netpoller) void {
@@ -368,7 +403,8 @@ pub const Netpoller = struct {
 
         const n = std.posix.epoll_wait(self.poll_fd, &events, 1) catch return; // 1ms timeout
 
-        // Check timers (deadline-based polling - TODO: use timerfd)
+        // Check timers - timerfd events will come through epoll, but we also
+        // check deadlines as a fallback for timers created before timerfd support
         self.checkTimers();
 
         if (n == 0) return;

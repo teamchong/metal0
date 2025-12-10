@@ -225,9 +225,13 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
             try self.emitIndent();
             try self.emit("__new_items.deinit(__global_allocator);\n");
         } else {
-            // Other operators not commonly used with slice aug assign
+            // Other operators (Sub, Div, etc.) are not valid for slice assignment in Python
+            // Python raises TypeError: 'NoneType' object cannot be interpreted as an integer
+            // We generate a compile error to catch this at compile time
             try self.emitIndent();
-            try self.emit("_ = __slice; // TODO: unsupported slice aug assign op\n");
+            try self.emit("@compileError(\"Unsupported operator for slice augmented assignment - only *= and += are valid\");\n");
+            try self.emitIndent();
+            try self.emit("_ = __slice;\n");
         }
 
         self.dedent();

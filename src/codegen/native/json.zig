@@ -24,7 +24,7 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
 /// Parses JSON and returns a PyObject (dict/list/etc)
 pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        // TODO: Error handling
+        try self.emit("@compileError(\"json.loads() requires exactly 1 argument\")");
         return;
     }
 
@@ -61,7 +61,7 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Handles conversion from native dict/list to PyObject
 pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        // TODO: Error handling
+        try self.emit("@compileError(\"json.dumps() requires exactly 1 argument\")");
         return;
     }
 

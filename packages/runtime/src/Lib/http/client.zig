@@ -165,13 +165,18 @@ pub const Client = struct {
 
     /// Send a request and return response with body
     fn send(self: *Client, request: *const Request, uri: *const std.Uri) !Response {
-        _ = request; // TODO: use custom headers from request
-
         // Build URL from URI
         var url_buf: [4096]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&url_buf);
         uri.format(.{}, fbs.writer()) catch return error.InvalidUrl;
         const url = fbs.getWritten();
+
+        // Apply custom headers from request to h2 client
+        // The h2 client has setHeader method for this
+        var header_iter = request.headers.iterator();
+        while (header_iter.next()) |entry| {
+            self.h2_client.setHeader(entry.key_ptr.*, entry.value_ptr.*) catch {};
+        }
 
         // Use unified h2 client (handles both HTTP and HTTPS)
         var h2_response = self.h2_client.get(url) catch |err| {

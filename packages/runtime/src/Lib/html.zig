@@ -399,11 +399,66 @@ pub const HTMLParser = struct {
                         else
                             tag_name;
 
-                        // TODO: Parse attributes properly
-                        var attrs = [_]Attribute{};
+                        // Parse attributes from remaining tag content
+                        var attr_list: [32]Attribute = undefined;
+                        var attr_count: usize = 0;
+
+                        // Skip tag name to get attributes portion
+                        var remaining = tag_content[tag_name.len..];
+                        while (remaining.len > 0 and attr_count < 32) {
+                            // Skip whitespace
+                            remaining = std.mem.trimLeft(u8, remaining, " \t\n\r");
+                            if (remaining.len == 0 or remaining[0] == '/') break;
+
+                            // Find attribute name
+                            var name_end: usize = 0;
+                            while (name_end < remaining.len and
+                                remaining[name_end] != '=' and
+                                remaining[name_end] != ' ' and
+                                remaining[name_end] != '/') : (name_end += 1)
+                            {}
+
+                            if (name_end == 0) break;
+
+                            const attr_name = remaining[0..name_end];
+                            remaining = remaining[name_end..];
+
+                            // Check for value
+                            var attr_value: ?[]const u8 = null;
+                            remaining = std.mem.trimLeft(u8, remaining, " \t");
+                            if (remaining.len > 0 and remaining[0] == '=') {
+                                remaining = remaining[1..];
+                                remaining = std.mem.trimLeft(u8, remaining, " \t");
+
+                                if (remaining.len > 0) {
+                                    const quote = remaining[0];
+                                    if (quote == '"' or quote == '\'') {
+                                        remaining = remaining[1..];
+                                        if (std.mem.indexOfScalar(u8, remaining, quote)) |end| {
+                                            attr_value = remaining[0..end];
+                                            remaining = remaining[end + 1 ..];
+                                        }
+                                    } else {
+                                        // Unquoted value - ends at whitespace
+                                        var val_end: usize = 0;
+                                        while (val_end < remaining.len and remaining[val_end] != ' ' and remaining[val_end] != '/') : (val_end += 1) {}
+                                        attr_value = remaining[0..val_end];
+                                        remaining = remaining[val_end..];
+                                    }
+                                }
+                            }
+
+                            attr_list[attr_count] = Attribute{
+                                .name = attr_name,
+                                .value = attr_value,
+                            };
+                            attr_count += 1;
+                        }
+
+                        const attrs = attr_list[0..attr_count];
 
                         if (self.handle_starttag) |handler| {
-                            handler(clean_tag, &attrs);
+                            handler(clean_tag, attrs);
                         }
 
                         if (is_self_closing) {

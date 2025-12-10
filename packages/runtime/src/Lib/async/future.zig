@@ -8,18 +8,26 @@ pub fn Poll(comptime T: type) type {
     return union(enum) {
         pending: void,
         ready: T,
+        err: anyerror,
 
         pub fn isReady(self: @This()) bool {
             return switch (self) {
                 .ready => true,
-                .pending => false,
+                .pending, .err => false,
             };
         }
 
         pub fn isPending(self: @This()) bool {
             return switch (self) {
-                .ready => false,
                 .pending => true,
+                .ready, .err => false,
+            };
+        }
+
+        pub fn isError(self: @This()) bool {
+            return switch (self) {
+                .err => true,
+                .ready, .pending => false,
             };
         }
 
@@ -27,6 +35,14 @@ pub fn Poll(comptime T: type) type {
             return switch (self) {
                 .ready => |value| value,
                 .pending => @panic("Poll.unwrap() called on pending future"),
+                .err => |e| @panic(@errorName(e)),
+            };
+        }
+
+        pub fn unwrapError(self: @This()) anyerror {
+            return switch (self) {
+                .err => |e| e,
+                else => @panic("Poll.unwrapError() called on non-error future"),
             };
         }
     };
@@ -154,9 +170,8 @@ pub fn Future(comptime T: type) type {
                     return .{ .ready = self.value.? };
                 },
                 .error_state => {
-                    // For now, panic on error
-                    // TODO: Support error propagation
-                    @panic("Future encountered error");
+                    // Return the error to caller for propagation
+                    return .{ .err = self.error_value orelse error.Unknown };
                 },
                 .completed => {
                     return .{ .ready = self.value.? };

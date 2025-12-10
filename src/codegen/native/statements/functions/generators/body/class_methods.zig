@@ -1476,17 +1476,23 @@ pub fn genClassMethods(
             // Count non-self params and how many have defaults
             var required_count: usize = 0;
             var total_count: usize = 0;
+            // Also extract non-self parameter names for keyword argument mapping
+            var param_name_list = std.ArrayList([]const u8){};
+            defer param_name_list.deinit(self.allocator);
             for (method.args) |arg| {
                 if (std.mem.eql(u8, arg.name, "self")) continue;
                 total_count += 1;
                 if (arg.default == null) required_count += 1;
+                try param_name_list.append(self.allocator, arg.name);
             }
             // Store as "ClassName.method_name" for method call lookup
             if (total_count > required_count) {
                 const method_key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, method.name });
+                const param_names = try param_name_list.toOwnedSlice(self.allocator);
                 try self.function_signatures.put(method_key, .{
                     .total_params = total_count,
                     .required_params = required_count,
+                    .param_names = param_names,
                 });
             }
 

@@ -46,7 +46,16 @@ pub const MockValue = union(enum) {
             .int => |i| i == other.int,
             .float => |f| f == other.float,
             .boolean => |b| b == other.boolean,
-            .list => false, // TODO: deep comparison
+            .list => |self_list| blk: {
+                const other_list = other.list;
+                // Check length first
+                if (self_list.len != other_list.len) break :blk false;
+                // Deep compare each element recursively
+                for (self_list, other_list) |self_elem, other_elem| {
+                    if (!self_elem.eql(other_elem)) break :blk false;
+                }
+                break :blk true;
+            },
             .err => |e| std.mem.eql(u8, e, other.err),
         };
     }

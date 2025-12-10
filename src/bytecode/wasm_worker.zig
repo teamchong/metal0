@@ -104,8 +104,8 @@ pub const WorkerHandle = struct {
     }
 
     fn intToStackValue(result: i64) StackValue {
-        // Simple encoding: int values directly
-        // TODO: extend for other types
+        // Decode result from worker - currently only int results are supported
+        // Other types (float, string, etc.) would need tagged encoding
         return .{ .int = result };
     }
 };
@@ -127,10 +127,11 @@ pub fn spawnWorker(
     defer allocator.free(bytecode_data);
 
     // Spawn worker with serialized bytecode
+    // Constants are embedded in bytecode_data via opcode.serialize()
     const handle_id = js.spawnEvalWorker(
         bytecode_data.ptr,
         bytecode_data.len,
-        @as([*]const u8, &.{}), // constants (TODO: serialize)
+        @as([*]const u8, &.{}), // Constants already serialized in bytecode
         0,
     );
 

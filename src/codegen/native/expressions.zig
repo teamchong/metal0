@@ -391,15 +391,33 @@ fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!v
         }
     }
 
+    // Infer the return type of the awaited coroutine
+    // Default to i64, but try to infer actual type from call expression
+    var result_type: []const u8 = "i64";
+    if (await_node.value.* == .call) {
+        const call = await_node.value.*.call;
+        // Get function name to look up return type
+        if (call.func.* == .name) {
+            const func_name = call.func.*.name.id;
+            if (self.type_inferrer.func_return_types.get(func_name)) |ret_type| {
+                var type_buf = std.ArrayList(u8){};
+                defer type_buf.deinit(self.allocator);
+                ret_type.toZigType(self.allocator, &type_buf) catch {};
+                if (type_buf.items.len > 0) {
+                    result_type = self.allocator.dupe(u8, type_buf.items) catch "i64";
+                }
+            }
+        }
+    }
+
     // For regular coroutine calls: await expr → wait for green thread and get result
     try self.emit("(__await_blk: {\n");
     try self.emit("    const __thread = ");
     try genExpr(self, await_node.value.*);
     try self.emit(";\n");
     try self.emit("    runtime.scheduler.wait(__thread);\n");
-    // Cast result to expected type (TODO: infer from type system)
     try self.emit("    const __result = __thread.result orelse unreachable;\n");
-    try self.emit("    break :__await_blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
+    try self.output.writer(self.allocator).print("    break :__await_blk @as(*{s}, @ptrCast(@alignCast(__result))).*;\n", .{result_type});
     try self.emit("})");
 }
 

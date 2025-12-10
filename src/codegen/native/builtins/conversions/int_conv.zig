@@ -12,7 +12,7 @@ const container_traits = @import("../../../../analysis/traits/container_traits.z
 /// Works with: strings, lists, dicts, tuples
 pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        // TODO: Error handling
+        try self.emit("@compileError(\"len() requires exactly 1 argument\")");
         return;
     }
 

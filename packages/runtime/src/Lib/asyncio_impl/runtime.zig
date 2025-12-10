@@ -261,19 +261,53 @@ pub const Runtime = struct {
         try self.yielder.yield(task);
     }
 
-    /// Start runtime (for future multi-threaded implementation)
+    /// Start runtime - spins up worker threads for each processor
     pub fn start(self: *Runtime) !void {
         self.running.store(true, .release);
 
-        // TODO: Start machines and event loops (Week 17-18)
-        // For now, this is a placeholder
+        // Start worker threads for each processor
+        for (self.processors) |*processor| {
+            const thread = try std.Thread.spawn(.{}, processorWorkerLoop, .{ self, processor });
+            _ = thread; // Thread runs independently
+        }
+    }
+
+    /// Worker loop for each processor
+    fn processorWorkerLoop(runtime: *Runtime, processor: *Processor) void {
+        while (runtime.running.load(.acquire)) {
+            // Try to get work from local queue
+            if (processor.poll()) |task| {
+                task.execute();
+                processor.tasks_executed += 1;
+                continue;
+            }
+
+            // Try stealing from global queue
+            runtime.global_mutex.lock();
+            const stolen = if (runtime.global_queue.items.len > 0)
+                runtime.global_queue.orderedRemove(0)
+            else
+                null;
+            runtime.global_mutex.unlock();
+
+            if (stolen) |task| {
+                task.execute();
+                processor.tasks_executed += 1;
+                continue;
+            }
+
+            // No work available, yield to OS
+            std.Thread.yield();
+        }
     }
 
     /// Stop runtime
     pub fn stop(self: *Runtime) void {
         self.running.store(false, .release);
 
-        // TODO: Stop all machines and event loops (Week 17-18)
+        // Workers will exit their loops when they see running=false
+        // Give them a moment to finish current work
+        std.time.sleep(10 * std.time.ns_per_ms);
     }
 
     /// Get runtime statistics
