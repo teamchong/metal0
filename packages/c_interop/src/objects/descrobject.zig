@@ -339,10 +339,52 @@ fn method_descr_dealloc(self_obj: ?*cpython.PyObject) callconv(.C) void {
 
 /// Descriptor repr helper
 fn descr_repr_helper(descr: *PyDescrObject, kind: [*:0]const u8) ?*cpython.PyObject {
-    _ = descr;
-    _ = kind;
-    // TODO: Implement proper repr using PyUnicode_FromFormat
-    return null;
+    const pyunicode = @import("unicodeobject.zig");
+
+    // Format as "<kind 'name' of 'type' objects>"
+    var buf: [256]u8 = undefined;
+    var pos: usize = 0;
+
+    buf[pos] = '<';
+    pos += 1;
+
+    // Copy kind
+    const kind_slice = std.mem.span(kind);
+    @memcpy(buf[pos..][0..kind_slice.len], kind_slice);
+    pos += kind_slice.len;
+
+    const space_quote = " '";
+    @memcpy(buf[pos..][0..space_quote.len], space_quote);
+    pos += space_quote.len;
+
+    // Copy name
+    if (descr.d_common.d_name) |name| {
+        const name_str = pyunicode.PyUnicode_AsUTF8(name);
+        if (name_str) |ns| {
+            const name_slice = std.mem.span(ns);
+            const name_len = @min(name_slice.len, buf.len - pos - 50);
+            @memcpy(buf[pos..][0..name_len], name_slice[0..name_len]);
+            pos += name_len;
+        }
+    }
+
+    const of_str = "' of '";
+    @memcpy(buf[pos..][0..of_str.len], of_str);
+    pos += of_str.len;
+
+    // Copy type name
+    if (descr.d_type) |tp| {
+        const type_name = std.mem.span(tp.tp_name);
+        const type_len = @min(type_name.len, buf.len - pos - 20);
+        @memcpy(buf[pos..][0..type_len], type_name[0..type_len]);
+        pos += type_len;
+    }
+
+    const suffix = "' objects>";
+    @memcpy(buf[pos..][0..suffix.len], suffix);
+    pos += suffix.len;
+
+    return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
 }
 
 /// Method descriptor repr
@@ -411,6 +453,28 @@ fn method_descr_get(self_obj: *cpython.PyObject, obj: ?*cpython.PyObject, type_o
     // Return bound method
     const pymethod = @import("methodobject.zig");
     return pymethod.PyCFunction_NewEx(descr.d_method, obj, null);
+}
+
+/// Classmethod descriptor get - binds to the type, not the instance
+fn classmethod_descr_get(self_obj: *cpython.PyObject, obj: ?*cpython.PyObject, type_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+    const descr: *PyMethodDescrObject = @ptrCast(@alignCast(self_obj));
+
+    // Get the type to bind to
+    var bind_type: ?*cpython.PyObject = type_obj;
+    if (bind_type == null and obj != null) {
+        // Use the type of obj
+        bind_type = @ptrCast(obj.?.ob_type);
+    }
+
+    if (bind_type == null) {
+        // Unbound access - return descriptor itself
+        self_obj.ob_refcnt += 1;
+        return self_obj;
+    }
+
+    // Return bound method to the type (not the instance)
+    const pymethod = @import("methodobject.zig");
+    return pymethod.PyCFunction_NewEx(descr.d_method, bind_type, null);
 }
 
 /// Member descriptor get
@@ -611,7 +675,7 @@ pub export var PyClassMethodDescr_Type: cpython.PyTypeObject = .{
     .tp_getset = null,
     .tp_base = null,
     .tp_dict = null,
-    .tp_descr_get = null, // classmethod_get TODO
+    .tp_descr_get = classmethod_descr_get,
     .tp_descr_set = null,
     .tp_dictoffset = 0,
     .tp_init = null,
@@ -805,8 +869,8 @@ var mappingproxy_as_mapping: cpython.PyMappingMethods = .{
 fn mappingproxy_len(self_obj: *cpython.PyObject) callconv(.C) isize {
     const pp: *mappingproxyobject = @ptrCast(@alignCast(self_obj));
     if (pp.mapping) |mapping| {
-        // TODO: Call PyObject_Size
-        _ = mapping;
+        const object_mod = @import("object.zig");
+        return object_mod.PyObject_Size(mapping);
     }
     return 0;
 }
@@ -814,9 +878,8 @@ fn mappingproxy_len(self_obj: *cpython.PyObject) callconv(.C) isize {
 fn mappingproxy_getitem(self_obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     const pp: *mappingproxyobject = @ptrCast(@alignCast(self_obj));
     if (pp.mapping) |mapping| {
-        // TODO: Call PyObject_GetItem
-        _ = mapping;
-        _ = key;
+        const object_mod = @import("object.zig");
+        return object_mod.PyObject_GetItem(mapping, key);
     }
     return null;
 }
