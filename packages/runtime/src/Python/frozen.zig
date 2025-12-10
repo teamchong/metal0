@@ -124,14 +124,19 @@ pub const FrozenLoadResult = struct {
 };
 
 /// Load a frozen module
+/// Note: Metal0 compiles Python to native code at build time, not bytecode.
+/// Frozen modules in CPython contain marshalled bytecode, but in Metal0
+/// all module code is compiled to native machine code. This function
+/// returns module metadata for compatibility with code that checks
+/// for frozen modules.
 pub fn loadFrozenModule(registry: *const FrozenRegistry, name: []const u8) FrozenLoadResult {
     const module = registry.find(name) orelse {
         return FrozenLoadResult{ .error_msg = "No such frozen module" };
     };
 
-    // In real implementation, would unmarshal the code object
+    // Return metadata - actual code execution uses native compiled functions
     return FrozenLoadResult{
-        .code = null, // Would be unmarshalled code
+        .code = null, // Native code, not bytecode
         .is_package = module.is_package,
     };
 }

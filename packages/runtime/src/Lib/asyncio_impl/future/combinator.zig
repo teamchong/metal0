@@ -38,8 +38,8 @@ pub fn map(
         .mapper = func,
     };
 
-    // For now, eagerly poll once
-    // In a real implementation, this would be scheduled
+    // Eagerly resolve if source is already ready
+    // Otherwise, the mapped future will be polled when awaited
     if (future.isReady()) {
         const value = future.tryGet().?;
         mapped.resolve(func(value));

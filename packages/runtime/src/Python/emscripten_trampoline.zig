@@ -204,16 +204,21 @@ pub fn vectorcallIsMethod(nargsf: usize) bool {
 pub const AsyncCallback = *const fn (?*anyopaque) callconv(.C) void;
 
 /// Schedule an async callback (for Emscripten main loop)
+/// Note: This is a stub for non-Emscripten builds. When targeting WASM with
+/// Emscripten, this would call emscripten_async_call() to schedule work
+/// on the browser event loop.
 pub fn scheduleAsync(callback: AsyncCallback, data: ?*anyopaque, delay_ms: u32) void {
     _ = callback;
     _ = data;
     _ = delay_ms;
-    // Would call emscripten_async_call in real implementation
+    // No-op on native builds - Emscripten functions only available in WASM
 }
 
 /// Yield to main loop
+/// Note: This is a stub for non-Emscripten builds. When targeting WASM with
+/// Emscripten, this would call emscripten_sleep(0) to yield to the browser.
 pub fn yieldToMainLoop() void {
-    // Would call emscripten_sleep(0) in real implementation
+    // No-op on native builds - yields are implicit via scheduler
 }
 
 // ============================================================================

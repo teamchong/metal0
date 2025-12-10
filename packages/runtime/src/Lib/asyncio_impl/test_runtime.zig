@@ -88,8 +88,7 @@ test "simple runtime - task with yield" {
             const context = @as(*Context, @ptrCast(@alignCast(c)));
             context.counter.* += 1;
 
-            // Note: In a real implementation, we'd need to pass the current task
-            // For now, just increment counter again
+            // Simulate work done in task
             context.counter.* += 1;
         }
     }.run;

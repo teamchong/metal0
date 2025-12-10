@@ -634,16 +634,13 @@ pub fn reloadModule(module: ?*anyopaque) ImportError!?*anyopaque {
         return error.ImportFailed;
     }
 
-    // In a real implementation, we would:
-    // 1. Get module.__name__
-    // 2. Get module.__spec__.loader
-    // 3. Call loader.exec_module(module)
+    // Metal0 AOT Limitation: Module reload is not supported
+    // In CPython, reload() re-executes the module's code. In Metal0,
+    // all module code is compiled to native machine code at build time.
+    // The module's functions and classes are statically linked.
     //
-    // For AOT code, module contents are fixed at compile time, so
-    // "reloading" is effectively a no-op that returns the same module.
-    // The module's initialization code was run once during compilation.
-
-    // Simply return the same module since reloading isn't meaningful in AOT
+    // Returning the same module maintains API compatibility while
+    // acknowledging that dynamic reloading isn't possible in AOT.
     return module;
 }
 

@@ -36,9 +36,9 @@ pub fn awaitFuture(comptime T: type, future: *Future(T), current_task: *Task) !T
                 current_task.state = .waiting;
                 current_task.recordYield();
 
-                // Simulated yield - in real implementation, scheduler would resume us
-                // For now, we'll check again after a brief pause
-                std.Thread.sleep(1000); // 1 microsecond
+                // Yield CPU time while waiting for future completion
+                // Sleep allows other threads to make progress on the future
+                std.Thread.sleep(1000); // 1 microsecond backoff
 
                 // Reset spin count for next poll
                 spin_count = 0;

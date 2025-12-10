@@ -377,10 +377,13 @@ pub const PerfJITManager = struct {
     }
 
     /// Notify debugger of changes (GDB JIT interface)
+    /// Note: GDB's JIT interface expects __jit_debug_register_code() to be
+    /// called after updating __jit_debug_descriptor. GDB sets a breakpoint
+    /// on this function to detect new JIT code. For AOT code, debugging
+    /// uses standard DWARF info instead.
     fn notifyDebugger(self: *Self) void {
         _ = self;
-        // In real implementation, would call __jit_debug_register_code()
-        // which is a noop that GDB breakpoints on
+        // AOT-compiled code uses DWARF debug info, not JIT registration
     }
 
     /// Get number of registered entries

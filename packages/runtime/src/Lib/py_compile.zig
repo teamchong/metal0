@@ -109,7 +109,11 @@ pub fn compile(
     return cache_path;
 }
 
-/// Compile a source string to bytecode
+/// Compile a source string to a .pyc-compatible format
+/// Note: Metal0 is an AOT compiler - it compiles Python to native code,
+/// not to Python bytecode. This function produces a .pyc-compatible header
+/// for tools that check for compiled files, but the actual execution
+/// uses the native compiled binary.
 pub fn compileString(
     allocator: std.mem.Allocator,
     source: []const u8,
@@ -118,8 +122,8 @@ pub fn compileString(
 ) ![]u8 {
     _ = optimize;
 
-    // Create a simple "compiled" representation
-    // In a real implementation, this would produce Python bytecode
+    // Create .pyc-compatible header format
+    // This allows Python tooling to recognize the file as "compiled"
     var result = std.ArrayList(u8).init(allocator);
 
     // Magic number (simplified)

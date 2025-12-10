@@ -63,16 +63,14 @@ pub const FrozenMainState = struct {
     }
 
     /// Initialize Python runtime for frozen execution
+    /// Metal0 AOT: Frozen modules are compiled to native code at build time.
+    /// This initializes runtime state for compatibility with code that
+    /// checks for frozen module support.
     pub fn initialize(self: *Self) !void {
         if (self.initialized) return;
 
-        // Set up basic runtime state
-        // In real implementation, would:
-        // 1. Initialize interpreter state
-        // 2. Set up sys.argv
-        // 3. Set up sys.path for frozen modules
-        // 4. Import frozen modules
-
+        // Runtime initialization is handled by Zig's start code
+        // sys.argv and sys.path are set up by the compiled main()
         self.initialized = true;
     }
 

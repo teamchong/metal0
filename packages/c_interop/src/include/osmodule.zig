@@ -87,10 +87,8 @@ var interrupt_flag: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
 export fn PyOS_BeforeFork() callconv(.c) void {
     // Mark that we're entering a fork
     in_fork = true;
-    // Note: In a real implementation, we'd acquire all interpreter locks here
-    // to ensure consistent state during fork. Since metal0 is AOT compiled
-    // and doesn't have an interpreter loop, we mainly need to ensure
-    // any shared state is in a consistent condition.
+    // Metal0 AOT: No interpreter locks needed since there's no GIL.
+    // Native code handles thread safety through standard synchronization.
 }
 
 /// Callback to execute after fork() in parent process

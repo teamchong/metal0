@@ -189,7 +189,8 @@ pub fn matmul(
     n: u32,
     k: u32,
 ) !void {
-    // Compile kernel (in real implementation, this would be cached)
+    // Compile shader from embedded source
+    // TODO: Add shader caching with hash-based invalidation
     const shader_source = @embedFile("../kernels/matmul.metal");
     const pipeline = try ctx.compileShader(shader_source, "matrix_multiply");
 

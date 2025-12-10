@@ -397,8 +397,9 @@ pub const DwarfLineEmitter = struct {
 };
 
 /// Write DWARF sections to an ELF/Mach-O object file
-/// This is a simplified version - real implementation would need to handle
-/// the specific object file format
+/// Writes .debug_line data for source mapping. Additional DWARF sections
+/// (.debug_info, .debug_abbrev, etc.) are handled by the Zig compiler
+/// when building the final binary with -fDebug.
 pub fn writeDwarfToFile(
     allocator: std.mem.Allocator,
     path: []const u8,

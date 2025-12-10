@@ -95,12 +95,14 @@ pub const BZ2File = struct {
             return error.InvalidBz2Magic;
         }
 
-        // Decompress (note: Zig stdlib doesn't have native bz2, so we simulate)
+        // BZ2 decompression requires Burrows-Wheeler Transform implementation
+        // Zig stdlib provides deflate/gzip but not bz2
+        // Full implementation would need either:
+        // 1. Pure Zig BWT implementation (~2000 lines)
+        // 2. Linking against libbz2
         const max_size = size orelse 1024 * 1024 * 10;
         _ = max_size;
 
-        // For now, return error indicating bz2 decompression not implemented
-        // In a real implementation, we'd use a bz2 library
         return error.Bz2NotImplemented;
     }
 
@@ -120,10 +122,10 @@ pub const BZ2File = struct {
 
         if (self.mode == .write or self.mode == .append) {
             if (self.file) |*f| {
-                // In a real implementation, compress the buffer and write
-                // For now, just write the raw data with magic header
+                // BZ2 compression requires BWT implementation (see read() comment)
+                // Write header + raw data as placeholder for testing file structure
                 try f.writeAll(&BZ2_MAGIC);
-                try f.writeByte('9'); // compression level
+                try f.writeByte('0' + @as(u8, @intCast(self.compresslevel)));
                 try f.writeAll(self.buffer.items);
 
                 f.close();
@@ -198,8 +200,8 @@ pub const BZ2Compressor = struct {
         try result.appendSlice(&BZ2_MAGIC);
         try result.append('0' + @as(u8, @intCast(self.compresslevel)));
 
-        // In real implementation, would compress self.buffer.items
-        // For now, just copy raw data (placeholder)
+        // BZ2 compression requires BWT implementation (see BZ2File.read() comment)
+        // Append raw data as placeholder
         try result.appendSlice(self.buffer.items);
 
         self.buffer.clearRetainingCapacity();
@@ -246,8 +248,7 @@ pub const BZ2Decompressor = struct {
             }
         }
 
-        // In real implementation, would decompress incrementally
-        // For now, return empty - decompression not implemented
+        // BZ2 decompression requires BWT implementation (see BZ2File.read() comment)
         self.needs_input = true;
         return try self.allocator.alloc(u8, 0);
     }
@@ -304,11 +305,10 @@ pub fn decompress(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
         return error.InvalidBz2Magic;
     }
 
-    // In real implementation, would decompress using bz2 library
-    // For now, return the data after header as placeholder
-    const result = try allocator.alloc(u8, data.len - 4);
-    @memcpy(result, data[4..]);
-    return result;
+    // BZ2 decompression requires BWT implementation
+    // Return error to indicate this isn't real decompression
+    _ = allocator;
+    return error.Bz2NotImplemented;
 }
 
 // ============================================================================
