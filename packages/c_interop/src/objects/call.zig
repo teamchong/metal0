@@ -79,8 +79,7 @@ pub fn PyVectorcall_Call(callable: ?*PyObject, args: ?*PyObject, kwargs: ?*PyObj
         args_ptr = &stack_args;
     } else {
         // Need heap allocation for large arg counts
-        const allocator = @import("../include/pystate.zig").c_allocator;
-        const heap_args = allocator.alloc(?*PyObject, nargs) catch return null;
+        const heap_args = std.heap.c_allocator.alloc(?*PyObject, nargs) catch return null;
         args_ptr = heap_args.ptr;
     }
 
@@ -93,8 +92,7 @@ pub fn PyVectorcall_Call(callable: ?*PyObject, args: ?*PyObject, kwargs: ?*PyObj
 
     // Free heap allocation if used
     if (nargs > 8) {
-        const allocator = @import("../include/pystate.zig").c_allocator;
-        allocator.free(args_ptr[0..nargs]);
+        std.heap.c_allocator.free(args_ptr[0..nargs]);
     }
 
     return result;

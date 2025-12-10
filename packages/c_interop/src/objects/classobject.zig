@@ -186,9 +186,12 @@ pub export var PyInstanceMethod_Type: cpython.PyTypeObject = .{
 fn method_dealloc(op: ?*cpython.PyObject) callconv(.C) void {
     if (op == null) return;
     const im: *PyMethodObject = @ptrCast(@alignCast(op.?));
+    const weakref = @import("weakrefobject.zig");
 
-    // Clear weak references
-    // TODO: FT_CLEAR_WEAKREFS
+    // Clear weak references if any
+    if (im.im_weakreflist != null) {
+        weakref.PyObject_ClearWeakRefs(op);
+    }
 
     // Decref func and self
     if (im.im_func) |func| {
@@ -205,8 +208,70 @@ fn method_dealloc(op: ?*cpython.PyObject) callconv(.C) void {
 
 fn method_repr(op: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     if (op == null) return null;
-    // TODO: Format as "<bound method Class.method of <instance>>"
-    return null;
+    const im: *PyMethodObject = @ptrCast(@alignCast(op.?));
+    const pyunicode = @import("unicodeobject.zig");
+
+    // Format as "<bound method Class.method of <instance>>"
+    var buf: [512]u8 = undefined;
+    var pos: usize = 0;
+
+    const prefix = "<bound method ";
+    @memcpy(buf[pos..][0..prefix.len], prefix);
+    pos += prefix.len;
+
+    // Get function name
+    if (im.im_func) |func| {
+        // Try to get __qualname__ or __name__ from function
+        if (cpython.PyObject_GetAttrString(func, "__qualname__")) |qname| {
+            defer cpython.Py_DECREF(qname);
+            if (pyunicode.PyUnicode_Check(qname) != 0) {
+                const name_str = pyunicode.PyUnicode_AsUTF8(qname);
+                if (name_str) |ns| {
+                    const name_slice = std.mem.span(ns);
+                    const name_len = @min(name_slice.len, buf.len - pos - 100);
+                    @memcpy(buf[pos..][0..name_len], name_slice[0..name_len]);
+                    pos += name_len;
+                }
+            }
+        } else if (cpython.PyObject_GetAttrString(func, "__name__")) |name| {
+            defer cpython.Py_DECREF(name);
+            if (pyunicode.PyUnicode_Check(name) != 0) {
+                const name_str = pyunicode.PyUnicode_AsUTF8(name);
+                if (name_str) |ns| {
+                    const name_slice = std.mem.span(ns);
+                    const name_len = @min(name_slice.len, buf.len - pos - 100);
+                    @memcpy(buf[pos..][0..name_len], name_slice[0..name_len]);
+                    pos += name_len;
+                }
+            }
+        }
+    }
+
+    const of_str = " of ";
+    @memcpy(buf[pos..][0..of_str.len], of_str);
+    pos += of_str.len;
+
+    // Get repr of self
+    if (im.im_self) |self| {
+        if (self.ob_type.tp_repr) |repr_fn| {
+            const self_repr = repr_fn(self);
+            if (self_repr) |sr| {
+                defer cpython.Py_DECREF(sr);
+                const repr_str = pyunicode.PyUnicode_AsUTF8(sr);
+                if (repr_str) |rs| {
+                    const repr_slice = std.mem.span(rs);
+                    const repr_len = @min(repr_slice.len, buf.len - pos - 10);
+                    @memcpy(buf[pos..][0..repr_len], repr_slice[0..repr_len]);
+                    pos += repr_len;
+                }
+            }
+        }
+    }
+
+    buf[pos] = '>';
+    pos += 1;
+
+    return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
 }
 
 fn method_hash(op: ?*cpython.PyObject) callconv(.C) isize {
@@ -263,17 +328,80 @@ fn method_clear(self: ?*cpython.PyObject) callconv(.C) c_int {
 }
 
 fn method_richcompare(self: ?*cpython.PyObject, other: ?*cpython.PyObject, op: c_int) callconv(.C) ?*cpython.PyObject {
-    _ = self;
-    _ = other;
-    _ = op;
-    // TODO: Implement rich comparison
-    return null;
+    if (self == null or other == null) return cpython.Py_NotImplemented;
+
+    // Both must be methods for comparison
+    if (!PyMethod_Check(self) or !PyMethod_Check(other)) {
+        return cpython.Py_NotImplemented;
+    }
+
+    const im1: *PyMethodObject = @ptrCast(@alignCast(self.?));
+    const im2: *PyMethodObject = @ptrCast(@alignCast(other.?));
+    const object_mod = @import("object.zig");
+    const pybool = @import("boolobject.zig");
+
+    // Methods are equal if both func and self are equal
+    const func_eq = if (im1.im_func != null and im2.im_func != null)
+        object_mod.PyObject_RichCompareBool(im1.im_func.?, im2.im_func.?, object_mod.Py_EQ)
+    else if (im1.im_func == null and im2.im_func == null)
+        @as(c_int, 1)
+    else
+        @as(c_int, 0);
+
+    const self_eq = if (im1.im_self != null and im2.im_self != null)
+        object_mod.PyObject_RichCompareBool(im1.im_self.?, im2.im_self.?, object_mod.Py_EQ)
+    else if (im1.im_self == null and im2.im_self == null)
+        @as(c_int, 1)
+    else
+        @as(c_int, 0);
+
+    const are_equal = (func_eq == 1 and self_eq == 1);
+
+    if (op == object_mod.Py_EQ) {
+        return if (are_equal) pybool.Py_True else pybool.Py_False;
+    } else if (op == object_mod.Py_NE) {
+        return if (are_equal) pybool.Py_False else pybool.Py_True;
+    }
+
+    // Other comparisons not supported for methods
+    return cpython.Py_NotImplemented;
 }
 
 fn method_getattro(self: ?*cpython.PyObject, name: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
-    _ = self;
-    _ = name;
-    // TODO: Get attribute from method
+    if (self == null or name == null) return null;
+    const im: *PyMethodObject = @ptrCast(@alignCast(self.?));
+    const pyunicode = @import("unicodeobject.zig");
+
+    // Check for special method attributes
+    if (pyunicode.PyUnicode_Check(name) != 0) {
+        const attr_name = pyunicode.PyUnicode_AsUTF8(name);
+        if (attr_name) |an| {
+            const name_slice = std.mem.span(an);
+
+            // __func__ - return the underlying function
+            if (std.mem.eql(u8, name_slice, "__func__")) {
+                if (im.im_func) |func| {
+                    cpython.Py_INCREF(func);
+                    return func;
+                }
+                return null;
+            }
+
+            // __self__ - return the bound instance
+            if (std.mem.eql(u8, name_slice, "__self__")) {
+                if (im.im_self) |s| {
+                    cpython.Py_INCREF(s);
+                    return s;
+                }
+                return null;
+            }
+        }
+    }
+
+    // Forward other attribute access to the underlying function
+    if (im.im_func) |func| {
+        return cpython.PyObject_GetAttr(func, name);
+    }
     return null;
 }
 
@@ -290,18 +418,83 @@ fn method_descr_get(self: ?*cpython.PyObject, obj: ?*cpython.PyObject, typ: ?*cp
 
 fn method_new(typ: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     _ = typ;
-    _ = args;
     _ = kwargs;
-    // TODO: Parse args and create method
-    return null;
+
+    // method(function, instance)
+    if (args == null) return null;
+
+    const tuple = @import("tupleobject.zig");
+    const size = tuple.PyTuple_Size(args);
+    if (size != 2) {
+        // TypeError: method() takes exactly 2 arguments
+        return null;
+    }
+
+    const func = tuple.PyTuple_GetItem(args, 0);
+    const self = tuple.PyTuple_GetItem(args, 1);
+
+    if (func == null or self == null) return null;
+
+    // Check that func is callable
+    if (!cpython.PyCallable_Check(func.?)) {
+        // TypeError: first argument must be callable
+        return null;
+    }
+
+    return PyMethod_New(func, self);
 }
 
-fn method_vectorcall(method: ?*cpython.PyObject, args: [*]const ?*cpython.PyObject, nargsf: usize, kwnames: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
-    _ = method;
-    _ = args;
-    _ = nargsf;
-    _ = kwnames;
-    // TODO: Implement vectorcall
+fn method_vectorcall(method_obj: ?*cpython.PyObject, args: [*]const ?*cpython.PyObject, nargsf: usize, kwnames: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+    if (method_obj == null) return null;
+    const im: *PyMethodObject = @ptrCast(@alignCast(method_obj.?));
+
+    const func = im.im_func orelse return null;
+    const self = im.im_self orelse return null;
+
+    // Extract nargs from nargsf (lower bits)
+    const nargs = nargsf & ~@as(usize, 0x8000000000000000);
+
+    // Build new args array with self prepended
+    var new_args: [64]?*cpython.PyObject = undefined;
+    new_args[0] = self;
+
+    // Copy remaining args
+    const copy_count = @min(nargs, 63);
+    for (0..copy_count) |i| {
+        new_args[i + 1] = args[i];
+    }
+
+    // Call the underlying function with vectorcall if available
+    const tp = func.ob_type;
+    if (tp.tp_vectorcall_offset != 0) {
+        // Get vectorcall from object at offset
+        const offset: usize = @intCast(tp.tp_vectorcall_offset);
+        const func_bytes: [*]const u8 = @ptrCast(func);
+        const vc_ptr: *const ?cpython.vectorcallfunc = @ptrCast(@alignCast(func_bytes + offset));
+        if (vc_ptr.*) |vc| {
+            return vc(func, @ptrCast(&new_args), nargs + 1, kwnames);
+        }
+    }
+
+    // Fallback to tp_call
+    if (tp.tp_call) |call| {
+        // Build tuple and dict from args
+        const tuple = @import("tupleobject.zig");
+        const args_tuple = tuple.PyTuple_New(@intCast(nargs + 1));
+        if (args_tuple == null) return null;
+
+        for (0..nargs + 1) |i| {
+            if (new_args[i]) |arg| {
+                cpython.Py_INCREF(arg);
+                _ = tuple.PyTuple_SetItem(args_tuple.?, @intCast(i), arg);
+            }
+        }
+
+        const result = call(func, args_tuple, null);
+        cpython.Py_DECREF(args_tuple.?);
+        return result;
+    }
+
     return null;
 }
 
@@ -322,9 +515,45 @@ fn instancemethod_dealloc(op: ?*cpython.PyObject) callconv(.C) void {
 }
 
 fn instancemethod_repr(op: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
-    _ = op;
-    // TODO: Format as "<instancemethod at 0xXXX>"
-    return null;
+    if (op == null) return null;
+    const pyunicode = @import("unicodeobject.zig");
+
+    // Format as "<instancemethod at 0xXXX>"
+    var buf: [128]u8 = undefined;
+    const addr = @intFromPtr(op.?);
+
+    // Build the hex address string
+    var hex_buf: [16]u8 = undefined;
+    var hex_len: usize = 0;
+    var val = addr;
+    if (val == 0) {
+        hex_buf[0] = '0';
+        hex_len = 1;
+    } else {
+        while (val > 0) : (hex_len += 1) {
+            const digit = val % 16;
+            hex_buf[hex_len] = if (digit < 10) @intCast('0' + digit) else @intCast('a' + digit - 10);
+            val /= 16;
+        }
+    }
+
+    // Build result
+    var pos: usize = 0;
+    const prefix = "<instancemethod at 0x";
+    @memcpy(buf[pos..][0..prefix.len], prefix);
+    pos += prefix.len;
+
+    // Reverse copy hex digits
+    var i: usize = 0;
+    while (i < hex_len) : (i += 1) {
+        buf[pos + i] = hex_buf[hex_len - 1 - i];
+    }
+    pos += hex_len;
+
+    buf[pos] = '>';
+    pos += 1;
+
+    return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
 }
 
 fn instancemethod_call(op: ?*cpython.PyObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
@@ -406,10 +635,28 @@ fn instancemethod_descr_get(self: ?*cpython.PyObject, obj: ?*cpython.PyObject, t
 
 fn instancemethod_new(typ: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     _ = typ;
-    _ = args;
     _ = kwargs;
-    // TODO: Parse args
-    return null;
+
+    // instancemethod(function)
+    if (args == null) return null;
+
+    const tuple = @import("tupleobject.zig");
+    const size = tuple.PyTuple_Size(args);
+    if (size != 1) {
+        // TypeError: instancemethod() takes exactly 1 argument
+        return null;
+    }
+
+    const func = tuple.PyTuple_GetItem(args, 0);
+    if (func == null) return null;
+
+    // Check that func is callable
+    if (!cpython.PyCallable_Check(func.?)) {
+        // TypeError: first argument must be callable
+        return null;
+    }
+
+    return PyInstanceMethod_New(func);
 }
 
 // ============================================================================

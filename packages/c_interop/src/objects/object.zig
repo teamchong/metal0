@@ -290,22 +290,127 @@ pub export fn PyObject_ASCII(op: ?*cpython.PyObject) ?*cpython.PyObject {
     const repr = PyObject_Repr(op);
     if (repr == null) return null;
 
-    // TODO: Convert non-ASCII chars to \uxxxx escapes
-    return repr;
+    const pyunicode = @import("unicodeobject.zig");
+
+    // Get the UTF-8 content
+    var size: isize = 0;
+    const utf8 = pyunicode.PyUnicode_AsUTF8AndSize(repr, &size);
+    if (utf8 == null) return repr; // Return repr as-is on error
+
+    // Check if there are non-ASCII chars
+    const data = utf8.?[0..@intCast(size)];
+    var has_non_ascii = false;
+    for (data) |c| {
+        if (c > 127) {
+            has_non_ascii = true;
+            break;
+        }
+    }
+
+    if (!has_non_ascii) return repr; // All ASCII, return repr as-is
+
+    // Build ASCII representation with \uxxxx escapes
+    var buf: [4096]u8 = undefined;
+    var pos: usize = 0;
+    var i: usize = 0;
+
+    while (i < data.len and pos + 10 < buf.len) {
+        const c = data[i];
+        if (c <= 127) {
+            buf[pos] = c;
+            pos += 1;
+            i += 1;
+        } else {
+            // Decode UTF-8 and convert to \uxxxx
+            var codepoint: u21 = 0;
+            if ((c & 0xE0) == 0xC0 and i + 1 < data.len) {
+                // 2-byte UTF-8
+                codepoint = (@as(u21, c & 0x1F) << 6) | @as(u21, data[i + 1] & 0x3F);
+                i += 2;
+            } else if ((c & 0xF0) == 0xE0 and i + 2 < data.len) {
+                // 3-byte UTF-8
+                codepoint = (@as(u21, c & 0x0F) << 12) | (@as(u21, data[i + 1] & 0x3F) << 6) | @as(u21, data[i + 2] & 0x3F);
+                i += 3;
+            } else if ((c & 0xF8) == 0xF0 and i + 3 < data.len) {
+                // 4-byte UTF-8
+                codepoint = (@as(u21, c & 0x07) << 18) | (@as(u21, data[i + 1] & 0x3F) << 12) | (@as(u21, data[i + 2] & 0x3F) << 6) | @as(u21, data[i + 3] & 0x3F);
+                i += 4;
+            } else {
+                i += 1;
+                continue;
+            }
+
+            // Format as \uxxxx or \Uxxxxxxxx
+            if (codepoint <= 0xFFFF) {
+                buf[pos] = '\\';
+                buf[pos + 1] = 'u';
+                const hex_chars = "0123456789abcdef";
+                buf[pos + 2] = hex_chars[(codepoint >> 12) & 0xF];
+                buf[pos + 3] = hex_chars[(codepoint >> 8) & 0xF];
+                buf[pos + 4] = hex_chars[(codepoint >> 4) & 0xF];
+                buf[pos + 5] = hex_chars[codepoint & 0xF];
+                pos += 6;
+            } else {
+                buf[pos] = '\\';
+                buf[pos + 1] = 'U';
+                const hex_chars = "0123456789abcdef";
+                buf[pos + 2] = hex_chars[(codepoint >> 28) & 0xF];
+                buf[pos + 3] = hex_chars[(codepoint >> 24) & 0xF];
+                buf[pos + 4] = hex_chars[(codepoint >> 20) & 0xF];
+                buf[pos + 5] = hex_chars[(codepoint >> 16) & 0xF];
+                buf[pos + 6] = hex_chars[(codepoint >> 12) & 0xF];
+                buf[pos + 7] = hex_chars[(codepoint >> 8) & 0xF];
+                buf[pos + 8] = hex_chars[(codepoint >> 4) & 0xF];
+                buf[pos + 9] = hex_chars[codepoint & 0xF];
+                pos += 10;
+            }
+        }
+    }
+
+    cpython.Py_DECREF(repr);
+    return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
 }
 
 /// Get bytes representation
 pub export fn PyObject_Bytes(op: ?*cpython.PyObject) ?*cpython.PyObject {
     if (op == null) return null;
 
-    // Check for __bytes__ method
-    // TODO: Call __bytes__ if it exists
+    const pybytes = @import("bytesobject.zig");
+    const pyunicode = @import("unicodeobject.zig");
 
     // For bytes objects, return as-is
-    const pybytes = @import("bytesobject.zig");
     if (pybytes.PyBytes_Check(op.?) != 0) {
-        op.?.ob_refcnt += 1;
+        cpython.Py_INCREF(op.?);
         return op;
+    }
+
+    // Check for __bytes__ method
+    const bytes_name = pyunicode.PyUnicode_FromString("__bytes__");
+    if (bytes_name != null) {
+        defer cpython.Py_DECREF(bytes_name.?);
+
+        const bytes_method = PyObject_GetAttr(op, bytes_name);
+        if (bytes_method != null) {
+            defer cpython.Py_DECREF(bytes_method.?);
+
+            // Call __bytes__ with no args
+            const pytuple = @import("tupleobject.zig");
+            const call = @import("call.zig");
+            const empty_args = pytuple.PyTuple_New(0);
+            if (empty_args != null) {
+                defer cpython.Py_DECREF(empty_args.?);
+                return call.PyObject_Call(bytes_method.?, empty_args.?, null);
+            }
+        }
+    }
+
+    // For string objects, encode to UTF-8 bytes
+    if (pyunicode.PyUnicode_Check(op.?) != 0) {
+        var size: isize = 0;
+        const utf8 = pyunicode.PyUnicode_AsUTF8AndSize(op, &size);
+        if (utf8 != null and size >= 0) {
+            return pybytes.PyBytes_FromStringAndSize(utf8, size);
+        }
     }
 
     return null;
@@ -469,7 +574,26 @@ pub export fn PyObject_TypeCheck(op: ?*cpython.PyObject, type_obj: ?*cpython.PyT
     if (obj.ob_type == target_type) return 1;
 
     // Check MRO (Method Resolution Order)
-    // TODO: Walk the MRO to check for subclass
+    // Walk through tp_mro tuple to find if target_type is a base class
+    if (obj.ob_type.tp_mro) |mro| {
+        const pytuple = @import("tupleobject.zig");
+        const mro_size = pytuple.PyTuple_Size(mro);
+        var i: isize = 0;
+        while (i < mro_size) : (i += 1) {
+            const base = pytuple.PyTuple_GetItem(mro, i);
+            if (base != null) {
+                const base_type: *cpython.PyTypeObject = @ptrCast(@alignCast(base.?));
+                if (base_type == target_type) return 1;
+            }
+        }
+    }
+
+    // Also check tp_base chain
+    var base = obj.ob_type.tp_base;
+    while (base != null) {
+        if (base == target_type) return 1;
+        base = base.?.tp_base;
+    }
 
     return 0;
 }
@@ -592,16 +716,60 @@ pub export fn PyObject_GenericGetAttr(op: ?*cpython.PyObject, name: ?*cpython.Py
 
     const obj = op.?;
     const type_obj = obj.ob_type;
+    const pydict = @import("dictobject.zig");
 
-    // Search type's __dict__
+    // Search type's __dict__ first (for methods and class attributes)
     if (type_obj.tp_dict) |type_dict| {
-        // TODO: Search type_dict for name
-        _ = type_dict;
+        const descr = pydict.PyDict_GetItem(type_dict, name.?);
+        if (descr != null) {
+            // Check if it's a descriptor (has __get__)
+            const descr_type = descr.?.ob_type;
+            if (descr_type.tp_descr_get) |descr_get| {
+                // Call the descriptor's __get__ method
+                return descr_get(descr.?, obj, @ptrCast(type_obj));
+            }
+            // Not a descriptor, return the value
+            cpython.Py_INCREF(descr.?);
+            return descr;
+        }
     }
 
     // Search instance's __dict__ if it has one
     if (type_obj.tp_dictoffset != 0) {
-        // TODO: Get instance dict and search it
+        const offset: usize = @intCast(type_obj.tp_dictoffset);
+        const obj_bytes: [*]u8 = @ptrCast(obj);
+        const dict_ptr: *?*cpython.PyObject = @ptrCast(@alignCast(obj_bytes + offset));
+        if (dict_ptr.*) |inst_dict| {
+            const value = pydict.PyDict_GetItem(inst_dict, name.?);
+            if (value != null) {
+                cpython.Py_INCREF(value.?);
+                return value;
+            }
+        }
+    }
+
+    // Walk MRO to find attribute in base classes
+    if (type_obj.tp_mro) |mro| {
+        const pytuple = @import("tupleobject.zig");
+        const mro_size = pytuple.PyTuple_Size(mro);
+        var i: isize = 1; // Skip first (the type itself, already checked)
+        while (i < mro_size) : (i += 1) {
+            const base = pytuple.PyTuple_GetItem(mro, i);
+            if (base != null) {
+                const base_type: *cpython.PyTypeObject = @ptrCast(@alignCast(base.?));
+                if (base_type.tp_dict) |base_dict| {
+                    const value = pydict.PyDict_GetItem(base_dict, name.?);
+                    if (value != null) {
+                        // Check if descriptor
+                        if (value.?.ob_type.tp_descr_get) |descr_get| {
+                            return descr_get(value.?, obj, @ptrCast(type_obj));
+                        }
+                        cpython.Py_INCREF(value.?);
+                        return value;
+                    }
+                }
+            }
+        }
     }
 
     return null;
@@ -613,13 +781,43 @@ pub export fn PyObject_GenericSetAttr(op: ?*cpython.PyObject, name: ?*cpython.Py
 
     const obj = op.?;
     const type_obj = obj.ob_type;
+    const pydict = @import("dictobject.zig");
+
+    // First check for a data descriptor in the type dict
+    if (type_obj.tp_dict) |type_dict| {
+        const descr = pydict.PyDict_GetItem(type_dict, name.?);
+        if (descr != null) {
+            // Check if it's a data descriptor (has __set__)
+            const descr_type = descr.?.ob_type;
+            if (descr_type.tp_descr_set) |descr_set| {
+                // Call the descriptor's __set__ method
+                return descr_set(descr.?, obj, value);
+            }
+        }
+    }
 
     // Set in instance's __dict__
     if (type_obj.tp_dictoffset != 0) {
-        // TODO: Get instance dict and set value
-        _ = value;
+        const offset: usize = @intCast(type_obj.tp_dictoffset);
+        const obj_bytes: [*]u8 = @ptrCast(obj);
+        const dict_ptr: *?*cpython.PyObject = @ptrCast(@alignCast(obj_bytes + offset));
+
+        // Create instance dict if it doesn't exist
+        if (dict_ptr.* == null) {
+            dict_ptr.* = pydict.PyDict_New();
+            if (dict_ptr.* == null) return -1;
+        }
+
+        if (value == null) {
+            // Delete attribute
+            return pydict.PyDict_DelItem(dict_ptr.*.?, name.?);
+        } else {
+            // Set attribute
+            return pydict.PyDict_SetItem(dict_ptr.*.?, name.?, value.?);
+        }
     }
 
+    // No dict offset - cannot set attribute
     return -1;
 }
 
@@ -636,8 +834,18 @@ pub export fn PyCallable_Check(op: ?*cpython.PyObject) c_int {
     // Check tp_call
     if (obj.ob_type.tp_call != null) return 1;
 
-    // Check for __call__ attribute
-    // TODO: Check __call__ in type dict
+    // Check for __call__ attribute in type dict
+    const pydict = @import("dictobject.zig");
+    const pyunicode = @import("unicodeobject.zig");
+
+    if (obj.ob_type.tp_dict) |type_dict| {
+        const call_name = pyunicode.PyUnicode_FromString("__call__");
+        if (call_name != null) {
+            defer cpython.Py_DECREF(call_name.?);
+            const call_attr = pydict.PyDict_GetItem(type_dict, call_name.?);
+            if (call_attr != null) return 1;
+        }
+    }
 
     return 0;
 }
@@ -694,8 +902,25 @@ pub export fn PyObject_GetItem(op: ?*cpython.PyObject, key: ?*cpython.PyObject) 
     // Check sequence protocol with integer key
     if (obj.ob_type.tp_as_sequence) |seq| {
         if (seq.sq_item) |item_func| {
-            // TODO: Convert key to index
-            _ = item_func;
+            // Convert key to index
+            const pylong = @import("longobject.zig");
+            if (pylong.PyLong_Check(key.?)) {
+                const index = pylong.PyLong_AsLong(key.?);
+                if (index >= 0) {
+                    return item_func(obj, index);
+                } else {
+                    // Handle negative indices by getting length
+                    if (seq.sq_length) |len_func| {
+                        const len = len_func(obj);
+                        if (len >= 0) {
+                            const adj_index = len + index;
+                            if (adj_index >= 0) {
+                                return item_func(obj, adj_index);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -718,8 +943,25 @@ pub export fn PyObject_SetItem(op: ?*cpython.PyObject, key: ?*cpython.PyObject, 
     // Check sequence protocol with integer key
     if (obj.ob_type.tp_as_sequence) |seq| {
         if (seq.sq_ass_item) |ass_item| {
-            // TODO: Convert key to index
-            _ = ass_item;
+            // Convert key to index
+            const pylong = @import("longobject.zig");
+            if (pylong.PyLong_Check(key.?)) {
+                const index = pylong.PyLong_AsLong(key.?);
+                if (index >= 0) {
+                    return ass_item(obj, index, value);
+                } else {
+                    // Handle negative indices
+                    if (seq.sq_length) |len_func| {
+                        const len = len_func(obj);
+                        if (len >= 0) {
+                            const adj_index = len + index;
+                            if (adj_index >= 0) {
+                                return ass_item(obj, adj_index, value);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -749,7 +991,8 @@ pub export fn PyObject_GetIter(op: ?*cpython.PyObject) ?*cpython.PyObject {
     if (obj.ob_type.tp_as_sequence) |seq| {
         if (seq.sq_item != null) {
             // Create sequence iterator
-            // TODO: Return PySeqIter_New(obj)
+            const iterobject = @import("iterobject.zig");
+            return iterobject.PySeqIter_New(obj);
         }
     }
 
@@ -827,12 +1070,105 @@ pub export fn _PyObject_NewVar(type_obj: ?*cpython.PyTypeObject, nitems: isize) 
 
 /// Get list of names in object's namespace
 pub export fn PyObject_Dir(op: ?*cpython.PyObject) ?*cpython.PyObject {
-    _ = op;
+    const pylist = @import("listobject.zig");
+    const pydict = @import("dictobject.zig");
+    const pyunicode = @import("unicodeobject.zig");
+    const pytuple = @import("tupleobject.zig");
 
-    // TODO: Implement dir() functionality
-    // 1. Get type's __dir__ if it exists
-    // 2. Otherwise, build list from type dict and instance dict
-    return null;
+    // Create result list
+    const result = pylist.PyList_New(0);
+    if (result == null) return null;
+
+    if (op == null) {
+        // dir() with no args - return empty list for now
+        return result;
+    }
+
+    const obj = op.?;
+    const type_obj = obj.ob_type;
+
+    // Check for __dir__ method first
+    const dir_name = pyunicode.PyUnicode_FromString("__dir__");
+    if (dir_name != null) {
+        defer cpython.Py_DECREF(dir_name.?);
+
+        const dir_method = PyObject_GetAttr(op, dir_name);
+        if (dir_method != null) {
+            defer cpython.Py_DECREF(dir_method.?);
+
+            // Call __dir__()
+            const call = @import("call.zig");
+            const empty_args = pytuple.PyTuple_New(0);
+            if (empty_args != null) {
+                defer cpython.Py_DECREF(empty_args.?);
+                const dir_result = call.PyObject_Call(dir_method.?, empty_args.?, null);
+                if (dir_result != null) {
+                    cpython.Py_DECREF(result);
+                    return dir_result;
+                }
+            }
+        }
+    }
+
+    // Build list from type dict and instance dict
+    // Add keys from type's __dict__
+    if (type_obj.tp_dict) |type_dict| {
+        var pos: isize = 0;
+        var key: ?*cpython.PyObject = null;
+        var value: ?*cpython.PyObject = null;
+
+        while (pydict.PyDict_Next(type_dict, &pos, &key, &value) != 0) {
+            if (key != null) {
+                cpython.Py_INCREF(key.?);
+                _ = pylist.PyList_Append(result, key.?);
+            }
+        }
+    }
+
+    // Add keys from MRO base classes
+    if (type_obj.tp_mro) |mro| {
+        const mro_size = pytuple.PyTuple_Size(mro);
+        var i: isize = 1; // Skip first (already handled)
+        while (i < mro_size) : (i += 1) {
+            const base = pytuple.PyTuple_GetItem(mro, i);
+            if (base != null) {
+                const base_type: *cpython.PyTypeObject = @ptrCast(@alignCast(base.?));
+                if (base_type.tp_dict) |base_dict| {
+                    var pos: isize = 0;
+                    var key: ?*cpython.PyObject = null;
+                    var value: ?*cpython.PyObject = null;
+
+                    while (pydict.PyDict_Next(base_dict, &pos, &key, &value) != 0) {
+                        if (key != null) {
+                            cpython.Py_INCREF(key.?);
+                            _ = pylist.PyList_Append(result, key.?);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Add keys from instance's __dict__ if it has one
+    if (type_obj.tp_dictoffset != 0) {
+        const offset: usize = @intCast(type_obj.tp_dictoffset);
+        const obj_bytes: [*]u8 = @ptrCast(obj);
+        const dict_ptr: *?*cpython.PyObject = @ptrCast(@alignCast(obj_bytes + offset));
+        if (dict_ptr.*) |inst_dict| {
+            var pos: isize = 0;
+            var key: ?*cpython.PyObject = null;
+            var value: ?*cpython.PyObject = null;
+
+            while (pydict.PyDict_Next(inst_dict, &pos, &key, &value) != 0) {
+                if (key != null) {
+                    cpython.Py_INCREF(key.?);
+                    _ = pylist.PyList_Append(result, key.?);
+                }
+            }
+        }
+    }
+
+    return result;
 }
 
 // ============================================================================
@@ -849,9 +1185,43 @@ pub export fn PyObject_Id(op: ?*cpython.PyObject) isize {
 pub export fn PyObject_Format(op: ?*cpython.PyObject, format_spec: ?*cpython.PyObject) ?*cpython.PyObject {
     if (op == null) return null;
 
-    // TODO: Look for __format__ method
-    _ = format_spec;
+    const pyunicode = @import("unicodeobject.zig");
+    const pytuple = @import("tupleobject.zig");
 
-    // Default to str()
+    // Look for __format__ method
+    const format_name = pyunicode.PyUnicode_FromString("__format__");
+    if (format_name != null) {
+        defer cpython.Py_DECREF(format_name.?);
+
+        const format_method = PyObject_GetAttr(op, format_name);
+        if (format_method != null) {
+            defer cpython.Py_DECREF(format_method.?);
+
+            // Call __format__(format_spec)
+            const call = @import("call.zig");
+            const args = pytuple.PyTuple_New(1);
+            if (args != null) {
+                defer cpython.Py_DECREF(args.?);
+
+                // Use empty string if no format_spec
+                const spec = format_spec orelse pyunicode.PyUnicode_FromString("");
+                if (spec != null) {
+                    if (format_spec == null) {
+                        // We created spec, will be owned by tuple
+                    } else {
+                        cpython.Py_INCREF(spec.?);
+                    }
+                    _ = pytuple.PyTuple_SetItem(args.?, 0, spec);
+
+                    const result = call.PyObject_Call(format_method.?, args.?, null);
+                    if (result != null) {
+                        return result;
+                    }
+                }
+            }
+        }
+    }
+
+    // Default to str() for objects without __format__
     return PyObject_Str(op);
 }

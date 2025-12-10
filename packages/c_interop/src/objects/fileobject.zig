@@ -255,9 +255,38 @@ pub export fn PyFile_FromFd(
 pub export fn PyFile_GetLine(f: ?*cpython.PyObject, n: c_int) ?*cpython.PyObject {
     if (f == null) return null;
 
-    // TODO: Call f.readline() or f.readline(n)
-    _ = n;
-    return null;
+    const object_mod = @import("object.zig");
+    const pyunicode = @import("unicodeobject.zig");
+    const pytuple = @import("tupleobject.zig");
+    const pylong = @import("longobject.zig");
+
+    // Get readline method
+    const readline_name = pyunicode.PyUnicode_FromString("readline");
+    if (readline_name == null) return null;
+    defer cpython.Py_DECREF(readline_name.?);
+
+    const readline_method = object_mod.PyObject_GetAttr(f.?, readline_name.?);
+    if (readline_method == null) return null;
+    defer cpython.Py_DECREF(readline_method.?);
+
+    // Build args - either empty or with n
+    var args: ?*cpython.PyObject = null;
+    if (n > 0) {
+        args = pytuple.PyTuple_New(1);
+        if (args != null) {
+            const n_obj = pylong.PyLong_FromLong(@intCast(n));
+            if (n_obj != null) {
+                _ = pytuple.PyTuple_SetItem(args.?, 0, n_obj);
+            }
+        }
+    } else {
+        args = pytuple.PyTuple_New(0);
+    }
+    if (args == null) return null;
+    defer cpython.Py_DECREF(args.?);
+
+    // Call readline method
+    return object_mod.PyObject_Call(readline_method.?, args.?, null);
 }
 
 /// Write object to file
@@ -307,7 +336,7 @@ pub export fn PyFile_WriteString(s: ?[*:0]const u8, f: ?*cpython.PyObject) c_int
     if (f == null) return -1;
     if (s == null) return -1;
 
-    // TODO: Create unicode from string and call PyFile_WriteObject
+    // Create unicode from string and call PyFile_WriteObject
     const pyunicode = @import("unicodeobject.zig");
     const v = pyunicode.PyUnicode_FromString(s.?);
     if (v == null) return -1;
@@ -315,7 +344,7 @@ pub export fn PyFile_WriteString(s: ?[*:0]const u8, f: ?*cpython.PyObject) c_int
     const result = PyFile_WriteObject(v, f, Py_PRINT_RAW);
 
     // Decref v
-    v.?.ob_refcnt -= 1;
+    cpython.Py_DECREF(v.?);
 
     return result;
 }
@@ -363,16 +392,52 @@ pub export fn PyObject_AsFileDescriptor(o: ?*cpython.PyObject) c_int {
 pub export fn PyFile_OpenCode(utf8path: ?[*:0]const u8) ?*cpython.PyObject {
     if (utf8path == null) return null;
 
-    // TODO: Open file using custom hook or fallback to io.open
-    return null;
+    const pyunicode = @import("unicodeobject.zig");
+
+    // Convert path to PyObject
+    const path_obj = pyunicode.PyUnicode_FromString(utf8path.?);
+    if (path_obj == null) return null;
+    defer cpython.Py_DECREF(path_obj.?);
+
+    // Check if a custom hook is set
+    if (open_code_hook) |hook| {
+        return hook(path_obj, open_code_hook_data);
+    }
+
+    // Fallback: Open file using standard file descriptor operations
+    // Open for reading in binary mode
+    const path_slice = std.mem.span(utf8path.?);
+    const fd = std.posix.open(path_slice, .{ .ACCMODE = .RDONLY }, 0) catch return null;
+
+    // Return a std printer wrapped around the fd for now
+    // In full implementation, this would call _io.open
+    return PyFile_NewStdPrinter(@intCast(fd));
 }
 
 /// Open file for code execution (object path)
 pub export fn PyFile_OpenCodeObject(path: ?*cpython.PyObject) ?*cpython.PyObject {
     if (path == null) return null;
 
-    // TODO: Convert path to string and call PyFile_OpenCode
-    return null;
+    const pyunicode = @import("unicodeobject.zig");
+
+    // Convert path to string
+    if (pyunicode.PyUnicode_Check(path.?) != 0) {
+        const utf8 = pyunicode.PyUnicode_AsUTF8(path.?);
+        if (utf8 != null) {
+            return PyFile_OpenCode(utf8);
+        }
+    }
+
+    // Try to convert using os.fspath
+    const object_mod = @import("object.zig");
+    const str_obj = object_mod.PyObject_Str(path.?);
+    if (str_obj == null) return null;
+    defer cpython.Py_DECREF(str_obj.?);
+
+    const utf8 = pyunicode.PyUnicode_AsUTF8(str_obj.?);
+    if (utf8 == null) return null;
+
+    return PyFile_OpenCode(utf8);
 }
 
 /// Py_OpenCodeHookFunction type

@@ -81,47 +81,119 @@ fn namespace_clear(self_obj: ?*cpython.PyObject) callconv(.C) c_int {
 fn namespace_repr(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     if (self_obj == null) return null;
     const ns: *_PyNamespaceObject = @ptrCast(@alignCast(self_obj.?));
+    const pyunicode = @import("unicodeobject.zig");
+    const pydict = @import("dictobject.zig");
 
-    // TODO: Format as "namespace(key=value, ...)"
-    _ = ns;
-    return null;
+    // Format as "namespace(key=value, ...)"
+    var buf: [4096]u8 = undefined;
+    var pos: usize = 0;
+
+    const prefix = "namespace(";
+    @memcpy(buf[pos..][0..prefix.len], prefix);
+    pos += prefix.len;
+
+    if (ns.ns_dict) |dict| {
+        // Iterate over dict items
+        var dict_pos: isize = 0;
+        var key: ?*cpython.PyObject = null;
+        var value: ?*cpython.PyObject = null;
+        var first = true;
+
+        while (pydict.PyDict_Next(dict, &dict_pos, &key, &value) != 0) {
+            if (!first and pos + 2 < buf.len) {
+                buf[pos] = ',';
+                buf[pos + 1] = ' ';
+                pos += 2;
+            }
+            first = false;
+
+            // Add key (should be a string)
+            if (key) |k| {
+                if (pyunicode.PyUnicode_Check(k) != 0) {
+                    const key_str = pyunicode.PyUnicode_AsUTF8(k);
+                    if (key_str) |ks| {
+                        const key_slice = std.mem.span(ks);
+                        const key_len = @min(key_slice.len, buf.len - pos - 100);
+                        @memcpy(buf[pos..][0..key_len], key_slice[0..key_len]);
+                        pos += key_len;
+                    }
+                }
+            }
+
+            buf[pos] = '=';
+            pos += 1;
+
+            // Add value repr
+            if (value) |v| {
+                if (v.ob_type.tp_repr) |repr_fn| {
+                    const val_repr = repr_fn(v);
+                    if (val_repr) |vr| {
+                        defer vr.ob_refcnt -= 1;
+                        const val_str = pyunicode.PyUnicode_AsUTF8(vr);
+                        if (val_str) |vs| {
+                            const val_slice = std.mem.span(vs);
+                            const val_len = @min(val_slice.len, buf.len - pos - 50);
+                            @memcpy(buf[pos..][0..val_len], val_slice[0..val_len]);
+                            pos += val_len;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    buf[pos] = ')';
+    pos += 1;
+
+    return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
 }
 
 /// Rich comparison for namespace
 fn namespace_richcompare(self_obj: *cpython.PyObject, other: *cpython.PyObject, op: c_int) callconv(.C) ?*cpython.PyObject {
     if (self_obj.ob_type != &_PyNamespace_Type or other.ob_type != &_PyNamespace_Type) {
         // Return NotImplemented
-        return null;
+        return cpython.Py_NotImplemented;
     }
 
     const self: *_PyNamespaceObject = @ptrCast(@alignCast(self_obj));
     const other_ns: *_PyNamespaceObject = @ptrCast(@alignCast(other));
+    const object_mod = @import("object.zig");
 
     // Compare dictionaries
     if (self.ns_dict != null and other_ns.ns_dict != null) {
-        // TODO: PyObject_RichCompare for dicts
-        _ = op;
+        return object_mod.PyObject_RichCompare(self.ns_dict.?, other_ns.ns_dict.?, op);
     }
 
-    return null;
+    // Handle null dict cases
+    const pybool = @import("boolobject.zig");
+    const both_null = (self.ns_dict == null and other_ns.ns_dict == null);
+
+    if (op == object_mod.Py_EQ) {
+        return if (both_null) pybool.Py_True else pybool.Py_False;
+    } else if (op == object_mod.Py_NE) {
+        return if (both_null) pybool.Py_False else pybool.Py_True;
+    }
+
+    return cpython.Py_NotImplemented;
 }
 
 /// Init for namespace
 fn namespace_init(self_obj: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) c_int {
     const ns: *_PyNamespaceObject = @ptrCast(@alignCast(self_obj));
+    const pydict = @import("dictobject.zig");
     _ = args;
 
     // Create empty dict if needed
     if (ns.ns_dict == null) {
-        const pydict = @import("dictobject.zig");
         ns.ns_dict = pydict.PyDict_New();
         if (ns.ns_dict == null) return -1;
     }
 
     // Update with kwargs if provided
     if (kwargs) |kw| {
-        // TODO: PyDict_Update
-        _ = kw;
+        if (pydict.PyDict_Update(ns.ns_dict.?, kw) < 0) {
+            return -1;
+        }
     }
 
     return 0;
