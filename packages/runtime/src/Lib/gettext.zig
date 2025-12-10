@@ -149,38 +149,75 @@ pub const GNUTranslations = struct {
         const file = try std.fs.cwd().openFile(path, .{});
         defer file.close();
 
-        return try parse(allocator, file.reader());
+        // Read entire file for random access to string tables
+        const data = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+        defer allocator.free(data);
+
+        return try parseData(allocator, data);
     }
 
-    /// Parse .mo file
+    /// Parse .mo file from reader (streaming - limited functionality)
     pub fn parse(allocator: std.mem.Allocator, reader: anytype) !Self {
-        // Read magic number
+        // For streaming, read header only - strings require seeking
         const magic = try reader.readInt(u32, .little);
-
         const is_le = magic == MO_MAGIC_LE;
         const is_be = magic == MO_MAGIC_BE;
+        if (!is_le and !is_be) return error.InvalidMOFile;
 
-        if (!is_le and !is_be) {
-            return error.InvalidMOFile;
-        }
+        // Return empty catalog for streaming (use fromFile for full support)
+        var catalog = hashmap_helper.StringHashMap([]const u8).init(allocator);
+        return Self{
+            .base = .{
+                .catalog = catalog,
+                .charset = "UTF-8",
+                .fallback = null,
+                .allocator = allocator,
+            },
+        };
+    }
+
+    /// Parse .mo file from memory buffer (full support)
+    fn parseData(allocator: std.mem.Allocator, data: []const u8) !Self {
+        if (data.len < 28) return error.InvalidMOFile;
+
+        // Read magic number
+        const magic = std.mem.readInt(u32, data[0..4], .little);
+        const is_le = magic == MO_MAGIC_LE;
+        const is_be = magic == MO_MAGIC_BE;
+        if (!is_le and !is_be) return error.InvalidMOFile;
 
         const endian: std.builtin.Endian = if (is_le) .little else .big;
 
         // Read header
-        const version = try reader.readInt(u32, endian);
-        _ = version; // Usually 0
-        const nstrings = try reader.readInt(u32, endian);
-        const orig_offset = try reader.readInt(u32, endian);
-        const trans_offset = try reader.readInt(u32, endian);
-        _ = orig_offset;
-        _ = trans_offset;
+        const nstrings = std.mem.readInt(u32, data[8..12], endian);
+        const orig_offset = std.mem.readInt(u32, data[12..16], endian);
+        const trans_offset = std.mem.readInt(u32, data[16..20], endian);
 
         var catalog = hashmap_helper.StringHashMap([]const u8).init(allocator);
 
-        // Read string pairs (simplified - real impl needs seeking)
-        for (0..nstrings) |_| {
-            // Would read from string tables
-            _ = &catalog;
+        // Read string pairs from offset tables
+        var i: u32 = 0;
+        while (i < nstrings) : (i += 1) {
+            // Original string table entry: length, offset
+            const orig_entry_off = orig_offset + i * 8;
+            if (orig_entry_off + 8 > data.len) break;
+
+            const orig_len = std.mem.readInt(u32, data[orig_entry_off..][0..4], endian);
+            const orig_off = std.mem.readInt(u32, data[orig_entry_off + 4 ..][0..4], endian);
+
+            // Translation string table entry
+            const trans_entry_off = trans_offset + i * 8;
+            if (trans_entry_off + 8 > data.len) break;
+
+            const trans_len = std.mem.readInt(u32, data[trans_entry_off..][0..4], endian);
+            const trans_off = std.mem.readInt(u32, data[trans_entry_off + 4 ..][0..4], endian);
+
+            // Extract strings
+            if (orig_off + orig_len <= data.len and trans_off + trans_len <= data.len) {
+                const orig_str = try allocator.dupe(u8, data[orig_off..][0..orig_len]);
+                const trans_str = try allocator.dupe(u8, data[trans_off..][0..trans_len]);
+                try catalog.put(orig_str, trans_str);
+            }
         }
 
         return Self{

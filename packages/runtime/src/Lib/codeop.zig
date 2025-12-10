@@ -145,7 +145,7 @@ pub const CommandCompiler = struct {
         return switch (result) {
             .code => |c| c,
             .incomplete => null,
-            .syntax_error => null, // In real impl, would raise exception
+            .syntax_error => null, // Syntax errors returned as null (caller handles)
         };
     }
 };

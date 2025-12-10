@@ -131,7 +131,7 @@ pub const FrameInfo = struct {
     lineno: usize,
     function: []const u8,
     code_context: ?[]const u8,
-    locals: ?*anyopaque, // Would be a dict in real impl
+    locals: ?*anyopaque, // Frame locals (PyDict in CPython)
 };
 
 // ============================================================================

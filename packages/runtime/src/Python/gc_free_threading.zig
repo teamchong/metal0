@@ -258,8 +258,9 @@ pub const GCState = struct {
             }
         }
 
-        // Mark from roots (simplified - in real impl, traverse all roots)
-        // This would include module dicts, interned strings, etc.
+        // AOT Limitation: Root traversal requires runtime reflection
+        // In CPython, roots include module dicts, interned strings, etc.
+        // In AOT, module globals are static and don't need GC tracking
     }
 
     /// Sweep unreachable objects

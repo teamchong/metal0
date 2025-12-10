@@ -77,7 +77,8 @@ pub const SharedLibLoader = struct {
         // Convert flags to platform-specific values
         const mode = flagsToMode(flags);
 
-        // Use dlopen (simulated - would use C interop in real impl)
+        // AOT: Dynamic loading uses simulated dlopen
+        // Native extensions are linked at compile time instead
         self.handle = simulatedDlopen(path, mode) catch |err| {
             self.last_error = try self.allocator.dupe(u8, "Failed to load library");
             return err;

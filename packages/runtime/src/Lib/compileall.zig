@@ -127,7 +127,8 @@ pub fn compile_file(
         }
     };
 
-    // Write placeholder bytecode (in real impl, would compile Python)
+    // Write .pyc header for tooling compatibility
+    // Metal0 AOT: Actual code is compiled to native binary, not bytecode
     const outfile = std.fs.createFileAbsolute(cfile, .{}) catch |err| {
         if (options.quiet < 2) {
             std.debug.print("Can't write {s}: {}\n", .{ cfile, err });

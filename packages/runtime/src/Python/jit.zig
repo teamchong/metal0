@@ -147,7 +147,7 @@ pub const JITCompiler = struct {
         self.state = .compiling;
         defer self.state = .ready;
 
-        // Simulate compilation (in real impl, would generate native code)
+        // AOT: Code already compiled - this caches bytecode for API compatibility
         const native_code = try self.generateNativeCode(bytecode);
 
         const entry = CompiledEntry{

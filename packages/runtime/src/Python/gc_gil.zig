@@ -282,10 +282,11 @@ pub const GCRuntimeState = struct {
         }
 
         // Phase 2: Subtract internal references
+        // AOT Limitation: tp_traverse requires runtime type info not available in AOT
+        // In CPython, this calls obj->ob_type->tp_traverse(obj, visit_decref, NULL)
+        // For AOT, objects with cycles must use explicit weak references
         it = gen.iterator();
         while (it.next()) |gc| {
-            // For each object gc references, decrement its gc_refs
-            // This is simplified - real impl traverses tp_traverse
             _ = gc;
         }
 

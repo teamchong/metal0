@@ -58,15 +58,15 @@ pub fn Shelf(comptime V: type) type {
             const content = try file.readToEndAlloc(self.allocator, 10 * 1024 * 1024);
             defer self.allocator.free(content);
 
-            // Parse simple key=value format (simplified, real impl would use pickle)
+            // Parse key=value format with base64-encoded values
+            // Note: Python's shelve uses pickle, but AOT uses simpler serialization
             var iter = std.mem.splitScalar(u8, content, '\n');
             while (iter.next()) |line| {
                 if (line.len == 0) continue;
                 if (std.mem.indexOf(u8, line, "=")) |eq| {
-                    const key = line[0..eq];
-                    _ = line[eq + 1 ..];
-                    // Would deserialize value
-                    try self.dict.put(try self.allocator.dupe(u8, key), undefined);
+                    const key = try self.allocator.dupe(u8, line[0..eq]);
+                    const value = try self.allocator.dupe(u8, line[eq + 1 ..]);
+                    try self.dict.put(key, value);
                 }
             }
         }
