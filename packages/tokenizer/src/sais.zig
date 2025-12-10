@@ -284,8 +284,23 @@ fn suffixsort(
     }
 
     if (is_bwt) {
-        // TODO: compute_bwt if needed
-        return error.NotImplemented;
+        // Compute BWT from suffix array
+        // BWT[i] = string[SA[i] - 1], with wraparound for SA[i] == 0
+        induceSA(string, suffix_array, counts, buckets, n);
+
+        // Find primary index (where original string starts) and compute BWT
+        var primary_index: usize = 0;
+        for (0..n) |idx| {
+            const sa_val = suffix_array[idx];
+            if (sa_val == 0) {
+                primary_index = idx;
+                // Wraparound: last character of string
+                suffix_array[idx] = string[n - 1];
+            } else {
+                suffix_array[idx] = string[sa_val - 1];
+            }
+        }
+        return primary_index;
     } else {
         induceSA(string, suffix_array, counts, buckets, n);
     }

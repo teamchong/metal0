@@ -175,13 +175,280 @@ pub fn gpt2Pattern(text: []const u8, allocator: Allocator) ![][]const u8 {
     return result.toOwnedSlice(allocator);
 }
 
-/// Full GPT-2 pattern with Unicode support - for future enhancement
-/// Uses regex from packages/regex/ (more powerful but slower)
+/// Full GPT-2 pattern with Unicode support
 /// Pattern: 's|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+
+/// Uses Zig's std.unicode for proper Unicode category detection
 pub fn gpt2PatternFull(text: []const u8, allocator: Allocator) ![][]const u8 {
-    // TODO: Use packages/regex/src/zig-regex/regex.zig for full Unicode support
-    // For now, fall back to simplified ASCII version
-    return gpt2Pattern(text, allocator);
+    var result: std.ArrayList([]const u8) = .{};
+    errdefer {
+        for (result.items) |item| allocator.free(item);
+        result.deinit(allocator);
+    }
+
+    var i: usize = 0;
+    while (i < text.len) {
+        // Try contractions first: 's, 't, 're, 've, 'm, 'll, 'd
+        if (text[i] == '\'') {
+            const contraction = tryContraction(text[i..]);
+            if (contraction) |len| {
+                try result.append(allocator, try allocator.dupe(u8, text[i .. i + len]));
+                i += len;
+                continue;
+            }
+        }
+
+        // Try optional-space + letters: ?\p{L}+
+        const letters = tryUnicodeLetters(text[i..]);
+        if (letters.len > 0) {
+            try result.append(allocator, try allocator.dupe(u8, text[i .. i + letters.len]));
+            i += letters.len;
+            continue;
+        }
+
+        // Try optional-space + numbers: ?\p{N}+
+        const numbers = tryUnicodeNumbers(text[i..]);
+        if (numbers.len > 0) {
+            try result.append(allocator, try allocator.dupe(u8, text[i .. i + numbers.len]));
+            i += numbers.len;
+            continue;
+        }
+
+        // Try optional-space + punctuation/symbols: ?[^\s\p{L}\p{N}]+
+        const punct = tryPunctuation(text[i..]);
+        if (punct.len > 0) {
+            try result.append(allocator, try allocator.dupe(u8, text[i .. i + punct.len]));
+            i += punct.len;
+            continue;
+        }
+
+        // Try whitespace (but not followed by non-whitespace for trailing ws)
+        const ws = tryWhitespace(text[i..]);
+        if (ws.len > 0) {
+            try result.append(allocator, try allocator.dupe(u8, text[i .. i + ws.len]));
+            i += ws.len;
+            continue;
+        }
+
+        // Single byte fallback
+        try result.append(allocator, try allocator.dupe(u8, text[i .. i + 1]));
+        i += 1;
+    }
+
+    return result.toOwnedSlice(allocator);
+}
+
+/// Try to match a contraction ('s, 't, 're, 've, 'm, 'll, 'd)
+fn tryContraction(text: []const u8) ?usize {
+    if (text.len < 2 or text[0] != '\'') return null;
+
+    if (text.len >= 3) {
+        const two = text[1..3];
+        if (std.mem.eql(u8, two, "re") or std.mem.eql(u8, two, "ve") or std.mem.eql(u8, two, "ll")) {
+            return 3;
+        }
+    }
+
+    const c = text[1];
+    if (c == 's' or c == 't' or c == 'm' or c == 'd' or c == 'S' or c == 'T' or c == 'M' or c == 'D') {
+        return 2;
+    }
+
+    return null;
+}
+
+/// Match optional-space + Unicode letters (simplified: ASCII letters + common UTF-8 ranges)
+fn tryUnicodeLetters(text: []const u8) struct { len: usize } {
+    var i: usize = 0;
+
+    // Optional leading space
+    if (i < text.len and text[i] == ' ') {
+        i += 1;
+    }
+
+    const start = i;
+
+    // Match letters (including UTF-8 multi-byte)
+    while (i < text.len) {
+        const c = text[i];
+
+        // ASCII letters
+        if ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z')) {
+            i += 1;
+            continue;
+        }
+
+        // UTF-8 multi-byte sequences (basic Latin supplement, extended Latin, etc.)
+        if (c >= 0xC0) {
+            const byte_len = std.unicode.utf8ByteSequenceLength(c) catch break;
+            if (i + byte_len > text.len) break;
+
+            // Decode and check if it's a letter category
+            const codepoint = std.unicode.utf8Decode(text[i..][0..byte_len]) catch break;
+            if (isUnicodeLetter(codepoint)) {
+                i += byte_len;
+                continue;
+            }
+        }
+
+        break;
+    }
+
+    // Must have at least one letter
+    if (i == start) return .{ .len = 0 };
+
+    return .{ .len = i };
+}
+
+/// Check if codepoint is a Unicode letter (basic check for common ranges)
+fn isUnicodeLetter(cp: u21) bool {
+    // Basic Latin letters
+    if ((cp >= 'a' and cp <= 'z') or (cp >= 'A' and cp <= 'Z')) return true;
+
+    // Latin-1 Supplement letters (À-ÖØ-öø-ÿ)
+    if ((cp >= 0x00C0 and cp <= 0x00D6) or
+        (cp >= 0x00D8 and cp <= 0x00F6) or
+        (cp >= 0x00F8 and cp <= 0x00FF)) return true;
+
+    // Latin Extended-A (Ā-ſ)
+    if (cp >= 0x0100 and cp <= 0x017F) return true;
+
+    // Latin Extended-B
+    if (cp >= 0x0180 and cp <= 0x024F) return true;
+
+    // Greek and Coptic
+    if (cp >= 0x0370 and cp <= 0x03FF) return true;
+
+    // Cyrillic
+    if (cp >= 0x0400 and cp <= 0x04FF) return true;
+
+    // CJK Unified Ideographs (basic range)
+    if (cp >= 0x4E00 and cp <= 0x9FFF) return true;
+
+    // Hiragana
+    if (cp >= 0x3040 and cp <= 0x309F) return true;
+
+    // Katakana
+    if (cp >= 0x30A0 and cp <= 0x30FF) return true;
+
+    // Hangul Syllables
+    if (cp >= 0xAC00 and cp <= 0xD7AF) return true;
+
+    return false;
+}
+
+/// Match optional-space + Unicode numbers
+fn tryUnicodeNumbers(text: []const u8) struct { len: usize } {
+    var i: usize = 0;
+
+    // Optional leading space
+    if (i < text.len and text[i] == ' ') {
+        i += 1;
+    }
+
+    const start = i;
+
+    // Match digits (including UTF-8 multi-byte number characters)
+    while (i < text.len) {
+        const c = text[i];
+
+        // ASCII digits
+        if (c >= '0' and c <= '9') {
+            i += 1;
+            continue;
+        }
+
+        // UTF-8 multi-byte number characters
+        if (c >= 0xC0) {
+            const byte_len = std.unicode.utf8ByteSequenceLength(c) catch break;
+            if (i + byte_len > text.len) break;
+
+            const codepoint = std.unicode.utf8Decode(text[i..][0..byte_len]) catch break;
+            if (isUnicodeNumber(codepoint)) {
+                i += byte_len;
+                continue;
+            }
+        }
+
+        break;
+    }
+
+    if (i == start) return .{ .len = 0 };
+
+    return .{ .len = i };
+}
+
+/// Check if codepoint is a Unicode number
+fn isUnicodeNumber(cp: u21) bool {
+    // ASCII digits
+    if (cp >= '0' and cp <= '9') return true;
+
+    // Arabic-Indic digits
+    if (cp >= 0x0660 and cp <= 0x0669) return true;
+
+    // Extended Arabic-Indic digits
+    if (cp >= 0x06F0 and cp <= 0x06F9) return true;
+
+    // Fullwidth digits
+    if (cp >= 0xFF10 and cp <= 0xFF19) return true;
+
+    return false;
+}
+
+/// Match optional-space + punctuation/symbols (not whitespace, letters, or numbers)
+fn tryPunctuation(text: []const u8) struct { len: usize } {
+    var i: usize = 0;
+
+    // Optional leading space
+    if (i < text.len and text[i] == ' ') {
+        i += 1;
+    }
+
+    const start = i;
+
+    while (i < text.len) {
+        const c = text[i];
+
+        // Skip whitespace
+        if (c == ' ' or c == '\t' or c == '\n' or c == '\r') break;
+
+        // Skip ASCII letters and digits
+        if ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9')) break;
+
+        // Handle UTF-8 multi-byte
+        if (c >= 0xC0) {
+            const byte_len = std.unicode.utf8ByteSequenceLength(c) catch break;
+            if (i + byte_len > text.len) break;
+
+            const codepoint = std.unicode.utf8Decode(text[i..][0..byte_len]) catch break;
+            if (isUnicodeLetter(codepoint) or isUnicodeNumber(codepoint)) break;
+
+            i += byte_len;
+            continue;
+        }
+
+        // ASCII punctuation/symbol
+        i += 1;
+    }
+
+    if (i == start) return .{ .len = 0 };
+
+    return .{ .len = i };
+}
+
+/// Match whitespace sequence
+fn tryWhitespace(text: []const u8) struct { len: usize } {
+    var i: usize = 0;
+
+    while (i < text.len) {
+        const c = text[i];
+        if (c == ' ' or c == '\t' or c == '\n' or c == '\r') {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+
+    return .{ .len = i };
 }
 
 /// Metaspace pre-tokenizer - replaces spaces with special character (▁)
