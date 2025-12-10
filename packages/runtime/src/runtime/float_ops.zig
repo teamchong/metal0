@@ -388,12 +388,83 @@ pub fn floatHex(allocator: std.mem.Allocator, value: f64) ![]u8 {
     return buf.toOwnedSlice(allocator);
 }
 
-/// float.hex() - Convert f64 to hex string
+/// float.hex() - Convert f64 to hex string in Python format
 /// Python: (3.14).hex() = '0x1.91eb851eb851fp+1'
+/// Format: 0x[+-]h.hhhhhhhhhhhhhhp[+-]d
 pub fn floatToHex(allocator: std.mem.Allocator, value: f64) ![]u8 {
     var buf = std.ArrayList(u8){};
-    // For now, return a simple representation (full impl needs proper hex float format)
-    try buf.writer(allocator).print("{d}", .{value});
+
+    // Handle special cases
+    if (std.math.isNan(value)) {
+        try buf.appendSlice(allocator, "nan");
+        return buf.toOwnedSlice(allocator);
+    }
+    if (std.math.isInf(value)) {
+        if (value < 0) {
+            try buf.appendSlice(allocator, "-inf");
+        } else {
+            try buf.appendSlice(allocator, "inf");
+        }
+        return buf.toOwnedSlice(allocator);
+    }
+    if (value == 0.0) {
+        // Check for negative zero
+        if (@as(u64, @bitCast(value)) >> 63 == 1) {
+            try buf.appendSlice(allocator, "-0x0.0p+0");
+        } else {
+            try buf.appendSlice(allocator, "0x0.0p+0");
+        }
+        return buf.toOwnedSlice(allocator);
+    }
+
+    // Extract sign, mantissa, and exponent from IEEE 754 double
+    const bits: u64 = @bitCast(value);
+    const sign: u1 = @intCast((bits >> 63) & 1);
+    const exp_bits: u11 = @intCast((bits >> 52) & 0x7FF);
+    const mantissa: u52 = @intCast(bits & 0xFFFFFFFFFFFFF);
+
+    if (sign == 1) {
+        try buf.append(allocator, '-');
+    }
+
+    try buf.appendSlice(allocator, "0x");
+
+    // Calculate actual exponent (bias is 1023 for double)
+    const exponent: i64 = if (exp_bits == 0)
+        -1022 // Denormalized
+    else
+        @as(i64, @intCast(exp_bits)) - 1023;
+
+    // Leading digit is 1 for normalized, 0 for denormalized
+    const leading: u8 = if (exp_bits == 0) '0' else '1';
+    try buf.append(allocator, leading);
+    try buf.append(allocator, '.');
+
+    // Convert mantissa to hex digits (13 hex digits for 52 bits)
+    // We need 52/4 = 13 hex digits
+    var hex_digits: [13]u8 = undefined;
+    var digit_count: usize = 0;
+
+    for (0..13) |i| {
+        const shift: u6 = @intCast(52 - (i + 1) * 4);
+        const digit: u4 = @intCast((mantissa >> shift) & 0xF);
+        hex_digits[i] = "0123456789abcdef"[digit];
+        if (digit != 0 or digit_count > 0) {
+            digit_count = i + 1;
+        }
+    }
+
+    // Write at least one digit, strip trailing zeros
+    const digits_to_write = if (digit_count == 0) 1 else digit_count;
+    try buf.appendSlice(allocator, hex_digits[0..digits_to_write]);
+
+    // Write exponent
+    try buf.append(allocator, 'p');
+    if (exponent >= 0) {
+        try buf.append(allocator, '+');
+    }
+    try buf.writer(allocator).print("{d}", .{exponent});
+
     return buf.toOwnedSlice(allocator);
 }
 

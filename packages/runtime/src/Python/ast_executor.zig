@@ -54,6 +54,52 @@ pub const Node = union(enum) {
     };
 };
 
+/// Execution context with variable bindings
+pub const ExecutionContext = struct {
+    allocator: std.mem.Allocator,
+    locals: std.StringHashMapUnmanaged(*PyObject),
+    globals: std.StringHashMapUnmanaged(*PyObject),
+
+    pub fn init(allocator: std.mem.Allocator) ExecutionContext {
+        return .{
+            .allocator = allocator,
+            .locals = .{},
+            .globals = .{},
+        };
+    }
+
+    pub fn deinit(self: *ExecutionContext) void {
+        self.locals.deinit(self.allocator);
+        self.globals.deinit(self.allocator);
+    }
+
+    pub fn setLocal(self: *ExecutionContext, name: []const u8, value: *PyObject) !void {
+        try self.locals.put(self.allocator, name, value);
+    }
+
+    pub fn setGlobal(self: *ExecutionContext, name: []const u8, value: *PyObject) !void {
+        try self.globals.put(self.allocator, name, value);
+    }
+
+    pub fn lookup(self: *ExecutionContext, name: []const u8) ?*PyObject {
+        // Check locals first, then globals (Python scoping rules)
+        return self.locals.get(name) orelse self.globals.get(name);
+    }
+};
+
+/// Thread-local execution context for eval()
+threadlocal var current_context: ?*ExecutionContext = null;
+
+/// Set the current execution context
+pub fn setContext(ctx: *ExecutionContext) void {
+    current_context = ctx;
+}
+
+/// Clear the current execution context
+pub fn clearContext() void {
+    current_context = null;
+}
+
 /// Execute an AST node and return PyObject
 pub fn execute(allocator: std.mem.Allocator, node: *const Node) anyerror!*PyObject {
     switch (node.*) {
@@ -66,10 +112,55 @@ pub fn execute(allocator: std.mem.Allocator, node: *const Node) anyerror!*PyObje
         .call => |c| {
             return try executeCall(allocator, c);
         },
-        .name => {
-            return error.NotImplemented; // Variables need scope
+        .name => |n| {
+            return try executeName(allocator, n);
         },
     }
+}
+
+/// Execute with explicit context
+pub fn executeWithContext(allocator: std.mem.Allocator, node: *const Node, ctx: *ExecutionContext) anyerror!*PyObject {
+    const old_ctx = current_context;
+    current_context = ctx;
+    defer current_context = old_ctx;
+    return execute(allocator, node);
+}
+
+/// Execute a name lookup
+fn executeName(allocator: std.mem.Allocator, name: Node.Name) !*PyObject {
+    // Check current execution context for variable
+    if (current_context) |ctx| {
+        if (ctx.lookup(name.id)) |value| {
+            // Increment reference count and return
+            runtime.incref(value);
+            return value;
+        }
+    }
+
+    // Check for builtin names
+    if (lookupBuiltin(allocator, name.id)) |builtin| {
+        return builtin;
+    }
+
+    // Name not found - raise NameError
+    return error.NameError;
+}
+
+/// Look up a builtin name
+fn lookupBuiltin(allocator: std.mem.Allocator, name: []const u8) ?*PyObject {
+    // Common builtins that might be used in eval()
+    if (std.mem.eql(u8, name, "True")) {
+        return PyBool.create(allocator, true) catch null;
+    }
+    if (std.mem.eql(u8, name, "False")) {
+        return PyBool.create(allocator, false) catch null;
+    }
+    if (std.mem.eql(u8, name, "None")) {
+        // Return None singleton (would need proper None object)
+        return null;
+    }
+
+    return null;
 }
 
 fn executeConstant(allocator: std.mem.Allocator, constant: Node.Constant) !*PyObject {
