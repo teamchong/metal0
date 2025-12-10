@@ -403,9 +403,55 @@ fn parseIpv4(ip: []const u8) !u32 {
 }
 
 fn parseIpv6(ip: []const u8) ![16]u8 {
-    _ = ip;
-    // Simplified - just return zeros for now
-    return [_]u8{0} ** 16;
+    var result: [16]u8 = [_]u8{0} ** 16;
+
+    // Handle :: (all zeros)
+    if (std.mem.eql(u8, ip, "::")) {
+        return result;
+    }
+
+    // Handle ::1 (loopback)
+    if (std.mem.eql(u8, ip, "::1")) {
+        result[15] = 1;
+        return result;
+    }
+
+    // Find :: position for compression
+    var double_colon_pos: ?usize = null;
+    if (std.mem.indexOf(u8, ip, "::")) |pos| {
+        double_colon_pos = pos;
+    }
+
+    var write_idx: usize = 0;
+    var iter = std.mem.splitScalar(u8, ip, ':');
+
+    while (iter.next()) |segment| {
+        if (segment.len == 0) {
+            // Part of :: compression
+            if (double_colon_pos != null and write_idx < 16) {
+                // Calculate how many zeros to insert
+                // Count remaining non-empty segments
+                var remaining: usize = 0;
+                var temp_iter = iter;
+                while (temp_iter.next()) |s| {
+                    if (s.len > 0) remaining += 1;
+                }
+                const zeros_needed = 16 - write_idx - (remaining * 2);
+                write_idx += zeros_needed;
+            }
+            continue;
+        }
+
+        if (segment.len > 4 or write_idx >= 15) return error.InvalidAddress;
+
+        // Parse hex value
+        const val = std.fmt.parseInt(u16, segment, 16) catch return error.InvalidAddress;
+        result[write_idx] = @intCast((val >> 8) & 0xFF);
+        result[write_idx + 1] = @intCast(val & 0xFF);
+        write_idx += 2;
+    }
+
+    return result;
 }
 
 // ============================================================================
@@ -508,12 +554,53 @@ pub fn inet_ntoa(packed: u32, buffer: []u8) ![]u8 {
 
 /// Get address info (simplified)
 pub fn getaddrinfo(allocator: std.mem.Allocator, host: []const u8, port: u16) ![]Address {
-    _ = allocator;
+    // Use std.net.Address for DNS resolution
+    const std_net = std.net;
 
-    // Simplified - just return a single IPv4 address
-    var result: [1]Address = undefined;
-    result[0] = try Address.inet4(host, port);
-    return &result;
+    // Try to resolve the hostname using Zig's std library
+    var list = std_net.Address.resolveIp(host, port) catch |err| {
+        // Fallback: try parsing as IP address directly
+        _ = err;
+        const single = allocator.alloc(Address, 1) catch return error.OutOfMemory;
+        single[0] = try Address.inet4(host, port);
+        return single;
+    };
+
+    // Convert std.net.Address to our Address format
+    var addresses = std.ArrayList(Address).init(allocator);
+    defer list.deinit();
+
+    for (list.addrs) |addr| {
+        const our_addr = switch (addr.any.family) {
+            posix.AF.INET => blk: {
+                const in_addr = addr.in;
+                break :blk Address{
+                    .family = AF_INET,
+                    .port = std.mem.bigToNative(u16, in_addr.port),
+                    .addr = .{ .ipv4 = @bitCast(in_addr.addr) },
+                };
+            },
+            posix.AF.INET6 => blk: {
+                const in6_addr = addr.in6;
+                break :blk Address{
+                    .family = AF_INET6,
+                    .port = std.mem.bigToNative(u16, in6_addr.port),
+                    .addr = .{ .ipv6 = in6_addr.addr },
+                };
+            },
+            else => continue,
+        };
+        addresses.append(our_addr) catch continue;
+    }
+
+    if (addresses.items.len == 0) {
+        // Fallback to direct IP parse
+        const single = allocator.alloc(Address, 1) catch return error.OutOfMemory;
+        single[0] = try Address.inet4(host, port);
+        return single;
+    }
+
+    return addresses.toOwnedSlice();
 }
 
 /// Check if socket has pending data using poll()
