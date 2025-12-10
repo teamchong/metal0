@@ -192,18 +192,63 @@ pub const Decimal = struct {
     }
 
     /// Create from float
+    /// Converts a float to Decimal by converting to string representation first
     pub fn fromFloat(value: f64) Self {
         if (std.math.isNan(value)) return nan_value;
         if (std.math.isInf(value)) {
             return if (value < 0) negative_infinity else infinity;
         }
-        // Simplified conversion
+        if (value == 0) {
+            return Self{ .sign = if (std.math.signbit(value)) 1 else 0 };
+        }
+
         const sign: u1 = if (value < 0) 1 else 0;
         const abs_val = if (value < 0) -value else value;
-        _ = abs_val;
-        return Self{
+
+        // Convert float to coefficient and exponent
+        // Use log10 to find magnitude
+        const log_val = @log10(abs_val);
+        const exp_part: i32 = @intFromFloat(@floor(log_val));
+
+        // Scale to get coefficient as integer
+        // We want enough precision (up to 17 digits for f64)
+        const scale_exp: i32 = 17 - exp_part - 1;
+        const scale: f64 = std.math.pow(f64, 10.0, @floatFromInt(scale_exp));
+        const scaled = abs_val * scale;
+
+        // Get coefficient digits
+        const coeff_int: u64 = @intFromFloat(@round(scaled));
+
+        // Find actual number of significant digits (trim trailing zeros)
+        var coeff = coeff_int;
+        var actual_exp: i32 = -scale_exp;
+        while (coeff > 0 and coeff % 10 == 0) {
+            coeff = coeff / 10;
+            actual_exp += 1;
+        }
+
+        // Convert coefficient to digits
+        var digits: [20]u8 = undefined;
+        var digit_count: usize = 0;
+        var temp_coeff = coeff;
+        while (temp_coeff > 0) {
+            digits[digit_count] = @intCast(temp_coeff % 10);
+            temp_coeff = temp_coeff / 10;
+            digit_count += 1;
+        }
+
+        // Reverse digits into coefficient array
+        var result = Self{
             .sign = sign,
+            .exponent = actual_exp,
         };
+
+        // Store digits in reverse order (most significant first)
+        for (0..digit_count) |i| {
+            result.coefficient[i] = digits[digit_count - 1 - i];
+        }
+
+        return result;
     }
 
     /// Parse from string

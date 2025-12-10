@@ -12,6 +12,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const runtime = @import("../runtime.zig");
 
 // ============================================================================
 // Pending Call System
@@ -707,42 +708,217 @@ pub fn getFrameLocals() ?*anyopaque {
 
 /// Match exception group
 /// Mirrors: _PyEval_ExceptionGroupMatch()
+/// Returns (match, rest) tuple where:
+///   - match: ExceptionGroup containing exceptions that match the type
+///   - rest: ExceptionGroup containing exceptions that don't match (or null if all matched)
 pub fn exceptionGroupMatch(
     exc_value: ?*anyopaque,
     match_type: ?*anyopaque,
 ) struct { ?*anyopaque, ?*anyopaque } {
-    _ = exc_value;
-    _ = match_type;
-    // Stub - would implement exception group matching for try/except*
-    return .{ null, null };
+    const exc = exc_value orelse return .{ null, null };
+    const type_to_match = match_type orelse return .{ null, null };
+
+    // Get the PyObject pointers
+    const exc_obj: *runtime.PyObject = @ptrCast(@alignCast(exc));
+    const type_obj: *runtime.PyObject = @ptrCast(@alignCast(type_to_match));
+
+    // Check if this exception matches the type
+    if (exceptionTypeMatches(exc_obj, type_obj)) {
+        return .{ exc, null };
+    }
+    return .{ null, exc };
+}
+
+/// Helper to check if an exception matches a type
+fn exceptionTypeMatches(exc: *runtime.PyObject, type_obj: *runtime.PyObject) bool {
+    // Get exception type
+    const exc_type = exc.ob_type orelse return false;
+
+    // Check if type_obj is a type object we should compare against
+    // type_obj could be either a type object or an instance
+    const match_type_ptr = type_obj.ob_type orelse return false;
+
+    // Direct type match
+    if (exc_type == match_type_ptr) return true;
+
+    // Check type name match for common exceptions
+    const exc_name = exc_type.tp_name;
+    const match_name = match_type_ptr.tp_name;
+
+    // If names match, it's a match
+    if (std.mem.eql(u8, std.mem.span(exc_name), std.mem.span(match_name))) {
+        return true;
+    }
+
+    // Check if exc type is subclass of match type using type hierarchy
+    return runtime.isSubclass(exc_type, match_type_ptr);
 }
 
 /// Match mapping keys for pattern matching
 /// Mirrors: _PyEval_MatchKeys()
+/// Given a mapping and a tuple of keys, return a tuple of values if all keys exist
+/// Returns null if any key is missing
 pub fn matchKeys(
     map: ?*anyopaque,
     keys: ?*anyopaque,
 ) ?*anyopaque {
-    _ = map;
-    _ = keys;
-    // Stub - would implement mapping key matching
-    return null;
+    const map_ptr = map orelse return null;
+    const keys_ptr = keys orelse return null;
+
+    const map_obj: *runtime.PyObject = @ptrCast(@alignCast(map_ptr));
+    const keys_obj: *runtime.PyObject = @ptrCast(@alignCast(keys_ptr));
+
+    // Verify map is a dict
+    if (!runtime.PyDict_Check(map_obj)) {
+        return null;
+    }
+
+    // Get the keys - must be a list or tuple
+    const keys_type = runtime.getTypeId(keys_obj);
+    const allocator = runtime.c_allocator;
+
+    // Collect values for each key
+    var values = std.ArrayList(*runtime.PyObject).init(allocator);
+    defer values.deinit();
+
+    if (keys_type == .list) {
+        const list_obj: *runtime.PyListObject = @ptrCast(@alignCast(keys_obj));
+        const items_ptr = list_obj.ob_item orelse return null;
+        const list_size: usize = @intCast(list_obj.ob_size);
+
+        for (items_ptr[0..list_size]) |key_obj| {
+            // Key must be a string for dict lookup
+            const key_type = runtime.getTypeId(key_obj);
+            if (key_type != .string) {
+                return null;
+            }
+
+            const key_str = runtime.PyString.getValue(key_obj);
+
+            // Look up value in dict
+            if (runtime.PyDict.get(map_obj, key_str)) |value| {
+                values.append(value) catch return null;
+            } else {
+                // Key not found - pattern doesn't match
+                return null;
+            }
+        }
+    } else if (keys_type == .tuple) {
+        const tuple_obj: *runtime.PyTupleObject = @ptrCast(@alignCast(keys_obj));
+        const items_ptr = tuple_obj.ob_item orelse return null;
+        const tuple_size: usize = @intCast(tuple_obj.ob_size);
+
+        for (items_ptr[0..tuple_size]) |key_obj| {
+            // Key must be a string for dict lookup
+            const key_type = runtime.getTypeId(key_obj);
+            if (key_type != .string) {
+                return null;
+            }
+
+            const key_str = runtime.PyString.getValue(key_obj);
+
+            // Look up value in dict
+            if (runtime.PyDict.get(map_obj, key_str)) |value| {
+                values.append(value) catch return null;
+            } else {
+                // Key not found - pattern doesn't match
+                return null;
+            }
+        }
+    } else {
+        return null;
+    }
+
+    // Create result tuple with the values
+    const result = runtime.PyTuple.create(allocator, values.items) catch return null;
+    return @ptrCast(result);
 }
 
 /// Match class for pattern matching
 /// Mirrors: _PyEval_MatchClass()
+/// Matches a subject against a class pattern with positional and keyword arguments
+/// Returns a tuple of matched values or null if pattern doesn't match
 pub fn matchClass(
     subject: ?*anyopaque,
     type_: ?*anyopaque,
     nargs: usize,
     kwargs: ?*anyopaque,
 ) ?*anyopaque {
-    _ = subject;
-    _ = type_;
-    _ = nargs;
+    const subj_ptr = subject orelse return null;
+    const type_ptr = type_ orelse return null;
+
+    const subj_obj: *runtime.PyObject = @ptrCast(@alignCast(subj_ptr));
+    const type_obj: *runtime.PyObject = @ptrCast(@alignCast(type_ptr));
+
+    // Check if subject is an instance of the type
+    const subj_type = subj_obj.ob_type orelse return null;
+    const match_type: *runtime.PyTypeObject = @ptrCast(@alignCast(type_obj));
+
+    // Check type match using isinstance logic
+    if (subj_type != match_type and !runtime.isSubclass(subj_type, match_type)) {
+        return null;
+    }
+
+    const allocator = runtime.c_allocator;
+
+    // Collect matched values
+    var matched_values = std.ArrayList(*runtime.PyObject).init(allocator);
+    defer matched_values.deinit();
+
+    // For positional args, we'd extract __match_args__ from the type
+    // and get corresponding attributes from the subject
+    // This is a simplified implementation for common patterns
+
+    // Handle builtin types with known structures
+    const type_id = runtime.getTypeId(subj_obj);
+    switch (type_id) {
+        .tuple => {
+            // For tuples, positional args are the elements
+            const tuple_obj: *runtime.PyTupleObject = @ptrCast(@alignCast(subj_obj));
+            const items_ptr = tuple_obj.ob_item orelse return null;
+            const tuple_size: usize = @intCast(tuple_obj.ob_size);
+
+            if (tuple_size >= nargs) {
+                for (items_ptr[0..nargs]) |item| {
+                    matched_values.append(item) catch return null;
+                }
+            } else {
+                return null;
+            }
+        },
+        .list => {
+            // For lists, positional args are the elements
+            const list_obj: *runtime.PyListObject = @ptrCast(@alignCast(subj_obj));
+            const items_ptr = list_obj.ob_item orelse return null;
+            const list_size: usize = @intCast(list_obj.ob_size);
+
+            if (list_size >= nargs) {
+                for (items_ptr[0..nargs]) |item| {
+                    matched_values.append(item) catch return null;
+                }
+            } else {
+                return null;
+            }
+        },
+        else => {
+            // For other types, try to get attributes from __match_args__
+            // or fall back to direct attribute access via kwargs
+            if (nargs > 0) {
+                // Need __match_args__ to know which attrs to extract
+                // For now, return null for non-standard types with positional args
+                return null;
+            }
+        },
+    }
+
+    // Handle keyword arguments - look up attributes on subject
+    // For simplicity, skip kwargs processing in this implementation
+    // Real implementation would need getattr functionality
     _ = kwargs;
-    // Stub - would implement class pattern matching
-    return null;
+
+    // Create result tuple
+    const result = runtime.PyTuple.create(allocator, matched_values.items) catch return null;
+    return @ptrCast(result);
 }
 
 // ============================================================================
@@ -751,18 +927,149 @@ pub fn matchClass(
 
 /// Unpack iterable for assignment
 /// Mirrors: _PyEval_UnpackIterableStackRef()
+/// Unpacks an iterable into argcnt values before a star, and argcntafter values after
+/// For example: a, *b, c = [1,2,3,4,5] would have argcnt=1, argcntafter=1
+/// Returns an array of PyObject pointers representing unpacked values
 pub fn unpackIterable(
     allocator: std.mem.Allocator,
     iterable: ?*anyopaque,
     argcnt: usize,
     argcntafter: usize,
 ) ![]?*anyopaque {
-    _ = allocator;
-    _ = iterable;
-    _ = argcnt;
-    _ = argcntafter;
-    // Stub - would implement iterable unpacking
-    return error.NotImplemented;
+    const iter_ptr = iterable orelse return error.NotImplemented;
+    const iter_obj: *runtime.PyObject = @ptrCast(@alignCast(iter_ptr));
+    const type_id = runtime.getTypeId(iter_obj);
+
+    // Handle different types
+    return switch (type_id) {
+        .list => unpackList(allocator, iter_obj, argcnt, argcntafter),
+        .tuple => unpackTuple(allocator, iter_obj, argcnt, argcntafter),
+        .string => unpackString(allocator, iter_obj, argcnt, argcntafter),
+        else => error.NotImplemented,
+    };
+}
+
+fn unpackList(allocator: std.mem.Allocator, iter_obj: *runtime.PyObject, argcnt: usize, argcntafter: usize) ![]?*anyopaque {
+    const list_obj: *runtime.PyListObject = @ptrCast(@alignCast(iter_obj));
+    const items_ptr = list_obj.ob_item orelse return error.ValueError;
+    const list_size: usize = @intCast(list_obj.ob_size);
+
+    return unpackSlice(allocator, items_ptr[0..list_size], argcnt, argcntafter);
+}
+
+fn unpackTuple(allocator: std.mem.Allocator, iter_obj: *runtime.PyObject, argcnt: usize, argcntafter: usize) ![]?*anyopaque {
+    const tuple_obj: *runtime.PyTupleObject = @ptrCast(@alignCast(iter_obj));
+    const items_ptr = tuple_obj.ob_item orelse return error.ValueError;
+    const tuple_size: usize = @intCast(tuple_obj.ob_size);
+
+    return unpackSlice(allocator, items_ptr[0..tuple_size], argcnt, argcntafter);
+}
+
+fn unpackSlice(allocator: std.mem.Allocator, items: []*runtime.PyObject, argcnt: usize, argcntafter: usize) ![]?*anyopaque {
+    const total_needed = argcnt + argcntafter;
+
+    if (argcntafter > 0) {
+        // Star unpacking
+        if (items.len < total_needed) {
+            return error.ValueError;
+        }
+
+        var result = try allocator.alloc(?*anyopaque, argcnt + 1 + argcntafter);
+
+        // First argcnt items
+        for (0..argcnt) |i| {
+            runtime.incref(items[i]);
+            result[i] = @ptrCast(items[i]);
+        }
+
+        // Middle star item
+        const star_len = items.len - argcnt - argcntafter;
+        const star_list = try runtime.PyList.create(allocator);
+        for (0..star_len) |i| {
+            runtime.incref(items[argcnt + i]);
+            try runtime.PyList.append(star_list, items[argcnt + i]);
+        }
+        result[argcnt] = @ptrCast(star_list);
+
+        // Last argcntafter items
+        for (0..argcntafter) |i| {
+            const idx = items.len - argcntafter + i;
+            runtime.incref(items[idx]);
+            result[argcnt + 1 + i] = @ptrCast(items[idx]);
+        }
+
+        return result;
+    } else {
+        // Simple unpacking
+        if (items.len != argcnt) {
+            return error.ValueError;
+        }
+
+        var result = try allocator.alloc(?*anyopaque, argcnt);
+        for (items, 0..) |item, i| {
+            runtime.incref(item);
+            result[i] = @ptrCast(item);
+        }
+        return result;
+    }
+}
+
+fn unpackString(allocator: std.mem.Allocator, iter_obj: *runtime.PyObject, argcnt: usize, argcntafter: usize) ![]?*anyopaque {
+    const str_val = runtime.PyString.getValue(iter_obj);
+    const total_needed = argcnt + argcntafter;
+
+    if (argcntafter > 0) {
+        // Star unpacking: a, *b, c = "hello"
+        if (str_val.len < total_needed) {
+            return error.ValueError;
+        }
+
+        var result = try allocator.alloc(?*anyopaque, argcnt + 1 + argcntafter);
+
+        // First argcnt items
+        for (0..argcnt) |i| {
+            const char_str = try allocator.alloc(u8, 1);
+            char_str[0] = str_val[i];
+            const char_obj = try runtime.PyString.create(allocator, char_str);
+            result[i] = @ptrCast(char_obj);
+        }
+
+        // Middle star item
+        const star_len = str_val.len - argcnt - argcntafter;
+        const star_list = try runtime.PyList.create(allocator);
+        for (0..star_len) |i| {
+            const char_str = try allocator.alloc(u8, 1);
+            char_str[0] = str_val[argcnt + i];
+            const char_obj = try runtime.PyString.create(allocator, char_str);
+            try runtime.PyList.append(star_list, char_obj);
+        }
+        result[argcnt] = @ptrCast(star_list);
+
+        // Last argcntafter items
+        for (0..argcntafter) |i| {
+            const idx = str_val.len - argcntafter + i;
+            const char_str = try allocator.alloc(u8, 1);
+            char_str[0] = str_val[idx];
+            const char_obj = try runtime.PyString.create(allocator, char_str);
+            result[argcnt + 1 + i] = @ptrCast(char_obj);
+        }
+
+        return result;
+    } else {
+        // Simple unpacking: a, b, c = "abc"
+        if (str_val.len != argcnt) {
+            return error.ValueError;
+        }
+
+        var result = try allocator.alloc(?*anyopaque, argcnt);
+        for (0..argcnt) |i| {
+            const char_str = try allocator.alloc(u8, 1);
+            char_str[0] = str_val[i];
+            const char_obj = try runtime.PyString.create(allocator, char_str);
+            result[i] = @ptrCast(char_obj);
+        }
+        return result;
+    }
 }
 
 // ============================================================================

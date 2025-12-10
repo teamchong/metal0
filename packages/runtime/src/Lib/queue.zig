@@ -19,12 +19,18 @@ pub fn Queue(comptime T: type) type {
         items: std.ArrayList(T),
         maxsize: usize,
         mutex: std.Thread.Mutex = .{},
+        /// Number of incomplete tasks (for join/task_done)
+        unfinished_tasks: usize = 0,
+        /// Condition variable for join() waiters
+        all_tasks_done: std.Thread.Condition = .{},
 
         pub fn init(allocator: std.mem.Allocator, maxsize: usize) Self {
             return .{
                 .allocator = allocator,
                 .items = std.ArrayList(T).init(allocator),
                 .maxsize = maxsize,
+                .unfinished_tasks = 0,
+                .all_tasks_done = .{},
             };
         }
 
@@ -42,6 +48,7 @@ pub fn Queue(comptime T: type) type {
             }
 
             try self.items.append(item);
+            self.unfinished_tasks += 1;
         }
 
         /// Put an item without blocking (alias for put with immediate check)
@@ -87,14 +94,34 @@ pub fn Queue(comptime T: type) type {
             return self.items.items.len;
         }
 
-        /// Indicate that a formerly enqueued task is complete (stub)
-        pub fn task_done(_: *Self) void {
-            // Would decrement join counter
+        /// Indicate that a formerly enqueued task is complete
+        /// Call after processing an item obtained via get()
+        /// Raises error if called more times than items put into queue
+        pub fn task_done(self: *Self) !void {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            if (self.unfinished_tasks == 0) {
+                return error.ValueTooLarge; // Called too many times
+            }
+
+            self.unfinished_tasks -= 1;
+
+            if (self.unfinished_tasks == 0) {
+                // Wake up all threads waiting in join()
+                self.all_tasks_done.broadcast();
+            }
         }
 
-        /// Block until all items have been processed (stub)
-        pub fn join(_: *Self) void {
-            // Would wait for join counter to reach 0
+        /// Block until all items in the queue have been processed
+        /// Waits until unfinished_tasks reaches 0 via task_done() calls
+        pub fn join(self: *Self) void {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            while (self.unfinished_tasks > 0) {
+                self.all_tasks_done.wait(&self.mutex);
+            }
         }
 
         /// Clear all items
