@@ -225,9 +225,131 @@ pub const etree = struct {
 
         /// Parse XML from string
         pub fn parse(self: *ElementTree, source: []const u8) !void {
-            _ = self;
-            _ = source;
-            // Would parse XML string
+            var pos: usize = 0;
+
+            // Skip XML declaration if present
+            if (std.mem.startsWith(u8, source, "<?xml")) {
+                if (std.mem.indexOf(u8, source, "?>")) |end| {
+                    pos = end + 2;
+                }
+            }
+
+            // Skip whitespace
+            while (pos < source.len and std.ascii.isWhitespace(source[pos])) {
+                pos += 1;
+            }
+
+            // Parse root element
+            if (pos < source.len and source[pos] == '<') {
+                self.root = try parseElement(self.allocator, source, &pos);
+            }
+        }
+
+        fn parseElement(allocator: std.mem.Allocator, source: []const u8, pos: *usize) !*Element {
+            // Skip '<'
+            pos.* += 1;
+
+            // Skip whitespace
+            while (pos.* < source.len and std.ascii.isWhitespace(source[pos.*])) {
+                pos.* += 1;
+            }
+
+            // Get tag name
+            const tag_start = pos.*;
+            while (pos.* < source.len and !std.ascii.isWhitespace(source[pos.*]) and
+                source[pos.*] != '>' and source[pos.*] != '/')
+            {
+                pos.* += 1;
+            }
+            const tag = source[tag_start..pos.*];
+
+            var elem = try Element.init(allocator, tag);
+            errdefer elem.deinit();
+
+            // Parse attributes
+            while (pos.* < source.len and source[pos.*] != '>' and source[pos.*] != '/') {
+                // Skip whitespace
+                while (pos.* < source.len and std.ascii.isWhitespace(source[pos.*])) {
+                    pos.* += 1;
+                }
+
+                if (pos.* >= source.len or source[pos.*] == '>' or source[pos.*] == '/') break;
+
+                // Parse attribute name
+                const attr_start = pos.*;
+                while (pos.* < source.len and source[pos.*] != '=' and !std.ascii.isWhitespace(source[pos.*])) {
+                    pos.* += 1;
+                }
+                const attr_name = source[attr_start..pos.*];
+
+                // Skip to '='
+                while (pos.* < source.len and source[pos.*] != '=') {
+                    pos.* += 1;
+                }
+                pos.* += 1; // Skip '='
+
+                // Skip whitespace and quote
+                while (pos.* < source.len and (std.ascii.isWhitespace(source[pos.*]) or source[pos.*] == '"' or source[pos.*] == '\'')) {
+                    pos.* += 1;
+                }
+
+                // Parse attribute value
+                const val_start = pos.*;
+                while (pos.* < source.len and source[pos.*] != '"' and source[pos.*] != '\'') {
+                    pos.* += 1;
+                }
+                const attr_value = source[val_start..pos.*];
+
+                // Skip closing quote
+                if (pos.* < source.len) pos.* += 1;
+
+                try elem.set(attr_name, attr_value);
+            }
+
+            // Check for self-closing tag
+            if (pos.* < source.len and source[pos.*] == '/') {
+                pos.* += 1;
+                if (pos.* < source.len and source[pos.*] == '>') pos.* += 1;
+                return elem;
+            }
+
+            // Skip '>'
+            if (pos.* < source.len and source[pos.*] == '>') {
+                pos.* += 1;
+            }
+
+            // Parse content and children
+            var text_buf = std.ArrayList(u8).init(allocator);
+            defer text_buf.deinit();
+
+            while (pos.* < source.len) {
+                if (source[pos.*] == '<') {
+                    // Save accumulated text
+                    if (text_buf.items.len > 0) {
+                        elem.text = try allocator.dupe(u8, text_buf.items);
+                        text_buf.clearRetainingCapacity();
+                    }
+
+                    // Check for closing tag
+                    if (pos.* + 1 < source.len and source[pos.* + 1] == '/') {
+                        // Find end of closing tag
+                        while (pos.* < source.len and source[pos.*] != '>') {
+                            pos.* += 1;
+                        }
+                        if (pos.* < source.len) pos.* += 1;
+                        break;
+                    }
+
+                    // Parse child element
+                    const child = try parseElement(allocator, source, pos);
+                    try elem.append(child);
+                } else {
+                    try text_buf.append(source[pos.*]);
+                    pos.* += 1;
+                }
+            }
+
+            return elem;
         }
 
         /// Write XML to string
