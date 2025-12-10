@@ -11,10 +11,8 @@ const hashmap_helper = @import("utils.hashmap_helper");
 // ============================================================================
 // Re-export collections.abc (alias for _collections_abc)
 // In Python: from collections.abc import MappingView, KeysView, etc.
-// NOTE: _collections_abc.zig was deleted - had invalid stub code (anytype returns)
-// TODO: Implement proper ABC marker types when needed
 // ============================================================================
-// pub const abc = @import("_collections_abc.zig");
+pub const abc = @import("_collections_abc.zig");
 
 // ============================================================================
 // namedtuple
