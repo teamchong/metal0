@@ -19,6 +19,37 @@ const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 const FnvArgsMap = hashmap_helper.StringHashMap([]const NativeType);
 
+/// Dict-aware widening for legacy mode (when TypeInferrer is not available)
+/// When two dicts have same key type but different value types, widen to dict with pyvalue values
+fn widenDictAwareLegacy(allocator: std.mem.Allocator, existing: NativeType, new_type: NativeType) !NativeType {
+    const existing_tag = @as(std.meta.Tag(NativeType), existing);
+    const new_tag = @as(std.meta.Tag(NativeType), new_type);
+
+    if (existing_tag == .dict and new_tag == .dict) {
+        const existing_key = existing.dict.key.*;
+        const new_key = new_type.dict.key.*;
+        const existing_val = existing.dict.value.*;
+        const new_val = new_type.dict.value.*;
+
+        const existing_key_tag = @as(std.meta.Tag(NativeType), existing_key);
+        const new_key_tag = @as(std.meta.Tag(NativeType), new_key);
+        const existing_val_tag = @as(std.meta.Tag(NativeType), existing_val);
+        const new_val_tag = @as(std.meta.Tag(NativeType), new_val);
+
+        if (existing_key_tag == new_key_tag and existing_val_tag != new_val_tag) {
+            // Same key type, different value types -> use pyvalue for values
+            const pyvalue_type = try allocator.create(NativeType);
+            pyvalue_type.* = .pyvalue;
+            return NativeType{ .dict = .{
+                .key = existing.dict.key,
+                .value = pyvalue_type,
+            } };
+        }
+    }
+
+    return existing.widen(new_type);
+}
+
 /// Visit and analyze statement nodes to infer variable types
 /// Uses function-scoped variable tracking to prevent cross-function type pollution
 pub fn visitStmt(
@@ -88,14 +119,14 @@ pub fn visitStmtScoped(
                             try ti.putScopedVar(var_name, value_type);
                         }
                     } else {
-                        // Legacy mode: use global var_types with widening
+                        // Legacy mode: use global var_types with dict-aware widening
                         if (var_types.get(var_name)) |existing_type| {
                             if (type_traits.isUnknown(existing_type) and !type_traits.isUnknown(value_type)) {
                                 try var_types.put(var_name, value_type);
                             } else if (!type_traits.isUnknown(existing_type) and type_traits.isUnknown(value_type)) {
                                 // Keep existing specific type over unknown
                             } else {
-                                const widened = existing_type.widen(value_type);
+                                const widened = try widenDictAwareLegacy(allocator, existing_type, value_type);
                                 try var_types.put(var_name, widened);
                             }
                         } else {

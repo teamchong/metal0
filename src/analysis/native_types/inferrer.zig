@@ -435,9 +435,9 @@ pub const TypeInferrer = struct {
                 );
                 // Store as "FuncName.param_name" -> type
                 const key = try std.fmt.allocPrint(arena_alloc, "{s}.{s}", .{ func_name, kwarg.name });
-                // Widen with existing type if present
+                // Widen with existing type if present (use dict-aware widening)
                 if (self.var_types.get(key)) |existing| {
-                    const widened = existing.widen(kwarg_type);
+                    const widened = try self.widenDictAware(existing, kwarg_type, arena_alloc);
                     try self.var_types.put(key, widened);
                 } else {
                     try self.var_types.put(key, kwarg_type);
