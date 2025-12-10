@@ -11,6 +11,60 @@ const iobase = @import("iobase.zig");
 const allocator = std.heap.c_allocator;
 
 // ============================================================================
+// BUFFER PROTOCOL IMPLEMENTATION
+// ============================================================================
+
+/// Get buffer from BytesIO
+fn bytesio_getbuffer(self: ?*cpython.PyObject, view: ?*cpython.Py_buffer, flags: c_int) callconv(.C) c_int {
+    if (self == null or view == null) return -1;
+
+    const bytesio: *PyBytesIO = @ptrCast(@alignCast(self.?));
+
+    // Check if closed
+    if (bytesio.buf == null and bytesio.buf_size == 0 and bytesio.string_size > 0) {
+        return -1; // Closed
+    }
+
+    // Fill in the buffer view
+    view.?.buf = @ptrCast(bytesio.buf);
+    view.?.obj = self;
+    self.?.ob_refcnt += 1;
+    view.?.len = @intCast(bytesio.string_size);
+    view.?.readonly = 0; // BytesIO is writable
+    view.?.itemsize = 1;
+    view.?.format = if ((flags & 0x0004) != 0) "B" else null; // PyBUF_FORMAT
+    view.?.ndim = 1;
+    view.?.shape = null;
+    view.?.strides = null;
+    view.?.suboffsets = null;
+    view.?.internal = null;
+
+    // Increment export count
+    bytesio.exports += 1;
+
+    return 0;
+}
+
+/// Release buffer
+fn bytesio_releasebuffer(self: ?*cpython.PyObject, view: ?*cpython.Py_buffer) callconv(.C) void {
+    _ = view;
+    if (self == null) return;
+
+    const bytesio: *PyBytesIO = @ptrCast(@alignCast(self.?));
+
+    // Decrement export count
+    if (bytesio.exports > 0) {
+        bytesio.exports -= 1;
+    }
+}
+
+/// Buffer protocol methods for BytesIO
+var bytesio_as_buffer = cpython.PyBufferProcs{
+    .bf_getbuffer = bytesio_getbuffer,
+    .bf_releasebuffer = bytesio_releasebuffer,
+};
+
+// ============================================================================
 // BYTESIO OBJECT - In-memory binary stream
 // ============================================================================
 
@@ -326,7 +380,7 @@ pub export var PyBytesIO_Type: cpython.PyTypeObject = .{
     .tp_str = null,
     .tp_getattro = null,
     .tp_setattro = null,
-    .tp_as_buffer = null, // TODO: buffer protocol
+    .tp_as_buffer = &bytesio_as_buffer,
     .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE | cpython.Py_TPFLAGS_HAVE_GC,
     .tp_doc = "Buffered I/O implementation using an in-memory bytes buffer.",
     .tp_traverse = null,

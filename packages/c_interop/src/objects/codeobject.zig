@@ -170,6 +170,74 @@ pub const PyCodeAddressRange = extern struct {
 };
 
 // ============================================================================
+// MEMBER TYPE CONSTANTS
+// ============================================================================
+const T_INT: c_int = 1;
+const T_OBJECT: c_int = 6;
+const T_OBJECT_EX: c_int = 16;
+const READONLY: c_int = 1;
+
+// ============================================================================
+// CODE GETSET DEFINITIONS
+// ============================================================================
+
+/// Getter for co_varnames
+fn code_get_varnames(self: ?*cpython.PyObject, _: ?*anyopaque) callconv(.C) ?*cpython.PyObject {
+    if (self == null) return null;
+    const co: *PyCodeObject = @ptrCast(@alignCast(self.?));
+    return PyCode_GetVarnames(co);
+}
+
+/// Getter for co_cellvars
+fn code_get_cellvars(self: ?*cpython.PyObject, _: ?*anyopaque) callconv(.C) ?*cpython.PyObject {
+    if (self == null) return null;
+    const co: *PyCodeObject = @ptrCast(@alignCast(self.?));
+    return PyCode_GetCellvars(co);
+}
+
+/// Getter for co_freevars
+fn code_get_freevars(self: ?*cpython.PyObject, _: ?*anyopaque) callconv(.C) ?*cpython.PyObject {
+    if (self == null) return null;
+    const co: *PyCodeObject = @ptrCast(@alignCast(self.?));
+    return PyCode_GetFreevars(co);
+}
+
+/// Getter for co_code
+fn code_get_code(self: ?*cpython.PyObject, _: ?*anyopaque) callconv(.C) ?*cpython.PyObject {
+    if (self == null) return null;
+    const co: *PyCodeObject = @ptrCast(@alignCast(self.?));
+    return PyCode_GetCode(co);
+}
+
+/// code_getsetlist - getset descriptors for code type
+var code_getsetlist = [_]cpython.PyGetSetDef{
+    .{ .name = "co_varnames", .get = @ptrCast(&code_get_varnames), .set = null, .doc = null, .closure = null },
+    .{ .name = "co_cellvars", .get = @ptrCast(&code_get_cellvars), .set = null, .doc = null, .closure = null },
+    .{ .name = "co_freevars", .get = @ptrCast(&code_get_freevars), .set = null, .doc = null, .closure = null },
+    .{ .name = "co_code", .get = @ptrCast(&code_get_code), .set = null, .doc = null, .closure = null },
+    .{ .name = null, .get = null, .set = null, .doc = null, .closure = null }, // Sentinel
+};
+
+/// code_memberlist - member descriptors for code type
+var code_memberlist = [_]cpython.PyMemberDef{
+    .{ .name = "co_argcount", .type = T_INT, .offset = @offsetOf(PyCodeObject, "co_argcount"), .flags = READONLY, .doc = null },
+    .{ .name = "co_posonlyargcount", .type = T_INT, .offset = @offsetOf(PyCodeObject, "co_posonlyargcount"), .flags = READONLY, .doc = null },
+    .{ .name = "co_kwonlyargcount", .type = T_INT, .offset = @offsetOf(PyCodeObject, "co_kwonlyargcount"), .flags = READONLY, .doc = null },
+    .{ .name = "co_nlocals", .type = T_INT, .offset = @offsetOf(PyCodeObject, "co_nlocals"), .flags = READONLY, .doc = null },
+    .{ .name = "co_stacksize", .type = T_INT, .offset = @offsetOf(PyCodeObject, "co_stacksize"), .flags = READONLY, .doc = null },
+    .{ .name = "co_flags", .type = T_INT, .offset = @offsetOf(PyCodeObject, "co_flags"), .flags = READONLY, .doc = null },
+    .{ .name = "co_firstlineno", .type = T_INT, .offset = @offsetOf(PyCodeObject, "co_firstlineno"), .flags = READONLY, .doc = null },
+    .{ .name = "co_consts", .type = T_OBJECT, .offset = @offsetOf(PyCodeObject, "co_consts"), .flags = READONLY, .doc = null },
+    .{ .name = "co_names", .type = T_OBJECT, .offset = @offsetOf(PyCodeObject, "co_names"), .flags = READONLY, .doc = null },
+    .{ .name = "co_filename", .type = T_OBJECT, .offset = @offsetOf(PyCodeObject, "co_filename"), .flags = READONLY, .doc = null },
+    .{ .name = "co_name", .type = T_OBJECT, .offset = @offsetOf(PyCodeObject, "co_name"), .flags = READONLY, .doc = null },
+    .{ .name = "co_qualname", .type = T_OBJECT, .offset = @offsetOf(PyCodeObject, "co_qualname"), .flags = READONLY, .doc = null },
+    .{ .name = "co_linetable", .type = T_OBJECT, .offset = @offsetOf(PyCodeObject, "co_linetable"), .flags = READONLY, .doc = null },
+    .{ .name = "co_exceptiontable", .type = T_OBJECT, .offset = @offsetOf(PyCodeObject, "co_exceptiontable"), .flags = READONLY, .doc = null },
+    .{ .name = null, .type = 0, .offset = 0, .flags = 0, .doc = null }, // Sentinel
+};
+
+// ============================================================================
 // TYPE OBJECT
 // ============================================================================
 
@@ -205,9 +273,9 @@ pub export var PyCode_Type: cpython.PyTypeObject = .{
     .tp_weaklistoffset = @offsetOf(PyCodeObject, "co_weakreflist"),
     .tp_iter = null,
     .tp_iternext = null,
-    .tp_methods = null, // TODO: code_methods
-    .tp_members = null, // TODO: code_memberlist
-    .tp_getset = null, // TODO: code_getsetlist
+    .tp_methods = null, // Code has no methods
+    .tp_members = &code_memberlist,
+    .tp_getset = &code_getsetlist,
     .tp_base = null,
     .tp_dict = null,
     .tp_descr_get = null,

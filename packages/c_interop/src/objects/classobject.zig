@@ -12,6 +12,11 @@ const cpython = @import("../include/object.zig");
 const allocator = std.heap.c_allocator;
 
 // ============================================================================
+// MEMBER TYPE CONSTANTS (from structmember.h)
+// ============================================================================
+const T_OBJECT_EX: c_int = 16; // PyObject* with NULL check
+
+// ============================================================================
 // TYPE DEFINITIONS - EXACT CPYTHON LAYOUT
 // ============================================================================
 
@@ -62,6 +67,70 @@ comptime {
 }
 
 // ============================================================================
+// METHOD GETSET DEFINITIONS
+// ============================================================================
+
+/// Getter for __func__ attribute
+fn method_get_func(self: ?*cpython.PyObject, _: ?*anyopaque) callconv(.C) ?*cpython.PyObject {
+    if (self == null) return null;
+    const m: *PyMethodObject = @ptrCast(@alignCast(self.?));
+    if (m.im_func) |func| {
+        func.ob_refcnt += 1;
+        return func;
+    }
+    return null;
+}
+
+/// Getter for __self__ attribute
+fn method_get_self(self: ?*cpython.PyObject, _: ?*anyopaque) callconv(.C) ?*cpython.PyObject {
+    if (self == null) return null;
+    const m: *PyMethodObject = @ptrCast(@alignCast(self.?));
+    if (m.im_self) |im_self| {
+        im_self.ob_refcnt += 1;
+        return im_self;
+    }
+    return null;
+}
+
+/// method_getset - getset descriptors for method type
+var method_getset = [_]cpython.PyGetSetDef{
+    .{
+        .name = "__func__",
+        .get = @ptrCast(&method_get_func),
+        .set = null,
+        .doc = "the function (or other callable) implementing a method",
+        .closure = null,
+    },
+    .{
+        .name = "__self__",
+        .get = @ptrCast(&method_get_self),
+        .set = null,
+        .doc = "the instance to which a method is bound",
+        .closure = null,
+    },
+    .{ .name = null, .get = null, .set = null, .doc = null, .closure = null }, // Sentinel
+};
+
+/// method_memberlist - member descriptors for method type
+var method_memberlist = [_]cpython.PyMemberDef{
+    .{
+        .name = "__func__",
+        .type = T_OBJECT_EX,
+        .offset = @offsetOf(PyMethodObject, "im_func"),
+        .flags = 1, // READONLY
+        .doc = "the function (or other callable) implementing a method",
+    },
+    .{
+        .name = "__self__",
+        .type = T_OBJECT_EX,
+        .offset = @offsetOf(PyMethodObject, "im_self"),
+        .flags = 1, // READONLY
+        .doc = "the instance to which a method is bound",
+    },
+    .{ .name = null, .type = 0, .offset = 0, .flags = 0, .doc = null }, // Sentinel
+};
+
+// ============================================================================
 // TYPE OBJECTS
 // ============================================================================
 
@@ -97,9 +166,9 @@ pub export var PyMethod_Type: cpython.PyTypeObject = .{
     .tp_weaklistoffset = @offsetOf(PyMethodObject, "im_weakreflist"),
     .tp_iter = null,
     .tp_iternext = null,
-    .tp_methods = null, // TODO: method_methods
-    .tp_members = null, // TODO: method_memberlist
-    .tp_getset = null, // TODO: method_getset
+    .tp_methods = null, // Method has no methods
+    .tp_members = &method_memberlist,
+    .tp_getset = &method_getset,
     .tp_base = null,
     .tp_dict = null,
     .tp_descr_get = method_descr_get,
