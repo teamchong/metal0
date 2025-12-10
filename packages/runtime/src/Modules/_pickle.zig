@@ -416,8 +416,87 @@ pub const Unpickler = struct {
                 @intFromEnum(Opcode.MARK) => {
                     try self.stack.append(self.allocator, .mark);
                 },
+                @intFromEnum(Opcode.TUPLE) => {
+                    // Build tuple from MARK to top of stack
+                    var items = std.ArrayList(PickleValue).init(self.allocator);
+                    while (self.stack.items.len > 0) {
+                        const item = self.stack.pop();
+                        if (item == .mark) break;
+                        try items.insert(self.allocator, 0, item);
+                    }
+                    try self.stack.append(self.allocator, .{ .list_val = items });
+                },
+                @intFromEnum(Opcode.LIST) => {
+                    // Build list from MARK to top of stack
+                    var items = std.ArrayList(PickleValue).init(self.allocator);
+                    while (self.stack.items.len > 0) {
+                        const item = self.stack.pop();
+                        if (item == .mark) break;
+                        try items.insert(self.allocator, 0, item);
+                    }
+                    try self.stack.append(self.allocator, .{ .list_val = items });
+                },
+                @intFromEnum(Opcode.DICT) => {
+                    // Build dict from MARK to top of stack (key-value pairs)
+                    var dict = hashmap_helper.StringHashMap(PickleValue).init(self.allocator);
+                    var pairs = std.ArrayList(PickleValue).init(self.allocator);
+                    defer pairs.deinit(self.allocator);
+                    while (self.stack.items.len > 0) {
+                        const item = self.stack.pop();
+                        if (item == .mark) break;
+                        try pairs.insert(self.allocator, 0, item);
+                    }
+                    // Process pairs (key, value, key, value...)
+                    var i: usize = 0;
+                    while (i + 1 < pairs.items.len) : (i += 2) {
+                        const key = pairs.items[i];
+                        const val = pairs.items[i + 1];
+                        if (key == .string_val) {
+                            try dict.put(self.allocator, key.string_val, val);
+                        }
+                    }
+                    try self.stack.append(self.allocator, .{ .dict_val = dict });
+                },
+                @intFromEnum(Opcode.APPEND) => {
+                    // Append top item to list below it
+                    if (self.stack.items.len >= 2) {
+                        const item = self.stack.pop();
+                        const list_idx = self.stack.items.len - 1;
+                        if (self.stack.items[list_idx] == .list_val) {
+                            try self.stack.items[list_idx].list_val.append(self.allocator, item);
+                        }
+                    }
+                },
+                @intFromEnum(Opcode.SETITEM) => {
+                    // Set dict[key] = value (value, key, dict on stack)
+                    if (self.stack.items.len >= 3) {
+                        const value = self.stack.pop();
+                        const key = self.stack.pop();
+                        const dict_idx = self.stack.items.len - 1;
+                        if (self.stack.items[dict_idx] == .dict_val and key == .string_val) {
+                            try self.stack.items[dict_idx].dict_val.put(self.allocator, key.string_val, value);
+                        }
+                    }
+                },
+                @intFromEnum(Opcode.POP) => {
+                    _ = self.stack.popOrNull();
+                },
+                @intFromEnum(Opcode.DUP) => {
+                    if (self.stack.items.len > 0) {
+                        const top = self.stack.items[self.stack.items.len - 1];
+                        try self.stack.append(self.allocator, top);
+                    }
+                },
+                @intFromEnum(Opcode.MEMOIZE) => {
+                    // Store top of stack in memo (simplified - we don't track memo)
+                },
+                @intFromEnum(Opcode.FRAME) => {
+                    // Skip frame length (8 bytes) - frames are for chunked reading
+                    _ = try self.readBytes(8);
+                },
                 else => {
-                    // Unknown opcode - skip for now
+                    // Return error for truly unknown opcodes
+                    return error.UnknownOpcode;
                 },
             }
         }

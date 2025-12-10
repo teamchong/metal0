@@ -1,6 +1,7 @@
 /// ctypes - Runtime FFI for calling C libraries
 /// Uses Zig's std.DynLib for dynamic library loading
 const std = @import("std");
+const builtin = @import("builtin");
 
 /// Dynamic library handle wrapper
 pub const CDLL = struct {
@@ -274,21 +275,44 @@ pub const py_object = ?*anyopaque;
 /// Supports subscript access like pythonapi["PyLong_Type"]
 pub const PythonAPI = struct {
     /// Get a symbol by name - returns pointer to the symbol
-    /// For metal0, we provide our own implementations via c_interop
+    /// Uses dlsym(RTLD_DEFAULT) to look up symbols in the current process
     pub fn get(self: PythonAPI, name: []const u8) ?*anyopaque {
         _ = self;
-        _ = name;
-        // Return non-null to indicate symbol exists
-        // Actual implementation would use dlsym on ourselves
-        return @ptrFromInt(1); // Stub: return non-null pointer
+        if (comptime builtin.os.tag == .windows) {
+            // On Windows, use GetProcAddress with null module handle
+            const kernel32 = std.os.windows.kernel32;
+            // Need null-terminated string
+            var buf: [256]u8 = undefined;
+            if (name.len >= buf.len) return null;
+            @memcpy(buf[0..name.len], name);
+            buf[name.len] = 0;
+            const module = kernel32.GetModuleHandleA(null);
+            if (module) |m| {
+                return @ptrCast(kernel32.GetProcAddress(m, @ptrCast(&buf)));
+            }
+            return null;
+        } else {
+            // On POSIX, use dlsym with RTLD_DEFAULT to search all loaded objects
+            const c = @cImport(@cInclude("dlfcn.h"));
+            // Need null-terminated string for dlsym
+            var buf: [256]u8 = undefined;
+            if (name.len >= buf.len) return null;
+            @memcpy(buf[0..name.len], name);
+            buf[name.len] = 0;
+            return c.dlsym(c.RTLD_DEFAULT, &buf);
+        }
     }
 
     /// Index operator for subscript access: pythonapi[symbol_name]
     pub fn index(self: PythonAPI, key: anytype) ?*anyopaque {
-        _ = self;
-        _ = key;
-        // Return non-null to indicate symbol is available
-        return @ptrFromInt(1);
+        const KeyType = @TypeOf(key);
+        if (KeyType == []const u8) {
+            return self.get(key);
+        } else if (@typeInfo(KeyType) == .pointer) {
+            // Assume it's a string pointer
+            return self.get(std.mem.span(key));
+        }
+        return null;
     }
 };
 

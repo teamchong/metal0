@@ -86,28 +86,44 @@ pub fn Deque(comptime T: type) type {
             }
         }
 
-        /// Rotate the deque n steps to the right (negative for left)
+        /// Rotate the deque n steps to the right (positive n) or left (negative n)
+        /// Uses the efficient three-reversal algorithm: O(n) time, O(1) space
         pub fn rotate(self: *Self, n: i32) void {
-            if (self.items.items.len <= 1) return;
+            const item_count = self.items.items.len;
+            if (item_count <= 1) return;
 
-            const item_len = self.items.items.len;
-            const steps: usize = @intCast(@mod(n, @as(i32, @intCast(item_len))));
+            // Normalize n to be within [0, item_count)
+            const int_len: i32 = @intCast(item_count);
+            const steps: usize = @intCast(@mod(@mod(n, int_len) + int_len, int_len));
 
             if (steps == 0) return;
 
-            // Rotate right by moving last `steps` elements to front
-            var temp = std.ArrayList(T).init(self.allocator);
-            defer temp.deinit(self.allocator);
+            // Rotate right by `steps` using three-reversal algorithm:
+            // [a, b, c, d, e] rotate 2 -> [d, e, a, b, c]
+            // 1. Reverse entire array: [e, d, c, b, a]
+            // 2. Reverse first `steps`: [d, e, c, b, a]
+            // 3. Reverse rest: [d, e, a, b, c]
+            const items = self.items.items;
 
-            // This is a simplified rotation - could be optimized
-            for (0..steps) |_| {
-                if (self.pop()) |v| {
-                    temp.insert(self.allocator, 0, v) catch {};
+            // Reverse helper for in-place range reversal
+            const reverseRange = struct {
+                fn do(slice: []T, start: usize, end: usize) void {
+                    var i = start;
+                    var j = end;
+                    while (i < j) {
+                        const tmp = slice[i];
+                        slice[i] = slice[j];
+                        slice[j] = tmp;
+                        i += 1;
+                        j -= 1;
+                    }
                 }
-            }
-            for (temp.items) |v| {
-                self.items.insert(self.allocator, 0, v) catch {};
-            }
+            }.do;
+
+            // Three reversals for efficient in-place rotation
+            reverseRange(items, 0, item_count - 1); // Reverse all
+            reverseRange(items, 0, steps - 1); // Reverse first `steps`
+            reverseRange(items, steps, item_count - 1); // Reverse rest
         }
 
         /// Remove all elements from the deque

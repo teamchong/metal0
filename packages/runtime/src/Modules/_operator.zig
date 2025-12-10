@@ -372,7 +372,9 @@ pub fn ItemGetter(comptime T: type, comptime idx: usize) type {
     };
 }
 
-/// attrgetter - would need runtime reflection, simplified version
+/// attrgetter(attr) - Return a callable that fetches attr from its operand
+/// Usage: const getter = AttrGetter(MyStruct, "field_name");
+///        const value = getter.get(my_instance);
 pub fn AttrGetter(comptime T: type, comptime field: []const u8) type {
     return struct {
         pub fn get(obj: T) @TypeOf(@field(obj, field)) {
@@ -381,7 +383,9 @@ pub fn AttrGetter(comptime T: type, comptime field: []const u8) type {
     };
 }
 
-/// methodcaller - simplified version for known method signatures
+/// methodcaller(name) - Return a callable that calls method on its operand
+/// Usage: const caller = MethodCaller(MyStruct, "method_name");
+///        const result = caller.call(&my_instance);
 pub fn MethodCaller(comptime T: type, comptime method: []const u8) type {
     return struct {
         pub fn call(obj: *T) @typeInfo(@TypeOf(@field(obj.*, method))).@"fn".return_type.? {
