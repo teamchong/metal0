@@ -349,10 +349,25 @@ pub fn SingleDispatch(comptime FuncType: type) type {
             return self.base_func;
         }
 
-        /// Call with automatic type dispatch
+        /// Call with automatic type dispatch based on argument type
+        /// In AOT compilation, dispatch is resolved at compile time via @TypeOf
         pub fn call(self: Self, arg: anytype) CallReturnType(FuncType) {
-            // In comptime-resolved AOT, dispatch happens at compile time
-            // This call routes through base_func which should handle type cases
+            const ArgType = @TypeOf(arg);
+            const type_hash = comptime hashType(ArgType);
+
+            // Search for registered implementation at compile time
+            inline for (0..self.registry.len) |i| {
+                if (self.registry[i]) |entry| {
+                    if (entry.type_hash == type_hash) {
+                        // Found registered implementation - cast and call it
+                        const ImplType = *const fn (ArgType) CallReturnType(FuncType);
+                        const impl: ImplType = @ptrCast(@alignCast(entry.impl));
+                        return impl(arg);
+                    }
+                }
+            }
+
+            // No registered implementation - call base function
             return @call(.auto, self.base_func, .{arg});
         }
 
