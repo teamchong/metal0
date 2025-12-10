@@ -9,8 +9,8 @@ const PyBool = @import("../Objects/boolobject.zig").PyBool;
 const PyString = @import("../Objects/unicodeobject.zig").PyString;
 const PythonError = runtime.PythonError;
 
-// Forward declare AST types (will need to import from compiler)
-// For now, define minimal types needed for basic eval
+// AST Node types for runtime eval() - supports expressions only
+// Full AST is in the compiler; this is the runtime subset for eval()
 pub const Node = union(enum) {
     constant: Constant,
     binop: BinOp,
@@ -156,8 +156,8 @@ fn lookupBuiltin(allocator: std.mem.Allocator, name: []const u8) ?*PyObject {
         return PyBool.create(allocator, false) catch null;
     }
     if (std.mem.eql(u8, name, "None")) {
-        // Return None singleton (would need proper None object)
-        return null;
+        // Return proper None singleton
+        return runtime.Py_None;
     }
 
     return null;
@@ -188,25 +188,61 @@ fn executeBinOp(allocator: std.mem.Allocator, binop: Node.BinOp) !*PyObject {
     const right = try execute(allocator, binop.right);
     defer runtime.decref(right, allocator);
 
-    // For now, only support int operations
-    if (left.type_id != .int or right.type_id != .int) {
-        return error.TypeError;
+    const left_is_int = runtime.PyLong_Check(left);
+    const left_is_float = runtime.PyFloat_Check(left);
+    const right_is_int = runtime.PyLong_Check(right);
+    const right_is_float = runtime.PyFloat_Check(right);
+
+    // Handle int-int operations
+    if (left_is_int and right_is_int) {
+        const left_val = PyInt.getValue(left);
+        const right_val = PyInt.getValue(right);
+
+        // True division always returns float
+        if (binop.op == .Div) {
+            const left_f: f64 = @floatFromInt(left_val);
+            const right_f: f64 = @floatFromInt(right_val);
+            if (right_f == 0) return error.ZeroDivisionError;
+            return try PyFloat.create(allocator, left_f / right_f);
+        }
+
+        const result_val: i64 = switch (binop.op) {
+            .Add => left_val + right_val,
+            .Sub => left_val - right_val,
+            .Mult => left_val * right_val,
+            .FloorDiv => if (right_val == 0) return error.ZeroDivisionError else @divFloor(left_val, right_val),
+            .Mod => if (right_val == 0) return error.ZeroDivisionError else @mod(left_val, right_val),
+            .Pow => std.math.pow(i64, left_val, right_val),
+            .Div => unreachable, // handled above
+        };
+        return try PyInt.create(allocator, result_val);
     }
 
-    const left_val = PyInt.getValue(left);
-    const right_val = PyInt.getValue(right);
+    // Handle operations involving floats (promote to float)
+    if ((left_is_int or left_is_float) and (right_is_int or right_is_float)) {
+        const left_f: f64 = if (left_is_float)
+            PyFloat.getValue(left)
+        else
+            @floatFromInt(PyInt.getValue(left));
 
-    const result_val = switch (binop.op) {
-        .Add => left_val + right_val,
-        .Sub => left_val - right_val,
-        .Mult => left_val * right_val,
-        .Div => try runtime.divideInt(left_val, right_val),
-        .FloorDiv => @divFloor(left_val, right_val),
-        .Mod => try runtime.moduloInt(left_val, right_val),
-        .Pow => std.math.pow(i64, left_val, right_val),
-    };
+        const right_f: f64 = if (right_is_float)
+            PyFloat.getValue(right)
+        else
+            @floatFromInt(PyInt.getValue(right));
 
-    return try PyInt.create(allocator, result_val);
+        const result_f: f64 = switch (binop.op) {
+            .Add => left_f + right_f,
+            .Sub => left_f - right_f,
+            .Mult => left_f * right_f,
+            .Div => if (right_f == 0) return error.ZeroDivisionError else left_f / right_f,
+            .FloorDiv => if (right_f == 0) return error.ZeroDivisionError else @floor(left_f / right_f),
+            .Mod => if (right_f == 0) return error.ZeroDivisionError else @mod(left_f, right_f),
+            .Pow => std.math.pow(f64, left_f, right_f),
+        };
+        return try PyFloat.create(allocator, result_f);
+    }
+
+    return error.TypeError;
 }
 
 fn executeCall(allocator: std.mem.Allocator, call: Node.Call) !*PyObject {
@@ -224,8 +260,9 @@ fn executeCall(allocator: std.mem.Allocator, call: Node.Call) !*PyObject {
             defer runtime.decref(obj, allocator);
             runtime.printPyObject(obj);
         }
-        // Return None (for now, just return 0)
-        return try PyInt.create(allocator, 0);
+        // Return proper None singleton
+        runtime.incref(runtime.Py_None);
+        return runtime.Py_None;
     } else if (std.mem.eql(u8, func_name, "len")) {
         if (call.args.len != 1) {
             return error.TypeError;
@@ -233,15 +270,22 @@ fn executeCall(allocator: std.mem.Allocator, call: Node.Call) !*PyObject {
         const obj = try execute(allocator, &call.args[0]);
         defer runtime.decref(obj, allocator);
 
-        const len_val: i64 = switch (obj.type_id) {
-            .string => blk: {
-                const str = PyString.getValue(obj);
-                break :blk @intCast(str.len);
-            },
-            else => return error.TypeError,
-        };
+        // Use proper type checking
+        if (runtime.PyUnicode_Check(obj)) {
+            const str = PyString.getValue(obj);
+            return try PyInt.create(allocator, @intCast(str.len));
+        } else if (runtime.PyList_Check(obj)) {
+            const len_val = runtime.Py_SIZE(obj);
+            return try PyInt.create(allocator, len_val);
+        } else if (runtime.PyTuple_Check(obj)) {
+            const len_val = runtime.Py_SIZE(obj);
+            return try PyInt.create(allocator, len_val);
+        } else if (runtime.PyDict_Check(obj)) {
+            const dict_obj: *runtime.PyDictObject = @ptrCast(@alignCast(obj));
+            return try PyInt.create(allocator, dict_obj.ma_used);
+        }
 
-        return try PyInt.create(allocator, len_val);
+        return error.TypeError;
     }
 
     return error.NotImplemented;

@@ -176,9 +176,65 @@ fn globInDir(
 }
 
 /// Recursive glob with ** support
+/// The ** pattern matches any number of directory levels
 pub fn iglob(allocator: Allocator, pattern: []const u8) !std.ArrayList([]const u8) {
-    // For now, same as glob - ** support would require more complex handling
-    return glob(allocator, pattern);
+    var results = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (results.items) |item| allocator.free(item);
+        results.deinit();
+    }
+
+    // Check if pattern contains **
+    if (std.mem.indexOf(u8, pattern, "**")) |star_pos| {
+        // Split pattern: prefix ** suffix
+        const prefix = if (star_pos > 0) pattern[0 .. star_pos - 1] else ".";
+        const suffix = if (star_pos + 2 < pattern.len) pattern[star_pos + 2 ..] else "";
+
+        // Start recursive search from prefix directory
+        try recursiveGlob(allocator, prefix, suffix, &results);
+    } else {
+        // No ** pattern, use regular glob
+        var regular = try glob(allocator, pattern);
+        defer regular.deinit();
+        for (regular.items) |item| {
+            try results.append(item);
+        }
+        // Don't free items - ownership transferred to results
+        regular.items.len = 0;
+    }
+
+    return results;
+}
+
+/// Recursively walk directories and match suffix pattern
+fn recursiveGlob(
+    allocator: Allocator,
+    base_path: []const u8,
+    suffix_pattern: []const u8,
+    results: *std.ArrayList([]const u8),
+) !void {
+    var dir = std.fs.cwd().openDir(base_path, .{ .iterate = true }) catch return;
+    defer dir.close();
+
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        const full_path = try std.fs.path.join(allocator, &.{ base_path, entry.name });
+        errdefer allocator.free(full_path);
+
+        // Check if this file/dir matches the suffix pattern
+        if (suffix_pattern.len == 0 or fnmatch(suffix_pattern, entry.name)) {
+            try results.append(full_path);
+        } else {
+            allocator.free(full_path);
+        }
+
+        // If it's a directory, recurse into it
+        if (entry.kind == .directory) {
+            const recurse_path = try std.fs.path.join(allocator, &.{ base_path, entry.name });
+            defer allocator.free(recurse_path);
+            try recursiveGlob(allocator, recurse_path, suffix_pattern, results);
+        }
+    }
 }
 
 /// Escape special characters in a pathname

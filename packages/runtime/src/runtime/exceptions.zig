@@ -464,17 +464,105 @@ pub const BaseExceptionGroup = struct {
     }
 
     /// Return a subgroup of exceptions matching the given type
-    pub fn subgroup(self: *const Self, match_type: anytype) ?*Self {
-        _ = match_type;
-        // For now, return self - full implementation would filter by type
-        return @constCast(self);
+    /// The match_type should have a `name` field (comptime string) or be a type predicate
+    pub fn subgroup(self: *const Self, comptime match_type: type) ?*Self {
+        const match_name = if (@hasDecl(match_type, "name")) match_type.name else @typeName(match_type);
+
+        // Count matching exceptions
+        var match_count: usize = 0;
+        for (self.exceptions) |exc| {
+            if (matchesType(exc, match_name)) {
+                match_count += 1;
+            }
+        }
+
+        if (match_count == 0) return null;
+        if (match_count == self.exceptions.len) return @constCast(self);
+
+        // Create new group with matching exceptions
+        const matching = self.allocator.alloc(PyValue, match_count) catch return null;
+        var idx: usize = 0;
+        for (self.exceptions) |exc| {
+            if (matchesType(exc, match_name)) {
+                matching[idx] = exc;
+                idx += 1;
+            }
+        }
+
+        const new_group = self.allocator.create(Self) catch return null;
+        new_group.* = .{
+            .message = self.message,
+            .exceptions = matching,
+            .allocator = self.allocator,
+        };
+        return new_group;
     }
 
     /// Split the group into matching and non-matching subgroups
-    pub fn split(self: *const Self, match_type: anytype) struct { ?*Self, ?*Self } {
-        _ = match_type;
-        // For now, return (self, null) - full implementation would split by type
-        return .{ @constCast(self), null };
+    pub fn split(self: *const Self, comptime match_type: type) struct { ?*Self, ?*Self } {
+        const match_name = if (@hasDecl(match_type, "name")) match_type.name else @typeName(match_type);
+
+        // Count matching and non-matching
+        var match_count: usize = 0;
+        var non_match_count: usize = 0;
+        for (self.exceptions) |exc| {
+            if (matchesType(exc, match_name)) {
+                match_count += 1;
+            } else {
+                non_match_count += 1;
+            }
+        }
+
+        // All match
+        if (non_match_count == 0) return .{ @constCast(self), null };
+        // None match
+        if (match_count == 0) return .{ null, @constCast(self) };
+
+        // Create both groups
+        const matching = self.allocator.alloc(PyValue, match_count) catch return .{ null, null };
+        const non_matching = self.allocator.alloc(PyValue, non_match_count) catch return .{ null, null };
+
+        var match_idx: usize = 0;
+        var non_match_idx: usize = 0;
+        for (self.exceptions) |exc| {
+            if (matchesType(exc, match_name)) {
+                matching[match_idx] = exc;
+                match_idx += 1;
+            } else {
+                non_matching[non_match_idx] = exc;
+                non_match_idx += 1;
+            }
+        }
+
+        const match_group = self.allocator.create(Self) catch return .{ null, null };
+        match_group.* = .{
+            .message = self.message,
+            .exceptions = matching,
+            .allocator = self.allocator,
+        };
+
+        const non_match_group = self.allocator.create(Self) catch return .{ match_group, null };
+        non_match_group.* = .{
+            .message = self.message,
+            .exceptions = non_matching,
+            .allocator = self.allocator,
+        };
+
+        return .{ match_group, non_match_group };
+    }
+
+    /// Helper to check if an exception matches a type name
+    fn matchesType(exc: PyValue, type_name: []const u8) bool {
+        // For ptr values, check if they have a matching __name__ or name field
+        if (exc == .ptr) {
+            // Cannot inspect opaque pointers at runtime without type info
+            return false;
+        }
+        // For string values that might be exception type names
+        if (exc == .string) {
+            return std.mem.eql(u8, exc.string, type_name);
+        }
+        return false;
     }
 };
 
@@ -526,16 +614,100 @@ pub const ExceptionGroup = struct {
     }
 
     /// Return a subgroup of exceptions matching the given type
-    pub fn subgroup(self: *const Self, match_type: anytype) ?*Self {
-        _ = match_type;
-        // For now, return self - full implementation would filter by type
-        return @constCast(self);
+    pub fn subgroup(self: *const Self, comptime match_type: type) ?*Self {
+        const match_name = if (@hasDecl(match_type, "name")) match_type.name else @typeName(match_type);
+
+        // Count matching exceptions
+        var match_count: usize = 0;
+        for (self.exceptions) |exc| {
+            if (matchesType(exc, match_name)) {
+                match_count += 1;
+            }
+        }
+
+        if (match_count == 0) return null;
+        if (match_count == self.exceptions.len) return @constCast(self);
+
+        // Create new group with matching exceptions
+        const matching = self.allocator.alloc(PyValue, match_count) catch return null;
+        var idx: usize = 0;
+        for (self.exceptions) |exc| {
+            if (matchesType(exc, match_name)) {
+                matching[idx] = exc;
+                idx += 1;
+            }
+        }
+
+        const new_group = self.allocator.create(Self) catch return null;
+        new_group.* = .{
+            .message = self.message,
+            .exceptions = matching,
+            .allocator = self.allocator,
+        };
+        return new_group;
     }
 
     /// Split the group into matching and non-matching subgroups
-    pub fn split(self: *const Self, match_type: anytype) struct { ?*Self, ?*Self } {
-        _ = match_type;
-        // For now, return (self, null) - full implementation would split by type
-        return .{ @constCast(self), null };
+    pub fn split(self: *const Self, comptime match_type: type) struct { ?*Self, ?*Self } {
+        const match_name = if (@hasDecl(match_type, "name")) match_type.name else @typeName(match_type);
+
+        // Count matching and non-matching
+        var match_count: usize = 0;
+        var non_match_count: usize = 0;
+        for (self.exceptions) |exc| {
+            if (matchesType(exc, match_name)) {
+                match_count += 1;
+            } else {
+                non_match_count += 1;
+            }
+        }
+
+        // All match
+        if (non_match_count == 0) return .{ @constCast(self), null };
+        // None match
+        if (match_count == 0) return .{ null, @constCast(self) };
+
+        // Create both groups
+        const matching = self.allocator.alloc(PyValue, match_count) catch return .{ null, null };
+        const non_matching = self.allocator.alloc(PyValue, non_match_count) catch return .{ null, null };
+
+        var match_idx: usize = 0;
+        var non_match_idx: usize = 0;
+        for (self.exceptions) |exc| {
+            if (matchesType(exc, match_name)) {
+                matching[match_idx] = exc;
+                match_idx += 1;
+            } else {
+                non_matching[non_match_idx] = exc;
+                non_match_idx += 1;
+            }
+        }
+
+        const match_group = self.allocator.create(Self) catch return .{ null, null };
+        match_group.* = .{
+            .message = self.message,
+            .exceptions = matching,
+            .allocator = self.allocator,
+        };
+
+        const non_match_group = self.allocator.create(Self) catch return .{ match_group, null };
+        non_match_group.* = .{
+            .message = self.message,
+            .exceptions = non_matching,
+            .allocator = self.allocator,
+        };
+
+        return .{ match_group, non_match_group };
+    }
+
+    /// Helper to check if an exception matches a type name
+    fn matchesType(exc: PyValue, type_name: []const u8) bool {
+        if (exc == .ptr) {
+            return false;
+        }
+        if (exc == .string) {
+            return std.mem.eql(u8, exc.string, type_name);
+        }
+        return false;
     }
 };

@@ -7,6 +7,8 @@ const pystring = @import("../Objects/unicodeobject.zig");
 const pytuple = @import("../Objects/tupleobject.zig");
 const dict_module = @import("../Objects/dictobject.zig");
 const pycomplex = @import("../Objects/complexobject.zig");
+const pyset = @import("../Objects/setobject.zig");
+const pydeque = @import("../Objects/dequeobject.zig");
 const BigInt = @import("bigint").BigInt;
 
 const PyObject = runtime_core.PyObject;
@@ -17,6 +19,8 @@ const PyString = pystring.PyString;
 const PyTuple = pytuple.PyTuple;
 const PyDict = dict_module.PyDict;
 const PyComplex = pycomplex.PyComplex;
+const PySet = pyset.PySet;
+const PyDeque = pydeque.PyDeque;
 const incref = runtime_core.incref;
 const decref = runtime_core.decref;
 
@@ -2601,27 +2605,57 @@ pub const tuple = struct {
 /// set() type constructor - creates a new set from an iterable
 pub const set = struct {
     pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
-        _ = arg;
-        // For now, return an empty list as placeholder (set not fully implemented)
-        return try PyList.create(allocator);
+        const T = @TypeOf(arg);
+        // If no arg (void), return empty set
+        if (T == void) {
+            return try PySet.create(allocator);
+        }
+        // If arg is a PyObject list, create set from it
+        if (T == *PyObject) {
+            if (runtime_core.PyList_Check(arg)) {
+                return try PySet.fromList(allocator, arg);
+            }
+        }
+        // Return empty set for unsupported types
+        return try PySet.create(allocator);
     }
 }{};
 
 /// frozenset() type constructor - creates an immutable set
 pub const frozenset = struct {
     pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
-        _ = arg;
-        // For now, return an empty list as placeholder
-        return try PyList.create(allocator);
+        const T = @TypeOf(arg);
+        // If no arg (void), return empty frozenset
+        if (T == void) {
+            return try PySet.createFrozenset(allocator);
+        }
+        // If arg is a PyObject list, create frozenset from it
+        if (T == *PyObject) {
+            if (runtime_core.PyList_Check(arg)) {
+                return try PySet.frozensetFromList(allocator, arg);
+            }
+        }
+        // Return empty frozenset for unsupported types
+        return try PySet.createFrozenset(allocator);
     }
 }{};
 
 /// deque() type constructor - creates a double-ended queue
 pub const deque = struct {
     pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
-        _ = arg;
-        // For now, use a list as deque (same underlying structure)
-        return try PyList.create(allocator);
+        const T = @TypeOf(arg);
+        // If no arg (void), return empty deque
+        if (T == void) {
+            return try PyDeque.create(allocator, null);
+        }
+        // If arg is a PyObject list, create deque from it
+        if (T == *PyObject) {
+            if (runtime_core.PyList_Check(arg)) {
+                return try PyDeque.fromList(allocator, arg, null);
+            }
+        }
+        // Return empty deque for unsupported types
+        return try PyDeque.create(allocator, null);
     }
 }{};
 

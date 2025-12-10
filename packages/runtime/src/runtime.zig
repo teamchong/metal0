@@ -1366,6 +1366,50 @@ pub const PyFileObject = extern struct {
     name: ?[*:0]const u8,
 };
 
+/// PySet minimum size (matches CPython)
+pub const PySet_MINSIZE: usize = 8;
+
+/// Set entry - key + cached hash
+pub const setentry = extern struct {
+    key: ?*PyObject,
+    hash: Py_ssize_t, // Cached hash of key
+};
+
+/// PySetObject - Python set/frozenset (CPython compatible layout)
+pub const PySetObject = extern struct {
+    ob_base: PyObject, // 16 bytes
+    fill: Py_ssize_t, // Number of active + dummy entries
+    used: Py_ssize_t, // Number of active entries
+    mask: Py_ssize_t, // Table size - 1 (always power of 2 - 1)
+    table: ?[*]setentry, // Points to smalltable or malloc'd memory
+    hash: Py_ssize_t, // Only used by frozenset, -1 for set
+    finger: Py_ssize_t, // Search finger for pop()
+    smalltable: [PySet_MINSIZE]setentry, // Inline storage for small sets
+    weakreflist: ?*PyObject, // List of weak references
+};
+
+/// Deque block size (matches CPython)
+pub const DEQUE_BLOCKLEN: usize = 64;
+
+/// DequeBlock - linked list node for deque
+pub const DequeBlock = extern struct {
+    data: [DEQUE_BLOCKLEN]?*PyObject,
+    prev: ?*DequeBlock,
+    next: ?*DequeBlock,
+};
+
+/// PyDequeObject - Double-ended queue
+pub const PyDequeObject = extern struct {
+    ob_base: PyObject,
+    leftblock: ?*DequeBlock,
+    rightblock: ?*DequeBlock,
+    leftindex: usize, // Index in leftblock
+    rightindex: usize, // Index in rightblock
+    len: Py_ssize_t, // Number of items
+    maxlen: Py_ssize_t, // Maximum length (-1 for unbounded)
+    weakreflist: ?*PyObject,
+};
+
 // =============================================================================
 // Global Type Objects (singletons)
 // =============================================================================
@@ -1448,6 +1492,9 @@ pub var PyNone_Type: PyTypeObject = makeTypeObject("NoneType", @sizeOf(PyNoneStr
 pub var PyType_Type: PyTypeObject = makeTypeObject("type", @sizeOf(PyTypeObject), 0);
 pub var PyFile_Type: PyTypeObject = makeTypeObject("file", @sizeOf(PyFileObject), 0);
 pub var PyBigInt_Type: PyTypeObject = makeTypeObject("int", @sizeOf(PyBigIntObject), 0);
+pub var PySet_Type: PyTypeObject = makeTypeObject("set", @sizeOf(PySetObject), 0);
+pub var PyFrozenSet_Type: PyTypeObject = makeTypeObject("frozenset", @sizeOf(PySetObject), 0);
+pub var PyDeque_Type: PyTypeObject = makeTypeObject("collections.deque", @sizeOf(PyDequeObject), 0);
 
 // None singleton
 pub var _Py_NoneStruct: PyNoneStruct = .{
@@ -1530,6 +1577,22 @@ pub inline fn PyBytes_Check(op: *PyObject) bool {
 
 pub inline fn PyBigInt_Check(op: *PyObject) bool {
     return Py_IS_TYPE(op, &PyBigInt_Type);
+}
+
+pub inline fn PySet_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PySet_Type);
+}
+
+pub inline fn PyFrozenSet_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyFrozenSet_Type);
+}
+
+pub inline fn PyAnySet_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PySet_Type) or Py_IS_TYPE(op, &PyFrozenSet_Type);
+}
+
+pub inline fn PyDeque_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, &PyDeque_Type);
 }
 
 /// Get ob_size from PyVarObject

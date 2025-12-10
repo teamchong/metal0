@@ -142,20 +142,48 @@ pub const Lock = struct {
         };
     }
 
-    /// Acquire the lock
+    /// Acquire the lock with optional timeout
+    /// If blocking=true and timeout is set, will try to acquire for up to timeout seconds
+    /// Returns true if lock was acquired, false otherwise
     pub fn acquire(self: *Self, blocking: bool, timeout: ?f64) bool {
-        _ = timeout; // Simplified - ignore timeout
-
-        if (blocking) {
-            self.mutex.lock();
-            self.locked = true;
-            return true;
-        } else {
+        if (!blocking) {
+            // Non-blocking: try once
             if (self.mutex.tryLock()) {
                 self.locked = true;
                 return true;
             }
             return false;
+        }
+
+        if (timeout) |t| {
+            // Blocking with timeout: spin-wait with tryLock
+            if (t <= 0) {
+                // Zero or negative timeout means try once
+                if (self.mutex.tryLock()) {
+                    self.locked = true;
+                    return true;
+                }
+                return false;
+            }
+
+            const timeout_ns: u64 = @intFromFloat(t * std.time.ns_per_s);
+            const start = std.time.nanoTimestamp();
+            const deadline = start + @as(i128, timeout_ns);
+
+            while (std.time.nanoTimestamp() < deadline) {
+                if (self.mutex.tryLock()) {
+                    self.locked = true;
+                    return true;
+                }
+                // Brief sleep to avoid spinning too hard
+                std.time.sleep(1_000_000); // 1ms
+            }
+            return false;
+        } else {
+            // Blocking without timeout: wait indefinitely
+            self.mutex.lock();
+            self.locked = true;
+            return true;
         }
     }
 
@@ -629,13 +657,73 @@ pub fn local(comptime T: type) type {
 }
 
 // ============================================================================
+// Thread Registry - tracks all active threads
+// ============================================================================
+
+const ThreadRegistry = struct {
+    var threads: [256]?*Thread = [_]?*Thread{null} ** 256;
+    var count: usize = 1; // Start at 1 for main thread
+    var lock: std.Thread.Mutex = .{};
+
+    pub fn register(thread: *Thread) void {
+        lock.lock();
+        defer lock.unlock();
+        for (&threads) |*slot| {
+            if (slot.* == null) {
+                slot.* = thread;
+                count += 1;
+                return;
+            }
+        }
+    }
+
+    pub fn unregister(thread: *Thread) void {
+        lock.lock();
+        defer lock.unlock();
+        for (&threads) |*slot| {
+            if (slot.* == thread) {
+                slot.* = null;
+                if (count > 1) count -= 1;
+                return;
+            }
+        }
+    }
+
+    pub fn getCount() usize {
+        return @atomicLoad(usize, &count, .seq_cst);
+    }
+
+    pub fn getAll(allocator: std.mem.Allocator) ![]const *Thread {
+        lock.lock();
+        defer lock.unlock();
+
+        var result = std.ArrayList(*Thread).init(allocator);
+        for (threads) |maybe_thread| {
+            if (maybe_thread) |t| {
+                try result.append(t);
+            }
+        }
+        return result.toOwnedSlice();
+    }
+};
+
+// ============================================================================
 // Module Functions
 // ============================================================================
 
 /// Return the number of active threads
 pub fn activeCount() usize {
-    // Simplified - return 1 for main thread
-    return 1;
+    return ThreadRegistry.getCount();
+}
+
+/// Register a thread in the global registry (called when thread starts)
+pub fn registerThread(thread: *Thread) void {
+    ThreadRegistry.register(thread);
+}
+
+/// Unregister a thread from the global registry (called when thread ends)
+pub fn unregisterThread(thread: *Thread) void {
+    ThreadRegistry.unregister(thread);
 }
 
 /// Return the current thread
@@ -654,6 +742,12 @@ pub fn mainThread(allocator: std.mem.Allocator) !*Thread {
 
 /// Return a list of all active threads
 pub fn enumerate(allocator: std.mem.Allocator) ![]const *Thread {
+    const registered = try ThreadRegistry.getAll(allocator);
+    if (registered.len > 0) {
+        return registered;
+    }
+    // Fallback: at least return main thread
+    allocator.free(registered);
     const threads = try allocator.alloc(*Thread, 1);
     threads[0] = try currentThread(allocator);
     return threads;

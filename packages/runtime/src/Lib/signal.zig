@@ -160,14 +160,18 @@ pub fn raise(sig: Signal) !void {
 
     switch (handlers[idx]) {
         .default => {
-            // Would perform default action
-            // For now, just set pending
-            pending_signals |= @as(u32, 1) << @as(u5, @intCast(@intFromEnum(sig)));
+            // Perform default OS signal action by actually raising the signal
+            const result = std.posix.raise(@intCast(@intFromEnum(sig)));
+            if (result != 0) {
+                // If raise() fails, fall back to setting pending bit
+                pending_signals |= @as(u32, 1) << @as(u5, @intCast(@intFromEnum(sig)));
+            }
         },
         .ignore => {
-            // Do nothing
+            // Signal is ignored - do nothing
         },
         .function => |handler| {
+            // Call the user-defined handler
             handler(@intFromEnum(sig));
         },
     }
