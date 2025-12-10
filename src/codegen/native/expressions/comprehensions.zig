@@ -1168,17 +1168,71 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
 
+    // Infer value type using TypeInferrer
+    // First, set up temp vars for loop variables so type inference can see them
+    const NativeType = @import("../../../analysis/native_types/core.zig").NativeType;
+    var saved_types: [8]struct { name: []const u8, old_type: ?NativeType } = undefined;
+    var saved_count: usize = 0;
+
+    for (dictcomp.generators) |gen| {
+        if (gen.target.* == .name) {
+            const var_name = gen.target.name.id;
+            var loop_var_type: NativeType = .{ .int = .bounded }; // Default to i64
+
+            // Check if iterator is range() - gives i64 loop variable
+            if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
+                const func_name = gen.iter.call.func.name.id;
+                if (std.mem.eql(u8, func_name, "range")) {
+                    loop_var_type = .{ .int = .bounded };
+                }
+            }
+            // Check if iterator is a list/listcomp - infer element type
+            else if (gen.iter.* == .list or gen.iter.* == .listcomp) {
+                const iter_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
+                if (iter_type == .list) {
+                    loop_var_type = iter_type.list.*;
+                }
+            }
+            // For any other iterator, try to infer it
+            else {
+                const iter_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
+                if (iter_type == .list) {
+                    loop_var_type = iter_type.list.*;
+                } else if (iter_type == .array) {
+                    loop_var_type = iter_type.array.element_type.*;
+                }
+            }
+
+            if (saved_count < saved_types.len) {
+                saved_types[saved_count] = .{
+                    .name = var_name,
+                    .old_type = self.type_inferrer.putTempVar(var_name, loop_var_type) catch null,
+                };
+                saved_count += 1;
+            }
+        }
+    }
+
+    // Now infer the value type with loop vars visible
+    const value_type = self.type_inferrer.inferExpr(dictcomp.value.*) catch .unknown;
+    const value_type_str = nativeTypeToZigStr(value_type);
+
+    // Restore original types
+    for (saved_types[0..saved_count]) |saved| {
+        self.type_inferrer.restoreTempVar(saved.name, saved.old_type);
+    }
+
     // Generate: (dict_N: { ... })
     // Wrap in parentheses to prevent "label:" from being parsed as named argument
     try self.emit(try std.fmt.allocPrint(self.allocator, "(dict_{d}: {{\n", .{label_id}));
     self.indent();
 
-    // Generate HashMap instead of ArrayList for compatibility with print(dict)
+    // Generate HashMap with properly inferred value type
     try self.emitIndent();
     if (key_is_int) {
-        try self.emit("var __dict_result = std.AutoHashMap(i64, i64).init(__global_allocator);\n");
+        try self.output.writer(self.allocator).print("var __dict_result = std.AutoHashMap(i64, {s}).init(__global_allocator);\n", .{value_type_str});
     } else {
-        try self.emit("var __dict_result = hashmap_helper.StringHashMap(i64).init(__global_allocator);\n");
+        try self.output.writer(self.allocator).print("var __dict_result = hashmap_helper.StringHashMap({s}).init(__global_allocator);\n", .{value_type_str});
     }
 
     // Track variables renamed in this comprehension so we can restore them after
@@ -1581,6 +1635,23 @@ fn isIntExpr(node: ast.Node) bool {
             return false;
         },
         else => false,
+    };
+}
+
+/// Convert NativeType to Zig type string for dict comprehension value types
+fn nativeTypeToZigStr(native_type: @import("../../../analysis/native_types/core.zig").NativeType) []const u8 {
+    return switch (native_type) {
+        .int => "i64",
+        .bigint, .unified_int => "*runtime.bigint.BigInt",
+        .usize => "usize",
+        .float => "f64",
+        .bool => "bool",
+        .string => "[]const u8",
+        .bytes => "runtime.builtins.PyBytes",
+        .complex => "runtime.complex.PyComplex",
+        .none => "@TypeOf(null)",
+        // All other types fall back to PyValue for heterogeneous dicts
+        else => "runtime.PyValue",
     };
 }
 
