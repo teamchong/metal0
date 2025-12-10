@@ -130,21 +130,58 @@ fn fileio_closed_get(self: ?*cpython.PyObject, _: ?*anyopaque) callconv(.c) ?*cp
     return &object_mod._Py_FalseStruct;
 }
 
-/// fileio_read - Read up to size bytes
+/// fileio_read - Read up to size bytes from file descriptor
 fn fileio_read(self: ?*cpython.PyObject, args: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (self == null) return null;
     const fileio: *PyFileIO = @ptrCast(@alignCast(self.?));
-    _ = args;
 
     if (fileio.fd < 0) return null; // Closed
     if (fileio.readable == 0) return null; // Not readable
 
-    // Read from file descriptor
-    // For now, return empty bytes
-    return null;
+    // Parse size argument (default -1 = read all)
+    var size: isize = -1;
+    if (args) |a| {
+        const tuple = @import("../../objects/tupleobject.zig");
+        if (tuple.PyTuple_Check(a) != 0 and tuple.PyTuple_Size(a) > 0) {
+            const pylong = @import("../../objects/longobject.zig");
+            const size_obj = tuple.PyTuple_GetItem(a, 0);
+            if (size_obj != null and pylong.PyLong_Check(size_obj.?) != 0) {
+                size = @intCast(pylong.PyLong_AsLong(size_obj.?));
+            }
+        }
+    }
+
+    // Use POSIX read
+    const posix = std.posix;
+    const pybytes = @import("../../objects/bytesobject.zig");
+
+    if (size < 0) {
+        // Read all - use stat to get file size first
+        const stat_result = posix.fstat(@intCast(fileio.fd));
+        if (stat_result) |stat| {
+            size = @intCast(stat.size);
+        } else |_| {
+            size = 65536; // Fallback buffer size
+        }
+    }
+
+    if (size == 0) {
+        return pybytes.PyBytes_FromStringAndSize("", 0);
+    }
+
+    // Allocate buffer and read
+    const buffer = allocator.alloc(u8, @intCast(size)) catch return null;
+    defer allocator.free(buffer);
+
+    const bytes_read = posix.read(@intCast(fileio.fd), buffer) catch |err| {
+        _ = err;
+        return null;
+    };
+
+    return pybytes.PyBytes_FromStringAndSize(@ptrCast(buffer.ptr), @intCast(bytes_read));
 }
 
-/// fileio_readall - Read all bytes
+/// fileio_readall - Read all remaining bytes from file
 fn fileio_readall(self: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (self == null) return null;
     const fileio: *PyFileIO = @ptrCast(@alignCast(self.?));
@@ -152,11 +189,41 @@ fn fileio_readall(self: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (fileio.fd < 0) return null;
     if (fileio.readable == 0) return null;
 
-    // Read entire file
-    return null;
+    const posix = std.posix;
+    const pybytes = @import("../../objects/bytesobject.zig");
+
+    // Get file size using fstat
+    var total_size: usize = 0;
+    const stat_result = posix.fstat(@intCast(fileio.fd));
+    if (stat_result) |stat| {
+        // Get current position
+        const pos = posix.lseek(@intCast(fileio.fd), 0, .CUR) catch 0;
+        if (stat.size > pos) {
+            total_size = @intCast(stat.size - @as(i64, @intCast(pos)));
+        }
+    } else |_| {
+        total_size = 65536; // Fallback
+    }
+
+    if (total_size == 0) {
+        return pybytes.PyBytes_FromStringAndSize("", 0);
+    }
+
+    // Read in chunks and accumulate
+    var result = std.ArrayList(u8).init(allocator);
+    defer result.deinit();
+
+    var chunk: [8192]u8 = undefined;
+    while (true) {
+        const bytes_read = posix.read(@intCast(fileio.fd), &chunk) catch break;
+        if (bytes_read == 0) break;
+        result.appendSlice(chunk[0..bytes_read]) catch break;
+    }
+
+    return pybytes.PyBytes_FromStringAndSize(@ptrCast(result.items.ptr), @intCast(result.items.len));
 }
 
-/// fileio_readinto - Read into buffer
+/// fileio_readinto - Read into a buffer object
 fn fileio_readinto(self: ?*cpython.PyObject, buffer: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (self == null or buffer == null) return null;
     const fileio: *PyFileIO = @ptrCast(@alignCast(self.?));
@@ -164,11 +231,29 @@ fn fileio_readinto(self: ?*cpython.PyObject, buffer: ?*cpython.PyObject) callcon
     if (fileio.fd < 0) return null;
     if (fileio.readable == 0) return null;
 
-    // Get buffer, read into it
+    const posix = std.posix;
+    const pylong = @import("../../objects/longobject.zig");
+
+    // Get buffer protocol info
+    // For simplicity, assume buffer is a bytearray with direct access
+    const pybytearray = @import("../../objects/bytearrayobject.zig");
+    if (pybytearray.PyByteArray_Check(buffer.?) != 0) {
+        const buf_ptr = pybytearray.PyByteArray_AsString(buffer.?);
+        const buf_size = pybytearray.PyByteArray_Size(buffer.?);
+
+        if (buf_ptr == null or buf_size <= 0) return pylong.PyLong_FromLong(0);
+
+        const bytes_read = posix.read(@intCast(fileio.fd), buf_ptr.?[0..@intCast(buf_size)]) catch |_| {
+            return null;
+        };
+
+        return pylong.PyLong_FromLong(@intCast(bytes_read));
+    }
+
     return null;
 }
 
-/// fileio_write - Write bytes
+/// fileio_write - Write bytes to file descriptor
 fn fileio_write(self: ?*cpython.PyObject, data: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (self == null or data == null) return null;
     const fileio: *PyFileIO = @ptrCast(@alignCast(self.?));
@@ -176,8 +261,37 @@ fn fileio_write(self: ?*cpython.PyObject, data: ?*cpython.PyObject) callconv(.c)
     if (fileio.fd < 0) return null;
     if (fileio.writable == 0) return null;
 
-    // Get buffer from data, write to fd
-    return null;
+    const posix = std.posix;
+    const pybytes = @import("../../objects/bytesobject.zig");
+    const pylong = @import("../../objects/longobject.zig");
+
+    // Get data as bytes
+    var data_ptr: [*]const u8 = undefined;
+    var data_len: usize = 0;
+
+    if (pybytes.PyBytes_Check(data.?) != 0) {
+        data_ptr = @ptrCast(pybytes.PyBytes_AsString(data.?) orelse return null);
+        data_len = @intCast(pybytes.PyBytes_Size(data.?));
+    } else {
+        const pybytearray = @import("../../objects/bytearrayobject.zig");
+        if (pybytearray.PyByteArray_Check(data.?) != 0) {
+            data_ptr = @ptrCast(pybytearray.PyByteArray_AsString(data.?) orelse return null);
+            data_len = @intCast(pybytearray.PyByteArray_Size(data.?));
+        } else {
+            return null; // Unsupported type
+        }
+    }
+
+    if (data_len == 0) {
+        return pylong.PyLong_FromLong(0);
+    }
+
+    // Write to file descriptor
+    const bytes_written = posix.write(@intCast(fileio.fd), data_ptr[0..data_len]) catch |_| {
+        return null;
+    };
+
+    return pylong.PyLong_FromLong(@intCast(bytes_written));
 }
 
 /// fileio_seek - Seek to position

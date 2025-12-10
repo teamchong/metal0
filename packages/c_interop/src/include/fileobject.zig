@@ -64,19 +64,49 @@ export fn PyFile_WriteObject(obj: *cpython.PyObject, file: *cpython.PyObject, fl
     return -1;
 }
 
-/// Write C string to file
+/// Write C string to file object
+/// Calls the file's write() method if available, otherwise writes to stdout
 export fn PyFile_WriteString(str: [*:0]const u8, file: *cpython.PyObject) callconv(.c) c_int {
-    // Get file's write method
+    const cstr = std.mem.span(str);
+    if (cstr.len == 0) return 0;
+
+    // Try to call file.write() method
     const type_obj = cpython.Py_TYPE(file);
 
-    // Try tp_as_sequence for write compatibility
-    if (type_obj.tp_as_mapping) |mapping| {
-        _ = mapping;
-        // Would call file.write(str) here
+    // Check if it's a FileIO with fd
+    if (type_obj == &PyFileIO_Type) {
+        const wrapper: *PyFileWrapper = @ptrCast(@alignCast(file));
+        if (wrapper.fd >= 0) {
+            const posix = std.posix;
+            _ = posix.write(@intCast(wrapper.fd), cstr) catch return -1;
+            return 0;
+        }
     }
 
-    // For now, write to stdout if it's a standard file
-    const cstr = std.mem.span(str);
+    // Check tp_methods for write method
+    if (type_obj.tp_methods) |methods| {
+        var i: usize = 0;
+        while (methods[i].ml_name != null) : (i += 1) {
+            if (std.mem.eql(u8, std.mem.span(methods[i].ml_name.?), "write")) {
+                // Found write method - call it
+                const pybytes = @import("../objects/bytesobject.zig");
+                const bytes_obj = pybytes.PyBytes_FromStringAndSize(str, @intCast(cstr.len));
+                if (bytes_obj) |b| {
+                    defer b.ob_refcnt -= 1;
+                    if (methods[i].ml_meth) |meth| {
+                        const result = meth(file, @ptrCast(b));
+                        if (result != null) {
+                            result.?.ob_refcnt -= 1;
+                            return 0;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // Fallback: write to stdout
     _ = std.io.getStdOut().write(cstr) catch return -1;
     return 0;
 }

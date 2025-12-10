@@ -277,20 +277,19 @@ export const Py_Ellipsis: *cpython.PyObject = &pyslice._Py_EllipsisObject;
 // These are additional functions that C extensions commonly need
 
 /// Py_GenericAlias - Create a generic alias (e.g., list[int])
+/// Delegates to the full implementation in genericaliasobject.zig
 export fn Py_GenericAlias(origin: *cpython.PyObject, args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    // For now, just return the origin - full implementation would create GenericAlias
-    _ = args;
-    traits.incref(origin);
-    return origin;
+    const genericalias = @import("objects/genericaliasobject.zig");
+    return genericalias.Py_GenericAlias(origin, args);
 }
 
 // Note: PyArg_UnpackTuple is defined later with proper varargs support (line ~915)
 
-/// PyDictProxy_New - Create a read-only dict proxy
+/// PyDictProxy_New - Create a read-only dict proxy (mappingproxy)
+/// Delegates to the full implementation in descrobject.zig
 export fn PyDictProxy_New(mapping: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    // For now, just return the dict itself (should create mappingproxy)
-    traits.incref(mapping);
-    return mapping;
+    const descr = @import("objects/descrobject.zig");
+    return descr.PyDictProxy_New(mapping);
 }
 
 /// PySeqIter_New - Create sequence iterator
