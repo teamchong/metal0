@@ -344,6 +344,12 @@ pub const NativeCodegen = struct {
     // When true, error-producing operations should use catch instead of try
     in_assert_raises_context: bool,
 
+    // Counter for unique assertRaises block labels
+    assert_raises_block_id: u32,
+
+    // Current assertRaises block ID (for genRaise to break out of)
+    current_assert_raises_block_id: u32,
+
     // Track when control flow has terminated (return/raise)
     // When true, skip generating subsequent statements to avoid unreachable code
     control_flow_terminated: bool,
@@ -737,6 +743,8 @@ pub const NativeCodegen = struct {
             .module_level_from_imports = FnvVoidMap.init(allocator),
             .mutation_info = null,
             .in_assert_raises_context = false,
+            .assert_raises_block_id = 0,
+            .current_assert_raises_block_id = 0,
             .control_flow_terminated = false,
             .c_libraries = std.ArrayList([]const u8){},
             .comptime_evals = FnvVoidMap.init(allocator),

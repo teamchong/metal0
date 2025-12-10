@@ -1052,7 +1052,23 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             const was_in_assert_raises = self.in_assert_raises_context;
             self.in_assert_raises_context = true;
 
+            // Generate a labeled block that raise can break out of
+            const block_id = self.assert_raises_block_id;
+            self.assert_raises_block_id += 1;
+            self.current_assert_raises_block_id = block_id;
+
+            try self.emitIndent();
+            try self.emitFmt("_ = blk_{d}: {{\n", .{block_id});
+            self.indent();
+
+            // Save and reset control_flow_terminated for the block body
+            const saved_control_flow = self.control_flow_terminated;
+            self.control_flow_terminated = false;
+
             for (with_node.body) |stmt| {
+                // Skip if control flow already terminated (e.g., after raise)
+                if (self.control_flow_terminated) break;
+
                 // For expression statements that might error, wrap the expression in catch
                 // Use comptime check to handle both error unions and non-error types
                 if (stmt == .expr_stmt) {
@@ -1064,6 +1080,19 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     try self.generateStmt(stmt);
                 }
             }
+
+            // Break out of block if we didn't already (normal completion)
+            if (!self.control_flow_terminated) {
+                try self.emitIndent();
+                try self.emitFmt("break :blk_{d} {{}};\n", .{block_id});
+            }
+
+            // Restore control_flow_terminated
+            self.control_flow_terminated = saved_control_flow;
+
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("};\n");
 
             // Restore context flag
             self.in_assert_raises_context = was_in_assert_raises;
@@ -1339,6 +1368,14 @@ fn getExceptionName(exc: *const ast.Node) []const u8 {
 pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!void {
     // Record line mapping for debug info (maps Python raise line -> Zig line)
     self.recordRaiseLineMapping();
+
+    // Inside assertRaises context: break out of the block (exception was expected)
+    if (self.in_assert_raises_context) {
+        try self.emitIndent();
+        try self.emitFmt("break :blk_{d} {{}}; // Exception caught by assertRaises\n", .{self.current_assert_raises_block_id});
+        self.control_flow_terminated = true;
+        return;
+    }
 
     // Inside finally block: break out of the labeled block with the error
     // This allows the exception to be captured and propagated after finally completes
