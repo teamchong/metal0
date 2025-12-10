@@ -196,10 +196,55 @@ pub fn hasAllAbstractMethods(
     return true;
 }
 
+/// Registry for tracking abstract methods within a class
+const AbstractMethodRegistry = struct {
+    var methods: [256][]const u8 = [_][]const u8{""} ** 256;
+    var count: usize = 0;
+
+    fn register(name: []const u8) void {
+        if (count < methods.len) {
+            methods[count] = name;
+            count += 1;
+        }
+    }
+
+    fn isAbstract(name: []const u8) bool {
+        for (methods[0..count]) |m| {
+            if (std.mem.eql(u8, m, name)) return true;
+        }
+        return false;
+    }
+
+    fn getAbstractMethods() []const []const u8 {
+        return methods[0..count];
+    }
+
+    fn clear() void {
+        count = 0;
+    }
+};
+
 /// Get the abstractmethod decorator marker
+/// Registers the function as abstract so ABC can verify implementation
 pub fn abstractmethod(func_name: []const u8) []const u8 {
-    // In real implementation, would mark the function
+    // Register this function as abstract in the current class context
+    AbstractMethodRegistry.register(func_name);
     return func_name;
+}
+
+/// Check if a method is marked as abstract
+pub fn isAbstractMethod(func_name: []const u8) bool {
+    return AbstractMethodRegistry.isAbstract(func_name);
+}
+
+/// Get all abstract methods for current class
+pub fn getAbstractMethods() []const []const u8 {
+    return AbstractMethodRegistry.getAbstractMethods();
+}
+
+/// Clear abstract method registry (called when starting new class)
+pub fn clearAbstractMethods() void {
+    AbstractMethodRegistry.clear();
 }
 
 // ============================================================================
