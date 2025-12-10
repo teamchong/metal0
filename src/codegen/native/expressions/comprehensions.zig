@@ -1214,8 +1214,13 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     }
 
     // Now infer the value type with loop vars visible
-    const value_type = self.type_inferrer.inferExpr(dictcomp.value.*) catch .unknown;
-    const value_type_str = nativeTypeToZigStr(value_type);
+    // Check for target_dict_value_type context (set when assigning to widened dict variable)
+    const value_type_str = if (self.target_dict_value_type) |target_type|
+        target_type
+    else blk: {
+        const value_type = self.type_inferrer.inferExpr(dictcomp.value.*) catch .unknown;
+        break :blk nativeTypeToZigStr(value_type);
+    };
 
     // Restore original types
     for (saved_types[0..saved_count]) |saved| {
@@ -1384,11 +1389,19 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     }
 
     // Generate: try __dict_result.put(<key>, <value>);
+    // If using widened PyValue type, wrap value in toPyValue
     try self.emitIndent();
     try self.emit("try __dict_result.put(");
     try genExpr(self, dictcomp.key.*);
     try self.emit(", ");
-    try genExpr(self, dictcomp.value.*);
+    if (self.target_dict_value_type != null) {
+        // Wrap value in toPyValue for widened dict types
+        try self.emit("try runtime.toPyValue(__global_allocator, ");
+        try genExpr(self, dictcomp.value.*);
+        try self.emit(")");
+    } else {
+        try genExpr(self, dictcomp.value.*);
+    }
     try self.emit(");\n");
 
     // Close all if conditions and for loops
