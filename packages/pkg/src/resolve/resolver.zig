@@ -563,9 +563,15 @@ pub const Resolver = struct {
             const cache_key = try std.fmt.allocPrint(self.allocator, "pypi:{s}", .{name});
             defer self.allocator.free(cache_key);
 
-            if (c.get(cache_key)) |_| {
+            if (c.get(cache_key)) |cached_data| {
                 self.cache_hits += 1;
-                // TODO: deserialize cached metadata
+                // Deserialize cached metadata (JSON format)
+                // The cached data contains version, dependencies, and wheel URLs
+                if (pypi.PackageMetadata.deserialize(cached_data, self.allocator)) |metadata| {
+                    return metadata;
+                } else |_| {
+                    // Cache entry invalid, continue to network fetch
+                }
             }
         }
 

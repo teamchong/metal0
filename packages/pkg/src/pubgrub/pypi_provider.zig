@@ -90,8 +90,14 @@ pub const PyPIProvider = struct {
         // Parse versions from response
         var versions = std.ArrayList(Version){};
 
-        // TODO: Fetch and parse from PyPI
-        // For now, simulate with empty list
+        // Fetch from PyPI JSON API: https://pypi.org/pypi/{package}/json
+        // Response contains "releases" object with version keys
+        // For now, return empty list (actual fetch requires h2.Client integration)
+        // When h2.Client is available:
+        //   const url = try std.fmt.allocPrint(self.allocator, "https://pypi.org/pypi/{s}/json", .{package});
+        //   const response = try client.get(url);
+        //   const parsed = try json.parseFromSlice(response.body);
+        //   for (parsed.releases.keys()) |version_str| { versions.append(Version.parse(version_str)); }
         const result = try versions.toOwnedSlice(self.allocator);
 
         // Cache and return
@@ -119,8 +125,11 @@ pub const PyPIProvider = struct {
 
         // Fetch from PyPI
         // In real implementation, parse METADATA from wheel or fetch from JSON API
-
-        // TODO: Implement actual fetch
+        // The METADATA file contains Requires-Dist entries with PEP 508 dependency specs
+        // When h2.Client is available:
+        //   1. Fetch wheel URL from PyPI JSON API
+        //   2. Download wheel and extract METADATA
+        //   3. Parse Requires-Dist lines with pep508.parseDependency()
         // For now, return empty dependencies
         const deps: []Dependency = &.{};
 

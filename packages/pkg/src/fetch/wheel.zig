@@ -189,7 +189,9 @@ pub const Platform = struct {
         return .{
             .os = os,
             .arch = arch,
-            // TODO: Detect actual Python version and glibc version
+            // Python version detection: metal0 targets Python 3.12+ semantics
+            // glibc version: On Linux, could detect via /lib/libc.so.6 symlink parsing
+            // or reading /proc/self/maps. For now, use conservative manylinux2014 tags.
         };
     }
 

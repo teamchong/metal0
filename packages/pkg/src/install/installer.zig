@@ -395,10 +395,17 @@ pub const Installer = struct {
             return error.ExtractionFailed;
         };
 
+        // Count files by iterating the site-packages directory
+        var files_count: usize = 0;
+        var iter = dest_dir.iterate();
+        while (iter.next() catch null) |_| {
+            files_count += 1;
+        }
+
         return .{
             .name = try self.allocator.dupe(u8, name),
             .version = try self.allocator.dupe(u8, version),
-            .files_installed = 1, // TODO: count actual files
+            .files_installed = if (files_count > 0) files_count else 1,
             .size_bytes = wheel_data.len,
         };
     }
