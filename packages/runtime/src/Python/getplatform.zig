@@ -32,9 +32,16 @@ pub fn getPlatform() []const u8 {
     };
 }
 
+/// Static buffer for cached OS release string
+var os_release_buf: [256]u8 = undefined;
+var cached_os_release: ?[]const u8 = null;
+
 /// Get detailed OS version info (for sys.version_info)
 /// Uses uname() on POSIX systems
 pub fn getOSRelease() ?[]const u8 {
+    // Return cached value if available
+    if (cached_os_release) |rel| return rel;
+
     if (comptime isPosix()) {
         // Call uname to get OS release
         var uts: std.posix.utsname = undefined;
@@ -46,15 +53,17 @@ pub fn getOSRelease() ?[]const u8 {
             var len: usize = 0;
             while (len < release.len and release[len] != 0) : (len += 1) {}
             if (len > 0) {
-                // Note: This returns a pointer to stack memory - caller should copy if needed
-                // For static use, this is fine as it's typically used immediately
-                return release[0..len];
+                // Copy to static buffer to avoid dangling pointer
+                const copy_len = @min(len, os_release_buf.len - 1);
+                @memcpy(os_release_buf[0..copy_len], release[0..copy_len]);
+                cached_os_release = os_release_buf[0..copy_len];
+                return cached_os_release;
             }
         }
     } else if (comptime isWindows()) {
         // On Windows, return a static version string
-        // Full implementation would use RtlGetVersion or GetVersionExW
-        return "Windows";
+        cached_os_release = "Windows";
+        return cached_os_release;
     }
     return null;
 }
