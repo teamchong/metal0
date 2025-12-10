@@ -2,6 +2,7 @@
 //!
 //! Fetches package metadata from PyPI to provide version and dependency information.
 //! Implements caching to avoid redundant network requests.
+//! Uses native h2 HTTP client for fetching.
 
 const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
@@ -12,7 +13,7 @@ const DependencyProvider = pubgrub.DependencyProvider;
 const Dependencies = pubgrub.Dependencies;
 const Dependency = pubgrub.Dependency;
 const pep508 = @import("../parse/pep508.zig");
-const json = @import("json");
+const h2 = @import("h2");
 
 /// PyPI provider state
 pub const PyPIProvider = struct {
@@ -21,8 +22,8 @@ pub const PyPIProvider = struct {
     version_cache: hashmap_helper.StringHashMap([]Version),
     /// Cache of dependencies: "package@version" -> Dependencies
     dependency_cache: hashmap_helper.StringHashMap(CachedDependencies),
-    /// HTTP client for PyPI requests
-    http_client: ?*anyopaque, // Would be h2.Client in real impl
+    /// HTTP client for PyPI requests (lazily initialized)
+    http_client: ?h2.Client,
 
     const CachedDependencies = struct {
         deps: []Dependency,
@@ -38,7 +39,20 @@ pub const PyPIProvider = struct {
         };
     }
 
+    /// Get or create HTTP client
+    fn getClient(self: *PyPIProvider) *h2.Client {
+        if (self.http_client == null) {
+            self.http_client = h2.Client.init(self.allocator);
+        }
+        return &self.http_client.?;
+    }
+
     pub fn deinit(self: *PyPIProvider) void {
+        // Clean up HTTP client
+        if (self.http_client) |*client| {
+            client.deinit();
+        }
+
         // Clean up version cache
         var v_iter = self.version_cache.iterator();
         while (v_iter.next()) |entry| {
@@ -83,21 +97,41 @@ pub const PyPIProvider = struct {
         const url = try std.fmt.allocPrint(self.allocator, "https://pypi.org/pypi/{s}/json", .{package});
         defer self.allocator.free(url);
 
-        // In real implementation, would use h2.Client here
-        // For now, return empty to indicate we need to fetch
-        // This will be replaced with actual HTTP fetch
+        // Use h2 HTTP client to fetch package info
+        const client = self.getClient();
+        var response = client.get(url) catch |err| {
+            // Network error - cache empty result and return
+            std.log.warn("PyPI fetch failed for {s}: {}", .{ package, err });
+            return self.cacheEmptyVersions(package);
+        };
+        defer response.deinit();
 
-        // Parse versions from response
+        if (response.status != 200) {
+            // Package not found or other error
+            return self.cacheEmptyVersions(package);
+        }
+
+        // Parse JSON response - extract version keys from "releases" object
         var versions = std.ArrayList(Version){};
+        errdefer versions.deinit(self.allocator);
 
-        // Fetch from PyPI JSON API: https://pypi.org/pypi/{package}/json
-        // Response contains "releases" object with version keys
-        // For now, return empty list (actual fetch requires h2.Client integration)
-        // When h2.Client is available:
-        //   const url = try std.fmt.allocPrint(self.allocator, "https://pypi.org/pypi/{s}/json", .{package});
-        //   const response = try client.get(url);
-        //   const parsed = try json.parseFromSlice(response.body);
-        //   for (parsed.releases.keys()) |version_str| { versions.append(Version.parse(version_str)); }
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, response.body, .{}) catch {
+            return self.cacheEmptyVersions(package);
+        };
+        defer parsed.deinit();
+
+        if (parsed.value.object.get("releases")) |releases| {
+            var release_iter = releases.object.iterator();
+            while (release_iter.next()) |entry| {
+                const version_str = entry.key_ptr.*;
+                if (Version.parse(version_str)) |ver| {
+                    try versions.append(self.allocator, ver);
+                } else |_| {
+                    // Skip invalid version strings
+                }
+            }
+        }
+
         const result = try versions.toOwnedSlice(self.allocator);
 
         // Cache and return
@@ -105,6 +139,13 @@ pub const PyPIProvider = struct {
         try self.version_cache.put(package_copy, result);
 
         return result;
+    }
+
+    fn cacheEmptyVersions(self: *PyPIProvider, package: []const u8) ![]Version {
+        const empty: []Version = &.{};
+        const package_copy = try self.allocator.dupe(u8, package);
+        try self.version_cache.put(package_copy, empty);
+        return empty;
     }
 
     /// Get dependencies for a specific package version
@@ -123,24 +164,66 @@ pub const PyPIProvider = struct {
             return .{ .available = cached.deps };
         }
 
-        // Fetch from PyPI
-        // In real implementation, parse METADATA from wheel or fetch from JSON API
-        // The METADATA file contains Requires-Dist entries with PEP 508 dependency specs
-        // When h2.Client is available:
-        //   1. Fetch wheel URL from PyPI JSON API
-        //   2. Download wheel and extract METADATA
-        //   3. Parse Requires-Dist lines with pep508.parseDependency()
-        // For now, return empty dependencies
-        const deps: []Dependency = &.{};
+        // Fetch from PyPI JSON API to get requires_dist
+        const url = try std.fmt.allocPrint(self.allocator, "https://pypi.org/pypi/{s}/{s}/json", .{ package, version_str });
+        defer self.allocator.free(url);
+
+        const client = self.getClient();
+        var response = client.get(url) catch {
+            return self.cacheEmptyDeps(cache_key);
+        };
+        defer response.deinit();
+
+        if (response.status != 200) {
+            return self.cacheEmptyDeps(cache_key);
+        }
+
+        // Parse JSON response - extract requires_dist from "info" object
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, response.body, .{}) catch {
+            return self.cacheEmptyDeps(cache_key);
+        };
+        defer parsed.deinit();
+
+        var deps = std.ArrayList(Dependency){};
+        errdefer deps.deinit(self.allocator);
+
+        if (parsed.value.object.get("info")) |info| {
+            if (info.object.get("requires_dist")) |requires_dist| {
+                if (requires_dist != .null) {
+                    for (requires_dist.array.items) |req_item| {
+                        if (req_item == .string) {
+                            // Parse PEP 508 dependency spec
+                            if (pep508.parseDependency(req_item.string, self.allocator)) |dep| {
+                                try deps.append(self.allocator, dep);
+                            } else |_| {
+                                // Skip unparseable dependency
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const deps_slice = try deps.toOwnedSlice(self.allocator);
 
         // Cache and return
         const key_copy = try self.allocator.dupe(u8, cache_key);
         try self.dependency_cache.put(key_copy, .{
-            .deps = deps,
+            .deps = deps_slice,
             .unavailable = null,
         });
 
-        return .{ .available = deps };
+        return .{ .available = deps_slice };
+    }
+
+    fn cacheEmptyDeps(self: *PyPIProvider, cache_key: []const u8) !Dependencies {
+        const empty: []Dependency = &.{};
+        const key_copy = try self.allocator.dupe(u8, cache_key);
+        try self.dependency_cache.put(key_copy, .{
+            .deps = empty,
+            .unavailable = null,
+        });
+        return .{ .available = empty };
     }
 
     /// Priority for package selection
