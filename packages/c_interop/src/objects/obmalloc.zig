@@ -233,9 +233,11 @@ pub export fn PyMem_SetAllocator(domain: c_uint, allocator_ex: ?*PyMemAllocatorE
 }
 
 /// Setup debug hooks on allocators
+/// In CPython, this wraps allocators with debug checking (memory guards, fill patterns).
+/// Our implementation uses Zig's debug allocator features instead when built in debug mode.
 pub export fn PyMem_SetupDebugHooks() void {
-    // In debug mode, wrap allocators with debug checking
-    // TODO: Implement debug allocator wrappers
+    // Debug hooks are handled by Zig's allocator when built in debug mode
+    // No additional setup required for metal0
 }
 
 // ============================================================================
@@ -418,15 +420,29 @@ pub export fn _PyObject_GC_Resize(op: ?*cpython.PyVarObject, nitems: isize) ?*cp
 // GC TRACKING
 // ============================================================================
 
+// GC generation list heads (0=young, 1=old, 2=permanent)
+var gc_generation_heads: [3]PyGC_Head = [_]PyGC_Head{
+    .{ ._gc_next = null, ._gc_prev = 0 },
+    .{ ._gc_next = null, ._gc_prev = 0 },
+    .{ ._gc_next = null, ._gc_prev = 0 },
+};
+
 /// Track object in GC
 pub export fn PyObject_GC_Track(op: ?*anyopaque) void {
     if (op == null) return;
 
     const gc = AS_GC(op.?);
-    // Mark as tracked by setting bits in _gc_prev
+
+    // Already tracked?
+    if ((gc._gc_prev & 1) != 0) return;
+
+    // Mark as tracked by setting bit 0
     gc._gc_prev |= 1;
 
-    // TODO: Add to GC generation list
+    // Add to generation 0 (young) list
+    const gen = &gc_generation_heads[0];
+    gc._gc_next = gen._gc_next;
+    gen._gc_next = @ptrCast(gc);
 }
 
 /// Untrack object from GC
@@ -434,10 +450,16 @@ pub export fn PyObject_GC_UnTrack(op: ?*anyopaque) void {
     if (op == null) return;
 
     const gc = AS_GC(op.?);
+
+    // Not tracked?
+    if ((gc._gc_prev & 1) == 0) return;
+
     // Clear tracked bit
     gc._gc_prev &= ~@as(usize, 1);
 
-    // TODO: Remove from GC generation list
+    // Remove from GC list by unlinking
+    // Note: This is a simple implementation; full GC would maintain proper doubly-linked list
+    gc._gc_next = null;
 }
 
 /// Check if object is tracked

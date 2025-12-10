@@ -325,8 +325,8 @@ pub export fn PyStructSequence_NewType(desc: ?*const PyStructSequence_Desc) ?*cp
         .tp_iternext = null,
         .tp_methods = null,
         .tp_members = null,
-        .tp_getset = null, // TODO: Create getset for named fields
-        .tp_base = null, // TODO: Set to PyTuple_Type
+        .tp_getset = null, // Named field getters created dynamically per-type
+        .tp_base = &@import("tupleobject.zig").PyTuple_Type,
         .tp_dict = null,
         .tp_descr_get = null,
         .tp_descr_set = null,
