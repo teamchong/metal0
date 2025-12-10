@@ -559,14 +559,18 @@ pub const BpeTrainer = struct {
         // Pattern string (empty for now - training doesn't use it)
         const pattern_str = try self.allocator.dupe(u8, "");
 
-        // TODO: Build Aho-Corasick for fast vocab lookup
-        // For now, set to null (encoder will fall back to HashMap)
-        const aho_corasick: ?@import("aho_corasick.zig").AhoCorasick = null;
+        // Build Aho-Corasick automaton for fast vocab lookup
+        const aho_corasick = try builder.buildAhoCorasick(&vocab_r, self.allocator);
 
-        // TODO: Build next_prefix_match table (requires aho_corasick)
-        // For now, allocate empty array
-        const next_prefix_match = try self.allocator.alloc(u32, vocab_r.count());
-        @memset(next_prefix_match, 0);
+        // Build next_prefix_match table for rs-bpe optimization
+        const next_prefix_match = if (aho_corasick) |ac|
+            try builder.buildNextPrefixMatch(&vocab_r, ac, self.allocator)
+        else
+            blk: {
+                const npm = try self.allocator.alloc(u32, vocab_r.count());
+                @memset(npm, 0);
+                break :blk npm;
+            };
 
         // Build single-byte lookup table
         var single_byte_tokens: [256]u32 = [_]u32{0xFFFFFFFF} ** 256;
