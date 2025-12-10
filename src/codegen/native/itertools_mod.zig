@@ -191,7 +191,8 @@ fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// itertools.product(*iterables, repeat=1) - Cartesian product
-fn genProduct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+/// Handles 1, 2, or 3 iterables
+pub fn genProduct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("std.ArrayListUnmanaged(struct { @\"0\": i64 }){}"); return; }
     if (args.len == 1) {
         // Single iterable: wrap each element in a tuple
@@ -201,12 +202,74 @@ fn genProduct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("break :product1_blk _result;\n }");
         return;
     }
-    // Two iterables: Cartesian product
-    try self.emit("product2_blk: {\n const _a = "); try emitIter(self, args[0]);
+    if (args.len == 2) {
+        // Two iterables: Cartesian product
+        try self.emit("product2_blk: {\n const _a = "); try emitIter(self, args[0]);
+        try self.emit(";\n const _b = "); try emitIter(self, args[1]);
+        try self.emit(";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]), @\"1\": @TypeOf(_b[0]) }){};\n ");
+        try self.emit("for (_a) |a| { for (_b) |b| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } }\n ");
+        try self.emit("break :product2_blk _result;\n }");
+        return;
+    }
+    // Three or more iterables: nested Cartesian product
+    try self.emit("product3_blk: {\n const _a = "); try emitIter(self, args[0]);
     try self.emit(";\n const _b = "); try emitIter(self, args[1]);
-    try self.emit(";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]), @\"1\": @TypeOf(_b[0]) }){};\n ");
-    try self.emit("for (_a) |a| { for (_b) |b| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } }\n ");
-    try self.emit("break :product2_blk _result;\n }");
+    try self.emit(";\n const _c = "); try emitIter(self, args[2]);
+    try self.emit(";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]), @\"1\": @TypeOf(_b[0]), @\"2\": @TypeOf(_c[0]) }){};\n ");
+    try self.emit("for (_a) |a| { for (_b) |b| { for (_c) |c| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b, .@\"2\" = c }) catch continue; } } }\n ");
+    try self.emit("break :product3_blk _result;\n }");
+}
+
+/// Generate product with repeat=N where N is known at compile time
+/// This generates N nested loops
+pub fn genProductWithRepeat(self: *NativeCodegen, iter: ast.Node, repeat: i64) CodegenError!void {
+    if (repeat <= 0) { try self.emit("std.ArrayListUnmanaged(struct {}){}"); return; }
+    if (repeat == 1) {
+        // Single iteration - wrap each in tuple
+        try self.emit("product_r1_blk: {\n const _a = "); try emitIter(self, iter);
+        try self.emit(";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]) }){};\n ");
+        try self.emit("for (_a) |item| { _result.append(__global_allocator, .{ .@\"0\" = item }) catch continue; }\n ");
+        try self.emit("break :product_r1_blk _result;\n }");
+        return;
+    }
+
+    // Generate N nested loops for repeat=N
+    // Start block
+    try self.emit("product_repeat_blk: {\n const _iter = ");
+    try emitIter(self, iter);
+    try self.emit(";\n");
+
+    // Generate struct type with N fields
+    try self.emit("var _result = std.ArrayListUnmanaged(struct { ");
+    var i: i64 = 0;
+    while (i < repeat) : (i += 1) {
+        if (i > 0) try self.emit(", ");
+        try self.output.writer(self.allocator).print("@\"{d}\": @TypeOf(_iter[0])", .{i});
+    }
+    try self.emit(" }){};\n");
+
+    // Generate N nested for loops
+    i = 0;
+    while (i < repeat) : (i += 1) {
+        try self.output.writer(self.allocator).print("for (_iter) |_v{d}| {{ ", .{i});
+    }
+
+    // Append tuple
+    try self.emit("_result.append(__global_allocator, .{ ");
+    i = 0;
+    while (i < repeat) : (i += 1) {
+        if (i > 0) try self.emit(", ");
+        try self.output.writer(self.allocator).print(".@\"{d}\" = _v{d}", .{ i, i });
+    }
+    try self.emit(" }) catch {{}}; ");
+
+    // Close loops
+    i = 0;
+    while (i < repeat) : (i += 1) {
+        try self.emit("} ");
+    }
+
+    try self.emit("\nbreak :product_repeat_blk _result;\n }");
 }
 
 /// itertools.permutations(iterable, r=None) - r-length permutations

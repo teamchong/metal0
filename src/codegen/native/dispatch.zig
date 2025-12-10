@@ -139,6 +139,21 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
                 return true;
             }
         }
+
+        // Special handling for itertools.product imported via "from itertools import product"
+        // This generates inline code instead of calling runtime function because:
+        // 1. product() can take variable number of iterables with complex types
+        // 2. Runtime function can't handle all type combinations
+        if (std.mem.eql(u8, func_name, "product")) {
+            // Check if this is from module-level or local imports
+            if (self.module_level_from_imports.contains("product") or
+                self.local_from_imports.contains("product"))
+            {
+                const itertools_mod = @import("itertools_mod.zig");
+                try itertools_mod.genProduct(self, call.args);
+                return true;
+            }
+        }
     }
 
     // No dispatch handler found - use fallback

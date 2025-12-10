@@ -292,7 +292,9 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.registerDirect("pathlib", .zig_runtime, "runtime.pathlib", "runtime.Lib.pathlib", null);
     try registry.registerDirect("datetime", .zig_runtime, "runtime.datetime", "runtime.Lib.datetime", null);
     try registry.registerDirect("calendar", .zig_runtime, "runtime.calendar", "runtime.Lib.calendar", null);
-    try registry.registerDirect("itertools", .zig_runtime, "runtime.itertools", "runtime.Lib.itertools", null);
+    // itertools uses inline codegen for product() due to complex type handling
+    // Other functions fall back to runtime.Lib.itertools
+    try registry.register("itertools", .zig_runtime, null, null);
 
     // Modules that use inline codegen only (no direct_import needed)
     try registry.register("struct", .zig_runtime, "std", null);
@@ -300,8 +302,10 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("hmac", .zig_runtime, "std", null);
     try registry.register("socket", .zig_runtime, "std", null);
     try registry.register("random", .zig_runtime, null, null);
-    try registry.registerDirect("collections", .zig_runtime, null, "runtime.Lib.collections", null);
-    try registry.registerDirect("collections.abc", .zig_runtime, null, "runtime.Lib.collections.abc", null);
+    // collections uses inline codegen for Counter (type inference issues with runtime call)
+    try registry.register("collections", .zig_runtime, null, null);
+    // collections.abc has broken anytype returns, skip for now
+    // try registry.registerDirect("collections.abc", .zig_runtime, null, "runtime.Lib.collections.abc", null);
     try registry.register("functools", .zig_runtime, "std", null);
     try registry.register("logging", .zig_runtime, "std", null);
     try registry.register("threading", .zig_runtime, "std", null);

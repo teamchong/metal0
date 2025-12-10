@@ -788,30 +788,11 @@ const itertools_ops = @import("../runtime/itertools_ops.zig");
 
 /// product(iterable, repeat_n) - Cartesian product of input iterable with itself repeat_n times
 /// product(range(3), 2) -> [[0,0], [0,1], [0,2], ...]
-/// Handles both slices and PyObject ranges
-pub fn product(iterable: anytype, repeat_count: anytype) ![][]i64 {
-    const n: usize = if (@TypeOf(repeat_count) == usize)
-        repeat_count
-    else
-        @intCast(repeat_count);
-    // Use c_allocator - this matches how other itertools functions work
+/// Handles slices of i64 (most common case for range())
+pub fn product(iterable: []const i64, repeat_count: i64) ![][]i64 {
+    const n: usize = @intCast(repeat_count);
     const allocator = std.heap.c_allocator;
-
-    // Convert iterable to a slice of i64
-    const Iterable = @TypeOf(iterable);
-    const runtime_mod = @import("../runtime.zig");
-
-    if (Iterable == *runtime_mod.PyObject) {
-        // Handle PyObject (from range() etc.)
-        const slice = runtime_mod.iterSlice(iterable);
-        return itertools_ops.productRepeat(i64, allocator, slice, n);
-    } else if (@typeInfo(Iterable) == .pointer) {
-        // Handle slices
-        return itertools_ops.productRepeat(@typeInfo(Iterable).pointer.child, allocator, iterable, n);
-    } else {
-        // Assume it's directly iterable
-        return itertools_ops.productRepeat(i64, allocator, iterable, n);
-    }
+    return itertools_ops.productRepeat(i64, allocator, iterable, n);
 }
 
 // ============================================================================

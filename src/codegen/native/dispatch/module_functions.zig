@@ -984,10 +984,8 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
         if (repeat_value) |repeat_n| {
             if (call.args.len >= 1) {
                 // product(iterable, repeat=N) - create N copies of the iterable and compute cartesian product
-                // Use runtime helper since N can be large
-                try self.emit("(try runtime.itertools_ops.productRepeat(__global_allocator, ");
-                try itertools_mod.emitIter(self, call.args[0]);
-                try self.output.writer(self.allocator).print(", {d}))", .{repeat_n});
+                // Use inline codegen to generate N nested loops - handles all element types
+                try itertools_mod.genProductWithRepeat(self, call.args[0], repeat_n);
                 return true;
             }
         }

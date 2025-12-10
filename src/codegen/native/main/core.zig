@@ -1155,13 +1155,12 @@ pub const NativeCodegen = struct {
                     return scoped_type;
                 }
             }
-            // Fallback to global var_types ONLY if not in a function scope
-            // This prevents pollution from same-named variables in other functions
-            if (self.current_function_name == null) {
-                if (self.type_inferrer.var_types.get(original_name)) |var_type| {
-                    if (var_type != .unknown) {
-                        return var_type;
-                    }
+            // Check global var_types as final fallback for module-level variables
+            // These are truly global (e.g., JUST_SHOW_HASH_RESULTS = False at module level)
+            // and should be visible inside functions
+            if (self.type_inferrer.var_types.get(original_name)) |var_type| {
+                if (var_type != .unknown) {
+                    return var_type;
                 }
             }
             // Check if this is a nested class instance (e.g., x = X() where X is defined locally)
