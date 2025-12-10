@@ -243,8 +243,48 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         return true;
     }
 
+    // Builtins that accept keyword arguments - don't error on them
+    // These are passed to their handlers which handle kwargs internally
+    const accepts_kwargs = std.StaticStringMap(void).initComptime(.{
+        .{ "open", {} }, // open(file, mode='r', encoding=None, ...)
+        .{ "print", {} }, // print(*values, sep=' ', end='\n', file=sys.stdout)
+        .{ "max", {} }, // max(iterable, key=None, default=...)
+        .{ "min", {} }, // min(iterable, key=None, default=...)
+        .{ "round", {} }, // round(number, ndigits=None)
+        .{ "input", {} }, // input(prompt='')
+        .{ "format", {} }, // format(value, format_spec='')
+        .{ "exec", {} }, // exec(source, globals=None, locals=None)
+        .{ "eval", {} }, // eval(source, globals=None, locals=None)
+        .{ "compile", {} }, // compile(source, filename, mode, ...)
+        .{ "getattr", {} }, // getattr(object, name, default)
+        .{ "setattr", {} }, // setattr(object, name, value)
+        .{ "hasattr", {} }, // hasattr(object, name)
+        .{ "type", {} }, // type(name, bases, dict) - 3-arg form
+        .{ "super", {} }, // super(type, object_or_type)
+        .{ "slice", {} }, // slice(start, stop, step)
+        .{ "enumerate", {} }, // enumerate(iterable, start=0)
+        .{ "zip", {} }, // zip(*iterables, strict=False)
+    });
+
     // O(1) lookup for all standard builtins
     if (BuiltinMap.get(func_name)) |handler| {
+        // Check for unexpected keyword arguments
+        // Most builtins (bool, float, str, len, etc.) don't accept keyword args
+        if (call.keyword_args.len > 0 and !accepts_kwargs.has(func_name)) {
+            // Generate a block expression that prints error and returns error union
+            try self.emit("(blk_kwarg_err: {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
+            try self.emit(func_name);
+            try self.emit("() takes no keyword arguments\", @src().line);\n");
+            try self.emitIndent();
+            try self.emit("break :blk_kwarg_err error.TypeError;\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("})");
+            return true;
+        }
         try handler(self, call.args);
         return true;
     }
