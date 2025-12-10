@@ -198,10 +198,99 @@ pub const Snapshot = struct {
     }
 
     /// Compare with another snapshot
+    /// Returns a list of StatisticDiff showing changes between snapshots
     pub fn compare_to(self: *const Self, allocator: std.mem.Allocator, other: *const Snapshot) !std.ArrayList(StatisticDiff) {
-        _ = self;
-        _ = other;
-        return std.ArrayList(StatisticDiff).init(allocator);
+        var result = std.ArrayList(StatisticDiff).init(allocator);
+        errdefer result.deinit();
+
+        // Build a map of traceback -> (size, count) for self (newer snapshot)
+        var self_stats = hashmap_helper.StringHashMap(struct { size: usize, count: usize, traceback: Traceback }).init(allocator);
+        defer self_stats.deinit();
+
+        for (self.traces.items) |trace| {
+            if (trace.traceback.frames.items.len == 0) continue;
+            const frame = trace.traceback.frames.items[0];
+            var key_buf: [512]u8 = undefined;
+            const key = std.fmt.bufPrint(&key_buf, "{s}:{d}", .{ frame.filename, frame.lineno }) catch continue;
+
+            if (self_stats.getPtr(key)) |stat| {
+                stat.size += trace.size;
+                stat.count += 1;
+            } else {
+                const owned_key = try allocator.dupe(u8, key);
+                try self_stats.put(owned_key, .{
+                    .size = trace.size,
+                    .count = 1,
+                    .traceback = trace.traceback,
+                });
+            }
+        }
+
+        // Build a map for other (older snapshot)
+        var other_stats = hashmap_helper.StringHashMap(struct { size: usize, count: usize }).init(allocator);
+        defer other_stats.deinit();
+
+        for (other.traces.items) |trace| {
+            if (trace.traceback.frames.items.len == 0) continue;
+            const frame = trace.traceback.frames.items[0];
+            var key_buf: [512]u8 = undefined;
+            const key = std.fmt.bufPrint(&key_buf, "{s}:{d}", .{ frame.filename, frame.lineno }) catch continue;
+
+            if (other_stats.getPtr(key)) |stat| {
+                stat.size += trace.size;
+                stat.count += 1;
+            } else {
+                const owned_key = try allocator.dupe(u8, key);
+                try other_stats.put(owned_key, .{ .size = trace.size, .count = 1 });
+            }
+        }
+
+        // Compare: iterate through self_stats and compute diffs
+        var iter = self_stats.iterator();
+        while (iter.next()) |entry| {
+            const new_size: i64 = @intCast(entry.value_ptr.size);
+            const new_count: i64 = @intCast(entry.value_ptr.count);
+
+            const old = other_stats.get(entry.key_ptr.*);
+            const old_size: i64 = if (old) |o| @intCast(o.size) else 0;
+            const old_count: i64 = if (old) |o| @intCast(o.count) else 0;
+
+            try result.append(.{
+                .traceback = entry.value_ptr.traceback,
+                .size = new_size,
+                .size_diff = new_size - old_size,
+                .count = new_count,
+                .count_diff = new_count - old_count,
+            });
+        }
+
+        // Add entries only in other (removed allocations)
+        var other_iter = other_stats.iterator();
+        while (other_iter.next()) |entry| {
+            if (!self_stats.contains(entry.key_ptr.*)) {
+                const old_size: i64 = @intCast(entry.value_ptr.size);
+                const old_count: i64 = @intCast(entry.value_ptr.count);
+
+                // Create a traceback for this removed entry
+                var empty_traceback = Traceback.init(allocator);
+                var frame = Frame{
+                    .filename = entry.key_ptr.*,
+                    .lineno = 0,
+                    .name = "<unknown>",
+                };
+                empty_traceback.frames.append(frame) catch {};
+
+                try result.append(.{
+                    .traceback = empty_traceback,
+                    .size = 0,
+                    .size_diff = -old_size,
+                    .count = 0,
+                    .count_diff = -old_count,
+                });
+            }
+        }
+
+        return result;
     }
 };
 

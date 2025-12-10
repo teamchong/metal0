@@ -266,9 +266,26 @@ pub fn printWithLimit(tb: *const PyTracebackObject, writer: anytype, limit: i64)
 /// Print a single traceback entry
 fn printEntry(tb: *const PyTracebackObject, writer: anytype) !void {
     const lineno = tb.getLineno();
-    // In real implementation, would get filename from code object
-    const filename = "<unknown>";
-    const name = "<module>";
+
+    // Get filename and name from frame's code object
+    var filename: []const u8 = "<unknown>";
+    var name: []const u8 = "<module>";
+
+    if (tb.tb_frame) |frame| {
+        if (frame.f_frame) |iframe| {
+            if (iframe.f_executable) |code_ptr| {
+                // Cast to CodeObject and extract filename/name
+                const builtins = @import("../runtime/builtins.zig");
+                const code: *const builtins.CodeObject = @ptrCast(@alignCast(code_ptr));
+                if (code.co_filename.len > 0) {
+                    filename = code.co_filename;
+                }
+                if (code.co_name.len > 0) {
+                    name = code.co_name;
+                }
+            }
+        }
+    }
 
     try writer.print("  File \"{s}\", line {d}, in {s}\n", .{ filename, lineno, name });
 }
