@@ -240,6 +240,11 @@ pub const NativeCodegen = struct {
     // Track dict variables (for subscript access -> .get()/.put())
     dict_vars: FnvVoidMap,
 
+    // Context: When generating a dict literal for assignment to a variable with a widened type,
+    // this holds the target value type (e.g., "runtime.PyValue" for dict(key, pyvalue)).
+    // Set before genExpr, cleared after. Dict codegen checks this to use the widened type.
+    target_dict_value_type: ?[]const u8,
+
     // Track anytype parameters in current function scope (for comprehension iteration)
     anytype_params: FnvVoidMap,
 
@@ -704,6 +709,7 @@ pub const NativeCodegen = struct {
             .arraylist_aliases = FnvStringMap.init(allocator),
             .class_instance_aliases = FnvStringMap.init(allocator),
             .dict_vars = FnvVoidMap.init(allocator),
+            .target_dict_value_type = null,
             .anytype_params = FnvVoidMap.init(allocator),
             .mutable_classes = FnvVoidMap.init(allocator),
             .error_init_classes = FnvVoidMap.init(allocator),

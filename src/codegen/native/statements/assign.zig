@@ -103,6 +103,10 @@ fn isTypingNoOp(expr: ast.Node) bool {
 
 /// Generate assignment statement with automatic defer cleanup
 pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!void {
+    // Clear target_dict_value_type context at end of assignment
+    // This ensures dict codegen context doesn't leak to subsequent statements
+    defer self.target_dict_value_type = null;
+
     // Skip typing module assignments (TypeVar, etc.)
     // T = TypeVar('T') should be a no-op at runtime
     if (isTypingNoOp(assign.value.*)) {
@@ -142,6 +146,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         !std.mem.eql(u8, scoped_type.class_instance, original_expr_type.class_instance);
                     if (!skip_widening) {
                         value_type = scoped_type;
+
+                        // Check if widened type is a dict with pyvalue values
+                        // If so, set context for dict literal codegen to use PyValue
+                        // Context is cleared at end of genAssign via defer
+                        if (@as(std.meta.Tag(NativeType), scoped_type) == .dict) {
+                            const val_type = scoped_type.dict.value.*;
+                            if (@as(std.meta.Tag(NativeType), val_type) == .pyvalue) {
+                                self.target_dict_value_type = "runtime.PyValue";
+                            }
+                        }
                         break;
                     }
                 }

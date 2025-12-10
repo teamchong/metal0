@@ -237,9 +237,16 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emitIndent();
     try self.emit("};\n");
 
-    // Infer value type at comptime
+    // Infer value type at comptime, or use target type if context is set
+    // Context is set when assigning to a variable with a widened dict type (e.g., dict(k, pyvalue))
     try self.emitIndent();
-    try self.emit("const V = comptime runtime.InferDictValueType(@TypeOf(_kvs));\n");
+    if (self.target_dict_value_type) |target_type| {
+        // Use widened type from assignment context
+        try self.output.writer(self.allocator).print("const V = {s};\n", .{target_type});
+    } else {
+        // Infer from literal values
+        try self.emit("const V = comptime runtime.InferDictValueType(@TypeOf(_kvs));\n");
+    }
 
     try self.emitIndent();
     if (uses_int_keys) {
@@ -312,6 +319,16 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     self.indent();
     try self.emitIndent();
     try self.emit("break :cast_blk null;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+
+    // PyValue conversion (for widened dict types)
+    try self.emitIndent();
+    try self.emit("if (V == runtime.PyValue) {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("break :cast_blk try runtime.toPyValue(__global_allocator, kv[1]);\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
