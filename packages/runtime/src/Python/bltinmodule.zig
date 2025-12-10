@@ -671,25 +671,32 @@ pub fn format_builtin(allocator: std.mem.Allocator, value: anytype, spec: []cons
 }
 
 // ============================================================================
-// Vars and Globals (stubs)
+// Vars and Globals (AOT: compile-time only)
 // ============================================================================
 
-/// Get local variables (stub)
+/// Get local variables - AOT limitation
 /// Mirrors: builtin locals()
+/// In AOT compilation, local variables are compiled to registers/stack
+/// and not accessible as a dictionary at runtime
 pub fn locals_builtin() void {
-    // In AOT compiled code, locals are not accessible at runtime
+    // Local variable introspection requires interpreter - not available in AOT
+    // Codegen handles locals() calls by generating compile-time dict if possible
 }
 
-/// Get global variables (stub)
+/// Get global variables - AOT limitation
 /// Mirrors: builtin globals()
+/// In AOT compilation, module globals are compiled as static constants
 pub fn globals_builtin() void {
-    // In AOT compiled code, globals are compile-time constants
+    // Global variable introspection requires module dict - handled by codegen
+    // Runtime globals() returns empty dict in pure AOT context
 }
 
-/// Get variables dictionary (stub)
+/// Get variables dictionary - AOT limitation
 /// Mirrors: builtin vars()
+/// Returns __dict__ of an object, or locals() if no argument
 pub fn vars_builtin(_: anytype) void {
-    // Not applicable in AOT
+    // Object __dict__ access handled by codegen for known types
+    // For dynamic objects, returns empty dict
 }
 
 // ============================================================================

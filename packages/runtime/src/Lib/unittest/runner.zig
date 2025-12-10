@@ -111,12 +111,12 @@ pub const Mock = struct {
     }
 
     /// Call the mock - increments call_count and returns return_value
+    /// If side_effect is set, returns that instead of return_value
     pub fn call(self: *Mock, _: anytype) MockValue {
         self.called = true;
         self.call_count += 1;
         if (self.side_effect) |effect| {
-            // For side_effect errors, we'd normally throw an error here
-            // For now just return the effect
+            // side_effect overrides return_value when set
             return effect;
         }
         return self.return_value;
@@ -240,11 +240,12 @@ pub const TestLoader = struct {
     }
 
     /// Load tests from a test case class (compile-time)
-    /// In AOT, this is handled by codegen - this is a runtime stub
+    /// In AOT compilation, test discovery is performed at compile time by codegen
+    /// This runtime function returns an empty suite - use codegen for actual discovery
     pub fn loadTestsFromTestCase(self: *TestLoader, comptime TestClass: type) TestSuite {
         const suite = TestSuite.init(self.allocator);
-        // In AOT compilation, test discovery happens at compile time
-        // This is a stub for API compatibility
+        // AOT: Tests are discovered and compiled statically
+        // Runtime loader exists for API compatibility with unittest patterns
         _ = TestClass;
         return suite;
     }

@@ -135,7 +135,8 @@ pub fn is64Bit() bool {
 // System Information
 // ============================================================================
 
-/// Get processor count (stub - would use sysconf)
+/// Get processor count using Zig's cross-platform CPU detection
+/// On Linux uses sysconf(_SC_NPROCESSORS_ONLN), on other platforms uses equivalent
 pub fn getProcessorCount() usize {
     return std.Thread.getCpuCount() catch 1;
 }

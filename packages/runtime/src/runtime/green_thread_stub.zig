@@ -49,8 +49,8 @@ pub const Scheduler = struct {
         try self.threads.append(self.allocator, gt);
         self.mutex.unlock();
 
-        // For now, spawn a real OS thread to run the function
-        // Future: use M:N scheduling with worker pool
+        // Spawn OS thread to run the green thread function
+        // Note: M:N scheduling would improve performance for many green threads
         const Args = @TypeOf(args);
         const Wrapper = struct {
             fn run(green_thread: *GreenThread, captured_func: @TypeOf(func), captured_args: Args) void {
