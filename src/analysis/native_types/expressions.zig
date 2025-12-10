@@ -571,6 +571,11 @@ pub fn inferExprWithInferrer(
             } };
         },
         .listcomp => |lc| blk: {
+            // Track loop variables we add so we can restore scope after inference
+            // Comprehension variables are scoped and should not affect outer variables
+            var saved_types: [8]struct { name: []const u8, old_type: ?NativeType } = undefined;
+            var saved_count: usize = 0;
+
             // First, type the loop variables from generators so they're available for elt inference
             for (lc.generators) |gen| {
                 if (gen.target.* == .name) {
@@ -578,7 +583,13 @@ pub fn inferExprWithInferrer(
                     if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
                         const func_name = gen.iter.call.func.name.id;
                         if (std.mem.eql(u8, func_name, "range")) {
-                            try var_types.put(gen.target.name.id, .{ .int = .bounded });
+                            const var_name = gen.target.name.id;
+                            // Save old type before overwriting
+                            if (saved_count < saved_types.len) {
+                                saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
+                                saved_count += 1;
+                            }
+                            try var_types.put(var_name, .{ .int = .bounded });
                         }
                     }
                 }
@@ -586,6 +597,15 @@ pub fn inferExprWithInferrer(
 
             // Infer element type from the comprehension expression
             var elem_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, lc.elt.*, type_inferrer);
+
+            // Restore original types (or remove if there wasn't one)
+            for (saved_types[0..saved_count]) |saved| {
+                if (saved.old_type) |old| {
+                    try var_types.put(saved.name, old);
+                } else {
+                    _ = var_types.swapRemove(saved.name);
+                }
+            }
 
             // Lambda elements become closures (Closure0 struct) when stored in lists
             // because each instance captures different values from the loop
@@ -599,6 +619,11 @@ pub fn inferExprWithInferrer(
             break :blk .{ .list = elem_ptr };
         },
         .dictcomp => |dc| blk: {
+            // Track loop variables we add so we can restore scope after inference
+            // Comprehension variables are scoped and should not affect outer variables
+            var saved_types: [8]struct { name: []const u8, old_type: ?NativeType } = undefined;
+            var saved_count: usize = 0;
+
             // First, type the loop variables from generators so they're available for key/value inference
             for (dc.generators) |gen| {
                 if (gen.target.* == .name) {
@@ -606,7 +631,13 @@ pub fn inferExprWithInferrer(
                     if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
                         const func_name = gen.iter.call.func.name.id;
                         if (std.mem.eql(u8, func_name, "range")) {
-                            try var_types.put(gen.target.name.id, .{ .int = .bounded });
+                            const var_name = gen.target.name.id;
+                            // Save old type before overwriting
+                            if (saved_count < saved_types.len) {
+                                saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
+                                saved_count += 1;
+                            }
+                            try var_types.put(var_name, .{ .int = .bounded });
                         }
                     }
                 }
@@ -615,6 +646,15 @@ pub fn inferExprWithInferrer(
             // Infer types from key and value expressions
             const key_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, dc.key.*, type_inferrer);
             const val_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, dc.value.*, type_inferrer);
+
+            // Restore original types (or remove if there wasn't one)
+            for (saved_types[0..saved_count]) |saved| {
+                if (saved.old_type) |old| {
+                    try var_types.put(saved.name, old);
+                } else {
+                    _ = var_types.swapRemove(saved.name);
+                }
+            }
 
             // Allocate key and value types on heap
             const key_ptr = try allocator.create(NativeType);
@@ -639,15 +679,26 @@ pub fn inferExprWithInferrer(
             break :blk .{ .set = elem_ptr };
         },
         .genexp => |ge| blk: {
+            // Track loop variables we add so we can restore scope after inference
+            // Comprehension variables are scoped and should not affect outer variables
+            var saved_types: [8]struct { name: []const u8, old_type: ?NativeType } = undefined;
+            var saved_count: usize = 0;
+
             // Generator expressions are treated as list comprehensions (eager evaluation)
             // First, type the loop variables from generators so they're available for elt inference
             for (ge.generators) |gen| {
                 if (gen.target.* == .name) {
+                    const var_name = gen.target.name.id;
                     // Check if iterator is range() - gives i64 loop variable
                     if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
                         const func_name = gen.iter.call.func.name.id;
                         if (std.mem.eql(u8, func_name, "range")) {
-                            try var_types.put(gen.target.name.id, .{ .int = .bounded });
+                            // Save old type before overwriting
+                            if (saved_count < saved_types.len) {
+                                saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
+                                saved_count += 1;
+                            }
+                            try var_types.put(var_name, .{ .int = .bounded });
                         }
                     }
                     // Check if iterator is a list/array variable - loop var gets element type
@@ -659,7 +710,12 @@ pub fn inferExprWithInferrer(
                                 .array => |arr| arr.element_type.*,
                                 else => NativeType{ .int = .bounded },
                             };
-                            try var_types.put(gen.target.name.id, elem_type);
+                            // Save old type before overwriting
+                            if (saved_count < saved_types.len) {
+                                saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
+                                saved_count += 1;
+                            }
+                            try var_types.put(var_name, elem_type);
                         }
                     }
                 }
@@ -667,6 +723,15 @@ pub fn inferExprWithInferrer(
 
             // Infer element type from the generator expression
             const elem_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, ge.elt.*, type_inferrer);
+
+            // Restore original types (or remove if there wasn't one)
+            for (saved_types[0..saved_count]) |saved| {
+                if (saved.old_type) |old| {
+                    try var_types.put(saved.name, old);
+                } else {
+                    _ = var_types.swapRemove(saved.name);
+                }
+            }
 
             // Generator expressions produce ArrayList(T) (evaluated eagerly in AOT compilation)
             const elem_ptr = try allocator.create(NativeType);

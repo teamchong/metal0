@@ -1073,7 +1073,36 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
                 needs_free = true;
                 break :blk try self.nativeTypeToZigType(vt);
-            } else "i64";
+            } else blk: {
+                // Type not in var_types - try to infer from the assignment value in module body
+                // This handles cases where global var type wasn't captured during analysis
+                for (module.body) |stmt| {
+                    if (stmt == .assign) {
+                        const assign = stmt.assign;
+                        for (assign.targets) |target| {
+                            if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                                // Found the assignment - infer type from value
+                                if (assign.value.* == .constant) {
+                                    const val = assign.value.constant.value;
+                                    if (val == .string) break :blk "[]const u8";
+                                    if (val == .int) break :blk "i64";
+                                    if (val == .float) break :blk "f64";
+                                    if (val == .bool) break :blk "bool";
+                                    if (val == .none) break :blk "?*anyopaque";
+                                }
+                                // For non-constant values, try type inference on the expression
+                                const inferred = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
+                                if (string_traits.isString(inferred)) break :blk "[]const u8";
+                                if (type_traits.isIntegral(inferred)) break :blk "i64";
+                                if (type_traits.isFloating(inferred)) break :blk "f64";
+                                if (inferred == .bool) break :blk "bool";
+                            }
+                        }
+                    }
+                }
+                // Final fallback: default to i64
+                break :blk "i64";
+            };
             defer if (needs_free) self.allocator.free(zig_type);
 
             try self.emit("var ");
