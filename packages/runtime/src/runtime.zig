@@ -2850,22 +2850,58 @@ pub fn isCallable(value: anytype) bool {
     };
 }
 
-/// Check if cls is a subclass of base (placeholder for runtime type checking)
+/// Check if cls is a subclass of base
+/// For PyTypeObject pointers, checks the type hierarchy via tp_base chain
 pub fn isSubclass(cls: anytype, base: anytype) bool {
-    _ = cls;
-    _ = base;
-    // At compile time, type relationships are static
-    // Return false as a safe default for runtime checks
-    return false;
+    const ClsType = @TypeOf(cls);
+    const BaseType = @TypeOf(base);
+
+    // Handle PyTypeObject pointer comparison (runtime type objects)
+    if (ClsType == *PyTypeObject and BaseType == *PyTypeObject) {
+        // Same type is always a subclass of itself
+        if (cls == base) return true;
+
+        // Walk the tp_base chain
+        var current: ?*PyTypeObject = cls.tp_base;
+        while (current) |cur| {
+            if (cur == base) return true;
+            current = cur.tp_base;
+        }
+        return false;
+    }
+
+    // Handle const pointer to PyTypeObject
+    if (ClsType == *const PyTypeObject and BaseType == *const PyTypeObject) {
+        if (cls == base) return true;
+        var current: ?*const PyTypeObject = cls.tp_base;
+        while (current) |cur| {
+            if (cur == base) return true;
+            current = cur.tp_base;
+        }
+        return false;
+    }
+
+    // For runtime values that are type objects, compare directly
+    // This handles cases where types are passed as runtime values
+    return cls == base;
 }
 
-/// Check if cls is a subclass of any of the types in the tuple (for type unions like int | str)
+/// Check if cls is a subclass of any of the types in the tuple
 pub fn isSubclassMulti(cls: anytype, bases: anytype) bool {
-    _ = cls;
-    _ = bases;
-    // At compile time, type relationships are static
-    // Return false as a safe default for runtime checks
-    return false;
+    const BasesType = @TypeOf(bases);
+
+    // Handle slice of PyTypeObject pointers
+    if (BasesType == []*PyTypeObject or BasesType == []const *PyTypeObject or
+        BasesType == []*const PyTypeObject or BasesType == []const *const PyTypeObject)
+    {
+        for (bases) |base| {
+            if (isSubclass(cls, base)) return true;
+        }
+        return false;
+    }
+
+    // Single base - delegate to isSubclass
+    return isSubclass(cls, bases);
 }
 
 /// Complex number type

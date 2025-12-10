@@ -100,15 +100,64 @@ pub const PyTuple = struct {
         // Check each item in the tuple
         for (0..size) |i| {
             const item = tuple_obj.ob_item[i];
-            // For now, only support comparing integers
-            if (runtime.PyLong_Check(item) and runtime.PyLong_Check(value)) {
-                const item_obj: *PyLongObject = @ptrCast(@alignCast(item));
-                const value_obj: *PyLongObject = @ptrCast(@alignCast(value));
-                if (item_obj.ob_digit == value_obj.ob_digit) {
-                    return true;
-                }
+            if (pyObjectEqual(item, value)) {
+                return true;
             }
         }
+        return false;
+    }
+
+    /// Compare two PyObjects for equality
+    fn pyObjectEqual(a: *PyObject, b: *PyObject) bool {
+        // Same object - always equal
+        if (a == b) return true;
+
+        // Must be same type for equality
+        if (a.ob_type != b.ob_type) {
+            // Special case: int and bool can compare
+            const a_is_numeric = runtime.PyLong_Check(a) or runtime.PyBool_Check(a);
+            const b_is_numeric = runtime.PyLong_Check(b) or runtime.PyBool_Check(b);
+            if (!(a_is_numeric and b_is_numeric)) return false;
+        }
+
+        // Compare by type
+        if (runtime.PyLong_Check(a) or runtime.PyBool_Check(a)) {
+            const a_obj: *PyLongObject = @ptrCast(@alignCast(a));
+            const b_obj: *PyLongObject = @ptrCast(@alignCast(b));
+            return a_obj.ob_digit == b_obj.ob_digit;
+        }
+
+        if (runtime.PyFloat_Check(a)) {
+            const a_obj: *runtime.PyFloatObject = @ptrCast(@alignCast(a));
+            const b_obj: *runtime.PyFloatObject = @ptrCast(@alignCast(b));
+            return a_obj.ob_fval == b_obj.ob_fval;
+        }
+
+        if (runtime.PyUnicode_Check(a)) {
+            const a_obj: *PyUnicodeObject = @ptrCast(@alignCast(a));
+            const b_obj: *PyUnicodeObject = @ptrCast(@alignCast(b));
+            if (a_obj.length != b_obj.length) return false;
+            const a_len: usize = @intCast(a_obj.length);
+            const b_len: usize = @intCast(b_obj.length);
+            return std.mem.eql(u8, a_obj.data[0..a_len], b_obj.data[0..b_len]);
+        }
+
+        if (runtime.PyBytes_Check(a)) {
+            const a_obj: *runtime.PyBytesObject = @ptrCast(@alignCast(a));
+            const b_obj: *runtime.PyBytesObject = @ptrCast(@alignCast(b));
+            const a_size: usize = @intCast(a_obj.ob_base.ob_size);
+            const b_size: usize = @intCast(b_obj.ob_base.ob_size);
+            if (a_size != b_size) return false;
+            const a_ptr: [*]const u8 = @ptrCast(&a_obj.ob_sval);
+            const b_ptr: [*]const u8 = @ptrCast(&b_obj.ob_sval);
+            return std.mem.eql(u8, a_ptr[0..a_size], b_ptr[0..b_size]);
+        }
+
+        if (runtime.Py_IS_TYPE(a, &runtime.PyNone_Type)) {
+            return runtime.Py_IS_TYPE(b, &runtime.PyNone_Type);
+        }
+
+        // For other types, use identity comparison
         return false;
     }
 

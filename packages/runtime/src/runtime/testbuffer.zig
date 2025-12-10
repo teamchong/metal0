@@ -31,23 +31,36 @@ pub const ndarray = struct {
     __dict__: DictType = undefined,
 
     const DictType = struct {
-        // Simple wrapper that returns PyValue-like values for attribute access
-        pub fn get(self: @This(), key: []const u8) ?AttrValue {
-            _ = self;
-            _ = key;
-            // Return a stub value - real implementation would look up attributes
-            return AttrValue{};
+        entries: std.StringHashMapUnmanaged(AttrValue) = .{},
+
+        pub fn get(self: *const @This(), key: []const u8) ?AttrValue {
+            return self.entries.get(key);
+        }
+
+        pub fn put(self: *@This(), allocator: std.mem.Allocator, key: []const u8, value: AttrValue) !void {
+            try self.entries.put(allocator, key, value);
         }
     };
-    const AttrValue = struct {
-        int: i64 = 0,
-        string: []const u8 = "",
+    pub const AttrValue = union(enum) {
+        int: i64,
+        string: []const u8,
+        float: f64,
+        bool: bool,
+
+        pub fn asInt(self: AttrValue) i64 {
+            return switch (self) {
+                .int => |v| v,
+                .float => |v| @intFromFloat(v),
+                .bool => |v| if (v) @as(i64, 1) else @as(i64, 0),
+                .string => 0,
+            };
+        }
     };
 
     const Self = @This();
 
     /// Create ndarray from list of items
-    pub fn init(items: anytype, opts: struct {
+    pub fn init(allocator: std.mem.Allocator, items: anytype, opts: struct {
         shape: []const i64 = &[_]i64{},
         strides: []const i64 = &[_]i64{},
         suboffsets: ?[]const i64 = null,
@@ -55,10 +68,83 @@ pub const ndarray = struct {
         flags: i64 = 0,
         offset: i64 = 0,
         getbuf: i64 = 0,
-    }) Self {
-        _ = items;
-        _ = opts;
-        return Self{};
+    }) !Self {
+        const ItemsType = @TypeOf(items);
+        var data: []u8 = &[_]u8{};
+        var shape: []const i64 = opts.shape;
+        var len: i64 = 0;
+
+        // Handle different input types
+        if (@typeInfo(ItemsType) == .pointer) {
+            const child = @typeInfo(ItemsType).pointer.child;
+            if (@typeInfo(child) == .array) {
+                // Array of values - convert to bytes
+                const arr_len = @typeInfo(child).array.len;
+                data = try allocator.alloc(u8, arr_len);
+                for (items, 0..) |item, i| {
+                    data[i] = @intCast(item);
+                }
+                len = @intCast(arr_len);
+                if (shape.len == 0) {
+                    const dynamic_shape = try allocator.alloc(i64, 1);
+                    dynamic_shape[0] = len;
+                    shape = dynamic_shape;
+                }
+            }
+        } else if (@typeInfo(ItemsType) == .array) {
+            // Direct array
+            const arr_len = @typeInfo(ItemsType).array.len;
+            data = try allocator.alloc(u8, arr_len);
+            for (items, 0..) |item, i| {
+                data[i] = @intCast(item);
+            }
+            len = @intCast(arr_len);
+            if (shape.len == 0) {
+                const dynamic_shape = try allocator.alloc(i64, 1);
+                dynamic_shape[0] = len;
+                shape = dynamic_shape;
+            }
+        }
+
+        // Calculate strides if not provided
+        var strides = opts.strides;
+        if (strides.len == 0 and shape.len > 0) {
+            const dynamic_strides = try allocator.alloc(i64, shape.len);
+            var stride: i64 = 1;
+            var i: usize = shape.len;
+            while (i > 0) {
+                i -= 1;
+                dynamic_strides[i] = stride;
+                stride *= shape[i];
+            }
+            strides = dynamic_strides;
+        }
+
+        return Self{
+            .data = data,
+            .shape = shape,
+            .strides = strides,
+            .suboffsets = opts.suboffsets,
+            .format = opts.format,
+            .itemsize = getItemSize(opts.format),
+            .ndim = @intCast(shape.len),
+            .flags = opts.flags,
+            .readonly = false,
+            .obj = null,
+            .len = len,
+            .__dict__ = .{},
+        };
+    }
+
+    fn getItemSize(format: []const u8) i64 {
+        if (format.len == 0) return 1;
+        return switch (format[0]) {
+            'b', 'B', 'c', '?' => 1,
+            'h', 'H' => 2,
+            'i', 'I', 'l', 'L', 'f' => 4,
+            'q', 'Q', 'd' => 8,
+            else => 1,
+        };
     }
 
     /// Get total number of bytes
@@ -99,27 +185,82 @@ pub const ndarray = struct {
 
     /// Get item at flat index (Python __getitem__)
     pub fn getitem(self: Self, idx: i64) i64 {
-        _ = self;
-        _ = idx;
-        return 0;
+        // Handle negative indices
+        var actual_idx = idx;
+        if (actual_idx < 0) {
+            actual_idx += self.len;
+        }
+        if (actual_idx < 0 or actual_idx >= self.len) {
+            return 0; // Out of bounds
+        }
+        const byte_offset: usize = @intCast(actual_idx * self.itemsize);
+        if (byte_offset >= self.data.len) return 0;
+
+        // Read value based on format
+        return switch (self.itemsize) {
+            1 => self.data[byte_offset],
+            2 => if (byte_offset + 2 <= self.data.len)
+                std.mem.readInt(i16, self.data[byte_offset..][0..2], .little)
+            else
+                0,
+            4 => if (byte_offset + 4 <= self.data.len)
+                std.mem.readInt(i32, self.data[byte_offset..][0..4], .little)
+            else
+                0,
+            8 => if (byte_offset + 8 <= self.data.len)
+                std.mem.readInt(i64, self.data[byte_offset..][0..8], .little)
+            else
+                0,
+            else => 0,
+        };
     }
 
     /// Python-style __getitem__ (alias for getitem)
     pub fn __getitem__(self: Self, idx: anytype) i64 {
-        // Handle both integer and slice indices
         const IdxType = @TypeOf(idx);
         if (IdxType == i64 or IdxType == usize or @typeInfo(IdxType) == .comptime_int) {
             return self.getitem(@intCast(idx));
         }
-        // For slices, return 0 (stub)
         return 0;
     }
 
     /// Set item at flat index (Python __setitem__)
     pub fn setitem(self: *Self, idx: i64, value: i64) void {
-        _ = self;
-        _ = idx;
-        _ = value;
+        if (self.readonly) return;
+
+        // Handle negative indices
+        var actual_idx = idx;
+        if (actual_idx < 0) {
+            actual_idx += self.len;
+        }
+        if (actual_idx < 0 or actual_idx >= self.len) {
+            return; // Out of bounds
+        }
+        const byte_offset: usize = @intCast(actual_idx * self.itemsize);
+        if (byte_offset >= self.data.len) return;
+
+        // Write value based on format
+        switch (self.itemsize) {
+            1 => {
+                self.data[byte_offset] = @truncate(@as(u64, @bitCast(value)));
+            },
+            2 => {
+                if (byte_offset + 2 <= self.data.len) {
+                    std.mem.writeInt(i16, self.data[byte_offset..][0..2], @truncate(value), .little);
+                }
+            },
+            4 => {
+                if (byte_offset + 4 <= self.data.len) {
+                    std.mem.writeInt(i32, self.data[byte_offset..][0..4], @truncate(value), .little);
+                }
+            },
+            8 => {
+                if (byte_offset + 8 <= self.data.len) {
+                    std.mem.writeInt(i64, self.data[byte_offset..][0..8], value, .little);
+                }
+            },
+            else => {},
+        }
     }
 
     /// Python-style __setitem__
@@ -130,10 +271,14 @@ pub const ndarray = struct {
         }
     }
 
-    /// Convert to list
-    pub fn tolist(self: Self) []const i64 {
-        _ = self;
-        return &[_]i64{};
+    /// Convert to list (allocates)
+    pub fn tolist(self: Self, allocator: std.mem.Allocator) ![]i64 {
+        const count: usize = @intCast(@divTrunc(self.len, @max(1, self.itemsize)));
+        var result = try allocator.alloc(i64, count);
+        for (0..count) |i| {
+            result[i] = self.getitem(@intCast(i));
+        }
+        return result;
     }
 
     /// Convert to bytes
@@ -146,7 +291,7 @@ pub const ndarray = struct {
         return self;
     }
 
-    /// Create memoryview from buffer (stub for buffer protocol)
+    /// Create memoryview from buffer - returns self since ndarray IS a buffer
     pub fn memoryview_from_buffer(self: *Self) *Self {
         return self;
     }

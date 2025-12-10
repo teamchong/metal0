@@ -309,11 +309,54 @@ pub fn libc_ver() struct { lib: []const u8, version: []const u8 } {
         return .{ .lib = "", .version = "" };
     }
 
-    // For now, return generic info
     return switch (builtin.os.tag) {
-        .linux => .{ .lib = "glibc", .version = "2.17" },
-        .macos => .{ .lib = "libSystem", .version = "" },
-        .windows => .{ .lib = "msvcrt", .version = "" },
+        .linux => blk: {
+            // On Linux, try to determine glibc version from ABI
+            // The Zig builtin gives us the target glibc version
+            if (builtin.abi == .gnu or builtin.abi == .gnueabi or builtin.abi == .gnueabihf) {
+                const ver = builtin.os.version_range.linux.glibc;
+                // Format as "major.minor"
+                const major = ver.major;
+                const minor = ver.minor;
+                // Return detected version - static strings for common versions
+                if (major == 2) {
+                    break :blk .{ .lib = "glibc", .version = switch (minor) {
+                        17 => "2.17",
+                        27 => "2.27",
+                        28 => "2.28",
+                        31 => "2.31",
+                        34 => "2.34",
+                        35 => "2.35",
+                        36 => "2.36",
+                        37 => "2.37",
+                        38 => "2.38",
+                        39 => "2.39",
+                        else => "2.17", // fallback
+                    } };
+                }
+                break :blk .{ .lib = "glibc", .version = "2.17" };
+            } else if (builtin.abi == .musl or builtin.abi == .musleabi or builtin.abi == .musleabihf) {
+                break :blk .{ .lib = "musl", .version = "1.2" };
+            }
+            break :blk .{ .lib = "", .version = "" };
+        },
+        .macos => .{
+            .lib = "libSystem",
+            .version = switch (builtin.os.version_range.semver.min.major) {
+                14 => "14.0",
+                13 => "13.0",
+                12 => "12.0",
+                11 => "11.0",
+                else => "",
+            },
+        },
+        .windows => .{
+            .lib = "ucrt", // Modern Universal CRT
+            .version = "10.0",
+        },
+        .freebsd => .{ .lib = "libc", .version = "14.0" },
+        .netbsd => .{ .lib = "libc", .version = "10.0" },
+        .openbsd => .{ .lib = "libc", .version = "7.4" },
         else => .{ .lib = "", .version = "" },
     };
 }
