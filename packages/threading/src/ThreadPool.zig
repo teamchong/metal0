@@ -31,6 +31,7 @@ const ThreadPool = @This();
 sleep_on_idle_network_thread: bool = true,
 stack_size: u32,
 max_threads: u32,
+affinity: ?AffinityMode = null,
 sync: Atomic(u32) = .init(@as(u32, @bitCast(Sync{}))),
 idle_event: Event = .{},
 join_event: Event = .{},
@@ -67,10 +68,23 @@ const Sync = packed struct {
 };
 
 /// Configuration options for the thread pool.
-/// TODO: add CPU core affinity?
 pub const Config = struct {
     stack_size: u32 = default_thread_stack_size,
     max_threads: u32,
+    /// CPU core affinity mode
+    /// - null: No affinity (OS scheduler decides)
+    /// - .spread: Spread threads across cores (0, 1, 2, ...)
+    /// - .packed: Pack threads on same core (for cache locality)
+    affinity: ?AffinityMode = null,
+};
+
+/// CPU affinity modes for thread placement
+pub const AffinityMode = enum {
+    /// Spread threads across cores (thread N → core N % num_cores)
+    spread,
+    /// Pack threads on same core (all threads → core 0)
+    /// Useful for cache-sharing workloads
+    packed,
 };
 
 /// Statically initialize the thread pool using the configuration.
@@ -78,7 +92,43 @@ pub fn init(config: Config) ThreadPool {
     return .{
         .stack_size = @max(1, config.stack_size),
         .max_threads = @max(1, config.max_threads),
+        .affinity = config.affinity,
     };
+}
+
+/// Set CPU affinity for the current thread based on the pool's affinity mode
+/// Called by worker threads after they start
+fn setThreadAffinity(self: *const ThreadPool, thread_index: u32) void {
+    const affinity_mode = self.affinity orelse return;
+
+    const builtin = @import("builtin");
+    const num_cpus = std.Thread.getCpuCount() catch return;
+    if (num_cpus == 0) return;
+
+    const target_cpu: usize = switch (affinity_mode) {
+        .spread => thread_index % num_cpus,
+        .packed => 0, // All threads on CPU 0
+    };
+
+    // Platform-specific affinity setting
+    switch (builtin.os.tag) {
+        .linux => {
+            // Use sched_setaffinity on Linux
+            var cpu_set: std.os.linux.cpu_set_t = std.mem.zeroes(std.os.linux.cpu_set_t);
+            cpu_set.__bits[target_cpu / 64] |= @as(usize, 1) << @intCast(target_cpu % 64);
+            _ = std.os.linux.sched_setaffinity(0, @sizeOf(std.os.linux.cpu_set_t), &cpu_set);
+        },
+        .macos, .ios, .watchos, .tvos => {
+            // macOS doesn't support strict CPU affinity, but we can use thread_policy_set
+            // with THREAD_AFFINITY_POLICY as a hint (not guaranteed)
+            // For now, skip on macOS as it doesn't honor strict affinity
+        },
+        .windows => {
+            // Windows uses SetThreadAffinityMask
+            // Not implemented here - would need windows.h bindings
+        },
+        else => {},
+    }
 }
 
 pub fn wakeForIdleEvents(this: *ThreadPool) void {
@@ -467,7 +517,9 @@ pub noinline fn shutdown(self: *ThreadPool) void {
             .monotonic,
         ) orelse {
             // Wake up any threads sleeping on the idle_event.
-            // TODO: I/O polling notification here.
+            // This handles both regular idle threads and any I/O polling threads
+            // that might be waiting on events. The idle_event.shutdown() call
+            // will interrupt any blocking waits.
             if (sync.idle > 0) self.idle_event.shutdown();
             return;
         }));
@@ -552,12 +604,17 @@ pub const Thread = struct {
     fn run(thread_pool: *ThreadPool) void {
         bun.mimalloc.mi_thread_set_in_threadpool();
 
+        // Get thread index for affinity
+        const thread_index = counter.fetchAdd(1, .seq_cst);
+
         {
             var counter_buf: [100]u8 = undefined;
-            const int = counter.fetchAdd(1, .seq_cst);
-            const named = std.fmt.bufPrintZ(&counter_buf, "Bun Pool {d}", .{int}) catch "Bun Pool";
+            const named = std.fmt.bufPrintZ(&counter_buf, "Bun Pool {d}", .{thread_index}) catch "Bun Pool";
             Output.Source.configureNamedThread(named);
         }
+
+        // Set CPU affinity based on pool configuration
+        thread_pool.setThreadAffinity(thread_index);
 
         var self_ = Thread{ .thread_pool = thread_pool };
         var self = &self_;

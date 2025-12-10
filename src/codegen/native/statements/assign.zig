@@ -688,51 +688,45 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Skip comptime eval for variables typed as bigint (need runtime BigInt.fromInt)
             if (value_type != .bigint) {
                 if (self.comptime_evaluator.tryEval(assign.value.*)) |comptime_val| {
-                    // Only apply for simple types (no strings/lists that allocate during evaluation)
-                    // TODO: Strings and lists need proper arena allocation to avoid memory leaks
-                    const is_simple_type = switch (comptime_val) {
-                        .int, .float, .bool => true,
-                        .string, .list, .owned_string, .owned_list => false,
-                    };
+                    // Check mutability BEFORE emitting
+                    // Use isVarMutated() to check both module-level AND function-local mutations
+                    const is_mutable = if (is_first_assignment)
+                        self.isVarMutated(var_name)
+                    else
+                        false; // Reassignments don't declare
 
-                    if (is_simple_type) {
-                        // Check mutability BEFORE emitting
-                        // Use isVarMutated() to check both module-level AND function-local mutations
-                        const is_mutable = if (is_first_assignment)
-                            self.isVarMutated(var_name)
-                        else
-                            false; // Reassignments don't declare
+                    // Successfully evaluated at compile time!
+                    // All comptime values (int, float, bool, string, list) can be emitted
+                    try comptimeHelpers.emitComptimeAssignment(self, var_name, comptime_val, is_first_assignment, is_mutable);
 
-                        // Successfully evaluated at compile time!
-                        try comptimeHelpers.emitComptimeAssignment(self, var_name, comptime_val, is_first_assignment, is_mutable);
-                        if (is_first_assignment) {
-                            // Declare with proper type for scope-aware type lookup
-                            try self.declareVarWithType(var_name, value_type);
-                            // Trigger any deferred closures waiting on this variable
-                            try triggerDeferredClosureInstantiations(self, var_name);
-                        }
+                    // Free owned memory after emission (strings/lists allocate during concat/operations)
+                    defer comptime_val.deinit(self.allocator);
 
-                        // If variable is used in eval string but nowhere else in actual code,
-                        // emit _ = varname; to suppress Zig "unused" warning
-                        // Use original_var_name for check, but emit renamed var_name
-                        if (self.isEvalStringVar(original_var_name)) {
-                            try self.emitIndent();
-                            try self.emit("_ = ");
-                            try self.emit(var_name);
-                            try self.emit(";\n");
-                        }
-
-                        // Track first assignments for potential discard emission
-                        // Even comptime-evaluated variables need discard tracking for unused var suppression
-                        if (is_first_assignment) {
-                            const suppress_name = self.var_renames.get(var_name) orelse var_name;
-                            try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, suppress_name));
-                        }
-
-                        return;
+                    if (is_first_assignment) {
+                        // Declare with proper type for scope-aware type lookup
+                        try self.declareVarWithType(var_name, value_type);
+                        // Trigger any deferred closures waiting on this variable
+                        try triggerDeferredClosureInstantiations(self, var_name);
                     }
-                    // Fall through to runtime codegen for strings/lists
-                    // Don't free - these are either AST-owned or will leak (TODO: arena)
+
+                    // If variable is used in eval string but nowhere else in actual code,
+                    // emit _ = varname; to suppress Zig "unused" warning
+                    // Use original_var_name for check, but emit renamed var_name
+                    if (self.isEvalStringVar(original_var_name)) {
+                        try self.emitIndent();
+                        try self.emit("_ = ");
+                        try self.emit(var_name);
+                        try self.emit(";\n");
+                    }
+
+                    // Track first assignments for potential discard emission
+                    // Even comptime-evaluated variables need discard tracking for unused var suppression
+                    if (is_first_assignment) {
+                        const suppress_name = self.var_renames.get(var_name) orelse var_name;
+                        try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, suppress_name));
+                    }
+
+                    return;
                 }
             }
 

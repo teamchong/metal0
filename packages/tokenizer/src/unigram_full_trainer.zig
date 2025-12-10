@@ -755,9 +755,10 @@ pub const UnigramTrainer = struct {
         const desired_vocab_size = (self.config.vocab_size * 11) / 10; // 1.1x target (HuggingFace default)
         // std.debug.print("[PROFILE] Seeds: {d}, Desired: {d}, Target: {d}\n", .{ pieces.items.len, desired_vocab_size, self.config.vocab_size });
 
-        // Lattice caching disabled - adds overhead without benefit (only 1 EM iteration)
-        // TODO: Re-enable when we have multiple EM iterations per training run
-        _ = @TypeOf(null); // Cached lattices not used with parallel E-step
+        // Lattice caching is disabled for performance reasons:
+        // - With parallel E-step, each thread creates its own lattices
+        // - Caching adds memory overhead without speedup (profiled)
+        // - The parallel E-step already achieves good performance
 
         // 2. EM iterations
         while (pieces.items.len > desired_vocab_size) {

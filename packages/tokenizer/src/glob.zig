@@ -115,8 +115,6 @@ const Wildcard = struct {
 ///     Multiple "!" characters negate the pattern multiple times.
 /// "\"
 ///     Used to escape any of the special characters above.
-// TODO: consider just taking arena and resetting to initial state,
-// all usages of this function pass in Arena.allocator()
 pub fn match(glob: []const u8, path: []const u8) MatchResult {
     var state = State{};
 
@@ -129,14 +127,17 @@ pub fn match(glob: []const u8, path: []const u8) MatchResult {
     var brace_stack = BraceStack.init(0) catch unreachable;
     const matched = globMatchImpl(&state, glob, 0, path, &brace_stack);
 
-    // TODO: consider just returning a bool
-    // return matched != negated;
     if (negated) {
-        // FIXME(@DonIsaac): This looks backwards to me
         return if (matched) .negate_no_match else .negate_match;
     } else {
         return if (matched) .match else .no_match;
     }
+}
+
+/// Simple boolean match function - returns true if glob matches path
+/// Handles negation: "!pattern" returns true if pattern does NOT match
+pub fn matchBool(glob: []const u8, path: []const u8) bool {
+    return match(glob, path).matches();
 }
 
 // `glob_start` is the index where the glob pattern starts
