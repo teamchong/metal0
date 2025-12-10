@@ -61,7 +61,7 @@ pub fn runtimeDir() []const u8 {
 }
 
 /// Legacy: get build dir for backward compatibility
-/// TODO: migrate callers to use specific paths above
+/// DEPRECATED: Use specific functions above (cacheDir, binDir, libDir, runtimeDir)
 pub fn getBuildDir() []const u8 {
     return CACHE;
 }

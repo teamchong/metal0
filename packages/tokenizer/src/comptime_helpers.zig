@@ -90,7 +90,8 @@ pub fn createListComptime(comptime values: anytype, allocator: std.mem.Allocator
             if (T == f64 and (@TypeOf(val) == i64 or @TypeOf(val) == comptime_int)) {
                 break :blk @as(f64, @floatFromInt(val));
             }
-            // TODO: Add string conversion when T == []const u8
+            // String conversion not possible at comptime - values must already be []const u8
+            // For int/float → string, convert before passing to createListComptime
             break :blk val;
         } else val;
 

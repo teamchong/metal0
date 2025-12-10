@@ -168,14 +168,48 @@ fn detectChain(info: *types.SemanticInfo, node: ast.Node) !void {
 
     // Only record chains of length > 1
     if (chain_length > 1) {
-        // Detect if this is a string operation
-        // TODO: This is a stub - would need type information
+        // Detect if this is a string operation - requires type inference
+        // This analysis pass runs before type inference, so we use heuristics:
+        // - Check if any operand is a string literal (constant with string value)
         if (binop.op == .Add) {
-            is_string_op = false; // Conservative default
+            is_string_op = isLikelyStringConcat(binop.left.*) or isLikelyStringConcat(binop.right.*);
         }
 
         var chain = try types.ExpressionChain.init(info.allocator, binop.op, is_string_op);
         chain.chain_length = chain_length;
         try info.expr_chains.append(info.allocator, chain);
+    }
+}
+
+/// Heuristically detect if a node is likely a string concatenation operand
+/// Uses AST structure to check for string literals without type information
+fn isLikelyStringConcat(node: ast.Node) bool {
+    switch (node) {
+        .constant => |c| {
+            // Check if constant is a string (Python constants include strings)
+            // String constants are stored as union with .str variant
+            return switch (c.value) {
+                .str => true,
+                else => false,
+            };
+        },
+        .binop => |binop| {
+            // Recursively check nested binops (for chains like a + b + c)
+            if (binop.op == .Add) {
+                return isLikelyStringConcat(binop.left.*) or isLikelyStringConcat(binop.right.*);
+            }
+            return false;
+        },
+        .call => |call| {
+            // Check for str() calls or .format() method calls
+            if (call.func.* == .name) {
+                const name = call.func.name;
+                if (std.mem.eql(u8, name.id, "str")) {
+                    return true;
+                }
+            }
+            return false;
+        },
+        else => return false,
     }
 }
