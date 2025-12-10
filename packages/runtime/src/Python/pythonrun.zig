@@ -34,7 +34,7 @@ pub fn exec(
         if (err == error.NotImplemented or err == error.UnexpectedToken) {
             // Try subprocess compilation for full Python syntax
             const program = eval_cache.compileViaSubprocess(allocator, source) catch {
-                return error.NotImplemented;
+                return error.SyntaxError; // Compilation failed
             };
             defer {
                 var mutable_program = program;
@@ -81,7 +81,7 @@ pub fn execWithScope(
         if (err == error.NotImplemented or err == error.UnexpectedToken) {
             // Try subprocess compilation for full Python syntax
             const program = eval_cache.compileViaSubprocess(allocator, source) catch {
-                return error.NotImplemented;
+                return error.SyntaxError; // Compilation failed
             };
             defer {
                 var mutable_program = program;

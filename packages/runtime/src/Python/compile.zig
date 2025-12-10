@@ -368,7 +368,7 @@ pub const Compiler = struct {
                 try self.instructions.append(self.allocator, .{ .op = op });
             },
 
-            else => return error.NotImplemented,
+            else => return error.UnsupportedASTNode, // Node type not yet supported in bytecode compiler
         }
     }
 };
@@ -457,7 +457,7 @@ pub const VM = struct {
                     try self.stack.append(self.allocator, list);
                 },
 
-                else => return error.NotImplemented,
+                else => return error.UnsupportedOpcode, // Opcode not yet supported in bytecode VM
             }
 
             ip += 1;
