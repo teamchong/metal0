@@ -24,13 +24,13 @@ pub fn initDynamicAttrs(allocator: std.mem.Allocator) void {
     dynamic_attrs = hashmap_helper.HashMap(usize, hashmap_helper.StringHashMap(PyValue)).init(allocator);
 }
 
-/// Placeholder for PyObject - can hold any object for dynamic access
+/// Generic object wrapper for dynamic attribute access
 pub const PyObject = struct {
     ptr: *anyopaque,
     type_id: usize = 0,
 };
 
-/// Placeholder for PyDict - use hashmap
+/// Dictionary type for dynamic scope storage
 pub const PyDict = hashmap_helper.StringHashMap(PyValue);
 
 /// Get attribute from object (dynamic attribute access)

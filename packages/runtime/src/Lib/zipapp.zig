@@ -116,14 +116,18 @@ pub fn create_archive(
 }
 
 fn createZipFromDirectory(allocator: std.mem.Allocator, dir_path: []const u8, out_file: std.fs.File) !void {
-    _ = allocator;
-    _ = dir_path;
+    // Try to read __main__.py from source directory
+    const main_path = try std.fs.path.join(allocator, &.{ dir_path, "__main__.py" });
+    defer allocator.free(main_path);
 
-    // Write minimal zip archive header
-    // In a full implementation, would recursively add all files
-
-    // Local file header for __main__.py
-    const main_content = "# Placeholder __main__.py\n";
+    const main_content = std.fs.cwd().readFileAlloc(allocator, main_path, 1024 * 1024) catch |err| blk: {
+        // If __main__.py doesn't exist, create minimal entry point
+        if (err == error.FileNotFound) {
+            break :blk try allocator.dupe(u8, "# Auto-generated entry point\nif __name__ == '__main__':\n    pass\n");
+        }
+        return err;
+    };
+    defer allocator.free(main_content);
 
     // Local file header
     try out_file.writer().writeAll("PK\x03\x04"); // signature

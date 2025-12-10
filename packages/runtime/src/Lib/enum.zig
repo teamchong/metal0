@@ -251,9 +251,20 @@ pub fn unique(comptime E: type) type {
 // Auto Values
 // ============================================================================
 
-/// Placeholder for auto() in Python enums
+/// Auto-value generator for Python enums
+/// In Python's enum module, auto() generates sequential values.
+/// In AOT compilation, the codegen replaces auto() calls with
+/// sequential integers at compile time.
+var auto_counter: i64 = 0;
+
 pub fn auto() i64 {
-    return 0; // Would be replaced at compile time
+    auto_counter += 1;
+    return auto_counter;
+}
+
+/// Reset auto counter (called at start of each enum definition)
+pub fn resetAuto() void {
+    auto_counter = 0;
 }
 
 // ============================================================================

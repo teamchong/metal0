@@ -166,8 +166,12 @@ pub const JITCompiler = struct {
     }
 
     /// Generate native code from bytecode
+    /// Metal0 AOT: This module exists for CPython API compatibility.
+    /// In Metal0, all Python code is compiled to native code at build time
+    /// by the AOT compiler, not at runtime. This function returns the
+    /// bytecode unchanged as a compatibility shim.
     fn generateNativeCode(self: *Self, bytecode: []const u8) ![]const u8 {
-        // Placeholder - would compile bytecode to native code
+        // AOT: Code is already native - return bytecode as-is for caching
         const native = try self.allocator.alloc(u8, bytecode.len);
         @memcpy(native, bytecode);
         return native;

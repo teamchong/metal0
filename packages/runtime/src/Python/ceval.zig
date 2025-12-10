@@ -621,6 +621,9 @@ pub fn evalCode(
 
 /// Evaluate with keyword arguments
 /// Mirrors: PyEval_EvalCodeEx()
+/// AOT Limitation: Dynamic code evaluation (eval/exec) isn't supported in AOT.
+/// All code must be compiled at build time. This function exists for API
+/// compatibility but returns null. Use compiled function calls instead.
 pub fn evalCodeEx(
     allocator: std.mem.Allocator,
     code: anytype,
@@ -641,7 +644,7 @@ pub fn evalCodeEx(
     _ = defaults;
     _ = kwdefaults;
     _ = closure;
-    // Stub for AOT
+    // AOT: Dynamic evaluation not supported - code compiled at build time
     return null;
 }
 

@@ -716,17 +716,18 @@ pub fn getFreezeCount() usize {
 
 /// Get objects that refer to the given objects
 /// Mirrors: gc.get_referrers()
+/// AOT Limitation: Object graph traversal requires runtime type information
+/// that isn't available in statically compiled code. In CPython, this walks
+/// all tracked objects checking their tp_traverse callbacks.
 pub fn getReferrers(_: std.mem.Allocator, _: []const *anyopaque) !std.ArrayList(*anyopaque) {
-    // In AOT, this would require traversal hooks
-    // Placeholder implementation
     return error.NotImplemented;
 }
 
 /// Get objects that the given object refers to
 /// Mirrors: gc.get_referents()
+/// AOT Limitation: Requires tp_traverse callback on object's type, which
+/// isn't available in statically compiled code. Use explicit field access instead.
 pub fn getReferents(_: std.mem.Allocator, _: []const *anyopaque) !std.ArrayList(*anyopaque) {
-    // In AOT, this would require traversal hooks
-    // Placeholder implementation
     return error.NotImplemented;
 }
 

@@ -1218,7 +1218,7 @@ pub const PyTypeObject = extern struct {
     tp_itemsize: Py_ssize_t,
     // Destructor
     tp_dealloc: ?*const fn (*PyObject) callconv(.c) void,
-    // Placeholder for vectorcall_offset
+    // Offset to vectorcall function pointer (PEP 590)
     tp_vectorcall_offset: Py_ssize_t,
     // Reserved slots (for getattr, setattr, etc.)
     tp_getattr: ?*anyopaque,
