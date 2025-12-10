@@ -182,12 +182,35 @@ pub const IMAP4 = struct {
         // Create socket
         self.sock = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
 
-        // Would connect and read welcome
-        self.welcome = "* OK IMAP4 server ready";
+        // Set socket timeout
+        const secs: i64 = 30; // Default 30s timeout
+        const tv = std.posix.timeval{ .tv_sec = secs, .tv_usec = 0 };
+        const tv_bytes = std.mem.asBytes(&tv);
+        std.posix.setsockopt(self.sock.?, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, tv_bytes) catch {};
+        std.posix.setsockopt(self.sock.?, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, tv_bytes) catch {};
+
+        // Resolve and connect to server
+        const address = std.net.Address.resolveIp4(self.host, self.port) catch return ImapError.ConnectionRefused;
+        std.posix.connect(self.sock.?, &address.any, address.getOsSockLen()) catch return ImapError.ConnectionRefused;
+
+        // Read welcome message (untagged)
+        var buf: [1024]u8 = undefined;
+        var total_len: usize = 0;
+        while (total_len < buf.len - 1) {
+            const n = std.posix.recv(self.sock.?, buf[total_len..], 0) catch return ImapError.ConnectionRefused;
+            if (n == 0) break;
+            total_len += n;
+            if (total_len >= 2 and buf[total_len - 2] == '\r' and buf[total_len - 1] == '\n') break;
+        }
+        if (total_len > 2) {
+            self.welcome = buf[0 .. total_len - 2]; // Trim CRLF
+        }
     }
 
     /// Send command and get response
     fn sendCommand(self: *Self, cmd: []const u8, args: ?[]const u8) !ImapResponse {
+        if (self.sock == null) return ImapError.Error;
+
         self.tagnum += 1;
 
         // Build tag
@@ -205,9 +228,39 @@ pub const IMAP4 = struct {
             std.debug.print("> {s}", .{line});
         }
 
-        // Would send over socket and read response
+        // Send command over socket
+        _ = std.posix.send(self.sock.?, line, 0) catch return ImapError.Error;
+
+        // Read response
+        var resp_buf: [4096]u8 = undefined;
+        var total_len: usize = 0;
+        while (total_len < resp_buf.len - 1) {
+            const n = std.posix.recv(self.sock.?, resp_buf[total_len..], 0) catch return ImapError.Error;
+            if (n == 0) break;
+            total_len += n;
+
+            // Check for tagged response (our tag followed by OK/NO/BAD)
+            if (total_len >= tag.len + 4) {
+                if (std.mem.startsWith(u8, resp_buf[0..total_len], tag)) {
+                    if (std.mem.indexOf(u8, resp_buf[0..total_len], "\r\n") != null) break;
+                }
+            }
+        }
+
+        // Parse response type
+        var typ: ImapResponseType = .BAD;
+        if (std.mem.indexOf(u8, resp_buf[0..total_len], "OK")) |_| {
+            typ = .OK;
+        } else if (std.mem.indexOf(u8, resp_buf[0..total_len], "NO")) |_| {
+            typ = .NO;
+        }
+
+        if (self.debugging > 0) {
+            std.debug.print("< {s}\n", .{resp_buf[0..total_len]});
+        }
+
         return ImapResponse{
-            .typ = .OK,
+            .typ = typ,
             .data = &[_][]const u8{},
         };
     }

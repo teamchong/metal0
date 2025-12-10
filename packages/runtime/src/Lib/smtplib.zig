@@ -172,17 +172,66 @@ pub const SMTP = struct {
         // Create socket
         self.sock = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
 
-        // Would connect to server
+        // Set socket timeout
+        if (self.timeout > 0) {
+            const secs: i64 = @intFromFloat(self.timeout);
+            const usecs: i64 = @intFromFloat((self.timeout - @as(f64, @floatFromInt(secs))) * 1_000_000);
+            const tv = std.posix.timeval{ .tv_sec = secs, .tv_usec = usecs };
+            const tv_bytes = std.mem.asBytes(&tv);
+            std.posix.setsockopt(self.sock.?, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, tv_bytes) catch {};
+            std.posix.setsockopt(self.sock.?, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, tv_bytes) catch {};
+        }
+
+        // Resolve and connect to server
+        const address = std.net.Address.resolveIp4(self.host, self.port) catch return SmtpError.ConnectionRefused;
+        std.posix.connect(self.sock.?, &address.any, address.getOsSockLen()) catch return SmtpError.ConnectionRefused;
+
+        // Read server greeting
         return self.getReply();
     }
 
     /// Get reply from server
     fn getReply(self: *Self) !SmtpResponse {
-        _ = self;
-        // Would read response from socket
+        if (self.sock == null) return SmtpError.NotConnected;
+
+        var buf: [MAXLINE]u8 = undefined;
+        var total_len: usize = 0;
+
+        // Read response lines (may be multi-line)
+        while (total_len < buf.len - 1) {
+            const n = std.posix.recv(self.sock.?, buf[total_len..], 0) catch |err| {
+                if (err == error.WouldBlock) return SmtpError.Timeout;
+                return SmtpError.ConnectionError;
+            };
+            if (n == 0) break;
+            total_len += n;
+
+            // Check for complete response (line ending with CRLF and code + space)
+            if (total_len >= 4 and buf[total_len - 2] == '\r' and buf[total_len - 1] == '\n') {
+                // Check if this is the final line (code followed by space, not hyphen)
+                if (buf[3] == ' ') break;
+            }
+        }
+
+        if (total_len < 3) return SmtpError.ProtoError;
+
+        // Parse response code
+        const code = std.fmt.parseInt(u16, buf[0..3], 10) catch return SmtpError.ProtoError;
+
+        // Extract message (skip code and space/hyphen, trim CRLF)
+        var msg_start: usize = 4;
+        var msg_end = total_len;
+        while (msg_end > msg_start and (buf[msg_end - 1] == '\r' or buf[msg_end - 1] == '\n')) {
+            msg_end -= 1;
+        }
+
+        if (self.debugging > 0) {
+            std.debug.print("reply: {d} {s}\n", .{ code, buf[msg_start..msg_end] });
+        }
+
         return SmtpResponse{
-            .code = 220,
-            .message = "Service ready",
+            .code = code,
+            .message = if (msg_start < msg_end) buf[msg_start..msg_end] else "",
         };
     }
 
@@ -224,8 +273,8 @@ pub const SMTP = struct {
             std.debug.print("send: {s}", .{buf[0..len]});
         }
 
-        // Would send over socket
-        _ = len;
+        // Send command over socket
+        _ = std.posix.send(self.sock.?, buf[0..len], 0) catch return SmtpError.ConnectionError;
     }
 
     // ========================================================================
