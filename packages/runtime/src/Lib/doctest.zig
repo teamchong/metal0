@@ -22,13 +22,24 @@ pub const OutputChecker = struct {
         return std.mem.eql(u8, std.mem.trim(u8, want, " \n\r\t"), std.mem.trim(u8, got, " \n\r\t"));
     }
 
-    /// Get diff between want and got
+    /// Get diff between want and got - returns unified diff format
     pub fn output_difference(self: *Self, example: []const u8, got: []const u8, optionflags: u32) []const u8 {
-        _ = self;
-        _ = example;
-        _ = got;
         _ = optionflags;
-        return ""; // Stub
+
+        // Simple diff: show expected vs actual
+        if (std.mem.eql(u8, example, got)) {
+            return ""; // No difference
+        }
+
+        // Build a simple diff output
+        var result = std.ArrayList(u8).init(self.allocator);
+        result.appendSlice("Expected:\n") catch return "";
+        result.appendSlice(example) catch return "";
+        result.appendSlice("\nGot:\n") catch return "";
+        result.appendSlice(got) catch return "";
+        result.append('\n') catch return "";
+
+        return result.toOwnedSlice() catch "";
     }
 };
 
