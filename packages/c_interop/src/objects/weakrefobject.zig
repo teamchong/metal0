@@ -348,6 +348,52 @@ pub inline fn PyWeakref_CheckProxy(obj: ?*cpython.PyObject) bool {
         obj.?.ob_type == &_PyWeakref_CallableProxyType;
 }
 
+/// Insert weakref into object's weakref list
+fn insert_weakref(obj: *cpython.PyObject, wr: *PyWeakReference) void {
+    const tp = obj.ob_type;
+
+    // Check if type supports weak references
+    if (tp.tp_weaklistoffset == 0) return;
+
+    // Get pointer to weakref list head in object
+    const offset: usize = @intCast(tp.tp_weaklistoffset);
+    const obj_bytes: [*]u8 = @ptrCast(obj);
+    const list_ptr: *?*PyWeakReference = @ptrCast(@alignCast(obj_bytes + offset));
+
+    // Insert at head of list
+    if (list_ptr.*) |head| {
+        head.wr_prev = wr;
+        wr.wr_next = head;
+    }
+    wr.wr_prev = null;
+    list_ptr.* = wr;
+}
+
+/// Remove weakref from object's weakref list
+fn remove_weakref(wr: *PyWeakReference) void {
+    // Update prev's next pointer
+    if (wr.wr_prev) |prev| {
+        prev.wr_next = wr.wr_next;
+    } else if (wr.wr_object) |obj| {
+        // This was the head - update object's list head
+        const tp = obj.ob_type;
+        if (tp.tp_weaklistoffset != 0) {
+            const offset: usize = @intCast(tp.tp_weaklistoffset);
+            const obj_bytes: [*]u8 = @ptrCast(obj);
+            const list_ptr: *?*PyWeakReference = @ptrCast(@alignCast(obj_bytes + offset));
+            list_ptr.* = wr.wr_next;
+        }
+    }
+
+    // Update next's prev pointer
+    if (wr.wr_next) |next| {
+        next.wr_prev = wr.wr_prev;
+    }
+
+    wr.wr_prev = null;
+    wr.wr_next = null;
+}
+
 /// Create a new weak reference
 pub export fn PyWeakref_NewRef(ob: ?*cpython.PyObject, callback: ?*cpython.PyObject) ?*cpython.PyObject {
     if (ob == null) return null;
@@ -373,7 +419,8 @@ pub export fn PyWeakref_NewRef(ob: ?*cpython.PyObject, callback: ?*cpython.PyObj
         .vectorcall = null,
     };
 
-    // TODO: Insert into object's weakref list
+    // Insert into object's weakref list
+    insert_weakref(ob.?, wr);
 
     return @ptrCast(wr);
 }
@@ -406,7 +453,8 @@ pub export fn PyWeakref_NewProxy(ob: ?*cpython.PyObject, callback: ?*cpython.PyO
         .vectorcall = if (is_callable) ob.?.ob_type.tp_vectorcall else null,
     };
 
-    // TODO: Insert into object's weakref list
+    // Insert into object's weakref list
+    insert_weakref(ob.?, wr);
 
     return @ptrCast(wr);
 }
@@ -490,6 +538,49 @@ pub export fn PyWeakref_IsDead(ref: ?*cpython.PyObject) c_int {
 pub export fn PyObject_ClearWeakRefs(obj: ?*cpython.PyObject) void {
     if (obj == null) return;
 
-    // TODO: Iterate through object's weakref list and clear all refs
-    // This requires accessing the object's tp_weaklistoffset
+    const tp = obj.?.ob_type;
+
+    // Check if type supports weak references
+    if (tp.tp_weaklistoffset == 0) return;
+
+    // Get pointer to weakref list head
+    const offset: usize = @intCast(tp.tp_weaklistoffset);
+    const obj_bytes: [*]u8 = @ptrCast(obj.?);
+    const list_ptr: *?*PyWeakReference = @ptrCast(@alignCast(obj_bytes + offset));
+
+    // Iterate through list and clear all refs
+    var current = list_ptr.*;
+    while (current) |wr| {
+        const next = wr.wr_next;
+
+        // Clear the reference
+        wr.wr_object = null;
+        wr.wr_prev = null;
+        wr.wr_next = null;
+
+        // Call callback if present
+        if (wr.wr_callback) |callback| {
+            // Create args tuple with the weakref
+            const pytuple = @import("tupleobject.zig");
+            const call = @import("call.zig");
+            const args = pytuple.PyTuple_New(1);
+            if (args != null) {
+                const wr_obj: *cpython.PyObject = @ptrCast(wr);
+                wr_obj.ob_refcnt += 1;
+                _ = pytuple.PyTuple_SetItem(args.?, 0, wr_obj);
+
+                // Call the callback
+                const result = call.PyObject_Call(callback, args.?, null);
+                if (result != null) {
+                    result.?.ob_refcnt -= 1;
+                }
+                args.?.ob_refcnt -= 1;
+            }
+        }
+
+        current = next;
+    }
+
+    // Clear the list head
+    list_ptr.* = null;
 }
