@@ -1562,16 +1562,31 @@ pub fn pyObjectToList(obj: *PyObject) PyValue {
         };
 
         const count: usize = @intCast(size);
-        if (count <= 64 and list_obj.ob_item != null) {
-            const items = list_obj.ob_item.?;
+        if (list_obj.ob_item == null) return .{ .list = &[_]PyValue{} };
+
+        const items = list_obj.ob_item.?;
+
+        // Small list - use thread-local buffer (no allocation needed)
+        if (count <= 64) {
             for (0..count) |i| {
                 Static.buffer[i] = pyObjectToPyValue(items[i]);
             }
             return .{ .list = Static.buffer[0..count] };
         }
 
-        // Large list - return empty for now (would need heap allocation)
-        return .{ .list = &[_]PyValue{} };
+        // Large list - allocate on heap using c_allocator
+        // The caller must free this when done if needed
+        const heap_buffer = std.heap.c_allocator.alloc(PyValue, count) catch {
+            // Fallback: return first 64 elements on allocation failure
+            for (0..64) |i| {
+                Static.buffer[i] = pyObjectToPyValue(items[i]);
+            }
+            return .{ .list = Static.buffer[0..64] };
+        };
+        for (0..count) |i| {
+            heap_buffer[i] = pyObjectToPyValue(items[i]);
+        }
+        return .{ .list = heap_buffer };
     }
     // Check if it's a tuple
     if (PyTuple_Check(obj)) {

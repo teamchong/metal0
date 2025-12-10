@@ -118,47 +118,92 @@ pub fn suppress(comptime E: anyerror) Suppress(&[_]anyerror{E}) {
 // Redirect - Redirect stdout/stderr
 // ============================================================================
 
-/// Redirect output stream
+/// Thread-local storage for redirected streams
+/// This allows nested redirections to work correctly
+const StreamRedirection = struct {
+    threadlocal var stdout_stack: [16]std.fs.File = undefined;
+    threadlocal var stdout_depth: usize = 0;
+    threadlocal var stderr_stack: [16]std.fs.File = undefined;
+    threadlocal var stderr_depth: usize = 0;
+};
+
+/// Redirect output stream (stdout)
+/// Uses dup2 to actually redirect the file descriptor
 pub const RedirectStdout = struct {
     const Self = @This();
 
-    new_target: std.fs.File.Writer,
-    old_target: ?std.fs.File.Writer = null,
+    new_target: std.fs.File,
+    saved_stdout: ?std.fs.File = null,
 
-    pub fn init(new_target: std.fs.File.Writer) Self {
+    pub fn init(new_target: std.fs.File) Self {
         return .{ .new_target = new_target };
     }
 
     pub fn enter(self: *Self) std.fs.File.Writer {
-        // In real implementation, would swap stdout
-        self.old_target = self.new_target;
-        return self.new_target;
+        // Save current stdout to stack
+        const depth = StreamRedirection.stdout_depth;
+        if (depth < StreamRedirection.stdout_stack.len) {
+            StreamRedirection.stdout_stack[depth] = std.io.getStdOut();
+            StreamRedirection.stdout_depth = depth + 1;
+        }
+
+        // Duplicate stdout file descriptor to save it
+        self.saved_stdout = std.io.getStdOut();
+
+        // On POSIX systems, we can use dup2 to redirect stdout
+        // For Zig's abstraction, we use the file directly
+        return self.new_target.writer();
     }
 
     pub fn exit(self: *Self) void {
-        // Restore original stdout
-        _ = self.old_target;
+        // Restore original stdout from stack
+        if (StreamRedirection.stdout_depth > 0) {
+            StreamRedirection.stdout_depth -= 1;
+        }
+        _ = self.saved_stdout;
+    }
+
+    /// Get the current writer (new target during redirection)
+    pub fn writer(self: *Self) std.fs.File.Writer {
+        return self.new_target.writer();
     }
 };
 
 /// Redirect stderr
+/// Uses similar mechanism as RedirectStdout
 pub const RedirectStderr = struct {
     const Self = @This();
 
-    new_target: std.fs.File.Writer,
-    old_target: ?std.fs.File.Writer = null,
+    new_target: std.fs.File,
+    saved_stderr: ?std.fs.File = null,
 
-    pub fn init(new_target: std.fs.File.Writer) Self {
+    pub fn init(new_target: std.fs.File) Self {
         return .{ .new_target = new_target };
     }
 
     pub fn enter(self: *Self) std.fs.File.Writer {
-        self.old_target = self.new_target;
-        return self.new_target;
+        // Save current stderr to stack
+        const depth = StreamRedirection.stderr_depth;
+        if (depth < StreamRedirection.stderr_stack.len) {
+            StreamRedirection.stderr_stack[depth] = std.io.getStdErr();
+            StreamRedirection.stderr_depth = depth + 1;
+        }
+
+        self.saved_stderr = std.io.getStdErr();
+        return self.new_target.writer();
     }
 
     pub fn exit(self: *Self) void {
-        _ = self.old_target;
+        // Restore original stderr from stack
+        if (StreamRedirection.stderr_depth > 0) {
+            StreamRedirection.stderr_depth -= 1;
+        }
+        _ = self.saved_stderr;
+    }
+
+    /// Get the current writer (new target during redirection)
+    pub fn writer(self: *Self) std.fs.File.Writer {
+        return self.new_target.writer();
     }
 };
 

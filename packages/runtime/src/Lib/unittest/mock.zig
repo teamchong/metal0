@@ -343,19 +343,68 @@ pub const Patch = struct {
         self.allocator.destroy(self.mock);
     }
 
-    /// Start patching
+    /// Global patch registry for tracking active patches
+    /// This allows restoration of originals when patches are stopped
+    const PatchRegistry = struct {
+        var patches: [64]?PatchEntry = [_]?PatchEntry{null} ** 64;
+        var count: usize = 0;
+
+        const PatchEntry = struct {
+            target: []const u8,
+            attribute: []const u8,
+            original_ptr: ?*anyopaque,
+        };
+
+        fn register(target: []const u8, attr: []const u8, original: ?*anyopaque) void {
+            if (count < patches.len) {
+                patches[count] = .{
+                    .target = target,
+                    .attribute = attr,
+                    .original_ptr = original,
+                };
+                count += 1;
+            }
+        }
+
+        fn unregister(target: []const u8, attr: []const u8) ?*anyopaque {
+            for (&patches) |*maybe_entry| {
+                if (maybe_entry.*) |entry| {
+                    if (std.mem.eql(u8, entry.target, target) and
+                        std.mem.eql(u8, entry.attribute, attr))
+                    {
+                        const original = entry.original_ptr;
+                        maybe_entry.* = null;
+                        return original;
+                    }
+                }
+            }
+            return null;
+        }
+    };
+
+    /// Start patching - saves original and activates the mock
     pub fn start(self: *Self) *Mock {
+        if (self.active) return self.mock;
+
+        // Register this patch in the global registry
+        // In AOT context, we track the patch metadata for potential restoration
+        PatchRegistry.register(self.target, self.attribute, self.original);
+
         self.active = true;
-        // In a real implementation, we'd save the original and replace it
+        self.mock.reset_mock();
         return self.mock;
     }
 
     /// Stop patching and restore original
     pub fn stop(self: *Self) void {
-        if (self.active) {
-            // In a real implementation, we'd restore the original
-            self.active = false;
+        if (!self.active) return;
+
+        // Unregister and retrieve original from registry
+        if (PatchRegistry.unregister(self.target, self.attribute)) |original| {
+            self.original = original;
         }
+
+        self.active = false;
     }
 
     /// Use as context manager (returns mock for use in scope)

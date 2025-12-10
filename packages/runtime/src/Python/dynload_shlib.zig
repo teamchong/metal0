@@ -150,34 +150,90 @@ fn flagsToMode(flags: LoadFlags) i32 {
 }
 
 // ============================================================================
-// Platform Abstraction (Simulated)
+// Platform Abstraction using Zig's std.DynLib
 // ============================================================================
 
-/// Simulated dlopen - in real implementation, would use C interop
+/// Internal storage for DynLib handles (since we return opaque pointers)
+/// We store a mapping from handle pointers to actual DynLib instances
+const DynLibStorage = struct {
+    const max_libs = 256;
+    var libs: [max_libs]?std.DynLib = [_]?std.DynLib{null} ** max_libs;
+    var count: usize = 0;
+
+    fn alloc() ?*std.DynLib {
+        for (&libs) |*slot| {
+            if (slot.* == null) {
+                slot.* = std.DynLib{};
+                return &(slot.*.?);
+            }
+        }
+        return null;
+    }
+
+    fn findByHandle(handle: DLHandle) ?*std.DynLib {
+        // Handle is pointer to DynLib slot
+        const ptr: *?std.DynLib = @ptrCast(@alignCast(handle));
+        if (ptr.* != null) {
+            return &(ptr.*.?);
+        }
+        return null;
+    }
+};
+
+/// Open a shared library using Zig's cross-platform DynLib
 fn simulatedDlopen(path: []const u8, mode: i32) DLError!DLHandle {
-    _ = mode;
-    // Simulate checking if library exists
-    if (std.mem.eql(u8, path, "")) {
+    _ = mode; // DynLib doesn't support mode flags directly
+
+    if (path.len == 0) {
         return DLError.LibraryNotFound;
     }
-    // Return simulated handle (path pointer)
-    return @as(*anyopaque, @ptrFromInt(@intFromPtr(path.ptr)));
+
+    // Allocate a DynLib slot
+    const lib_slot = DynLibStorage.alloc() orelse return DLError.LibraryNotFound;
+
+    // Convert path to null-terminated string for Zig's DynLib
+    var path_buf: [4096]u8 = undefined;
+    if (path.len >= path_buf.len) return DLError.LibraryNotFound;
+    @memcpy(path_buf[0..path.len], path);
+    path_buf[path.len] = 0;
+
+    lib_slot.* = std.DynLib.open(path_buf[0..path.len :0]) catch {
+        return DLError.LibraryNotFound;
+    };
+
+    // Return pointer to the slot as handle
+    return @ptrCast(lib_slot);
 }
 
-/// Simulated dlclose
+/// Close a shared library
 fn simulatedDlclose(handle: DLHandle) void {
-    _ = handle;
-    // Would call actual dlclose
+    if (DynLibStorage.findByHandle(handle)) |lib| {
+        lib.close();
+        // Mark slot as free
+        const slot: *?std.DynLib = @ptrCast(@alignCast(handle));
+        slot.* = null;
+    }
 }
 
-/// Simulated dlsym
+/// Lookup a symbol in a shared library
 fn simulatedDlsym(handle: DLHandle, name: []const u8) DLError!*anyopaque {
-    _ = handle;
-    if (std.mem.eql(u8, name, "")) {
+    if (name.len == 0) {
         return DLError.SymbolNotFound;
     }
-    // Return simulated symbol pointer
-    return @as(*anyopaque, @ptrFromInt(@intFromPtr(name.ptr)));
+
+    const lib = DynLibStorage.findByHandle(handle) orelse return DLError.SymbolNotFound;
+
+    // Convert name to null-terminated string
+    var name_buf: [256]u8 = undefined;
+    if (name.len >= name_buf.len) return DLError.SymbolNotFound;
+    @memcpy(name_buf[0..name.len], name);
+    name_buf[name.len] = 0;
+
+    const symbol = lib.lookup(*anyopaque, name_buf[0..name.len :0]) orelse {
+        return DLError.SymbolNotFound;
+    };
+
+    return symbol;
 }
 
 // ============================================================================

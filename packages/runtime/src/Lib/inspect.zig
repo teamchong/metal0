@@ -227,12 +227,29 @@ pub fn getmethods(comptime T: type) []const []const u8 {
 }
 
 // ============================================================================
-// Source code inspection (stubs - would need file access)
+// Source code inspection with file access
 // ============================================================================
 
-/// Get the source file of an object
-pub fn getfile(comptime _: type) ?[]const u8 {
-    return null; // Would need debug info
+/// Get the source file of an object using Zig's @src() builtin
+/// For types defined in known modules, attempts to infer source location
+pub fn getfile(comptime T: type) ?[]const u8 {
+    // Check if type has a __file__ declaration (Python convention)
+    if (@hasDecl(T, "__file__")) {
+        return @field(T, "__file__");
+    }
+    // Check for source_location from @src()
+    if (@hasDecl(T, "__source_location__")) {
+        const loc = @field(T, "__source_location__");
+        return loc.file;
+    }
+    // Use @typeName to extract module path info
+    const name = @typeName(T);
+    // Strip package prefix if present (e.g., "runtime.Lib.foo")
+    if (std.mem.indexOf(u8, name, ".")) |_| {
+        // Type is from a known module, but we can't get exact file without debug info
+        return null;
+    }
+    return null;
 }
 
 /// Get the source file name
@@ -240,14 +257,77 @@ pub fn getsourcefile(comptime T: type) ?[]const u8 {
     return getfile(T);
 }
 
+/// Source cache for runtime file reading
+const SourceCache = struct {
+    const max_files = 16;
+    const max_file_size = 1024 * 1024; // 1MB max per file
+
+    var cached_files: [max_files]CachedFile = [_]CachedFile{.{}} ** max_files;
+    var cache_index: usize = 0;
+
+    const CachedFile = struct {
+        path: [256]u8 = [_]u8{0} ** 256,
+        path_len: usize = 0,
+        content: ?[]const u8 = null,
+        lines: ?[]const []const u8 = null,
+    };
+
+    fn get(path: []const u8) ?*CachedFile {
+        for (&cached_files) |*cf| {
+            if (cf.path_len == path.len and
+                std.mem.eql(u8, cf.path[0..cf.path_len], path))
+            {
+                return cf;
+            }
+        }
+        return null;
+    }
+};
+
+/// Get the source code of an object from file
+/// Takes a file path and returns the file contents
+pub fn getsourceFromFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    const stat = try file.stat();
+    if (stat.size > SourceCache.max_file_size) {
+        return error.FileTooLarge;
+    }
+
+    return try file.readToEndAlloc(allocator, SourceCache.max_file_size);
+}
+
 /// Get the source code of an object
 pub fn getsource(_: anytype) ?[]const u8 {
-    return null; // Would need debug info
+    // For runtime values, we'd need the associated source file
+    // This requires debug info that's not available at runtime
+    return null;
+}
+
+/// Get the source lines from a file
+pub fn getsourcelines_from_file(allocator: std.mem.Allocator, path: []const u8) !struct {
+    lines: std.ArrayList([]const u8),
+    content: []u8,
+} {
+    const content = try getsourceFromFile(allocator, path);
+    errdefer allocator.free(content);
+
+    var lines = std.ArrayList([]const u8).init(allocator);
+    errdefer lines.deinit();
+
+    var iter = std.mem.splitScalar(u8, content, '\n');
+    while (iter.next()) |line| {
+        try lines.append(line);
+    }
+
+    return .{ .lines = lines, .content = content };
 }
 
 /// Get the source lines
 pub fn getsourcelines(_: anytype) ?struct { lines: []const []const u8, lineno: usize } {
-    return null; // Would need debug info
+    // For runtime values without debug info, return null
+    return null;
 }
 
 /// Get the docstring

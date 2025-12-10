@@ -1110,24 +1110,128 @@ pub fn parentProcess() ?std.posix.pid_t {
     return std.posix.getppid();
 }
 
+/// Global registry for tracking active child processes
+const ChildRegistry = struct {
+    var children: [256]?std.posix.pid_t = [_]?std.posix.pid_t{null} ** 256;
+    var count: usize = 0;
+    var lock: std.Thread.Mutex = .{};
+
+    fn add(pid: std.posix.pid_t) void {
+        lock.lock();
+        defer lock.unlock();
+        for (&children) |*slot| {
+            if (slot.* == null) {
+                slot.* = pid;
+                count += 1;
+                return;
+            }
+        }
+    }
+
+    fn remove(pid: std.posix.pid_t) void {
+        lock.lock();
+        defer lock.unlock();
+        for (&children) |*slot| {
+            if (slot.* == pid) {
+                slot.* = null;
+                if (count > 0) count -= 1;
+                return;
+            }
+        }
+    }
+
+    fn getActive(allocator: std.mem.Allocator) ![]std.posix.pid_t {
+        lock.lock();
+        defer lock.unlock();
+
+        var result = std.ArrayList(std.posix.pid_t).init(allocator);
+        errdefer result.deinit();
+
+        for (children) |maybe_pid| {
+            if (maybe_pid) |pid| {
+                // Check if process is still alive using waitpid with WNOHANG
+                const status = std.posix.waitpid(pid, .{ .NOHANG = true });
+                if (status.pid == 0) {
+                    // Process still running
+                    try result.append(pid);
+                } else {
+                    // Process terminated, remove from registry
+                    // (concurrent modification is safe due to lock)
+                }
+            }
+        }
+
+        return result.toOwnedSlice();
+    }
+};
+
 /// Get all active child processes
 pub fn activeChildren(allocator: std.mem.Allocator) ![]Process {
-    // Would track active children in real implementation
-    _ = allocator;
-    return &[_]Process{};
+    const active_pids = try ChildRegistry.getActive(allocator);
+    defer allocator.free(active_pids);
+
+    var result = std.ArrayList(Process).init(allocator);
+    errdefer result.deinit();
+
+    for (active_pids) |pid| {
+        try result.append(Process{ .pid = pid });
+    }
+
+    return result.toOwnedSlice();
 }
+
+/// Register a child process (called when spawning)
+pub fn registerChild(pid: std.posix.pid_t) void {
+    ChildRegistry.add(pid);
+}
+
+/// Unregister a child process (called when process terminates)
+pub fn unregisterChild(pid: std.posix.pid_t) void {
+    ChildRegistry.remove(pid);
+}
+
+/// Global start method configuration
+var configured_start_method: ?[]const u8 = null;
+var start_method_forced: bool = false;
 
 /// Set start method (fork, spawn, forkserver)
 pub fn setStartMethod(method: []const u8, force: bool) !void {
-    _ = method;
-    _ = force;
-    // Would configure start method in real implementation
+    if (configured_start_method != null and !force and start_method_forced) {
+        return error.StartMethodAlreadySet;
+    }
+
+    // Validate method
+    const valid_methods = [_][]const u8{ "fork", "spawn", "forkserver" };
+    var is_valid = false;
+    for (valid_methods) |valid| {
+        if (std.mem.eql(u8, method, valid)) {
+            is_valid = true;
+            break;
+        }
+    }
+
+    if (!is_valid) {
+        return error.InvalidStartMethod;
+    }
+
+    configured_start_method = method;
+    start_method_forced = force;
 }
 
 /// Get start method
 pub fn getStartMethod(allow_none: bool) ?[]const u8 {
-    _ = allow_none;
-    return "fork"; // Default on Unix
+    if (configured_start_method) |method| {
+        return method;
+    }
+    if (allow_none) {
+        return null;
+    }
+    // Default based on platform
+    return switch (builtin.os.tag) {
+        .macos => "spawn", // macOS prefers spawn due to fork safety issues
+        .windows => "spawn", // Windows only supports spawn
+        else => "fork", // Unix default
+    };
 }
 
 /// Get all start methods

@@ -50,7 +50,106 @@ comptime {
 }
 
 // ============================================================================
-// SIMPLIFIED TYPE TABLES (Basic ASCII/Latin-1 support)
+// EXTENDED CASE TABLE
+// Used for characters that have case mappings that don't fit in simple delta
+// Based on CPython's _PyUnicode_ExtendedCase from unicodectype.c
+// ============================================================================
+
+/// Extended case mappings for special Unicode characters
+/// Each entry contains: [upper_length, upper_chars..., lower_length, lower_chars..., title_length, title_chars...]
+const _PyUnicode_ExtendedCase = [_]u32{
+    // Index 0: German sharp s (ß, U+00DF) -> SS (uppercase)
+    2, 0x0053, 0x0053, // uppercase: SS
+    1, 0x00DF, // lowercase: ß
+    2, 0x0053, 0x0073, // titlecase: Ss
+
+    // Index 6: Latin small letter dotless i (ı, U+0131) -> I
+    1, 0x0049, // uppercase: I
+    1, 0x0131, // lowercase: ı
+    1, 0x0049, // titlecase: I
+
+    // Index 10: Latin capital letter I with dot above (İ, U+0130) -> i
+    1, 0x0130, // uppercase: İ
+    1, 0x0069, // lowercase: i
+    1, 0x0130, // titlecase: İ
+
+    // Index 14: Greek capital letter sigma (Σ) final form considerations
+    1, 0x03A3, // uppercase: Σ
+    1, 0x03C3, // lowercase: σ (or ς at end of word)
+    1, 0x03A3, // titlecase: Σ
+
+    // Index 18: ff ligature (U+FB00)
+    2, 0x0046, 0x0046, // uppercase: FF
+    1, 0xFB00, // lowercase: ff
+    2, 0x0046, 0x0066, // titlecase: Ff
+
+    // Index 24: fi ligature (U+FB01)
+    2, 0x0046, 0x0049, // uppercase: FI
+    1, 0xFB01, // lowercase: fi
+    2, 0x0046, 0x0069, // titlecase: Fi
+
+    // Index 30: fl ligature (U+FB02)
+    2, 0x0046, 0x004C, // uppercase: FL
+    1, 0xFB02, // lowercase: fl
+    2, 0x0046, 0x006C, // titlecase: Fl
+
+    // Index 36: ffi ligature (U+FB03)
+    3, 0x0046, 0x0046, 0x0049, // uppercase: FFI
+    1, 0xFB03, // lowercase: ffi
+    3, 0x0046, 0x0066, 0x0069, // titlecase: Ffi
+
+    // Index 44: ffl ligature (U+FB04)
+    3, 0x0046, 0x0046, 0x004C, // uppercase: FFL
+    1, 0xFB04, // lowercase: ffl
+    3, 0x0046, 0x0066, 0x006C, // titlecase: Ffl
+
+    // Index 52: st ligature (U+FB05, U+FB06)
+    2, 0x0053, 0x0054, // uppercase: ST
+    1, 0xFB05, // lowercase: st
+    2, 0x0053, 0x0074, // titlecase: St
+};
+
+/// Get extended case mapping for a character
+/// Returns the codepoint sequence for the requested case transformation
+fn getExtendedCase(index: u32, case_type: enum { upper, lower, title }) struct { len: u32, chars: [4]u32 } {
+    if (index >= _PyUnicode_ExtendedCase.len) {
+        return .{ .len = 0, .chars = [_]u32{0} ** 4 };
+    }
+
+    var pos: usize = @intCast(index);
+    var result: struct { len: u32, chars: [4]u32 } = .{ .len = 0, .chars = [_]u32{0} ** 4 };
+
+    // Skip to requested case type
+    const skips: usize = switch (case_type) {
+        .upper => 0,
+        .lower => 1,
+        .title => 2,
+    };
+
+    // Skip previous case entries
+    for (0..skips) |_| {
+        if (pos >= _PyUnicode_ExtendedCase.len) return result;
+        const len = _PyUnicode_ExtendedCase[pos];
+        pos += 1 + len;
+    }
+
+    if (pos >= _PyUnicode_ExtendedCase.len) return result;
+
+    const len = _PyUnicode_ExtendedCase[pos];
+    result.len = len;
+    pos += 1;
+
+    for (0..@min(len, 4)) |i| {
+        if (pos + i < _PyUnicode_ExtendedCase.len) {
+            result.chars[i] = _PyUnicode_ExtendedCase[pos + i];
+        }
+    }
+
+    return result;
+}
+
+// ============================================================================
+// UNICODE TYPE TABLES (ASCII + Latin-1 Extended support)
 // Full Unicode tables would be generated from UnicodeData.txt
 // ============================================================================
 
@@ -145,7 +244,14 @@ pub export fn _PyUnicode_ToTitlecase(ch: u32) u32 {
     const ctype = gettyperecord(ch);
 
     if ((ctype.flags & EXTENDED_CASE_MASK) != 0) {
-        // Extended case - would need _PyUnicode_ExtendedCase table
+        // Extended case - use _PyUnicode_ExtendedCase table
+        const index: u32 = @intCast(ctype.title);
+        const mapping = getExtendedCase(index, .title);
+        if (mapping.len > 0) {
+            // Return first character of the mapping
+            // (Full implementation would handle multi-char mappings)
+            return mapping.chars[0];
+        }
         return ch;
     }
 

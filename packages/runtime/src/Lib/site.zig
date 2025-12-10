@@ -189,9 +189,56 @@ pub fn credits() void {
 // setquit - Set up quit/exit
 // ============================================================================
 
+/// Quitter object that provides quit() and exit() builtins
+pub const Quitter = struct {
+    name: []const u8,
+    eof: []const u8,
+
+    const Self = @This();
+
+    pub fn init(name: []const u8, eof: []const u8) Self {
+        return .{ .name = name, .eof = eof };
+    }
+
+    /// Called when quit() or exit() is invoked
+    pub fn call(self: *const Self) noreturn {
+        const stderr = std.io.getStdErr().writer();
+        stderr.print("Use {s}() or {s} plus Return to exit.\n", .{ self.name, self.eof }) catch {};
+        std.process.exit(0);
+    }
+
+    /// Representation for interactive mode
+    pub fn repr(self: *const Self, allocator: std.mem.Allocator) ![]u8 {
+        return std.fmt.allocPrint(allocator, "Use {s}() or {s} to exit", .{ self.name, self.eof });
+    }
+};
+
+/// Global quit and exit objects
+var quit_obj: ?Quitter = null;
+var exit_obj: ?Quitter = null;
+
 /// Set up quit() and exit() builtins
 pub fn setquit() void {
-    // In a real implementation, this would set up Quitter objects
+    // Determine EOF key based on platform
+    const eof_char = switch (builtin.os.tag) {
+        .windows => "Ctrl-Z",
+        else => "Ctrl-D",
+    };
+
+    quit_obj = Quitter.init("quit", eof_char);
+    exit_obj = Quitter.init("exit", eof_char);
+}
+
+/// Get the quit object
+pub fn getQuit() ?*const Quitter {
+    if (quit_obj) |*obj| return obj;
+    return null;
+}
+
+/// Get the exit object
+pub fn getExit() ?*const Quitter {
+    if (exit_obj) |*obj| return obj;
+    return null;
 }
 
 // ============================================================================

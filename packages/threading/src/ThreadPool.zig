@@ -124,8 +124,12 @@ fn setThreadAffinity(self: *const ThreadPool, thread_index: u32) void {
             // For now, skip on macOS as it doesn't honor strict affinity
         },
         .windows => {
-            // Windows uses SetThreadAffinityMask
-            // Not implemented here - would need windows.h bindings
+            // Windows uses SetThreadAffinityMask via NtSetInformationThread
+            // We can use std.os.windows directly since Zig provides Windows API
+            const windows = std.os.windows;
+            const thread_handle = windows.GetCurrentThread();
+            const affinity_mask: windows.DWORD_PTR = @as(windows.DWORD_PTR, 1) << @intCast(target_cpu);
+            _ = windows.kernel32.SetThreadAffinityMask(thread_handle, affinity_mask);
         },
         else => {},
     }

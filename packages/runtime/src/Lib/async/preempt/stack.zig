@@ -36,71 +36,79 @@ pub fn switchContext(current: *Task, next: *Task) void {
     restoreContext(next);
 }
 
-// x86_64 implementation
+// x86_64 implementation using inline assembly
 fn saveContextX86_64(task: *Task) void {
-    // Save stack pointer
-    const sp = @returnAddress();
-    task.exec_context.sp = @intFromPtr(sp);
+    // Save stack pointer, frame pointer, and return address using inline assembly
+    var sp: usize = undefined;
+    var fp: usize = undefined;
 
-    // In a real implementation, we'd use inline assembly to save registers:
-    // asm volatile (
-    //     \\mov %%rsp, %[sp]
-    //     \\mov %%rbp, %[fp]
-    //     : [sp] "=r" (task.exec_context.sp),
-    //       [fp] "=r" (task.exec_context.fp)
-    // );
+    // Use inline assembly to read RSP and RBP registers
+    asm volatile (
+        \\mov %%rsp, %[sp]
+        \\mov %%rbp, %[fp]
+        : [sp] "=r" (sp),
+          [fp] "=r" (fp)
+    );
 
-    // For now, store return address as PC
+    task.exec_context.sp = sp;
+    task.exec_context.fp = fp;
     task.exec_context.pc = @intFromPtr(@returnAddress());
 }
 
 fn restoreContextX86_64(task: *Task) void {
-    // Restore stack pointer and jump to saved PC
-    // In a real implementation:
-    // asm volatile (
-    //     \\mov %[sp], %%rsp
-    //     \\mov %[fp], %%rbp
-    //     \\jmp *%[pc]
-    //     :
-    //     : [sp] "r" (task.exec_context.sp),
-    //       [fp] "r" (task.exec_context.fp),
-    //       [pc] "r" (task.exec_context.pc)
-    // );
+    // Restore stack pointer and frame pointer, then jump to saved PC
+    // Note: This is a destructive operation - control flow will not return here
+    const sp = task.exec_context.sp;
+    const fp = task.exec_context.fp;
+    const pc = task.exec_context.pc;
 
-    _ = task;
+    asm volatile (
+        \\mov %[sp], %%rsp
+        \\mov %[fp], %%rbp
+        \\jmp *%[pc]
+        :
+        : [sp] "r" (sp),
+          [fp] "r" (fp),
+          [pc] "r" (pc)
+    );
+    unreachable;
 }
 
-// ARM64 implementation
+// ARM64 implementation using inline assembly
 fn saveContextARM64(task: *Task) void {
-    // Save stack pointer and frame pointer
-    const sp = @returnAddress();
-    task.exec_context.sp = @intFromPtr(sp);
+    // Save stack pointer (sp), frame pointer (x29), and link register (x30)
+    var sp: usize = undefined;
+    var fp: usize = undefined;
 
-    // In a real implementation:
-    // asm volatile (
-    //     \\mov %[sp], sp
-    //     \\mov %[fp], x29
-    //     : [sp] "=r" (task.exec_context.sp),
-    //       [fp] "=r" (task.exec_context.fp)
-    // );
+    // Use inline assembly to read SP and X29 (frame pointer) registers
+    asm volatile (
+        \\mov %[sp], sp
+        \\mov %[fp], x29
+        : [sp] "=r" (sp),
+          [fp] "=r" (fp)
+    );
 
+    task.exec_context.sp = sp;
+    task.exec_context.fp = fp;
     task.exec_context.pc = @intFromPtr(@returnAddress());
 }
 
 fn restoreContextARM64(task: *Task) void {
-    // Restore context
-    // In a real implementation:
-    // asm volatile (
-    //     \\mov sp, %[sp]
-    //     \\mov x29, %[fp]
-    //     \\br %[pc]
-    //     :
-    //     : [sp] "r" (task.exec_context.sp),
-    //       [fp] "r" (task.exec_context.fp),
-    //       [pc] "r" (task.exec_context.pc)
-    // );
+    // Restore stack pointer and frame pointer, then branch to saved PC
+    const sp = task.exec_context.sp;
+    const fp = task.exec_context.fp;
+    const pc = task.exec_context.pc;
 
-    _ = task;
+    asm volatile (
+        \\mov sp, %[sp]
+        \\mov x29, %[fp]
+        \\br %[pc]
+        :
+        : [sp] "r" (sp),
+          [fp] "r" (fp),
+          [pc] "r" (pc)
+    );
+    unreachable;
 }
 
 // Generic implementation (simplified, no real context switch)

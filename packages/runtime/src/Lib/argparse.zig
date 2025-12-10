@@ -514,11 +514,21 @@ pub const SubparserGroup = struct {
 // Utility Functions
 // ============================================================================
 
-/// Get system command-line arguments
-fn getSystemArgs(allocator: std.mem.Allocator) []const []const u8 {
-    _ = allocator;
-    // In real implementation, would use std.process.args()
-    return &[_][]const u8{};
+/// Get system command-line arguments using std.process.argsAlloc
+/// Returns an allocated slice of argument strings
+/// Caller must free with allocator.free() when done
+pub fn getSystemArgs(allocator: std.mem.Allocator) []const [:0]u8 {
+    // Use std.process.argsAlloc to get command line arguments
+    const args = std.process.argsAlloc(allocator) catch {
+        // On failure, return empty slice
+        return &[_][:0]u8{};
+    };
+    return args;
+}
+
+/// Free system arguments allocated by getSystemArgs
+pub fn freeSystemArgs(allocator: std.mem.Allocator, args: []const [:0]u8) void {
+    std.process.argsFree(allocator, args);
 }
 
 /// Type conversion error

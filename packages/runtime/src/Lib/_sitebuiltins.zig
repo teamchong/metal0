@@ -93,10 +93,51 @@ pub const Printer = struct {
         return self.initial;
     }
 
-    /// Get full text
+    /// Thread-local buffer for file contents
+    const FileBuffer = struct {
+        threadlocal var buf: [65536]u8 = undefined;
+        threadlocal var len: usize = 0;
+    };
+
+    /// Get full text by searching files in directories
     pub fn getText(self: *const Self) []const u8 {
+        // If data is already set, return it
         if (self.data) |d| return d;
-        // Would search files/dirs in real implementation
+
+        // Search through directories and files
+        for (self.dirs) |dir| {
+            for (self.files) |filename| {
+                // Build path: dir/filename
+                var path_buf: [512]u8 = undefined;
+                const path = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ dir, filename }) catch continue;
+
+                // Try to open and read the file
+                const file = std.fs.cwd().openFile(path, .{}) catch continue;
+                defer file.close();
+
+                const bytes_read = file.readAll(&FileBuffer.buf) catch continue;
+                FileBuffer.len = bytes_read;
+
+                if (bytes_read > 0) {
+                    return FileBuffer.buf[0..FileBuffer.len];
+                }
+            }
+        }
+
+        // Also try just the filenames without directory prefix
+        for (self.files) |filename| {
+            const file = std.fs.cwd().openFile(filename, .{}) catch continue;
+            defer file.close();
+
+            const bytes_read = file.readAll(&FileBuffer.buf) catch continue;
+            FileBuffer.len = bytes_read;
+
+            if (bytes_read > 0) {
+                return FileBuffer.buf[0..FileBuffer.len];
+            }
+        }
+
+        // Fallback to initial text
         return self.initial;
     }
 
@@ -201,14 +242,70 @@ pub const Helper = struct {
         return "Type help() for interactive help, or help(object) for help about object.";
     }
 
-    /// Call help
+    /// Built-in topic documentation
+    const topics = struct {
+        const keywords = [_]struct { name: []const u8, doc: []const u8 }{
+            .{ .name = "False", .doc = "The false boolean value." },
+            .{ .name = "True", .doc = "The true boolean value." },
+            .{ .name = "None", .doc = "The null object; represents absence of value." },
+            .{ .name = "and", .doc = "Boolean AND operator. Returns first falsy operand or last operand." },
+            .{ .name = "or", .doc = "Boolean OR operator. Returns first truthy operand or last operand." },
+            .{ .name = "not", .doc = "Boolean NOT operator. Returns True if operand is falsy." },
+            .{ .name = "if", .doc = "Conditional statement. Syntax: if condition: body [elif condition: body] [else: body]" },
+            .{ .name = "else", .doc = "Alternative branch of if/try/for/while statements." },
+            .{ .name = "elif", .doc = "Alternative condition in if statement." },
+            .{ .name = "for", .doc = "Iteration statement. Syntax: for item in iterable: body [else: body]" },
+            .{ .name = "while", .doc = "Loop statement. Syntax: while condition: body [else: body]" },
+            .{ .name = "break", .doc = "Exit the nearest enclosing loop." },
+            .{ .name = "continue", .doc = "Skip to the next iteration of the nearest enclosing loop." },
+            .{ .name = "def", .doc = "Define a function. Syntax: def name(args): body" },
+            .{ .name = "return", .doc = "Return from a function, optionally with a value." },
+            .{ .name = "class", .doc = "Define a class. Syntax: class Name(bases): body" },
+            .{ .name = "import", .doc = "Import a module. Syntax: import module [as alias]" },
+            .{ .name = "from", .doc = "Import specific items from a module. Syntax: from module import item [as alias]" },
+            .{ .name = "try", .doc = "Exception handling. Syntax: try: body except [Type]: handler [finally: cleanup]" },
+            .{ .name = "except", .doc = "Catch exceptions in a try block." },
+            .{ .name = "finally", .doc = "Cleanup code that always runs after try/except." },
+            .{ .name = "raise", .doc = "Raise an exception." },
+            .{ .name = "with", .doc = "Context manager statement. Syntax: with expr [as var]: body" },
+            .{ .name = "as", .doc = "Alias in import/except/with statements." },
+            .{ .name = "pass", .doc = "Null statement; placeholder that does nothing." },
+            .{ .name = "lambda", .doc = "Anonymous function expression. Syntax: lambda args: expression" },
+            .{ .name = "yield", .doc = "Generator expression. Produces values one at a time." },
+            .{ .name = "global", .doc = "Declare a variable as global within function scope." },
+            .{ .name = "nonlocal", .doc = "Declare a variable as belonging to enclosing scope." },
+            .{ .name = "assert", .doc = "Debugging assertion. Raises AssertionError if condition is false." },
+            .{ .name = "del", .doc = "Delete a variable or item." },
+            .{ .name = "in", .doc = "Membership test operator. Also used in for loops." },
+            .{ .name = "is", .doc = "Identity test operator. Tests if two objects are the same object." },
+        };
+
+        fn lookup(name: []const u8) ?[]const u8 {
+            for (keywords) |kw| {
+                if (std.mem.eql(u8, kw.name, name)) {
+                    return kw.doc;
+                }
+            }
+            return null;
+        }
+    };
+
+    /// Call help with optional topic
     pub fn call(self: *const Self, topic: ?[]const u8) void {
         _ = self;
+        const stdout = std.io.getStdOut().writer();
+
         if (topic) |t| {
-            std.debug.print("Help on {s}:\n", .{t});
-            // Would invoke pydoc in real implementation
+            // Try to find documentation for the topic
+            if (topics.lookup(t)) |doc| {
+                stdout.print("Help on keyword '{s}':\n\n{s}\n", .{ t, doc }) catch {};
+            } else {
+                // Try to find module documentation
+                stdout.print("Help on '{s}':\n\nNo documentation available for '{s}'.\n", .{ t, t }) catch {};
+                stdout.print("Try 'help()' for interactive help or visit https://docs.python.org/3/\n", .{}) catch {};
+            }
         } else {
-            std.debug.print(
+            stdout.print(
                 \\Welcome to Python's help utility!
                 \\
                 \\If this is your first time using Python, you should definitely check out
@@ -217,7 +314,12 @@ pub const Helper = struct {
                 \\Enter the name of any module, keyword, or topic to get help on writing
                 \\Python programs and using Python modules.
                 \\
-            , .{});
+                \\Keywords: False, True, None, and, or, not, if, else, elif, for, while,
+                \\          break, continue, def, return, class, import, from, try, except,
+                \\          finally, raise, with, as, pass, lambda, yield, global, nonlocal,
+                \\          assert, del, in, is
+                \\
+            , .{}) catch {};
         }
     }
 };

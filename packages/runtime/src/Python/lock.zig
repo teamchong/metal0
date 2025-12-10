@@ -145,8 +145,10 @@ pub const PyMutex = struct {
     }
 
     fn wakeOne(self: *Self) void {
-        _ = self;
-        // In a real implementation, this would wake a parked thread
+        // Use futex to wake a parked thread (Linux) or broadcast condition (portable)
+        // This uses Zig's std.Thread.Futex for cross-platform thread waking
+        const wake_addr: *const Atomic(u32) = @ptrCast(&self.bits);
+        std.Thread.Futex.wake(wake_addr, 1);
     }
 
     /// Check if locked
