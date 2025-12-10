@@ -231,16 +231,39 @@ pub const Random = struct {
         self.rng = std.Random.DefaultPrng.init(s);
     }
 
-    /// Get state (for getstate())
-    pub fn getstate(self: Self) u64 {
-        // Simplified - real implementation would save full MT state
-        _ = self;
-        return 0;
+    /// State type for serialization (Xoshiro256 has 4x64-bit state)
+    pub const State = struct {
+        s0: u64,
+        s1: u64,
+        s2: u64,
+        s3: u64,
+    };
+
+    /// Get full RNG state (for getstate())
+    pub fn getstate(self: Self) State {
+        return .{
+            .s0 = self.rng.s[0],
+            .s1 = self.rng.s[1],
+            .s2 = self.rng.s[2],
+            .s3 = self.rng.s[3],
+        };
     }
 
-    /// Set state (for setstate())
-    pub fn setstate(self: *Self, state: u64) void {
-        // Simplified
+    /// Set full RNG state (for setstate())
+    pub fn setstate(self: *Self, state: State) void {
+        self.rng.s[0] = state.s0;
+        self.rng.s[1] = state.s1;
+        self.rng.s[2] = state.s2;
+        self.rng.s[3] = state.s3;
+    }
+
+    /// Get state as single u64 (simplified interface - only captures s0)
+    pub fn getstateSimple(self: Self) u64 {
+        return self.rng.s[0];
+    }
+
+    /// Set state from single u64 (re-seeds the RNG)
+    pub fn setstateSimple(self: *Self, state: u64) void {
         self.rng = std.Random.DefaultPrng.init(state);
     }
 

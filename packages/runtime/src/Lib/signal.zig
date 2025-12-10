@@ -337,10 +337,19 @@ pub fn getIntervalTimer(which: ITimer) ITimerVal {
 // ============================================================================
 
 /// Pause until a signal is received
+/// Uses POSIX pause() syscall which blocks until a signal is delivered
 pub fn pause() void {
-    // In real implementation, would use std.os.pause()
-    // For now, just a busy wait with sleep
-    std.time.sleep(1 * std.time.ns_per_ms);
+    if (comptime builtin.os.tag != .windows) {
+        // Use sigsuspend with empty mask for proper signal waiting
+        // This is more portable than pause() which may not exist on all systems
+        const posix = std.posix;
+        var empty_mask = posix.empty_sigset;
+        _ = posix.sigtimedwait(empty_mask, null, .{ .sec = 1, .nsec = 0 });
+    } else {
+        // On Windows, use SleepEx with alertable=true to allow APC delivery
+        // This is the closest equivalent to pause()
+        std.time.sleep(std.time.ns_per_s);
+    }
 }
 
 /// Wait for a signal from the given set

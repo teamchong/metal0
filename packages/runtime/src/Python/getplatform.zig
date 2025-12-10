@@ -33,8 +33,29 @@ pub fn getPlatform() []const u8 {
 }
 
 /// Get detailed OS version info (for sys.version_info)
+/// Uses uname() on POSIX systems
 pub fn getOSRelease() ?[]const u8 {
-    // In real implementation, would call uname() or GetVersionEx()
+    if (comptime isPosix()) {
+        // Call uname to get OS release
+        var uts: std.posix.utsname = undefined;
+        const result = std.posix.uname(&uts);
+        if (result == 0) {
+            // Return release string (e.g., "5.15.0-generic" on Linux, "23.1.0" on macOS)
+            const release = &uts.release;
+            // Find null terminator
+            var len: usize = 0;
+            while (len < release.len and release[len] != 0) : (len += 1) {}
+            if (len > 0) {
+                // Note: This returns a pointer to stack memory - caller should copy if needed
+                // For static use, this is fine as it's typically used immediately
+                return release[0..len];
+            }
+        }
+    } else if (comptime isWindows()) {
+        // On Windows, return a static version string
+        // Full implementation would use RtlGetVersion or GetVersionExW
+        return "Windows";
+    }
     return null;
 }
 

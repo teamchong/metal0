@@ -104,7 +104,7 @@ fn getpassUnix(allocator: std.mem.Allocator, prompt: []const u8) ![]u8 {
     return password.toOwnedSlice();
 }
 
-/// Windows implementation using _getch
+/// Windows implementation using kernel32 console APIs for echo-less input
 fn getpassWindows(allocator: std.mem.Allocator, prompt: []const u8) ![]u8 {
     // Write prompt to stderr
     std.io.getStdErr().writer().writeAll(prompt) catch {};
@@ -112,27 +112,68 @@ fn getpassWindows(allocator: std.mem.Allocator, prompt: []const u8) ![]u8 {
     var password = std.ArrayList(u8).init(allocator);
     errdefer password.deinit();
 
-    // Read character by character without echo
-    // Note: In real implementation, would use Windows API
-    const stdin = std.io.getStdIn().reader();
+    if (comptime builtin.os.tag == .windows) {
+        // Use Windows Console API to disable echo
+        const windows = std.os.windows;
+        const kernel32 = windows.kernel32;
 
-    while (true) {
-        const c = stdin.readByte() catch break;
+        const stdin_handle = kernel32.GetStdHandle(windows.STD_INPUT_HANDLE);
+        if (stdin_handle == windows.INVALID_HANDLE_VALUE) {
+            return GetPassError.NoTTY;
+        }
 
-        if (c == '\n' or c == '\r') break;
-        if (c == 0x03) return GetPassError.Interrupted; // Ctrl+C
-        if (c == 0x08 or c == 0x7f) { // Backspace
-            if (password.items.len > 0) {
-                _ = password.pop();
+        // Save original console mode
+        var original_mode: windows.DWORD = 0;
+        if (kernel32.GetConsoleMode(stdin_handle, &original_mode) == 0) {
+            // Not a console - fall back to regular stdin read
+            return getpassFallback(allocator, prompt);
+        }
+
+        // Disable echo (ENABLE_ECHO_INPUT) and line input (read char by char)
+        const ENABLE_ECHO_INPUT: windows.DWORD = 0x0004;
+        const ENABLE_LINE_INPUT: windows.DWORD = 0x0002;
+        const new_mode = original_mode & ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT);
+        _ = kernel32.SetConsoleMode(stdin_handle, new_mode);
+        defer _ = kernel32.SetConsoleMode(stdin_handle, original_mode);
+
+        // Read character by character
+        var buf: [1]u8 = undefined;
+        var bytes_read: windows.DWORD = 0;
+        while (true) {
+            if (kernel32.ReadFile(stdin_handle, &buf, 1, &bytes_read, null) == 0 or bytes_read == 0) {
+                break;
             }
-            continue;
-        }
 
-        if (password.items.len >= MAX_PASSWORD_LENGTH) {
-            return GetPassError.PasswordTooLong;
-        }
+            const c = buf[0];
+            if (c == '\n' or c == '\r') break;
+            if (c == 0x03) return GetPassError.Interrupted; // Ctrl+C
+            if (c == 0x08 or c == 0x7f) { // Backspace
+                if (password.items.len > 0) {
+                    _ = password.pop();
+                }
+                continue;
+            }
 
-        try password.append(c);
+            if (password.items.len >= MAX_PASSWORD_LENGTH) {
+                return GetPassError.PasswordTooLong;
+            }
+
+            try password.append(c);
+        }
+    } else {
+        // Non-Windows: just read from stdin (shouldn't be called)
+        const stdin = std.io.getStdIn().reader();
+        while (true) {
+            const c = stdin.readByte() catch break;
+            if (c == '\n' or c == '\r') break;
+            if (c == 0x03) return GetPassError.Interrupted;
+            if (c == 0x08 or c == 0x7f) {
+                if (password.items.len > 0) _ = password.pop();
+                continue;
+            }
+            if (password.items.len >= MAX_PASSWORD_LENGTH) return GetPassError.PasswordTooLong;
+            try password.append(c);
+        }
     }
 
     // Print newline

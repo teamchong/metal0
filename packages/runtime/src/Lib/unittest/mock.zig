@@ -173,11 +173,55 @@ pub const Mock = struct {
         }
     }
 
-    /// Assert the mock was called with specific args (simplified)
+    /// Assert the mock was called with specific args
     pub fn assert_called_with(self: *Self, expected: MockValue) !void {
-        _ = self;
-        _ = expected;
-        // Simplified - real implementation would compare call_args
+        if (!self.called or self.call_args_list.items.len == 0) {
+            return error.AssertionError;
+        }
+        // Get last call args
+        const last_call = self.call_args_list.items[self.call_args_list.items.len - 1];
+        // Compare call args with expected using deep equality
+        if (!mockValueEquals(last_call, expected)) {
+            return error.AssertionError;
+        }
+    }
+
+    /// Compare two MockValues for equality
+    fn mockValueEquals(a: MockValue, b: MockValue) bool {
+        return switch (a) {
+            .none => b == .none,
+            .int => |av| switch (b) {
+                .int => |bv| av == bv,
+                else => false,
+            },
+            .float => |av| switch (b) {
+                .float => |bv| @abs(av - bv) < 1e-10,
+                else => false,
+            },
+            .string => |av| switch (b) {
+                .string => |bv| std.mem.eql(u8, av, bv),
+                else => false,
+            },
+            .boolean => |av| switch (b) {
+                .boolean => |bv| av == bv,
+                else => false,
+            },
+            .list => |av| switch (b) {
+                .list => |bv| blk: {
+                    if (av.len != bv.len) break :blk false;
+                    for (av, bv) |ai, bi| {
+                        if (!mockValueEquals(ai, bi)) break :blk false;
+                    }
+                    break :blk true;
+                },
+                else => false,
+            },
+            .dict => false, // Dict comparison requires key iteration
+            .mock => |av| switch (b) {
+                .mock => |bv| av == bv,
+                else => false,
+            },
+        };
     }
 
     /// Assert the mock was called once with specific args

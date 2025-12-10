@@ -96,18 +96,22 @@ fn raw_realloc(ctx: ?*anyopaque, ptr: ?*anyopaque, new_size: usize) callconv(.C)
         return null;
     }
 
-    // For simplicity, allocate new memory and copy
-    // A real implementation would use realloc properly
-    const mem = allocator.alloc(u8, new_size) catch return null;
-    return @ptrCast(mem.ptr);
+    // Use c_allocator's realloc for proper memory reallocation
+    // c_allocator wraps malloc/realloc/free so we can use raw pointers
+    const old_bytes: [*]u8 = @ptrCast(ptr);
+    // c_allocator.rawRealloc works with a slice - approximate old size as new_size
+    // This is safe because C allocator tracks the actual allocation size internally
+    const result = std.c.realloc(old_bytes, new_size);
+    return result;
 }
 
-/// Raw free - free allocation
+/// Raw free - free allocation using c_allocator
 fn raw_free(ctx: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void {
     _ = ctx;
-    _ = ptr;
-    // In a real implementation, we'd free the memory
-    // But we need to know the size, which we don't have here
+    if (ptr) |p| {
+        // Use C free directly since we allocated with c_allocator/malloc
+        std.c.free(@ptrCast(p));
+    }
 }
 
 // Default raw allocator

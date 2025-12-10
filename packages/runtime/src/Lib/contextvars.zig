@@ -185,9 +185,32 @@ pub const Context = struct {
 // copy_context - Get a copy of the current context
 // ============================================================================
 
+/// Thread-local current context pointer
+threadlocal var current_context: ?*Context = null;
+
+/// Set the current context for this thread
+pub fn setCurrentContext(ctx: *Context) void {
+    current_context = ctx;
+}
+
+/// Get the current context for this thread (may be null)
+pub fn getCurrentContext() ?*Context {
+    return current_context;
+}
+
 /// Get a copy of the current context
+/// If no context is set for this thread, creates a new empty context
 pub fn copy_context(allocator: std.mem.Allocator) Context {
-    // In real implementation, would copy from current async task's context
+    if (current_context) |ctx| {
+        // Deep copy the current context's data
+        var new_ctx = Context.init(allocator);
+        var iter = ctx.data.iterator();
+        while (iter.next()) |entry| {
+            new_ctx.data.put(allocator, entry.key_ptr.*, entry.value_ptr.*) catch {};
+        }
+        return new_ctx;
+    }
+    // No current context - return empty one
     return Context.init(allocator);
 }
 

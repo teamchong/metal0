@@ -589,8 +589,17 @@ fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8
     };
 
     return switch (inferred_type) {
-        .list => |_| "std.ArrayList(i64)", // Simplified - would need element type
-        .dict => "hashmap_helper.StringHashMap(i64)", // Simplified
+        .list => |elem| blk: {
+            // Use the actual element type from type inference
+            const elem_zig_type = elem.toSimpleZigType();
+            break :blk std.fmt.allocPrint(self.allocator, "std.ArrayList({s})", .{elem_zig_type}) catch "std.ArrayList(i64)";
+        },
+        .dict => |kv| blk: {
+            // Use actual key/value types from inference
+            const key_type = kv.key.toSimpleZigType();
+            const val_type = kv.value.toSimpleZigType();
+            break :blk std.fmt.allocPrint(self.allocator, "hashmap_helper.HashMap({s}, {s})", .{ key_type, val_type }) catch "hashmap_helper.StringHashMap(i64)";
+        },
         else => inferred_type.toSimpleZigType(),
     };
 }

@@ -516,18 +516,45 @@ pub fn getaddrinfo(allocator: std.mem.Allocator, host: []const u8, port: u16) ![
     return &result;
 }
 
-/// Check if socket has pending data
+/// Check if socket has pending data using poll()
 pub fn hasData(sock: *Socket) bool {
-    _ = sock;
-    // Would use select() or poll() in real implementation
+    if (sock.fd < 0) return false;
+
+    var fds = [1]posix.pollfd{
+        .{
+            .fd = sock.fd,
+            .events = posix.POLL.IN,
+            .revents = 0,
+        },
+    };
+
+    // Poll with 0 timeout (non-blocking check)
+    const result = posix.poll(&fds, 0) catch return false;
+    if (result > 0 and (fds[0].revents & posix.POLL.IN) != 0) {
+        return true;
+    }
     return false;
 }
 
-/// Set close-on-exec flag
+/// Set close-on-exec flag using fcntl
 pub fn setInheritable(sock: *Socket, inheritable: bool) !void {
-    _ = sock;
-    _ = inheritable;
-    // Would use fcntl in real implementation
+    if (sock.fd < 0) return error.InvalidSocket;
+
+    const current_flags = posix.fcntl(sock.fd, posix.F.GETFD, 0) catch |err| {
+        return switch (err) {
+            error.FileDescriptorInvalid => error.InvalidSocket,
+            else => error.FcntlFailed,
+        };
+    };
+
+    const new_flags = if (inheritable)
+        current_flags & ~@as(i32, posix.FD_CLOEXEC)
+    else
+        current_flags | posix.FD_CLOEXEC;
+
+    _ = posix.fcntl(sock.fd, posix.F.SETFD, new_flags) catch {
+        return error.FcntlFailed;
+    };
 }
 
 // ============================================================================

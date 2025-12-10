@@ -759,17 +759,48 @@ export fn PyException_SetTraceback(exc: *cpython.PyObject, tb: ?*cpython.PyObjec
 }
 
 /// Get the args attribute of an exception
+/// Returns a tuple containing the exception message (for compatibility with CPython)
 export fn PyException_GetArgs(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    // For now, return None - full implementation would need args field in exception
-    _ = exc;
-    return @import("noneobject.zig").Py_None();
+    // Cast to base exception structure to access message
+    const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
+
+    if (base_exc.message) |msg| {
+        // Create a tuple with the message as the single element
+        const tuple = @import("tupleobject.zig").PyTuple_New(1) orelse
+            return @import("noneobject.zig").Py_None();
+
+        // Set item at index 0
+        _ = @import("tupleobject.zig").PyTuple_SetItem(tuple, 0, @ptrCast(traits.incref(@ptrCast(&msg.ob_base))));
+        return tuple;
+    }
+
+    // No message - return empty tuple
+    return @import("tupleobject.zig").PyTuple_New(0);
 }
 
 /// Set the args attribute of an exception
+/// Extracts the first element from args tuple and sets it as the exception message
 export fn PyException_SetArgs(exc: *cpython.PyObject, args: *cpython.PyObject) callconv(.c) void {
-    // Stub - full implementation would set args field
-    _ = exc;
-    _ = args;
+    const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
+
+    // Check if args is a tuple with at least one element
+    const tuple_obj = @import("tupleobject.zig");
+    if (tuple_obj.PyTuple_Check(args)) {
+        const size = tuple_obj.PyTuple_Size(args);
+        if (size > 0) {
+            // Get first element and set as message
+            if (tuple_obj.PyTuple_GetItem(args, 0)) |first| {
+                // Check if it's a string
+                if (@import("unicodeobject.zig").PyUnicode_Check(first)) {
+                    // Decref old message if exists
+                    if (base_exc.message) |old| {
+                        traits.decref(@ptrCast(&old.ob_base));
+                    }
+                    base_exc.message = @ptrCast(@alignCast(traits.incref(first)));
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================

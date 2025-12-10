@@ -278,7 +278,7 @@ pub const MapResult = struct {
 // Queue - Inter-process communication queue
 // ============================================================================
 
-/// A process-safe queue
+/// A process-safe queue with blocking support via condition variables
 pub fn Queue(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -286,6 +286,8 @@ pub fn Queue(comptime T: type) type {
         allocator: std.mem.Allocator,
         items: std.ArrayList(T),
         mutex: std.Thread.Mutex,
+        not_empty: std.Thread.Condition,
+        not_full: std.Thread.Condition,
         maxsize: usize,
         closed: bool,
 
@@ -294,6 +296,8 @@ pub fn Queue(comptime T: type) type {
                 .allocator = allocator,
                 .items = std.ArrayList(T).init(allocator),
                 .mutex = .{},
+                .not_empty = .{},
+                .not_full = .{},
                 .maxsize = maxsize,
                 .closed = false,
             };
@@ -303,21 +307,32 @@ pub fn Queue(comptime T: type) type {
             self.items.deinit();
         }
 
-        /// Put an item into the queue
+        /// Put an item into the queue with optional blocking
         pub fn put(self: *Self, item: T, block: bool, timeout: ?f64) !void {
-            _ = timeout;
             self.mutex.lock();
             defer self.mutex.unlock();
 
             if (self.closed) return error.QueueClosed;
 
-            if (self.maxsize > 0 and self.items.items.len >= self.maxsize) {
+            // Wait for space if queue is full and blocking requested
+            while (self.maxsize > 0 and self.items.items.len >= self.maxsize) {
                 if (!block) return error.QueueFull;
-                // In a real implementation, would block here
-                return error.QueueFull;
+
+                // Block with optional timeout
+                if (timeout) |t| {
+                    const timeout_ns: u64 = @intFromFloat(t * std.time.ns_per_s);
+                    const result = self.not_full.timedWait(&self.mutex, timeout_ns);
+                    if (result == .timed_out) return error.QueueFull;
+                } else {
+                    self.not_full.wait(&self.mutex);
+                }
+
+                if (self.closed) return error.QueueClosed;
             }
 
             try self.items.append(item);
+            // Signal that queue is not empty
+            self.not_empty.signal();
         }
 
         /// Put without blocking
@@ -325,19 +340,31 @@ pub fn Queue(comptime T: type) type {
             return self.put(item, false, null);
         }
 
-        /// Get an item from the queue
+        /// Get an item from the queue with optional blocking
         pub fn get(self: *Self, block: bool, timeout: ?f64) !T {
-            _ = timeout;
             self.mutex.lock();
             defer self.mutex.unlock();
 
-            if (self.items.items.len == 0) {
+            // Wait for item if queue is empty and blocking requested
+            while (self.items.items.len == 0) {
                 if (!block) return error.QueueEmpty;
-                // In a real implementation, would block here
-                return error.QueueEmpty;
+
+                // Block with optional timeout
+                if (timeout) |t| {
+                    const timeout_ns: u64 = @intFromFloat(t * std.time.ns_per_s);
+                    const result = self.not_empty.timedWait(&self.mutex, timeout_ns);
+                    if (result == .timed_out) return error.QueueEmpty;
+                } else {
+                    self.not_empty.wait(&self.mutex);
+                }
+
+                if (self.closed) return error.QueueClosed;
             }
 
-            return self.items.orderedRemove(0);
+            const item = self.items.orderedRemove(0);
+            // Signal that queue is not full
+            self.not_full.signal();
+            return item;
         }
 
         /// Get without blocking
@@ -469,12 +496,29 @@ pub const Connection = struct {
         return std.posix.read(self.reader, buffer);
     }
 
-    /// Check if data is available
+    /// Check if data is available using POSIX poll()
     pub fn poll(self: *Self, timeout: ?f64) !bool {
-        _ = timeout;
         if (self.closed) return false;
-        // Would use select/poll in real implementation
-        return true;
+
+        // Convert timeout to milliseconds for poll()
+        const timeout_ms: i32 = if (timeout) |t|
+            if (t < 0) -1 else @intFromFloat(t * 1000)
+        else
+            -1; // Infinite wait
+
+        var fds = [1]std.posix.pollfd{
+            .{
+                .fd = self.reader,
+                .events = std.posix.POLL.IN,
+                .revents = 0,
+            },
+        };
+
+        const result = std.posix.poll(&fds, timeout_ms) catch return false;
+        if (result > 0) {
+            return (fds[0].revents & std.posix.POLL.IN) != 0;
+        }
+        return false; // Timeout
     }
 
     /// Close the connection

@@ -190,11 +190,29 @@ pub fn rshift(a: anytype, b: anytype) @TypeOf(a) {
 // ============================================================================
 
 /// Concatenation: a + b (for sequences)
-pub fn concat(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-    // For slices, this would need allocation
-    // For now, just return a (sequences handled differently in Zig)
-    _ = b;
-    return a;
+/// Returns a new slice containing elements from both a and b
+/// Caller must free the returned slice using the provided allocator
+pub fn concat(allocator: std.mem.Allocator, a: anytype, b: @TypeOf(a)) !@TypeOf(a) {
+    const T = @TypeOf(a);
+    const info = @typeInfo(T);
+
+    if (info == .pointer and info.pointer.size == .Slice) {
+        // Slice concatenation - allocate new slice with combined length
+        const ElemType = info.pointer.child;
+        const result = try allocator.alloc(ElemType, a.len + b.len);
+        @memcpy(result[0..a.len], a);
+        @memcpy(result[a.len..], b);
+        return result;
+    } else {
+        // For non-slices, just return a (no allocation possible)
+        _ = b;
+        return a;
+    }
+}
+
+/// Concatenation without allocation (in-place for ArrayList)
+pub fn concatInPlace(list: anytype, items: anytype) !void {
+    try list.appendSlice(items);
 }
 
 /// Check containment: b in a
