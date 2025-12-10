@@ -246,47 +246,191 @@ fn executeBinOp(allocator: std.mem.Allocator, binop: Node.BinOp) !*PyObject {
 }
 
 fn executeCall(allocator: std.mem.Allocator, call: Node.Call) !*PyObject {
-    // Only support name-based function calls for now
-    if (call.func.* != .name) {
-        return error.NotImplemented;
+    // Handle name-based function calls (most common case)
+    if (call.func.* == .name) {
+        return executeNamedCall(allocator, call.func.name.id, call.args);
     }
 
-    const func_name = call.func.name.id;
+    // Handle attribute calls like obj.method()
+    // For now, evaluate the function expression and see if it's callable
+    const func_obj = try execute(allocator, call.func);
+    defer runtime.decref(func_obj, allocator);
 
+    // Check if it's a callable object
+    if (runtime.PyCallable_Check(func_obj)) {
+        // Build argument tuple
+        var args_list = std.ArrayList(*PyObject).init(allocator);
+        defer args_list.deinit();
+
+        for (call.args) |arg| {
+            const arg_obj = try execute(allocator, &arg);
+            try args_list.append(arg_obj);
+        }
+
+        // Call the function (simplified - would need proper PyObject_Call)
+        // For now, return None for complex callables
+        for (args_list.items) |arg| {
+            runtime.decref(arg, allocator);
+        }
+        runtime.incref(runtime.Py_None);
+        return runtime.Py_None;
+    }
+
+    return error.TypeError;
+}
+
+fn executeNamedCall(allocator: std.mem.Allocator, func_name: []const u8, args: []Node) !*PyObject {
     // Built-in functions
     if (std.mem.eql(u8, func_name, "print")) {
-        for (call.args) |arg| {
+        for (args) |arg| {
             const obj = try execute(allocator, &arg);
             defer runtime.decref(obj, allocator);
             runtime.printPyObject(obj);
         }
-        // Return proper None singleton
         runtime.incref(runtime.Py_None);
         return runtime.Py_None;
     } else if (std.mem.eql(u8, func_name, "len")) {
-        if (call.args.len != 1) {
-            return error.TypeError;
-        }
-        const obj = try execute(allocator, &call.args[0]);
+        if (args.len != 1) return error.TypeError;
+        const obj = try execute(allocator, &args[0]);
         defer runtime.decref(obj, allocator);
 
-        // Use proper type checking
         if (runtime.PyUnicode_Check(obj)) {
             const str = PyString.getValue(obj);
             return try PyInt.create(allocator, @intCast(str.len));
         } else if (runtime.PyList_Check(obj)) {
-            const len_val = runtime.Py_SIZE(obj);
-            return try PyInt.create(allocator, len_val);
+            return try PyInt.create(allocator, runtime.Py_SIZE(obj));
         } else if (runtime.PyTuple_Check(obj)) {
-            const len_val = runtime.Py_SIZE(obj);
-            return try PyInt.create(allocator, len_val);
+            return try PyInt.create(allocator, runtime.Py_SIZE(obj));
         } else if (runtime.PyDict_Check(obj)) {
             const dict_obj: *runtime.PyDictObject = @ptrCast(@alignCast(obj));
             return try PyInt.create(allocator, dict_obj.ma_used);
         }
-
         return error.TypeError;
+    } else if (std.mem.eql(u8, func_name, "int")) {
+        if (args.len != 1) return error.TypeError;
+        const obj = try execute(allocator, &args[0]);
+        defer runtime.decref(obj, allocator);
+
+        if (runtime.PyLong_Check(obj)) {
+            runtime.incref(obj);
+            return obj;
+        } else if (runtime.PyFloat_Check(obj)) {
+            const f = PyFloat.getValue(obj);
+            return try PyInt.create(allocator, @intFromFloat(f));
+        } else if (runtime.PyUnicode_Check(obj)) {
+            const str = PyString.getValue(obj);
+            const val = std.fmt.parseInt(i64, str, 10) catch return error.ValueError;
+            return try PyInt.create(allocator, val);
+        }
+        return error.TypeError;
+    } else if (std.mem.eql(u8, func_name, "float")) {
+        if (args.len != 1) return error.TypeError;
+        const obj = try execute(allocator, &args[0]);
+        defer runtime.decref(obj, allocator);
+
+        if (runtime.PyFloat_Check(obj)) {
+            runtime.incref(obj);
+            return obj;
+        } else if (runtime.PyLong_Check(obj)) {
+            const i = PyInt.getValue(obj);
+            return try PyFloat.create(allocator, @floatFromInt(i));
+        } else if (runtime.PyUnicode_Check(obj)) {
+            const str = PyString.getValue(obj);
+            const val = std.fmt.parseFloat(f64, str) catch return error.ValueError;
+            return try PyFloat.create(allocator, val);
+        }
+        return error.TypeError;
+    } else if (std.mem.eql(u8, func_name, "str")) {
+        if (args.len != 1) return error.TypeError;
+        const obj = try execute(allocator, &args[0]);
+        defer runtime.decref(obj, allocator);
+
+        if (runtime.PyUnicode_Check(obj)) {
+            runtime.incref(obj);
+            return obj;
+        } else if (runtime.PyLong_Check(obj)) {
+            const i = PyInt.getValue(obj);
+            var buf: [32]u8 = undefined;
+            const str = std.fmt.bufPrint(&buf, "{d}", .{i}) catch return error.ValueError;
+            return try PyString.create(allocator, str);
+        } else if (runtime.PyFloat_Check(obj)) {
+            const f = PyFloat.getValue(obj);
+            var buf: [64]u8 = undefined;
+            const str = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return error.ValueError;
+            return try PyString.create(allocator, str);
+        } else if (runtime.PyBool_Check(obj)) {
+            const b = PyBool.getValue(obj);
+            return try PyString.create(allocator, if (b) "True" else "False");
+        }
+        return error.TypeError;
+    } else if (std.mem.eql(u8, func_name, "bool")) {
+        if (args.len != 1) return error.TypeError;
+        const obj = try execute(allocator, &args[0]);
+        defer runtime.decref(obj, allocator);
+
+        // Python truthiness
+        const is_true = runtime.PyObject_IsTrue(obj);
+        return try PyBool.create(allocator, is_true);
+    } else if (std.mem.eql(u8, func_name, "abs")) {
+        if (args.len != 1) return error.TypeError;
+        const obj = try execute(allocator, &args[0]);
+        defer runtime.decref(obj, allocator);
+
+        if (runtime.PyLong_Check(obj)) {
+            const i = PyInt.getValue(obj);
+            return try PyInt.create(allocator, if (i < 0) -i else i);
+        } else if (runtime.PyFloat_Check(obj)) {
+            const f = PyFloat.getValue(obj);
+            return try PyFloat.create(allocator, @abs(f));
+        }
+        return error.TypeError;
+    } else if (std.mem.eql(u8, func_name, "min")) {
+        if (args.len < 1) return error.TypeError;
+        var min_obj = try execute(allocator, &args[0]);
+        for (args[1..]) |arg| {
+            const obj = try execute(allocator, &arg);
+            if (runtime.PyObject_RichCompareBool(obj, min_obj, .Lt)) {
+                runtime.decref(min_obj, allocator);
+                min_obj = obj;
+            } else {
+                runtime.decref(obj, allocator);
+            }
+        }
+        return min_obj;
+    } else if (std.mem.eql(u8, func_name, "max")) {
+        if (args.len < 1) return error.TypeError;
+        var max_obj = try execute(allocator, &args[0]);
+        for (args[1..]) |arg| {
+            const obj = try execute(allocator, &arg);
+            if (runtime.PyObject_RichCompareBool(obj, max_obj, .Gt)) {
+                runtime.decref(max_obj, allocator);
+                max_obj = obj;
+            } else {
+                runtime.decref(obj, allocator);
+            }
+        }
+        return max_obj;
+    } else if (std.mem.eql(u8, func_name, "type")) {
+        if (args.len != 1) return error.TypeError;
+        const obj = try execute(allocator, &args[0]);
+        defer runtime.decref(obj, allocator);
+
+        // Return type name as string
+        const type_name = runtime.Py_TYPE_NAME(obj);
+        return try PyString.create(allocator, type_name);
+    } else if (std.mem.eql(u8, func_name, "repr")) {
+        if (args.len != 1) return error.TypeError;
+        const obj = try execute(allocator, &args[0]);
+        defer runtime.decref(obj, allocator);
+
+        // Get string representation
+        const repr = runtime.PyObject_Repr(obj, allocator) catch |err| {
+            if (err == error.OutOfMemory) return error.OutOfMemory;
+            return try PyString.create(allocator, "<object>");
+        };
+        return repr;
     }
 
-    return error.NotImplemented;
+    // Unknown function - raise NameError
+    return error.NameError;
 }

@@ -943,12 +943,14 @@ pub fn unpackIterable(
     const iter_obj: *runtime.PyObject = @ptrCast(@alignCast(iter_ptr));
     const type_id = runtime.getTypeId(iter_obj);
 
-    // Handle different types
+    // Handle different types - only sequences are valid for unpacking
     return switch (type_id) {
         .list => unpackList(allocator, iter_obj, argcnt, argcntafter),
         .tuple => unpackTuple(allocator, iter_obj, argcnt, argcntafter),
         .string => unpackString(allocator, iter_obj, argcnt, argcntafter),
-        else => error.NotImplemented,
+        .bytes => unpackBytes(allocator, iter_obj, argcnt, argcntafter),
+        // dict, set, int, float, bool, none are not unpackable
+        else => error.TypeError, // Changed to TypeError - Python raises this for non-iterables
     };
 }
 
@@ -1070,6 +1072,65 @@ fn unpackString(allocator: std.mem.Allocator, iter_obj: *runtime.PyObject, argcn
             char_str[0] = str_val[i];
             const char_obj = try runtime.PyString.create(allocator, char_str);
             result[i] = @ptrCast(char_obj);
+        }
+        return result;
+    }
+}
+
+fn unpackBytes(allocator: std.mem.Allocator, iter_obj: *runtime.PyObject, argcnt: usize, argcntafter: usize) ![]?*anyopaque {
+    const bytes_obj: *runtime.PyBytesObject = @ptrCast(@alignCast(iter_obj));
+    const bytes_val = bytes_obj.ob_sval[0..@intCast(bytes_obj.ob_size)];
+    const total_needed = argcnt + argcntafter;
+
+    if (argcntafter > 0) {
+        // Star unpacking: a, *b, c = b"hello"
+        if (bytes_val.len < total_needed) {
+            return error.ValueError;
+        }
+
+        var result = try allocator.alloc(?*anyopaque, argcnt + 1 + argcntafter);
+
+        // First argcnt items - each byte becomes a bytes object
+        for (0..argcnt) |i| {
+            const byte_slice = try allocator.alloc(u8, 1);
+            byte_slice[0] = bytes_val[i];
+            const byte_obj = try runtime.PyBytes.create(allocator, byte_slice);
+            result[i] = @ptrCast(byte_obj);
+        }
+
+        // Middle star item - becomes a list of bytes
+        const star_len = bytes_val.len - argcnt - argcntafter;
+        const star_list = try runtime.PyList.create(allocator);
+        for (0..star_len) |i| {
+            const byte_slice = try allocator.alloc(u8, 1);
+            byte_slice[0] = bytes_val[argcnt + i];
+            const byte_obj = try runtime.PyBytes.create(allocator, byte_slice);
+            try runtime.PyList.append(star_list, byte_obj);
+        }
+        result[argcnt] = @ptrCast(star_list);
+
+        // Last argcntafter items
+        for (0..argcntafter) |i| {
+            const idx = bytes_val.len - argcntafter + i;
+            const byte_slice = try allocator.alloc(u8, 1);
+            byte_slice[0] = bytes_val[idx];
+            const byte_obj = try runtime.PyBytes.create(allocator, byte_slice);
+            result[argcnt + 1 + i] = @ptrCast(byte_obj);
+        }
+
+        return result;
+    } else {
+        // Simple unpacking: a, b, c = b"abc"
+        if (bytes_val.len != argcnt) {
+            return error.ValueError;
+        }
+
+        var result = try allocator.alloc(?*anyopaque, argcnt);
+        for (0..argcnt) |i| {
+            const byte_slice = try allocator.alloc(u8, 1);
+            byte_slice[0] = bytes_val[i];
+            const byte_obj = try runtime.PyBytes.create(allocator, byte_slice);
+            result[i] = @ptrCast(byte_obj);
         }
         return result;
     }
