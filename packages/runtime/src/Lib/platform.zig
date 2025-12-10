@@ -87,7 +87,9 @@ pub fn node(allocator: std.mem.Allocator) ![]u8 {
     }
 }
 
-/// Cached uname results (populated on first call)
+/// Static buffers for cached uname results
+var release_buf: [256]u8 = undefined;
+var version_buf: [256]u8 = undefined;
 var cached_release: ?[]const u8 = null;
 var cached_version: ?[]const u8 = null;
 
@@ -106,8 +108,10 @@ pub fn release() []const u8 {
         const rel = &uts.release;
         var len: usize = 0;
         while (len < rel.len and rel[len] != 0) : (len += 1) {}
-        // Store static slice from uname buffer (valid for process lifetime)
-        cached_release = rel[0..len];
+        // Copy to static buffer to avoid dangling pointer
+        const copy_len = @min(len, release_buf.len - 1);
+        @memcpy(release_buf[0..copy_len], rel[0..copy_len]);
+        cached_release = release_buf[0..copy_len];
         return cached_release.?;
     }
     cached_release = "";
@@ -129,7 +133,10 @@ pub fn version() []const u8 {
         const ver = &uts.version;
         var len: usize = 0;
         while (len < ver.len and ver[len] != 0) : (len += 1) {}
-        cached_version = ver[0..len];
+        // Copy to static buffer to avoid dangling pointer
+        const copy_len = @min(len, version_buf.len - 1);
+        @memcpy(version_buf[0..copy_len], ver[0..copy_len]);
+        cached_version = version_buf[0..copy_len];
         return cached_version.?;
     }
     cached_version = "";
