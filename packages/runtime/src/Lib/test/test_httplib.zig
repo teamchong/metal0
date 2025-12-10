@@ -1,7 +1,7 @@
 //! Python stdlib module stub
-//! TODO: Implement from CPython Lib/
+//! Not needed: Native Zig HTTP/2 client in packages/shared/http/h2/
 const std = @import("std");
 
 pub fn __stub__() void {
-    // Stub module - not yet implemented
+    // Stub - see module header for why this isn't needed
 }

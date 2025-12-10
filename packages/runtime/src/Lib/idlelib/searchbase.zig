@@ -1,7 +1,7 @@
 //! Python stdlib module stub
-//! TODO: Implement from CPython Lib/
+//! Not needed: IDLE is CPython's IDE - AOT compilation has no REPL
 const std = @import("std");
 
 pub fn __stub__() void {
-    // Stub module - not yet implemented
+    // Stub - see module header for why this isn't needed
 }
