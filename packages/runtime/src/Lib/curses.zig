@@ -332,52 +332,126 @@ pub fn delwin(allocator: std.mem.Allocator, win: *Window) void {
     allocator.destroy(win);
 }
 
-/// Enable echo
+// Terminal state for managing modes
+var original_termios: ?std.posix.termios = null;
+var current_termios: ?std.posix.termios = null;
+var color_pairs: [256]struct { fg: i16, bg: i16 } = undefined;
+
+/// Get terminal fd (stdin)
+fn getTermFd() std.posix.fd_t {
+    return std.io.getStdIn().handle;
+}
+
+/// Save original terminal settings
+fn saveTermios() void {
+    if (original_termios == null) {
+        original_termios = std.posix.tcgetattr(getTermFd()) catch null;
+        current_termios = original_termios;
+    }
+}
+
+/// Apply current termios settings
+fn applyTermios() void {
+    if (current_termios) |*t| {
+        std.posix.tcsetattr(getTermFd(), .FLUSH, t.*) catch {};
+    }
+}
+
+/// Enable echo - characters typed are displayed
 pub fn echo() void {
-    // Would enable input echo
+    saveTermios();
+    if (current_termios) |*t| {
+        t.lflag.ECHO = true;
+        applyTermios();
+    }
 }
 
-/// Disable echo
+/// Disable echo - characters typed are not displayed
 pub fn noecho() void {
-    // Would disable input echo
+    saveTermios();
+    if (current_termios) |*t| {
+        t.lflag.ECHO = false;
+        applyTermios();
+    }
 }
 
-/// Enable cbreak mode
+/// Enable cbreak mode - characters available immediately, no line buffering
 pub fn cbreak() void {
-    // Would enable cbreak mode
+    saveTermios();
+    if (current_termios) |*t| {
+        t.lflag.ICANON = false;
+        t.cc[@intFromEnum(std.posix.V.MIN)] = 1;
+        t.cc[@intFromEnum(std.posix.V.TIME)] = 0;
+        applyTermios();
+    }
 }
 
-/// Disable cbreak mode
+/// Disable cbreak mode - restore line buffering
 pub fn nocbreak() void {
-    // Would disable cbreak mode
+    saveTermios();
+    if (current_termios) |*t| {
+        t.lflag.ICANON = true;
+        applyTermios();
+    }
 }
 
-/// Enable raw mode
+/// Enable raw mode - no processing of input/output
 pub fn raw() void {
-    // Would enable raw mode
+    saveTermios();
+    if (current_termios) |*t| {
+        // Disable all input processing
+        t.iflag.BRKINT = false;
+        t.iflag.ICRNL = false;
+        t.iflag.INPCK = false;
+        t.iflag.ISTRIP = false;
+        t.iflag.IXON = false;
+        // Disable output processing
+        t.oflag.OPOST = false;
+        // Disable canonical mode and signals
+        t.lflag.ECHO = false;
+        t.lflag.ICANON = false;
+        t.lflag.IEXTEN = false;
+        t.lflag.ISIG = false;
+        t.cc[@intFromEnum(std.posix.V.MIN)] = 1;
+        t.cc[@intFromEnum(std.posix.V.TIME)] = 0;
+        applyTermios();
+    }
 }
 
-/// Disable raw mode
+/// Disable raw mode - restore normal processing
 pub fn noraw() void {
-    // Would disable raw mode
+    saveTermios();
+    if (original_termios) |orig| {
+        current_termios = orig;
+        applyTermios();
+    }
 }
 
 /// Check if terminal has colors
 pub fn has_colors() bool {
-    return true;
+    // Check TERM environment variable for color support
+    const term = std.posix.getenv("TERM") orelse return false;
+    return std.mem.indexOf(u8, term, "color") != null or
+        std.mem.indexOf(u8, term, "256") != null or
+        std.mem.eql(u8, term, "xterm") or
+        std.mem.eql(u8, term, "screen") or
+        std.mem.eql(u8, term, "tmux");
 }
 
-/// Start color support
+/// Start color support - initialize color subsystem
 pub fn start_color() void {
-    // Would initialize color pairs
+    // Initialize all color pairs to default (white on black)
+    for (&color_pairs) |*pair| {
+        pair.fg = COLOR_WHITE;
+        pair.bg = COLOR_BLACK;
+    }
 }
 
 /// Initialize a color pair
 pub fn init_pair(pair: i16, fg: i16, bg: i16) void {
-    _ = pair;
-    _ = fg;
-    _ = bg;
-    // Would set up color pair
+    if (pair >= 0 and pair < 256) {
+        color_pairs[@intCast(pair)] = .{ .fg = fg, .bg = bg };
+    }
 }
 
 /// Get color pair attribute

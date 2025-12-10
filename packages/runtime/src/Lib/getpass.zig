@@ -246,8 +246,11 @@ pub fn getuserWithFallback(fallback: []const u8) []const u8 {
 /// Check if stdin is a TTY
 pub fn isatty() bool {
     if (builtin.os.tag == .windows) {
-        // Would use GetConsoleMode
-        return true;
+        // Use Windows API to check console mode
+        const kernel32 = @cImport(@cInclude("windows.h"));
+        var mode: u32 = 0;
+        const handle = kernel32.GetStdHandle(kernel32.STD_INPUT_HANDLE);
+        return kernel32.GetConsoleMode(handle, &mode) != 0;
     }
     return std.posix.isatty(std.posix.STDIN_FILENO);
 }
@@ -257,8 +260,22 @@ pub fn ttyname() ?[]const u8 {
     if (builtin.os.tag == .windows) {
         return "CON";
     }
-    // Would use ttyname_r on Unix
-    return "/dev/tty";
+
+    // On Unix, try to get the actual tty name
+    // First check if stdin is a tty
+    if (!std.posix.isatty(std.posix.STDIN_FILENO)) {
+        return null;
+    }
+
+    // Try common tty paths
+    // In a full implementation, we'd use ttyname_r() via C interop
+    // For now, /dev/tty is the controlling terminal which works for most cases
+    const tty_path = "/dev/tty";
+    if (std.fs.cwd().access(tty_path, .{})) {
+        return tty_path;
+    } else |_| {}
+
+    return null;
 }
 
 // ============================================================================

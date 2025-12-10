@@ -106,8 +106,24 @@ pub const POP3 = struct {
         // Create socket
         self.sock = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
 
-        // Would connect to server and read welcome
-        self.welcome = "+OK POP3 server ready";
+        // Set socket timeout
+        if (self.timeout > 0) {
+            const secs: i64 = @intFromFloat(self.timeout);
+            const usecs: i64 = @intFromFloat((self.timeout - @as(f64, @floatFromInt(secs))) * 1_000_000);
+            const tv = std.posix.timeval{ .tv_sec = secs, .tv_usec = usecs };
+            const tv_bytes = std.mem.asBytes(&tv);
+            std.posix.setsockopt(self.sock.?, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, tv_bytes) catch {};
+            std.posix.setsockopt(self.sock.?, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, tv_bytes) catch {};
+        }
+
+        // Resolve and connect to server
+        const address = std.net.Address.resolveIp4(self.host, self.port) catch return Pop3Error.ConnectionRefused;
+        std.posix.connect(self.sock.?, &address.any, address.getOsSockLen()) catch return Pop3Error.ConnectionRefused;
+
+        // Read welcome message
+        const resp = try self.getResp();
+        if (!resp.ok) return Pop3Error.ProtoError;
+        self.welcome = resp.message;
 
         // Extract timestamp for APOP if present
         if (self.welcome) |w| {
@@ -167,17 +183,51 @@ pub const POP3 = struct {
             std.debug.print("*cmd* {s}\n", .{buf[0..len]});
         }
 
-        // Would send over socket
-        _ = len;
+        // Send command over socket
+        _ = std.posix.send(self.sock.?, buf[0..len], 0) catch return Pop3Error.Error;
     }
 
     /// Get response from server
     fn getResp(self: *Self) !Pop3Response {
-        _ = self;
-        // Would read response from socket
+        if (self.sock == null) return Pop3Error.Error;
+
+        var buf: [MAXLINE]u8 = undefined;
+        var total_len: usize = 0;
+
+        // Read response line
+        while (total_len < buf.len - 1) {
+            const n = std.posix.recv(self.sock.?, buf[total_len..], 0) catch |err| {
+                if (err == error.WouldBlock) return Pop3Error.Timeout;
+                return Pop3Error.Error;
+            };
+            if (n == 0) break;
+            total_len += n;
+
+            // Check for end of line (CRLF)
+            if (total_len >= 2 and buf[total_len - 2] == '\r' and buf[total_len - 1] == '\n') {
+                break;
+            }
+        }
+
+        if (total_len < 3) return Pop3Error.ProtoError;
+
+        // Trim CRLF
+        var msg_end = total_len;
+        while (msg_end > 0 and (buf[msg_end - 1] == '\r' or buf[msg_end - 1] == '\n')) {
+            msg_end -= 1;
+        }
+
+        // Check for +OK or -ERR
+        const ok = std.mem.startsWith(u8, buf[0..msg_end], "+OK");
+        const msg_start: usize = if (ok) 4 else if (std.mem.startsWith(u8, buf[0..msg_end], "-ERR")) 5 else 0;
+
+        if (self.debugging > 0) {
+            std.debug.print("*resp* {s}\n", .{buf[0..msg_end]});
+        }
+
         return Pop3Response{
-            .ok = true,
-            .message = "OK",
+            .ok = ok,
+            .message = if (msg_start < msg_end) buf[msg_start..msg_end] else "",
             .data = null,
         };
     }

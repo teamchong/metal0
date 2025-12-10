@@ -331,17 +331,64 @@ pub const ErrorMode = enum {
     surrogateescape, // Escape surrogates
 };
 
-/// Register an error handler
-pub fn register_error(name: []const u8, handler: *const fn (exception: anytype) struct { replacement: []const u8, position: usize }) void {
-    _ = name;
-    _ = handler;
-    // Would register error handler
+/// Error handler function type
+pub const ErrorHandlerFn = *const fn ([]const u8, usize) struct { replacement: []const u8, position: usize };
+
+/// Registry of custom error handlers
+var error_handlers: std.StringHashMapUnmanaged(ErrorHandlerFn) = .{};
+var error_handler_allocator: ?std.mem.Allocator = null;
+
+/// Initialize the error handler registry
+pub fn initErrorHandlers(allocator: std.mem.Allocator) void {
+    if (error_handler_allocator == null) {
+        error_handler_allocator = allocator;
+    }
 }
 
-/// Look up an error handler
-pub fn lookup_error(name: []const u8) ?*const fn (exception: anytype) struct { replacement: []const u8, position: usize } {
-    _ = name;
+/// Register an error handler
+pub fn register_error(name: []const u8, handler: ErrorHandlerFn) void {
+    if (error_handler_allocator) |alloc| {
+        // Duplicate the name for storage
+        const name_copy = alloc.dupe(u8, name) catch return;
+        error_handlers.put(alloc, name_copy, handler) catch {
+            alloc.free(name_copy);
+        };
+    }
+}
+
+/// Look up an error handler by name
+pub fn lookup_error(name: []const u8) ?ErrorHandlerFn {
+    // Check custom handlers first
+    if (error_handlers.get(name)) |handler| {
+        return handler;
+    }
+
+    // Built-in handlers
+    if (std.mem.eql(u8, name, "strict")) {
+        return &strictHandler;
+    } else if (std.mem.eql(u8, name, "ignore")) {
+        return &ignoreHandler;
+    } else if (std.mem.eql(u8, name, "replace")) {
+        return &replaceHandler;
+    }
+
     return null;
+}
+
+// Built-in error handlers
+fn strictHandler(_: []const u8, pos: usize) struct { replacement: []const u8, position: usize } {
+    // Strict mode raises error - return empty replacement at same position
+    return .{ .replacement = "", .position = pos };
+}
+
+fn ignoreHandler(_: []const u8, pos: usize) struct { replacement: []const u8, position: usize } {
+    // Ignore mode skips the bad character
+    return .{ .replacement = "", .position = pos + 1 };
+}
+
+fn replaceHandler(_: []const u8, pos: usize) struct { replacement: []const u8, position: usize } {
+    // Replace mode uses replacement character
+    return .{ .replacement = "\xef\xbf\xbd", .position = pos + 1 }; // U+FFFD
 }
 
 // ============================================================================
