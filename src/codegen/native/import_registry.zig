@@ -304,8 +304,8 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("random", .zig_runtime, null, null);
     // collections uses inline codegen for Counter (type inference issues with runtime call)
     try registry.register("collections", .zig_runtime, null, null);
-    // collections.abc has broken anytype returns, skip for now
-    // try registry.registerDirect("collections.abc", .zig_runtime, null, "runtime.Lib.collections.abc", null);
+    // collections.abc - stub file deleted (had invalid anytype returns)
+    // TODO: implement proper ABC marker types when needed
     try registry.register("functools", .zig_runtime, "std", null);
     try registry.register("logging", .zig_runtime, "std", null);
     try registry.register("threading", .zig_runtime, "std", null);
