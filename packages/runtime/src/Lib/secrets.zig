@@ -194,10 +194,15 @@ pub fn generate_session_token(allocator: std.mem.Allocator) ![]u8 {
 // System entropy
 // ============================================================================
 
-/// Get the number of bytes of system entropy available (stub)
-pub fn getentropy(n: usize) ?[]const u8 {
-    _ = n;
-    return null; // Would use OS-specific entropy source
+/// Get system entropy bytes
+/// Uses std.crypto.random which accesses OS entropy sources:
+/// - Linux: getrandom() or /dev/urandom
+/// - macOS: getentropy()
+/// - Windows: RtlGenRandom()
+pub fn getentropy(allocator: std.mem.Allocator, n: usize) ![]u8 {
+    const buf = try allocator.alloc(u8, n);
+    std.crypto.random.bytes(buf);
+    return buf;
 }
 
 // ============================================================================

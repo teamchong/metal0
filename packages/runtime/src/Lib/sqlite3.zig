@@ -500,16 +500,27 @@ pub const NotSupportedError = Error.NotSupportedError;
 // ============================================================================
 
 pub const adapters = struct {
-    /// Adapt a date to ISO format
-    pub fn adaptDate(date: anytype) []const u8 {
-        _ = date;
-        return ""; // Would format date
+    /// Adapt a date struct to ISO format (YYYY-MM-DD)
+    /// Input: struct with year, month, day fields
+    pub fn adaptDate(allocator: std.mem.Allocator, date: anytype) ![]u8 {
+        return std.fmt.allocPrint(allocator, "{d:0>4}-{d:0>2}-{d:0>2}", .{
+            date.year,
+            date.month,
+            date.day,
+        });
     }
 
-    /// Adapt a datetime to ISO format
-    pub fn adaptDatetime(datetime: anytype) []const u8 {
-        _ = datetime;
-        return ""; // Would format datetime
+    /// Adapt a datetime struct to ISO format (YYYY-MM-DD HH:MM:SS)
+    /// Input: struct with year, month, day, hour, minute, second fields
+    pub fn adaptDatetime(allocator: std.mem.Allocator, datetime: anytype) ![]u8 {
+        return std.fmt.allocPrint(allocator, "{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}:{d:0>2}", .{
+            datetime.year,
+            datetime.month,
+            datetime.day,
+            datetime.hour,
+            datetime.minute,
+            datetime.second,
+        });
     }
 };
 
@@ -569,9 +580,30 @@ pub const converters = struct {
 
 pub const PrepareProtocol = struct {
     /// Protocol for preparing values for SQLite
-    pub fn prepare(value: anytype) []const u8 {
-        _ = value;
-        return ""; // Would prepare value
+    /// Converts Zig types to SQLite-compatible string representations
+    pub fn prepare(allocator: std.mem.Allocator, value: anytype) ![]u8 {
+        const T = @TypeOf(value);
+        return switch (@typeInfo(T)) {
+            .Int, .ComptimeInt => std.fmt.allocPrint(allocator, "{d}", .{value}),
+            .Float, .ComptimeFloat => std.fmt.allocPrint(allocator, "{d}", .{value}),
+            .Bool => if (value) allocator.dupe(u8, "1") else allocator.dupe(u8, "0"),
+            .Pointer => |ptr| {
+                if (ptr.size == .Slice and ptr.child == u8) {
+                    // String - escape single quotes
+                    var result = std.ArrayList(u8).init(allocator);
+                    try result.append('\'');
+                    for (value) |c| {
+                        if (c == '\'') try result.append('\''); // Escape with double quote
+                        try result.append(c);
+                    }
+                    try result.append('\'');
+                    return result.toOwnedSlice();
+                }
+                return error.UnsupportedType;
+            },
+            .Optional => if (value) |v| prepare(allocator, v) else allocator.dupe(u8, "NULL"),
+            else => error.UnsupportedType,
+        };
     }
 };
 

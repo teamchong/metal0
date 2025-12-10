@@ -339,8 +339,12 @@ pub fn getdoc(comptime T: type) ?[]const u8 {
 }
 
 /// Get the comments
+/// NOTE: In AOT compilation, source comments are not preserved at runtime.
+/// This function always returns null. Use doc comments (__doc__) instead.
 pub fn getcomments(_: anytype) ?[]const u8 {
-    return null; // Would need source access
+    // AOT limitation: Source code and comments are not available at runtime.
+    // The Python AST is parsed at compile time and source is not retained.
+    return null;
 }
 
 // ============================================================================
