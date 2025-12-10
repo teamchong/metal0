@@ -404,16 +404,57 @@ export fn Py_DECREF(op: ?*cpython.PyObject) callconv(.c) void {
     }
 }
 
-export fn PyErr_SetString(_: ?*anyopaque, _: ?[*:0]const u8) callconv(.c) void {
-    // TODO: Implement proper error handling
+/// Thread-local error state for CPython exception handling
+threadlocal var current_exception: ?*cpython.PyObject = null;
+threadlocal var current_exception_value: ?*cpython.PyObject = null;
+threadlocal var current_traceback: ?*cpython.PyObject = null;
+
+/// Set the current exception with a string message
+/// Creates a new exception object of the given type with the message
+export fn PyErr_SetString(exc_type: ?*anyopaque, message: ?[*:0]const u8) callconv(.c) void {
+    // Clear previous exception
+    if (current_exception) |exc| {
+        Py_DECREF(exc);
+        current_exception = null;
+    }
+    if (current_exception_value) |val| {
+        Py_DECREF(val);
+        current_exception_value = null;
+    }
+
+    // Store the exception type (exc_type is a PyTypeObject)
+    if (exc_type) |etype| {
+        current_exception = @ptrCast(@alignCast(etype));
+        Py_INCREF(current_exception.?);
+    }
+
+    // Create exception value from message
+    if (message) |msg| {
+        const len: isize = @intCast(std.mem.len(msg));
+        current_exception_value = PyUnicode_FromStringAndSize(msg, len);
+    }
 }
 
+/// Check if an exception has been set
+/// Returns the exception type if set, null otherwise
 export fn PyErr_Occurred() callconv(.c) ?*anyopaque {
-    return null; // No error
+    return @ptrCast(current_exception);
 }
 
+/// Clear the current exception state
 export fn PyErr_Clear() callconv(.c) void {
-    // Clear error state
+    if (current_exception) |exc| {
+        Py_DECREF(exc);
+        current_exception = null;
+    }
+    if (current_exception_value) |val| {
+        Py_DECREF(val);
+        current_exception_value = null;
+    }
+    if (current_traceback) |tb| {
+        Py_DECREF(tb);
+        current_traceback = null;
+    }
 }
 
 export fn PyArg_ParseTuple(_: ?*cpython.PyObject, _: [*:0]const u8, ...) callconv(.c) c_int {
@@ -771,6 +812,114 @@ fn PyUnicode_FromStringAndSize(str: ?[*]const u8, size: isize) ?*cpython.PyObjec
     return @ptrCast(obj);
 }
 
+/// Python list object
+const PyListObject = extern struct {
+    ob_base: cpython.PyVarObject,
+    // Items array pointer and allocated size follow (simplified inline for now)
+};
+
+var PyList_Type: cpython.PyTypeObject = undefined;
+var pylist_type_initialized = false;
+
+fn initListType() void {
+    if (pylist_type_initialized) return;
+    initTypes();
+
+    PyList_Type = .{
+        .ob_base = .{ .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined }, .ob_size = 0 },
+        .tp_name = "list",
+        .tp_basicsize = @sizeOf(PyListObject),
+        .tp_itemsize = @sizeOf(?*cpython.PyObject),
+        .tp_dealloc = null,
+        .tp_vectorcall_offset = 0,
+        .tp_getattr = null,
+        .tp_setattr = null,
+        .tp_as_async = null,
+        .tp_repr = null,
+        .tp_as_number = null,
+        .tp_as_sequence = null,
+        .tp_as_mapping = null,
+        .tp_hash = null,
+        .tp_call = null,
+        .tp_str = null,
+        .tp_getattro = null,
+        .tp_setattro = null,
+        .tp_as_buffer = null,
+        .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_LIST_SUBCLASS,
+        .tp_doc = null,
+        .tp_traverse = null,
+        .tp_clear = null,
+        .tp_richcompare = null,
+        .tp_weaklistoffset = 0,
+        .tp_iter = null,
+        .tp_iternext = null,
+        .tp_methods = null,
+        .tp_members = null,
+        .tp_getset = null,
+        .tp_base = null,
+        .tp_dict = null,
+        .tp_descr_get = null,
+        .tp_descr_set = null,
+        .tp_dictoffset = 0,
+        .tp_init = null,
+        .tp_alloc = null,
+        .tp_new = null,
+        .tp_free = null,
+        .tp_is_gc = null,
+        .tp_bases = null,
+        .tp_mro = null,
+        .tp_cache = null,
+        .tp_subclasses = null,
+        .tp_weaklist = null,
+        .tp_del = null,
+        .tp_version_tag = 0,
+        .tp_finalize = null,
+        .tp_vectorcall = null,
+        .tp_watched = 0,
+        .tp_versions_used = 0,
+    };
+
+    pylist_type_initialized = true;
+}
+
+/// Create empty list of given size
+fn PyList_New(size: isize) ?*cpython.PyObject {
+    initListType();
+
+    if (size < 0) return null;
+
+    const usize_len: usize = @intCast(size);
+    const items_size = usize_len * @sizeOf(?*cpython.PyObject);
+    const total_size = @sizeOf(PyListObject) + items_size;
+
+    const mem = allocator.alloc(u8, total_size) catch return null;
+    @memset(mem, 0);
+
+    const obj: *PyListObject = @ptrCast(@alignCast(mem.ptr));
+    obj.* = .{
+        .ob_base = .{
+            .ob_base = .{ .ob_refcnt = 1, .ob_type = &PyList_Type },
+            .ob_size = size,
+        },
+    };
+
+    return @ptrCast(obj);
+}
+
+/// Set item in list (steals reference to item)
+fn PyList_SetItem(op: *cpython.PyObject, idx: isize, item: *cpython.PyObject) c_int {
+    const list: *PyListObject = @ptrCast(@alignCast(op));
+    const size = list.ob_base.ob_size;
+
+    if (idx < 0 or idx >= size) return -1;
+
+    // Get pointer to items array (after list header)
+    const items_ptr: [*]?*cpython.PyObject = @ptrFromInt(@intFromPtr(list) + @sizeOf(PyListObject));
+    items_ptr[@intCast(idx)] = item;
+
+    return 0;
+}
+
 /// Create empty tuple of given size
 fn PyTuple_New(size: isize) ?*cpython.PyObject {
     initTypes();
@@ -973,12 +1122,19 @@ fn toPyObject(value: anytype) ?*cpython.PyObject {
             return @ptrCast(@constCast(value));
         },
         .array => |arr_info| {
-            // Convert array to Python list (simplified: just return first element for now)
-            // TODO: Create PyList and populate
-            if (arr_info.len > 0) {
-                return toPyObject(value[0]);
+            // Convert Zig array to Python list
+            const list = PyList_New(@intCast(arr_info.len)) orelse return null;
+            for (value, 0..) |elem, i| {
+                const py_elem = toPyObject(elem) orelse {
+                    Py_DECREF(list);
+                    return null;
+                };
+                if (PyList_SetItem(list, @intCast(i), py_elem) != 0) {
+                    Py_DECREF(list);
+                    return null;
+                }
             }
-            return null;
+            return list;
         },
         else => null,
     };

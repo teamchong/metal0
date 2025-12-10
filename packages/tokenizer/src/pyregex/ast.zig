@@ -7,6 +7,7 @@ pub const Expr = union(enum) {
     // Literals
     char: u8,           // Literal character: 'a'
     any: void,          // Dot: '.'
+    empty: void,        // Empty expression (epsilon)
 
     // Character classes
     digit: void,        // \d

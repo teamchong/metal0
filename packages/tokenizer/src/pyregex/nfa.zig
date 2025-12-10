@@ -158,6 +158,7 @@ pub const Builder = struct {
         return switch (expr) {
             .char => |c| try self.compileChar(c),
             .any => try self.compileAny(),
+            .empty => try self.compileEmpty(),
             .digit => try self.compileDigit(),
             .not_digit => try self.compileNotDigit(),
             .word => try self.compileWord(),
@@ -286,6 +287,23 @@ pub const Builder = struct {
         };
     }
 
+    /// Compile empty expression (epsilon) - matches empty string
+    fn compileEmpty(self: *Builder) !Fragment {
+        var out_states: std.ArrayList(StateId) = .{};
+
+        // Epsilon transition - consumes no input, just connects states
+        const trans = try self.allocator.alloc(Transition, 1);
+        trans[0] = Transition{ .epsilon = DANGLING }; // target will be patched
+
+        const state_id = try self.newState(trans);
+        try out_states.append(self.allocator, state_id);
+
+        return Fragment{
+            .start = state_id,
+            .out_states = out_states,
+        };
+    }
+
     /// Compile \d (digit)
     fn compileDigit(self: *Builder) !Fragment {
         var out_states: std.ArrayList(StateId) = .{};
@@ -302,22 +320,63 @@ pub const Builder = struct {
         };
     }
 
-    /// Compile \D (not digit)
+    /// Compile \D (not digit) - matches any character NOT in [0-9]
     fn compileNotDigit(self: *Builder) !Fragment {
-        // TODO: Implement properly (multiple ranges)
-        return try self.compileAny();
+        var out_states: std.ArrayList(StateId) = .{};
+
+        // \D matches: 0x00-0x2F (before '0'), 0x3A-0xFF (after '9')
+        const trans = try self.allocator.alloc(Transition, 2);
+        trans[0] = Transition{ .range = .{ .start = 0x00, .end = '0' - 1, .target = DANGLING } };
+        trans[1] = Transition{ .range = .{ .start = '9' + 1, .end = 0xFF, .target = DANGLING } };
+
+        const state_id = try self.newState(trans);
+        try out_states.append(self.allocator, state_id);
+
+        return Fragment{
+            .start = state_id,
+            .out_states = out_states,
+        };
     }
 
-    /// Compile \w (word character)
+    /// Compile \w (word character) - matches [a-zA-Z0-9_]
     fn compileWord(self: *Builder) !Fragment {
-        // TODO: Implement properly (a-z, A-Z, 0-9, _)
-        return try self.compileAny();
+        var out_states: std.ArrayList(StateId) = .{};
+
+        // \w matches: a-z, A-Z, 0-9, _
+        const trans = try self.allocator.alloc(Transition, 4);
+        trans[0] = Transition{ .range = .{ .start = 'a', .end = 'z', .target = DANGLING } };
+        trans[1] = Transition{ .range = .{ .start = 'A', .end = 'Z', .target = DANGLING } };
+        trans[2] = Transition{ .range = .{ .start = '0', .end = '9', .target = DANGLING } };
+        trans[3] = Transition{ .byte = .{ .value = '_', .target = DANGLING } };
+
+        const state_id = try self.newState(trans);
+        try out_states.append(self.allocator, state_id);
+
+        return Fragment{
+            .start = state_id,
+            .out_states = out_states,
+        };
     }
 
-    /// Compile \W (not word)
+    /// Compile \W (not word) - matches any character NOT in [a-zA-Z0-9_]
     fn compileNotWord(self: *Builder) !Fragment {
-        // TODO: Implement properly
-        return try self.compileAny();
+        var out_states: std.ArrayList(StateId) = .{};
+
+        // \W matches everything except a-z, A-Z, 0-9, _
+        const trans = try self.allocator.alloc(Transition, 5);
+        trans[0] = Transition{ .range = .{ .start = 0x00, .end = '0' - 1, .target = DANGLING } }; // 0x00-0x2F
+        trans[1] = Transition{ .range = .{ .start = '9' + 1, .end = 'A' - 1, .target = DANGLING } }; // 0x3A-0x40
+        trans[2] = Transition{ .range = .{ .start = 'Z' + 1, .end = '_' - 1, .target = DANGLING } }; // 0x5B-0x5E
+        trans[3] = Transition{ .byte = .{ .value = '`', .target = DANGLING } }; // 0x60 (backtick)
+        trans[4] = Transition{ .range = .{ .start = 'z' + 1, .end = 0xFF, .target = DANGLING } }; // 0x7B-0xFF
+
+        const state_id = try self.newState(trans);
+        try out_states.append(self.allocator, state_id);
+
+        return Fragment{
+            .start = state_id,
+            .out_states = out_states,
+        };
     }
 
     /// Compile \s (whitespace)
@@ -342,10 +401,25 @@ pub const Builder = struct {
         };
     }
 
-    /// Compile \S (not whitespace)
+    /// Compile \S (not whitespace) - matches any non-whitespace character
     fn compileNotWhitespace(self: *Builder) !Fragment {
-        // TODO: Implement properly
-        return try self.compileAny();
+        var out_states: std.ArrayList(StateId) = .{};
+
+        // \S matches everything except: space(0x20), tab(0x09), newline(0x0A),
+        // carriage return(0x0D), form feed(0x0C), vertical tab(0x0B)
+        // Ranges: 0x00-0x08, 0x0E-0x1F, 0x21-0xFF
+        const trans = try self.allocator.alloc(Transition, 3);
+        trans[0] = Transition{ .range = .{ .start = 0x00, .end = 0x08, .target = DANGLING } }; // 0x00-0x08 (before \t)
+        trans[1] = Transition{ .range = .{ .start = 0x0E, .end = 0x1F, .target = DANGLING } }; // 0x0E-0x1F (after \r, before space)
+        trans[2] = Transition{ .range = .{ .start = 0x21, .end = 0xFF, .target = DANGLING } }; // 0x21-0xFF (after space)
+
+        const state_id = try self.newState(trans);
+        try out_states.append(self.allocator, state_id);
+
+        return Fragment{
+            .start = state_id,
+            .out_states = out_states,
+        };
     }
 
     /// Compile character class: [abc] or [a-z]
@@ -639,11 +713,21 @@ pub const Builder = struct {
         };
     }
 
-    /// Compile (e) (capturing group)
+    /// Compile (e) (capturing group) - tracks capture group index
     fn compileGroup(self: *Builder, expr: Expr) !Fragment {
-        _ = expr;
-        // TODO: Implement with capture group tracking
-        return try self.compileAny();
+        // Assign capture group index
+        const capture_index = self.next_capture_group;
+        self.next_capture_group += 1;
+
+        // Compile the inner expression
+        const inner_frag = try self.compile(expr);
+
+        // Mark the start state with capture group info
+        if (inner_frag.start < self.states.items.len) {
+            self.states.items[inner_frag.start].capture_group = capture_index;
+        }
+
+        return inner_frag;
     }
 
     /// Compile ^ (start anchor)

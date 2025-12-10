@@ -12,6 +12,7 @@ pub const ParseError = error{
     InvalidQuantifier,
     UnbalancedParens,
     InvalidRepeat,
+    InvalidMetacharacter,
     OutOfMemory,
 };
 
@@ -82,9 +83,9 @@ pub const Parser = struct {
         }
 
         if (terms.items.len == 0) {
-            // Empty concat (for empty groups or alt branches)
+            // Empty concat represents epsilon (empty match) - valid for patterns like "(|a)" or "()"
             terms.deinit(self.allocator);
-            return Expr{ .char = 0 }; // TODO: Better empty handling
+            return Expr{ .empty = {} };
         }
 
         if (terms.items.len == 1) {
@@ -211,9 +212,9 @@ pub const Parser = struct {
             '\\' => {
                 return try self.parseEscape();
             },
-            // Metacharacters that shouldn't appear here
+            // Metacharacters that shouldn't appear as atoms - invalid regex syntax
             '*', '+', '?', '{', '}', '|', ')' => {
-                return error.UnexpectedEOF; // TODO: Better error
+                return error.InvalidMetacharacter;
             },
             else => {
                 self.advance();
@@ -314,12 +315,84 @@ pub const Parser = struct {
             'B' => Expr{ .not_word_boundary = {} },
             // Escaped literals
             '.', '*', '+', '?', '[', ']', '(', ')', '{', '}', '|', '\\', '^', '$' => Expr{ .char = c },
-            // Escape sequences
+            // Common escape sequences
             'n' => Expr{ .char = '\n' },
             't' => Expr{ .char = '\t' },
             'r' => Expr{ .char = '\r' },
-            // TODO: More escapes (\x, \u, etc.)
-            else => Expr{ .char = c }, // Treat as literal
+            'f' => Expr{ .char = 12 }, // Form feed
+            'v' => Expr{ .char = 11 }, // Vertical tab
+            'a' => Expr{ .char = 7 }, // Bell/alert
+            'e' => Expr{ .char = 27 }, // Escape character
+            '0' => Expr{ .char = 0 }, // Null character
+            // Hex escape: \xHH
+            'x' => try self.parseHexEscape(),
+            // Unicode escape: \uHHHH
+            'u' => try self.parseUnicodeEscape(),
+            // Octal escape: \NNN (1-3 digits)
+            '1'...'7' => self.parseOctalEscape(c),
+            else => Expr{ .char = c }, // Treat unknown escapes as literal
+        };
+    }
+
+    /// Parse \xHH hex escape (2 hex digits)
+    fn parseHexEscape(self: *Parser) ParseError!Expr {
+        var value: u8 = 0;
+
+        // Parse exactly 2 hex digits
+        for (0..2) |_| {
+            const digit = self.peek() orelse return error.InvalidEscape;
+            const hex_val = hexDigitValue(digit) orelse return error.InvalidEscape;
+            value = value * 16 + hex_val;
+            self.advance();
+        }
+
+        return Expr{ .char = value };
+    }
+
+    /// Parse \uHHHH unicode escape (4 hex digits, returns UTF-8 byte if < 256)
+    fn parseUnicodeEscape(self: *Parser) ParseError!Expr {
+        var value: u32 = 0;
+
+        // Parse exactly 4 hex digits
+        for (0..4) |_| {
+            const digit = self.peek() orelse return error.InvalidEscape;
+            const hex_val = hexDigitValue(digit) orelse return error.InvalidEscape;
+            value = value * 16 + hex_val;
+            self.advance();
+        }
+
+        // For regex matching, we only support single-byte characters
+        if (value > 255) {
+            return error.InvalidEscape;
+        }
+
+        return Expr{ .char = @intCast(value) };
+    }
+
+    /// Parse \NNN octal escape (1-3 octal digits, first digit already consumed)
+    fn parseOctalEscape(self: *Parser, first_digit: u8) Expr {
+        var value: u8 = first_digit - '0';
+
+        // Parse up to 2 more octal digits
+        for (0..2) |_| {
+            const digit = self.peek() orelse break;
+            if (digit < '0' or digit > '7') break;
+            const new_val = @as(u16, value) * 8 + (digit - '0');
+            if (new_val > 255) break; // Would overflow
+            value = @intCast(new_val);
+            self.advance();
+        }
+
+        return Expr{ .char = value };
+    }
+
+    /// Convert hex character to its numeric value
+    fn hexDigitValue(c: u8) ?u8 {
+        return switch (c) {
+            '0'...'9' => c - '0',
+            'a'...'f' => c - 'a' + 10,
+            'A'...'F' => c - 'A' + 10,
+            else => null,
         };
     }
 

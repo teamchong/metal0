@@ -238,10 +238,25 @@ pub const ASTOptimizer = struct {
                 if (try self.removeRedundant(&node.*.data.group.child)) changed = true;
 
                 // Remove non-capturing group with no effect: (?:a) -> a
-                // (but only if not in alternation context)
+                // Only safe to remove if:
+                // 1. Group is non-capturing (capture_index == null)
+                // 2. Child is a simple atom (literal, char class) - no precedence concerns
+                // We keep groups around quantifiers and alternations for correct precedence
                 if (node.*.data.group.capture_index == null) {
-                    // For now, keep groups as they might be needed for precedence
-                    // TODO: Add context awareness
+                    const child = node.*.data.group.child;
+                    // Safe to unwrap non-capturing group for simple atoms
+                    switch (child.node_type) {
+                        .literal, .char_class, .any, .anchor, .empty => {
+                            // Simple atom - safe to remove group wrapper
+                            node.*.* = child.*;
+                            self.allocator.destroy(child);
+                            self.optimization_count += 1;
+                            changed = true;
+                        },
+                        else => {
+                            // Complex expression - keep group for precedence
+                        },
+                    }
                 }
             },
             .lookahead => {
@@ -311,9 +326,12 @@ pub const ASTOptimizer = struct {
                 const right = node.*.data.concat.right;
 
                 if (left.node_type == .literal and right.node_type == .literal) {
-                    // For now, keep as-is since merging would change the AST structure significantly
-                    // This would require creating a "string literal" node type
-                    // TODO: Add string literal node type
+                    // Adjacent literals optimization is not applicable here since:
+                    // 1. AST uses binary concat (left, right) not array-based concat
+                    // 2. String literals would require a new node type with dynamic allocation
+                    // 3. Performance gain is minimal - NFA handles this efficiently
+                    // The compiler/NFA already coalesces adjacent byte transitions.
+                    // Keeping literals separate allows better partial match optimization.
                 }
             },
             .alternation => {

@@ -22,5 +22,5 @@ pub fn main() !void {
     defer pattern.deinit();
 
     std.debug.print("Successfully compiled pattern: \"{s}\"\n", .{pattern.pattern});
-    std.debug.print("\nSee TODO.md for the complete development roadmap.\n", .{});
+    std.debug.print("\nRegex features: NFA-based matching, character classes, quantifiers, anchors, groups.\n", .{});
 }
