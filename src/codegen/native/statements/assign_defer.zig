@@ -149,23 +149,26 @@ pub fn emitDeferCleanups(
     is_allocated_string: bool,
     assign_value: ast.Node,
 ) CodegenError!void {
+    // Resolve the actual variable name (may be renamed due to shadowing)
+    const actual_name = self.var_renames.get(var_name) orelse var_name;
+
     // Add defer cleanup for ArrayLists (only on first assignment)
     if (is_first_assignment and is_arraylist) {
-        try emitArrayListDefer(self, var_name);
+        try emitArrayListDefer(self, actual_name);
     }
 
     // Add defer cleanup for list comprehensions (return slices, not ArrayLists)
     if (is_first_assignment and is_listcomp) {
-        try emitListCompDefer(self, var_name);
+        try emitListCompDefer(self, actual_name);
     }
 
     // Add defer cleanup for dicts (only on first assignment)
     if (is_first_assignment and is_dict) {
-        try emitDictDefer(self, var_name, assign_value);
+        try emitDictDefer(self, actual_name, assign_value);
     }
 
     // Add defer cleanup for allocated strings (only on first assignment)
     if (is_first_assignment and is_allocated_string) {
-        try emitAllocatedStringDefer(self, var_name);
+        try emitAllocatedStringDefer(self, actual_name);
     }
 }

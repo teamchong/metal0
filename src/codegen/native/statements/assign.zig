@@ -958,8 +958,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // The original var was declared as mutable because we detected a reassignment,
                     // but since this reassignment creates a shadow (type change), the original
                     // is never actually mutated. Use _ = &var; to suppress the warning.
+                    // Use the current (possibly already renamed) name, not the original name.
+                    const current_name = self.var_renames.get(var_name) orelse var_name;
                     try self.emit("_ = &");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), current_name);
                     try self.emit(";\n");
                     try self.emitIndent();
 
@@ -1208,9 +1210,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // For iterators, add pointer discard to suppress "never mutated" warnings
             // Some iterator uses pass by value (json.dumps) vs by pointer (next())
             if (is_iterator and is_first_assignment) {
+                const actual_name = self.var_renames.get(var_name) orelse var_name;
                 try self.emitIndent();
                 try self.emit("_ = &");
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                 try self.emit(";\n");
             }
 
@@ -1220,9 +1223,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (is_first_assignment and !is_iterator) {
                 const is_mutated = self.isVarMutated(var_name);
                 if (is_mutated) {
+                    const actual_name = self.var_renames.get(var_name) orelse var_name;
                     try self.emitIndent();
                     try self.emit("_ = &");
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                     try self.emit(";\n");
                 }
             }
