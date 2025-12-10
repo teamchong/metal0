@@ -490,10 +490,86 @@ fn code_richcompare(self: ?*cpython.PyObject, other: ?*cpython.PyObject, op: c_i
 
 fn code_new(typ: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     _ = typ;
-    _ = args;
     _ = kwargs;
-    // TODO: Parse arguments and create code object
-    return null;
+
+    // code(argcount, posonlyargcount, kwonlyargcount, nlocals, stacksize, flags,
+    //      codestring, constants, names, varnames, filename, name, qualname,
+    //      firstlineno, linetable, exceptiontable, freevars=(), cellvars=())
+    if (args == null) return null;
+
+    const pytuple = @import("tupleobject.zig");
+    const pylong = @import("longobject.zig");
+
+    const argc = pytuple.PyTuple_Size(args);
+    if (argc < 16) return null; // Minimum required args
+
+    // Parse integer arguments
+    const argcount: c_int = blk: {
+        const v = pytuple.PyTuple_GetItem(args.?, 0) orelse break :blk 0;
+        break :blk @intCast(pylong.PyLong_AsLong(v));
+    };
+    const posonlyargcount: c_int = blk: {
+        const v = pytuple.PyTuple_GetItem(args.?, 1) orelse break :blk 0;
+        break :blk @intCast(pylong.PyLong_AsLong(v));
+    };
+    const kwonlyargcount: c_int = blk: {
+        const v = pytuple.PyTuple_GetItem(args.?, 2) orelse break :blk 0;
+        break :blk @intCast(pylong.PyLong_AsLong(v));
+    };
+    const nlocals: c_int = blk: {
+        const v = pytuple.PyTuple_GetItem(args.?, 3) orelse break :blk 0;
+        break :blk @intCast(pylong.PyLong_AsLong(v));
+    };
+    const stacksize: c_int = blk: {
+        const v = pytuple.PyTuple_GetItem(args.?, 4) orelse break :blk 0;
+        break :blk @intCast(pylong.PyLong_AsLong(v));
+    };
+    const flags: c_int = blk: {
+        const v = pytuple.PyTuple_GetItem(args.?, 5) orelse break :blk 0;
+        break :blk @intCast(pylong.PyLong_AsLong(v));
+    };
+    const firstlineno: c_int = blk: {
+        const v = pytuple.PyTuple_GetItem(args.?, 13) orelse break :blk 1;
+        break :blk @intCast(pylong.PyLong_AsLong(v));
+    };
+
+    // Parse object arguments
+    const codestring = pytuple.PyTuple_GetItem(args.?, 6);
+    const constants = pytuple.PyTuple_GetItem(args.?, 7);
+    const names = pytuple.PyTuple_GetItem(args.?, 8);
+    const varnames = pytuple.PyTuple_GetItem(args.?, 9);
+    const filename = pytuple.PyTuple_GetItem(args.?, 10);
+    const name = pytuple.PyTuple_GetItem(args.?, 11);
+    const qualname = pytuple.PyTuple_GetItem(args.?, 12);
+    const linetable = pytuple.PyTuple_GetItem(args.?, 14);
+    const exceptiontable = pytuple.PyTuple_GetItem(args.?, 15);
+
+    // Optional: freevars and cellvars
+    const freevars = if (argc > 16) pytuple.PyTuple_GetItem(args.?, 16) else null;
+    const cellvars = if (argc > 17) pytuple.PyTuple_GetItem(args.?, 17) else null;
+
+    const result = PyUnstable_Code_NewWithPosOnlyArgs(
+        argcount,
+        posonlyargcount,
+        kwonlyargcount,
+        nlocals,
+        stacksize,
+        flags,
+        codestring,
+        constants,
+        names,
+        varnames,
+        freevars,
+        cellvars,
+        filename,
+        name,
+        qualname,
+        firstlineno,
+        linetable,
+        exceptiontable,
+    );
+
+    return @ptrCast(result);
 }
 
 // ============================================================================
@@ -617,10 +693,14 @@ pub export fn PyUnstable_Code_NewWithPosOnlyArgs(
     // Get code size for variable-length allocation
     var code_size: usize = 0;
     if (code) |c| {
-        // Assuming code is a bytes object
-        _ = c;
-        // TODO: Get actual code size from bytes object
-        code_size = 0;
+        // Get actual code size from bytes object
+        const pybytes = @import("bytesobject.zig");
+        if (pybytes.PyBytes_Check(c) != 0) {
+            const size = pybytes.PyBytes_Size(c);
+            if (size > 0) {
+                code_size = @intCast(size);
+            }
+        }
     }
 
     // Allocate code object with space for bytecode
@@ -646,8 +726,24 @@ pub export fn PyUnstable_Code_NewWithPosOnlyArgs(
         .co_nlocalsplus = nlocals,
         .co_framesize = nlocals + stacksize,
         .co_nlocals = nlocals,
-        .co_ncellvars = 0, // TODO: Calculate from cellvars
-        .co_nfreevars = 0, // TODO: Calculate from freevars
+        .co_ncellvars = blk: {
+            // Calculate from cellvars tuple
+            if (cellvars) |cv| {
+                const pytuple = @import("tupleobject.zig");
+                const size = pytuple.PyTuple_Size(cv);
+                break :blk if (size > 0) @intCast(size) else 0;
+            }
+            break :blk 0;
+        },
+        .co_nfreevars = blk: {
+            // Calculate from freevars tuple
+            if (freevars) |fv| {
+                const pytuple = @import("tupleobject.zig");
+                const size = pytuple.PyTuple_Size(fv);
+                break :blk if (size > 0) @intCast(size) else 0;
+            }
+            break :blk 0;
+        },
         .co_version = 0,
         .co_localsplusnames = varnames,
         .co_localspluskinds = null,
@@ -674,14 +770,18 @@ pub export fn PyUnstable_Code_NewWithPosOnlyArgs(
     if (name) |n| cpython.Py_INCREF(n);
     if (qualname) |q| cpython.Py_INCREF(q);
     if (linetable) |l| cpython.Py_INCREF(l);
+    if (cellvars) |cv| cpython.Py_INCREF(cv);
+    if (freevars) |fv| cpython.Py_INCREF(fv);
 
-    _ = freevars;
-    _ = cellvars;
-
-    // Copy bytecode
+    // Copy bytecode to co_code_adaptive (located after the struct)
     if (code) |c| {
-        _ = c;
-        // TODO: Copy bytecode to co_code_adaptive
+        if (code_size > 0) {
+            const pybytes = @import("bytesobject.zig");
+            const src = pybytes.PyBytes_AS_STRING(c);
+            const co_bytes: [*]u8 = @ptrCast(co);
+            const dest = co_bytes + @sizeOf(PyCodeObject);
+            @memcpy(dest[0..code_size], src[0..code_size]);
+        }
     }
 
     return co;
@@ -690,9 +790,61 @@ pub export fn PyUnstable_Code_NewWithPosOnlyArgs(
 /// PyCode_Addr2Line - Get line number for bytecode offset
 pub export fn PyCode_Addr2Line(co: ?*PyCodeObject, addrq: c_int) c_int {
     if (co == null) return -1;
-    _ = addrq;
-    // TODO: Decode linetable to find line number
-    return co.?.co_firstlineno;
+
+    const pybytes = @import("bytesobject.zig");
+
+    // Get linetable
+    const linetable = co.?.co_linetable orelse return co.?.co_firstlineno;
+
+    if (pybytes.PyBytes_Check(linetable) == 0) return co.?.co_firstlineno;
+
+    const table_size = pybytes.PyBytes_Size(linetable);
+    if (table_size <= 0) return co.?.co_firstlineno;
+
+    const table_data = pybytes.PyBytes_AS_STRING(linetable);
+
+    // Decode linetable (Python 3.11+ format)
+    // Each entry is: [start_offset delta] [end_offset delta] [line delta] [column info...]
+    var line: c_int = co.?.co_firstlineno;
+    var addr: c_int = 0;
+    var i: usize = 0;
+    const size: usize = @intCast(table_size);
+
+    while (i < size) {
+        const entry = table_data[i];
+        i += 1;
+
+        // Decode the entry code
+        const code_val = (entry >> 3) & 0x1F;
+        const length = (entry & 0x07) + 1;
+
+        // Update addr
+        addr += @as(c_int, length) * 2; // Each instruction is 2 bytes
+
+        if (addr > addrq) {
+            return line;
+        }
+
+        // Update line based on code
+        if (code_val < 10) {
+            // No line change
+        } else if (code_val < 13) {
+            // Line increment 0-2
+            line += @as(c_int, code_val) - 10;
+        } else if (code_val == 13 and i < size) {
+            // Signed line delta in next byte
+            const delta: i8 = @bitCast(table_data[i]);
+            line += delta;
+            i += 1;
+        } else if (code_val == 14 and i + 1 < size) {
+            // Signed line delta in next 2 bytes
+            const delta: i16 = @bitCast([2]u8{ table_data[i], table_data[i + 1] });
+            line += delta;
+            i += 2;
+        }
+    }
+
+    return line;
 }
 
 /// PyCode_Addr2Location - Get full location for bytecode offset
@@ -779,8 +931,15 @@ pub export fn PyCode_GetCode(co: ?*PyCodeObject) ?*cpython.PyObject {
         }
     }
 
-    // TODO: Create bytes object from co_code_adaptive
-    return null;
+    // Create bytes object from co_code_adaptive (located after the struct)
+    const code_size: usize = @intCast(co.?.ob_base.ob_size);
+    if (code_size == 0) return null;
+
+    const co_bytes: [*]const u8 = @ptrCast(co.?);
+    const bytecode = co_bytes + @sizeOf(PyCodeObject);
+
+    const pybytes = @import("bytesobject.zig");
+    return pybytes.PyBytes_FromStringAndSize(bytecode, @intCast(code_size));
 }
 
 /// PyCode_GetVarnames - Get varnames tuple
@@ -794,8 +953,28 @@ pub export fn PyCode_GetVarnames(co: ?*PyCodeObject) ?*cpython.PyObject {
         }
     }
 
-    // TODO: Extract varnames from co_localsplusnames
-    return null;
+    // Extract varnames from co_localsplusnames (first nlocals entries)
+    const localsplusnames = co.?.co_localsplusnames orelse return null;
+    const pytuple = @import("tupleobject.zig");
+
+    const nlocals: isize = @intCast(co.?.co_nlocals);
+    if (nlocals <= 0) {
+        return pytuple.PyTuple_New(0);
+    }
+
+    const result = pytuple.PyTuple_New(nlocals);
+    if (result == null) return null;
+
+    var i: isize = 0;
+    while (i < nlocals) : (i += 1) {
+        const name = pytuple.PyTuple_GetItem(localsplusnames, i);
+        if (name) |n| {
+            cpython.Py_INCREF(n);
+            _ = pytuple.PyTuple_SetItem(result.?, i, n);
+        }
+    }
+
+    return result;
 }
 
 /// PyCode_GetCellvars - Get cellvars tuple
@@ -809,8 +988,30 @@ pub export fn PyCode_GetCellvars(co: ?*PyCodeObject) ?*cpython.PyObject {
         }
     }
 
-    // TODO: Extract cellvars from co_localsplusnames
-    return null;
+    // Extract cellvars from co_localsplusnames
+    // Layout: [locals][cellvars][freevars]
+    const localsplusnames = co.?.co_localsplusnames orelse return null;
+    const pytuple = @import("tupleobject.zig");
+
+    const ncellvars: isize = @intCast(co.?.co_ncellvars);
+    if (ncellvars <= 0) {
+        return pytuple.PyTuple_New(0);
+    }
+
+    const result = pytuple.PyTuple_New(ncellvars);
+    if (result == null) return null;
+
+    const start: isize = @intCast(co.?.co_nlocals);
+    var i: isize = 0;
+    while (i < ncellvars) : (i += 1) {
+        const name = pytuple.PyTuple_GetItem(localsplusnames, start + i);
+        if (name) |n| {
+            cpython.Py_INCREF(n);
+            _ = pytuple.PyTuple_SetItem(result.?, i, n);
+        }
+    }
+
+    return result;
 }
 
 /// PyCode_GetFreevars - Get freevars tuple
@@ -824,49 +1025,134 @@ pub export fn PyCode_GetFreevars(co: ?*PyCodeObject) ?*cpython.PyObject {
         }
     }
 
-    // TODO: Extract freevars from co_localsplusnames
-    return null;
+    // Extract freevars from co_localsplusnames
+    // Layout: [locals][cellvars][freevars]
+    const localsplusnames = co.?.co_localsplusnames orelse return null;
+    const pytuple = @import("tupleobject.zig");
+
+    const nfreevars: isize = @intCast(co.?.co_nfreevars);
+    if (nfreevars <= 0) {
+        return pytuple.PyTuple_New(0);
+    }
+
+    const result = pytuple.PyTuple_New(nfreevars);
+    if (result == null) return null;
+
+    const start: isize = @intCast(co.?.co_nlocals + co.?.co_ncellvars);
+    var i: isize = 0;
+    while (i < nfreevars) : (i += 1) {
+        const name = pytuple.PyTuple_GetItem(localsplusnames, start + i);
+        if (name) |n| {
+            cpython.Py_INCREF(n);
+            _ = pytuple.PyTuple_SetItem(result.?, i, n);
+        }
+    }
+
+    return result;
 }
 
 /// PyUnstable_Code_GetExtra - Get extra data at index
 pub export fn PyUnstable_Code_GetExtra(code: ?*cpython.PyObject, index: isize, extra: ?*?*anyopaque) c_int {
-    _ = code;
-    _ = index;
-    _ = extra;
-    // TODO: Implement co_extra access
-    return -1;
+    if (code == null or extra == null) return -1;
+    if (!PyCode_Check(code)) return -1;
+    if (index < 0) return -1;
+
+    const co: *PyCodeObject = @ptrCast(@alignCast(code.?));
+
+    // co_extra is an array of void pointers
+    if (co.co_extra) |extra_data| {
+        // co_extra is a pointer to an array, first element is count
+        const extra_arr: [*]?*anyopaque = @ptrCast(@alignCast(extra_data));
+        const count_ptr: *usize = @ptrCast(@alignCast(extra_arr));
+        const count = count_ptr.*;
+
+        if (@as(usize, @intCast(index)) < count) {
+            extra.* = extra_arr[@as(usize, @intCast(index)) + 1];
+            return 0;
+        }
+    }
+
+    extra.* = null;
+    return 0;
 }
 
 /// PyUnstable_Code_SetExtra - Set extra data at index
 pub export fn PyUnstable_Code_SetExtra(code: ?*cpython.PyObject, index: isize, extra: ?*anyopaque) c_int {
-    _ = code;
-    _ = index;
-    _ = extra;
-    // TODO: Implement co_extra access
-    return -1;
+    if (code == null) return -1;
+    if (!PyCode_Check(code)) return -1;
+    if (index < 0) return -1;
+
+    const co: *PyCodeObject = @ptrCast(@alignCast(code.?));
+    const idx: usize = @intCast(index);
+
+    // Allocate co_extra if needed
+    if (co.co_extra == null) {
+        // Allocate space for count + initial slots
+        const initial_size: usize = @max(idx + 2, 8);
+        const mem = allocator.alloc(?*anyopaque, initial_size) catch return -1;
+        @memset(mem, null);
+        mem[0] = @ptrFromInt(idx + 1); // Store count in first slot
+        co.co_extra = @ptrCast(mem.ptr);
+    }
+
+    const extra_arr: [*]?*anyopaque = @ptrCast(@alignCast(co.co_extra.?));
+    const count_ptr: *usize = @ptrCast(@alignCast(extra_arr));
+    const count = count_ptr.*;
+
+    // Expand if needed
+    if (idx >= count) {
+        count_ptr.* = idx + 1;
+    }
+
+    extra_arr[idx + 1] = extra;
+    return 0;
 }
+
+// Global watcher array (max 8 watchers like CPython)
+const MAX_CODE_WATCHERS = 8;
+var code_watchers: [MAX_CODE_WATCHERS]?PyCode_WatchCallback = [_]?PyCode_WatchCallback{null} ** MAX_CODE_WATCHERS;
+var next_watcher_id: c_int = 0;
 
 /// PyCode_AddWatcher - Register code object lifecycle callback
 pub export fn PyCode_AddWatcher(callback: PyCode_WatchCallback) c_int {
-    _ = callback;
-    // TODO: Implement watcher registration
+    if (callback == null) return -1;
+
+    // Find an empty slot
+    for (&code_watchers, 0..) |*slot, i| {
+        if (slot.* == null) {
+            slot.* = callback;
+            return @intCast(i);
+        }
+    }
+
+    // No slots available
     return -1;
 }
 
 /// PyCode_ClearWatcher - Unregister code object lifecycle callback
 pub export fn PyCode_ClearWatcher(watcher_id: c_int) c_int {
-    _ = watcher_id;
-    // TODO: Implement watcher unregistration
-    return -1;
+    if (watcher_id < 0 or watcher_id >= MAX_CODE_WATCHERS) return -1;
+
+    const idx: usize = @intCast(watcher_id);
+    if (code_watchers[idx] == null) return -1;
+
+    code_watchers[idx] = null;
+    return 0;
 }
 
 /// PyCode_Optimize - Optimize bytecode (legacy API)
+/// In Python 3.12+, bytecode optimization happens during compilation, not here.
+/// This function is kept for backwards compatibility and returns the code unchanged.
 pub export fn PyCode_Optimize(code: ?*cpython.PyObject, consts: ?*cpython.PyObject, names: ?*cpython.PyObject, lnotab: ?*cpython.PyObject) ?*cpython.PyObject {
-    _ = code;
     _ = consts;
     _ = names;
     _ = lnotab;
-    // TODO: Implement bytecode optimization
+
+    // Legacy API - return code unchanged (optimization happens at compile time now)
+    if (code) |c| {
+        cpython.Py_INCREF(c);
+        return c;
+    }
     return null;
 }
 
