@@ -542,39 +542,51 @@ pub const TypeVarTuple = struct {
 // ============================================================================
 
 /// Parse source code into an AST
+/// NOTE: In AOT compilation, Python parsing happens at compile time via the metal0 compiler.
+/// Runtime ast.parse() is not supported - use static analysis or compile-time metaprogramming instead.
 pub fn parse(allocator: std.mem.Allocator, source: []const u8, filename: []const u8, mode: []const u8) !*Module {
     _ = allocator;
     _ = source;
     _ = filename;
     _ = mode;
-    // Would parse Python source into AST
-    return error.NotImplemented;
+    // AOT limitation: Python source is parsed at compile time, not runtime.
+    // Code using ast.parse() should be refactored to use compile-time analysis.
+    return error.RuntimeParsingNotSupported;
 }
 
 /// Compile an AST into a code object
+/// NOTE: In AOT compilation, code objects don't exist at runtime - code is compiled to native.
+/// Runtime compilation is not supported.
 pub fn compile_ast(allocator: std.mem.Allocator, node: anytype, filename: []const u8, mode: []const u8) !*anyopaque {
     _ = allocator;
     _ = node;
     _ = filename;
     _ = mode;
-    return error.NotImplemented;
+    // AOT limitation: Compilation happens at build time, not runtime.
+    return error.RuntimeCompilationNotSupported;
 }
 
 /// Convert AST to source code
+/// NOTE: In AOT compilation, AST nodes are compile-time structures.
+/// Runtime AST unparsing is not supported.
 pub fn unparse(allocator: std.mem.Allocator, node: anytype) ![]u8 {
     _ = allocator;
     _ = node;
-    return error.NotImplemented;
+    // AOT limitation: AST nodes exist only at compile time.
+    return error.RuntimeASTNotSupported;
 }
 
 /// Pretty print an AST
+/// NOTE: In AOT compilation, AST nodes are compile-time structures.
+/// Runtime AST inspection is not supported.
 pub fn dump(allocator: std.mem.Allocator, node: anytype, annotate_fields: bool, include_attributes: bool, indent: ?usize) ![]u8 {
     _ = allocator;
     _ = node;
     _ = annotate_fields;
     _ = include_attributes;
     _ = indent;
-    return error.NotImplemented;
+    // AOT limitation: AST nodes exist only at compile time.
+    return error.RuntimeASTNotSupported;
 }
 
 /// Get docstring from node

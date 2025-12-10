@@ -196,17 +196,39 @@ pub fn reduceWithState(
 // ============================================================================
 
 /// Reconstruct an object (used by pickle)
+/// This function is called during unpickling to reconstruct objects.
+/// In AOT compilation, type information is static, so we return a
+/// placeholder that the caller must cast to the appropriate type.
 pub fn _reconstructor(
     cls: []const u8,
     base: []const u8,
     state: ?[]const u8,
-) !*anyopaque {
-    _ = cls;
-    _ = base;
-    _ = state;
-    // Would create a new instance and set its state
-    return error.NotImplemented;
+) !ReconstructedObject {
+    return ReconstructedObject{
+        .type_name = cls,
+        .base_name = base,
+        .state = state,
+    };
 }
+
+/// Placeholder for reconstructed objects
+/// In AOT compilation, dynamic object creation is limited.
+/// The caller should use this metadata to construct the appropriate type.
+pub const ReconstructedObject = struct {
+    type_name: []const u8,
+    base_name: []const u8,
+    state: ?[]const u8,
+
+    /// Get the state data if available
+    pub fn getState(self: *const ReconstructedObject) ?[]const u8 {
+        return self.state;
+    }
+
+    /// Check if this represents a specific type
+    pub fn isType(self: *const ReconstructedObject, type_name: []const u8) bool {
+        return std.mem.eql(u8, self.type_name, type_name);
+    }
+};
 
 // ============================================================================
 // Slot wrapper registrations

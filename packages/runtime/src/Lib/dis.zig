@@ -317,15 +317,21 @@ pub const Bytecode = struct {
     }
 
     /// Get info about the code object
+    /// NOTE: In AOT compilation, code is compiled to native machine code, not bytecode.
+    /// Bytecode inspection is not available at runtime.
     pub fn info(self: *Self) ![]u8 {
         _ = self;
-        return error.NotImplemented;
+        // AOT limitation: No bytecode exists at runtime - compiled to native code.
+        return error.NoBytecodeInAOT;
     }
 
     /// Disassemble the code
+    /// NOTE: In AOT compilation, code is compiled to native machine code, not bytecode.
+    /// Use objdump or similar tools to inspect the compiled binary.
     pub fn dis(self: *Self) ![]u8 {
         _ = self;
-        return error.NotImplemented;
+        // AOT limitation: No bytecode exists at runtime - compiled to native code.
+        return error.NoBytecodeInAOT;
     }
 };
 
@@ -343,11 +349,15 @@ pub fn dis(allocator: std.mem.Allocator, x: anytype, file: ?std.fs.File, depth: 
 }
 
 /// Disassemble a code object to a string
+/// NOTE: In AOT compilation, code is compiled to native machine code, not bytecode.
+/// This function is only useful for analyzing CPython bytecode, not AOT-compiled code.
 pub fn disassemble(allocator: std.mem.Allocator, co: anytype, lasti: ?i32) ![]u8 {
     _ = allocator;
     _ = co;
     _ = lasti;
-    return error.NotImplemented;
+    // AOT limitation: No bytecode exists at runtime - compiled to native code.
+    // Use objdump, llvm-objdump, or similar tools to inspect the compiled binary.
+    return error.NoBytecodeInAOT;
 }
 
 /// Disassemble bytecode bytes
@@ -429,17 +439,23 @@ pub fn findlinestarts(co: anytype) !std.AutoHashMap(usize, u32) {
 }
 
 /// Show code object info
+/// NOTE: In AOT compilation, code objects don't exist at runtime.
+/// Code is compiled directly to native machine code.
 pub fn showCode(allocator: std.mem.Allocator, co: anytype) ![]u8 {
     _ = allocator;
     _ = co;
-    return error.NotImplemented;
+    // AOT limitation: No code objects exist at runtime - compiled to native code.
+    return error.NoBytecodeInAOT;
 }
 
 /// Pretty print code object info
+/// NOTE: In AOT compilation, code objects don't exist at runtime.
+/// Code is compiled directly to native machine code.
 pub fn codeInfo(allocator: std.mem.Allocator, x: anytype) ![]u8 {
     _ = allocator;
     _ = x;
-    return error.NotImplemented;
+    // AOT limitation: No code objects exist at runtime - compiled to native code.
+    return error.NoBytecodeInAOT;
 }
 
 // ============================================================================

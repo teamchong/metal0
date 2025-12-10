@@ -520,9 +520,7 @@ pub const request = struct {
         }
 
         pub fn open(self: *OpenerDirector, url: []const u8) !Response {
-            _ = self;
-            _ = url;
-            return error.NotImplemented;
+            return urlopen(self.allocator, url);
         }
     };
 
@@ -557,10 +555,12 @@ pub const request = struct {
 
     /// HTTP response
     pub const Response = struct {
+        url: []const u8,
         status: u16,
         reason: []const u8,
         headers: hashmap_helper.StringHashMap([]const u8),
         body: []const u8,
+        allocator: std.mem.Allocator,
 
         pub fn read(self: *Response) []const u8 {
             return self.body;
@@ -575,25 +575,72 @@ pub const request = struct {
         }
 
         pub fn geturl(self: *Response) []const u8 {
-            _ = self;
-            return "";
+            return self.url;
+        }
+
+        pub fn close(self: *Response) void {
+            self.allocator.free(self.body);
+            self.allocator.free(self.url);
+            self.headers.deinit();
         }
     };
 
-    /// Simple URL fetch (stub)
+    /// Simple URL fetch using std.http.Client
     pub fn urlopen(allocator: std.mem.Allocator, url: []const u8) !Response {
-        _ = allocator;
-        _ = url;
-        // Would perform actual HTTP request
-        return error.NotImplemented;
+        var client = std.http.Client{ .allocator = allocator };
+        defer client.deinit();
+
+        const uri = std.Uri.parse(url) catch return error.URLError;
+
+        var header_buf: [4096]u8 = undefined;
+        var req = client.open(.GET, uri, .{
+            .server_header_buffer = &header_buf,
+        }) catch return error.URLError;
+        defer req.deinit();
+
+        req.send() catch return error.URLError;
+        req.wait() catch return error.URLError;
+
+        const body = req.reader().readAllAlloc(allocator, 10 * 1024 * 1024) catch return error.URLError;
+
+        var headers = hashmap_helper.StringHashMap([]const u8).init(allocator);
+
+        return Response{
+            .url = try allocator.dupe(u8, url),
+            .status = @intFromEnum(req.status),
+            .reason = "OK",
+            .headers = headers,
+            .body = body,
+            .allocator = allocator,
+        };
     }
 
-    /// URL retrieve to file (stub)
+    /// URL retrieve to file
     pub fn urlretrieve(allocator: std.mem.Allocator, url: []const u8, filename: ?[]const u8) !struct { filename: []const u8, headers: hashmap_helper.StringHashMap([]const u8) } {
-        _ = allocator;
-        _ = url;
-        _ = filename;
-        return error.NotImplemented;
+        // Fetch the URL
+        var response = try urlopen(allocator, url);
+        defer response.close();
+
+        // Determine output filename
+        const out_filename = filename orelse blk: {
+            // Extract filename from URL path
+            const uri = std.Uri.parse(url) catch return error.URLError;
+            const path = uri.path.percent_encoded;
+            if (std.mem.lastIndexOf(u8, path, "/")) |idx| {
+                break :blk try allocator.dupe(u8, path[idx + 1 ..]);
+            }
+            break :blk try allocator.dupe(u8, "downloaded_file");
+        };
+
+        // Write to file
+        const file = try std.fs.cwd().createFile(out_filename, .{});
+        defer file.close();
+        try file.writeAll(response.body);
+
+        return .{
+            .filename = out_filename,
+            .headers = response.headers,
+        };
     }
 
     /// Install opener

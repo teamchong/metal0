@@ -123,7 +123,20 @@ pub const FTP = struct {
         // Create socket
         self.sock = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
 
-        // Would connect to server here
+        // Set socket timeout
+        if (self.timeout > 0) {
+            const secs: i64 = @intFromFloat(self.timeout);
+            const usecs: i64 = @intFromFloat((self.timeout - @as(f64, @floatFromInt(secs))) * 1_000_000);
+            const tv = std.posix.timeval{ .tv_sec = secs, .tv_usec = usecs };
+            const tv_bytes = std.mem.asBytes(&tv);
+            std.posix.setsockopt(self.sock.?, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, tv_bytes) catch {};
+            std.posix.setsockopt(self.sock.?, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, tv_bytes) catch {};
+        }
+
+        // Resolve and connect
+        const address = std.net.Address.resolveIp4(self.host, self.port) catch return FtpError.ConnectionRefused;
+        std.posix.connect(self.sock.?, &address.any, address.getOsSockLen()) catch return FtpError.ConnectionRefused;
+
         // Get welcome message
         const resp = try self.getResp();
         self.welcome = resp.message;
@@ -191,27 +204,67 @@ pub const FTP = struct {
             std.debug.print("*cmd* {s}\n", .{buf[0..len]});
         }
 
-        // Would send over socket
-        _ = len;
+        // Send command over socket
+        _ = std.posix.send(self.sock.?, buf[0..len], 0) catch return FtpError.Error;
     }
 
     /// Get response from server
     fn getResp(self: *Self) !FtpResponse {
-        _ = self;
-        // Would read response from socket
+        if (self.sock == null) {
+            return FtpError.Error;
+        }
+
+        var buf: [MAXLINE]u8 = undefined;
+        var total_len: usize = 0;
+
+        // Read response line(s)
+        while (total_len < buf.len - 1) {
+            const n = std.posix.recv(self.sock.?, buf[total_len..], 0) catch |err| {
+                if (err == error.WouldBlock) return FtpError.Timeout;
+                return FtpError.Error;
+            };
+            if (n == 0) break; // Connection closed
+            total_len += n;
+
+            // Check for end of response (line ending with \r\n)
+            if (total_len >= 2 and buf[total_len - 2] == '\r' and buf[total_len - 1] == '\n') {
+                // Check if this is a multiline response (code followed by -)
+                if (total_len >= 4 and buf[3] != '-') break;
+            }
+        }
+
+        if (total_len < 3) return FtpError.ProtoError;
+
+        // Parse response code
+        const code = std.fmt.parseInt(u16, buf[0..3], 10) catch return FtpError.ProtoError;
+
+        // Extract message (skip code and space, trim CRLF)
+        var msg_start: usize = 4;
+        if (total_len > 3 and (buf[3] == ' ' or buf[3] == '-')) {
+            msg_start = 4;
+        } else {
+            msg_start = 3;
+        }
+        var msg_end = total_len;
+        while (msg_end > msg_start and (buf[msg_end - 1] == '\r' or buf[msg_end - 1] == '\n')) {
+            msg_end -= 1;
+        }
+
+        if (self.debugging > 0) {
+            std.debug.print("*resp* {d} {s}\n", .{ code, buf[msg_start..msg_end] });
+        }
+
         return FtpResponse{
-            .code = 220,
-            .message = "Service ready",
+            .code = code,
+            .message = buf[msg_start..msg_end],
         };
     }
 
     /// Get multiline response
     fn getMultiLine(self: *Self) !FtpResponse {
-        _ = self;
-        return FtpResponse{
-            .code = 220,
-            .message = "Service ready",
-        };
+        // For multiline responses, keep reading until we get a final line
+        // (code followed by space, not hyphen)
+        return self.getResp();
     }
 
     // ========================================================================

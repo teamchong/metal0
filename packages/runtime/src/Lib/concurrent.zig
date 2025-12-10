@@ -149,21 +149,38 @@ pub fn Future(comptime T: type) type {
 // ============================================================================
 
 /// Base executor interface
+/// NOTE: The Executor struct is an abstract interface. Use ThreadPoolExecutor or
+/// ProcessPoolExecutor for actual execution. Direct submission via Executor.submit()
+/// requires providing a concrete implementation.
 pub const Executor = struct {
     const Self = @This();
 
-    /// Submit a callable for execution
-    pub fn submit(self: *Self, comptime func: anytype, args: anytype) !*Future(@TypeOf(@call(.auto, func, args))) {
-        _ = self;
-        _ = args;
-        return error.NotImplemented;
+    allocator: std.mem.Allocator,
+    pool: ?*ThreadPoolExecutor = null,
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{ .allocator = allocator };
+    }
+
+    /// Attach a thread pool to this executor
+    pub fn attachPool(self: *Self, pool: *ThreadPoolExecutor) void {
+        self.pool = pool;
+    }
+
+    /// Submit work to the attached pool
+    pub fn submitWork(self: *Self, func: *const fn (*anyopaque) void, context: *anyopaque) !void {
+        if (self.pool) |pool| {
+            try pool.submitWork(func, context);
+        } else {
+            return error.NoExecutorAttached;
+        }
     }
 
     /// Shutdown the executor
     pub fn shutdown(self: *Self, wait: bool, cancel_futures: bool) void {
-        _ = self;
-        _ = wait;
-        _ = cancel_futures;
+        if (self.pool) |pool| {
+            pool.shutdown(wait, cancel_futures);
+        }
     }
 };
 

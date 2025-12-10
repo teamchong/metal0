@@ -495,15 +495,29 @@ pub fn createConnection(allocator: std.mem.Allocator, host: []const u8, port: u1
 
 /// Get host name
 pub fn gethostname(buffer: []u8) ![]u8 {
-    // Use uname on Unix
-    if (comptime builtin.os.tag != .windows) {
+    if (comptime builtin.os.tag == .windows) {
+        // Windows: use GetComputerNameExA
+        const kernel32 = @cImport(@cInclude("windows.h"));
+        var size: u32 = @intCast(buffer.len);
+        if (kernel32.GetComputerNameExA(kernel32.ComputerNameDnsHostname, buffer.ptr, &size) != 0) {
+            return buffer[0..size];
+        }
+        // Fallback: use environment variable
+        if (std.process.getEnvVarOwned(std.heap.page_allocator, "COMPUTERNAME")) |name| {
+            defer std.heap.page_allocator.free(name);
+            const copy_len = @min(name.len, buffer.len);
+            @memcpy(buffer[0..copy_len], name[0..copy_len]);
+            return buffer[0..copy_len];
+        } else |_| {}
+        return error.HostUnreachable;
+    } else {
+        // Unix: use uname
         var name = posix.uname();
         const len = std.mem.indexOfScalar(u8, &name.nodename, 0) orelse name.nodename.len;
         const copy_len = @min(len, buffer.len);
         @memcpy(buffer[0..copy_len], name.nodename[0..copy_len]);
         return buffer[0..copy_len];
     }
-    return error.NotImplemented;
 }
 
 /// Get fully qualified domain name

@@ -523,11 +523,35 @@ pub fn moduleAddType(
     // Would call PyType_Ready and add to module
 }
 
+/// Module object for AOT compatibility
+pub const ModuleObject = struct {
+    name: []const u8,
+    doc: ?[]const u8,
+    methods: ?*const MethodDef,
+    state: ?*anyopaque,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *ModuleObject) void {
+        _ = self;
+        // Module cleanup if needed
+    }
+};
+
 /// Create a new module from definition
-pub fn moduleCreate(def: *const ModuleDef) !*anyopaque {
-    _ = def;
-    // Would allocate and initialize module object
-    return error.NotImplemented;
+/// In AOT compilation, modules are statically defined at compile time.
+/// This function returns a module placeholder that can be used for compatibility.
+pub fn moduleCreate(def: *const ModuleDef) !*ModuleObject {
+    // Use page allocator for module objects (long-lived)
+    const allocator = std.heap.page_allocator;
+    const module = try allocator.create(ModuleObject);
+    module.* = .{
+        .name = def.name,
+        .doc = def.doc,
+        .methods = def.methods,
+        .state = null,
+        .allocator = allocator,
+    };
+    return module;
 }
 
 /// Multi-phase module initialization
