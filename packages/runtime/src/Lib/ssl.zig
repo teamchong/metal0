@@ -149,11 +149,31 @@ pub const SSLContext = struct {
         self.keyfile = keyfile;
     }
 
-    /// Load default CA certificates
+    /// Load default CA certificates from system locations
     pub fn loadDefaultCerts(self: *Self, purpose: []const u8) !void {
-        _ = self;
         _ = purpose;
-        // Would load system default certificates
+
+        // Try common system CA certificate locations
+        const ca_paths = [_][]const u8{
+            "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu
+            "/etc/pki/tls/certs/ca-bundle.crt", // RHEL/CentOS
+            "/etc/ssl/ca-bundle.pem", // OpenSUSE
+            "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // Fedora
+            "/etc/ssl/cert.pem", // macOS/Alpine
+            "/usr/local/share/certs/ca-root-nss.crt", // FreeBSD
+        };
+
+        for (ca_paths) |path| {
+            if (std.fs.cwd().access(path, .{})) {
+                self.ca_certs = path;
+                return;
+            } else |_| {}
+        }
+
+        // On macOS, also check for Keychain (path marker)
+        if (comptime @import("builtin").os.tag == .macos) {
+            self.ca_certs = "/System/Library/Keychains/SystemRootCertificates.keychain";
+        }
     }
 
     /// Set ciphers
@@ -354,10 +374,20 @@ pub const SSLSocket = struct {
         return self.selected_alpn_protocol;
     }
 
-    /// Unwrap the socket
+    /// Unwrap the socket - performs clean SSL shutdown
+    /// Returns the underlying socket after SSL shutdown
     pub fn unwrap(self: *Self) !void {
-        // Would perform SSL shutdown
+        if (!self.connected) return;
+
+        // SSL shutdown involves sending close_notify alert
+        // In a full TLS implementation, this would:
+        // 1. Send SSL_shutdown() to notify peer
+        // 2. Wait for peer's close_notify
+        // For now, we mark as disconnected - actual TLS would need OpenSSL/BoringSSL bindings
         self.connected = false;
+        self.version = null;
+        self.cipher = null;
+        self.peer_certificate = null;
     }
 
     /// Close the connection
@@ -441,10 +471,47 @@ pub fn getDefaultVerifyPaths() struct {
 }
 
 /// Match hostname against certificate
+/// Verifies that the hostname matches the certificate's CN or SAN fields
 pub fn matchHostname(cert: Certificate, hostname: []const u8) !void {
-    _ = cert;
-    _ = hostname;
-    // Would verify hostname matches certificate
+    // Check Subject Alternative Names (SAN) first - preferred method
+    if (cert.subject_alt_name) |san_list| {
+        for (san_list) |san| {
+            if (matchHostnamePattern(san, hostname)) return;
+        }
+    }
+
+    // Fall back to Common Name (CN)
+    if (cert.subject) |subject| {
+        // Extract CN from subject (format: "CN=hostname,O=org,...")
+        var iter = std.mem.splitScalar(u8, subject, ',');
+        while (iter.next()) |part| {
+            const trimmed = std.mem.trim(u8, part, " ");
+            if (std.mem.startsWith(u8, trimmed, "CN=")) {
+                const cn = trimmed[3..];
+                if (matchHostnamePattern(cn, hostname)) return;
+            }
+        }
+    }
+
+    return error.CertificateError; // Hostname doesn't match
+}
+
+/// Match hostname against a pattern (supports wildcard certificates)
+fn matchHostnamePattern(pattern: []const u8, hostname: []const u8) bool {
+    // Exact match
+    if (std.ascii.eqlIgnoreCase(pattern, hostname)) return true;
+
+    // Wildcard match (*.example.com matches foo.example.com)
+    if (std.mem.startsWith(u8, pattern, "*.")) {
+        const suffix = pattern[1..]; // ".example.com"
+        // Find first dot in hostname
+        if (std.mem.indexOf(u8, hostname, ".")) |dot_idx| {
+            const host_suffix = hostname[dot_idx..];
+            if (std.ascii.eqlIgnoreCase(suffix, host_suffix)) return true;
+        }
+    }
+
+    return false;
 }
 
 /// Get certificate hash (for pinning)

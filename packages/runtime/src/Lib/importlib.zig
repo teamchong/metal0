@@ -158,13 +158,45 @@ pub const Finder = struct {
 
 /// Meta path finder that uses sys.path
 pub const PathFinder = struct {
+    /// Find a module spec by searching paths
     pub fn find_spec(allocator: std.mem.Allocator, name: []const u8, path: ?[]const []const u8, target: ?*anyopaque) ?ModuleSpec {
-        _ = allocator;
-        _ = path;
         _ = target;
 
-        // Would search sys.path for the module
-        _ = name;
+        // Default search paths if none provided
+        const search_paths = path orelse &[_][]const u8{
+            ".", // Current directory
+            "./lib",
+            "/usr/lib/python3/dist-packages",
+            "/usr/local/lib/python3/site-packages",
+        };
+
+        // Try to find module file
+        for (search_paths) |base_path| {
+            // Try as package (directory with __init__.py)
+            var package_path_buf: [512]u8 = undefined;
+            const package_path = std.fmt.bufPrint(&package_path_buf, "{s}/{s}/__init__.py", .{ base_path, name }) catch continue;
+            if (std.fs.cwd().access(package_path, .{})) {
+                return ModuleSpec.init(allocator, name, package_path) catch null;
+            } else |_| {}
+
+            // Try as module file (.py)
+            var module_path_buf: [512]u8 = undefined;
+            const module_path = std.fmt.bufPrint(&module_path_buf, "{s}/{s}.py", .{ base_path, name }) catch continue;
+            if (std.fs.cwd().access(module_path, .{})) {
+                return ModuleSpec.init(allocator, name, module_path) catch null;
+            } else |_| {}
+
+            // Try as compiled module (.pyc, .so, .zig)
+            const extensions = [_][]const u8{ ".pyc", ".so", ".zig" };
+            for (extensions) |ext| {
+                var compiled_path_buf: [512]u8 = undefined;
+                const compiled_path = std.fmt.bufPrint(&compiled_path_buf, "{s}/{s}{s}", .{ base_path, name, ext }) catch continue;
+                if (std.fs.cwd().access(compiled_path, .{})) {
+                    return ModuleSpec.init(allocator, name, compiled_path) catch null;
+                } else |_| {}
+            }
+        }
+
         return null;
     }
 };
@@ -187,14 +219,30 @@ pub fn find_spec(allocator: std.mem.Allocator, name: []const u8, package: ?[]con
 }
 
 /// Reload a previously imported module
+/// In AOT compilation, modules are statically compiled, so reload returns the same module.
+/// For dynamic reloading, the application would need to be recompiled.
 pub fn reload(module: *anyopaque) !*anyopaque {
-    // Would re-execute the module
+    // In AOT, modules are compiled into the binary at build time.
+    // True dynamic reloading would require:
+    // 1. Unloading the old module code
+    // 2. Re-parsing and compiling the source
+    // 3. Re-linking into the running process
+    // For now, we return the existing module - changes require recompilation.
     return module;
 }
 
-/// Invalidate cached finders
+/// Module cache for import tracking
+var module_cache: ?std.StringHashMap(*anyopaque) = null;
+
+/// Invalidate cached finders and module cache
 pub fn invalidate_caches() void {
-    // Would clear finder caches
+    // Clear any cached module lookups
+    if (module_cache) |*cache| {
+        cache.clearRetainingCapacity();
+    }
+    // In a full implementation, this would also clear:
+    // - sys.path_importer_cache
+    // - Each finder's cache via finder.invalidate_caches()
 }
 
 // ============================================================================

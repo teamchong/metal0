@@ -286,12 +286,13 @@ pub const KqueueSelector = struct {
     const Self = @This();
 
     base: BaseSelector,
-    kqueue_fd: i32,
+    kqueue_fd: std.posix.fd_t,
 
     pub fn init(allocator: std.mem.Allocator) !Self {
+        const kq = std.posix.kqueue() catch return error.KqueueCreateFailed;
         return .{
             .base = BaseSelector.init(allocator),
-            .kqueue_fd = -1, // Would be created with kqueue()
+            .kqueue_fd = kq,
         };
     }
 
@@ -303,22 +304,99 @@ pub const KqueueSelector = struct {
     }
 
     pub fn register(self: *Self, fileobj: i32, events: u32, data: ?*anyopaque) !SelectorKey {
-        return self.base.register(fileobj, events, data);
+        const key = try self.base.register(fileobj, events, data);
+
+        // Add to kqueue
+        var changelist: [2]std.posix.Kevent = undefined;
+        var nchanges: usize = 0;
+
+        if (events & EVENT_READ != 0) {
+            changelist[nchanges] = .{
+                .ident = @intCast(fileobj),
+                .filter = std.posix.system.EVFILT.READ,
+                .flags = std.posix.system.EV.ADD,
+                .fflags = 0,
+                .data = 0,
+                .udata = @ptrFromInt(@intFromPtr(data)),
+            };
+            nchanges += 1;
+        }
+        if (events & EVENT_WRITE != 0) {
+            changelist[nchanges] = .{
+                .ident = @intCast(fileobj),
+                .filter = std.posix.system.EVFILT.WRITE,
+                .flags = std.posix.system.EV.ADD,
+                .fflags = 0,
+                .data = 0,
+                .udata = @ptrFromInt(@intFromPtr(data)),
+            };
+            nchanges += 1;
+        }
+
+        if (nchanges > 0) {
+            _ = std.posix.kevent(self.kqueue_fd, changelist[0..nchanges], &[_]std.posix.Kevent{}, null) catch {};
+        }
+
+        return key;
     }
 
     pub fn unregister(self: *Self, fileobj: i32) !SelectorKey {
+        // Remove from kqueue
+        var changelist: [2]std.posix.Kevent = .{
+            .{
+                .ident = @intCast(fileobj),
+                .filter = std.posix.system.EVFILT.READ,
+                .flags = std.posix.system.EV.DELETE,
+                .fflags = 0,
+                .data = 0,
+                .udata = null,
+            },
+            .{
+                .ident = @intCast(fileobj),
+                .filter = std.posix.system.EVFILT.WRITE,
+                .flags = std.posix.system.EV.DELETE,
+                .fflags = 0,
+                .data = 0,
+                .udata = null,
+            },
+        };
+        _ = std.posix.kevent(self.kqueue_fd, &changelist, &[_]std.posix.Kevent{}, null) catch {};
+
         return self.base.unregister(fileobj);
     }
 
     pub fn select(self: *Self, timeout: ?f64) ![]struct { key: SelectorKey, events: u32 } {
-        _ = timeout;
+        var eventlist: [64]std.posix.Kevent = undefined;
+
+        const ts: ?std.posix.timespec = if (timeout) |t| .{
+            .tv_sec = @intFromFloat(t),
+            .tv_nsec = @intFromFloat((t - @floor(t)) * 1_000_000_000),
+        } else null;
+
+        const n = std.posix.kevent(self.kqueue_fd, &[_]std.posix.Kevent{}, &eventlist, if (ts) |*t| t else null) catch |err| {
+            if (err == error.INTR) return &[_]struct { key: SelectorKey, events: u32 }{};
+            return err;
+        };
+
         var result = std.ArrayList(struct { key: SelectorKey, events: u32 }).init(self.base.allocator);
-        // Would use kevent() here
+        for (eventlist[0..n]) |ev| {
+            const fd: i32 = @intCast(ev.ident);
+            if (self.base.fd_to_key.get(fd)) |key| {
+                var events: u32 = 0;
+                if (ev.filter == std.posix.system.EVFILT.READ) events |= EVENT_READ;
+                if (ev.filter == std.posix.system.EVFILT.WRITE) events |= EVENT_WRITE;
+                try result.append(.{ .key = key, .events = events });
+            }
+        }
         return result.toOwnedSlice();
     }
 
     pub fn close(self: *Self) void {
         self.base.close();
+        if (self.kqueue_fd >= 0) {
+            std.posix.close(self.kqueue_fd);
+            self.kqueue_fd = -1;
+        }
     }
 };
 
@@ -331,12 +409,13 @@ pub const EpollSelector = struct {
     const Self = @This();
 
     base: BaseSelector,
-    epoll_fd: i32,
+    epoll_fd: std.posix.fd_t,
 
     pub fn init(allocator: std.mem.Allocator) !Self {
+        const ep = std.posix.epoll_create1(0) catch return error.EpollCreateFailed;
         return .{
             .base = BaseSelector.init(allocator),
-            .epoll_fd = -1, // Would be created with epoll_create()
+            .epoll_fd = ep,
         };
     }
 
@@ -348,22 +427,58 @@ pub const EpollSelector = struct {
     }
 
     pub fn register(self: *Self, fileobj: i32, events: u32, data: ?*anyopaque) !SelectorKey {
-        return self.base.register(fileobj, events, data);
+        const key = try self.base.register(fileobj, events, data);
+
+        // Add to epoll
+        var ev: std.os.linux.epoll_event = .{
+            .events = 0,
+            .data = .{ .fd = fileobj },
+        };
+        if (events & EVENT_READ != 0) ev.events |= std.os.linux.EPOLL.IN;
+        if (events & EVENT_WRITE != 0) ev.events |= std.os.linux.EPOLL.OUT;
+        _ = data; // userdata stored in base
+
+        std.posix.epoll_ctl(self.epoll_fd, std.os.linux.EPOLL.CTL_ADD, fileobj, &ev) catch {};
+
+        return key;
     }
 
     pub fn unregister(self: *Self, fileobj: i32) !SelectorKey {
+        // Remove from epoll
+        std.posix.epoll_ctl(self.epoll_fd, std.os.linux.EPOLL.CTL_DEL, fileobj, null) catch {};
+
         return self.base.unregister(fileobj);
     }
 
     pub fn select(self: *Self, timeout: ?f64) ![]struct { key: SelectorKey, events: u32 } {
-        _ = timeout;
+        var eventlist: [64]std.os.linux.epoll_event = undefined;
+
+        const timeout_ms: i32 = if (timeout) |t| @intFromFloat(t * 1000) else -1;
+
+        const n = std.posix.epoll_wait(self.epoll_fd, &eventlist, timeout_ms) catch |err| {
+            if (err == error.INTR) return &[_]struct { key: SelectorKey, events: u32 }{};
+            return err;
+        };
+
         var result = std.ArrayList(struct { key: SelectorKey, events: u32 }).init(self.base.allocator);
-        // Would use epoll_wait() here
+        for (eventlist[0..n]) |ev| {
+            const fd = ev.data.fd;
+            if (self.base.fd_to_key.get(fd)) |key| {
+                var events: u32 = 0;
+                if (ev.events & std.os.linux.EPOLL.IN != 0) events |= EVENT_READ;
+                if (ev.events & std.os.linux.EPOLL.OUT != 0) events |= EVENT_WRITE;
+                try result.append(.{ .key = key, .events = events });
+            }
+        }
         return result.toOwnedSlice();
     }
 
     pub fn close(self: *Self) void {
         self.base.close();
+        if (self.epoll_fd >= 0) {
+            std.posix.close(self.epoll_fd);
+            self.epoll_fd = -1;
+        }
     }
 };
 
