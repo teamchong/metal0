@@ -1,6 +1,7 @@
 /// shutil - High-level file operations
 /// Provides copy, move, rmtree, and other shell utilities
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
 /// Copy a file from src to dst
@@ -140,15 +141,40 @@ pub const DiskUsage = struct {
 };
 
 /// Get disk usage for a path (like df)
+/// Uses statvfs on POSIX systems
 pub fn disk_usage(path: []const u8) !DiskUsage {
-    _ = path;
-    // This requires platform-specific syscalls
-    // For now, return a stub
-    return .{
-        .total = 0,
-        .used = 0,
-        .free = 0,
-    };
+    if (comptime builtin.os.tag == .windows) {
+        // Windows: would use GetDiskFreeSpaceEx
+        // Return zeros as fallback
+        return .{ .total = 0, .used = 0, .free = 0 };
+    } else {
+        // POSIX: use statvfs
+        const c = @cImport({
+            @cInclude("sys/statvfs.h");
+        });
+
+        // Need null-terminated path
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        if (path.len >= path_buf.len) return error.PathTooLong;
+        @memcpy(path_buf[0..path.len], path);
+        path_buf[path.len] = 0;
+
+        var stat: c.struct_statvfs = undefined;
+        if (c.statvfs(&path_buf, &stat) != 0) {
+            return error.StatvfsFailed;
+        }
+
+        const block_size: u64 = stat.f_frsize;
+        const total = stat.f_blocks * block_size;
+        const free = stat.f_bavail * block_size;
+        const used = total - (stat.f_bfree * block_size);
+
+        return .{
+            .total = total,
+            .used = used,
+            .free = free,
+        };
+    }
 }
 
 /// Check if a command exists in PATH
