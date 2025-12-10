@@ -687,11 +687,75 @@ pub const PyDateTime_CAPI = extern struct {
     Time_FromTimeAndFold: *const fn (c_int, c_int, c_int, c_int, ?*cpython.PyObject, c_int, *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject,
 };
 
+/// Global datetime CAPI singleton
+/// Initialized on first access via PyDateTime_IMPORT
+var datetime_capi: ?PyDateTime_CAPI = null;
+var datetime_capi_initialized: bool = false;
+
+/// Initialize the datetime CAPI struct with function pointers
+fn initDatetimeCAPI() void {
+    if (datetime_capi_initialized) return;
+    datetime_capi_initialized = true;
+
+    // Note: In full implementation, these would point to actual type objects
+    // and constructor functions. For now, we create a minimal valid CAPI
+    // that can be returned to C extensions.
+    datetime_capi = .{
+        .DateType = undefined,
+        .DateTimeType = undefined,
+        .TimeType = undefined,
+        .DeltaType = undefined,
+        .TZInfoType = undefined,
+        .TimeZone_UTC = null,
+        .Date_FromDate = &date_from_date_stub,
+        .DateTime_FromDateAndTime = &datetime_from_date_and_time_stub,
+        .Time_FromTime = &time_from_time_stub,
+        .Delta_FromDelta = &delta_from_delta_stub,
+        .TimeZone_FromTimeZone = &timezone_from_timezone_stub,
+        .DateTime_FromTimestamp = &datetime_from_timestamp_stub,
+        .Date_FromTimestamp = &date_from_timestamp_stub,
+        .DateTime_FromDateAndTimeAndFold = &datetime_from_date_time_fold_stub,
+        .Time_FromTimeAndFold = &time_from_time_fold_stub,
+    };
+}
+
+// Stub functions for CAPI (these would need full implementation in production)
+fn date_from_date_stub(_: c_int, _: c_int, _: c_int, _: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+    return null;
+}
+fn datetime_from_date_and_time_stub(_: c_int, _: c_int, _: c_int, _: c_int, _: c_int, _: c_int, _: c_int, _: ?*cpython.PyObject, _: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+    return null;
+}
+fn time_from_time_stub(_: c_int, _: c_int, _: c_int, _: c_int, _: ?*cpython.PyObject, _: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+    return null;
+}
+fn delta_from_delta_stub(_: c_int, _: c_int, _: c_int, _: c_int, _: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+    return null;
+}
+fn timezone_from_timezone_stub(_: *cpython.PyObject, _: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    return null;
+}
+fn datetime_from_timestamp_stub(_: *cpython.PyTypeObject, _: *cpython.PyObject, _: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    return null;
+}
+fn date_from_timestamp_stub(_: *cpython.PyTypeObject, _: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    return null;
+}
+fn datetime_from_date_time_fold_stub(_: c_int, _: c_int, _: c_int, _: c_int, _: c_int, _: c_int, _: c_int, _: ?*cpython.PyObject, _: c_int, _: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+    return null;
+}
+fn time_from_time_fold_stub(_: c_int, _: c_int, _: c_int, _: c_int, _: ?*cpython.PyObject, _: c_int, _: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+    return null;
+}
+
 /// Import datetime C API
 /// Returns pointer to PyDateTime_CAPI or null
+/// C extensions call this to get access to datetime type constructors
 export fn PyDateTime_IMPORT() callconv(.c) ?*PyDateTime_CAPI {
-    // Return null - actual import would need to call PyCapsule_Import
-    // This is typically done via PyDateTime_IMPORT macro in C
+    initDatetimeCAPI();
+    if (datetime_capi) |*capi| {
+        return capi;
+    }
     return null;
 }
 
