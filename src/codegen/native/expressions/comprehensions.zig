@@ -1161,6 +1161,9 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     // Determine if key is an integer expression
     const key_is_int = isIntExpr(dictcomp.key.*);
 
+    // Generate unique ID for this comprehension to avoid variable shadowing
+    const comp_id = self.output.items.len;
+
     // Get unique block label to avoid nested block conflicts
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
@@ -1178,6 +1181,10 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
         try self.emit("var __dict_result = hashmap_helper.StringHashMap(i64).init(__global_allocator);\n");
     }
 
+    // Track variables renamed in this comprehension so we can restore them after
+    var renamed_vars: std.ArrayListUnmanaged([]const u8) = .{};
+    defer renamed_vars.deinit(self.allocator);
+
     // Generate nested loops for each generator
     for (dictcomp.generators, 0..) |gen, gen_idx| {
         // Check if this is a range() call
@@ -1186,10 +1193,14 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
 
         if (is_range) {
             // Generate range loop as while loop
+            // Use unique mangled name to avoid shadowing outer variables
             const orig_var_name = gen.target.name.id;
-            // Sanitize: "_" -> "_unused" for Zig compatibility
-            const var_name = if (std.mem.eql(u8, orig_var_name, "_")) "_unused" else orig_var_name;
             const args = gen.iter.call.args;
+
+            // Create mangled name and add to var_renames so key/value expressions use it
+            const mangled_name = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ orig_var_name, comp_id });
+            try self.var_renames.put(orig_var_name, mangled_name);
+            try renamed_vars.append(self.allocator, orig_var_name);
 
             // Parse range arguments
             var start_val: i64 = 0;
@@ -1211,18 +1222,18 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
                 }
             }
 
-            // Generate: var <var_name>: i64 = <start>;
+            // Generate: var __comp_<orig>_<id>: i64 = <start>;
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("var {s}: i64 = {d};\n", .{ var_name, start_val });
+            try self.output.writer(self.allocator).print("var {s}: i64 = {d};\n", .{ mangled_name, start_val });
 
-            // Generate: while (<var_name> < <stop>) {
+            // Generate: while (__comp_<orig>_<id> < <stop>) {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("while ({s} < {d}) {{\n", .{ var_name, stop_val });
+            try self.output.writer(self.allocator).print("while ({s} < {d}) {{\n", .{ mangled_name, stop_val });
             self.indent();
 
-            // Defer increment: defer <var_name> += <step>;
+            // Defer increment: defer __comp_<orig>_<id> += <step>;
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ var_name, step_val });
+            try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ mangled_name, step_val });
         } else {
             // Regular iteration - check if source is constant array, ArrayList, or anytype param
             const is_direct_iterable = blk: {
@@ -1348,6 +1359,11 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     self.dedent();
     try self.emitIndent();
     try self.emit("})");
+
+    // Clean up var_renames so outer scope sees original variable names
+    for (renamed_vars.items) |var_name| {
+        _ = self.var_renames.swapRemove(var_name);
+    }
 }
 
 /// Generate generator expression: (x * 2 for x in range(5))
