@@ -148,10 +148,10 @@ pub export fn _PyUnicodeWriter_Dealloc(writer: *_PyUnicodeWriter) void {
     if (writer.buffer) |buf| {
         buf.ob_refcnt -= 1;
         if (buf.ob_refcnt <= 0) {
-            // Free the buffer
-            const pyunicode = @import("unicodeobject.zig");
-            _ = pyunicode;
-            // TODO: proper deallocation
+            // Free the buffer using tp_dealloc
+            if (buf.ob_type.tp_dealloc) |dealloc| {
+                dealloc(buf);
+            }
         }
         writer.buffer = null;
     }

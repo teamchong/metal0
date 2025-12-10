@@ -571,13 +571,65 @@ pub export fn _PyUnicode_FormatLong(val: ?*cpython.PyObject, alt: c_int, prec: c
         else => return null,
     }
 
-    _ = prec;
-    _ = base;
-    _ = prefix;
+    // Get the long value and format it
+    const long_val = pylong.PyLong_AsLong(val.?);
 
-    // TODO: Implement full formatting
-    // For now return placeholder
-    return pyunicode.PyUnicode_FromString("<long>");
+    // Format the number
+    var buf: [128]u8 = undefined;
+    var pos: usize = 0;
+
+    // Add prefix if needed
+    if (prefix) |p| {
+        const pslice = std.mem.span(p);
+        @memcpy(buf[pos..][0..pslice.len], pslice);
+        pos += pslice.len;
+    }
+
+    // Convert number to string
+    var num = if (long_val < 0) -long_val else long_val;
+    var is_negative = long_val < 0;
+    var num_buf: [64]u8 = undefined;
+    var num_pos: usize = 0;
+
+    if (num == 0) {
+        num_buf[0] = '0';
+        num_pos = 1;
+    } else {
+        const digits = if (base == 16)
+            (if (format_type == 'X') "0123456789ABCDEF" else "0123456789abcdef")
+        else if (base == 8)
+            "01234567"
+        else
+            "0123456789";
+
+        while (num > 0) : (num_pos += 1) {
+            const digit: usize = @intCast(@mod(num, base));
+            num_buf[num_pos] = digits[digit];
+            num = @divTrunc(num, base);
+        }
+    }
+
+    // Handle precision padding
+    const effective_prec: usize = if (prec > 0) @intCast(prec) else 0;
+    while (num_pos < effective_prec and pos + num_pos < buf.len - 1) {
+        buf[pos] = '0';
+        pos += 1;
+    }
+
+    // Add negative sign for decimal
+    if (is_negative and base == 10) {
+        buf[pos] = '-';
+        pos += 1;
+    }
+
+    // Reverse copy the number digits
+    var i: usize = 0;
+    while (i < num_pos and pos < buf.len) : (i += 1) {
+        buf[pos] = num_buf[num_pos - 1 - i];
+        pos += 1;
+    }
+
+    return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
 }
 
 /// Format a float into a string

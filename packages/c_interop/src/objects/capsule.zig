@@ -392,7 +392,11 @@ pub export fn _PyCapsule_SetTraverse(
     capsule.traverse_func = traverse_func;
     capsule.clear_func = clear_func;
 
-    // TODO: Track object with GC if not already tracked
+    // Track object with GC if not already tracked
+    const obmalloc = @import("obmalloc.zig");
+    if (obmalloc.PyObject_GC_IsTracked(op) == 0) {
+        obmalloc.PyObject_GC_Track(op);
+    }
     return 0;
 }
 

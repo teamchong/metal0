@@ -76,7 +76,8 @@ fn ga_dealloc(self_obj: ?*cpython.PyObject) callconv(.C) void {
     const alias: *gaobject = @ptrCast(@alignCast(self_obj.?));
 
     // Clear weak references
-    // TODO: FT_CLEAR_WEAKREFS
+    const weakref = @import("weakrefobject.zig");
+    weakref.PyObject_ClearWeakRefs(self_obj);
 
     // Decref origin
     if (alias.origin) |origin| {

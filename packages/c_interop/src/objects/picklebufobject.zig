@@ -39,7 +39,8 @@ fn picklebuf_dealloc(self_obj: ?*cpython.PyObject) callconv(.C) void {
     const pb: *PyPickleBufferObject = @ptrCast(@alignCast(self_obj.?));
 
     // Clear weak references
-    // TODO: PyObject_ClearWeakRefs
+    const weakref = @import("weakrefobject.zig");
+    weakref.PyObject_ClearWeakRefs(self_obj);
 
     // Release the buffer
     if (pb.view.obj) |obj| {
