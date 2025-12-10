@@ -12,7 +12,7 @@ const Allocator = std.mem.Allocator;
 pub const Algorithm = enum {
     BPE,       // Byte Pair Encoding (GPT-2, GPT-3, RoBERTa)
     WordPiece, // WordPiece (BERT, DistilBERT)
-    // Unigram,   // Unigram Language Model (T5, ALBERT) - TODO
+    Unigram,   // Unigram Language Model (T5, ALBERT)
 };
 
 /// Comptime algorithm selection - only selected algorithm compiled in
@@ -20,7 +20,7 @@ pub fn Trainer(comptime algorithm: Algorithm) type {
     return switch (algorithm) {
         .BPE => @import("tokenizer.zig").Tokenizer,
         .WordPiece => @import("wordpiece.zig").WordPiece,
-        // .Unigram => @import("unigram.zig").Unigram,  // TODO
+        .Unigram => @import("unigram_tokenizer.zig").UnigramTokenizer,
     };
 }
 

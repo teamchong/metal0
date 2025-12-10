@@ -19,7 +19,7 @@ pub const TokenizerResult = union(Algorithm) {
 pub const Algorithm = enum {
     BPE,       // Byte Pair Encoding (GPT-2, GPT-3, RoBERTa)
     WordPiece, // WordPiece (BERT, DistilBERT)
-    Unigram,   // Unigram Language Model (T5, ALBERT) - TODO: Full implementation
+    Unigram,   // Unigram Language Model (T5, ALBERT) - EM algorithm implementation
 };
 
 /// Comptime trainer selection - only selected algorithm is compiled
