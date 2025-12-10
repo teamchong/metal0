@@ -185,14 +185,49 @@ pub fn locals_builtin() ?*PyDict {
     return local_scope;
 }
 
+/// Global scope registry for dir() with no arguments
+/// Tracks names that have been added to the current scope
+const ScopeRegistry = struct {
+    var names: [256][]const u8 = [_][]const u8{""} ** 256;
+    var count: usize = 0;
+
+    /// Register a name in the current scope
+    pub fn register(name: []const u8) void {
+        if (count < names.len) {
+            names[count] = name;
+            count += 1;
+        }
+    }
+
+    /// Get all registered names
+    pub fn getNames() []const []const u8 {
+        return names[0..count];
+    }
+
+    /// Clear the registry
+    pub fn clear() void {
+        count = 0;
+    }
+};
+
+/// Register a variable in the current scope (called during variable assignment)
+pub fn registerScopeVar(name: []const u8) void {
+    ScopeRegistry.register(name);
+}
+
+/// Clear scope variables (called on scope exit)
+pub fn clearScopeVars() void {
+    ScopeRegistry.clear();
+}
+
 /// Returns a list of names in the current local scope (if obj is null)
 /// or a list of valid attributes for the object (if obj is provided)
 pub fn dir_builtin(obj: anytype) []const []const u8 {
     const T = @TypeOf(obj);
 
-    // If obj is null, return empty list (would need scope info for full implementation)
+    // If obj is null, return names from the scope registry
     if (T == @TypeOf(null)) {
-        return &[_][]const u8{};
+        return ScopeRegistry.getNames();
     }
 
     // For optional types, unwrap

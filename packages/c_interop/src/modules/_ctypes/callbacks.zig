@@ -149,9 +149,11 @@ fn getCallbackTrampoline(slot: usize) ?*anyopaque {
 /// The main callback dispatcher - called by C code
 /// This is the function that C code actually calls
 fn callbackDispatcher(arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) callconv(.C) usize {
-    // Find the thunk that's being called
-    // In a real implementation, we'd use the return address or a register
-    // For now, we use a thread-local current thunk pointer
+    // Find the thunk that's being called using thread-local storage
+    // Note: Alternative implementations could use:
+    // - Return address inspection (platform-specific, complex)
+    // - Closure trampolines (requires executable memory allocation)
+    // Thread-local storage is simpler and portable
     const thunk = current_callback_thunk orelse return 0;
 
     return invokeCallback(thunk, &[_]usize{ arg0, arg1, arg2, arg3, arg4, arg5 });

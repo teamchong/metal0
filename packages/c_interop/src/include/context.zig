@@ -36,8 +36,9 @@ pub const PyContext = extern struct {
     ctx_prev: ?*PyContext, // previous context in stack
 };
 
-// Global current context (per-thread in real implementation)
-var current_context: ?*PyContext = null;
+// Thread-local current context for proper per-thread context management
+// Each thread maintains its own context stack for asyncio and contextvars
+threadlocal var current_context: ?*PyContext = null;
 
 /// PyContext_Type - the 'Context' type
 pub var PyContext_Type: cpython.PyTypeObject = .{
