@@ -317,21 +317,92 @@ pub const Bytecode = struct {
     }
 
     /// Get info about the code object
-    /// NOTE: In AOT compilation, code is compiled to native machine code, not bytecode.
-    /// Bytecode inspection is not available at runtime.
     pub fn info(self: *Self) ![]u8 {
-        _ = self;
-        // AOT limitation: No bytecode exists at runtime - compiled to native code.
-        return error.NoBytecodeInAOT;
+        var result = std.ArrayList(u8).init(self.allocator);
+
+        // Format code object info similar to CPython's dis.code_info()
+        try result.appendSlice("Name:              ");
+        try result.appendSlice(self.co.name);
+        try result.append('\n');
+
+        try result.appendSlice("Filename:          ");
+        try result.appendSlice(self.co.filename);
+        try result.append('\n');
+
+        try result.writer().print("Argument count:    {d}\n", .{self.co.argcount});
+        try result.writer().print("Positional-only:   {d}\n", .{self.co.posonlyargcount});
+        try result.writer().print("Kw-only arguments: {d}\n", .{self.co.kwonlyargcount});
+        try result.writer().print("Number of locals:  {d}\n", .{self.co.nlocals});
+        try result.writer().print("Stack size:        {d}\n", .{self.co.stacksize});
+        try result.writer().print("Flags:             0x{x}\n", .{self.co.flags});
+
+        if (self.co.varnames.len > 0) {
+            try result.appendSlice("Variable names:\n");
+            for (self.co.varnames, 0..) |name, i| {
+                try result.writer().print("   {d}: {s}\n", .{ i, name });
+            }
+        }
+
+        return result.toOwnedSlice();
     }
 
     /// Disassemble the code
-    /// NOTE: In AOT compilation, code is compiled to native machine code, not bytecode.
-    /// Use objdump or similar tools to inspect the compiled binary.
     pub fn dis(self: *Self) ![]u8 {
-        _ = self;
-        // AOT limitation: No bytecode exists at runtime - compiled to native code.
-        return error.NoBytecodeInAOT;
+        var result = std.ArrayList(u8).init(self.allocator);
+
+        // Header
+        try result.appendSlice("Disassembly of ");
+        try result.appendSlice(self.co.name);
+        try result.appendSlice(":\n");
+
+        // Disassemble each instruction
+        var offset: usize = 0;
+        while (offset < self.co.code.len) {
+            const opcode_byte = self.co.code[offset];
+            const opcode: Opcode = @enumFromInt(opcode_byte);
+
+            // Line number marker
+            try result.writer().print("{d:>6} ", .{offset});
+
+            // Current instruction marker
+            if (self.current_offset != null and offset == self.current_offset.?) {
+                try result.appendSlice("--> ");
+            } else {
+                try result.appendSlice("    ");
+            }
+
+            // Opcode name
+            try result.appendSlice(opcode.name());
+
+            // Argument if present
+            if (opcode.hasArg() and offset + 1 < self.co.code.len) {
+                const arg = self.co.code[offset + 1];
+                try result.writer().print(" {d}", .{arg});
+
+                // Resolve argument if possible
+                if (opcode == .LOAD_CONST and arg < self.co.consts.len) {
+                    try result.appendSlice(" (");
+                    try result.appendSlice(self.co.consts[arg]);
+                    try result.append(')');
+                } else if ((opcode == .LOAD_NAME or opcode == .STORE_NAME) and arg < self.co.names.len) {
+                    try result.appendSlice(" (");
+                    try result.appendSlice(self.co.names[arg]);
+                    try result.append(')');
+                } else if ((opcode == .LOAD_FAST or opcode == .STORE_FAST) and arg < self.co.varnames.len) {
+                    try result.appendSlice(" (");
+                    try result.appendSlice(self.co.varnames[arg]);
+                    try result.append(')');
+                }
+
+                offset += 2;
+            } else {
+                offset += 1;
+            }
+
+            try result.append('\n');
+        }
+
+        return result.toOwnedSlice();
     }
 };
 
@@ -339,25 +410,34 @@ pub const Bytecode = struct {
 // Disassembly Functions
 // ============================================================================
 
-/// Disassemble a code object or function
+/// Disassemble a code object or function and print to file
 pub fn dis(allocator: std.mem.Allocator, x: anytype, file: ?std.fs.File, depth: ?i32) !void {
-    _ = allocator;
-    _ = x;
-    _ = file;
     _ = depth;
-    // Would disassemble and print to file
+    const output_file = file orelse std.io.getStdOut();
+    const writer = output_file.writer();
+
+    // Create Bytecode object and get disassembly
+    const T = @TypeOf(x);
+    if (T == *CodeObject) {
+        var bytecode = Bytecode.init(allocator, x);
+        defer bytecode.deinit();
+        const disasm = try bytecode.dis();
+        defer allocator.free(disasm);
+        try writer.writeAll(disasm);
+    } else if (T == []const u8) {
+        // Assume it's raw bytecode
+        const disasm = try disassembleBytes(allocator, x, null, null, null, null);
+        defer allocator.free(disasm);
+        try writer.writeAll(disasm);
+    }
 }
 
 /// Disassemble a code object to a string
-/// NOTE: In AOT compilation, code is compiled to native machine code, not bytecode.
-/// This function is only useful for analyzing CPython bytecode, not AOT-compiled code.
-pub fn disassemble(allocator: std.mem.Allocator, co: anytype, lasti: ?i32) ![]u8 {
-    _ = allocator;
-    _ = co;
-    _ = lasti;
-    // AOT limitation: No bytecode exists at runtime - compiled to native code.
-    // Use objdump, llvm-objdump, or similar tools to inspect the compiled binary.
-    return error.NoBytecodeInAOT;
+pub fn disassemble(allocator: std.mem.Allocator, co: *CodeObject, lasti: ?i32) ![]u8 {
+    var bytecode = Bytecode.init(allocator, co);
+    bytecode.current_offset = if (lasti) |l| @intCast(l) else null;
+    defer bytecode.deinit();
+    return bytecode.dis();
 }
 
 /// Disassemble bytecode bytes
@@ -438,24 +518,16 @@ pub fn findlinestarts(co: anytype) !std.AutoHashMap(usize, u32) {
     return std.AutoHashMap(usize, u32).init(std.heap.page_allocator);
 }
 
-/// Show code object info
-/// NOTE: In AOT compilation, code objects don't exist at runtime.
-/// Code is compiled directly to native machine code.
-pub fn showCode(allocator: std.mem.Allocator, co: anytype) ![]u8 {
-    _ = allocator;
-    _ = co;
-    // AOT limitation: No code objects exist at runtime - compiled to native code.
-    return error.NoBytecodeInAOT;
+/// Show code object info - prints detailed code object information
+pub fn showCode(allocator: std.mem.Allocator, co: *CodeObject) ![]u8 {
+    var bytecode = Bytecode.init(allocator, co);
+    defer bytecode.deinit();
+    return bytecode.info();
 }
 
-/// Pretty print code object info
-/// NOTE: In AOT compilation, code objects don't exist at runtime.
-/// Code is compiled directly to native machine code.
-pub fn codeInfo(allocator: std.mem.Allocator, x: anytype) ![]u8 {
-    _ = allocator;
-    _ = x;
-    // AOT limitation: No code objects exist at runtime - compiled to native code.
-    return error.NoBytecodeInAOT;
+/// Pretty print code object info - alias for showCode
+pub fn codeInfo(allocator: std.mem.Allocator, co: *CodeObject) ![]u8 {
+    return showCode(allocator, co);
 }
 
 // ============================================================================
