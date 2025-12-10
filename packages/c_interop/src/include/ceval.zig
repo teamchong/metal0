@@ -61,11 +61,8 @@ pub const PyCodeObject = opaque {};
 
 /// Evaluate a code object with given globals and locals
 /// Returns result of evaluation or null on error
-/// STATUS: IMPLEMENTED - extracts source from code object and runs via eval
+/// STATUS: IMPLEMENTED - extracts source from code object and runs via eval with scope
 export fn PyEval_EvalCode(code: *cpython.PyObject, globals: *cpython.PyObject, locals: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = globals; // TODO: Pass to eval when scope support added
-    _ = locals;
-
     // Check if it's a code object
     if (PyCode_Check(code) == 0) {
         PyErr_SetString(@ptrFromInt(0), "expected code object");
@@ -90,7 +87,20 @@ export fn PyEval_EvalCode(code: *cpython.PyObject, globals: *cpython.PyObject, l
 
     const source = source_ptr[0..@intCast(source_len)];
 
-    // Execute via eval
+    // Set the execution context with provided globals/locals
+    PyEval_SetGlobals(globals);
+    PyEval_SetLocals(locals);
+
+    // Execute via evalWithScope if available, otherwise fall back to eval
+    if (@hasDecl(runtime, "evalWithScope")) {
+        return runtime.evalWithScope(c_allocator, source, globals, locals) catch |err| {
+            _ = err;
+            PyErr_SetString(@ptrFromInt(0), "eval failed");
+            return null;
+        };
+    }
+
+    // Fall back to basic eval (scope handled via global context)
     return runtime.eval(c_allocator, source) catch |err| {
         _ = err;
         PyErr_SetString(@ptrFromInt(0), "eval failed");
@@ -398,22 +408,38 @@ export fn PyRun_SimpleFileEx(fp: *std.c.FILE, filename: [*:0]const u8, closeit: 
 
 /// Run Python string with specified start symbol
 /// Returns result object or null on error
-/// STATUS: IMPLEMENTED - wired to runtime.eval/exec
+/// STATUS: IMPLEMENTED - wired to runtime.eval/exec with scope support
 export fn PyRun_String(str: [*:0]const u8, start: c_int, globals: *cpython.PyObject, locals: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = globals; // TODO: Pass to eval/exec when scope support added
-    _ = locals;
-
     const str_slice = std.mem.span(str);
 
+    // Set the execution context with provided globals/locals
+    PyEval_SetGlobals(globals);
+    PyEval_SetLocals(locals);
+
     if (start == Py_eval_input) {
-        // Expression - use eval
+        // Expression - use eval with scope if available
+        if (@hasDecl(runtime, "evalWithScope")) {
+            return runtime.evalWithScope(c_allocator, str_slice, globals, locals) catch |err| {
+                _ = err;
+                PyErr_SetString(@ptrFromInt(0), "eval() failed");
+                return null;
+            };
+        }
         return runtime.eval(c_allocator, str_slice) catch |err| {
             _ = err;
             PyErr_SetString(@ptrFromInt(0), "eval() failed");
             return null;
         };
     } else {
-        // Statement/file - use exec
+        // Statement/file - use exec with scope if available
+        if (@hasDecl(runtime, "execWithScope")) {
+            runtime.execWithScope(c_allocator, str_slice, globals, locals) catch |err| {
+                _ = err;
+                PyErr_SetString(@ptrFromInt(0), "exec() failed");
+                return null;
+            };
+            return @ptrCast(runtime.Py_None);
+        }
         runtime.exec(c_allocator, str_slice) catch |err| {
             _ = err;
             PyErr_SetString(@ptrFromInt(0), "exec() failed");

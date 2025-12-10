@@ -64,9 +64,76 @@ fn union_repr(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     }
 
     // Build repr by joining type reprs with " | "
-    // TODO: Properly format all args
     const pyunicode = @import("unicodeobject.zig");
-    return pyunicode.PyUnicode_FromString("... | ...");
+    const tuple = @import("tupleobject.zig");
+    const size = tuple.PyTuple_Size(u.args.?);
+
+    if (size == 0) {
+        return pyunicode.PyUnicode_FromString("Union");
+    }
+
+    // Build the representation string
+    var buf: [4096]u8 = undefined;
+    var pos: usize = 0;
+
+    for (0..@intCast(size)) |i| {
+        if (i > 0) {
+            if (pos + 3 < buf.len) {
+                buf[pos] = ' ';
+                buf[pos + 1] = '|';
+                buf[pos + 2] = ' ';
+                pos += 3;
+            }
+        }
+
+        const item = tuple.PyTuple_GetItem(u.args.?, @intCast(i));
+        if (item == null) continue;
+
+        // Get repr for this type
+        var name_buf: [256]u8 = undefined;
+        const name_slice = getTypeName(item.?, &name_buf);
+
+        if (pos + name_slice.len < buf.len) {
+            @memcpy(buf[pos..][0..name_slice.len], name_slice);
+            pos += name_slice.len;
+        }
+    }
+
+    return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
+}
+
+/// Get the name of a type object for repr
+fn getTypeName(obj: *cpython.PyObject, buf: []u8) []const u8 {
+    // If it's a type, get tp_name
+    if (obj.ob_type.tp_name != null) {
+        const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(obj));
+        if (type_obj.tp_name != null) {
+            const name = std.mem.span(type_obj.tp_name.?);
+            const len = @min(name.len, buf.len);
+            @memcpy(buf[0..len], name[0..len]);
+            return buf[0..len];
+        }
+    }
+
+    // Fall back to object repr
+    if (obj.ob_type.tp_repr) |repr_fn| {
+        const repr_obj = repr_fn(obj);
+        if (repr_obj) |r| {
+            defer r.ob_refcnt -= 1;
+            const pyunicode = @import("unicodeobject.zig");
+            const str = pyunicode.PyUnicode_AsUTF8(r);
+            if (str != null) {
+                const s = std.mem.span(str.?);
+                const len = @min(s.len, buf.len);
+                @memcpy(buf[0..len], s[0..len]);
+                return buf[0..len];
+            }
+        }
+    }
+
+    const default = "<type>";
+    @memcpy(buf[0..default.len], default);
+    return buf[0..default.len];
 }
 
 /// Hash for union type
@@ -148,12 +215,51 @@ fn union_richcompare(self_obj: *cpython.PyObject, other: *cpython.PyObject, op: 
         return pybool.Py_True;
     }
 
-    // TODO: Compare as sets (unordered comparison)
-    // For now, just compare tuples directly
-    const result = object_mod.PyObject_RichCompareBool(u1.args, u2.args, op);
-    if (result < 0) return null;
-    if (result != 0) return pybool.Py_True;
-    return pybool.Py_False;
+    // Compare as sets (unordered comparison) - unions are equal if they contain the same types
+    const tuple = @import("tupleobject.zig");
+    const size1 = tuple.PyTuple_Size(u1.args.?);
+    const size2 = tuple.PyTuple_Size(u2.args.?);
+
+    // Different sizes means different unions
+    if (size1 != size2) {
+        if (op == object_mod.Py_EQ) return pybool.Py_False;
+        return pybool.Py_True;
+    }
+
+    // Check that every element in u1.args exists in u2.args (using pointer identity)
+    var all_found = true;
+    for (0..@intCast(size1)) |i| {
+        const item1 = tuple.PyTuple_GetItem(u1.args.?, @intCast(i));
+        if (item1 == null) continue;
+
+        var found = false;
+        for (0..@intCast(size2)) |j| {
+            const item2 = tuple.PyTuple_GetItem(u2.args.?, @intCast(j));
+            if (item2 == null) continue;
+
+            // Compare by identity (types are singletons) or by richcompare
+            if (item1.? == item2.?) {
+                found = true;
+                break;
+            }
+            // Also try deep comparison for non-type objects
+            const cmp = object_mod.PyObject_RichCompareBool(item1.?, item2.?, object_mod.Py_EQ);
+            if (cmp == 1) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            all_found = false;
+            break;
+        }
+    }
+
+    if (op == object_mod.Py_EQ) {
+        return if (all_found) pybool.Py_True else pybool.Py_False;
+    } else {
+        return if (all_found) pybool.Py_False else pybool.Py_True;
+    }
 }
 
 /// getattro for union type
@@ -321,15 +427,43 @@ pub export fn _Py_union_type_or(self_obj: ?*cpython.PyObject, other: ?*cpython.P
         }
     }
 
-    // TODO: Deduplicate types in args_list
-
-    // Create new tuple from args
-    const tuple = @import("tupleobject.zig");
-    const args_tuple = tuple.PyTuple_New(@intCast(count));
-    if (args_tuple == null) return null;
+    // Deduplicate types in args_list (by pointer identity or equality)
+    var deduped_list: [32]?*cpython.PyObject = undefined;
+    var deduped_count: usize = 0;
 
     for (0..count) |i| {
-        if (args_list[i]) |item| {
+        const item = args_list[i];
+        if (item == null) continue;
+
+        var is_duplicate = false;
+        for (0..deduped_count) |j| {
+            if (deduped_list[j] == null) continue;
+            // Check by pointer identity first (types are usually singletons)
+            if (item.? == deduped_list[j].?) {
+                is_duplicate = true;
+                break;
+            }
+            // Check by equality for non-singleton types
+            const object_mod = @import("object.zig");
+            const cmp = object_mod.PyObject_RichCompareBool(item.?, deduped_list[j].?, object_mod.Py_EQ);
+            if (cmp == 1) {
+                is_duplicate = true;
+                break;
+            }
+        }
+        if (!is_duplicate and deduped_count < deduped_list.len) {
+            deduped_list[deduped_count] = item;
+            deduped_count += 1;
+        }
+    }
+
+    // Create new tuple from deduplicated args
+    const tuple = @import("tupleobject.zig");
+    const args_tuple = tuple.PyTuple_New(@intCast(deduped_count));
+    if (args_tuple == null) return null;
+
+    for (0..deduped_count) |i| {
+        if (deduped_list[i]) |item| {
             item.ob_refcnt += 1;
             tuple.PyTuple_SetItem(args_tuple, @intCast(i), item);
         }
@@ -390,8 +524,40 @@ fn extract_type_parameters(args: ?*cpython.PyObject) ?*cpython.PyObject {
             }
         }
 
-        // Also check for Generic aliases that have parameters
-        // TODO: Check __parameters__ of generic aliases
+        // Also check for Generic aliases that have __parameters__
+        const genalias = @import("genericaliasobject.zig");
+        if (genalias._PyGenericAlias_Check(item) != 0) {
+            // Get __parameters__ attribute from generic alias
+            const pyunicode = @import("unicodeobject.zig");
+            const params_name = pyunicode.PyUnicode_FromString("__parameters__");
+            if (params_name) |pn| {
+                defer pn.ob_refcnt -= 1;
+                const object_mod = @import("object.zig");
+                const nested_params = object_mod.PyObject_GetAttr(item.?, pn);
+                if (nested_params) |np| {
+                    defer np.ob_refcnt -= 1;
+                    // Add each parameter from the nested generic alias
+                    const nested_size = tuple.PyTuple_Size(np);
+                    for (0..@intCast(nested_size)) |j| {
+                        const nested_item = tuple.PyTuple_GetItem(np, @intCast(j));
+                        if (nested_item != null and count < params_list.len) {
+                            // Check not already in list
+                            var already_present = false;
+                            for (0..count) |k| {
+                                if (params_list[k] == nested_item.?) {
+                                    already_present = true;
+                                    break;
+                                }
+                            }
+                            if (!already_present) {
+                                params_list[count] = nested_item;
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if (count == 0) return null;
@@ -486,11 +652,82 @@ pub export fn _Py_union_subscript(union_obj: ?*cpython.PyObject, item: ?*cpython
         return union_obj;
     }
 
-    // TODO: Substitute type parameters with provided values
-    // This is complex and requires walking through all args and replacing TypeVars
+    // Substitute type parameters with provided values
+    // Build substitution map from parameters -> item(s)
+    const tuple = @import("tupleobject.zig");
+    const params_size = tuple.PyTuple_Size(u.parameters.?);
 
-    union_obj.?.ob_refcnt += 1;
-    return union_obj;
+    // Get items to substitute (may be a tuple or single type)
+    var items_tuple: ?*cpython.PyObject = null;
+    var items_count: isize = 0;
+
+    if (tuple.PyTuple_Check(item.?) != 0) {
+        items_tuple = item;
+        items_count = tuple.PyTuple_Size(item.?);
+    } else {
+        // Single item - wrap in tuple concept for uniform handling
+        items_count = 1;
+    }
+
+    // Must have same number of items as parameters
+    if (items_count != params_size) {
+        // Wrong number of arguments - return unchanged
+        union_obj.?.ob_refcnt += 1;
+        return union_obj;
+    }
+
+    // Walk through args and substitute TypeVars
+    const args_size = tuple.PyTuple_Size(u.args.?);
+    var new_args: [32]?*cpython.PyObject = undefined;
+    var new_count: usize = 0;
+
+    for (0..@intCast(args_size)) |i| {
+        const arg = tuple.PyTuple_GetItem(u.args.?, @intCast(i));
+        if (arg == null) continue;
+
+        // Check if this arg is one of our parameters that needs substitution
+        var substituted = false;
+        for (0..@intCast(params_size)) |j| {
+            const param = tuple.PyTuple_GetItem(u.parameters.?, @intCast(j));
+            if (param != null and param.? == arg.?) {
+                // Found a match - substitute with corresponding item
+                const replacement = if (items_tuple) |it|
+                    tuple.PyTuple_GetItem(it, @intCast(j))
+                else
+                    item;
+
+                if (replacement != null and new_count < new_args.len) {
+                    new_args[new_count] = replacement;
+                    new_count += 1;
+                    substituted = true;
+                }
+                break;
+            }
+        }
+
+        if (!substituted and new_count < new_args.len) {
+            // No substitution needed - keep original
+            new_args[new_count] = arg;
+            new_count += 1;
+        }
+    }
+
+    // Create new args tuple
+    const new_args_tuple = tuple.PyTuple_New(@intCast(new_count));
+    if (new_args_tuple == null) {
+        union_obj.?.ob_refcnt += 1;
+        return union_obj;
+    }
+
+    for (0..new_count) |i| {
+        if (new_args[i]) |a| {
+            a.ob_refcnt += 1;
+            tuple.PyTuple_SetItem(new_args_tuple, @intCast(i), a);
+        }
+    }
+
+    // Create new union with substituted args
+    return _Py_union_new(new_args_tuple);
 }
 
 /// Flatten nested unions into a single level

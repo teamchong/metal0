@@ -146,8 +146,26 @@ fn odict_dealloc(self_obj: ?*cpython.PyObject) callconv(.C) void {
         inst_dict.ob_refcnt -= 1;
     }
 
-    // TODO: Clear base dict
-    // TODO: Free weakrefs
+    // Clear base dict entries
+    if (od.od_dict.ma_keys) |keys_ptr| {
+        const keys: *dictobject.InternalDictKeys = @ptrCast(@alignCast(keys_ptr));
+        // Free entries
+        for (0..@as(usize, 1) << @intCast(keys.dk_log2_size)) |i| {
+            if (keys.entries[i].key) |key| {
+                key.ob_refcnt -= 1;
+            }
+            if (keys.entries[i].value) |val| {
+                val.ob_refcnt -= 1;
+            }
+        }
+    }
+
+    // Free weakrefs
+    if (od.od_weakreflist) |weakref| {
+        const weakrefobj = @import("weakrefobject.zig");
+        weakrefobj.PyObject_ClearWeakRefs(@ptrCast(od));
+        _ = weakref;
+    }
 
     const ptr: [*]u8 = @ptrCast(od);
     allocator.free(ptr[0..@sizeOf(PyODictObject)]);
@@ -206,14 +224,92 @@ fn odict_clear(self_obj: ?*cpython.PyObject) callconv(.C) c_int {
 fn odict_repr(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     if (self_obj == null) return null;
     const od: *PyODictObject = @ptrCast(@alignCast(self_obj.?));
+    const pyunicode = @import("unicodeobject.zig");
 
     // Check for empty dict
     if (od.od_first == null) {
-        const pyunicode = @import("unicodeobject.zig");
         return pyunicode.PyUnicode_FromString("OrderedDict()");
     }
 
-    // TODO: Build full repr
+    // Build full repr: OrderedDict([(key1, val1), (key2, val2), ...])
+    var buf: [4096]u8 = undefined;
+    var pos: usize = 0;
+
+    const prefix = "OrderedDict([";
+    @memcpy(buf[pos..][0..prefix.len], prefix);
+    pos += prefix.len;
+
+    var node = od.od_first;
+    var first = true;
+    while (node) |n| {
+        if (!first) {
+            buf[pos] = ',';
+            buf[pos + 1] = ' ';
+            pos += 2;
+        }
+        first = false;
+
+        // Add (key, value)
+        buf[pos] = '(';
+        pos += 1;
+
+        // Get key repr
+        if (n.key) |key| {
+            if (key.ob_type.tp_repr) |repr_fn| {
+                const key_repr = repr_fn(key);
+                if (key_repr) |kr| {
+                    defer kr.ob_refcnt -= 1;
+                    const key_str = pyunicode.PyUnicode_AsUTF8(kr);
+                    if (key_str != null) {
+                        const s = std.mem.span(key_str.?);
+                        const len = @min(s.len, buf.len - pos - 100);
+                        @memcpy(buf[pos..][0..len], s[0..len]);
+                        pos += len;
+                    }
+                }
+            }
+        }
+
+        buf[pos] = ',';
+        buf[pos + 1] = ' ';
+        pos += 2;
+
+        // Get value repr
+        const val = odict_node_value(od, n);
+        if (val) |v| {
+            if (v.ob_type.tp_repr) |repr_fn| {
+                const val_repr = repr_fn(v);
+                if (val_repr) |vr| {
+                    defer vr.ob_refcnt -= 1;
+                    const val_str = pyunicode.PyUnicode_AsUTF8(vr);
+                    if (val_str != null) {
+                        const s = std.mem.span(val_str.?);
+                        const len = @min(s.len, buf.len - pos - 50);
+                        @memcpy(buf[pos..][0..len], s[0..len]);
+                        pos += len;
+                    }
+                }
+            }
+        }
+
+        buf[pos] = ')';
+        pos += 1;
+
+        node = n.next;
+    }
+
+    const suffix = "])";
+    @memcpy(buf[pos..][0..suffix.len], suffix);
+    pos += suffix.len;
+
+    return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
+}
+
+/// Helper to get value for a node
+fn odict_node_value(od: *PyODictObject, node: *_ODictNode) ?*cpython.PyObject {
+    if (node.key) |key| {
+        return dictobject.PyDict_GetItem(@ptrCast(od), key);
+    }
     return null;
 }
 
@@ -268,13 +364,74 @@ fn odict_new(type_obj: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs:
 
 /// Rich comparison for ordered dict
 fn odict_richcompare(self_obj: *cpython.PyObject, other: *cpython.PyObject, op: c_int) callconv(.C) ?*cpython.PyObject {
-    _ = self_obj;
-    _ = other;
-    _ = op;
+    const pybool = @import("boolobject.zig");
+    const object_mod = @import("object.zig");
 
-    // OrderedDict equality also checks order
-    // TODO: Implement ordered comparison
-    return null;
+    // Only support == and !=
+    if (op != object_mod.Py_EQ and op != object_mod.Py_NE) {
+        return cpython.Py_NotImplemented;
+    }
+
+    const od_self: *PyODictObject = @ptrCast(@alignCast(self_obj));
+
+    // Check if other is also an OrderedDict
+    if (other.ob_type != &PyODict_Type) {
+        // Compare as regular dict if other is dict
+        if (dictobject.PyDict_Check(other) != 0) {
+            // OrderedDict != regular dict unless comparing values only
+            return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+        }
+        return cpython.Py_NotImplemented;
+    }
+
+    const od_other: *PyODictObject = @ptrCast(@alignCast(other));
+
+    // Check size first
+    if (od_self.od_dict.ma_used != od_other.od_dict.ma_used) {
+        return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+    }
+
+    // Compare key-value pairs in order
+    var node_self = od_self.od_first;
+    var node_other = od_other.od_first;
+
+    while (node_self != null and node_other != null) {
+        const key_self = node_self.?.key;
+        const key_other = node_other.?.key;
+
+        // Compare keys
+        if (key_self != null and key_other != null) {
+            const key_eq = object_mod.PyObject_RichCompareBool(key_self.?, key_other.?, object_mod.Py_EQ);
+            if (key_eq != 1) {
+                return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+            }
+
+            // Compare values
+            const val_self = odict_node_value(od_self, node_self.?);
+            const val_other = odict_node_value(od_other, node_other.?);
+
+            if (val_self != null and val_other != null) {
+                const val_eq = object_mod.PyObject_RichCompareBool(val_self.?, val_other.?, object_mod.Py_EQ);
+                if (val_eq != 1) {
+                    return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+                }
+            } else if (val_self != val_other) {
+                return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+            }
+        } else if (key_self != key_other) {
+            return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+        }
+
+        node_self = node_self.?.next;
+        node_other = node_other.?.next;
+    }
+
+    // Both should be exhausted at same time
+    const both_null = (node_self == null and node_other == null);
+    return if (op == object_mod.Py_EQ)
+        (if (both_null) pybool.Py_True else pybool.Py_False)
+    else
+        (if (both_null) pybool.Py_False else pybool.Py_True);
 }
 
 /// PyODict_Type - the OrderedDict type object
@@ -386,7 +543,14 @@ fn odictiter_iternextvalue(self_obj: *cpython.PyObject) callconv(.C) ?*cpython.P
     const node = it.di_current orelse return null;
     it.di_current = node.next;
 
-    // TODO: Get value from dict using node.key
+    // Get value from dict using node.key
+    if (node.key) |key| {
+        const val = dictobject.PyDict_GetItem(@ptrCast(od), key);
+        if (val) |v| {
+            v.ob_refcnt += 1;
+            return v;
+        }
+    }
     return null;
 }
 
@@ -402,7 +566,21 @@ fn odictiter_iternextitem(self_obj: *cpython.PyObject) callconv(.C) ?*cpython.Py
     const node = it.di_current orelse return null;
     it.di_current = node.next;
 
-    // TODO: Create tuple (key, value)
+    // Create tuple (key, value)
+    if (node.key) |key| {
+        const val = dictobject.PyDict_GetItem(@ptrCast(od), key);
+        const tuple = @import("tupleobject.zig");
+        const result = tuple.PyTuple_New(2);
+        if (result) |r| {
+            key.ob_refcnt += 1;
+            _ = tuple.PyTuple_SetItem(r, 0, key);
+            if (val) |v| {
+                v.ob_refcnt += 1;
+                _ = tuple.PyTuple_SetItem(r, 1, v);
+            }
+            return r;
+        }
+    }
     return null;
 }
 
@@ -592,8 +770,31 @@ pub export fn PyODict_Check(op: ?*cpython.PyObject) c_int {
 /// Check if object is an OrderedDict or subclass
 pub export fn PyODict_CheckExact(op: ?*cpython.PyObject) c_int {
     if (op == null) return 0;
-    // TODO: Check for subclass
+    // Check for exact type match
     return if (op.?.ob_type == &PyODict_Type) 1 else 0;
+}
+
+/// Check if object is an OrderedDict or subclass
+pub export fn PyODict_CheckAny(op: ?*cpython.PyObject) c_int {
+    if (op == null) return 0;
+    // Check for type or subclass via tp_mro
+    const tp = op.?.ob_type;
+    if (tp == &PyODict_Type) return 1;
+
+    // Check MRO for subclass relationship
+    if (tp.tp_mro) |mro| {
+        const tuple = @import("tupleobject.zig");
+        const size = tuple.PyTuple_Size(mro);
+        for (0..@intCast(size)) |i| {
+            const base = tuple.PyTuple_GetItem(mro, @intCast(i));
+            if (base) |b| {
+                if (@as(*cpython.PyTypeObject, @ptrCast(@alignCast(b))) == &PyODict_Type) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
 }
 
 /// Set item in OrderedDict (maintains order)
@@ -612,8 +813,7 @@ pub export fn PyODict_SetItem(od: ?*cpython.PyObject, key: ?*cpython.PyObject, v
     while (node) |n| {
         if (n.hash == hash and n.key == key) {
             // Key exists, just update value in base dict
-            // TODO: Update value
-            return 0;
+            return dictobject.PyDict_SetItem(@ptrCast(odict), key.?, value.?);
         }
         node = n.next;
     }
@@ -634,10 +834,8 @@ pub export fn PyODict_SetItem(od: ?*cpython.PyObject, key: ?*cpython.PyObject, v
     // Update state
     odict.od_state += 1;
 
-    // TODO: Set value in base dict
-    _ = value;
-
-    return 0;
+    // Set value in base dict
+    return dictobject.PyDict_SetItem(@ptrCast(odict), key.?, value.?);
 }
 
 /// Delete item from OrderedDict
@@ -670,8 +868,8 @@ pub export fn PyODict_DelItem(od: ?*cpython.PyObject, key: ?*cpython.PyObject) c
             odict_node_free(n);
             odict.od_state += 1;
 
-            // TODO: Delete from base dict
-            return 0;
+            // Delete from base dict
+            return dictobject.PyDict_DelItem(@ptrCast(odict), key.?);
         }
         node = n.next;
     }

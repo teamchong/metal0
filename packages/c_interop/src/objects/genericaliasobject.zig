@@ -51,15 +51,17 @@ comptime {
 /// typedef struct {
 ///     PyObject_HEAD
 ///     PyObject *obj;  /* Set to NULL when iterator is exhausted */
+///     Py_ssize_t it_index;  /* Current index */
 /// } gaiterobject;
 pub const gaiterobject = extern struct {
     ob_base: cpython.PyObject, // 16 bytes
     obj: ?*cpython.PyObject, // 8 bytes - object being iterated (NULL when exhausted)
+    it_index: isize, // 8 bytes - current iteration index
 };
 
-// Verify gaiterobject size: 16 + 8 = 24 bytes
+// Verify gaiterobject size: 16 + 8 + 8 = 32 bytes
 comptime {
-    if (@sizeOf(gaiterobject) != 24) {
+    if (@sizeOf(gaiterobject) != 32) {
         @compileError("gaiterobject size mismatch with CPython");
     }
 }
@@ -123,9 +125,99 @@ fn ga_repr(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     if (self_obj == null) return null;
     const alias: *gaobject = @ptrCast(@alignCast(self_obj.?));
 
-    // TODO: Proper implementation using _Py_typing_type_repr
-    _ = alias;
-    return null;
+    const pyunicode = @import("unicodeobject.zig");
+    const pytuple = @import("tupleobject.zig");
+
+    // Build representation as "origin[arg1, arg2, ...]"
+    var buf: [4096]u8 = undefined;
+    var pos: usize = 0;
+
+    // Add starred prefix if needed
+    if (alias.starred) {
+        buf[pos] = '*';
+        pos += 1;
+    }
+
+    // Get origin name
+    if (alias.origin) |origin| {
+        const origin_type: *cpython.PyTypeObject = @ptrCast(@alignCast(origin));
+        if (origin_type.tp_name != null) {
+            const name = std.mem.span(origin_type.tp_name.?);
+            const len = @min(name.len, buf.len - pos);
+            @memcpy(buf[pos..][0..len], name[0..len]);
+            pos += len;
+        }
+    }
+
+    // Add opening bracket
+    if (pos < buf.len) {
+        buf[pos] = '[';
+        pos += 1;
+    }
+
+    // Add args
+    if (alias.args) |args| {
+        const size = pytuple.PyTuple_Size(args);
+        for (0..@intCast(size)) |i| {
+            if (i > 0 and pos + 2 < buf.len) {
+                buf[pos] = ',';
+                buf[pos + 1] = ' ';
+                pos += 2;
+            }
+
+            const item = pytuple.PyTuple_GetItem(args, @intCast(i));
+            if (item == null) continue;
+
+            // Get repr for this type
+            var name_buf: [256]u8 = undefined;
+            const name_slice = getTypeRepr(item.?, &name_buf);
+
+            if (pos + name_slice.len < buf.len) {
+                @memcpy(buf[pos..][0..name_slice.len], name_slice);
+                pos += name_slice.len;
+            }
+        }
+    }
+
+    // Add closing bracket
+    if (pos < buf.len) {
+        buf[pos] = ']';
+        pos += 1;
+    }
+
+    return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
+}
+
+/// Get the repr name for a type object
+fn getTypeRepr(obj: *cpython.PyObject, buf: []u8) []const u8 {
+    // If it's a type, get tp_name
+    const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(obj));
+    if (type_obj.tp_name != null) {
+        const name = std.mem.span(type_obj.tp_name.?);
+        const len = @min(name.len, buf.len);
+        @memcpy(buf[0..len], name[0..len]);
+        return buf[0..len];
+    }
+
+    // Fall back to repr
+    if (obj.ob_type.tp_repr) |repr_fn| {
+        const repr_obj = repr_fn(obj);
+        if (repr_obj) |r| {
+            defer r.ob_refcnt -= 1;
+            const pyunicode = @import("unicodeobject.zig");
+            const str = pyunicode.PyUnicode_AsUTF8(r);
+            if (str != null) {
+                const s = std.mem.span(str.?);
+                const len = @min(s.len, buf.len);
+                @memcpy(buf[0..len], s[0..len]);
+                return buf[0..len];
+            }
+        }
+    }
+
+    const default = "<type>";
+    @memcpy(buf[0..default.len], default);
+    return buf[0..default.len];
 }
 
 /// Hash for generic alias
@@ -170,27 +262,98 @@ fn ga_call(self_obj: ?*cpython.PyObject, args: ?*cpython.PyObject, kwargs: ?*cpy
     return null;
 }
 
-/// Get item (subscript) for generic alias
+/// Get item (subscript) for generic alias - creates nested generic like list[int][str]
 fn ga_getitem(self_obj: *cpython.PyObject, item: *cpython.PyObject) callconv(.C) ?*cpython.PyObject {
-    _ = self_obj;
-    _ = item;
-    // TODO: Implement generic alias subscripting for nested generics
-    return null;
+    const alias: *gaobject = @ptrCast(@alignCast(self_obj));
+
+    // Get parameters of this generic alias
+    const parameters = alias.parameters orelse {
+        // No type parameters to substitute - this shouldn't happen normally but handle it
+        return Py_GenericAlias(alias.origin, item);
+    };
+
+    const pytuple = @import("tupleobject.zig");
+    const params_count = pytuple.PyTuple_Size(parameters);
+
+    if (params_count == 0) {
+        // No parameters to substitute
+        return Py_GenericAlias(alias.origin, item);
+    }
+
+    // Get the substitution items
+    var items_tuple: ?*cpython.PyObject = null;
+    var items_count: isize = 0;
+
+    if (pytuple.PyTuple_Check(item) != 0) {
+        items_tuple = item;
+        items_count = pytuple.PyTuple_Size(item);
+    } else {
+        items_count = 1;
+    }
+
+    // Check we have the right number of items
+    if (items_count != params_count) {
+        // Wrong number of type arguments - in CPython this raises TypeError
+        // For now, just return null
+        return null;
+    }
+
+    // Substitute type parameters in args
+    const args_count = pytuple.PyTuple_Size(alias.args orelse return null);
+    const new_args = pytuple.PyTuple_New(args_count);
+    if (new_args == null) return null;
+
+    for (0..@intCast(args_count)) |i| {
+        const arg = pytuple.PyTuple_GetItem(alias.args.?, @intCast(i));
+        if (arg == null) continue;
+
+        // Check if this arg is one of our parameters
+        var substituted = false;
+        for (0..@intCast(params_count)) |j| {
+            const param = pytuple.PyTuple_GetItem(parameters, @intCast(j));
+            if (param != null and param.? == arg.?) {
+                // Substitute with corresponding item
+                const replacement = if (items_tuple) |it|
+                    pytuple.PyTuple_GetItem(it, @intCast(j))
+                else
+                    item;
+
+                if (replacement) |r| {
+                    r.ob_refcnt += 1;
+                    _ = pytuple.PyTuple_SetItem(new_args, @intCast(i), r);
+                    substituted = true;
+                }
+                break;
+            }
+        }
+
+        if (!substituted) {
+            // Keep original arg
+            arg.?.ob_refcnt += 1;
+            _ = pytuple.PyTuple_SetItem(new_args, @intCast(i), arg.?);
+        }
+    }
+
+    return Py_GenericAlias(alias.origin, new_args);
 }
 
 /// Instance check (__instancecheck__)
 fn ga_instancecheck(self_obj: ?*cpython.PyObject, instance: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     if (self_obj == null or instance == null) return null;
     const alias: *gaobject = @ptrCast(@alignCast(self_obj.?));
+    const pybool = @import("boolobject.zig");
 
-    // Check if instance is an instance of origin
+    // Check if instance is an instance of origin (ignoring type args)
     if (alias.origin) |origin| {
-        // TODO: PyObject_IsInstance
-        _ = origin;
+        const origin_type: *cpython.PyTypeObject = @ptrCast(@alignCast(origin));
+        const typeobj = @import("typeobject.zig");
+
+        // Check if instance's type is a subtype of origin
+        if (typeobj.PyType_IsSubtype(instance.?.ob_type, origin_type) != 0) {
+            return pybool.Py_True;
+        }
     }
 
-    // Return False by default
-    const pybool = @import("boolobject.zig");
     return pybool.Py_False;
 }
 
@@ -198,15 +361,19 @@ fn ga_instancecheck(self_obj: ?*cpython.PyObject, instance: ?*cpython.PyObject) 
 fn ga_subclasscheck(self_obj: ?*cpython.PyObject, subclass: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     if (self_obj == null or subclass == null) return null;
     const alias: *gaobject = @ptrCast(@alignCast(self_obj.?));
+    const pybool = @import("boolobject.zig");
 
-    // Check if subclass is a subclass of origin
+    // Check if subclass is a subclass of origin (ignoring type args)
     if (alias.origin) |origin| {
-        // TODO: PyObject_IsSubclass
-        _ = origin;
+        const origin_type: *cpython.PyTypeObject = @ptrCast(@alignCast(origin));
+        const subclass_type: *cpython.PyTypeObject = @ptrCast(@alignCast(subclass.?));
+        const typeobj = @import("typeobject.zig");
+
+        if (typeobj.PyType_IsSubtype(subclass_type, origin_type) != 0) {
+            return pybool.Py_True;
+        }
     }
 
-    // Return False by default
-    const pybool = @import("boolobject.zig");
     return pybool.Py_False;
 }
 
@@ -318,7 +485,29 @@ fn gaiter_next(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
 
     if (iter.obj == null) return null;
 
-    // TODO: Get next item from args tuple
+    // Get args from the generic alias object
+    const alias: *gaobject = @ptrCast(@alignCast(iter.obj.?));
+    const args = alias.args orelse return null;
+
+    const pytuple = @import("tupleobject.zig");
+    const size = pytuple.PyTuple_Size(args);
+
+    // Check if iterator is exhausted
+    if (iter.it_index >= size) {
+        // Mark as exhausted
+        iter.obj.?.ob_refcnt -= 1;
+        iter.obj = null;
+        return null;
+    }
+
+    // Get next item
+    const item = pytuple.PyTuple_GetItem(args, iter.it_index);
+    iter.it_index += 1;
+
+    if (item) |i| {
+        i.ob_refcnt += 1;
+        return i;
+    }
     return null;
 }
 
@@ -436,43 +625,191 @@ pub export fn _Py_make_parameters(args: ?*cpython.PyObject) ?*cpython.PyObject {
     if (args == null) return null;
 
     const pytuple = @import("tupleobject.zig");
+    const typevar = @import("typevarobject.zig");
     const nargs = pytuple.PyTuple_Size(args.?);
     if (nargs < 0) return null;
 
-    // Create parameters tuple
-    const parameters = pytuple.PyTuple_New(nargs);
-    if (parameters == null) return null;
-
-    var iparam: isize = 0;
+    // First pass: count actual type parameters (TypeVar, ParamSpec, TypeVarTuple)
+    var param_count: isize = 0;
     var iarg: isize = 0;
     while (iarg < nargs) : (iarg += 1) {
         const arg = pytuple.PyTuple_GetItem(args.?, iarg);
         if (arg == null) continue;
 
-        // TODO: Check if arg is a TypeVar or ParamSpec
-        // For now, just add all args as parameters
-        arg.?.ob_refcnt += 1;
-        _ = pytuple.PyTuple_SetItem(parameters.?, iparam, arg.?);
-        iparam += 1;
+        // Check if arg is a TypeVar, ParamSpec, or TypeVarTuple
+        if (arg.?.ob_type == &typevar.PyTypeVar_Type or
+            arg.?.ob_type == &typevar.PyParamSpec_Type or
+            arg.?.ob_type == &typevar.PyTypeVarTuple_Type)
+        {
+            param_count += 1;
+        }
+        // Also check for generic aliases that have __parameters__
+        else if (_PyGenericAlias_Check(arg) != 0) {
+            const nested: *gaobject = @ptrCast(@alignCast(arg.?));
+            if (nested.parameters) |nested_params| {
+                param_count += pytuple.PyTuple_Size(nested_params);
+            }
+        }
     }
 
-    // Resize tuple to actual parameter count
-    // TODO: _PyTuple_Resize
+    if (param_count == 0) return null;
+
+    // Create parameters tuple with exact size
+    const parameters = pytuple.PyTuple_New(param_count);
+    if (parameters == null) return null;
+
+    // Second pass: collect type parameters
+    var iparam: isize = 0;
+    iarg = 0;
+    while (iarg < nargs) : (iarg += 1) {
+        const arg = pytuple.PyTuple_GetItem(args.?, iarg);
+        if (arg == null) continue;
+
+        // Check if arg is a TypeVar, ParamSpec, or TypeVarTuple
+        if (arg.?.ob_type == &typevar.PyTypeVar_Type or
+            arg.?.ob_type == &typevar.PyParamSpec_Type or
+            arg.?.ob_type == &typevar.PyTypeVarTuple_Type)
+        {
+            arg.?.ob_refcnt += 1;
+            _ = pytuple.PyTuple_SetItem(parameters.?, iparam, arg.?);
+            iparam += 1;
+        }
+        // Also collect from nested generic aliases
+        else if (_PyGenericAlias_Check(arg) != 0) {
+            const nested: *gaobject = @ptrCast(@alignCast(arg.?));
+            if (nested.parameters) |nested_params| {
+                const nested_size = pytuple.PyTuple_Size(nested_params);
+                var j: isize = 0;
+                while (j < nested_size) : (j += 1) {
+                    const nested_param = pytuple.PyTuple_GetItem(nested_params, j);
+                    if (nested_param) |np| {
+                        // Check for duplicates
+                        var is_dup = false;
+                        var k: isize = 0;
+                        while (k < iparam) : (k += 1) {
+                            if (pytuple.PyTuple_GetItem(parameters.?, k) == np) {
+                                is_dup = true;
+                                break;
+                            }
+                        }
+                        if (!is_dup and iparam < param_count) {
+                            np.ob_refcnt += 1;
+                            _ = pytuple.PyTuple_SetItem(parameters.?, iparam, np);
+                            iparam += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     return parameters;
 }
 
 /// Substitute type parameters
+/// self: the GenericAlias object
+/// args: the args tuple from the GenericAlias
+/// parameters: the type parameters to substitute
+/// item: the substitution value(s) (single value or tuple)
 pub export fn _Py_subs_parameters(
     self: ?*cpython.PyObject,
     args: ?*cpython.PyObject,
     parameters: ?*cpython.PyObject,
     item: ?*cpython.PyObject,
 ) ?*cpython.PyObject {
-    _ = self;
-    _ = args;
-    _ = parameters;
-    _ = item;
-    // TODO: Implement type parameter substitution
-    return null;
+    if (self == null or args == null or parameters == null or item == null) return null;
+
+    const pytuple = @import("tupleobject.zig");
+    const nparams = pytuple.PyTuple_Size(parameters.?);
+    const nargs = pytuple.PyTuple_Size(args.?);
+
+    if (nparams <= 0) {
+        // No parameters to substitute
+        args.?.ob_refcnt += 1;
+        return args;
+    }
+
+    // Get items as tuple (normalize single value to tuple)
+    var items_tuple: ?*cpython.PyObject = null;
+    var nitems: isize = 0;
+    var owns_items_tuple = false;
+
+    if (pytuple.PyTuple_Check(item.?) != 0) {
+        items_tuple = item;
+        nitems = pytuple.PyTuple_Size(item.?);
+    } else {
+        items_tuple = pytuple.PyTuple_Pack(1, item.?);
+        owns_items_tuple = true;
+        nitems = 1;
+    }
+
+    defer {
+        if (owns_items_tuple and items_tuple != null) {
+            items_tuple.?.ob_refcnt -= 1;
+        }
+    }
+
+    // Must have same number of items as parameters
+    if (nitems != nparams) {
+        // TypeError: wrong number of arguments
+        return null;
+    }
+
+    // Create new args tuple with substituted values
+    const new_args = pytuple.PyTuple_New(nargs);
+    if (new_args == null) return null;
+
+    var i: isize = 0;
+    while (i < nargs) : (i += 1) {
+        const arg = pytuple.PyTuple_GetItem(args.?, i);
+        if (arg == null) continue;
+
+        var substituted = false;
+
+        // Check if this arg matches any parameter
+        var j: isize = 0;
+        while (j < nparams) : (j += 1) {
+            const param = pytuple.PyTuple_GetItem(parameters.?, j);
+            if (param != null and param.? == arg.?) {
+                // Substitute with corresponding item
+                const subst_val = pytuple.PyTuple_GetItem(items_tuple.?, j);
+                if (subst_val) |sv| {
+                    sv.ob_refcnt += 1;
+                    _ = pytuple.PyTuple_SetItem(new_args.?, i, sv);
+                    substituted = true;
+                }
+                break;
+            }
+        }
+
+        // If arg is itself a GenericAlias, recursively substitute its parameters
+        if (!substituted and _PyGenericAlias_Check(arg) != 0) {
+            const nested: *gaobject = @ptrCast(@alignCast(arg.?));
+            if (nested.parameters != null and nested.args != null) {
+                const substituted_nested = _Py_subs_parameters(
+                    arg,
+                    nested.args,
+                    nested.parameters,
+                    item,
+                );
+                if (substituted_nested) |sn| {
+                    // Create new generic alias with substituted args
+                    const new_nested = Py_GenericAlias(nested.origin, sn);
+                    sn.ob_refcnt -= 1;
+                    if (new_nested) |nn| {
+                        _ = pytuple.PyTuple_SetItem(new_args.?, i, nn);
+                        substituted = true;
+                    }
+                }
+            }
+        }
+
+        if (!substituted) {
+            // Keep original arg
+            arg.?.ob_refcnt += 1;
+            _ = pytuple.PyTuple_SetItem(new_args.?, i, arg.?);
+        }
+    }
+
+    return new_args;
 }

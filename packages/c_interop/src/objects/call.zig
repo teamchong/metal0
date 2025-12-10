@@ -52,11 +52,52 @@ pub fn PyVectorcall_Function(callable: ?*PyObject) ?vectorcallfunc {
 
 /// Call using vectorcall protocol
 pub fn PyVectorcall_Call(callable: ?*PyObject, args: ?*PyObject, kwargs: ?*PyObject) ?*PyObject {
-    _ = callable;
-    _ = args;
-    _ = kwargs;
-    // TODO: Implement vectorcall
-    return null;
+    if (callable == null) return null;
+
+    const func = PyVectorcall_Function(callable) orelse return null;
+
+    const tuple = @import("tupleobject.zig");
+
+    // Get args count
+    var nargs: usize = 0;
+    if (args) |a| {
+        if (tuple.PyTuple_Check(a) != 0) {
+            nargs = @intCast(tuple.PyTuple_Size(a));
+        }
+    }
+
+    // Build args array from tuple
+    if (nargs == 0) {
+        return func(callable, @as([*]const ?*PyObject, undefined), 0, kwargs);
+    }
+
+    // Stack-allocate for small arg counts
+    var stack_args: [8]?*PyObject = undefined;
+    var args_ptr: [*]?*PyObject = undefined;
+
+    if (nargs <= 8) {
+        args_ptr = &stack_args;
+    } else {
+        // Need heap allocation for large arg counts
+        const allocator = @import("../include/pystate.zig").c_allocator;
+        const heap_args = allocator.alloc(?*PyObject, nargs) catch return null;
+        args_ptr = heap_args.ptr;
+    }
+
+    // Copy args from tuple
+    for (0..nargs) |i| {
+        args_ptr[i] = tuple.PyTuple_GetItem(args.?, @intCast(i));
+    }
+
+    const result = func(callable, args_ptr, nargs, kwargs);
+
+    // Free heap allocation if used
+    if (nargs > 8) {
+        const allocator = @import("../include/pystate.zig").c_allocator;
+        allocator.free(args_ptr[0..nargs]);
+    }
+
+    return result;
 }
 
 // ============================================================================
@@ -112,12 +153,28 @@ pub export fn PyObject_CallOneArg(callable: ?*PyObject, arg: ?*PyObject) ?*PyObj
 
 /// _PyObject_CallMethod - Call method by name
 pub fn _PyObject_CallMethod(obj: ?*PyObject, name: [*:0]const u8, format: ?[*:0]const u8, args: anytype) ?*PyObject {
-    _ = obj;
-    _ = name;
     _ = format;
     _ = args;
-    // TODO: Implement method call
-    return null;
+
+    if (obj == null) return null;
+
+    const pyunicode = @import("unicodeobject.zig");
+
+    // Get the method attribute
+    const name_obj = pyunicode.PyUnicode_FromString(name);
+    if (name_obj == null) return null;
+    defer name_obj.?.ob_refcnt -= 1;
+
+    var method: ?*PyObject = null;
+    if (obj.?.ob_type.tp_getattro) |getattr_fn| {
+        method = getattr_fn(obj.?, name_obj.?);
+    }
+
+    if (method == null) return null;
+    defer method.?.ob_refcnt -= 1;
+
+    // Call the method with no args (format parsing not implemented)
+    return PyObject_CallNoArgs(method);
 }
 
 // ============================================================================
@@ -135,18 +192,59 @@ pub fn _PyObject_MakeTpCall(tstate: ?*anyopaque, callable: ?*PyObject, args: [*]
 }
 
 /// PyObject_CallFunctionObjArgs - Call with varargs PyObject* (NULL-terminated)
-pub export fn PyObject_CallFunctionObjArgs(callable: ?*PyObject, ...) ?*PyObject {
-    _ = callable;
-    // TODO: Implement varargs call
-    return null;
+/// Note: Varargs in Zig require special handling. This version takes up to 8 args.
+pub export fn PyObject_CallFunctionObjArgs(callable: ?*PyObject, arg0: ?*PyObject, arg1: ?*PyObject, arg2: ?*PyObject, arg3: ?*PyObject, arg4: ?*PyObject, arg5: ?*PyObject, arg6: ?*PyObject, arg7: ?*PyObject) ?*PyObject {
+    if (callable == null) return null;
+
+    // Build args array from non-null args (NULL-terminated)
+    var args: [8]?*PyObject = undefined;
+    var nargs: usize = 0;
+
+    const arg_list = [_]?*PyObject{ arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
+
+    for (arg_list) |arg| {
+        if (arg == null) break;
+        args[nargs] = arg;
+        nargs += 1;
+    }
+
+    // Try vectorcall
+    if (PyVectorcall_Function(callable)) |func| {
+        return func(callable, &args, nargs, null);
+    }
+
+    // Fall back to building tuple and calling
+    const tuple = @import("tupleobject.zig");
+    const args_tuple = tuple.PyTuple_New(@intCast(nargs));
+    if (args_tuple == null) return null;
+
+    for (0..nargs) |i| {
+        if (args[i]) |a| {
+            a.ob_refcnt += 1;
+            _ = tuple.PyTuple_SetItem(args_tuple.?, @intCast(i), a);
+        }
+    }
+
+    const result = PyObject_Call(callable, args_tuple, null);
+    args_tuple.?.ob_refcnt -= 1;
+    return result;
 }
 
 /// PyObject_CallMethodObjArgs - Call method with varargs PyObject* (NULL-terminated)
-pub export fn PyObject_CallMethodObjArgs(obj: ?*PyObject, name: ?*PyObject, ...) ?*PyObject {
-    _ = obj;
-    _ = name;
-    // TODO: Implement method varargs call
-    return null;
+pub export fn PyObject_CallMethodObjArgs(obj: ?*PyObject, name: ?*PyObject, arg0: ?*PyObject, arg1: ?*PyObject, arg2: ?*PyObject, arg3: ?*PyObject, arg4: ?*PyObject, arg5: ?*PyObject, arg6: ?*PyObject) ?*PyObject {
+    if (obj == null or name == null) return null;
+
+    // Get the method
+    var method: ?*PyObject = null;
+    if (obj.?.ob_type.tp_getattro) |getattr_fn| {
+        method = getattr_fn(obj.?, name.?);
+    }
+
+    if (method == null) return null;
+    defer method.?.ob_refcnt -= 1;
+
+    // Call with remaining args
+    return PyObject_CallFunctionObjArgs(method, arg0, arg1, arg2, arg3, arg4, arg5, arg6, null);
 }
 
 // ============================================================================

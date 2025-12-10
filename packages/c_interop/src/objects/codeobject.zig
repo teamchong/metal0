@@ -275,8 +275,91 @@ fn code_dealloc(op: ?*cpython.PyObject) callconv(.C) void {
 
 fn code_repr(op: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     if (op == null) return null;
-    // TODO: Format as "<code object name at 0xXXX, file "filename", line N>"
-    return null;
+    const co: *PyCodeObject = @ptrCast(@alignCast(op.?));
+    const pyunicode = @import("unicodeobject.zig");
+
+    // Format as "<code object name at 0xXXX, file "filename", line N>"
+    var buf: [512]u8 = undefined;
+    var pos: usize = 0;
+
+    // Add prefix
+    const prefix = "<code object ";
+    @memcpy(buf[pos..][0..prefix.len], prefix);
+    pos += prefix.len;
+
+    // Add name
+    if (co.co_name) |name| {
+        const name_str = pyunicode.PyUnicode_AsUTF8(name);
+        if (name_str != null) {
+            const s = std.mem.span(name_str.?);
+            const len = @min(s.len, buf.len - pos - 100);
+            @memcpy(buf[pos..][0..len], s[0..len]);
+            pos += len;
+        }
+    } else {
+        const unknown = "<unknown>";
+        @memcpy(buf[pos..][0..unknown.len], unknown);
+        pos += unknown.len;
+    }
+
+    // Add address
+    const at_str = " at 0x";
+    @memcpy(buf[pos..][0..at_str.len], at_str);
+    pos += at_str.len;
+
+    // Format address as hex
+    const addr = @intFromPtr(op.?);
+    const hex_chars = "0123456789abcdef";
+    var hex_buf: [16]u8 = undefined;
+    var hex_len: usize = 0;
+    var temp_addr = addr;
+    while (temp_addr > 0 or hex_len == 0) : (temp_addr /= 16) {
+        hex_buf[15 - hex_len] = hex_chars[temp_addr % 16];
+        hex_len += 1;
+    }
+    @memcpy(buf[pos..][0..hex_len], hex_buf[16 - hex_len ..]);
+    pos += hex_len;
+
+    // Add file part
+    const file_str = ", file \"";
+    @memcpy(buf[pos..][0..file_str.len], file_str);
+    pos += file_str.len;
+
+    if (co.co_filename) |filename| {
+        const filename_str = pyunicode.PyUnicode_AsUTF8(filename);
+        if (filename_str != null) {
+            const s = std.mem.span(filename_str.?);
+            const len = @min(s.len, buf.len - pos - 50);
+            @memcpy(buf[pos..][0..len], s[0..len]);
+            pos += len;
+        }
+    }
+
+    const quote = "\"";
+    @memcpy(buf[pos..][0..quote.len], quote);
+    pos += quote.len;
+
+    // Add line number
+    const line_str = ", line ";
+    @memcpy(buf[pos..][0..line_str.len], line_str);
+    pos += line_str.len;
+
+    // Format line number
+    var line_buf: [16]u8 = undefined;
+    var line_len: usize = 0;
+    var line_num = @abs(co.co_firstlineno);
+    while (line_num > 0 or line_len == 0) : (line_num /= 10) {
+        line_buf[15 - line_len] = '0' + @as(u8, @intCast(line_num % 10));
+        line_len += 1;
+    }
+    @memcpy(buf[pos..][0..line_len], line_buf[16 - line_len ..]);
+    pos += line_len;
+
+    const close = ">";
+    @memcpy(buf[pos..][0..close.len], close);
+    pos += close.len;
+
+    return pyunicode.PyUnicode_FromStringAndSize(&buf, @intCast(pos));
 }
 
 fn code_hash(op: ?*cpython.PyObject) callconv(.C) isize {
@@ -350,11 +433,53 @@ fn code_new(typ: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpy
 
 /// PyCode_NewEmpty - Create a new empty code object
 pub export fn PyCode_NewEmpty(filename: ?[*:0]const u8, funcname: ?[*:0]const u8, firstlineno: c_int) ?*PyCodeObject {
-    _ = filename;
-    _ = funcname;
-    _ = firstlineno;
-    // TODO: Implement empty code object creation
-    return null;
+    const pyunicode = @import("unicodeobject.zig");
+    const pytuple = @import("tupleobject.zig");
+    const pybytes = @import("bytesobject.zig");
+
+    // Create unicode strings for filename and name
+    const filename_obj = if (filename) |f| pyunicode.PyUnicode_FromString(f) else pyunicode.PyUnicode_FromString("<string>");
+    const name_obj = if (funcname) |n| pyunicode.PyUnicode_FromString(n) else pyunicode.PyUnicode_FromString("<module>");
+
+    if (filename_obj == null or name_obj == null) {
+        if (filename_obj) |f| cpython.Py_DECREF(f);
+        if (name_obj) |n| cpython.Py_DECREF(n);
+        return null;
+    }
+
+    // Create empty objects
+    const empty_tuple = pytuple.PyTuple_New(0);
+    const empty_bytes = pybytes.PyBytes_FromStringAndSize(null, 0);
+
+    if (empty_tuple == null or empty_bytes == null) {
+        cpython.Py_DECREF(filename_obj.?);
+        cpython.Py_DECREF(name_obj.?);
+        if (empty_tuple) |t| cpython.Py_DECREF(t);
+        if (empty_bytes) |b| cpython.Py_DECREF(b);
+        return null;
+    }
+
+    // Create the code object
+    return PyUnstable_Code_NewWithPosOnlyArgs(
+        0, // argcount
+        0, // posonlyargcount
+        0, // kwonlyargcount
+        0, // nlocals
+        1, // stacksize
+        0, // flags
+        empty_bytes, // code
+        empty_tuple, // consts
+        empty_tuple, // names
+        empty_tuple, // varnames
+        empty_tuple, // freevars
+        empty_tuple, // cellvars
+        filename_obj, // filename
+        name_obj, // name
+        name_obj, // qualname (same as name)
+        firstlineno, // firstlineno
+        empty_bytes, // linetable
+        empty_bytes, // exceptiontable
+    );
 }
 
 /// PyUnstable_Code_New - Create a new code object (full version)

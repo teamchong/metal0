@@ -564,7 +564,7 @@ pub fn deserialize(data: []const u8, allocator: std.mem.Allocator) !*Program {
 
     // Instructions
     const instr_count = try r.readInt(u32, .little);
-    var instructions = try allocator.alloc(Instruction, instr_count);
+    const instructions = try allocator.alloc(Instruction, instr_count);
     for (instructions) |*inst| {
         inst.opcode = @enumFromInt(try r.readByte());
         inst.arg = try r.readInt(u24, .little);
@@ -572,14 +572,14 @@ pub fn deserialize(data: []const u8, allocator: std.mem.Allocator) !*Program {
 
     // Constants
     const const_count = try r.readInt(u32, .little);
-    var constants = try allocator.alloc(Value, const_count);
+    const constants = try allocator.alloc(Value, const_count);
     for (constants) |*constant| {
         constant.* = try deserializeValue(r, allocator);
     }
 
     // Varnames
     const varnames_count = try r.readInt(u32, .little);
-    var varnames = try allocator.alloc([]const u8, varnames_count);
+    const varnames = try allocator.alloc([]const u8, varnames_count);
     for (varnames) |*name| {
         const len = try r.readInt(u32, .little);
         const buf = try allocator.alloc(u8, len);
@@ -589,7 +589,7 @@ pub fn deserialize(data: []const u8, allocator: std.mem.Allocator) !*Program {
 
     // Names
     const names_count = try r.readInt(u32, .little);
-    var names = try allocator.alloc([]const u8, names_count);
+    const names = try allocator.alloc([]const u8, names_count);
     for (names) |*name| {
         const len = try r.readInt(u32, .little);
         const buf = try allocator.alloc(u8, len);
@@ -599,7 +599,7 @@ pub fn deserialize(data: []const u8, allocator: std.mem.Allocator) !*Program {
 
     // Source map
     const source_map_count = try r.readInt(u32, .little);
-    var source_map = try allocator.alloc(SourceLoc, source_map_count);
+    const source_map = try allocator.alloc(SourceLoc, source_map_count);
     for (source_map) |*loc| {
         loc.line = try r.readInt(u32, .little);
         loc.column = try r.readInt(u16, .little);
@@ -666,7 +666,7 @@ fn deserializeValue(r: anytype, allocator: std.mem.Allocator) !Value {
         },
         6 => blk: {
             const count = try r.readInt(u32, .little);
-            var tuple = try allocator.alloc(Value, count);
+            const tuple = try allocator.alloc(Value, count);
             for (tuple) |*elem| {
                 elem.* = try deserializeValue(r, allocator);
             }

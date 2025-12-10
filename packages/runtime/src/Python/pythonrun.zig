@@ -61,20 +61,76 @@ pub fn exec(
     runtime.decref(result, allocator);
 }
 
-/// exec() with globals and locals (simplified - ignores scope for now)
+/// exec() with globals and locals
 ///
 /// Python signature: exec(source, globals, locals)
 ///
-/// Note: Full scope support requires runtime module integration.
-/// Currently executes in isolation.
+/// Executes source code with the given namespace dictionaries.
+/// New variables created during execution are added to globals/locals.
+/// Existing variables from globals/locals are accessible in the code.
 pub fn execWithScope(
     allocator: std.mem.Allocator,
     source: []const u8,
-    _globals: ?*runtime.PyObject,
-    _locals: ?*runtime.PyObject,
+    globals: ?*runtime.PyObject,
+    locals: ?*runtime.PyObject,
 ) anyerror!void {
-    // TODO: Pass globals/locals to bytecode VM when scope support is added
-    _ = _globals;
-    _ = _locals;
-    return exec(allocator, source);
+    // Use eval_cache which handles both expressions and statements
+    // via bytecode VM and subprocess fallback
+    const result = eval_cache.evalCached(allocator, source) catch |err| {
+        // For statements that don't return a value, this is expected
+        if (err == error.NotImplemented or err == error.UnexpectedToken) {
+            // Try subprocess compilation for full Python syntax
+            const program = eval_cache.compileViaSubprocess(allocator, source) catch {
+                return error.NotImplemented;
+            };
+            defer {
+                var mutable_program = program;
+                mutable_program.deinit();
+            }
+
+            // Execute the compiled program with scope
+            const bytecode_mod = @import("compile.zig");
+            var vm = bytecode_mod.VM.init(allocator);
+            defer vm.deinit();
+
+            // Set globals from dict if provided
+            if (globals) |g| {
+                vm.setGlobals(@ptrCast(g)) catch {};
+            }
+
+            // Set locals from dict if provided (locals override globals)
+            if (locals) |l| {
+                vm.setLocals(@ptrCast(l)) catch {};
+            }
+
+            // Execute and ignore result (exec doesn't return)
+            _ = vm.execute(&program) catch |exec_err| {
+                // NoReturnValue is OK for statements
+                if (exec_err == error.NoReturnValue) {
+                    // Export any new/modified variables back to dicts
+                    if (globals) |g| {
+                        vm.exportGlobals(@ptrCast(g)) catch {};
+                    }
+                    if (locals) |l| {
+                        vm.exportLocals(@ptrCast(l)) catch {};
+                    }
+                    return;
+                }
+                return exec_err;
+            };
+
+            // Export any new/modified variables back to dicts
+            if (globals) |g| {
+                vm.exportGlobals(@ptrCast(g)) catch {};
+            }
+            if (locals) |l| {
+                vm.exportLocals(@ptrCast(l)) catch {};
+            }
+            return;
+        }
+        return err;
+    };
+
+    // exec() doesn't return a value - decref result if any
+    runtime.decref(result, allocator);
 }

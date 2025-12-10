@@ -207,9 +207,34 @@ fn enum_next_long(en: *enumobject, next_item: *cpython.PyObject) ?*cpython.PyObj
     }
 
     // Increment for next call
-    if (en.one) |one| {
-        // TODO: PyNumber_Add for long index increment
-        _ = one;
+    const pylong = @import("longobject.zig");
+    if (en.en_longindex) |long_idx| {
+        // Using big integer index - increment via PyNumber_Add
+        if (en.one) |one| {
+            const object_mod = @import("object.zig");
+            const new_idx = object_mod.PyNumber_Add(long_idx, one);
+            if (new_idx) |ni| {
+                long_idx.ob_refcnt -= 1;
+                en.en_longindex = ni;
+            }
+        } else {
+            // Fall back to creating new long from incrementing
+            const val = pylong.PyLong_AsSsize_t(long_idx) + 1;
+            const new_idx = pylong.PyLong_FromSsize_t(val);
+            if (new_idx) |ni| {
+                long_idx.ob_refcnt -= 1;
+                en.en_longindex = ni;
+            }
+        }
+    } else {
+        // Using fast path with en_index
+        en.en_index += 1;
+
+        // Check for overflow and switch to long index
+        if (en.en_index < 0) {
+            en.en_longindex = pylong.PyLong_FromSsize_t(std.math.maxInt(isize));
+            en.en_index = 0;
+        }
     }
 
     // Create result tuple
@@ -230,25 +255,63 @@ fn enum_next_long(en: *enumobject, next_item: *cpython.PyObject) ?*cpython.PyObj
 /// Create new enumerate object
 fn enum_new(type_obj: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     _ = type_obj;
-    _ = kwargs;
 
     if (args == null) return null;
 
-    // TODO: Parse args properly
-    // For now, just get first arg as iterable
     const tuple = @import("tupleobject.zig");
-    if (tuple.PyTuple_Size(args.?) < 1) return null;
+    const pylong = @import("longobject.zig");
+    const pyunicode = @import("unicodeobject.zig");
+
+    // Get iterable (required first positional arg)
+    const nargs = tuple.PyTuple_Size(args.?);
+    if (nargs < 1) return null;
 
     const iterable = tuple.PyTuple_GetItem(args.?, 0);
     if (iterable == null) return null;
 
+    // Get start value (optional second arg or keyword arg)
+    var start: isize = 0;
+    var start_obj: ?*cpython.PyObject = null;
+
+    if (nargs >= 2) {
+        // Second positional arg
+        const start_arg = tuple.PyTuple_GetItem(args.?, 1);
+        if (start_arg) |sa| {
+            if (pylong.PyLong_Check(sa) != 0) {
+                start = pylong.PyLong_AsSsize_t(sa);
+                // If start is large, keep as object
+                if (start == -1 and pylong.PyLong_AsLongLong(sa) != -1) {
+                    start_obj = sa;
+                    sa.ob_refcnt += 1;
+                }
+            }
+        }
+    } else if (kwargs) |kw| {
+        // Check kwargs for 'start'
+        const dict = @import("dictobject.zig");
+        const start_key = pyunicode.PyUnicode_FromString("start");
+        if (start_key) |sk| {
+            defer sk.ob_refcnt -= 1;
+            const start_val = dict.PyDict_GetItem(kw, sk);
+            if (start_val) |sv| {
+                if (pylong.PyLong_Check(sv) != 0) {
+                    start = pylong.PyLong_AsSsize_t(sv);
+                }
+            }
+        }
+    }
+
     // Get iterator from iterable
     const iter = PyObject_GetIter(iterable.?);
-    if (iter == null) return null;
+    if (iter == null) {
+        if (start_obj) |so| so.ob_refcnt -= 1;
+        return null;
+    }
 
     // Allocate enumerate object
     const mem = allocator.alignedAlloc(u8, @alignOf(enumobject), @sizeOf(enumobject)) catch {
         iter.?.ob_refcnt -= 1;
+        if (start_obj) |so| so.ob_refcnt -= 1;
         return null;
     };
     const en: *enumobject = @ptrCast(@alignCast(mem.ptr));
@@ -257,9 +320,13 @@ fn enum_new(type_obj: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: 
     const result_tuple = tuple.PyTuple_New(2);
     if (result_tuple == null) {
         iter.?.ob_refcnt -= 1;
+        if (start_obj) |so| so.ob_refcnt -= 1;
         allocator.free(mem);
         return null;
     }
+
+    // Get the constant 1 for incrementing
+    const one = pylong.PyLong_FromLong(1);
 
     // Initialize
     en.* = .{
@@ -267,11 +334,11 @@ fn enum_new(type_obj: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: 
             .ob_refcnt = 1,
             .ob_type = &PyEnum_Type,
         },
-        .en_index = 0,
+        .en_index = start,
         .en_sit = iter,
         .en_result = result_tuple,
-        .en_longindex = null,
-        .one = null, // TODO: Get _PyLong_GetOne()
+        .en_longindex = start_obj,
+        .one = one,
     };
 
     return @ptrCast(en);
@@ -411,7 +478,22 @@ fn reversed_new(type_obj: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwar
     if (seq == null) return null;
 
     // Check if object has __reversed__ method
-    // TODO: _PyObject_LookupSpecial for __reversed__
+    const pyunicode = @import("unicodeobject.zig");
+    const reversed_name = pyunicode.PyUnicode_FromString("__reversed__");
+    if (reversed_name) |rn| {
+        defer rn.ob_refcnt -= 1;
+
+        // Check for __reversed__ method
+        if (seq.?.ob_type.tp_getattro) |getattr_fn| {
+            const method = getattr_fn(seq.?, rn);
+            if (method) |m| {
+                // Has __reversed__, call it
+                defer m.ob_refcnt -= 1;
+                const object_mod = @import("object.zig");
+                return object_mod.PyObject_CallNoArgs(m);
+            }
+        }
+    }
 
     // Get sequence size
     const n = PySequence_Size(seq.?);
@@ -501,9 +583,121 @@ fn PyObject_GetIter(obj: *cpython.PyObject) ?*cpython.PyObject {
     if (tp.tp_iter) |iter_fn| {
         return iter_fn(obj);
     }
-    // TODO: Fall back to sequence iteration
+
+    // Fall back to sequence iteration
+    if (tp.tp_as_sequence) |seq_methods| {
+        if (seq_methods.sq_item != null) {
+            // Create a sequence iterator
+            return createSeqIter(obj);
+        }
+    }
+
     return null;
 }
+
+/// Simple sequence iterator object
+const SeqIterObject = extern struct {
+    ob_base: cpython.PyObject,
+    it_seq: ?*cpython.PyObject,
+    it_index: isize,
+};
+
+fn createSeqIter(seq: *cpython.PyObject) ?*cpython.PyObject {
+    const mem = allocator.alignedAlloc(u8, @alignOf(SeqIterObject), @sizeOf(SeqIterObject)) catch return null;
+    const it: *SeqIterObject = @ptrCast(@alignCast(mem.ptr));
+
+    seq.ob_refcnt += 1;
+    it.* = .{
+        .ob_base = .{
+            .ob_refcnt = 1,
+            .ob_type = &SeqIter_Type,
+        },
+        .it_seq = seq,
+        .it_index = 0,
+    };
+
+    return @ptrCast(it);
+}
+
+fn seqiter_next(self_obj: *cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+    const it: *SeqIterObject = @ptrCast(@alignCast(self_obj));
+    if (it.it_seq == null) return null;
+
+    const item = PySequence_GetItem(it.it_seq.?, it.it_index);
+    if (item == null) {
+        // End of sequence
+        it.it_seq.?.ob_refcnt -= 1;
+        it.it_seq = null;
+        return null;
+    }
+
+    it.it_index += 1;
+    return item;
+}
+
+fn seqiter_dealloc(self_obj: *cpython.PyObject) callconv(.C) void {
+    const it: *SeqIterObject = @ptrCast(@alignCast(self_obj));
+    if (it.it_seq) |seq| {
+        seq.ob_refcnt -= 1;
+    }
+    const ptr: [*]align(@alignOf(SeqIterObject)) u8 = @ptrCast(@alignCast(it));
+    allocator.free(ptr[0..@sizeOf(SeqIterObject)]);
+}
+
+var SeqIter_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
+        .ob_size = 0,
+    },
+    .tp_name = "iterator",
+    .tp_basicsize = @sizeOf(SeqIterObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = seqiter_dealloc,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT,
+    .tp_doc = null,
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = seqiter_next,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+};
 
 /// Get sequence size
 fn PySequence_Size(obj: *cpython.PyObject) isize {

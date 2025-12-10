@@ -228,8 +228,14 @@ fn findEntry(keys: *InternalDictKeys, key: *cpython.PyObject, hash: isize) ?usiz
             return idx; // Found by identity
         }
 
-        // TODO: Call PyObject_RichCompareBool for equality
-        // For now just use identity comparison
+        // Check equality if hash matches but identity doesn't
+        if (entry.hash == hash) {
+            const object_mod = @import("object.zig");
+            const cmp = object_mod.PyObject_RichCompareBool(entry.key.?, key, object_mod.Py_EQ);
+            if (cmp == 1) {
+                return idx; // Found by equality
+            }
+        }
 
         // Probe next slot
         perturb >>= 5;
@@ -652,11 +658,64 @@ export fn PyDict_Merge(a: *cpython.PyObject, b: *cpython.PyObject, override: c_i
 /// PyDict_MergeFromSeq2 - Merge key-value pairs from sequence into dict
 /// override: if 1, replace existing keys; if 0, skip existing keys
 export fn PyDict_MergeFromSeq2(obj: *cpython.PyObject, seq: *cpython.PyObject, override: c_int) callconv(.c) c_int {
-    _ = obj;
-    _ = seq;
-    _ = override;
-    // TODO: Implement sequence iteration
-    return -1;
+    if (PyDict_Check(obj) == 0) return -1;
+
+    const tuple = @import("tupleobject.zig");
+    const listobj = @import("listobject.zig");
+
+    // Get iterator for sequence
+    const tp = seq.ob_type;
+    var iter: ?*cpython.PyObject = null;
+
+    if (tp.tp_iter) |iter_fn| {
+        iter = iter_fn(seq);
+    }
+
+    if (iter == null) return -1;
+    defer iter.?.ob_refcnt -= 1;
+
+    // Iterate over pairs
+    while (true) {
+        // Get next item from iterator
+        var item: ?*cpython.PyObject = null;
+        if (iter.?.ob_type.tp_iternext) |next_fn| {
+            item = next_fn(iter.?);
+        }
+
+        if (item == null) break; // End of iteration
+        defer item.?.ob_refcnt -= 1;
+
+        // Each item should be a 2-tuple or 2-list (key, value)
+        var key: ?*cpython.PyObject = null;
+        var value: ?*cpython.PyObject = null;
+
+        if (tuple.PyTuple_Check(item.?) != 0) {
+            if (tuple.PyTuple_Size(item.?) != 2) {
+                return -1; // Invalid item
+            }
+            key = tuple.PyTuple_GetItem(item.?, 0);
+            value = tuple.PyTuple_GetItem(item.?, 1);
+        } else if (listobj.PyList_Check(item.?) != 0) {
+            if (listobj.PyList_Size(item.?) != 2) {
+                return -1; // Invalid item
+            }
+            key = listobj.PyList_GetItem(item.?, 0);
+            value = listobj.PyList_GetItem(item.?, 1);
+        } else {
+            return -1; // Not a pair
+        }
+
+        if (key == null or value == null) return -1;
+
+        // Check if we should set this key
+        if (override != 0 or PyDict_GetItem(obj, key.?) == null) {
+            if (PyDict_SetItem(obj, key.?, value.?) < 0) {
+                return -1;
+            }
+        }
+    }
+
+    return 0;
 }
 
 /// PyDict_GetItemWithError - Like GetItem but sets KeyError on failure

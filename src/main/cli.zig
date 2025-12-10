@@ -1165,7 +1165,7 @@ fn cmdServer(allocator: std.mem.Allocator, args: []const []const u8) !void {
     printSuccess("Server listening on {s}", .{socket_path});
     std.debug.print("{s}Press Ctrl+C to stop{s}\n\n", .{ Color.dim, Color.reset });
 
-    // Server loop
+    // Server loop - spawn thread per client for concurrency
     while (true) {
         const client_fd = std.posix.accept(fd, null, null, 0) catch |err| {
             if (err == error.ConnectionAborted) continue;
@@ -1173,17 +1173,38 @@ fn cmdServer(allocator: std.mem.Allocator, args: []const []const u8) !void {
             continue;
         };
 
-        // Handle client in current thread (TODO: spawn thread for concurrency)
-        handleEvalClient(allocator, client_fd, vm_wasm) catch |err| {
-            std.log.err("Client error: {any}", .{err});
+        // Spawn thread to handle client concurrently
+        const ClientContext = struct {
+            fd: std.posix.fd_t,
+            alloc: std.mem.Allocator,
+            wasm: []const u8,
+
+            fn handler(ctx: @This()) void {
+                defer std.posix.close(ctx.fd);
+                handleEvalClient(ctx.alloc, ctx.fd, ctx.wasm) catch |err| {
+                    std.log.err("Client error: {any}", .{err});
+                };
+            }
         };
-        std.posix.close(client_fd);
+
+        const ctx = ClientContext{
+            .fd = client_fd,
+            .alloc = allocator,
+            .wasm = vm_wasm,
+        };
+
+        _ = std.Thread.spawn(.{}, ClientContext.handler, .{ctx}) catch |err| {
+            // Fallback to synchronous handling if thread spawn fails
+            std.log.warn("Thread spawn failed ({any}), handling synchronously", .{err});
+            handleEvalClient(allocator, client_fd, vm_wasm) catch |e| {
+                std.log.err("Client error: {any}", .{e});
+            };
+            std.posix.close(client_fd);
+        };
     }
 }
 
 fn handleEvalClient(allocator: std.mem.Allocator, client_fd: std.posix.fd_t, vm_wasm: []const u8) !void {
-    _ = vm_wasm; // TODO: use for WasmEdge execution
-
     // Read bytecode length
     var len_buf: [4]u8 = undefined;
     _ = try std.posix.read(client_fd, &len_buf);
@@ -1206,13 +1227,63 @@ fn handleEvalClient(allocator: std.mem.Allocator, client_fd: std.posix.fd_t, vm_
 
     std.log.info("Received {d} bytes of bytecode", .{bytecode_len});
 
-    // TODO: Execute bytecode in WasmEdge
-    // For now, return a placeholder result
+    // Execute bytecode using the internal bytecode VM
+    var result_value: i64 = 0;
+    var result_type: u8 = 1; // Default: int
 
-    // Send result (type: int, value: 0)
+    // Deserialize and execute bytecode using our VM
+    const opcode_mod = @import("../bytecode/opcode.zig");
+    const vm_mod = @import("../bytecode/vm.zig");
+
+    if (opcode_mod.deserialize(bytecode, allocator)) |program| {
+        var vm = vm_mod.VM.init(allocator);
+        defer vm.deinit();
+
+        // If we have WASM module, we could use WasmEdge for sandboxed execution
+        // For now, execute directly in our VM (faster, no sandbox)
+        _ = vm_wasm;
+
+        const exec_result = vm.execute(program) catch {
+            result_type = 0; // Error
+            return sendResult(client_fd, result_type, result_value);
+        };
+
+        // Convert result to i64
+        switch (exec_result) {
+            .int => |i| {
+                result_value = i;
+                result_type = 1;
+            },
+            .float => |f| {
+                result_value = @intFromFloat(f);
+                result_type = 2;
+            },
+            .bool => |b| {
+                result_value = if (b) 1 else 0;
+                result_type = 3;
+            },
+            .none => {
+                result_value = 0;
+                result_type = 0;
+            },
+            else => {
+                result_value = 0;
+                result_type = 0;
+            },
+        }
+    } else |_| {
+        std.log.err("Failed to deserialize bytecode", .{});
+        result_type = 0;
+    }
+
+    return sendResult(client_fd, result_type, result_value);
+}
+
+fn sendResult(client_fd: std.posix.fd_t, result_type: u8, result_value: i64) !void {
+    // Send result (type: int, value)
     var result: [9]u8 = undefined;
-    result[0] = 1; // Type: int
-    std.mem.writeInt(i64, result[1..9], 0, .little);
+    result[0] = result_type;
+    std.mem.writeInt(i64, result[1..9], result_value, .little);
 
     const result_len: u32 = @intCast(result.len);
     _ = try std.posix.write(client_fd, std.mem.asBytes(&result_len));

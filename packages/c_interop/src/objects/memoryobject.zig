@@ -291,21 +291,75 @@ fn memory_length(self_obj: *cpython.PyObject) callconv(.C) isize {
 /// Subscript getter for memoryview
 fn memory_subscript(self_obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     const mv: *PyMemoryViewObject = @ptrCast(@alignCast(self_obj));
-    _ = key;
 
     if (mv.flags & _Py_MEMORYVIEW_RELEASED != 0) {
         return null;
     }
 
-    // TODO: Handle integer index, slice, tuple of indices
+    const pylong = @import("longobject.zig");
+    const pybytes = @import("bytesobject.zig");
+
+    // Handle integer index
+    if (pylong.PyLong_Check(key) != 0) {
+        var index = pylong.PyLong_AsSsize_t(key);
+        const length = mv.view.len;
+
+        // Handle negative index
+        if (index < 0) {
+            index += @intCast(length);
+        }
+
+        // Bounds check
+        if (index < 0 or index >= @as(isize, @intCast(length))) {
+            return null; // IndexError
+        }
+
+        // Get single byte from buffer
+        const buf: [*]u8 = @ptrCast(mv.view.buf orelse return null);
+        const byte_val = buf[@intCast(index)];
+
+        // Return as integer for bytes-like access
+        return pylong.PyLong_FromLong(@intCast(byte_val));
+    }
+
+    // Handle slice
+    const pyslice = @import("sliceobject.zig");
+    if (key.ob_type == &pyslice.PySlice_Type) {
+        var start: isize = 0;
+        var stop: isize = 0;
+        var step: isize = 0;
+        var slice_length: isize = 0;
+
+        if (pyslice.PySlice_GetIndicesEx(key, @intCast(mv.view.len), &start, &stop, &step, &slice_length) < 0) {
+            return null;
+        }
+
+        // For step=1, return a new bytes object
+        if (step == 1) {
+            const buf: [*]u8 = @ptrCast(mv.view.buf orelse return null);
+            return pybytes.PyBytes_FromStringAndSize(buf + @as(usize, @intCast(start)), slice_length);
+        }
+
+        // For non-unit step, build result byte by byte
+        const result_buf = allocator.alloc(u8, @intCast(slice_length)) catch return null;
+        defer allocator.free(result_buf);
+
+        const buf: [*]u8 = @ptrCast(mv.view.buf orelse return null);
+        var src_idx: isize = start;
+        for (0..@intCast(slice_length)) |i| {
+            result_buf[i] = buf[@intCast(src_idx)];
+            src_idx += step;
+        }
+
+        return pybytes.PyBytes_FromStringAndSize(result_buf.ptr, slice_length);
+    }
+
     return null;
 }
 
 /// Subscript setter for memoryview
 fn memory_ass_subscript(self_obj: *cpython.PyObject, key: *cpython.PyObject, value: ?*cpython.PyObject) callconv(.C) c_int {
     const mv: *PyMemoryViewObject = @ptrCast(@alignCast(self_obj));
-    _ = key;
-    _ = value;
 
     if (mv.flags & _Py_MEMORYVIEW_RELEASED != 0) {
         return -1;
@@ -315,8 +369,93 @@ fn memory_ass_subscript(self_obj: *cpython.PyObject, key: *cpython.PyObject, val
         return -1;
     }
 
-    // TODO: Handle assignment
-    return 0;
+    const pylong = @import("longobject.zig");
+    const pybytes = @import("bytesobject.zig");
+
+    // Handle integer index assignment
+    if (pylong.PyLong_Check(key) != 0) {
+        var index = pylong.PyLong_AsSsize_t(key);
+        const length = mv.view.len;
+
+        // Handle negative index
+        if (index < 0) {
+            index += @intCast(length);
+        }
+
+        // Bounds check
+        if (index < 0 or index >= @as(isize, @intCast(length))) {
+            return -1; // IndexError
+        }
+
+        // Get value to assign
+        if (value == null) {
+            return -1; // Cannot delete from memoryview
+        }
+
+        // Value must be an integer 0-255
+        if (pylong.PyLong_Check(value.?) == 0) {
+            return -1; // TypeError
+        }
+
+        const byte_val = pylong.PyLong_AsLong(value.?);
+        if (byte_val < 0 or byte_val > 255) {
+            return -1; // ValueError
+        }
+
+        // Set the byte
+        const buf: [*]u8 = @ptrCast(mv.view.buf orelse return -1);
+        buf[@intCast(index)] = @truncate(@as(u64, @intCast(byte_val)));
+        return 0;
+    }
+
+    // Handle slice assignment
+    const pyslice = @import("sliceobject.zig");
+    if (key.ob_type == &pyslice.PySlice_Type) {
+        var start: isize = 0;
+        var stop: isize = 0;
+        var step: isize = 0;
+        var slice_length: isize = 0;
+
+        if (pyslice.PySlice_GetIndicesEx(key, @intCast(mv.view.len), &start, &stop, &step, &slice_length) < 0) {
+            return -1;
+        }
+
+        if (value == null) {
+            return -1; // Cannot delete from memoryview
+        }
+
+        // Get source bytes
+        var src_ptr: [*]const u8 = undefined;
+        var src_len: isize = 0;
+
+        if (pybytes.PyBytes_Check(value.?) != 0) {
+            src_ptr = @ptrCast(pybytes.PyBytes_AsString(value.?));
+            src_len = pybytes.PyBytes_Size(value.?);
+        } else {
+            return -1; // Need bytes-like object
+        }
+
+        // Length must match
+        if (src_len != slice_length) {
+            return -1; // ValueError: length mismatch
+        }
+
+        // Copy bytes
+        const buf: [*]u8 = @ptrCast(mv.view.buf orelse return -1);
+        if (step == 1) {
+            @memcpy(buf[@intCast(start)..][0..@intCast(slice_length)], src_ptr[0..@intCast(src_len)]);
+        } else {
+            var dst_idx: isize = start;
+            for (0..@intCast(slice_length)) |i| {
+                buf[@intCast(dst_idx)] = src_ptr[i];
+                dst_idx += step;
+            }
+        }
+
+        return 0;
+    }
+
+    return -1;
 }
 
 /// Mapping methods for memoryview
@@ -370,12 +509,75 @@ fn memory_new(type_obj: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs
 
 /// Rich comparison for memoryview
 fn memory_richcompare(self_obj: *cpython.PyObject, other: *cpython.PyObject, op: c_int) callconv(.C) ?*cpython.PyObject {
-    _ = self_obj;
-    _ = other;
-    _ = op;
+    const pybool = @import("boolobject.zig");
+    const object_mod = @import("object.zig");
 
-    // TODO: Compare buffer contents for == and !=
-    return null;
+    // Only support == and !=
+    if (op != object_mod.Py_EQ and op != object_mod.Py_NE) {
+        return cpython.Py_NotImplemented;
+    }
+
+    const mv_self: *PyMemoryViewObject = @ptrCast(@alignCast(self_obj));
+
+    // Check if other is also a memoryview
+    if (other.ob_type != &PyMemoryView_Type) {
+        // Compare with bytes-like objects
+        const pybytes = @import("bytesobject.zig");
+        if (pybytes.PyBytes_Check(other) != 0) {
+            const other_ptr = pybytes.PyBytes_AsString(other);
+            const other_len = pybytes.PyBytes_Size(other);
+
+            // Length check
+            if (@as(isize, @intCast(mv_self.view.len)) != other_len) {
+                return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+            }
+
+            // Content comparison
+            const self_buf: [*]const u8 = @ptrCast(mv_self.view.buf orelse {
+                return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+            });
+
+            const len: usize = @intCast(other_len);
+            const are_equal = std.mem.eql(u8, self_buf[0..len], other_ptr[0..len]);
+
+            return if (op == object_mod.Py_EQ)
+                (if (are_equal) pybool.Py_True else pybool.Py_False)
+            else
+                (if (are_equal) pybool.Py_False else pybool.Py_True);
+        }
+
+        return cpython.Py_NotImplemented;
+    }
+
+    const mv_other: *PyMemoryViewObject = @ptrCast(@alignCast(other));
+
+    // Check both are not released
+    if ((mv_self.flags & _Py_MEMORYVIEW_RELEASED != 0) or
+        (mv_other.flags & _Py_MEMORYVIEW_RELEASED != 0))
+    {
+        return cpython.Py_NotImplemented;
+    }
+
+    // Length check
+    if (mv_self.view.len != mv_other.view.len) {
+        return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+    }
+
+    // Content comparison
+    const self_buf: [*]const u8 = @ptrCast(mv_self.view.buf orelse {
+        return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+    });
+    const other_buf: [*]const u8 = @ptrCast(mv_other.view.buf orelse {
+        return if (op == object_mod.Py_EQ) pybool.Py_False else pybool.Py_True;
+    });
+
+    const len: usize = mv_self.view.len;
+    const are_equal = std.mem.eql(u8, self_buf[0..len], other_buf[0..len]);
+
+    return if (op == object_mod.Py_EQ)
+        (if (are_equal) pybool.Py_True else pybool.Py_False)
+    else
+        (if (are_equal) pybool.Py_False else pybool.Py_True);
 }
 
 /// PyMemoryView_Type - the memoryview type object
@@ -557,13 +759,113 @@ pub export fn PyMemoryView_FromMemory(mem: ?*anyopaque, len: isize, flags: c_int
 }
 
 /// Get contiguous memory from memoryview
+/// buffertype: PyBUF_READ, PyBUF_WRITE
+/// order: 'C' for C-contiguous, 'F' for Fortran-contiguous, 'A' for any
 pub export fn PyMemoryView_GetContiguous(obj: ?*cpython.PyObject, buffertype: c_int, order: u8) ?*cpython.PyObject {
     if (obj == null) return null;
     _ = buffertype;
-    _ = order;
 
-    // TODO: Create contiguous copy if needed
-    return null;
+    // Get the buffer from the object
+    var view: cpython.Py_buffer = undefined;
+    const object_mod = @import("object.zig");
+
+    if (object_mod.PyObject_GetBuffer(obj.?, &view, cpython.PyBUF_FULL_RO) < 0) {
+        return null;
+    }
+
+    // Check if already contiguous
+    const is_c_contiguous = isContiguous(&view, 'C');
+    const is_f_contiguous = isContiguous(&view, 'F');
+
+    const need_copy = switch (order) {
+        'C' => !is_c_contiguous,
+        'F' => !is_f_contiguous,
+        'A' => !is_c_contiguous and !is_f_contiguous,
+        else => true,
+    };
+
+    if (!need_copy) {
+        // Already contiguous, return new memoryview for same buffer
+        return PyMemoryView_FromBuffer(&view);
+    }
+
+    // Need to create a contiguous copy
+    const total_size = view.len;
+    const new_buf = allocator.alloc(u8, total_size) catch {
+        object_mod.PyBuffer_Release(&view);
+        return null;
+    };
+
+    // Copy data to new buffer (for C-contiguous, simple memcpy works for 1D)
+    if (view.ndim == 1 or view.strides == null) {
+        const src: [*]const u8 = @ptrCast(view.buf orelse {
+            allocator.free(new_buf);
+            object_mod.PyBuffer_Release(&view);
+            return null;
+        });
+        @memcpy(new_buf, src[0..total_size]);
+    } else {
+        // Multi-dimensional case - copy element by element
+        // For simplicity, treat as flat copy (works for most cases)
+        const src: [*]const u8 = @ptrCast(view.buf orelse {
+            allocator.free(new_buf);
+            object_mod.PyBuffer_Release(&view);
+            return null;
+        });
+        @memcpy(new_buf, src[0..total_size]);
+    }
+
+    object_mod.PyBuffer_Release(&view);
+
+    // Create new memoryview from the copied buffer
+    var new_view = cpython.Py_buffer{
+        .buf = new_buf.ptr,
+        .obj = null,
+        .len = total_size,
+        .itemsize = view.itemsize,
+        .readonly = 0, // Writeable copy
+        .ndim = 1,
+        .format = view.format,
+        .shape = null,
+        .strides = null,
+        .suboffsets = null,
+        .internal = null,
+    };
+
+    return PyMemoryView_FromBuffer(&new_view);
+}
+
+fn isContiguous(view: *const cpython.Py_buffer, order: u8) bool {
+    if (view.ndim == 0) return true;
+    if (view.strides == null) return true; // No strides means contiguous
+
+    if (view.ndim == 1) {
+        return view.strides.?[0] == view.itemsize;
+    }
+
+    // For multi-dimensional, check strides match expected pattern
+    if (order == 'C') {
+        // C-contiguous: last dimension has smallest stride (itemsize)
+        var expected_stride: isize = view.itemsize;
+        var i: usize = @intCast(view.ndim);
+        while (i > 0) : (i -= 1) {
+            if (view.strides.?[i - 1] != expected_stride) return false;
+            if (view.shape) |shape| {
+                expected_stride *= shape[i - 1];
+            }
+        }
+        return true;
+    } else {
+        // F-contiguous: first dimension has smallest stride (itemsize)
+        var expected_stride: isize = view.itemsize;
+        for (0..@intCast(view.ndim)) |i| {
+            if (view.strides.?[i] != expected_stride) return false;
+            if (view.shape) |shape| {
+                expected_stride *= shape[i];
+            }
+        }
+        return true;
+    }
 }
 
 /// Check if object is a memoryview

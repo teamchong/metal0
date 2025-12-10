@@ -99,6 +99,95 @@ pub const VM = struct {
         self.globals.deinit();
     }
 
+    /// Set globals from a PyObject dict
+    /// Converts PyObject dict entries to StackValue and populates vm.globals
+    pub fn setGlobals(self: *VM, globals_dict: *anyopaque) !void {
+        if (runtime_available) {
+            const runtime_mod = @import("runtime");
+            const obj: *runtime_mod.PyObject = @ptrCast(@alignCast(globals_dict));
+
+            if (!runtime_mod.PyDict_Check(obj)) return;
+
+            const dict_obj: *runtime_mod.PyDictObject = @ptrCast(@alignCast(obj));
+            if (dict_obj.ma_keys == null) return;
+
+            const map: *hashmap_helper.StringHashMap(*runtime_mod.PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
+
+            // Iterate dict and convert to StackValue
+            var iter = map.iterator();
+            while (iter.next()) |entry| {
+                const key = entry.key_ptr.*;
+                const value = entry.value_ptr.*;
+                const stack_val = pyObjectToStackValue(value);
+                try self.globals.put(key, stack_val);
+            }
+        }
+    }
+
+    /// Set locals for current frame from a PyObject dict
+    pub fn setLocals(self: *VM, locals_dict: *anyopaque) !void {
+        if (runtime_available and self.frames.items.len > 0) {
+            const runtime_mod = @import("runtime");
+            const obj: *runtime_mod.PyObject = @ptrCast(@alignCast(locals_dict));
+
+            if (!runtime_mod.PyDict_Check(obj)) return;
+
+            const dict_obj: *runtime_mod.PyDictObject = @ptrCast(@alignCast(obj));
+            if (dict_obj.ma_keys == null) return;
+
+            const map: *hashmap_helper.StringHashMap(*runtime_mod.PyObject) = @ptrCast(@alignCast(dict_obj.ma_keys.?));
+
+            var frame = &self.frames.items[self.frames.items.len - 1];
+
+            var iter = map.iterator();
+            while (iter.next()) |entry| {
+                const key = entry.key_ptr.*;
+                const value = entry.value_ptr.*;
+                const stack_val = pyObjectToStackValue(value);
+                try frame.locals.put(key, stack_val);
+            }
+        }
+    }
+
+    /// Export globals back to a PyObject dict
+    /// Updates the dict with any new/modified variables from execution
+    pub fn exportGlobals(self: *VM, globals_dict: *anyopaque) !void {
+        if (runtime_available) {
+            const runtime_mod = @import("runtime");
+            const obj: *runtime_mod.PyObject = @ptrCast(@alignCast(globals_dict));
+
+            if (!runtime_mod.PyDict_Check(obj)) return;
+
+            var iter = self.globals.iterator();
+            while (iter.next()) |entry| {
+                const key = entry.key_ptr.*;
+                const value = entry.value_ptr.*;
+                const py_obj = try stackValueToPyObject(self.allocator, value);
+                try runtime_mod.PyDict.set(obj, key, py_obj);
+            }
+        }
+    }
+
+    /// Export locals back to a PyObject dict
+    pub fn exportLocals(self: *VM, locals_dict: *anyopaque) !void {
+        if (runtime_available and self.frames.items.len > 0) {
+            const runtime_mod = @import("runtime");
+            const obj: *runtime_mod.PyObject = @ptrCast(@alignCast(locals_dict));
+
+            if (!runtime_mod.PyDict_Check(obj)) return;
+
+            const frame = &self.frames.items[self.frames.items.len - 1];
+
+            var iter = frame.locals.iterator();
+            while (iter.next()) |entry| {
+                const key = entry.key_ptr.*;
+                const value = entry.value_ptr.*;
+                const py_obj = try stackValueToPyObject(self.allocator, value);
+                try runtime_mod.PyDict.set(obj, key, py_obj);
+            }
+        }
+    }
+
     /// Execute a program and return the result
     pub fn execute(self: *VM, program: *const Program) VMError!StackValue {
         try self.frames.append(self.allocator, .{
@@ -467,9 +556,11 @@ pub const VM = struct {
 
                 // Execute until return
                 while (self.frames.items.len > 0) {
-                    const current = &self.frames.items[self.frames.items.len - 1];
-                    if (current.ip >= current.program.instructions.len) break;
-                    try self.step();
+                    const current_frame = &self.frames.items[self.frames.items.len - 1];
+                    if (current_frame.ip >= current_frame.program.instructions.len) break;
+                    const inst = current_frame.program.instructions[current_frame.ip];
+                    current_frame.ip += 1;
+                    try self.executeInstruction(inst, current_frame);
                 }
 
                 return try self.pop();
@@ -542,6 +633,72 @@ pub const VM = struct {
         return VMError.NameError;
     }
 };
+
+/// Convert PyObject to StackValue
+fn pyObjectToStackValue(obj: anytype) StackValue {
+    if (runtime_available) {
+        const runtime_mod = @import("runtime");
+        const py_obj: *runtime_mod.PyObject = @ptrCast(@alignCast(obj));
+
+        // Check type and convert
+        if (runtime_mod.PyLong_Check(py_obj)) {
+            const long_obj: *runtime_mod.PyLongObject = @ptrCast(@alignCast(py_obj));
+            return .{ .int = @intCast(long_obj.ob_digit) };
+        }
+        if (runtime_mod.PyFloat_Check(py_obj)) {
+            const float_obj: *runtime_mod.PyFloatObject = @ptrCast(@alignCast(py_obj));
+            return .{ .float = float_obj.ob_fval };
+        }
+        if (runtime_mod.PyBool_Check(py_obj)) {
+            const bool_obj: *runtime_mod.PyBoolObject = @ptrCast(@alignCast(py_obj));
+            return .{ .bool = bool_obj.ob_digit != 0 };
+        }
+        if (runtime_mod.PyUnicode_Check(py_obj)) {
+            const str_obj: *runtime_mod.PyUnicodeObject = @ptrCast(@alignCast(py_obj));
+            const len: usize = @intCast(str_obj.length);
+            return .{ .string = str_obj.data[0..len] };
+        }
+        if (runtime_mod.Py_IsNone(py_obj)) {
+            return .{ .none = {} };
+        }
+        // For lists and other types, store as pointer
+        return .{ .ptr = @ptrCast(py_obj) };
+    }
+    return .{ .none = {} };
+}
+
+/// Convert StackValue to PyObject
+fn stackValueToPyObject(allocator: std.mem.Allocator, val: StackValue) !*anyopaque {
+    if (runtime_available) {
+        const runtime_mod = @import("runtime");
+
+        return switch (val) {
+            .int => |i| @ptrCast(try runtime_mod.PyInt.create(allocator, i)),
+            .float => |f| @ptrCast(try runtime_mod.PyFloat.create(allocator, f)),
+            .bool => |b| @ptrCast(try runtime_mod.PyBool.create(allocator, b)),
+            .string => |s| @ptrCast(try runtime_mod.PyString.create(allocator, s)),
+            .none => @ptrCast(runtime_mod.Py_None()),
+            .list => |items| blk: {
+                const list = try runtime_mod.PyList.create(allocator);
+                for (items) |item| {
+                    const py_item: *runtime_mod.PyObject = @ptrCast(@alignCast(try stackValueToPyObject(allocator, item)));
+                    try runtime_mod.PyList.append(list, py_item);
+                }
+                break :blk @ptrCast(list);
+            },
+            .tuple => |items| blk: {
+                const tuple = try runtime_mod.PyTuple.create(allocator, items.len);
+                for (items, 0..) |item, i| {
+                    const py_item: *runtime_mod.PyObject = @ptrCast(@alignCast(try stackValueToPyObject(allocator, item)));
+                    runtime_mod.PyTuple.setItem(tuple, i, py_item);
+                }
+                break :blk @ptrCast(tuple);
+            },
+            .ptr => |p| p,
+        };
+    }
+    return @ptrFromInt(0);
+}
 
 test "vm basic operations" {
     const allocator = std.testing.allocator;
