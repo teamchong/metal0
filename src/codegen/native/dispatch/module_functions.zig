@@ -967,6 +967,33 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
         return true;
     }
 
+    // Handle itertools.product with repeat keyword argument
+    // product(iterable, repeat=N) generates cartesian product of iterable with itself N times
+    if (std.mem.eql(u8, module_name, "itertools") and std.mem.eql(u8, func_name, "product")) {
+        // Check for repeat kwarg
+        var repeat_value: ?i64 = null;
+        for (call.keyword_args) |kw| {
+            if (std.mem.eql(u8, kw.name, "repeat")) {
+                if (kw.value == .constant and kw.value.constant.value == .int) {
+                    repeat_value = kw.value.constant.value.int;
+                    break;
+                }
+            }
+        }
+
+        if (repeat_value) |repeat_n| {
+            if (call.args.len >= 1) {
+                // product(iterable, repeat=N) - create N copies of the iterable and compute cartesian product
+                // Use runtime helper since N can be large
+                try self.emit("(try runtime.itertools_ops.productRepeat(__global_allocator, ");
+                try itertools_mod.emitIter(self, call.args[0]);
+                try self.output.writer(self.allocator).print(", {d}))", .{repeat_n});
+                return true;
+            }
+        }
+        // Fall through to generic handler for product without repeat
+    }
+
     // O(1) module lookup, then O(1) function lookup
     if (ModuleMap.get(module_name)) |func_map| {
         if (func_map.get(func_name)) |handler| {

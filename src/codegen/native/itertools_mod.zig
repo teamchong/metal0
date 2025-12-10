@@ -20,7 +20,7 @@ fn predFilter(self: *NativeCodegen, args: []ast.Node, comptime label: []const u8
     try emitIter(self, args[1]);
     try self.emit("; var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; " ++ body ++ " break :" ++ label ++ "_blk _result; }");
 }
-fn emitIter(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
+pub fn emitIter(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
     // Check if this is a range() call - generate native Zig range instead of PyObject
     if (arg == .call) {
         const call = arg.call;

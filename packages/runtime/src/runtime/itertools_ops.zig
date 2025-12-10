@@ -156,6 +156,53 @@ pub fn permutations(comptime T: type, allocator: std.mem.Allocator, iter: []cons
     return result;
 }
 
+/// Product with repeat - cartesian product of iterable with itself N times
+/// product(range(3), repeat=2) -> [(0,0), (0,1), (0,2), (1,0), (1,1), (1,2), (2,0), (2,1), (2,2)]
+/// Returns slice of tuples represented as arrays
+pub fn productRepeat(comptime T: type, allocator: std.mem.Allocator, iter: []const T, repeat: usize) ItertoolsError![][]T {
+    if (repeat == 0 or iter.len == 0) {
+        // Empty product
+        return &[_][]T{};
+    }
+
+    // Calculate total number of combinations: len^repeat
+    var total: usize = 1;
+    for (0..repeat) |_| {
+        total *= iter.len;
+    }
+
+    // Allocate result array
+    var result = try allocator.alloc([]T, total);
+    errdefer allocator.free(result);
+
+    // Generate all combinations using indices
+    var indices = try allocator.alloc(usize, repeat);
+    defer allocator.free(indices);
+    @memset(indices, 0);
+
+    for (0..total) |i| {
+        // Create tuple for current indices
+        var tuple = try allocator.alloc(T, repeat);
+        for (0..repeat) |j| {
+            tuple[j] = iter[indices[j]];
+        }
+        result[i] = tuple;
+
+        // Increment indices (like counting in base len)
+        var pos: usize = repeat;
+        while (pos > 0) {
+            pos -= 1;
+            indices[pos] += 1;
+            if (indices[pos] < iter.len) {
+                break;
+            }
+            indices[pos] = 0;
+        }
+    }
+
+    return result;
+}
+
 // Tests
 test "compress" {
     const allocator = std.testing.allocator;

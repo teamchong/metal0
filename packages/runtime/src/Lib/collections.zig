@@ -11,8 +11,9 @@ const hashmap_helper = @import("utils.hashmap_helper");
 // ============================================================================
 // Re-export collections.abc (alias for _collections_abc)
 // In Python: from collections.abc import MappingView, KeysView, etc.
+// NOTE: Disabled due to Zig compilation issues with anytype return types
 // ============================================================================
-pub const abc = @import("_collections_abc.zig");
+// pub const abc = @import("_collections_abc.zig");
 
 // ============================================================================
 // namedtuple

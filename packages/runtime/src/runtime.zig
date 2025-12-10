@@ -3589,6 +3589,7 @@ pub const Lib = struct {
     pub const datetime = @import("Lib/datetime.zig");
     pub const calendar = @import("Lib/calendar.zig");
     pub const itertools = @import("Lib/itertools.zig");
+    pub const collections = @import("Lib/collections.zig");
     pub const unittest = @import("Lib/unittest.zig");
     pub const pickle = @import("Lib/pickle.zig");
     pub const base64 = @import("Lib/base64.zig");
