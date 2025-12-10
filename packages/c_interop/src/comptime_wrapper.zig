@@ -178,6 +178,18 @@ pub fn MarshalCToPy(comptime py_type: PyType, comptime c_type: type) type {
     };
 }
 
+/// Infer C function type from spec at comptime
+fn inferFunctionType(comptime spec: FunctionSpec) type {
+    // Build argument types tuple
+    var arg_types: [spec.args.len]type = undefined;
+    inline for (spec.args, 0..) |arg, i| {
+        arg_types[i] = arg.c_type;
+    }
+
+    // Return the function pointer type
+    return *const fn (arg_types) callconv(.C) spec.returns.c_type;
+}
+
 /// Comptime wrapper generator - the main magic!
 ///
 /// Example usage:
@@ -218,8 +230,19 @@ pub fn comptimeGenerateWrapper(comptime spec: FunctionSpec) type {
             }
 
             // Call C function (comptime dispatch based on signature)
-            // TODO: Actual C function call will be generated here
-            const c_result: spec.returns.c_type = undefined; // Placeholder
+            // The function pointer is obtained via @extern or passed at runtime
+            const c_result: spec.returns.c_type = blk: {
+                if (spec.c_func_ptr) |FuncPtr| {
+                    // Use provided function pointer type
+                    const func: FuncPtr = @extern(FuncPtr, .{ .name = spec.c_func_name });
+                    break :blk @call(.auto, func, c_args);
+                } else {
+                    // Infer function type from spec and call
+                    const FuncType = comptime inferFunctionType(spec);
+                    const func: FuncType = @extern(FuncType, .{ .name = spec.c_func_name });
+                    break :blk @call(.auto, func, c_args);
+                }
+            };
 
             // Wrap result in PyObject
             const Wrapper = MarshalCToPy(spec.returns.py_type, spec.returns.c_type);
