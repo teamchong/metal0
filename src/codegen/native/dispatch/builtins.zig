@@ -244,26 +244,41 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     }
 
     // Builtins that accept keyword arguments - don't error on them
+    // Based on Python's actual signatures from inspect.signature()
     // These are passed to their handlers which handle kwargs internally
     const accepts_kwargs = std.StaticStringMap(void).initComptime(.{
-        .{ "open", {} }, // open(file, mode='r', encoding=None, ...)
-        .{ "print", {} }, // print(*values, sep=' ', end='\n', file=sys.stdout)
-        .{ "max", {} }, // max(iterable, key=None, default=...)
-        .{ "min", {} }, // min(iterable, key=None, default=...)
-        .{ "round", {} }, // round(number, ndigits=None)
+        // I/O functions
+        .{ "open", {} }, // open(file, mode='r', buffering=-1, encoding=None, ...)
+        .{ "print", {} }, // print(*args, sep=' ', end='\n', file=None, flush=False)
         .{ "input", {} }, // input(prompt='')
-        .{ "format", {} }, // format(value, format_spec='')
-        .{ "exec", {} }, // exec(source, globals=None, locals=None)
+        // Code execution
+        .{ "exec", {} }, // exec(source, globals=None, locals=None, *, closure=None)
         .{ "eval", {} }, // eval(source, globals=None, locals=None)
-        .{ "compile", {} }, // compile(source, filename, mode, ...)
+        .{ "compile", {} }, // compile(source, filename, mode, flags=0, ...)
+        .{ "__import__", {} }, // __import__(name, globals=None, locals=None, fromlist=(), level=0)
+        // Math with optional args
+        .{ "pow", {} }, // pow(base, exp, mod=None)
+        .{ "round", {} }, // round(number, ndigits=None)
+        .{ "sum", {} }, // sum(iterable, start=0)
+        .{ "max", {} }, // max(iterable, *, key=None, default=...)
+        .{ "min", {} }, // min(iterable, *, key=None, default=...)
+        // Formatting
+        .{ "format", {} }, // format(value, format_spec='')
+        // Attribute access (positional with optional default)
         .{ "getattr", {} }, // getattr(object, name, default)
         .{ "setattr", {} }, // setattr(object, name, value)
         .{ "hasattr", {} }, // hasattr(object, name)
+        // Type/class related
         .{ "type", {} }, // type(name, bases, dict) - 3-arg form
         .{ "super", {} }, // super(type, object_or_type)
-        .{ "slice", {} }, // slice(start, stop, step)
+        // Iterators with optional args
         .{ "enumerate", {} }, // enumerate(iterable, start=0)
         .{ "zip", {} }, // zip(*iterables, strict=False)
+        .{ "slice", {} }, // slice(start, stop, step)
+        // Interactive (with default args)
+        .{ "exit", {} }, // exit(code=None)
+        .{ "quit", {} }, // quit(code=None)
+        .{ "help", {} }, // help(*args, **kwds)
     });
 
     // O(1) lookup for all standard builtins
