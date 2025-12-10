@@ -354,14 +354,44 @@ pub const Connection = struct {
         return c.sqlite3_total_changes(self.db);
     }
 
-    /// Create a function (simplified)
+    /// Create a scalar function
+    /// Note: This is a simplified implementation that stores the function pointer
+    /// Full implementation would require callback trampolines for Python callables
     pub fn create_function(self: *Connection, name: []const u8, nargs: c_int, func: anytype) !void {
-        _ = func;
-        _ = nargs;
-        _ = name;
-        _ = self;
-        // TODO: Implement create_function properly
-        return error.NotImplemented;
+        if (self.db == null) return error.DatabaseClosed;
+
+        // Create null-terminated name
+        var name_buf: [256]u8 = undefined;
+        if (name.len >= name_buf.len) return error.NameTooLong;
+        @memcpy(name_buf[0..name.len], name);
+        name_buf[name.len] = 0;
+
+        // For Zig function pointers, we can register directly
+        // SQLite expects: void (*xFunc)(sqlite3_context*, int, sqlite3_value**)
+        const FuncType = @TypeOf(func);
+        const func_info = @typeInfo(FuncType);
+
+        if (func_info == .pointer and @typeInfo(func_info.pointer.child) == .@"fn") {
+            // Direct C-compatible function pointer
+            const result = c.sqlite3_create_function_v2(
+                self.db,
+                @ptrCast(&name_buf),
+                nargs,
+                c.SQLITE_UTF8,
+                null, // user data
+                @ptrCast(func),
+                null, // xStep (for aggregates)
+                null, // xFinal (for aggregates)
+                null, // xDestroy
+            );
+            if (result != c.SQLITE_OK) {
+                return error.CreateFunctionFailed;
+            }
+        } else {
+            // For non-function types, we can't directly register
+            // Would need a trampoline mechanism
+            return error.InvalidFunctionType;
+        }
     }
 };
 

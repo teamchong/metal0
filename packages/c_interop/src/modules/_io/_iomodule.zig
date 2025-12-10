@@ -90,18 +90,100 @@ pub export fn PyIO_open(
     closefd: c_int,
     opener: ?*cpython.PyObject,
 ) callconv(.c) ?*cpython.PyObject {
-    _ = file;
-    _ = mode;
-    _ = buffering;
-    _ = encoding;
+    const pyunicode = @import("../../objects/unicodeobject.zig");
+    const pylong = @import("../../objects/longobject.zig");
+
+    // Parse mode string to determine read/write/binary/text
+    var reading = false;
+    var writing = false;
+    var appending = false;
+    var binary = false;
+    var creating = false;
+
+    if (mode) |m| {
+        if (pyunicode.PyUnicode_Check(m) != 0) {
+            const mode_str = pyunicode.PyUnicode_AsUTF8(m);
+            if (mode_str) |ms| {
+                const mode_slice = std.mem.span(ms);
+                for (mode_slice) |c| {
+                    switch (c) {
+                        'r' => reading = true,
+                        'w' => writing = true,
+                        'a' => appending = true,
+                        'b' => binary = true,
+                        '+' => {
+                            reading = true;
+                            writing = true;
+                        },
+                        'x' => creating = true,
+                        else => {},
+                    }
+                }
+            }
+        }
+    } else {
+        reading = true; // Default mode is 'r'
+    }
+
+    // Default to reading if nothing specified
+    if (!reading and !writing and !appending) {
+        reading = true;
+    }
+
+    // Get file descriptor or path
+    var fd: c_int = -1;
+    if (file) |f| {
+        if (pylong.PyLong_Check(f)) {
+            fd = @intCast(pylong.PyLong_AsLong(f));
+        }
+    }
+
+    // Create FileIO for raw access
+    const raw = fileio.PyFileIO_New(file, mode, if (closefd != 0) true else false, opener);
+    if (raw == null) return null;
+
+    // For binary mode, wrap in BufferedReader/Writer
+    if (binary) {
+        if (buffering == 0) {
+            // Unbuffered - return raw FileIO
+            return @ptrCast(raw);
+        }
+
+        // Determine buffer size
+        const buf_size: usize = if (buffering > 0) @intCast(buffering) else 8192;
+
+        if (reading and !writing) {
+            return bufferedio.PyBufferedReader_New(@ptrCast(raw), buf_size);
+        } else if (writing and !reading) {
+            return bufferedio.PyBufferedWriter_New(@ptrCast(raw), buf_size);
+        } else {
+            return bufferedio.PyBufferedRandom_New(@ptrCast(raw), buf_size);
+        }
+    }
+
+    // Text mode - wrap in TextIOWrapper
+    const buf_size: usize = if (buffering > 0) @intCast(buffering) else 8192;
+    const buffered: ?*cpython.PyObject = blk: {
+        if (reading and !writing) {
+            break :blk bufferedio.PyBufferedReader_New(@ptrCast(raw), buf_size);
+        } else if (writing and !reading) {
+            break :blk bufferedio.PyBufferedWriter_New(@ptrCast(raw), buf_size);
+        } else {
+            break :blk bufferedio.PyBufferedRandom_New(@ptrCast(raw), buf_size);
+        }
+    };
+
+    if (buffered == null) {
+        cpython.Py_DECREF(@ptrCast(raw));
+        return null;
+    }
+
+    _ = fd;
     _ = errors;
     _ = newline;
-    _ = closefd;
-    _ = opener;
 
-    // TODO: Full implementation - for now return null
-    // Should create FileIO, wrap in BufferedReader/Writer, wrap in TextIOWrapper
-    return null;
+    // Create TextIOWrapper
+    return textio.PyTextIOWrapper_New(buffered, encoding, errors, newline, true);
 }
 
 // ============================================================================

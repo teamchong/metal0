@@ -622,9 +622,25 @@ pub const ModuleNotFoundError = exception_impl.ExceptionImpl(ModuleNotFoundError
 
 /// Create a new ValueError with message
 export fn PyErr_NewException_ValueError(message: [*:0]const u8) callconv(.c) ?*PyObject {
-    // TODO: Convert C string to PyUnicodeObject
-    _ = message;
-    const exc = ValueError.init(allocator, null) catch return null;
+    // Convert C string to PyUnicodeObject for args
+    const pyunicode = @import("objects/unicodeobject.zig");
+    const pytuple = @import("objects/tupleobject.zig");
+
+    const msg_obj = pyunicode.PyUnicode_FromString(message);
+    var args: ?*PyObject = null;
+    if (msg_obj != null) {
+        args = pytuple.PyTuple_New(1);
+        if (args != null) {
+            _ = pytuple.PyTuple_SetItem(args.?, 0, msg_obj.?);
+        } else {
+            cpython.Py_DECREF(msg_obj.?);
+        }
+    }
+
+    const exc = ValueError.init(allocator, args) catch {
+        if (args) |a| cpython.Py_DECREF(a);
+        return null;
+    };
     return @ptrCast(&exc.ob_base);
 }
 
