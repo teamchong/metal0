@@ -322,12 +322,9 @@ export fn PyObject_DelItem(obj: *cpython.PyObject, key: *cpython.PyObject) callc
 /// CPython: PyObject* PyObject_ASCII(PyObject *obj)
 /// Returns: ASCII string representation or null on error
 export fn PyObject_ASCII(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    // Get repr first
-    const repr = PyObject_Repr(obj) orelse return null;
-
-    // For now, just return repr (full impl would escape non-ASCII)
-    // TODO: Escape non-ASCII characters to \xNN or \uNNNN
-    return repr;
+    // Delegate to full implementation in object.zig
+    const object_mod = @import("../objects/object.zig");
+    return object_mod.PyObject_ASCII(obj);
 }
 
 /// Convert object to bytes

@@ -93,8 +93,9 @@ export fn PyMapping_HasKeyString(obj: *cpython.PyObject, key: [*:0]const u8) cal
         return 1;
     }
     
-    // Clear error
-    // TODO: PyErr_Clear when available
+    // Clear error (key not found is expected, not an error)
+    const exceptions = @import("../objects/exceptions.zig");
+    exceptions.PyErr_Clear();
     return 0;
 }
 

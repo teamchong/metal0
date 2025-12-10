@@ -210,8 +210,14 @@ fn Connection_create_aggregate(self: ?*cpython.PyObject, args: ?*cpython.PyObjec
 pub export fn pysqlite_check_thread(self: ?*pysqlite_Connection) callconv(.c) c_int {
     if (self == null) return 0;
     if (self.?.check_same_thread == 0) return 1;
-    // TODO: Check actual thread ID
-    return 1;
+
+    // Check if current thread matches creation thread
+    const current_thread = std.Thread.getCurrentId();
+    const stored_thread: std.Thread.Id = @bitCast(self.?.thread_ident);
+    if (current_thread == stored_thread) return 1;
+
+    // Thread mismatch
+    return 0;
 }
 
 /// Check connection validity
