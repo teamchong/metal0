@@ -4,33 +4,15 @@ const runner = @import("../unittest/runner.zig");
 const runtime = @import("../../runtime.zig");
 const PyValue = runtime.PyValue;
 
-/// Python-compatible value equality check (handles NaN identity)
-/// In Python: nan == nan is False, but nan in [nan] is True (identity check first)
+/// Python-compatible value equality check (handles NaN identity, cross-type comparison)
+/// Delegates to runtime.pyAnyEql for comprehensive Python semantic comparison
 fn pythonEql(a: anytype, b: anytype) bool {
-    const T = @TypeOf(a);
-    // For floats, also check bit equality (handles NaN identity)
-    if (T == f64 or T == f32) {
-        // First try regular equality
-        if (a == b) return true;
-        // If that fails (e.g., NaN), check bit identity
-        if (T == f64) {
-            return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
-        } else {
-            return @as(u32, @bitCast(a)) == @as(u32, @bitCast(b));
-        }
-    }
-    return std.meta.eql(a, b);
+    return runtime.pyAnyEql(a, b);
 }
 
-/// Helper to compare two elements - handles slices (which don't support == operator)
+/// Helper to compare two elements - delegates to pyAnyEql for Python semantics
 fn elemEql(a: anytype, b: anytype) bool {
-    const T = @TypeOf(a);
-    const info = @typeInfo(T);
-    // For slices, use std.mem.eql
-    if (info == .pointer and info.pointer.size == .slice) {
-        return std.mem.eql(info.pointer.child, a, b);
-    }
-    return a == b;
+    return runtime.pyAnyEql(a, b);
 }
 
 /// Helper to compare two ArrayList instances element by element
@@ -65,7 +47,7 @@ fn equalArrayList(a: anytype, b: anytype) bool {
                     continue; // Both NaN - consider equal (same object identity)
                 }
                 if (a_elem != b_elem) return false;
-            } else if (!std.meta.eql(a_elem, b_elem)) return false;
+            } else if (!runtime.pyAnyEql(a_elem, b_elem)) return false;
         } else {
             // Different types - try string comparison with __base_value__
             if (!equalWithBaseValue(a_elem, b_elem)) return false;
@@ -117,7 +99,7 @@ fn equalHashMap(a: anytype, b: anytype) bool {
             if (@hasDecl(B, "get")) {
                 const b_val = b.get(entry.key_ptr.*);
                 if (b_val == null) return false;
-                if (!std.meta.eql(entry.value_ptr.*, b_val.?)) return false;
+                if (!runtime.pyAnyEql(entry.value_ptr.*, b_val.?)) return false;
             } else {
                 return false; // b doesn't support get
             }
@@ -125,8 +107,8 @@ fn equalHashMap(a: anytype, b: anytype) bool {
         return true;
     }
 
-    // Fallback: try std.meta.eql
-    return std.meta.eql(a, b);
+    // Fallback: use pyAnyEql for Python semantics
+    return runtime.pyAnyEql(a, b);
 }
 
 /// Compare PyValue union with another value (tuple, array, int, etc.)
@@ -303,11 +285,11 @@ fn deepEqualUnion(a: anytype, b: anytype) bool {
                 }
                 // For other types, compare element by element
                 for (a_payload, b_payload) |a_item, b_item| {
-                    if (!std.meta.eql(a_item, b_item)) return false;
+                    if (!runtime.pyAnyEql(a_item, b_item)) return false;
                 }
                 return true;
             }
-            return std.meta.eql(a_payload, b_payload);
+            return runtime.pyAnyEql(a_payload, b_payload);
         }
     }
     return false;
@@ -455,18 +437,9 @@ fn equalValues(a: anytype, b: anytype) bool {
         }
     }
 
-    // Same type - direct compare
+    // Same type - use pyAnyEql for Python semantics (handles NaN, structs, etc.)
     if (A == B) {
-        if (comptime a_info == .@"struct") {
-            return std.meta.eql(a, b);
-        }
-        // Special handling for floats - NaN == NaN in container context (same object identity)
-        if (comptime a_info == .float or a_info == .comptime_float) {
-            if (std.math.isNan(a) and std.math.isNan(b)) {
-                return true; // Both NaN - treat as equal in container context
-            }
-        }
-        return a == b;
+        return runtime.pyAnyEql(a, b);
     }
 
     // Integer type coercion - comptime_int vs i64/i32/etc
@@ -909,13 +882,13 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (a_info == .@"struct" and a_info.@"struct".is_tuple) {
                 break :blk equalTuples(a, b);
             }
-            // Generic struct comparison using std.meta.eql
+            // Generic struct comparison using pyAnyEql for Python semantics
             if (a_info == .@"struct") {
-                break :blk std.meta.eql(a, b);
+                break :blk runtime.pyAnyEql(a, b);
             }
-            // Union comparison (e.g., PyValue) using std.meta.eql
+            // Union comparison (e.g., PyValue) using pyAnyEql
             if (a_info == .@"union") {
-                break :blk std.meta.eql(a, b);
+                break :blk runtime.pyAnyEql(a, b);
             }
             // Pointer to struct with __base_value__ (float subclass instances)
             // Compare by value, not by pointer address
@@ -1529,12 +1502,12 @@ pub fn assertNotEqual(a: anytype, b: anytype) void {
             if (@hasDecl(A, "eql")) {
                 break :blk a.eql(b);
             }
-            // Generic struct - use std.meta.eql
-            break :blk std.meta.eql(a, b);
+            // Generic struct - use pyAnyEql for Python semantics
+            break :blk runtime.pyAnyEql(a, b);
         },
         else => blk: {
-            // For types that don't support ==, try std.meta.eql
-            break :blk std.meta.eql(a, b);
+            // For types that don't support ==, use pyAnyEql
+            break :blk runtime.pyAnyEql(a, b);
         },
     };
 
@@ -1565,13 +1538,9 @@ pub fn assertIs(a: anytype, b: anytype) void {
             break :blk @intFromPtr(a) == @intFromPtr(b);
         }
 
-        // Same type - compare values
-        // Use std.meta.eql for structs (they don't support == in Zig)
+        // Same type - use pyAnyEql for Python semantics
         if (A == B) {
-            if (a_info == .@"struct") {
-                break :blk std.meta.eql(a, b);
-            }
-            break :blk a == b;
+            break :blk runtime.pyAnyEql(a, b);
         }
 
         // PyObject compared with bool - extract bool from PyObject

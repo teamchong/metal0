@@ -1107,22 +1107,21 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             const left_is_pyvalue = (current_left_type == .pyvalue);
             const right_is_pyvalue = (right_type == .pyvalue);
 
-            // Only use pyAnyEql when we have a type mismatch between list (ArrayList) and array (fixed)
-            // or when either side is PyValue (needs runtime type comparison)
-            // This is slower due to comptime type resolution, so avoid when both types match
-            const needs_cross_type_comparison = (left_is_list and right_is_array) or (left_is_array and right_is_list) or
-                left_is_pyvalue or right_is_pyvalue;
+            // Suppress unused variable warnings (kept for potential future optimization)
+            _ = left_is_list;
+            _ = right_is_list;
+            _ = left_is_array;
+            _ = right_is_array;
+            _ = left_is_pyvalue;
+            _ = right_is_pyvalue;
 
-            // Use runtime.pyAnyEql for cross-type list/array comparisons (handles ArrayList vs fixed array)
-            // Use std.meta.eql for same-type comparisons (faster compilation)
+            // Use runtime.pyAnyEql for all non-primitive comparisons
+            // pyAnyEql handles Python semantics: NaN identity, cross-type comparison, etc.
+            // std.meta.eql doesn't handle NaN (nan == nan returns false) so we avoid it
             if (!both_primitive and (op == .Eq or op == .NotEq)) {
                 if (op == .NotEq) try self.emit("!");
-                // Only use pyAnyEql for cross-type list comparisons to reduce comptime overhead
-                if (needs_cross_type_comparison) {
-                    try self.emit("runtime.pyAnyEql(");
-                } else {
-                    try self.emit("std.meta.eql(");
-                }
+                // Always use pyAnyEql for Python-semantic comparison
+                try self.emit("runtime.pyAnyEql(");
                 if (left_needs_wrap) try self.emit("(");
                 try genExpr(self, current_left);
                 if (left_needs_wrap) try self.emit(")");

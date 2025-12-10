@@ -431,14 +431,14 @@ pub fn pyTupleEql(a: anytype, b: @TypeOf(a)) bool {
                     if (a_field != b_field) return false;
                 }
             } else {
-                if (!std.meta.eql(a_field, b_field)) return false;
+                if (!pyAnyEql(a_field, b_field)) return false;
             }
         }
         return true;
     }
 
-    // Fallback to standard equality
-    return std.meta.eql(a, b);
+    // Fallback to pyAnyEql for Python semantics
+    return pyAnyEql(a, b);
 }
 
 /// Python-style generic equality for any two types
@@ -575,7 +575,7 @@ fn pyAnyEqlSameType(comptime T: type, a: T, b: T) bool {
                 if (ValT != void) {
                     // This is a dict (value type is not void)
                     if (b.get(entry.key_ptr.*)) |bv| {
-                        if (!std.meta.eql(entry.value_ptr.*, bv)) return false;
+                        if (!pyAnyEql(entry.value_ptr.*, bv)) return false;
                     } else {
                         return false;
                     }
@@ -610,7 +610,8 @@ fn pyAnyEqlSameType(comptime T: type, a: T, b: T) bool {
         return pySliceEql(ElemT, a, b);
     }
 
-    // Fallback to std.meta.eql
+    // Fallback: simple types can use direct comparison
+    // For primitive types that reach here, std.meta.eql is fine
     return std.meta.eql(a, b);
 }
 
@@ -2544,7 +2545,7 @@ pub fn containsGeneric(container: anytype, item: anytype) bool {
     // Check for NativeList type first (has .items which is an ArrayList, not a slice)
     if (T == NativeList) {
         for (container.items.items) |elem| {
-            if (std.meta.eql(elem, item)) return true;
+            if (pyAnyEql(elem, item)) return true;
         }
         return false;
     }
@@ -2552,7 +2553,7 @@ pub fn containsGeneric(container: anytype, item: anytype) bool {
     // ArrayList: check .items (items is a slice)
     if (info == .@"struct" and @hasField(T, "items")) {
         for (container.items) |elem| {
-            if (std.meta.eql(elem, item)) return true;
+            if (pyAnyEql(elem, item)) return true;
         }
         return false;
     }
@@ -2560,7 +2561,7 @@ pub fn containsGeneric(container: anytype, item: anytype) bool {
     // Array: iterate and compare (e.g., [_]i64{1, 2, 3})
     if (info == .array) {
         for (container) |elem| {
-            if (std.meta.eql(elem, item)) return true;
+            if (pyAnyEql(elem, item)) return true;
         }
         return false;
     }
@@ -2568,7 +2569,7 @@ pub fn containsGeneric(container: anytype, item: anytype) bool {
     // Slice: iterate and compare
     if (info == .pointer and info.pointer.size == .slice) {
         for (container) |elem| {
-            if (std.meta.eql(elem, item)) return true;
+            if (pyAnyEql(elem, item)) return true;
         }
         return false;
     }
