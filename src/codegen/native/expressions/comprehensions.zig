@@ -1649,7 +1649,7 @@ fn nativeTypeToZigStr(native_type: @import("../../../analysis/native_types/core.
         .string => "[]const u8",
         .bytes => "runtime.builtins.PyBytes",
         .complex => "runtime.complex.PyComplex",
-        .none => "@TypeOf(null)",
+        .none => "?void",
         // All other types fall back to PyValue for heterogeneous dicts
         else => "runtime.PyValue",
     };

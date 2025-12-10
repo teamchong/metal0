@@ -306,6 +306,16 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emitIndent();
     try self.emit("}\n");
 
+    // Null to ?void cast (for dict values that are all None)
+    try self.emitIndent();
+    try self.emit("if (V == ?void and @TypeOf(kv[1]) == @TypeOf(null)) {\n");
+    self.indent();
+    try self.emitIndent();
+    try self.emit("break :cast_blk null;\n");
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
+
     // Default fallback
     try self.emitIndent();
     try self.emit("break :cast_blk kv[1];\n");

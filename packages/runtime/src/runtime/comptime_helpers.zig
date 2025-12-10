@@ -393,6 +393,8 @@ pub fn InferDictValueType(comptime TupleType: type) type {
     comptime var has_bool = false;
     comptime var has_tuple = false;
     comptime var has_array = false;
+    comptime var has_null = false;
+    comptime var has_int = false;
     comptime var tuple_type: ?type = null;
     comptime var array_type: ?type = null;
 
@@ -421,6 +423,10 @@ pub fn InferDictValueType(comptime TupleType: type) type {
             has_string = true;
         } else if (V == bool) {
             has_bool = true;
+        } else if (V == @TypeOf(null)) {
+            has_null = true;
+        } else if (V == i64 or V == comptime_int) {
+            has_int = true;
         }
     }
 
@@ -435,6 +441,12 @@ pub fn InferDictValueType(comptime TupleType: type) type {
         result_type = f64;
     } else if (has_bool) {
         result_type = bool;
+    } else if (has_int) {
+        result_type = i64;
+    } else if (has_null) {
+        // All values are null - use ?void as it's a concrete type that can store null
+        // @TypeOf(null) is zero-sized and can't be stored in hash maps
+        result_type = ?void;
     } else {
         result_type = i64;
     }

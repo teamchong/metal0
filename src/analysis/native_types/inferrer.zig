@@ -168,11 +168,14 @@ pub const TypeInferrer = struct {
     }
 
     /// Widen a variable type in current scope (for reassignments)
+    /// Special handling for dict types: when value types differ, widen to dict with pyvalue values
     pub fn widenScopedVar(self: *TypeInferrer, name: []const u8, new_type: NativeType) !void {
+        const arena_alloc = self.arena.allocator();
+
         if (self.current_scope_name) |scope| {
-            const scoped_key = try std.fmt.allocPrint(self.arena.allocator(), "{s}:{s}", .{ scope, name });
+            const scoped_key = try std.fmt.allocPrint(arena_alloc, "{s}:{s}", .{ scope, name });
             if (self.scoped_var_types.get(scoped_key)) |existing| {
-                const widened = existing.widen(new_type);
+                const widened = try self.widenDictAware(existing, new_type, arena_alloc);
                 try self.scoped_var_types.put(scoped_key, widened);
                 // Also update legacy var_types
                 try self.var_types.put(name, widened);
@@ -183,12 +186,49 @@ pub const TypeInferrer = struct {
         } else {
             // Global scope - use legacy var_types with widening
             if (self.var_types.get(name)) |existing| {
-                const widened = existing.widen(new_type);
+                const widened = try self.widenDictAware(existing, new_type, arena_alloc);
                 try self.var_types.put(name, widened);
             } else {
                 try self.var_types.put(name, new_type);
             }
         }
+    }
+
+    /// Widen types with special handling for dicts
+    /// When two dicts have different value types, create a dict with pyvalue values
+    /// instead of falling back to .unknown
+    fn widenDictAware(self: *TypeInferrer, existing: NativeType, new_type: NativeType, alloc: std.mem.Allocator) !NativeType {
+        _ = self;
+
+        // Check if both are dict types
+        const existing_tag = @as(std.meta.Tag(NativeType), existing);
+        const new_tag = @as(std.meta.Tag(NativeType), new_type);
+
+        if (existing_tag == .dict and new_tag == .dict) {
+            const existing_key = existing.dict.key.*;
+            const new_key = new_type.dict.key.*;
+            const existing_val = existing.dict.value.*;
+            const new_val = new_type.dict.value.*;
+
+            // If key types match but value types differ, widen to dict with pyvalue values
+            const existing_key_tag = @as(std.meta.Tag(NativeType), existing_key);
+            const new_key_tag = @as(std.meta.Tag(NativeType), new_key);
+            const existing_val_tag = @as(std.meta.Tag(NativeType), existing_val);
+            const new_val_tag = @as(std.meta.Tag(NativeType), new_val);
+
+            if (existing_key_tag == new_key_tag and existing_val_tag != new_val_tag) {
+                // Same key type, different value types -> use pyvalue for values
+                const pyvalue_type = try alloc.create(NativeType);
+                pyvalue_type.* = .pyvalue;
+                return NativeType{ .dict = .{
+                    .key = existing.dict.key, // Reuse existing key type
+                    .value = pyvalue_type,
+                } };
+            }
+        }
+
+        // Fall back to standard widening for non-dict or compatible dict types
+        return existing.widen(new_type);
     }
 
     /// Analyze a module to infer all variable types
