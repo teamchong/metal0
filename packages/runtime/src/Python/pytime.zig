@@ -196,10 +196,26 @@ pub fn perfCounterSeconds() f64 {
 
 /// Get process time (user + system CPU time) in nanoseconds
 pub fn processTimeNanos() i64 {
-    // Use timer for thread CPU time if available
-    if (builtin.os.tag != .windows) {
-        // On POSIX, we'd use clock_gettime(CLOCK_PROCESS_CPUTIME_ID)
-        // For now, use monotonic time as approximation
+    if (builtin.os.tag == .linux or builtin.os.tag == .freebsd or
+        builtin.os.tag == .netbsd or builtin.os.tag == .openbsd)
+    {
+        // Use clock_gettime with CLOCK_PROCESS_CPUTIME_ID
+        var ts: std.posix.timespec = undefined;
+        const CLOCK_PROCESS_CPUTIME_ID = 2; // Linux/BSD value
+        const result = std.posix.clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+        if (result == 0) {
+            return ts.sec * std.time.ns_per_s + ts.nsec;
+        }
+        // Fall back to monotonic if process clock unavailable
+        return monotonicNanos();
+    } else if (builtin.os.tag == .macos) {
+        // macOS: Use mach_absolute_time based approximation
+        // CLOCK_PROCESS_CPUTIME_ID is not well supported on macOS
+        // Use thread_info for actual CPU time would require mach APIs
+        return monotonicNanos();
+    } else if (builtin.os.tag == .windows) {
+        // Windows: GetProcessTimes requires kernel32 FFI
+        // Monotonic time is acceptable for most use cases
         return monotonicNanos();
     }
     return monotonicNanos();
@@ -212,7 +228,16 @@ pub fn processTimeSeconds() f64 {
 
 /// Get thread time in nanoseconds
 pub fn threadTimeNanos() i64 {
-    // Similar to process time but for current thread
+    if (builtin.os.tag == .linux) {
+        // Use clock_gettime with CLOCK_THREAD_CPUTIME_ID
+        var ts: std.posix.timespec = undefined;
+        const CLOCK_THREAD_CPUTIME_ID = 3; // Linux value
+        const result = std.posix.clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+        if (result == 0) {
+            return ts.sec * std.time.ns_per_s + ts.nsec;
+        }
+    }
+    // Fall back to process time for other platforms
     return processTimeNanos();
 }
 

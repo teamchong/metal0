@@ -25,9 +25,30 @@ pub fn copy(allocator: Allocator, src: []const u8, dst: []const u8) ![]const u8 
 }
 
 /// Copy file preserving metadata (copy2 in Python)
+/// Copies file content and preserves modification time and permissions
 pub fn copy2(allocator: Allocator, src: []const u8, dst: []const u8) ![]const u8 {
-    // For now, same as copy - Zig's copyFile preserves what it can
-    return copy(allocator, src, dst);
+    // First copy the file content
+    const final_dst = try copy(allocator, src, dst);
+
+    // Get source file stats
+    const src_file = try std.fs.cwd().openFile(src, .{});
+    defer src_file.close();
+    const stat = try src_file.stat();
+
+    // Open destination to apply metadata
+    const dst_file = try std.fs.cwd().openFile(final_dst, .{ .mode = .read_write });
+    defer dst_file.close();
+
+    // Preserve modification time (atime, mtime)
+    dst_file.updateTimes(stat.atime, stat.mtime) catch {};
+
+    // Preserve permissions (mode) on POSIX systems
+    if (@import("builtin").os.tag != .windows) {
+        const mode = stat.mode & 0o7777; // Keep permission bits only
+        std.fs.cwd().chmod(final_dst, mode) catch {};
+    }
+
+    return final_dst;
 }
 
 /// Copy file content only (no metadata)
