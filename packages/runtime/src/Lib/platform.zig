@@ -60,30 +60,80 @@ pub fn processor() []const u8 {
 
 /// Returns the network name of the computer (hostname)
 pub fn node(allocator: std.mem.Allocator) ![]u8 {
-    // Use POSIX hostname
-    var buf: [256]u8 = undefined;
-
-    if (builtin.os.tag == .windows) {
-        // Windows hostname
+    if (comptime builtin.os.tag == .windows) {
+        // Windows: use GetComputerNameExA
+        const windows = std.os.windows;
+        var buf: [256]u8 = undefined;
+        var size: windows.DWORD = buf.len;
+        if (windows.kernel32.GetComputerNameExA(
+            @intFromEnum(windows.ComputerNameFormat.ComputerNameDnsHostname),
+            &buf,
+            &size,
+        ) != 0) {
+            return try allocator.dupe(u8, buf[0..size]);
+        }
+        return try allocator.dupe(u8, "localhost");
+    } else {
+        // POSIX: use uname
+        var uts: std.posix.utsname = undefined;
+        if (std.posix.uname(&uts) == 0) {
+            // Find null terminator
+            const nodename = &uts.nodename;
+            var len: usize = 0;
+            while (len < nodename.len and nodename[len] != 0) : (len += 1) {}
+            return try allocator.dupe(u8, nodename[0..len]);
+        }
         return try allocator.dupe(u8, "localhost");
     }
-
-    // For Unix-like systems, we'd use gethostname
-    // For now, return a placeholder
-    const hostname = "localhost";
-    return try allocator.dupe(u8, hostname);
 }
 
-/// Returns the system's release (e.g., kernel version)
+/// Cached uname results (populated on first call)
+var cached_release: ?[]const u8 = null;
+var cached_version: ?[]const u8 = null;
+
+/// Returns the system's release (e.g., kernel version like "5.15.0" or "23.1.0")
 pub fn release() []const u8 {
-    // This would normally come from uname()
-    return "0.0.0";
+    if (cached_release) |rel| return rel;
+
+    if (comptime builtin.os.tag == .windows) {
+        cached_release = "Windows";
+        return cached_release.?;
+    }
+
+    // POSIX: use uname
+    var uts: std.posix.utsname = undefined;
+    if (std.posix.uname(&uts) == 0) {
+        const rel = &uts.release;
+        var len: usize = 0;
+        while (len < rel.len and rel[len] != 0) : (len += 1) {}
+        // Store static slice from uname buffer (valid for process lifetime)
+        cached_release = rel[0..len];
+        return cached_release.?;
+    }
+    cached_release = "";
+    return cached_release.?;
 }
 
-/// Returns the system's release version
+/// Returns the system's release version (e.g., build info)
 pub fn version() []const u8 {
-    // This would normally come from uname()
-    return "";
+    if (cached_version) |ver| return ver;
+
+    if (comptime builtin.os.tag == .windows) {
+        cached_version = "";
+        return cached_version.?;
+    }
+
+    // POSIX: use uname
+    var uts: std.posix.utsname = undefined;
+    if (std.posix.uname(&uts) == 0) {
+        const ver = &uts.version;
+        var len: usize = 0;
+        while (len < ver.len and ver[len] != 0) : (len += 1) {}
+        cached_version = ver[0..len];
+        return cached_version.?;
+    }
+    cached_version = "";
+    return cached_version.?;
 }
 
 // ============================================================================
