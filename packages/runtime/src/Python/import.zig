@@ -582,6 +582,26 @@ pub fn importModuleLevel(
     return importModule(full_name);
 }
 
+/// Simple module object representation for AOT-compiled code
+/// This is a lightweight representation since full PyModuleObject is complex
+pub const ModuleObject = struct {
+    name: []const u8,
+    dict: ?*anyopaque = null, // Module's __dict__
+    doc: ?[]const u8 = null, // Module's __doc__
+    initialized: bool = false,
+
+    pub fn init(mod_name: []const u8) ModuleObject {
+        return .{
+            .name = mod_name,
+            .initialized = true,
+        };
+    }
+};
+
+/// Storage for created module objects
+var module_objects: [256]?ModuleObject = [_]?ModuleObject{null} ** 256;
+var module_object_count: usize = 0;
+
 /// Add a new module to sys.modules
 /// Mirrors: PyImport_AddModule()
 pub fn addModule(name: []const u8) !?*anyopaque {
@@ -590,11 +610,18 @@ pub fn addModule(name: []const u8) !?*anyopaque {
         return existing;
     }
 
-    // Create new module (placeholder)
-    // In real implementation, would create PyModuleObject
-    const module: ?*anyopaque = null;
-    try setModule(name, module);
-    return module;
+    // Create new module object
+    if (module_object_count < module_objects.len) {
+        module_objects[module_object_count] = ModuleObject.init(name);
+        const module_ptr: *anyopaque = @ptrCast(&module_objects[module_object_count].?);
+        module_object_count += 1;
+
+        try setModule(name, module_ptr);
+        return module_ptr;
+    }
+
+    // Storage full - return null
+    return null;
 }
 
 /// Reload a module

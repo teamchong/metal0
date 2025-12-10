@@ -146,10 +146,63 @@ pub const TypeId = enum(u8) {
     object = 18,
 };
 
-/// Infer type ID from runtime value
+/// PyObject header structure for type checking
+/// Mirrors the ob_type field in PyObject
+const PyObjectHeader = extern struct {
+    ob_refcnt: isize,
+    ob_type: ?*anyopaque, // PyTypeObject pointer
+};
+
+/// Known type object pointers (set during initialization)
+var PyLong_Type_ptr: ?*anyopaque = null;
+var PyFloat_Type_ptr: ?*anyopaque = null;
+var PyUnicode_Type_ptr: ?*anyopaque = null;
+var PyList_Type_ptr: ?*anyopaque = null;
+var PyDict_Type_ptr: ?*anyopaque = null;
+var PyTuple_Type_ptr: ?*anyopaque = null;
+var PyBool_Type_ptr: ?*anyopaque = null;
+var PyNone_Type_ptr: ?*anyopaque = null;
+
+/// Initialize type pointers (called during runtime setup)
+pub fn initTypePointers(
+    long_type: ?*anyopaque,
+    float_type: ?*anyopaque,
+    unicode_type: ?*anyopaque,
+    list_type: ?*anyopaque,
+    dict_type: ?*anyopaque,
+    tuple_type: ?*anyopaque,
+    bool_type: ?*anyopaque,
+    none_type: ?*anyopaque,
+) void {
+    PyLong_Type_ptr = long_type;
+    PyFloat_Type_ptr = float_type;
+    PyUnicode_Type_ptr = unicode_type;
+    PyList_Type_ptr = list_type;
+    PyDict_Type_ptr = dict_type;
+    PyTuple_Type_ptr = tuple_type;
+    PyBool_Type_ptr = bool_type;
+    PyNone_Type_ptr = none_type;
+}
+
+/// Infer type ID from runtime value by checking ob_type
 pub fn inferTypeId(value: ?*anyopaque) TypeId {
     if (value == null) return .none;
-    // In a real implementation, would check Python type header
+
+    // Read the object header to get type pointer
+    const header: *const PyObjectHeader = @ptrCast(@alignCast(value));
+    const type_ptr = header.ob_type;
+
+    // Check against known type pointers
+    if (type_ptr == PyNone_Type_ptr) return .none;
+    if (type_ptr == PyBool_Type_ptr) return .bool;
+    if (type_ptr == PyLong_Type_ptr) return .long;
+    if (type_ptr == PyFloat_Type_ptr) return .float;
+    if (type_ptr == PyUnicode_Type_ptr) return .str;
+    if (type_ptr == PyList_Type_ptr) return .list;
+    if (type_ptr == PyDict_Type_ptr) return .dict;
+    if (type_ptr == PyTuple_Type_ptr) return .tuple;
+
+    // Unknown type - could extend with more type checks
     return .unknown;
 }
 
