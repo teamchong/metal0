@@ -185,23 +185,57 @@ pub fn ListImpl(comptime Config: type) type {
             }
         }
 
-        /// Sort list (comptime: only if Config provides compare function)
+        /// Sort list using adaptive algorithm based on size
         pub fn sort(self: *Self, comptime lessThan: fn (a: Config.ItemType, b: Config.ItemType) bool) void {
             if (self.size <= 1) return;
 
-            // Simple insertion sort (TODO: use quicksort for large lists)
-            var i: usize = 1;
-            while (i < self.size) : (i += 1) {
-                const key = self.items[i];
-                var j = i;
+            if (self.size <= 16) {
+                // Insertion sort for small lists (cache-friendly)
+                var i: usize = 1;
+                while (i < self.size) : (i += 1) {
+                    const key = self.items[i];
+                    var j = i;
 
-                while (j > 0 and lessThan(key, self.items[j - 1])) {
-                    self.items[j] = self.items[j - 1];
-                    j -= 1;
+                    while (j > 0 and lessThan(key, self.items[j - 1])) {
+                        self.items[j] = self.items[j - 1];
+                        j -= 1;
+                    }
+
+                    self.items[j] = key;
+                }
+            } else {
+                // Quicksort for larger lists
+                quickSort(self.items[0..self.size], lessThan);
+            }
+        }
+
+        fn quickSort(items: []Config.ItemType, comptime lessThan: fn (a: Config.ItemType, b: Config.ItemType) bool) void {
+            if (items.len <= 1) return;
+
+            // Partition
+            const pivot = items[items.len / 2];
+            var left: usize = 0;
+            var right: usize = items.len - 1;
+
+            while (left <= right) {
+                while (lessThan(items[left], pivot)) left += 1;
+                while (lessThan(pivot, items[right])) {
+                    if (right == 0) break;
+                    right -= 1;
                 }
 
-                self.items[j] = key;
+                if (left <= right) {
+                    const tmp = items[left];
+                    items[left] = items[right];
+                    items[right] = tmp;
+                    left += 1;
+                    if (right > 0) right -= 1;
+                }
             }
+
+            // Recurse on partitions
+            if (right > 0) quickSort(items[0 .. right + 1], lessThan);
+            if (left < items.len) quickSort(items[left..], lessThan);
         }
 
         /// Free all resources
@@ -301,7 +335,12 @@ pub fn PyObjectListConfig(comptime PyObject: type) type {
 
         pub fn releaseItem(item: *PyObject) void {
             item.ob_refcnt -= 1; // DECREF
-            // TODO: Dealloc if refcnt == 0
+            // Dealloc if refcnt reaches 0
+            if (item.ob_refcnt <= 0) {
+                if (item.ob_type.tp_dealloc) |dealloc| {
+                    dealloc(item);
+                }
+            }
         }
     };
 }

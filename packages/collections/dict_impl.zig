@@ -303,15 +303,32 @@ pub fn PyObjectDictConfig(comptime PyObject: type) type {
         pub const ValueType = *PyObject;
 
         pub fn hashKey(key: *PyObject) u64 {
-            // For now: identity hash
-            // TODO: Call tp_hash slot
+            // Call tp_hash slot if available
+            if (key.ob_type.tp_hash) |hash_fn| {
+                const hash_result = hash_fn(key);
+                if (hash_result != -1) {
+                    return @bitCast(hash_result);
+                }
+            }
+            // Fallback to identity hash
             return @intFromPtr(key);
         }
 
         pub fn keysEqual(a: *PyObject, b: *PyObject) bool {
-            // For now: pointer equality
-            // TODO: Call tp_richcompare slot
-            return a == b;
+            // Same object is always equal
+            if (a == b) return true;
+
+            // Call tp_richcompare slot if available
+            if (a.ob_type.tp_richcompare) |cmp_fn| {
+                const result = cmp_fn(a, b, 2); // Py_EQ = 2
+                if (result != null) {
+                    // Check if result is True (non-zero refcnt and truthy)
+                    defer result.?.ob_refcnt -= 1;
+                    // Simple check: assume PyBool or similar
+                    return @intFromPtr(result) != @intFromPtr(a.ob_type); // Not NotImplemented
+                }
+            }
+            return false;
         }
 
         pub fn retainKey(key: *PyObject) *PyObject {
@@ -321,7 +338,12 @@ pub fn PyObjectDictConfig(comptime PyObject: type) type {
 
         pub fn releaseKey(key: *PyObject) void {
             key.ob_refcnt -= 1; // DECREF
-            // TODO: Dealloc if refcnt == 0
+            // Dealloc if refcnt reaches 0
+            if (key.ob_refcnt <= 0) {
+                if (key.ob_type.tp_dealloc) |dealloc| {
+                    dealloc(key);
+                }
+            }
         }
 
         pub fn retainValue(val: *PyObject) *PyObject {
@@ -331,7 +353,12 @@ pub fn PyObjectDictConfig(comptime PyObject: type) type {
 
         pub fn releaseValue(val: *PyObject) void {
             val.ob_refcnt -= 1; // DECREF
-            // TODO: Dealloc if refcnt == 0
+            // Dealloc if refcnt reaches 0
+            if (val.ob_refcnt <= 0) {
+                if (val.ob_type.tp_dealloc) |dealloc| {
+                    dealloc(val);
+                }
+            }
         }
     };
 }

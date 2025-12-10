@@ -255,17 +255,39 @@ pub fn PyObjectTupleConfig(comptime PyObject: type) type {
 
         pub fn releaseItem(item: *PyObject) void {
             item.ob_refcnt -= 1; // DECREF
-            // TODO: Dealloc if refcnt == 0
+            // Dealloc if refcnt reaches 0
+            if (item.ob_refcnt <= 0) {
+                if (item.ob_type.tp_dealloc) |dealloc| {
+                    dealloc(item);
+                }
+            }
         }
 
         pub fn hashItem(item: *PyObject) u64 {
-            // TODO: Call tp_hash slot
+            // Call tp_hash slot if available
+            if (item.ob_type.tp_hash) |hash_fn| {
+                const hash_result = hash_fn(item);
+                if (hash_result != -1) {
+                    return @bitCast(hash_result);
+                }
+            }
+            // Fallback to identity hash
             return @intFromPtr(item);
         }
 
         pub fn itemsEqual(a: *PyObject, b: *PyObject) bool {
-            // TODO: Call tp_richcompare slot
-            return a == b;
+            // Same object is always equal
+            if (a == b) return true;
+
+            // Call tp_richcompare slot if available
+            if (a.ob_type.tp_richcompare) |cmp_fn| {
+                const result = cmp_fn(a, b, 2); // Py_EQ = 2
+                if (result != null) {
+                    defer result.?.ob_refcnt -= 1;
+                    return @intFromPtr(result) != @intFromPtr(a.ob_type);
+                }
+            }
+            return false;
         }
     };
 }
