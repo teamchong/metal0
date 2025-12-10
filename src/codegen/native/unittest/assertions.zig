@@ -1124,8 +1124,11 @@ pub fn genFail(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 }
 
 /// Generate code for self.skipTest(reason)
+/// This terminates control flow - no code after skipTest should run
 pub fn genSkipTest(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     _ = args;
     try self.emit("return");
+    // Mark control flow as terminated so no unreachable code is generated after
+    self.control_flow_terminated = true;
 }
