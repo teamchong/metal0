@@ -573,6 +573,7 @@ pub fn inferExprWithInferrer(
         .listcomp => |lc| blk: {
             // Track loop variables we add so we can restore scope after inference
             // Comprehension variables are scoped and should not affect outer variables
+            // Use TypeInferrer's putTempVar/restoreTempVar for proper scoping
             var saved_types: [8]struct { name: []const u8, old_type: ?NativeType } = undefined;
             var saved_count: usize = 0;
 
@@ -584,12 +585,19 @@ pub fn inferExprWithInferrer(
                         const func_name = gen.iter.call.func.name.id;
                         if (std.mem.eql(u8, func_name, "range")) {
                             const var_name = gen.target.name.id;
-                            // Save old type before overwriting
-                            if (saved_count < saved_types.len) {
-                                saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
-                                saved_count += 1;
+                            // Use TypeInferrer's temp var system if available, else manual save/restore
+                            if (type_inferrer) |ti| {
+                                if (saved_count < saved_types.len) {
+                                    saved_types[saved_count] = .{ .name = var_name, .old_type = ti.putTempVar(var_name, .{ .int = .bounded }) catch null };
+                                    saved_count += 1;
+                                }
+                            } else {
+                                if (saved_count < saved_types.len) {
+                                    saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
+                                    saved_count += 1;
+                                }
+                                try var_types.put(var_name, .{ .int = .bounded });
                             }
-                            try var_types.put(var_name, .{ .int = .bounded });
                         }
                     }
                 }
@@ -598,12 +606,18 @@ pub fn inferExprWithInferrer(
             // Infer element type from the comprehension expression
             var elem_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, lc.elt.*, type_inferrer);
 
-            // Restore original types (or remove if there wasn't one)
-            for (saved_types[0..saved_count]) |saved| {
-                if (saved.old_type) |old| {
-                    try var_types.put(saved.name, old);
-                } else {
-                    _ = var_types.swapRemove(saved.name);
+            // Restore original types using TypeInferrer if available
+            if (type_inferrer) |ti| {
+                for (saved_types[0..saved_count]) |saved| {
+                    ti.restoreTempVar(saved.name, saved.old_type);
+                }
+            } else {
+                for (saved_types[0..saved_count]) |saved| {
+                    if (saved.old_type) |old| {
+                        try var_types.put(saved.name, old);
+                    } else {
+                        _ = var_types.swapRemove(saved.name);
+                    }
                 }
             }
 
@@ -621,6 +635,7 @@ pub fn inferExprWithInferrer(
         .dictcomp => |dc| blk: {
             // Track loop variables we add so we can restore scope after inference
             // Comprehension variables are scoped and should not affect outer variables
+            // Use TypeInferrer's putTempVar/restoreTempVar for proper scoping
             var saved_types: [8]struct { name: []const u8, old_type: ?NativeType } = undefined;
             var saved_count: usize = 0;
 
@@ -632,12 +647,19 @@ pub fn inferExprWithInferrer(
                         const func_name = gen.iter.call.func.name.id;
                         if (std.mem.eql(u8, func_name, "range")) {
                             const var_name = gen.target.name.id;
-                            // Save old type before overwriting
-                            if (saved_count < saved_types.len) {
-                                saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
-                                saved_count += 1;
+                            // Use TypeInferrer's temp var system if available, else manual save/restore
+                            if (type_inferrer) |ti| {
+                                if (saved_count < saved_types.len) {
+                                    saved_types[saved_count] = .{ .name = var_name, .old_type = ti.putTempVar(var_name, .{ .int = .bounded }) catch null };
+                                    saved_count += 1;
+                                }
+                            } else {
+                                if (saved_count < saved_types.len) {
+                                    saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
+                                    saved_count += 1;
+                                }
+                                try var_types.put(var_name, .{ .int = .bounded });
                             }
-                            try var_types.put(var_name, .{ .int = .bounded });
                         }
                     }
                 }
@@ -647,12 +669,18 @@ pub fn inferExprWithInferrer(
             const key_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, dc.key.*, type_inferrer);
             const val_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, dc.value.*, type_inferrer);
 
-            // Restore original types (or remove if there wasn't one)
-            for (saved_types[0..saved_count]) |saved| {
-                if (saved.old_type) |old| {
-                    try var_types.put(saved.name, old);
-                } else {
-                    _ = var_types.swapRemove(saved.name);
+            // Restore original types using TypeInferrer if available
+            if (type_inferrer) |ti| {
+                for (saved_types[0..saved_count]) |saved| {
+                    ti.restoreTempVar(saved.name, saved.old_type);
+                }
+            } else {
+                for (saved_types[0..saved_count]) |saved| {
+                    if (saved.old_type) |old| {
+                        try var_types.put(saved.name, old);
+                    } else {
+                        _ = var_types.swapRemove(saved.name);
+                    }
                 }
             }
 
@@ -681,6 +709,7 @@ pub fn inferExprWithInferrer(
         .genexp => |ge| blk: {
             // Track loop variables we add so we can restore scope after inference
             // Comprehension variables are scoped and should not affect outer variables
+            // Use TypeInferrer's putTempVar/restoreTempVar for proper scoping
             var saved_types: [8]struct { name: []const u8, old_type: ?NativeType } = undefined;
             var saved_count: usize = 0;
 
@@ -693,29 +722,43 @@ pub fn inferExprWithInferrer(
                     if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
                         const func_name = gen.iter.call.func.name.id;
                         if (std.mem.eql(u8, func_name, "range")) {
-                            // Save old type before overwriting
-                            if (saved_count < saved_types.len) {
-                                saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
-                                saved_count += 1;
+                            // Use TypeInferrer's temp var system if available, else manual save/restore
+                            if (type_inferrer) |ti| {
+                                if (saved_count < saved_types.len) {
+                                    saved_types[saved_count] = .{ .name = var_name, .old_type = ti.putTempVar(var_name, .{ .int = .bounded }) catch null };
+                                    saved_count += 1;
+                                }
+                            } else {
+                                if (saved_count < saved_types.len) {
+                                    saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
+                                    saved_count += 1;
+                                }
+                                try var_types.put(var_name, .{ .int = .bounded });
                             }
-                            try var_types.put(var_name, .{ .int = .bounded });
                         }
                     }
                     // Check if iterator is a list/array variable - loop var gets element type
                     if (gen.iter.* == .name) {
                         const iter_name = gen.iter.name.id;
                         if (var_types.get(iter_name)) |iter_type| {
-                            const elem_type: NativeType = switch (iter_type) {
+                            const elem_type_inner: NativeType = switch (iter_type) {
                                 .list => |elem| elem.*,
                                 .array => |arr| arr.element_type.*,
                                 else => NativeType{ .int = .bounded },
                             };
-                            // Save old type before overwriting
-                            if (saved_count < saved_types.len) {
-                                saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
-                                saved_count += 1;
+                            // Use TypeInferrer's temp var system if available, else manual save/restore
+                            if (type_inferrer) |ti| {
+                                if (saved_count < saved_types.len) {
+                                    saved_types[saved_count] = .{ .name = var_name, .old_type = ti.putTempVar(var_name, elem_type_inner) catch null };
+                                    saved_count += 1;
+                                }
+                            } else {
+                                if (saved_count < saved_types.len) {
+                                    saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
+                                    saved_count += 1;
+                                }
+                                try var_types.put(var_name, elem_type_inner);
                             }
-                            try var_types.put(var_name, elem_type);
                         }
                     }
                 }
@@ -724,12 +767,18 @@ pub fn inferExprWithInferrer(
             // Infer element type from the generator expression
             const elem_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, ge.elt.*, type_inferrer);
 
-            // Restore original types (or remove if there wasn't one)
-            for (saved_types[0..saved_count]) |saved| {
-                if (saved.old_type) |old| {
-                    try var_types.put(saved.name, old);
-                } else {
-                    _ = var_types.swapRemove(saved.name);
+            // Restore original types using TypeInferrer if available
+            if (type_inferrer) |ti| {
+                for (saved_types[0..saved_count]) |saved| {
+                    ti.restoreTempVar(saved.name, saved.old_type);
+                }
+            } else {
+                for (saved_types[0..saved_count]) |saved| {
+                    if (saved.old_type) |old| {
+                        try var_types.put(saved.name, old);
+                    } else {
+                        _ = var_types.swapRemove(saved.name);
+                    }
                 }
             }
 

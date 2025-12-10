@@ -149,6 +149,24 @@ pub const TypeInferrer = struct {
         return null;
     }
 
+    /// Temporarily add a variable type for comprehension/block scope inference
+    /// Returns the old type (if any) so caller can restore it after
+    /// This does NOT use the scoped_var_types system - it's for temporary overrides during inference
+    pub fn putTempVar(self: *TypeInferrer, name: []const u8, var_type: NativeType) !?NativeType {
+        const old_type = self.var_types.get(name);
+        try self.var_types.put(name, var_type);
+        return old_type;
+    }
+
+    /// Restore a variable type after temporary override (or remove if old_type is null)
+    pub fn restoreTempVar(self: *TypeInferrer, name: []const u8, old_type: ?NativeType) void {
+        if (old_type) |old| {
+            self.var_types.put(name, old) catch {};
+        } else {
+            _ = self.var_types.swapRemove(name);
+        }
+    }
+
     /// Widen a variable type in current scope (for reassignments)
     pub fn widenScopedVar(self: *TypeInferrer, name: []const u8, new_type: NativeType) !void {
         if (self.current_scope_name) |scope| {
