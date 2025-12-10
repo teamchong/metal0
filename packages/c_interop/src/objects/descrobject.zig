@@ -1114,6 +1114,99 @@ pub export var PyProperty_Type: cpython.PyTypeObject = .{
     .tp_vectorcall = null,
 };
 
+// ============================================================================
+// VECTORCALL IMPLEMENTATIONS
+// ============================================================================
+
+/// Vectorcall for METH_NOARGS methods
+fn vectorcall_noargs(
+    callable: ?*cpython.PyObject,
+    args: [*]?*cpython.PyObject,
+    nargsf: usize,
+    kwnames: ?*cpython.PyObject,
+) callconv(.C) ?*cpython.PyObject {
+    _ = kwnames;
+
+    if (callable == null) return null;
+    const descr: *PyMethodDescrObject = @ptrCast(@alignCast(callable.?));
+    const method = descr.d_method orelse return null;
+    const meth_fn = method.ml_meth orelse return null;
+
+    // Get self from args[0]
+    const nargs = nargsf & ~@as(usize, 1 << 63);
+    if (nargs < 1) return null;
+    const self_arg = args[0] orelse return null;
+
+    // Call with no additional args (METH_NOARGS)
+    const func: *const fn (?*cpython.PyObject, ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject = @ptrCast(meth_fn);
+    return func(self_arg, null);
+}
+
+/// Vectorcall for METH_O methods (single argument)
+fn vectorcall_o(
+    callable: ?*cpython.PyObject,
+    args: [*]?*cpython.PyObject,
+    nargsf: usize,
+    kwnames: ?*cpython.PyObject,
+) callconv(.C) ?*cpython.PyObject {
+    _ = kwnames;
+
+    if (callable == null) return null;
+    const descr: *PyMethodDescrObject = @ptrCast(@alignCast(callable.?));
+    const method = descr.d_method orelse return null;
+    const meth_fn = method.ml_meth orelse return null;
+
+    // Get self from args[0] and arg from args[1]
+    const nargs = nargsf & ~@as(usize, 1 << 63);
+    if (nargs < 2) return null;
+    const self_arg = args[0] orelse return null;
+    const arg = args[1];
+
+    // Call with single arg (METH_O)
+    const func: *const fn (?*cpython.PyObject, ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject = @ptrCast(meth_fn);
+    return func(self_arg, arg);
+}
+
+/// Vectorcall for METH_VARARGS methods
+fn vectorcall_varargs(
+    callable: ?*cpython.PyObject,
+    args: [*]?*cpython.PyObject,
+    nargsf: usize,
+    kwnames: ?*cpython.PyObject,
+) callconv(.C) ?*cpython.PyObject {
+    _ = kwnames;
+
+    if (callable == null) return null;
+    const descr: *PyMethodDescrObject = @ptrCast(@alignCast(callable.?));
+    const method = descr.d_method orelse return null;
+    const meth_fn = method.ml_meth orelse return null;
+
+    // Get self from args[0]
+    const nargs = nargsf & ~@as(usize, 1 << 63);
+    if (nargs < 1) return null;
+    const self_arg = args[0] orelse return null;
+
+    // Build args tuple from remaining arguments
+    const pytuple = @import("tupleobject.zig");
+    const tuple_size: isize = @intCast(nargs - 1);
+    const args_tuple = pytuple.PyTuple_New(tuple_size);
+    if (args_tuple == null) return null;
+
+    for (1..nargs) |i| {
+        if (args[i]) |arg| {
+            arg.ob_refcnt += 1;
+            _ = pytuple.PyTuple_SetItem(args_tuple.?, @intCast(i - 1), arg);
+        }
+    }
+
+    // Call with args tuple (METH_VARARGS)
+    const func: *const fn (?*cpython.PyObject, ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject = @ptrCast(meth_fn);
+    const result = func(self_arg, args_tuple);
+
+    cpython.Py_DECREF(args_tuple.?);
+    return result;
+}
+
 // Method wrapper type
 fn wrapper_dealloc(self_obj: ?*cpython.PyObject) callconv(.C) void {
     if (self_obj == null) return;
@@ -1215,6 +1308,25 @@ pub export fn PyDescr_NewMethod(type_obj: ?*cpython.PyTypeObject, method: ?*cons
     const mem = allocator.alignedAlloc(u8, @alignOf(PyMethodDescrObject), @sizeOf(PyMethodDescrObject)) catch return null;
     const descr: *PyMethodDescrObject = @ptrCast(@alignCast(mem.ptr));
 
+    // Determine vectorcall based on ml_flags
+    const moduleobject = @import("../include/moduleobject.zig");
+    const flags = method.?.ml_flags;
+    const vectorcall_fn: ?*const fn (
+        ?*cpython.PyObject,
+        [*]?*cpython.PyObject,
+        usize,
+        ?*cpython.PyObject,
+    ) callconv(.C) ?*cpython.PyObject = blk: {
+        if ((flags & moduleobject.METH_NOARGS) != 0) {
+            break :blk &vectorcall_noargs;
+        } else if ((flags & moduleobject.METH_O) != 0) {
+            break :blk &vectorcall_o;
+        } else if ((flags & moduleobject.METH_VARARGS) != 0) {
+            break :blk &vectorcall_varargs;
+        }
+        break :blk null;
+    };
+
     descr.* = .{
         .ob_base = .{
             .ob_refcnt = 1,
@@ -1224,7 +1336,7 @@ pub export fn PyDescr_NewMethod(type_obj: ?*cpython.PyTypeObject, method: ?*cons
         .d_name = null,
         .d_qualname = null,
         .d_method = method,
-        .vectorcall = null, // TODO: Set appropriate vectorcall based on ml_flags
+        .vectorcall = vectorcall_fn,
     };
 
     // Incref type

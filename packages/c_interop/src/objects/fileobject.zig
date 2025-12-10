@@ -238,17 +238,60 @@ pub export fn PyFile_FromFd(
     newline: ?[*:0]const u8,
     closefd: c_int,
 ) ?*cpython.PyObject {
-    _ = name;
-    _ = mode;
-    _ = buffering;
-    _ = encoding;
-    _ = errors;
-    _ = newline;
-    _ = closefd;
+    const pyunicode = @import("unicodeobject.zig");
+    const pylong = @import("longobject.zig");
+    const _io = @import("../modules/_io/_iomodule.zig");
 
-    // TODO: Import _io and call open()
-    // For now, just return a std printer for the fd
-    return PyFile_NewStdPrinter(fd);
+    // Convert fd to Python int
+    const fd_obj = pylong.PyLong_FromLong(fd);
+    if (fd_obj == null) return null;
+
+    // Convert mode string
+    var mode_obj: ?*cpython.PyObject = null;
+    if (mode) |m| {
+        mode_obj = pyunicode.PyUnicode_FromString(m);
+    }
+
+    // Convert encoding string
+    var encoding_obj: ?*cpython.PyObject = null;
+    if (encoding) |e| {
+        encoding_obj = pyunicode.PyUnicode_FromString(e);
+    }
+
+    // Convert errors string
+    var errors_obj: ?*cpython.PyObject = null;
+    if (errors) |e| {
+        errors_obj = pyunicode.PyUnicode_FromString(e);
+    }
+
+    // Convert newline string
+    var newline_obj: ?*cpython.PyObject = null;
+    if (newline) |n| {
+        newline_obj = pyunicode.PyUnicode_FromString(n);
+    }
+
+    _ = name; // Name is just for repr, not needed for fd-based open
+
+    // Call _io.open with the fd
+    const result = _io._io_open(
+        fd_obj,
+        mode_obj,
+        buffering,
+        encoding_obj,
+        errors_obj,
+        newline_obj,
+        closefd,
+        null, // opener
+    );
+
+    // Clean up temporary objects
+    cpython.Py_DECREF(fd_obj);
+    if (mode_obj) |m| cpython.Py_DECREF(m);
+    if (encoding_obj) |e| cpython.Py_DECREF(e);
+    if (errors_obj) |e| cpython.Py_DECREF(e);
+    if (newline_obj) |n| cpython.Py_DECREF(n);
+
+    return result;
 }
 
 /// Read a line from file object
