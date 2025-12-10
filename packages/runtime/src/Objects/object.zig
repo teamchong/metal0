@@ -484,7 +484,16 @@ pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
     if (T == PyValue) return value;
     if (T == bigint.BigInt) return .{ .bigint = value };
     if (T == i64 or T == i32 or T == i16 or T == i8) return .{ .int = @intCast(value) };
-    if (T == u64 or T == u32 or T == u16 or T == u8 or T == usize) return .{ .int = @intCast(value) };
+    // Unsigned integers - check if they fit in i64, otherwise use BigInt
+    if (T == u64 or T == usize) {
+        if (value <= std.math.maxInt(i64)) {
+            return .{ .int = @intCast(value) };
+        } else {
+            // Value exceeds i64 max, convert to BigInt
+            return .{ .bigint = try bigint.BigInt.fromInt128(allocator, @as(i128, value)) };
+        }
+    }
+    if (T == u32 or T == u16 or T == u8) return .{ .int = @intCast(value) };
     if (T == f64 or T == f32) return .{ .float = @floatCast(value) };
     if (T == bool) return .{ .bool = value };
     if (info == .comptime_int) return .{ .int = @intCast(value) };
