@@ -450,7 +450,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     }
                     const class_names = class_names_list.items;
 
-                    const skip_reason: ?[]const u8 = if (test_skip.hasCPythonOnlyDecorator(method.decorators))
+                    // First check unittest skip decorators (skipIf, skipUnless, skip)
+                    // These are evaluated at compile time for platform/module checks
+                    const decorator_skip = test_skip.evaluateSkipDecorators(method.decorators, &self.skipped_modules);
+
+                    const skip_reason: ?[]const u8 = if (decorator_skip) |reason|
+                        reason
+                    else if (test_skip.hasCPythonOnlyDecorator(method.decorators))
                         "CPython implementation test (not applicable to metal0)"
                     else if (test_skip.hasSkipUnlessCPythonModule(method.decorators))
                         "Requires CPython-only module (_pylong or _decimal)"

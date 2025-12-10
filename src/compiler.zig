@@ -141,8 +141,10 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
 
     const build_dir = build_dirs.CACHE;
 
-    // Write Zig code to temporary file
-    const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{d}.zig", .{ build_dir, std.time.milliTimestamp() });
+    // Write Zig code to temporary file (use output_path basename for uniqueness in parallel builds)
+    const out_basename = std.fs.path.basename(output_path);
+    const out_stem = if (std.mem.lastIndexOf(u8, out_basename, ".")) |idx| out_basename[0..idx] else out_basename;
+    const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{s}_{d}.zig", .{ build_dir, out_stem, std.time.milliTimestamp() });
 
     // Write temp file
     const tmp_file = try std.fs.cwd().createFile(tmp_path, .{});
@@ -252,8 +254,10 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     try build_dirs.init();
     const build_dir = build_dirs.CACHE;
 
-    // Write Zig code to temporary file
-    const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{d}.zig", .{ build_dir, std.time.milliTimestamp() });
+    // Write Zig code to temporary file (use output_path basename for uniqueness in parallel builds)
+    const out_basename = std.fs.path.basename(output_path);
+    const out_stem = if (std.mem.lastIndexOf(u8, out_basename, ".")) |idx| out_basename[0..idx] else out_basename;
+    const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{s}_{d}.zig", .{ build_dir, out_stem, std.time.milliTimestamp() });
 
     const tmp_file = try std.fs.cwd().createFile(tmp_path, .{});
     defer tmp_file.close();
@@ -345,8 +349,10 @@ fn compileWasmInternal(allocator: std.mem.Allocator, zig_code: []const u8, outpu
     try build_dirs.init();
     const build_dir = build_dirs.CACHE;
 
-    // Write Zig code to temporary file
-    const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{d}.zig", .{ build_dir, std.time.milliTimestamp() });
+    // Write Zig code to temporary file (use output_path basename for uniqueness in parallel builds)
+    const out_basename = std.fs.path.basename(output_path);
+    const out_stem = if (std.mem.lastIndexOf(u8, out_basename, ".")) |idx| out_basename[0..idx] else out_basename;
+    const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{s}_{d}.zig", .{ build_dir, out_stem, std.time.milliTimestamp() });
 
     const tmp_file = try std.fs.cwd().createFile(tmp_path, .{});
     defer tmp_file.close();

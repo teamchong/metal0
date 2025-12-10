@@ -181,14 +181,32 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
 /// For module-level imports, this is handled in PHASE 3
 /// For local imports (inside functions), we need to generate const bindings
 pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!void {
+    const module_name = import.module;
+    const alias = import.asname orelse module_name;
+
+    // Check if module was marked as unavailable (e.g., winreg on Mac)
+    // Generate code that raises ModuleNotFoundError like Python does
+    if (self.isSkippedModule(module_name)) {
+        // At module level (indent 0 or struct level), use comptime block with @compileError
+        // At function level, generate runtime error
+        if (self.indent_level == 0 or (self.mode == .module and self.indent_level == 1)) {
+            // Module-level: emit comptime block that fails compilation
+            // This matches Python behavior where import fails immediately
+            try self.emitIndent();
+            try self.emitFmt("comptime {{ @compileError(\"No module named '{s}'\"); }}\n", .{module_name});
+        } else {
+            // Local import: generate runtime error
+            try self.emitIndent();
+            try self.emitFmt("return error.ModuleNotFoundError; // No module named '{s}'\n", .{module_name});
+        }
+        return;
+    }
+
     // Only generate for local imports (inside functions)
     // Module-level imports are handled in PHASE 3 of generator.zig
     // In module mode, indent_level == 1 means we're at struct level (still module-level)
     if (self.indent_level == 0) return;
     if (self.mode == .module and self.indent_level == 1) return;
-
-    const module_name = import.module;
-    const alias = import.asname orelse module_name;
 
     // Look up in registry
     if (self.import_registry.lookup(module_name)) |info| {
@@ -218,12 +236,30 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
 /// Module-level imports are handled in PHASE 3 of generator.zig
 /// Local imports (inside functions) need to generate const bindings
 pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenError!void {
+    const module_name = import.module;
+
+    // Check if module was marked as unavailable (e.g., winreg on Mac)
+    // Generate code that raises ModuleNotFoundError like Python does
+    if (self.isSkippedModule(module_name)) {
+        // At module level (indent 0 or struct level), use comptime block with @compileError
+        // At function level, generate runtime error
+        if (self.indent_level == 0 or (self.mode == .module and self.indent_level == 1)) {
+            // Module-level: emit comptime block that fails compilation
+            // This matches Python behavior where import fails immediately
+            try self.emitIndent();
+            try self.emitFmt("comptime {{ @compileError(\"No module named '{s}'\"); }}\n", .{module_name});
+        } else {
+            // Local import: generate runtime error
+            try self.emitIndent();
+            try self.emitFmt("return error.ModuleNotFoundError; // No module named '{s}'\n", .{module_name});
+        }
+        return;
+    }
+
     // Only generate for local imports (inside functions)
     // Module-level imports are handled in PHASE 3
     if (self.indent_level == 0) return;
     if (self.mode == .module and self.indent_level == 1) return;
-
-    const module_name = import.module;
 
     // Look up in registry to get the Zig module path
     if (self.import_registry.lookup(module_name)) |info| {

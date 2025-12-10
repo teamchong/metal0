@@ -5,6 +5,235 @@ const hashmap_helper = @import("utils.hashmap_helper");
 const shared = @import("../../../shared_maps.zig");
 const TypeParamDefaults = shared.PythonBuiltinTypes;
 const PyNameToZig = shared.PyTypeToZig;
+const builtin = @import("builtin");
+
+/// Platform detection for skip evaluation
+const current_platform: []const u8 = switch (builtin.os.tag) {
+    .windows => "win32",
+    .macos => "darwin",
+    .linux => "linux",
+    .freebsd, .openbsd, .netbsd => "bsd",
+    .wasi => "wasi",
+    else => "unknown",
+};
+
+const is_posix = builtin.os.tag != .windows;
+
+/// Skip result with reason
+pub const SkipResult = struct {
+    should_skip: bool,
+    reason: ?[]const u8,
+};
+
+/// Evaluate all skip decorators on a test method
+/// Returns skip reason if test should be skipped, null otherwise
+pub fn evaluateSkipDecorators(decorators: []const ast.Node, skipped_modules: *const hashmap_helper.StringHashMap(void)) ?[]const u8 {
+    for (decorators) |decorator| {
+        const result = evaluateSkipDecorator(decorator, skipped_modules);
+        if (result.should_skip) {
+            return result.reason;
+        }
+    }
+    return null;
+}
+
+/// Evaluate a single decorator for skip condition
+fn evaluateSkipDecorator(decorator: ast.Node, skipped_modules: *const hashmap_helper.StringHashMap(void)) SkipResult {
+    // Handle @unittest.skip("reason") - unconditional skip
+    if (decorator == .call) {
+        const call = decorator.call;
+        if (isUnittestMethod(call.func.*, "skip")) {
+            const reason = if (call.args.len > 0) getStringArg(call.args[0]) else "unconditionally skipped";
+            return .{ .should_skip = true, .reason = reason };
+        }
+
+        // Handle @unittest.skipIf(condition, reason)
+        if (isUnittestMethod(call.func.*, "skipIf")) {
+            if (call.args.len >= 1) {
+                const condition = evaluateCondition(call.args[0], skipped_modules);
+                if (condition) |cond_value| {
+                    if (cond_value) {
+                        const reason = if (call.args.len >= 2) getStringArg(call.args[1]) else "condition is true";
+                        return .{ .should_skip = true, .reason = reason };
+                    }
+                    return .{ .should_skip = false, .reason = null };
+                }
+            }
+        }
+
+        // Handle @unittest.skipUnless(condition, reason)
+        if (isUnittestMethod(call.func.*, "skipUnless")) {
+            if (call.args.len >= 1) {
+                const condition = evaluateCondition(call.args[0], skipped_modules);
+                if (condition) |cond_value| {
+                    if (!cond_value) {
+                        const reason = if (call.args.len >= 2) getStringArg(call.args[1]) else "condition is false";
+                        return .{ .should_skip = true, .reason = reason };
+                    }
+                    return .{ .should_skip = false, .reason = null };
+                }
+            }
+        }
+    }
+
+    return .{ .should_skip = false, .reason = null };
+}
+
+/// Check if func is unittest.methodName
+fn isUnittestMethod(func: ast.Node, method_name: []const u8) bool {
+    if (func != .attribute) return false;
+    const attr = func.attribute;
+    if (!std.mem.eql(u8, attr.attr, method_name)) return false;
+    if (attr.value.* != .name) return false;
+    return std.mem.eql(u8, attr.value.name.id, "unittest");
+}
+
+/// Get string value from constant arg
+fn getStringArg(arg: ast.Node) ?[]const u8 {
+    if (arg != .constant) return null;
+    if (arg.constant.value != .string) return null;
+    return arg.constant.value.string;
+}
+
+/// Evaluate a condition expression at compile time
+/// Returns null if condition cannot be evaluated statically
+fn evaluateCondition(expr: ast.Node, skipped_modules: *const hashmap_helper.StringHashMap(void)) ?bool {
+    switch (expr) {
+        // sys.platform == "win32"
+        .compare => |cmp| {
+            if (cmp.ops.len == 1 and cmp.comparators.len == 1) {
+                // sys.platform == "xxx" or sys.platform != "xxx"
+                if (isSysPlatform(cmp.left.*)) {
+                    const platform_str = getStringArg(cmp.comparators[0]) orelse return null;
+                    const matches = platformMatches(platform_str);
+                    return switch (cmp.ops[0]) {
+                        .Eq => matches,
+                        .NotEq => !matches,
+                        else => null,
+                    };
+                }
+                // os.name == "posix" or os.name != "posix"
+                if (isOsName(cmp.left.*)) {
+                    const name_str = getStringArg(cmp.comparators[0]) orelse return null;
+                    const matches = osNameMatches(name_str);
+                    return switch (cmp.ops[0]) {
+                        .Eq => matches,
+                        .NotEq => !matches,
+                        else => null,
+                    };
+                }
+                // module is None / module is not None
+                if (cmp.ops[0] == .Is or cmp.ops[0] == .IsNot) {
+                    if (cmp.left.* == .name and isNoneConstant(cmp.comparators[0])) {
+                        const module_name = cmp.left.name.id;
+                        const is_none = skipped_modules.contains(module_name);
+                        return if (cmp.ops[0] == .Is) is_none else !is_none;
+                    }
+                }
+            }
+            return null;
+        },
+        // sys.platform.startswith("darwin")
+        .call => |call| {
+            if (call.func.* == .attribute) {
+                const attr = call.func.attribute;
+                if (std.mem.eql(u8, attr.attr, "startswith") and isSysPlatform(attr.value.*)) {
+                    if (call.args.len >= 1) {
+                        const prefix = getStringArg(call.args[0]) orelse return null;
+                        return std.mem.startsWith(u8, current_platform, prefix);
+                    }
+                }
+                // hasattr(module, 'attr') - assume unavailable for CPython-specific attrs
+                if (std.mem.eql(u8, attr.attr, "hasattr") or
+                    (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "hasattr")))
+                {
+                    // Conservative: can't evaluate hasattr at compile time
+                    return null;
+                }
+            }
+            // support.xxx() function calls
+            if (call.func.* == .attribute) {
+                const attr = call.func.attribute;
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "support")) {
+                    // support.linked_to_musl() - we're not musl
+                    if (std.mem.eql(u8, attr.attr, "linked_to_musl")) return false;
+                    // support.is_wasm - not running in WASM during compile
+                    if (std.mem.eql(u8, attr.attr, "is_wasm")) return false;
+                }
+            }
+            return null;
+        },
+        // Direct name reference (variable truthy check)
+        .name => |n| {
+            // _testcapi, struct, ndarray etc - check if in skipped modules
+            if (skipped_modules.contains(n.id)) return false;
+            // support.Py_GIL_DISABLED, support.Py_TRACE_REFS - metal0 doesn't have these
+            return null;
+        },
+        // Attribute access like support.Py_GIL_DISABLED
+        .attribute => |attr| {
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "support")) {
+                // CPython debug/trace features we don't have
+                if (std.mem.eql(u8, attr.attr, "Py_GIL_DISABLED")) return false;
+                if (std.mem.eql(u8, attr.attr, "Py_TRACE_REFS")) return false;
+                if (std.mem.eql(u8, attr.attr, "Py_DEBUG")) return false;
+            }
+            return null;
+        },
+        // not condition
+        .unaryop => |u| {
+            if (u.op == .Not) {
+                const inner = evaluateCondition(u.operand.*, skipped_modules);
+                if (inner) |val| return !val;
+            }
+            return null;
+        },
+        // True/False constants
+        .constant => |c| {
+            if (c.value == .bool) return c.value.bool;
+            return null;
+        },
+        else => return null,
+    }
+}
+
+/// Check if expression is sys.platform
+fn isSysPlatform(expr: ast.Node) bool {
+    if (expr != .attribute) return false;
+    const attr = expr.attribute;
+    return std.mem.eql(u8, attr.attr, "platform") and
+        attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "sys");
+}
+
+/// Check if expression is os.name
+fn isOsName(expr: ast.Node) bool {
+    if (expr != .attribute) return false;
+    const attr = expr.attribute;
+    return std.mem.eql(u8, attr.attr, "name") and
+        attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "os");
+}
+
+/// Check if constant is None
+fn isNoneConstant(expr: ast.Node) bool {
+    if (expr != .constant) return false;
+    return expr.constant.value == .none;
+}
+
+/// Check if platform string matches current platform
+fn platformMatches(platform_str: []const u8) bool {
+    // Exact match
+    if (std.mem.eql(u8, current_platform, platform_str)) return true;
+    // "darwin" matches macOS
+    if (std.mem.eql(u8, platform_str, "darwin") and builtin.os.tag == .macos) return true;
+    return false;
+}
+
+/// Check if os.name matches
+fn osNameMatches(name_str: []const u8) bool {
+    if (std.mem.eql(u8, name_str, "posix")) return is_posix;
+    if (std.mem.eql(u8, name_str, "nt")) return builtin.os.tag == .windows;
+    return false;
+}
 
 /// Check if test has @support.cpython_only decorator
 pub fn hasCPythonOnlyDecorator(decorators: []const ast.Node) bool {

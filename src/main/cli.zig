@@ -1779,10 +1779,21 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         std.debug.print(")\n\n", .{});
     }
 
+    // Get compiler mtime - invalidate cache if compiler is newer than cached files
+    const compiler_mtime: i128 = blk: {
+        // Get self exe path
+        var path_buf: [4096]u8 = undefined;
+        const self_exe = std.fs.selfExePath(&path_buf) catch break :blk 0;
+        const stat = std.fs.cwd().statFile(self_exe) catch break :blk 0;
+        break :blk stat.mtime;
+    };
+
     // Phase 1: Parallel codegen (.py → .zig)
     // Use batched processing with arena reset to prevent memory accumulation
+    // CACHING: Skip codegen if .zig file exists and is newer than .py source
     if (!dots_mode) std.debug.print("Phase 1: Codegen...\n", .{});
     var codegen_ok: usize = 0;
+    var codegen_cached: usize = 0;
     var zig_files = std.ArrayList([]const u8){};
     defer {
         for (zig_files.items) |f| allocator.free(f);
@@ -1795,67 +1806,142 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         const batch_end = @min(batch_start + BATCH_SIZE, test_files.items.len);
 
         for (test_files.items[batch_start..batch_end]) |file_path| {
-            const opts = CompileOptions{ .input_file = file_path, .mode = "build", .force = true, .emit_zig_only = true };
-            compile.compileFile(allocator, opts) catch continue;
-            codegen_ok += 1;
-
             // Get the generated zig file path
             const basename = std.fs.path.basename(file_path);
             const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
             const zig_path = try std.fmt.allocPrint(allocator, "{s}/{s}.zig", .{ build_dirs.CACHE, stem });
+
+            // CACHING: Check if .zig file is newer than .py source AND compiler
+            const needs_codegen = blk: {
+                const py_stat = std.fs.cwd().statFile(file_path) catch break :blk true;
+                const zig_stat = std.fs.cwd().statFile(zig_path) catch break :blk true;
+                // Regenerate if: zig older than py, OR zig older than compiler
+                if (zig_stat.mtime < py_stat.mtime) break :blk true;
+                if (compiler_mtime > 0 and zig_stat.mtime < compiler_mtime) break :blk true;
+                break :blk false;
+            };
+
+            if (needs_codegen) {
+                const opts = CompileOptions{ .input_file = file_path, .mode = "build", .force = false, .emit_zig_only = true };
+                compile.compileFile(allocator, opts) catch {
+                    allocator.free(zig_path);
+                    continue;
+                };
+                codegen_ok += 1;
+            } else {
+                codegen_cached += 1;
+            }
+
             try zig_files.append(allocator, zig_path);
         }
 
         batch_start = batch_end;
     }
-    if (!dots_mode) std.debug.print("  Codegen: {d}/{d}\n", .{ codegen_ok, total });
+    if (!dots_mode) std.debug.print("  Codegen: {d}/{d} (cached: {d})\n", .{ codegen_ok + codegen_cached, total, codegen_cached });
 
-    if (codegen_ok == 0) {
+    if (codegen_ok == 0 and codegen_cached == 0) {
         printError("All codegen failed", .{});
         return;
     }
 
-    // Phase 2: Batch compile using Zig's cache (.zig → binary)
-    // Key: use --cache-dir for hash-based caching (Zig handles incremental!)
-    if (!dots_mode) std.debug.print("Phase 2: Compile (cached)...\n", .{});
-    var compile_ok: usize = 0;
+    // Phase 2: Parallel compile using thread pool (.zig → binary)
+    // CACHING: Skip compilation if binary exists and is newer than .zig file AND compiler
+    if (!dots_mode) std.debug.print("Phase 2: Compile (parallel)...\n", .{});
+    var compile_ok = std.atomic.Value(usize).init(0);
+    var compile_cached = std.atomic.Value(usize).init(0);
     var bin_paths = std.ArrayList([]const u8){};
     defer {
         for (bin_paths.items) |p| allocator.free(p);
         bin_paths.deinit(allocator);
     }
 
+    // Build list of files that need compilation vs cached
+    const CompileTask = struct {
+        zig_path: []const u8,
+        bin_path: []const u8,
+        needs_compile: bool,
+    };
+    var tasks = std.ArrayList(CompileTask){};
+    defer tasks.deinit(allocator);
+
     for (zig_files.items) |zig_path| {
-        // Check if zig file exists
         std.fs.cwd().access(zig_path, .{}) catch continue;
 
         const basename = std.fs.path.basename(zig_path);
         const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
         const bin_path = try std.fmt.allocPrint(allocator, ".metal0/bin/{s}", .{stem});
 
-        // Read the generated Zig source file
-        const zig_file = std.fs.cwd().openFile(zig_path, .{}) catch {
-            allocator.free(bin_path);
-            continue;
-        };
-        defer zig_file.close();
-
-        const zig_code = zig_file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch {
-            allocator.free(bin_path);
-            continue;
-        };
-        defer allocator.free(zig_code);
-
-        // Use compiler.compileZigWithOptions which handles all module flags
-        compiler.compileZigWithOptions(allocator, zig_code, bin_path, &.{}, false, .{}) catch {
-            allocator.free(bin_path);
-            continue;
+        const needs_compile = blk: {
+            const zig_stat = std.fs.cwd().statFile(zig_path) catch break :blk true;
+            const bin_stat = std.fs.cwd().statFile(bin_path) catch break :blk true;
+            if (bin_stat.mtime < zig_stat.mtime) break :blk true;
+            if (compiler_mtime > 0 and bin_stat.mtime < compiler_mtime) break :blk true;
+            break :blk false;
         };
 
-        compile_ok += 1;
+        try tasks.append(allocator, .{ .zig_path = zig_path, .bin_path = bin_path, .needs_compile = needs_compile });
         try bin_paths.append(allocator, bin_path);
     }
-    if (!dots_mode) std.debug.print("  Compile: {d}/{d}\n", .{ compile_ok, codegen_ok });
+
+    // Compile in parallel using thread pool
+    const num_compile_threads = @min(ncpu, tasks.items.len);
+    if (num_compile_threads > 0) {
+        var threads: [32]std.Thread = undefined;
+        const actual_threads = @min(num_compile_threads, 32);
+
+        const CompileContext = struct {
+            tasks: []CompileTask,
+            allocator: std.mem.Allocator,
+            compile_ok: *std.atomic.Value(usize),
+            compile_cached: *std.atomic.Value(usize),
+            next_task: std.atomic.Value(usize),
+
+            fn worker(ctx: *@This()) void {
+                while (true) {
+                    const idx = ctx.next_task.fetchAdd(1, .seq_cst);
+                    if (idx >= ctx.tasks.len) break;
+
+                    const task = ctx.tasks[idx];
+                    if (!task.needs_compile) {
+                        _ = ctx.compile_cached.fetchAdd(1, .seq_cst);
+                        continue;
+                    }
+
+                    // Read and compile
+                    const zig_file = std.fs.cwd().openFile(task.zig_path, .{}) catch continue;
+                    defer zig_file.close();
+
+                    const zig_code = zig_file.readToEndAlloc(ctx.allocator, 10 * 1024 * 1024) catch continue;
+                    defer ctx.allocator.free(zig_code);
+
+                    compiler.compileZigWithOptions(ctx.allocator, zig_code, task.bin_path, &.{}, false, .{}) catch continue;
+                    _ = ctx.compile_ok.fetchAdd(1, .seq_cst);
+                }
+            }
+        };
+
+        var ctx = CompileContext{
+            .tasks = tasks.items,
+            .allocator = allocator,
+            .compile_ok = &compile_ok,
+            .compile_cached = &compile_cached,
+            .next_task = std.atomic.Value(usize).init(0),
+        };
+
+        // Spawn worker threads
+        for (0..actual_threads) |ti| {
+            threads[ti] = std.Thread.spawn(.{}, CompileContext.worker, .{&ctx}) catch continue;
+        }
+
+        // Wait for all threads
+        for (0..actual_threads) |ti| {
+            threads[ti].join();
+        }
+    }
+
+    const final_compile_ok = compile_ok.load(.seq_cst);
+    const final_compile_cached = compile_cached.load(.seq_cst);
+    if (!dots_mode) std.debug.print("  Compile: {d}/{d} (cached: {d})\n", .{ final_compile_ok + final_compile_cached, codegen_ok + codegen_cached, final_compile_cached });
 
     // Phase 3: Run binaries
     if (!dots_mode) std.debug.print("Phase 3: Run...\n", .{});
@@ -1946,7 +2032,14 @@ fn runBinaryWithTimeout(allocator: std.mem.Allocator, bin_path: []const u8, time
 }
 
 fn killAfterTimeout(child: *std.process.Child, timeout_ns: u64, done: *std.atomic.Value(bool)) void {
-    std.Thread.sleep(timeout_ns);
+    // Poll every 10ms to check if process has finished
+    const poll_interval: u64 = 10 * std.time.ns_per_ms;
+    var elapsed: u64 = 0;
+    while (elapsed < timeout_ns) {
+        if (done.load(.seq_cst)) return;
+        std.Thread.sleep(poll_interval);
+        elapsed += poll_interval;
+    }
     if (done.load(.seq_cst)) return;
     _ = child.kill() catch {};
 }
