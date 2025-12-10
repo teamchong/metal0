@@ -121,15 +121,19 @@ fn type_call(type_obj_raw: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?
 /// Getattro for type objects
 fn type_getattro(type_obj_raw: *cpython.PyObject, name: *cpython.PyObject) callconv(.C) ?*cpython.PyObject {
     const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(type_obj_raw));
+    const pydict = @import("dictobject.zig");
 
-    // First, check the metatype's dict (type descriptors)
-    // Then check the type's own dict
-    // Then check base types
-
+    // First, check the type's own dict
     if (type_obj.tp_dict) |dict| {
-        // TODO: Lookup name in dict
-        _ = dict;
-        _ = name;
+        const result = pydict.PyDict_GetItem(dict, name);
+        if (result != null) {
+            // Check if it's a descriptor
+            if (result.?.ob_type.tp_descr_get) |descr_get| {
+                return descr_get(result.?, null, type_obj_raw);
+            }
+            cpython.Py_INCREF(result.?);
+            return result;
+        }
     }
 
     // Check base type
@@ -143,24 +147,30 @@ fn type_getattro(type_obj_raw: *cpython.PyObject, name: *cpython.PyObject) callc
 /// Setattro for type objects
 fn type_setattro(type_obj_raw: *cpython.PyObject, name: *cpython.PyObject, value: ?*cpython.PyObject) callconv(.C) c_int {
     const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(type_obj_raw));
+    const pydict = @import("dictobject.zig");
 
     // Check if type is immutable
     if ((type_obj.tp_flags & Py_TPFLAGS_IMMUTABLETYPE) != 0) {
         return -1;
     }
 
-    // Set attribute in type's dict
+    // Set or delete attribute in type's dict
     if (type_obj.tp_dict) |dict| {
-        // TODO: Set item in dict
-        _ = dict;
-        _ = name;
-        _ = value;
+        var result: c_int = 0;
+        if (value == null) {
+            // Delete attribute
+            result = pydict.PyDict_DelItem(dict, name);
+        } else {
+            // Set attribute
+            result = pydict.PyDict_SetItem(dict, name, value.?);
+        }
+
+        // Invalidate attribute cache
+        type_obj.tp_version_tag = 0;
+        return result;
     }
 
-    // Invalidate attribute cache
-    type_obj.tp_version_tag = 0;
-
-    return 0;
+    return -1;
 }
 
 /// Traverse for type objects (GC)
@@ -524,11 +534,20 @@ pub export fn PyType_IsSubtype(a: ?*cpython.PyTypeObject, b: ?*cpython.PyTypeObj
 
     // Check MRO if available
     if (a.?.tp_mro) |mro| {
-        // TODO: Search mro tuple for b
-        _ = mro;
+        const pytuple = @import("tupleobject.zig");
+        const mro_len = pytuple.PyTuple_Size(mro);
+        var i: isize = 0;
+        while (i < mro_len) : (i += 1) {
+            const entry = pytuple.PyTuple_GetItem(mro, i);
+            if (entry != null) {
+                const entry_type: *cpython.PyTypeObject = @ptrCast(@alignCast(entry.?));
+                if (entry_type == b.?) return 1;
+            }
+        }
+        return 0; // If MRO exists, that's authoritative
     }
 
-    // Walk base types
+    // Walk base types (fallback if no MRO)
     var current: ?*cpython.PyTypeObject = a;
     while (current) |c| {
         if (c == b) return 1;
@@ -593,9 +612,11 @@ pub export fn PyType_GetModuleState(type_obj: ?*cpython.PyTypeObject) ?*anyopaqu
     const module = PyType_GetModule(type_obj);
     if (module == null) return null;
 
-    // TODO: Get state from module
-    module.?.ob_refcnt -= 1;
-    return null;
+    // Get state from module using PyModule_GetState
+    const moduleobject = @import("../include/moduleobject.zig");
+    const state = moduleobject.PyModule_GetState(module.?);
+    cpython.Py_DECREF(module.?);
+    return state;
 }
 
 /// Create type from spec
@@ -693,7 +714,27 @@ pub export fn PyType_Modified(type_obj: ?*cpython.PyTypeObject) void {
     // Invalidate attribute cache
     type_obj.?.tp_version_tag = 0;
 
-    // TODO: Also invalidate caches for subtypes
+    // Invalidate caches for subtypes
+    if (type_obj.?.tp_subclasses) |subclasses| {
+        // tp_subclasses is a dict of weakrefs to subtypes
+        const pydict = @import("dictobject.zig");
+        var pos: isize = 0;
+        var key: ?*cpython.PyObject = null;
+        var value: ?*cpython.PyObject = null;
+
+        while (pydict.PyDict_Next(subclasses, &pos, &key, &value) != 0) {
+            if (value != null) {
+                // Value is a weakref to subtype
+                const weakref = @import("weakrefobject.zig");
+                const subtype_obj = weakref.PyWeakref_GetObject(value);
+                if (subtype_obj != null and subtype_obj != @import("object.zig")._Py_NoneStruct()) {
+                    const subtype: *cpython.PyTypeObject = @ptrCast(@alignCast(subtype_obj.?));
+                    // Recursively invalidate subtype
+                    PyType_Modified(subtype);
+                }
+            }
+        }
+    }
 }
 
 /// Generic alloc for types
