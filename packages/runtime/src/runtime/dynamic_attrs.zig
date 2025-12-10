@@ -1,28 +1,82 @@
-/// Dynamic attribute and scope access runtime stubs
+/// Dynamic attribute and scope access for AOT-compiled Python
+/// In AOT compilation, we can't use runtime reflection like CPython.
+/// Instead, we use hashmaps keyed by object address for dynamic attributes.
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
-/// Placeholder for PyObject - replace with actual type when available
-pub const PyObject = struct {
-    // Stub for MVP
+/// PyValue represents any Python value at runtime
+pub const PyValue = union(enum) {
+    none,
+    int: i64,
+    float: f64,
+    string: []const u8,
+    boolean: bool,
+    object: *anyopaque,
 };
 
-/// Placeholder for PyDict - replace with actual type when available
-pub const PyDict = struct {
-    // Stub for MVP
-};
+/// Storage for dynamic attributes indexed by object pointer
+var dynamic_attrs: ?hashmap_helper.HashMap(usize, hashmap_helper.StringHashMap(PyValue)) = null;
+var attr_allocator: ?std.mem.Allocator = null;
 
-pub fn getattr_builtin(obj: *PyObject, name: []const u8) *PyObject {
-    _ = obj;
-    _ = name;
-    // For MVP: return placeholder
-    @panic("getattr not implemented");
+/// Initialize the dynamic attribute storage
+pub fn initDynamicAttrs(allocator: std.mem.Allocator) void {
+    attr_allocator = allocator;
+    dynamic_attrs = hashmap_helper.HashMap(usize, hashmap_helper.StringHashMap(PyValue)).init(allocator);
 }
 
-pub fn setattr_builtin(obj: *PyObject, name: []const u8, value: *PyObject) void {
-    _ = obj;
-    _ = name;
-    _ = value;
-    // For MVP: no-op
+/// Placeholder for PyObject - can hold any object for dynamic access
+pub const PyObject = struct {
+    ptr: *anyopaque,
+    type_id: usize = 0,
+};
+
+/// Placeholder for PyDict - use hashmap
+pub const PyDict = hashmap_helper.StringHashMap(PyValue);
+
+/// Get attribute from object (dynamic attribute access)
+/// First checks static type info, then falls back to dynamic attrs store
+pub fn getattr_builtin(obj: *PyObject, name: []const u8) ?PyValue {
+    // Check dynamic attributes store
+    if (dynamic_attrs) |*attrs| {
+        const obj_id = @intFromPtr(obj.ptr);
+        if (attrs.get(obj_id)) |obj_attrs| {
+            if (obj_attrs.get(name)) |value| {
+                return value;
+            }
+        }
+    }
+    // Attribute not found
+    return null;
+}
+
+/// Set attribute on object (dynamic attribute access)
+pub fn setattr_builtin(obj: *PyObject, name: []const u8, value: PyValue) void {
+    const allocator = attr_allocator orelse return;
+    if (dynamic_attrs == null) {
+        initDynamicAttrs(allocator);
+    }
+
+    const obj_id = @intFromPtr(obj.ptr);
+
+    // Get or create attribute map for this object
+    if (dynamic_attrs) |*attrs| {
+        const result = attrs.getOrPut(allocator, obj_id) catch return;
+        if (!result.found_existing) {
+            result.value_ptr.* = hashmap_helper.StringHashMap(PyValue).init(allocator);
+        }
+        result.value_ptr.put(allocator, name, value) catch return;
+    }
+}
+
+/// Delete attribute from object
+pub fn delattr_builtin(obj: *PyObject, name: []const u8) bool {
+    if (dynamic_attrs) |*attrs| {
+        const obj_id = @intFromPtr(obj.ptr);
+        if (attrs.getPtr(obj_id)) |obj_attrs| {
+            return obj_attrs.remove(name);
+        }
+    }
+    return false;
 }
 
 /// Check if an object has an attribute/method with the given name
@@ -82,20 +136,53 @@ fn hasattrType(comptime T: type, name: []const u8) bool {
     return false;
 }
 
-pub fn vars_builtin(obj: ?*PyObject) *PyDict {
-    _ = obj;
-    // For MVP: return empty dict placeholder
-    @panic("vars not implemented");
+/// Thread-local storage for global and local scopes
+threadlocal var global_scope: ?*PyDict = null;
+threadlocal var local_scope: ?*PyDict = null;
+
+/// Set the global scope for this thread
+pub fn setGlobalScope(scope: *PyDict) void {
+    global_scope = scope;
 }
 
-pub fn globals_builtin() *PyDict {
-    // For MVP: return empty dict placeholder
-    @panic("globals not implemented");
+/// Set the local scope for this thread
+pub fn setLocalScope(scope: *PyDict) void {
+    local_scope = scope;
 }
 
-pub fn locals_builtin() *PyDict {
-    // For MVP: return empty dict placeholder
-    @panic("locals not implemented");
+/// Get the __dict__ of an object, or create one if it doesn't exist
+pub fn vars_builtin(obj: ?*PyObject) ?*PyDict {
+    const allocator = attr_allocator orelse return null;
+
+    if (obj) |o| {
+        // Return the dynamic attributes for this object
+        if (dynamic_attrs == null) {
+            initDynamicAttrs(allocator);
+        }
+
+        if (dynamic_attrs) |*attrs| {
+            const obj_id = @intFromPtr(o.ptr);
+            const result = attrs.getOrPut(allocator, obj_id) catch return null;
+            if (!result.found_existing) {
+                result.value_ptr.* = hashmap_helper.StringHashMap(PyValue).init(allocator);
+            }
+            return result.value_ptr;
+        }
+    } else {
+        // No object provided - return local scope
+        return local_scope;
+    }
+    return null;
+}
+
+/// Get the global namespace dictionary
+pub fn globals_builtin() ?*PyDict {
+    return global_scope;
+}
+
+/// Get the local namespace dictionary
+pub fn locals_builtin() ?*PyDict {
+    return local_scope;
 }
 
 /// Returns a list of names in the current local scope (if obj is null)
