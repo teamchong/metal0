@@ -491,8 +491,7 @@ pub fn compileWithPrecompiledObjects(allocator: std.mem.Allocator, zig_code: []c
         try args.append(aa, try std.fmt.allocPrint(aa, "{s}/{s}", .{ OBJECTS_DIR, mod.obj }));
     }
 
-    // Add C sources (needed for libdeflate symbols)
-    try addCSourceFiles(aa, &args);
+    // NOTE: Do NOT add C sources here - they're already compiled into gzip.o
 
     // Main module with deps
     try args.append(aa, "--dep");

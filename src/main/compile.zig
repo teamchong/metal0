@@ -711,13 +711,27 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         std.debug.print("Compiling to shared library...\n", .{});
         try compiler.compileZigSharedLib(aa, zig_code, bin_path, c_libs);
     } else {
-        std.debug.print("Compiling to native binary...\n", .{});
-        // Use debug mode when --debug flag is set for DWARF info in binary
-        // Pass PGO options for profile-guided optimization
-        try compiler.compileZigWithOptions(aa, zig_code, bin_path, c_libs, opts.debug, .{
-            .generate = opts.pgo_generate,
-            .use_profile = opts.pgo_use,
-        });
+        // Try fast path: link against precompiled .o files
+        const incremental = @import("compile/incremental.zig");
+        if (incremental.hasPrecompiledObjects()) {
+            std.debug.print("Compiling to native binary (fast link)...\n", .{});
+            incremental.compileWithPrecompiledObjects(aa, zig_code, bin_path) catch |err| {
+                // Fall back to full compilation
+                std.debug.print("Fast link failed ({any}), using full compile...\n", .{err});
+                try compiler.compileZigWithOptions(aa, zig_code, bin_path, c_libs, opts.debug, .{
+                    .generate = opts.pgo_generate,
+                    .use_profile = opts.pgo_use,
+                });
+            };
+        } else {
+            std.debug.print("Compiling to native binary...\n", .{});
+            // Use debug mode when --debug flag is set for DWARF info in binary
+            // Pass PGO options for profile-guided optimization
+            try compiler.compileZigWithOptions(aa, zig_code, bin_path, c_libs, opts.debug, .{
+                .generate = opts.pgo_generate,
+                .use_profile = opts.pgo_use,
+            });
+        }
     }
 
     std.debug.print("✓ Compiled successfully to: {s}\n", .{bin_path});
