@@ -408,6 +408,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             }
             try statements.genFunctionDef(self, stmt.function_def);
             try self.emit("\n");
+            // Clear func_local_uses after module-level function generation
+            // This prevents the state from leaking into subsequent class definitions
+            // which could incorrectly trigger `_ = &ClassName;` emission at struct level
+            self.func_local_uses.clearRetainingCapacity();
         } else if (stmt == .assign) {
             if (self.mode == .module) {
                 // In module mode, export constants as pub const

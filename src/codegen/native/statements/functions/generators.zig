@@ -1613,6 +1613,11 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         while (restore_hv_it.next()) |entry| {
             try self.hoisted_vars.put(entry.key_ptr.*, {});
         }
+    } else {
+        // For top-level classes, clear func_local_uses after generating methods
+        // Class methods populate func_local_uses during analysis, but these should
+        // NOT be visible at module level (where _ = &ClassName; would be invalid)
+        self.func_local_uses.clearRetainingCapacity();
     }
 
     self.dedent();
@@ -1624,12 +1629,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // "pointless discard" errors when the class IS actually used elsewhere.
     // This must be done here (not at end of function) because classes inside
     // if/for/while blocks are out of scope at function end.
-    // NOTE: Skip if this class is being hoisted to struct level - _ = &X; is only valid
-    // inside function bodies, not at struct level. The is_hoisted check handles this:
-    // - Hoisted classes are generated at struct level (before methods)
-    // - Non-hoisted classes inside functions need the _ = & line
+    // NOTE: Only emit when actually inside a function body (func_local_uses > 0),
+    // not when inside a class body at class-level scope. The _ = &X; statement
+    // is only valid inside function bodies, not at struct level.
+    // - Nested classes at class-level (e.g., class Outer: class Inner: ...) don't need this
+    // - Nested classes inside methods DO need this
     const is_hoisted = self.hoisted_local_classes.contains(class.name);
-    if (needs_save_restore and self.indent_level > 0 and !is_hoisted) {
+    const is_inside_function_body = self.func_local_uses.count() > 0;
+    if (is_inside_function_body and self.indent_level > 0 and !is_hoisted) {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("_ = &{s};\n", .{effective_class_name});
     }
@@ -1642,7 +1649,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // the inheritance is structural (copying methods), not referential
     // e.g., "class F(float, H)" doesn't reference H in Zig, so H appears "unused"
     // BUT: Only emit if the base class is truly unused (not referenced elsewhere in the function)
-    if (needs_save_restore and self.indent_level > 0) {
+    // NOTE: Only do this inside actual function bodies, not class-level scope
+    if (is_inside_function_body and self.indent_level > 0) {
         for (class.bases) |base_name| {
             // Skip builtin types (int, float, str, etc.)
             if (getBuiltinBaseInfo(base_name) != null) continue;
