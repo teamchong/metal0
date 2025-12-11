@@ -207,10 +207,36 @@ pub fn getCodeSignInfo() CodeSignInfo {
     return .{};
 }
 
-/// Check if running in sandbox
+/// Check if running in sandbox by checking environment
 pub fn isSandboxed() bool {
     if (!is_apple) return false;
-    // Would check sandbox entitlements
+
+    // Check for App Sandbox environment variables
+    if (std.posix.getenv("APP_SANDBOX_CONTAINER_ID")) |_| {
+        return true;
+    }
+
+    // Check for sandbox container path in HOME
+    if (std.posix.getenv("HOME")) |home| {
+        if (std.mem.indexOf(u8, home, "/Library/Containers/")) |_| {
+            return true;
+        }
+    }
+
+    // Check if running from /Applications with sandbox
+    // Sandboxed apps have restricted file system access
+    const test_paths = [_][]const u8{
+        "/private/var/folders", // Should be accessible
+    };
+
+    for (test_paths) |path| {
+        if (std.fs.cwd().access(path, .{})) |_| {
+            // Can access = likely not sandboxed
+        } else |_| {
+            return true;
+        }
+    }
+
     return false;
 }
 
@@ -223,10 +249,28 @@ pub fn isAppleSilicon() bool {
     return builtin.cpu.arch == .aarch64 and is_apple;
 }
 
-/// Check if running under Rosetta 2
+/// Check if running under Rosetta 2 translation
 pub fn isRosetta() bool {
     if (!is_macos) return false;
-    // Would check sysctl.proc_translated
+
+    // On Apple Silicon, check sysctl.proc_translated
+    // This indicates x86_64 code running under Rosetta 2
+    if (builtin.cpu.arch == .x86_64) {
+        // If we're x86_64 on macOS, check if we're actually on ARM hardware
+        // sysctl.proc_translated = 1 means Rosetta translation
+
+        // Use sysctl to check proc_translated
+        var translated: c_int = 0;
+        var size: usize = @sizeOf(c_int);
+
+        // CTL_KERN = 1, KERN_PROC = 14, KERN_PROC_PID = 1
+        // sysctl.proc_translated path: "sysctl.proc_translated"
+        var mib = [_]c_int{ 1, 14, 1, @intCast(std.c.getpid()) };
+        _ = std.c.sysctl(&mib, mib.len, &translated, &size, null, 0);
+
+        return translated != 0;
+    }
+
     return false;
 }
 

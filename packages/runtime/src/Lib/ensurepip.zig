@@ -123,7 +123,40 @@ pub fn is_pip_installed(allocator: std.mem.Allocator) bool {
 
 /// Get the path to bundled pip wheel
 fn get_bundled_pip_path(allocator: std.mem.Allocator) ![]u8 {
-    // Would return path to pip wheel bundled with Python
+    const builtin = @import("builtin");
+
+    // Common locations for bundled pip wheel
+    const wheel_dirs = switch (builtin.os.tag) {
+        .linux => &[_][]const u8{
+            "/usr/share/python-wheels",
+            "/usr/lib/python3/dist-packages",
+            "/usr/local/lib/python3.12/ensurepip/_bundled",
+        },
+        .macos => &[_][]const u8{
+            "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/ensurepip/_bundled",
+            "/usr/local/lib/python3.12/ensurepip/_bundled",
+            "/opt/homebrew/lib/python3.12/ensurepip/_bundled",
+        },
+        .windows => &[_][]const u8{
+            "C:\\Python312\\Lib\\ensurepip\\_bundled",
+        },
+        else => &[_][]const u8{},
+    };
+
+    const wheel_name = try std.fmt.allocPrint(allocator, "pip-{s}-py3-none-any.whl", .{_PIP_VERSION});
+    defer allocator.free(wheel_name);
+
+    // Search for the wheel in common locations
+    for (wheel_dirs) |dir| {
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const full_path = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ dir, wheel_name }) catch continue;
+
+        if (std.fs.cwd().access(full_path, .{})) |_| {
+            return try allocator.dupe(u8, full_path);
+        } else |_| {}
+    }
+
+    // Fallback: return wheel name only (pip might be installed differently)
     return std.fmt.allocPrint(allocator, "pip-{s}-py3-none-any.whl", .{_PIP_VERSION});
 }
 

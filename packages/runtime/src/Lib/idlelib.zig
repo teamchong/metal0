@@ -150,9 +150,44 @@ pub const IDLE_VERSION = "3.12";
 pub const IDLE_NAME = "IDLE";
 pub const IDLE_DESCRIPTION = "Integrated Development and Learning Environment";
 
-/// Check if IDLE is available
+/// Check if IDLE is available by looking for Tk/Tcl libraries
 pub fn isAvailable() bool {
-    // Would check for Tk availability
+    const builtin = @import("builtin");
+
+    // Check for Tk library in common locations
+    const tk_paths = switch (builtin.os.tag) {
+        .macos => &[_][]const u8{
+            "/System/Library/Frameworks/Tk.framework",
+            "/Library/Frameworks/Tk.framework",
+            "/opt/homebrew/lib/libtk8.6.dylib",
+            "/usr/local/lib/libtk8.6.dylib",
+        },
+        .linux => &[_][]const u8{
+            "/usr/lib/x86_64-linux-gnu/libtk8.6.so",
+            "/usr/lib/libtk8.6.so",
+            "/usr/lib64/libtk8.6.so",
+        },
+        .windows => &[_][]const u8{
+            "C:\\Python312\\tcl\\tk8.6",
+            "C:\\Python312\\DLLs\\tk86t.dll",
+        },
+        else => &[_][]const u8{},
+    };
+
+    for (tk_paths) |path| {
+        if (std.fs.cwd().access(path, .{})) |_| {
+            return true;
+        } else |_| {}
+    }
+
+    // Also check DISPLAY on Unix (X11 required for Tk)
+    if (builtin.os.tag != .windows) {
+        if (std.posix.getenv("DISPLAY") == null) {
+            // No display = can't run Tk GUI
+            return false;
+        }
+    }
+
     return false;
 }
 
