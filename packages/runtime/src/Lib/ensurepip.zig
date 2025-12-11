@@ -68,14 +68,89 @@ pub fn bootstrap(
 }
 
 /// Uninstall pip from the current environment
+/// Removes pip package from site-packages
 pub fn uninstall(
     allocator: std.mem.Allocator,
     verbosity: i32,
 ) !void {
     _ = allocator;
-    _ = verbosity;
+    const stdout = std.io.getStdOut().writer();
 
-    // Would remove pip installation
+    if (verbosity > 0) {
+        try stdout.writeAll("Uninstalling pip...\n");
+    }
+
+    // Common pip installation locations to remove
+    const pip_dirs = [_][]const u8{
+        // User site-packages
+        ".local/lib/python3.12/site-packages/pip",
+        ".local/lib/python3.11/site-packages/pip",
+        ".local/lib/python3.10/site-packages/pip",
+        // System site-packages (may require elevated permissions)
+        "/usr/local/lib/python3.12/site-packages/pip",
+        "/usr/local/lib/python3.11/site-packages/pip",
+        "/usr/lib/python3/dist-packages/pip",
+    };
+
+    var removed = false;
+
+    // Try to get home directory for user site-packages
+    const home = std.posix.getenv("HOME") orelse "";
+
+    for (pip_dirs) |relative_path| {
+        var full_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const full_path = if (std.mem.startsWith(u8, relative_path, "/"))
+            relative_path
+        else
+            std.fmt.bufPrint(&full_path_buf, "{s}/{s}", .{ home, relative_path }) catch continue;
+
+        // Check if directory exists
+        if (std.fs.cwd().openDir(full_path, .{})) |dir| {
+            var d = dir;
+            d.close();
+
+            // Try to remove the pip directory
+            std.fs.cwd().deleteTree(full_path) catch |err| {
+                if (verbosity > 0) {
+                    stdout.print("Could not remove {s}: {}\n", .{ full_path, err }) catch {};
+                }
+                continue;
+            };
+
+            if (verbosity > 0) {
+                stdout.print("Removed {s}\n", .{full_path}) catch {};
+            }
+            removed = true;
+        } else |_| {}
+    }
+
+    // Also try to remove pip executables
+    const pip_bins = [_][]const u8{
+        ".local/bin/pip",
+        ".local/bin/pip3",
+    };
+
+    for (pip_bins) |relative_path| {
+        var full_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const full_path = std.fmt.bufPrint(&full_path_buf, "{s}/{s}", .{ home, relative_path }) catch continue;
+
+        std.fs.cwd().deleteFile(full_path) catch continue;
+
+        if (verbosity > 0) {
+            stdout.print("Removed {s}\n", .{full_path}) catch {};
+        }
+        removed = true;
+    }
+
+    if (!removed) {
+        if (verbosity > 0) {
+            try stdout.writeAll("pip not found or could not be removed\n");
+        }
+    } else {
+        if (verbosity > 0) {
+            try stdout.writeAll("Successfully uninstalled pip\n");
+        }
+    }
 }
 
 /// Check if pip is installed by looking for pip executable or package

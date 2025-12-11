@@ -642,16 +642,24 @@ pub const OptionParser = struct {
         }
     }
 
+    // Interspersed arguments flag (POSIX-style when false)
+    allow_interspersed_args: bool = true,
+
     /// Disable interspersed arguments
+    /// When disabled, parsing stops at first non-option argument (POSIX behavior)
     pub fn disableInterspersedArgs(self: *Self) void {
-        _ = self;
-        // Would affect parsing behavior
+        self.allow_interspersed_args = false;
     }
 
-    /// Enable interspersed arguments
+    /// Enable interspersed arguments (default)
+    /// Options can appear anywhere in the argument list
     pub fn enableInterspersedArgs(self: *Self) void {
-        _ = self;
-        // Would affect parsing behavior
+        self.allow_interspersed_args = true;
+    }
+
+    /// Check if interspersed arguments are allowed
+    pub fn allowsInterspersedArgs(self: *const Self) bool {
+        return self.allow_interspersed_args;
     }
 };
 

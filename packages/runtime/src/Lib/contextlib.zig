@@ -446,26 +446,29 @@ test "NullContext" {
     ctx.exit();
 }
 
+// Test counter for ExitStack test
+var test_counter: usize = 0;
+
+fn testIncrement() void {
+    test_counter += 1;
+}
+
 test "ExitStack" {
     const allocator = std.testing.allocator;
 
-    var counter: usize = 0;
-
-    const increment = struct {
-        fn inc() void {
-            // Would increment counter if we had closure support
-        }
-    }.inc;
+    // Reset test counter
+    test_counter = 0;
 
     var stack = ExitStack.init(allocator);
     defer stack.deinit();
 
-    try stack.callback(increment);
-    try stack.callback(increment);
+    try stack.callback(testIncrement);
+    try stack.callback(testIncrement);
 
     stack.close();
 
-    _ = counter;
+    // Callbacks should have been executed
+    try std.testing.expectEqual(@as(usize, 2), test_counter);
 }
 
 test "AbstractContextManager.isContextManager" {

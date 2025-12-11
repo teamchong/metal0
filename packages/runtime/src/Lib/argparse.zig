@@ -224,8 +224,49 @@ pub const ArgumentParser = struct {
                         .version => {
                             return error.VersionRequested;
                         },
-                        .append, .append_const => {
-                            // Would need list handling
+                        .append => {
+                            // Append value to list
+                            const value_to_append = if (arg.nargs != null and i + 1 < args.len) blk: {
+                                i += 1;
+                                break :blk args[i];
+                            } else arg.default orelse "";
+
+                            const dest = arg.getDest();
+                            if (result.values.get(dest)) |existing| {
+                                // Append to existing list
+                                if (existing == .strings) {
+                                    var new_list = std.ArrayList([]const u8).init(self.allocator);
+                                    for (existing.strings) |s| {
+                                        try new_list.append(s);
+                                    }
+                                    try new_list.append(value_to_append);
+                                    try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice() });
+                                }
+                            } else {
+                                // Create new list with single value
+                                var new_list = std.ArrayList([]const u8).init(self.allocator);
+                                try new_list.append(value_to_append);
+                                try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice() });
+                            }
+                        },
+                        .append_const => {
+                            // Append constant to list
+                            const const_val = arg.const_value orelse "";
+                            const dest = arg.getDest();
+                            if (result.values.get(dest)) |existing| {
+                                if (existing == .strings) {
+                                    var new_list = std.ArrayList([]const u8).init(self.allocator);
+                                    for (existing.strings) |s| {
+                                        try new_list.append(s);
+                                    }
+                                    try new_list.append(const_val);
+                                    try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice() });
+                                }
+                            } else {
+                                var new_list = std.ArrayList([]const u8).init(self.allocator);
+                                try new_list.append(const_val);
+                                try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice() });
+                            }
                         },
                     }
                 } else {

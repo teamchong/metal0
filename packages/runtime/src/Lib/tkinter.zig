@@ -89,6 +89,14 @@ pub const SEL_LAST = "sel.last";
 // Widget Types
 // ============================================================================
 
+/// Widget option value (can be string, int, bool, or callback)
+pub const OptionValue = union(enum) {
+    string: []const u8,
+    int: i32,
+    boolean: bool,
+    callback: ?*const fn () void,
+};
+
 /// Base widget class
 pub const Widget = struct {
     const Self = @This();
@@ -97,30 +105,67 @@ pub const Widget = struct {
     parent: ?*Widget = null,
     children: std.ArrayList(*Widget),
     allocator: std.mem.Allocator,
+    /// Widget options storage
+    options: std.StringHashMap(OptionValue),
+    /// Event bindings
+    bindings: std.StringHashMap(*const fn () void),
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Self {
         return Self{
             .name = name,
             .allocator = allocator,
             .children = std.ArrayList(*Widget).init(allocator),
+            .options = std.StringHashMap(OptionValue).init(allocator),
+            .bindings = std.StringHashMap(*const fn () void).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.children.deinit();
+        self.options.deinit();
+        self.bindings.deinit();
     }
 
     /// Configure widget options
+    /// Stores options in the widget for later retrieval
     pub fn configure(self: *Self, options: anytype) void {
-        _ = self;
-        _ = options;
-        // Would apply options to widget
+        const T = @TypeOf(options);
+        if (@typeInfo(T) == .@"struct") {
+            inline for (std.meta.fields(T)) |field| {
+                const value = @field(options, field.name);
+                const opt_value: OptionValue = switch (@TypeOf(value)) {
+                    []const u8 => .{ .string = value },
+                    i32, u32, usize => .{ .int = @intCast(value) },
+                    bool => .{ .boolean = value },
+                    else => continue,
+                };
+                self.options.put(field.name, opt_value) catch {};
+            }
+        }
     }
 
     /// Get widget option value
     pub fn cget(self: *const Self, option: []const u8) ?[]const u8 {
-        _ = self;
-        _ = option;
+        if (self.options.get(option)) |value| {
+            return switch (value) {
+                .string => |s| s,
+                .int => null, // Would need buffer to convert
+                .boolean => |b| if (b) "1" else "0",
+                .callback => null,
+            };
+        }
+        return null;
+    }
+
+    /// Get option as integer
+    pub fn cgetInt(self: *const Self, option: []const u8) ?i32 {
+        if (self.options.get(option)) |value| {
+            return switch (value) {
+                .int => |i| i,
+                .boolean => |b| if (b) @as(i32, 1) else @as(i32, 0),
+                else => null,
+            };
+        }
         return null;
     }
 
@@ -208,10 +253,43 @@ pub const Tk = struct {
         _ = geo;
     }
 
+    /// Scheduled callbacks (timer-based)
+    scheduled: std.ArrayList(ScheduledCallback) = undefined,
+
+    const ScheduledCallback = struct {
+        due_time: i64, // nanoseconds since epoch
+        callback: *const fn () void,
+    };
+
     /// Start main event loop
+    /// Processes scheduled callbacks and user events
     pub fn mainloop(self: *Self) void {
         self.running = true;
-        // Would run Tk event loop
+        self.scheduled = std.ArrayList(ScheduledCallback).init(self.widget.allocator);
+        defer self.scheduled.deinit();
+
+        // Event loop - process scheduled callbacks
+        while (self.running) {
+            const now = std.time.nanoTimestamp();
+
+            // Process due callbacks
+            var i: usize = 0;
+            while (i < self.scheduled.items.len) {
+                if (self.scheduled.items[i].due_time <= now) {
+                    const cb = self.scheduled.items[i].callback;
+                    _ = self.scheduled.swapRemove(i);
+                    cb(); // Execute callback
+                } else {
+                    i += 1;
+                }
+            }
+
+            // Sleep briefly to avoid busy-waiting (16ms = ~60fps)
+            std.time.sleep(16 * std.time.ns_per_ms);
+
+            // Check if quit was requested
+            if (!self.running) break;
+        }
     }
 
     /// Quit application
@@ -235,11 +313,23 @@ pub const Tk = struct {
         _ = self;
     }
 
-    /// Schedule callback after delay
-    pub fn after(self: *Self, ms: u32, callback: anytype) void {
-        _ = self;
-        _ = ms;
-        _ = callback;
+    /// Schedule callback after delay (in milliseconds)
+    pub fn after(self: *Self, ms: u32, callback: *const fn () void) void {
+        const now = std.time.nanoTimestamp();
+        const due = now + @as(i64, ms) * std.time.ns_per_ms;
+        self.scheduled.append(.{ .due_time = due, .callback = callback }) catch {};
+    }
+
+    /// Cancel a scheduled callback (by finding and removing it)
+    pub fn after_cancel(self: *Self, callback: *const fn () void) void {
+        var i: usize = 0;
+        while (i < self.scheduled.items.len) {
+            if (self.scheduled.items[i].callback == callback) {
+                _ = self.scheduled.swapRemove(i);
+            } else {
+                i += 1;
+            }
+        }
     }
 };
 
