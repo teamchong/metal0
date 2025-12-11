@@ -155,7 +155,6 @@ pub fn build(b: *std.Build) void {
 
     // Parse manifest: each line is "zig_path:bin_name"
     var line_iter = std.mem.splitScalar(u8, manifest_content, '\n');
-    var test_count: usize = 0;
 
     while (line_iter.next()) |line| {
         if (line.len == 0) continue;
@@ -187,9 +186,5 @@ pub fn build(b: *std.Build) void {
 
         // Install to bin/
         b.installArtifact(exe);
-
-        test_count += 1;
     }
-
-    std.debug.print("Configured {d} test executables for batch compilation\n", .{test_count});
 }
