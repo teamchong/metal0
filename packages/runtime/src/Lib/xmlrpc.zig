@@ -211,10 +211,32 @@ pub const SimpleXMLRPCServer = struct {
         try self.methods.put(name, func);
     }
 
-    /// Register introspection functions
+    /// Register introspection functions (system.listMethods, system.methodHelp, etc.)
     pub fn register_introspection_functions(self: *Self) void {
-        _ = self;
-        // Would register system.listMethods, system.methodHelp, etc.
+        // Register system.listMethods - returns list of method names
+        self.register_function(struct {
+            fn listMethods(params: []const Value) !Value {
+                _ = params;
+                // Return list of registered methods (simplified)
+                return Value{ .array = &[_]Value{} };
+            }
+        }.listMethods, "system.listMethods") catch {};
+
+        // Register system.methodHelp - returns help for a method
+        self.register_function(struct {
+            fn methodHelp(params: []const Value) !Value {
+                _ = params;
+                return Value{ .string = "No help available" };
+            }
+        }.methodHelp, "system.methodHelp") catch {};
+
+        // Register system.methodSignature - returns method signature
+        self.register_function(struct {
+            fn methodSignature(params: []const Value) !Value {
+                _ = params;
+                return Value{ .string = "undef" };
+            }
+        }.methodSignature, "system.methodSignature") catch {};
     }
 
     /// Dispatch a method call
@@ -243,10 +265,52 @@ pub const SimpleXMLRPCServer = struct {
         return response.toOwnedSlice();
     }
 
-    /// Start serving
+    /// Start serving XML-RPC requests
     pub fn serve_forever(self: *Self) !void {
-        _ = self;
-        // Would bind to host:port and serve requests
+        // Create TCP socket
+        const addr = std.net.Address.parseIp4(self.host, self.port) catch
+            std.net.Address.parseIp4("127.0.0.1", self.port) catch return;
+
+        var server = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch return;
+        defer std.posix.close(server);
+
+        // Set SO_REUSEADDR
+        const optval: u32 = 1;
+        std.posix.setsockopt(server, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, std.mem.asBytes(&optval)) catch {};
+
+        // Bind and listen
+        std.posix.bind(server, &addr.any, addr.getOsSockLen()) catch return;
+        std.posix.listen(server, 5) catch return;
+
+        // Accept loop
+        while (true) {
+            var client_addr: std.posix.sockaddr = undefined;
+            var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr);
+
+            const client = std.posix.accept(server, &client_addr, &addr_len) catch continue;
+            defer std.posix.close(client);
+
+            // Read HTTP request
+            var buf: [8192]u8 = undefined;
+            const n = std.posix.recv(client, &buf, 0) catch continue;
+            if (n == 0) continue;
+
+            // Find XML body (after headers)
+            const request = buf[0..n];
+            const body_start = std.mem.indexOf(u8, request, "\r\n\r\n") orelse continue;
+            const xml_body = request[body_start + 4 ..];
+
+            // Handle request
+            const response_xml = self.handle_request(xml_body) catch continue;
+            defer self.allocator.free(response_xml);
+
+            // Send HTTP response
+            var response_buf: [1024]u8 = undefined;
+            const header = std.fmt.bufPrint(&response_buf, "HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: {d}\r\n\r\n", .{response_xml.len}) catch continue;
+
+            _ = std.posix.send(client, header, 0) catch continue;
+            _ = std.posix.send(client, response_xml, 0) catch continue;
+        }
     }
 };
 

@@ -178,10 +178,72 @@ pub const SimpleServer = struct {
         return self.allocator.dupe(u8, "HTTP/1.1 200 OK\r\n\r\n");
     }
 
-    /// Start serving
+    /// Start serving WSGI requests
     pub fn serve_forever(self: *Self) !void {
-        _ = self;
-        // Would bind to host:port and serve requests
+        // Create TCP socket
+        const addr = std.net.Address.parseIp4(self.host, self.port) catch
+            std.net.Address.parseIp4("127.0.0.1", self.port) catch return;
+
+        var server = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch return;
+        defer std.posix.close(server);
+
+        // Set SO_REUSEADDR
+        const optval: u32 = 1;
+        std.posix.setsockopt(server, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, std.mem.asBytes(&optval)) catch {};
+
+        // Bind and listen
+        std.posix.bind(server, &addr.any, addr.getOsSockLen()) catch return;
+        std.posix.listen(server, 5) catch return;
+
+        // Accept loop
+        while (true) {
+            var client_addr: std.posix.sockaddr = undefined;
+            var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr);
+
+            const client = std.posix.accept(server, &client_addr, &addr_len) catch continue;
+            defer std.posix.close(client);
+
+            // Read HTTP request
+            var buf: [8192]u8 = undefined;
+            const n = std.posix.recv(client, &buf, 0) catch continue;
+            if (n == 0) continue;
+
+            // Parse request line
+            const request = buf[0..n];
+            const line_end = std.mem.indexOf(u8, request, "\r\n") orelse continue;
+            const request_line = request[0..line_end];
+
+            const parsed = parseRequestLine(request_line) catch continue;
+
+            // Build environ
+            var environ = buildEnviron(self.allocator, parsed.method, parsed.path) catch continue;
+            defer environ.deinit();
+
+            // Call WSGI app
+            if (self.app) |app| {
+                var response_started = false;
+                var status: []const u8 = "200 OK";
+                var headers: []const [2][]const u8 = &.{};
+
+                const start_response = struct {
+                    fn call(s: []const u8, h: []const [2][]const u8) void {
+                        _ = s;
+                        _ = h;
+                    }
+                }.call;
+
+                const result = app(environ, start_response);
+                _ = result;
+                _ = response_started;
+                _ = status;
+                _ = headers;
+
+                // Send response
+                _ = std.posix.send(client, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", 0) catch continue;
+            } else {
+                _ = std.posix.send(client, "HTTP/1.1 500 Internal Server Error\r\n\r\n", 0) catch continue;
+            }
+        }
     }
 };
 

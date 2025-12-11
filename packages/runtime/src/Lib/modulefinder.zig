@@ -328,22 +328,72 @@ pub const ModuleFinder = struct {
 // AddPackagePath - Add package path
 // ============================================================================
 
-/// Add a path to a package's search path
-pub fn AddPackagePath(packagename: []const u8, path: []const u8) void {
-    _ = packagename;
-    _ = path;
-    // Would modify the package's __path__
+/// Package path registry (module-level)
+var package_paths: ?hashmap_helper.StringHashMap(std.ArrayList([]const u8)) = null;
+
+/// Initialize package paths registry
+fn initPackagePaths(allocator: std.mem.Allocator) void {
+    if (package_paths == null) {
+        package_paths = hashmap_helper.StringHashMap(std.ArrayList([]const u8)).init(allocator);
+    }
+}
+
+/// Add a path to a package's search path (__path__ attribute)
+pub fn AddPackagePath(allocator: std.mem.Allocator, packagename: []const u8, path: []const u8) void {
+    initPackagePaths(allocator);
+
+    if (package_paths) |*paths| {
+        if (paths.getPtr(packagename)) |existing| {
+            // Add to existing package path list
+            existing.append(path) catch {};
+        } else {
+            // Create new path list for this package
+            var path_list = std.ArrayList([]const u8).init(allocator);
+            path_list.append(path) catch {};
+            paths.put(packagename, path_list) catch {};
+        }
+    }
+}
+
+/// Get paths for a package
+pub fn GetPackagePaths(packagename: []const u8) ?[]const []const u8 {
+    if (package_paths) |paths| {
+        if (paths.get(packagename)) |path_list| {
+            return path_list.items;
+        }
+    }
+    return null;
 }
 
 // ============================================================================
 // ReplacePackage - Replace a package
 // ============================================================================
 
-/// Replace a package with another
-pub fn ReplacePackage(oldname: []const u8, newname: []const u8) void {
-    _ = oldname;
-    _ = newname;
-    // Would set up package replacement
+/// Package replacement registry (module-level)
+var package_replacements: ?hashmap_helper.StringHashMap([]const u8) = null;
+
+/// Initialize package replacements registry
+fn initPackageReplacements(allocator: std.mem.Allocator) void {
+    if (package_replacements == null) {
+        package_replacements = hashmap_helper.StringHashMap([]const u8).init(allocator);
+    }
+}
+
+/// Replace a package with another (redirect imports)
+pub fn ReplacePackage(allocator: std.mem.Allocator, oldname: []const u8, newname: []const u8) void {
+    initPackageReplacements(allocator);
+
+    if (package_replacements) |*replacements| {
+        replacements.put(oldname, newname) catch {};
+    }
+}
+
+/// Get replacement name for a package (if any)
+pub fn GetPackageReplacement(packagename: []const u8) ?[]const u8 {
+    if (package_replacements) |replacements| {
+        return replacements.get(packagename);
+    }
+    return null;
 }
 
 // ============================================================================
