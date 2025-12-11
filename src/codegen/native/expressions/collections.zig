@@ -189,9 +189,10 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
             if (var_type) |vt| {
                 vt.toZigType(self.allocator, &type_buf) catch {};
                 if (type_buf.items.len > 0) {
-                    // Check if it's a string list (PyObject = strings in our context)
-                    if (std.mem.indexOf(u8, type_buf.items, "std.ArrayListUnmanaged(*runtime.PyObject)") != null or
-                        std.mem.indexOf(u8, type_buf.items, "std.ArrayListUnmanaged([]const u8)") != null)
+                    // Check if element type is exactly *runtime.PyObject (unknown element)
+                    // This specifically matches lists of unknown elements, NOT structs/tuples
+                    // containing *runtime.PyObject (which are valid typed elements)
+                    if (std.mem.eql(u8, type_buf.items, "std.ArrayListUnmanaged(*runtime.PyObject)"))
                     {
                         try self.emit("std.ArrayListUnmanaged([]const u8){}");
                         return;
