@@ -169,7 +169,7 @@ pub const _string = @import("Modules/_string.zig");
 /// Export C accelerator modules
 pub const _functools = @import("Modules/_functools.zig");
 pub const _operator = @import("Modules/_operator.zig");
-pub const _collections = @import("Modules/_collections.zig");
+pub const _collections = @import("Modules/_collections/_collections.zig");
 pub const _bisect = @import("Modules/_bisect.zig");
 pub const _heapq = @import("Modules/_heapq.zig");
 pub const _struct = @import("Modules/_struct.zig");
@@ -1895,7 +1895,7 @@ pub const Modules = struct {
     pub const _string = @import("Modules/_string.zig");
     pub const _functools = @import("Modules/_functools.zig");
     pub const _operator = @import("Modules/_operator.zig");
-    pub const _collections = @import("Modules/_collections.zig");
+    pub const _collections = @import("Modules/_collections/_collections.zig");
     pub const _bisect = @import("Modules/_bisect.zig");
     pub const _heapq = @import("Modules/_heapq.zig");
     pub const _struct = @import("Modules/_struct.zig");
