@@ -1186,8 +1186,47 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
                     loop_var_type = .{ .int = .bounded };
                 }
             }
-            // Check if iterator is a list/listcomp - infer element type
-            else if (gen.iter.* == .list or gen.iter.* == .listcomp) {
+            // Check if iterator is [*range(n)] pattern - also gives i64
+            else if (gen.iter.* == .list) {
+                const list = gen.iter.list;
+                if (list.elts.len == 1 and list.elts[0] == .starred) {
+                    const starred_val = list.elts[0].starred.value;
+                    if (starred_val.* == .call and starred_val.call.func.* == .name and
+                        std.mem.eql(u8, starred_val.call.func.name.id, "range"))
+                    {
+                        loop_var_type = .{ .int = .bounded };
+                    }
+                } else if (list.elts.len > 0 and list.elts[0] != .starred) {
+                    // Pattern: for j in [i+1] - list literal with elements
+                    // Infer element type directly from first element
+                    const elem_type = self.type_inferrer.inferExpr(list.elts[0]) catch .unknown;
+                    if (type_traits.isIntegral(elem_type)) {
+                        loop_var_type = .{ .int = .bounded };
+                    } else {
+                        loop_var_type = elem_type;
+                    }
+                } else {
+                    // Empty or other list - infer from list type
+                    const iter_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
+                    if (iter_type == .list) {
+                        loop_var_type = iter_type.list.*;
+                    }
+                }
+            }
+            // Check if iterator is (*range(n),) pattern - also gives i64
+            else if (gen.iter.* == .tuple) {
+                const tup = gen.iter.tuple;
+                if (tup.elts.len == 1 and tup.elts[0] == .starred) {
+                    const starred_val = tup.elts[0].starred.value;
+                    if (starred_val.* == .call and starred_val.call.func.* == .name and
+                        std.mem.eql(u8, starred_val.call.func.name.id, "range"))
+                    {
+                        loop_var_type = .{ .int = .bounded };
+                    }
+                }
+            }
+            // Check if iterator is a listcomp - infer element type
+            else if (gen.iter.* == .listcomp) {
                 const iter_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
                 if (iter_type == .list) {
                     loop_var_type = iter_type.list.*;
@@ -1222,10 +1261,9 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
         break :blk nativeTypeToZigStr(value_type);
     };
 
-    // Restore original types
-    for (saved_types[0..saved_count]) |saved| {
-        self.type_inferrer.restoreTempVar(saved.name, saved.old_type);
-    }
+    // NOTE: We keep temp vars active during code generation so that genExpr calls
+    // for key/value expressions can access the correct types for loop variables.
+    // Temp vars are restored at the end of this function.
 
     // Generate: (dict_N: { ... })
     // Wrap in parentheses to prevent "label:" from being parsed as named argument
@@ -1507,6 +1545,11 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     self.dedent();
     try self.emitIndent();
     try self.emit("})");
+
+    // Restore original types for loop variables (temp vars were set up at the start)
+    for (saved_types[0..saved_count]) |saved| {
+        self.type_inferrer.restoreTempVar(saved.name, saved.old_type);
+    }
 
     // Clean up var_renames so outer scope sees original variable names
     for (renamed_vars.items) |var_name| {

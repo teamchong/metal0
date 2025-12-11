@@ -696,24 +696,68 @@ pub fn inferExprWithInferrer(
             // First, type the loop variables from generators so they're available for key/value inference
             for (dc.generators) |gen| {
                 if (gen.target.* == .name) {
-                    // Check if iterator is range() - gives i64 loop variable
-                    if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
-                        const func_name = gen.iter.call.func.name.id;
-                        if (std.mem.eql(u8, func_name, "range")) {
-                            const var_name = gen.target.name.id;
-                            // Use TypeInferrer's temp var system if available, else manual save/restore
-                            if (type_inferrer) |ti| {
-                                if (saved_count < saved_types.len) {
-                                    saved_types[saved_count] = .{ .name = var_name, .old_type = ti.putTempVar(var_name, .{ .int = .bounded }) catch null };
-                                    saved_count += 1;
-                                }
-                            } else {
-                                if (saved_count < saved_types.len) {
-                                    saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
-                                    saved_count += 1;
-                                }
-                                try var_types.put(var_name, .{ .int = .bounded });
+                    const var_name = gen.target.name.id;
+
+                    // Check if iterator yields i64 elements:
+                    // 1. Direct range() call: for i in range(n)
+                    // 2. Starred range in list: for i in [*range(n)]
+                    // 3. Starred range in tuple: for i in (*range(n),)
+                    // 4. List literal with int elements: for j in [i+1] where i is int
+                    const yields_int = yields_int_blk: {
+                        // Pattern 1: for i in range(n)
+                        if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
+                            if (std.mem.eql(u8, gen.iter.call.func.name.id, "range")) {
+                                break :yields_int_blk true;
                             }
+                        }
+                        // Pattern 2: for i in [*range(n)]
+                        if (gen.iter.* == .list) {
+                            const list = gen.iter.list;
+                            if (list.elts.len == 1 and list.elts[0] == .starred) {
+                                const starred_val = list.elts[0].starred.value;
+                                if (starred_val.* == .call and starred_val.call.func.* == .name and
+                                    std.mem.eql(u8, starred_val.call.func.name.id, "range"))
+                                {
+                                    break :yields_int_blk true;
+                                }
+                            }
+                            // Pattern 4: for j in [i+1] - list literal with elements
+                            // Infer element type from first element
+                            if (list.elts.len > 0 and list.elts[0] != .starred) {
+                                const elem_type = inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, list.elts[0], type_inferrer) catch .unknown;
+                                if (type_traits.isIntegral(elem_type)) {
+                                    break :yields_int_blk true;
+                                }
+                            }
+                        }
+                        // Pattern 3: for i in (*range(n),)
+                        if (gen.iter.* == .tuple) {
+                            const tup = gen.iter.tuple;
+                            if (tup.elts.len == 1 and tup.elts[0] == .starred) {
+                                const starred_val = tup.elts[0].starred.value;
+                                if (starred_val.* == .call and starred_val.call.func.* == .name and
+                                    std.mem.eql(u8, starred_val.call.func.name.id, "range"))
+                                {
+                                    break :yields_int_blk true;
+                                }
+                            }
+                        }
+                        break :yields_int_blk false;
+                    };
+
+                    if (yields_int) {
+                        // Use TypeInferrer's temp var system if available, else manual save/restore
+                        if (type_inferrer) |ti| {
+                            if (saved_count < saved_types.len) {
+                                saved_types[saved_count] = .{ .name = var_name, .old_type = ti.putTempVar(var_name, .{ .int = .bounded }) catch null };
+                                saved_count += 1;
+                            }
+                        } else {
+                            if (saved_count < saved_types.len) {
+                                saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
+                                saved_count += 1;
+                            }
+                            try var_types.put(var_name, .{ .int = .bounded });
                         }
                     }
                 }

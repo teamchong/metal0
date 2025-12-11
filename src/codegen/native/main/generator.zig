@@ -661,6 +661,45 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 continue;
             }
 
+            // Check if this variable is assigned from a dict comprehension
+            // Dict comprehensions have full type info (key and value types) from type inference
+            var dictcomp_node: ?*const ast.Node = null;
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            if (assign.value.* == .dictcomp) {
+                                dictcomp_node = assign.value;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Pre-declare dict comprehensions using type inference (which correctly handles
+            // [*range(n)] and (*range(n),) patterns for loop variable types)
+            if (dictcomp_node) |dc_node| {
+                const dc_type = self.type_inferrer.inferExpr(dc_node.*) catch .unknown;
+                try self.emit("var ");
+                try self.emit(var_name);
+                try self.emit(": ");
+                if (container_traits.isDict(dc_type)) {
+                    // Use the inferred dict type with correct key/value types
+                    var type_buf: std.ArrayListUnmanaged(u8) = .{};
+                    defer type_buf.deinit(self.allocator);
+                    try dc_type.toZigType(self.allocator, &type_buf);
+                    try self.emit(type_buf.items);
+                } else {
+                    // Fallback to generic dict type
+                    try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject)");
+                }
+                try self.emit(" = undefined;\n");
+                try self.symbol_table.declare(var_name, dc_type, true);
+                try self.markGlobalVar(var_name);
+                continue;
+            }
+
             // Check if this variable is assigned from import_module() or get_feature_macros()
             // These are compile-time values that need special handling
             var is_import_module_call = false;
