@@ -154,17 +154,46 @@ pub const Profile = struct {
 
         try stdout.writeAll("   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n");
 
-        // Would sort and print stats
+        // Collect stats into array for sorting
+        var entries = std.ArrayList(struct { key: []const u8, stat: *FuncStats }).init(self.allocator);
+        defer entries.deinit();
+
         var stats_iter = self.stats.iterator();
         while (stats_iter.next()) |entry| {
-            const stat = entry.value_ptr;
+            entries.append(.{ .key = entry.key_ptr.*, .stat = entry.value_ptr }) catch continue;
+        }
+
+        // Sort based on sort_keys
+        const sort_key = if (self.sort_keys.len > 0) self.sort_keys[0] else .cumulative;
+        const SortContext = struct {
+            key: SortKey,
+            reversed: bool,
+        };
+        const ctx = SortContext{ .key = sort_key, .reversed = self.reversed };
+
+        std.mem.sort(@TypeOf(entries.items[0]), entries.items, ctx, struct {
+            fn lessThan(c: SortContext, a: @TypeOf(entries.items[0]), b: @TypeOf(entries.items[0])) bool {
+                const cmp = switch (c.key) {
+                    .calls => a.stat.ncalls < b.stat.ncalls,
+                    .cumulative => a.stat.cumtime < b.stat.cumtime,
+                    .tottime => a.stat.tottime < b.stat.tottime,
+                    .name => std.mem.lessThan(u8, a.key, b.key),
+                    else => a.stat.cumtime < b.stat.cumtime,
+                };
+                return if (c.reversed) !cmp else cmp;
+            }
+        }.lessThan);
+
+        // Print sorted stats
+        for (entries.items) |entry| {
+            const stat = entry.stat;
             try stdout.print("   {d:>6}  {d:>7.3}  {d:>7.3}  {d:>7.3}  {d:>7.3} {s}\n", .{
                 stat.ncalls,
                 stat.tottime,
                 stat.percall_tot,
                 stat.cumtime,
                 stat.percall_cum,
-                entry.key_ptr.*,
+                entry.key,
             });
         }
     }

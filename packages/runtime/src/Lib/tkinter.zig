@@ -144,12 +144,15 @@ pub const Widget = struct {
         }
     }
 
+    // Static buffer for int-to-string conversion
+    var int_str_buf: [32]u8 = undefined;
+
     /// Get widget option value
     pub fn cget(self: *const Self, option: []const u8) ?[]const u8 {
         if (self.options.get(option)) |value| {
             return switch (value) {
                 .string => |s| s,
-                .int => null, // Would need buffer to convert
+                .int => |i| std.fmt.bufPrint(&int_str_buf, "{d}", .{i}) catch null,
                 .boolean => |b| if (b) "1" else "0",
                 .callback => null,
             };
