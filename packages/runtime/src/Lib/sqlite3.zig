@@ -7,12 +7,20 @@
 const std = @import("std");
 
 // ============================================================================
+// SQLite3 C API Bindings
+// ============================================================================
+
+const c = @cImport({
+    @cInclude("vendor/sqlite3/sqlite3.h");
+});
+
+// ============================================================================
 // Module-level Constants
 // ============================================================================
 
-/// SQLite version
-pub const sqlite_version = "3.45.0";
-pub const sqlite_version_info = .{ 3, 45, 0 };
+/// SQLite version (from C library)
+pub const sqlite_version = c.SQLITE_VERSION;
+pub const sqlite_version_info = .{ c.SQLITE_VERSION_NUMBER / 1000000, (c.SQLITE_VERSION_NUMBER / 1000) % 1000, c.SQLITE_VERSION_NUMBER % 1000 };
 
 /// API level
 pub const apilevel = "2.0";
@@ -37,12 +45,28 @@ pub const Connection = struct {
     in_transaction: bool,
     row_factory: ?RowFactory,
     text_factory: ?*const fn ([]const u8) []const u8,
-    total_changes: i64,
     check_same_thread: bool,
+    /// SQLite3 database handle
+    db: ?*c.sqlite3,
 
     pub const RowFactory = *const fn (cursor: *Cursor, row: []?[]const u8) anytype;
 
     pub fn init(allocator: std.mem.Allocator, database: []const u8, options: ConnectionOptions) !Self {
+        var db: ?*c.sqlite3 = null;
+        const db_path = try allocator.dupeZ(u8, database);
+        defer allocator.free(db_path);
+
+        const rc = c.sqlite3_open(db_path.ptr, &db);
+        if (rc != c.SQLITE_OK) {
+            if (db) |d| {
+                _ = c.sqlite3_close(d);
+            }
+            return error.DatabaseError;
+        }
+
+        // Set busy timeout
+        _ = c.sqlite3_busy_timeout(db, @intFromFloat(options.timeout * 1000));
+
         return .{
             .allocator = allocator,
             .database = try allocator.dupe(u8, database),
@@ -50,13 +74,22 @@ pub const Connection = struct {
             .in_transaction = false,
             .row_factory = null,
             .text_factory = null,
-            .total_changes = 0,
             .check_same_thread = options.check_same_thread,
+            .db = db,
         };
     }
 
     pub fn deinit(self: *Self) void {
+        self.close() catch {};
         self.allocator.free(self.database);
+    }
+
+    /// Get total changes from SQLite
+    pub fn total_changes(self: *Self) i64 {
+        if (self.db) |db| {
+            return c.sqlite3_total_changes(db);
+        }
+        return 0;
     }
 
     /// Create a cursor
@@ -101,8 +134,13 @@ pub const Connection = struct {
 
     /// Close connection
     pub fn close(self: *Self) !void {
-        _ = self;
-        // Would close SQLite connection
+        if (self.db) |db| {
+            const rc = c.sqlite3_close(db);
+            if (rc != c.SQLITE_OK) {
+                return error.DatabaseError;
+            }
+            self.db = null;
+        }
     }
 
     /// Create a user-defined function
@@ -110,15 +148,18 @@ pub const Connection = struct {
         self: *Self,
         name: []const u8,
         narg: i32,
-        func: *const fn (context: anytype, args: []anytype) anytype,
+        func: ?*const fn (?*c.sqlite3_context, c_int, [*c]?*c.sqlite3_value) callconv(.C) void,
         deterministic: bool,
     ) !void {
-        _ = self;
-        _ = name;
-        _ = narg;
-        _ = func;
-        _ = deterministic;
-        // Would register function with SQLite
+        const db = self.db orelse return error.DatabaseError;
+        const name_z = try self.allocator.dupeZ(u8, name);
+        defer self.allocator.free(name_z);
+
+        var flags: c_int = c.SQLITE_UTF8;
+        if (deterministic) flags |= c.SQLITE_DETERMINISTIC;
+
+        const rc = c.sqlite3_create_function(db, name_z.ptr, narg, flags, null, func, null, null);
+        if (rc != c.SQLITE_OK) return error.DatabaseError;
     }
 
     /// Create a user-defined aggregate
@@ -126,68 +167,82 @@ pub const Connection = struct {
         self: *Self,
         name: []const u8,
         narg: i32,
-        aggregate_class: anytype,
+        step_func: ?*const fn (?*c.sqlite3_context, c_int, [*c]?*c.sqlite3_value) callconv(.C) void,
+        final_func: ?*const fn (?*c.sqlite3_context) callconv(.C) void,
     ) !void {
-        _ = self;
-        _ = name;
-        _ = narg;
-        _ = aggregate_class;
-        // Would register aggregate with SQLite
+        const db = self.db orelse return error.DatabaseError;
+        const name_z = try self.allocator.dupeZ(u8, name);
+        defer self.allocator.free(name_z);
+
+        const rc = c.sqlite3_create_function(db, name_z.ptr, narg, c.SQLITE_UTF8, null, null, step_func, final_func);
+        if (rc != c.SQLITE_OK) return error.DatabaseError;
     }
 
     /// Create a collation
     pub fn createCollation(
         self: *Self,
         name: []const u8,
-        callable: *const fn (a: []const u8, b: []const u8) i32,
+        callable: ?*const fn (?*anyopaque, c_int, ?*const anyopaque, c_int, ?*const anyopaque) callconv(.C) c_int,
     ) !void {
-        _ = self;
-        _ = name;
-        _ = callable;
-        // Would register collation with SQLite
+        const db = self.db orelse return error.DatabaseError;
+        const name_z = try self.allocator.dupeZ(u8, name);
+        defer self.allocator.free(name_z);
+
+        const rc = c.sqlite3_create_collation(db, name_z.ptr, c.SQLITE_UTF8, null, callable);
+        if (rc != c.SQLITE_OK) return error.DatabaseError;
     }
 
     /// Set progress handler
-    pub fn setProgressHandler(self: *Self, handler: ?*const fn () bool, n: i32) void {
-        _ = self;
-        _ = handler;
-        _ = n;
-        // Would set progress handler
+    pub fn setProgressHandler(self: *Self, handler: ?*const fn (?*anyopaque) callconv(.C) c_int, n: i32) void {
+        const db = self.db orelse return;
+        _ = c.sqlite3_progress_handler(db, n, handler, null);
     }
 
     /// Set trace callback
-    pub fn setTraceCallback(self: *Self, callback: ?*const fn (statement: []const u8) void) void {
-        _ = self;
-        _ = callback;
-        // Would set trace callback
+    pub fn setTraceCallback(self: *Self, callback: ?*const fn (?*anyopaque, [*c]const u8) callconv(.C) void) void {
+        const db = self.db orelse return;
+        _ = c.sqlite3_trace(db, callback, null);
     }
 
     /// Enable load extension
     pub fn enableLoadExtension(self: *Self, enabled: bool) void {
-        _ = self;
-        _ = enabled;
-        // Would enable/disable extension loading
+        const db = self.db orelse return;
+        _ = c.sqlite3_enable_load_extension(db, if (enabled) 1 else 0);
     }
 
     /// Load extension
     pub fn loadExtension(self: *Self, path: []const u8, entrypoint: ?[]const u8) !void {
-        _ = self;
-        _ = path;
-        _ = entrypoint;
-        // Would load extension
+        const db = self.db orelse return error.DatabaseError;
+        const path_z = try self.allocator.dupeZ(u8, path);
+        defer self.allocator.free(path_z);
+
+        var entry_z: ?[*:0]u8 = null;
+        if (entrypoint) |ep| {
+            entry_z = (try self.allocator.dupeZ(u8, ep)).ptr;
+        }
+        defer if (entry_z) |e| self.allocator.free(std.mem.sliceTo(e, 0));
+
+        var errmsg: [*c]u8 = null;
+        const rc = c.sqlite3_load_extension(db, path_z.ptr, entry_z, &errmsg);
+        if (rc != c.SQLITE_OK) {
+            if (errmsg) |_| {
+                c.sqlite3_free(errmsg);
+            }
+            return error.DatabaseError;
+        }
     }
 
     /// Interrupt running query
     pub fn interrupt(self: *Self) void {
-        _ = self;
-        // Would interrupt SQLite
+        if (self.db) |db| {
+            c.sqlite3_interrupt(db);
+        }
     }
 
     /// Set authorizer callback
-    pub fn setAuthorizer(self: *Self, callback: ?*const fn (action: i32, arg1: ?[]const u8, arg2: ?[]const u8, dbname: ?[]const u8, trigger: ?[]const u8) i32) void {
-        _ = self;
-        _ = callback;
-        // Would set authorizer
+    pub fn setAuthorizer(self: *Self, callback: ?*const fn (?*anyopaque, c_int, [*c]const u8, [*c]const u8, [*c]const u8, [*c]const u8) callconv(.C) c_int) void {
+        const db = self.db orelse return;
+        _ = c.sqlite3_set_authorizer(db, callback, null);
     }
 
     /// Get database autocommit mode
@@ -196,20 +251,49 @@ pub const Connection = struct {
     }
 
     /// Backup database
-    pub fn backup(self: *Self, target: *Connection, pages: i32, progress: ?*const fn (status: i32, remaining: i32, total: i32) void, sleep: f64) !void {
-        _ = self;
-        _ = target;
-        _ = pages;
-        _ = progress;
-        _ = sleep;
-        // Would backup database
+    pub fn backup(self: *Self, target: *Connection, pages: i32, progress: ?*const fn (status: i32, remaining: i32, total: i32) void, sleep_ms: f64) !void {
+        const src_db = self.db orelse return error.DatabaseError;
+        const dst_db = target.db orelse return error.DatabaseError;
+
+        const pBackup = c.sqlite3_backup_init(dst_db, "main", src_db, "main");
+        if (pBackup == null) return error.DatabaseError;
+
+        var rc: c_int = c.SQLITE_OK;
+        while (rc == c.SQLITE_OK or rc == c.SQLITE_BUSY or rc == c.SQLITE_LOCKED) {
+            rc = c.sqlite3_backup_step(pBackup, pages);
+            if (progress) |p| {
+                const remaining = c.sqlite3_backup_remaining(pBackup);
+                const total = c.sqlite3_backup_pagecount(pBackup);
+                p(rc, remaining, total);
+            }
+            if (rc == c.SQLITE_BUSY or rc == c.SQLITE_LOCKED) {
+                std.time.sleep(@intFromFloat(sleep_ms * std.time.ns_per_ms));
+            }
+        }
+
+        _ = c.sqlite3_backup_finish(pBackup);
+        if (rc != c.SQLITE_DONE) return error.DatabaseError;
     }
 
-    /// Get table names
-    pub fn iterdump(self: *Self) ![][]const u8 {
-        _ = self;
-        // Would iterate SQL dump
-        return &[_][]const u8{};
+    /// Iterate SQL dump - returns SQL statements to recreate database
+    pub fn iterdump(self: *Self) !std.ArrayList([]const u8) {
+        var result = std.ArrayList([]const u8).init(self.allocator);
+
+        // Get all table names from sqlite_master
+        var cur = try self.cursor();
+        defer cur.deinit();
+
+        try cur.execute("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type DESC, name", null);
+
+        for (cur.rows.items) |row| {
+            if (row.len > 0) {
+                if (row[0]) |sql| {
+                    try result.append(try self.allocator.dupe(u8, sql));
+                }
+            }
+        }
+
+        return result;
     }
 };
 
@@ -233,12 +317,14 @@ pub const Cursor = struct {
 
     allocator: std.mem.Allocator,
     connection: *Connection,
-    description: ?[]const ColumnDescription,
+    description: ?[]ColumnDescription,
     rowcount: i64,
     lastrowid: ?i64,
     arraysize: usize,
     rows: std.ArrayList(Row),
     current_row: usize,
+    /// Current prepared statement
+    stmt: ?*c.sqlite3_stmt,
 
     pub const ColumnDescription = struct {
         name: []const u8,
@@ -262,27 +348,114 @@ pub const Cursor = struct {
             .arraysize = 1,
             .rows = std.ArrayList(Row).init(allocator),
             .current_row = 0,
+            .stmt = null,
         };
     }
 
     pub fn deinit(self: *Self) void {
+        if (self.stmt) |stmt| {
+            _ = c.sqlite3_finalize(stmt);
+        }
         self.rows.deinit();
+        if (self.description) |desc| {
+            self.allocator.free(desc);
+        }
     }
 
     /// Execute a SQL statement
     pub fn execute(self: *Self, sql: []const u8, parameters: ?[]const ?[]const u8) !void {
-        _ = parameters;
+        const db = self.connection.db orelse return error.DatabaseError;
+
+        // Finalize previous statement
+        if (self.stmt) |stmt| {
+            _ = c.sqlite3_finalize(stmt);
+            self.stmt = null;
+        }
+
         self.rows.clearRetainingCapacity();
         self.current_row = 0;
+
+        // Prepare statement
+        const sql_z = try self.allocator.dupeZ(u8, sql);
+        defer self.allocator.free(sql_z);
+
+        var stmt: ?*c.sqlite3_stmt = null;
+        var rc = c.sqlite3_prepare_v2(db, sql_z.ptr, @intCast(sql_z.len), &stmt, null);
+        if (rc != c.SQLITE_OK) {
+            return error.DatabaseError;
+        }
+        self.stmt = stmt;
+
+        // Bind parameters
+        if (parameters) |params| {
+            for (params, 1..) |param, i| {
+                if (param) |p| {
+                    const p_z = try self.allocator.dupeZ(u8, p);
+                    defer self.allocator.free(p_z);
+                    rc = c.sqlite3_bind_text(stmt, @intCast(i), p_z.ptr, @intCast(p.len), c.SQLITE_TRANSIENT);
+                } else {
+                    rc = c.sqlite3_bind_null(stmt, @intCast(i));
+                }
+                if (rc != c.SQLITE_OK) {
+                    return error.DatabaseError;
+                }
+            }
+        }
+
+        // Get column count and build description
+        const col_count = c.sqlite3_column_count(stmt);
+        if (col_count > 0) {
+            var desc = try self.allocator.alloc(ColumnDescription, @intCast(col_count));
+            for (0..@intCast(col_count)) |i| {
+                const name_ptr = c.sqlite3_column_name(stmt, @intCast(i));
+                desc[i] = .{
+                    .name = if (name_ptr) |p| std.mem.sliceTo(p, 0) else "",
+                    .type_code = null,
+                    .display_size = null,
+                    .internal_size = null,
+                    .precision = null,
+                    .scale = null,
+                    .null_ok = null,
+                };
+            }
+            if (self.description) |old_desc| {
+                self.allocator.free(old_desc);
+            }
+            self.description = desc;
+        }
+
+        // Execute and fetch rows
         self.rowcount = 0;
+        while (true) {
+            rc = c.sqlite3_step(stmt);
+            if (rc == c.SQLITE_ROW) {
+                // Fetch row data
+                var row = try self.allocator.alloc(?[]const u8, @intCast(col_count));
+                for (0..@intCast(col_count)) |i| {
+                    const col_type = c.sqlite3_column_type(stmt, @intCast(i));
+                    if (col_type == c.SQLITE_NULL) {
+                        row[i] = null;
+                    } else {
+                        const text = c.sqlite3_column_text(stmt, @intCast(i));
+                        const len = c.sqlite3_column_bytes(stmt, @intCast(i));
+                        if (text) |t| {
+                            row[i] = try self.allocator.dupe(u8, t[0..@intCast(len)]);
+                        } else {
+                            row[i] = null;
+                        }
+                    }
+                }
+                try self.rows.append(row);
+            } else if (rc == c.SQLITE_DONE) {
+                break;
+            } else {
+                return error.DatabaseError;
+            }
+        }
 
-        // Would execute SQL via SQLite
-        // Parse SQL to determine statement type
-        const trimmed = std.mem.trim(u8, sql, " \t\n\r");
-        _ = trimmed;
-
-        // Set description for SELECT statements
-        // Would set based on actual result columns
+        // Get rowcount for non-SELECT statements
+        self.rowcount = c.sqlite3_changes(db);
+        self.lastrowid = c.sqlite3_last_insert_rowid(db);
     }
 
     /// Execute SQL with multiple parameter sets
@@ -418,17 +591,24 @@ pub fn connect(allocator: std.mem.Allocator, database: []const u8, options: Conn
     return Connection.init(allocator, database, options);
 }
 
-/// Register an adapter
+// Global adapter and converter registries
+var adapters_map: ?std.StringHashMap(*const anyopaque) = null;
+var converters_map: ?std.StringHashMap(*const anyopaque) = null;
+
+/// Register an adapter for a Python type to SQLite
 pub fn registerAdapter(comptime T: type, adapter: *const fn (value: T) []const u8) void {
-    _ = adapter;
-    // Would register type adapter
+    if (adapters_map == null) {
+        adapters_map = std.StringHashMap(*const anyopaque).init(std.heap.page_allocator);
+    }
+    adapters_map.?.put(@typeName(T), @ptrCast(adapter)) catch {};
 }
 
-/// Register a converter
-pub fn registerConverter(typename: []const u8, converter: *const fn (value: []const u8) anytype) void {
-    _ = typename;
-    _ = converter;
-    // Would register type converter
+/// Register a converter from SQLite type to Python
+pub fn registerConverter(typename: []const u8, converter: *const anyopaque) void {
+    if (converters_map == null) {
+        converters_map = std.StringHashMap(*const anyopaque).init(std.heap.page_allocator);
+    }
+    converters_map.?.put(typename, converter) catch {};
 }
 
 /// Complete SQL statement check
@@ -456,10 +636,10 @@ pub fn completeStatement(statement: []const u8) bool {
     return trimmed.len > 0 and trimmed[trimmed.len - 1] == ';';
 }
 
-/// Enable shared cache
+/// Enable shared cache mode
 pub fn enableSharedCache(enable: bool) !void {
-    _ = enable;
-    // Would enable/disable shared cache
+    const rc = c.sqlite3_enable_shared_cache(if (enable) 1 else 0);
+    if (rc != c.SQLITE_OK) return error.DatabaseError;
 }
 
 // ============================================================================
@@ -617,41 +797,65 @@ pub const Blob = struct {
 
     allocator: std.mem.Allocator,
     connection: *Connection,
-    data: []u8,
+    blob: ?*c.sqlite3_blob,
+    size: usize,
     position: usize,
+    readonly: bool,
 
     pub fn init(allocator: std.mem.Allocator, connection: *Connection, table: []const u8, column: []const u8, row: i64, readonly: bool) !Self {
-        _ = table;
-        _ = column;
-        _ = row;
-        _ = readonly;
+        const db = connection.db orelse return error.DatabaseError;
+
+        const table_z = try allocator.dupeZ(u8, table);
+        defer allocator.free(table_z);
+        const column_z = try allocator.dupeZ(u8, column);
+        defer allocator.free(column_z);
+
+        var blob: ?*c.sqlite3_blob = null;
+        const flags: c_int = if (readonly) 0 else 1;
+        const rc = c.sqlite3_blob_open(db, "main", table_z.ptr, column_z.ptr, row, flags, &blob);
+        if (rc != c.SQLITE_OK) return error.DatabaseError;
+
+        const size: usize = @intCast(c.sqlite3_blob_bytes(blob));
+
         return .{
             .allocator = allocator,
             .connection = connection,
-            .data = &[_]u8{},
+            .blob = blob,
+            .size = size,
             .position = 0,
+            .readonly = readonly,
         };
     }
 
-    pub fn read(self: *Self, length: ?usize) []const u8 {
-        const len = length orelse (self.data.len - self.position);
-        const end = @min(self.position + len, self.data.len);
-        const result = self.data[self.position..end];
-        self.position = end;
-        return result;
+    pub fn read(self: *Self, length: ?usize) ![]u8 {
+        const blob = self.blob orelse return error.DatabaseError;
+        const len = @min(length orelse (self.size - self.position), self.size - self.position);
+        if (len == 0) return &[_]u8{};
+
+        var buf = try self.allocator.alloc(u8, len);
+        const rc = c.sqlite3_blob_read(blob, buf.ptr, @intCast(len), @intCast(self.position));
+        if (rc != c.SQLITE_OK) {
+            self.allocator.free(buf);
+            return error.DatabaseError;
+        }
+        self.position += len;
+        return buf;
     }
 
     pub fn write(self: *Self, data: []const u8) !void {
-        _ = self;
-        _ = data;
-        // Would write to blob
+        if (self.readonly) return error.DatabaseError;
+        const blob = self.blob orelse return error.DatabaseError;
+
+        const rc = c.sqlite3_blob_write(blob, data.ptr, @intCast(data.len), @intCast(self.position));
+        if (rc != c.SQLITE_OK) return error.DatabaseError;
+        self.position += data.len;
     }
 
     pub fn seek(self: *Self, offset: i64, whence: i32) void {
         switch (whence) {
             0 => self.position = @intCast(offset), // SEEK_SET
             1 => self.position = @intCast(@as(i64, @intCast(self.position)) + offset), // SEEK_CUR
-            2 => self.position = @intCast(@as(i64, @intCast(self.data.len)) + offset), // SEEK_END
+            2 => self.position = @intCast(@as(i64, @intCast(self.size)) + offset), // SEEK_END
             else => {},
         }
     }
@@ -660,9 +864,15 @@ pub const Blob = struct {
         return self.position;
     }
 
+    pub fn len(self: *Self) usize {
+        return self.size;
+    }
+
     pub fn close(self: *Self) void {
-        _ = self;
-        // Would close blob
+        if (self.blob) |blob| {
+            _ = c.sqlite3_blob_close(blob);
+            self.blob = null;
+        }
     }
 };
 
