@@ -10,7 +10,7 @@ const TrieNode = helpers.TrieNode;
 const builder = @import("tokenizer_builder.zig");
 const AhoCorasick = @import("aho_corasick.zig").AhoCorasick;
 const ac_cache = @import("aho_corasick_cache.zig");
-const FnvHashContext = @import("fnv_hash.zig").FnvHashContext;
+const FnvHashContext = @import("utils.fnv_hash").FnvHashContext;
 
 // metal0's optimized JSON parser
 const json = @import("json");

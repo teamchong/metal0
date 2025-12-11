@@ -4,7 +4,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const AhoCorasick = @import("aho_corasick.zig").AhoCorasick;
 const pool_mod = @import("pool.zig");
-const FnvHashContext = @import("fnv_hash.zig").FnvHashContext;
+const FnvHashContext = @import("utils.fnv_hash").FnvHashContext;
 const helpers = @import("tokenizer_helpers.zig");
 const Pair = helpers.Pair;
 

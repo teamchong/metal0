@@ -49,7 +49,7 @@ pub const WordPieceTrainer = struct {
     /// Build a Tokenizer from trained WordPiece model
     fn buildTokenizer(self: *WordPieceTrainer, wordpiece: *const WordPiece) !Tokenizer {
         const helpers = @import("tokenizer_helpers.zig");
-        const FnvHashContext = @import("fnv_hash.zig").FnvHashContext;
+        const FnvHashContext = @import("utils.fnv_hash").FnvHashContext;
 
         // Build vocab (HashMap with FNV hash)
         var vocab = std.HashMap(

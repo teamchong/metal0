@@ -9,7 +9,7 @@ const helpers = @import("tokenizer_helpers.zig");
 const Pair = helpers.Pair;
 const PairContext = helpers.PairContext;
 const StringHashContext = helpers.StringHashContext;
-const FnvHashContext = @import("fnv_hash.zig").FnvHashContext;
+const FnvHashContext = @import("utils.fnv_hash").FnvHashContext;
 
 /// Build split_table by reverse-engineering vocab (port of rs-bpe lines 289-320)
 /// Now returns array indexed by token ID for O(1) access

@@ -104,6 +104,7 @@ pub fn build(b: *std.Build) void {
     });
     tokenizer_mod.addImport("json", json_mod);
     tokenizer_mod.addImport("utils.hashmap_helper", hashmap_helper);
+    tokenizer_mod.addImport("utils.fnv_hash", fnv_hash);
 
     // Package manager module (PEP 440, 508, requirements.txt, METADATA parsing)
     const pkg_mod = b.addModule("pkg", .{
@@ -142,6 +143,7 @@ pub fn build(b: *std.Build) void {
 
     // Module dependencies
     runtime.addImport("utils.hashmap_helper", hashmap_helper);
+    runtime.addImport("utils.allocator_helper", allocator_helper);
     runtime.addImport("json_simd", json_simd);
     runtime.addImport("regex", regex_mod);
     runtime.addImport("bigint", bigint_mod);
@@ -393,6 +395,8 @@ pub fn build(b: *std.Build) void {
     test_correctness_exe.root_module.addImport("tokenizer", tokenizer_mod);
     test_correctness_exe.root_module.addImport("json", json_mod);
     test_correctness_exe.root_module.addImport("utils.allocator_helper", allocator_helper);
+    test_correctness_exe.root_module.addImport("utils.fnv_hash", fnv_hash);
+    test_correctness_exe.root_module.addImport("utils.hashmap_helper", hashmap_helper);
     test_correctness_exe.linkLibC();
     b.installArtifact(test_correctness_exe);
 
@@ -463,6 +467,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
     tokenizer_bench.root_module.addImport("json", json_mod);
+    tokenizer_bench.root_module.addImport("utils.fnv_hash", fnv_hash);
+    tokenizer_bench.root_module.addImport("utils.hashmap_helper", hashmap_helper);
     tokenizer_bench.linkLibC();
     b.installArtifact(tokenizer_bench);
 
@@ -482,6 +488,7 @@ pub fn build(b: *std.Build) void {
     bench_train.root_module.addImport("json", json_mod);
     bench_train.root_module.addImport("utils.allocator_helper", allocator_helper);
     bench_train.root_module.addImport("utils.hashmap_helper", hashmap_helper);
+    bench_train.root_module.addImport("utils.fnv_hash", fnv_hash);
     bench_train.linkLibC();
     b.installArtifact(bench_train);
 

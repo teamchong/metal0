@@ -43,7 +43,7 @@ pub const countPairsSIMD = helpers.countPairsSIMD;
 pub const mergePair = helpers.mergePair;
 
 // FnvHash for optimized HashMap lookups
-const FnvHashContext = @import("fnv_hash.zig").FnvHashContext;
+const FnvHashContext = @import("utils.fnv_hash").FnvHashContext;
 
 const builder = @import("tokenizer_builder.zig");
 const buildSplitTable = builder.buildSplitTable;

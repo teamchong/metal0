@@ -37,6 +37,9 @@ pub fn build(b: *std.Build) void {
     const hashmap_helper = b.addModule("hashmap_helper", .{
         .root_source_file = b.path("../../src/utils/hashmap_helper.zig"),
     });
+    const fnv_hash = b.addModule("fnv_hash", .{
+        .root_source_file = b.path("../../src/utils/fnv_hash.zig"),
+    });
 
     // Training benchmark binary
     const bench_train = b.addExecutable(.{

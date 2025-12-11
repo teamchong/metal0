@@ -5,7 +5,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Pair = @import("tokenizer.zig").Pair;
 const PairContext = @import("tokenizer.zig").PairContext;
-const FnvHashContext = @import("fnv_hash.zig").FnvHashContext;
+const FnvHashContext = @import("utils.fnv_hash").FnvHashContext;
 
 /// Word with its frequency count
 pub const Word = struct {

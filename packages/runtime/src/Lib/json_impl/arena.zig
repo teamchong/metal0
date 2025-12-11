@@ -6,7 +6,7 @@
 ///
 /// Performance: ~2 CPU cycles per allocation vs ~100+ for malloc
 const std = @import("std");
-const allocator_helper = @import("../utils_impl/allocator_helper.zig");
+const allocator_helper = @import("utils.allocator_helper");
 
 /// Thread-local arena pool for reuse (avoids mmap/munmap syscalls)
 const POOL_SIZE = 8;

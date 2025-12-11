@@ -17,7 +17,7 @@ const JsonArena = @import("arena.zig").JsonArena;
 const simd = @import("simd/dispatch.zig");
 const JsonError = @import("errors.zig").JsonError;
 const ParseResult = @import("errors.zig").ParseResult;
-const hashmap_helper = @import("../utils_impl/hashmap_helper.zig");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Thread-local key cache for interning (avoids repeated allocations)
 /// Using hash-based lookup instead of linear scan for O(1) cache checks
