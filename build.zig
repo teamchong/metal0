@@ -115,7 +115,7 @@ pub fn build(b: *std.Build) void {
 
     // Function traits analysis framework (call graph, mutation, async, etc.)
     const function_traits = b.addModule("analysis.function_traits", .{
-        .root_source_file = b.path("src/analysis/function_traits.zig"),
+        .root_source_file = b.path("src/analysis/traits/function_traits.zig"),
     });
     function_traits.addImport("analysis.ast", ast);
     function_traits.addImport("utils.hashmap_helper", hashmap_helper);
