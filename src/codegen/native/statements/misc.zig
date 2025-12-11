@@ -1480,9 +1480,25 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
 fn genRaiseMessage(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
     const expressions = @import("../expressions.zig");
     if (arg == .constant and arg.constant.value == .string) {
-        // String literal - emit directly
+        // String literal - emit with proper escaping
+        const raw = arg.constant.value.string;
         try self.emit("\"");
-        try self.emit(arg.constant.value.string);
+        // Escape inner double quotes and backslashes for Zig string literal
+        for (raw) |c| {
+            if (c == '"') {
+                try self.emit("\\\"");
+            } else if (c == '\\') {
+                try self.emit("\\\\");
+            } else if (c == '\n') {
+                try self.emit("\\n");
+            } else if (c == '\r') {
+                try self.emit("\\r");
+            } else if (c == '\t') {
+                try self.emit("\\t");
+            } else {
+                try self.output.writer(self.allocator).writeByte(c);
+            }
+        }
         try self.emit("\"");
     } else {
         // Expression - convert to string at runtime
