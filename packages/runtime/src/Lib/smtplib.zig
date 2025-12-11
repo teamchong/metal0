@@ -352,19 +352,43 @@ pub const SMTP = struct {
         return self.sendCommand("RCPT TO:", args);
     }
 
-    /// DATA command
+    /// DATA command - sends message with dot-stuffing per RFC 5321
     pub fn data(self: *Self, msg: []const u8) !SmtpResponse {
         const resp = try self.sendCommand("DATA", null);
         if (resp.code != ReplyCode.START_MAIL_INPUT) {
             return SmtpError.DataError;
         }
 
-        // Send message data
-        _ = msg;
-        // Would send message data with dot-stuffing
+        // Send message data with dot-stuffing (RFC 5321 section 4.5.2)
+        // Lines starting with a dot must have an extra dot prepended
+        var start: usize = 0;
+        var at_line_start = true;
 
-        // Send terminating dot
-        try self.putCmd(".", null);
+        for (msg, 0..) |c, i| {
+            if (at_line_start and c == '.') {
+                // Send everything up to and including the dot, then add extra dot
+                if (i > start) {
+                    _ = std.posix.send(self.sock.?, msg[start..i], 0) catch return SmtpError.ConnectionError;
+                }
+                // Send double dot for transparency
+                _ = std.posix.send(self.sock.?, "..", 0) catch return SmtpError.ConnectionError;
+                start = i + 1;
+            }
+            at_line_start = (c == '\n');
+        }
+
+        // Send remaining data
+        if (start < msg.len) {
+            _ = std.posix.send(self.sock.?, msg[start..], 0) catch return SmtpError.ConnectionError;
+        }
+
+        // Ensure message ends with CRLF
+        if (msg.len < 2 or msg[msg.len - 2] != '\r' or msg[msg.len - 1] != '\n') {
+            _ = std.posix.send(self.sock.?, CRLF, 0) catch return SmtpError.ConnectionError;
+        }
+
+        // Send terminating dot (CRLF.CRLF)
+        _ = std.posix.send(self.sock.?, ".\r\n", 0) catch return SmtpError.ConnectionError;
         return self.getReply();
     }
 
@@ -431,11 +455,26 @@ pub const SMTP = struct {
         return self.sendCommand("AUTH", "CRAM-MD5");
     }
 
-    /// Login using PLAIN
+    /// Login using PLAIN - base64 encoded credentials
     pub fn authPlain(self: *Self, user: []const u8, password: []const u8) !SmtpResponse {
-        _ = password;
-        // Would encode credentials as base64
-        return self.sendCommand("AUTH PLAIN", user);
+        // AUTH PLAIN format: base64(\0username\0password)
+        var plain_buf: [512]u8 = undefined;
+        var plain_len: usize = 0;
+
+        plain_buf[plain_len] = 0; // authzid (empty)
+        plain_len += 1;
+        @memcpy(plain_buf[plain_len .. plain_len + user.len], user);
+        plain_len += user.len;
+        plain_buf[plain_len] = 0; // separator
+        plain_len += 1;
+        @memcpy(plain_buf[plain_len .. plain_len + password.len], password);
+        plain_len += password.len;
+
+        // Base64 encode
+        var encoded_buf: [768]u8 = undefined;
+        const encoded = std.base64.standard.Encoder.encode(&encoded_buf, plain_buf[0..plain_len]);
+
+        return self.sendCommand("AUTH PLAIN", encoded);
     }
 
     /// Login using LOGIN

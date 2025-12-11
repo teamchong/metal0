@@ -255,12 +255,37 @@ pub const MimeTypes = struct {
         }
     }
 
-    /// Read a MIME types file (fp version)
+    /// Read a MIME types file from a reader
     pub fn readfp(self: *Self, fp: anytype, strict: bool) !void {
-        _ = self;
-        _ = fp;
         _ = strict;
-        // Would read from file pointer
+        var line_buf: [1024]u8 = undefined;
+
+        while (true) {
+            const line = fp.readUntilDelimiter(&line_buf, '\n') catch |err| {
+                if (err == error.EndOfStream) break;
+                return err;
+            };
+
+            // Skip comments and empty lines
+            const trimmed = std.mem.trim(u8, line, " \t\r");
+            if (trimmed.len == 0 or trimmed[0] == '#') continue;
+
+            // Parse: mime_type ext1 ext2 ext3 ...
+            var parts = std.mem.tokenizeAny(u8, trimmed, " \t");
+            const mime_type = parts.next() orelse continue;
+
+            while (parts.next()) |ext| {
+                // Add leading dot if not present
+                if (ext.len > 0 and ext[0] != '.') {
+                    var ext_buf: [64]u8 = undefined;
+                    ext_buf[0] = '.';
+                    @memcpy(ext_buf[1 .. ext.len + 1], ext);
+                    try self.types_map.put(ext_buf[0 .. ext.len + 1], mime_type);
+                } else {
+                    try self.types_map.put(ext, mime_type);
+                }
+            }
+        }
     }
 
     /// Guess MIME type from URL/filename
@@ -298,12 +323,20 @@ pub const MimeTypes = struct {
     }
 
     /// Guess all extensions for a MIME type
-    pub fn guessAllExtensions(self: *Self, mime_type: []const u8, strict: bool) []const []const u8 {
-        _ = self;
-        _ = mime_type;
+    pub fn guessAllExtensions(self: *Self, allocator: std.mem.Allocator, mime_type: []const u8, strict: bool) ![][]const u8 {
         _ = strict;
-        // Would return all extensions for type
-        return &[_][]const u8{};
+        var extensions = std.ArrayList([]const u8).init(allocator);
+        errdefer extensions.deinit();
+
+        // Iterate through all type mappings to find matching extensions
+        var iter = self.types_map.iterator();
+        while (iter.next()) |entry| {
+            if (std.mem.eql(u8, entry.value_ptr.*, mime_type)) {
+                try extensions.append(entry.key_ptr.*);
+            }
+        }
+
+        return extensions.toOwnedSlice();
     }
 
     /// Guess extension for a MIME type

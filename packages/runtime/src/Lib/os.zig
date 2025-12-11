@@ -441,26 +441,47 @@ pub fn stat(path_: []const u8) !stat_result {
 var path_buf: [std.fs.max_path_bytes]u8 = undefined;
 
 fn statInternal(path_: []const u8) !stat_result {
-    // Get the file stat from Zig's filesystem
-    const s = try std.fs.cwd().statFile(path_);
+    // Use POSIX stat for full info including blocks
+    const s = std.posix.stat(path_) catch {
+        // Fallback to std.fs if POSIX stat fails
+        const fs_stat = try std.fs.cwd().statFile(path_);
+        return .{
+            .st_mode = @intCast(fs_stat.mode),
+            .st_ino = fs_stat.inode,
+            .st_dev = 0,
+            .st_nlink = 1,
+            .st_uid = 0,
+            .st_gid = 0,
+            .st_size = @intCast(fs_stat.size),
+            .st_atime = @intCast(@divFloor(fs_stat.atime, std.time.ns_per_s)),
+            .st_mtime = @intCast(@divFloor(fs_stat.mtime, std.time.ns_per_s)),
+            .st_ctime = @intCast(@divFloor(fs_stat.ctime, std.time.ns_per_s)),
+            .st_atime_ns = fs_stat.atime,
+            .st_mtime_ns = fs_stat.mtime,
+            .st_ctime_ns = fs_stat.ctime,
+            .st_blocks = @divTrunc(@as(i64, @intCast(fs_stat.size)) + 511, 512),
+            .st_blksize = 4096,
+            .st_rdev = 0,
+        };
+    };
 
     return .{
-        .st_mode = @intCast(s.mode),
-        .st_ino = s.inode,
-        .st_dev = 0, // Not directly available from std.fs.File.Stat
-        .st_nlink = 1, // Default to 1; full info requires POSIX stat
-        .st_uid = 0, // Not directly available from std.fs.File.Stat
-        .st_gid = 0, // Not directly available from std.fs.File.Stat
+        .st_mode = s.mode,
+        .st_ino = s.ino,
+        .st_dev = s.dev,
+        .st_nlink = s.nlink,
+        .st_uid = s.uid,
+        .st_gid = s.gid,
         .st_size = @intCast(s.size),
-        .st_atime = @intCast(@divFloor(s.atime, std.time.ns_per_s)),
-        .st_mtime = @intCast(@divFloor(s.mtime, std.time.ns_per_s)),
-        .st_ctime = @intCast(@divFloor(s.ctime, std.time.ns_per_s)),
-        .st_atime_ns = s.atime,
-        .st_mtime_ns = s.mtime,
-        .st_ctime_ns = s.ctime,
-        .st_blocks = 0, // Would need POSIX stat for this
-        .st_blksize = 4096, // Common default
-        .st_rdev = 0,
+        .st_atime = s.atime().sec,
+        .st_mtime = s.mtime().sec,
+        .st_ctime = s.ctime().sec,
+        .st_atime_ns = @as(i128, s.atime().sec) * std.time.ns_per_s + s.atime().nsec,
+        .st_mtime_ns = @as(i128, s.mtime().sec) * std.time.ns_per_s + s.mtime().nsec,
+        .st_ctime_ns = @as(i128, s.ctime().sec) * std.time.ns_per_s + s.ctime().nsec,
+        .st_blocks = @intCast(s.blocks),
+        .st_blksize = @intCast(s.blksize),
+        .st_rdev = s.rdev,
     };
 }
 

@@ -139,23 +139,101 @@ pub const zipimporter = struct {
 
     /// Get the source code of a module
     pub fn get_source(self: *Self, fullname: []const u8) !?[]u8 {
-        _ = self;
-        _ = fullname;
-        // Would read and decompress the file from archive
+        // Convert module name to file path
+        var path_buf: [512]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&path_buf);
+        const writer = fbs.writer();
+
+        if (self.prefix.len > 0) {
+            writer.writeAll(self.prefix) catch return null;
+            writer.writeByte('/') catch return null;
+        }
+
+        for (fullname) |c| {
+            if (c == '.') {
+                writer.writeByte('/') catch return null;
+            } else {
+                writer.writeByte(c) catch return null;
+            }
+        }
+        writer.writeAll(".py") catch return null;
+
+        const file_path = fbs.getWritten();
+        return self.readFileFromArchive(file_path);
+    }
+
+    /// Read a file from the ZIP archive
+    fn readFileFromArchive(self: *Self, inner_path: []const u8) !?[]u8 {
+        // Open the archive
+        const file = std.fs.cwd().openFile(self.archive, .{}) catch return null;
+        defer file.close();
+
+        // Use std.zip to read the archive
+        var zip_iter = std.zip.Iterator(@TypeOf(file.seekableStream())).init(file.seekableStream());
+
+        while (zip_iter.next() catch return null) |entry| {
+            if (std.mem.eql(u8, entry.filename, inner_path)) {
+                // Found the file, decompress it
+                var decompressed = std.ArrayList(u8).init(self.allocator);
+                errdefer decompressed.deinit();
+
+                entry.decompress(decompressed.writer(), null) catch |err| {
+                    // If stored (no compression), read directly
+                    if (err == error.Unsupported) {
+                        // Try reading uncompressed data
+                        const data = try self.allocator.alloc(u8, @intCast(entry.uncompressed_size));
+                        errdefer self.allocator.free(data);
+
+                        file.seekableStream().seekTo(entry.header_offset) catch return null;
+                        const n = file.read(data) catch return null;
+                        if (n < data.len) {
+                            self.allocator.free(data);
+                            return null;
+                        }
+                        return data;
+                    }
+                    return null;
+                };
+
+                return decompressed.toOwnedSlice();
+            }
+        }
+
         return null;
     }
 
     /// Get compiled bytecode of a module
     pub fn get_code(self: *Self, fullname: []const u8) !?[]u8 {
-        _ = self;
-        _ = fullname;
-        return null;
+        // Try to find .pyc file first
+        var path_buf: [512]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&path_buf);
+        const writer = fbs.writer();
+
+        if (self.prefix.len > 0) {
+            writer.writeAll(self.prefix) catch return null;
+            writer.writeByte('/') catch return null;
+        }
+
+        // Look for __pycache__/module.cpython-XX.pyc
+        writer.writeAll("__pycache__/") catch return null;
+        for (fullname) |c| {
+            if (c == '.') {
+                writer.writeByte('/') catch return null;
+            } else {
+                writer.writeByte(c) catch return null;
+            }
+        }
+        writer.writeAll(".cpython-311.pyc") catch return null;
+
+        const pyc_path = fbs.getWritten();
+        return self.readFileFromArchive(pyc_path);
     }
 
-    /// Get data from the archive
+    /// Get data from the archive (arbitrary file)
     pub fn get_data(self: *Self, path: []const u8) ![]u8 {
-        _ = self;
-        _ = path;
+        if (self.readFileFromArchive(path)) |data| {
+            return data;
+        }
         return error.ModuleNotFound;
     }
 

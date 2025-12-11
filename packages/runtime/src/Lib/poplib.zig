@@ -328,15 +328,25 @@ pub const POP3 = struct {
         return self.sendCmd("PASS", password);
     }
 
-    /// APOP authentication
+    /// APOP authentication - MD5 digest of timestamp + secret
     pub fn apop(self: *Self, username: []const u8, secret: []const u8) !Pop3Response {
-        _ = secret;
         if (self.timestamp == null) {
             return Pop3Error.ProtoError;
         }
 
-        // Would compute MD5 digest of timestamp + secret
-        const digest = "0123456789abcdef0123456789abcdef";
+        // Compute MD5(timestamp + secret) per RFC 1939
+        var md5 = std.crypto.hash.Md5.init(.{});
+        md5.update(self.timestamp.?);
+        md5.update(secret);
+        const hash = md5.finalResult();
+
+        // Convert to hex string
+        var digest: [32]u8 = undefined;
+        const hex_chars = "0123456789abcdef";
+        for (hash, 0..) |byte, i| {
+            digest[i * 2] = hex_chars[byte >> 4];
+            digest[i * 2 + 1] = hex_chars[byte & 0x0f];
+        }
 
         var buf: [256]u8 = undefined;
         const arg = std.fmt.bufPrint(&buf, "{s} {s}", .{ username, digest }) catch return Pop3Error.Error;

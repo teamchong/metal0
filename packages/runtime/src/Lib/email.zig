@@ -750,14 +750,25 @@ pub const header = struct {
                             try result.appendSlice(buf);
                         } else if (encoding.?[0] == 'Q' or encoding.?[0] == 'q') {
                             // Quoted-printable decode
-                            for (text.?) |c| {
+                            var j: usize = 0;
+                            while (j < text.?.len) {
+                                const c = text.?[j];
                                 if (c == '_') {
                                     try result.append(' ');
-                                } else if (c == '=') {
-                                    // Would decode hex
-                                    try result.append(c);
+                                    j += 1;
+                                } else if (c == '=' and j + 2 < text.?.len) {
+                                    // Decode hex pair
+                                    const hex_chars = text.?[j + 1 .. j + 3];
+                                    if (std.fmt.parseInt(u8, hex_chars, 16)) |byte| {
+                                        try result.append(byte);
+                                        j += 3;
+                                    } else |_| {
+                                        try result.append(c);
+                                        j += 1;
+                                    }
                                 } else {
                                     try result.append(c);
+                                    j += 1;
                                 }
                             }
                         } else {

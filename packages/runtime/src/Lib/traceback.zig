@@ -380,10 +380,32 @@ pub fn print_list(allocator: std.mem.Allocator, extracted_list: []const FrameSum
 // Limit Handling
 // ============================================================================
 
+/// Default traceback limit (matches CPython's default)
+var tracebacklimit: ?i32 = 1000;
+
 /// Get the traceback limit from sys.tracebacklimit
 pub fn getLimit() ?i32 {
-    // Would check sys.tracebacklimit
-    return null;
+    // Check environment variable override (PYTHONTRACEBACK)
+    if (std.posix.getenv("PYTHONTRACEBACK")) |env_limit| {
+        if (std.fmt.parseInt(i32, env_limit, 10)) |limit| {
+            return limit;
+        } else |_| {}
+    }
+    return tracebacklimit;
+}
+
+/// Set the traceback limit (called by sys module)
+pub fn setLimit(limit: ?i32) void {
+    tracebacklimit = limit;
+}
+
+/// Apply limit to frame count
+pub fn applyLimit(count: usize, limit: ?i32) usize {
+    if (limit) |lim| {
+        if (lim < 0) return 0;
+        return @min(count, @as(usize, @intCast(lim)));
+    }
+    return count;
 }
 
 // ============================================================================

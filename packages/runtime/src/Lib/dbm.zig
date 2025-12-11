@@ -211,27 +211,75 @@ pub fn Database(comptime K: type, comptime V: type) type {
             self.modified = true;
         }
 
-        /// Reorganize the database (no-op for this implementation)
+        /// Reorganize/compact the database by rewriting it
         pub fn reorganize(self: *Self) !void {
-            _ = self;
-            // Would compact the database file
+            if (self.mode == .read) {
+                return error.ReadOnly;
+            }
+
+            // Create a temporary file
+            var tmp_buf: [512]u8 = undefined;
+            const tmp_path = std.fmt.bufPrint(&tmp_buf, "{s}.tmp", .{self.filename}) catch return;
+
+            // Write current data to temp file
+            const tmp_file = try std.fs.cwd().createFile(tmp_path, .{});
+            defer tmp_file.close();
+
+            var iter = self.data.iterator();
+            while (iter.next()) |entry| {
+                try tmp_file.writer().print("{s}\t", .{entry.key_ptr.*});
+                try self.writeValue(tmp_file.writer(), entry.value_ptr.*);
+                try tmp_file.writer().writeByte('\n');
+            }
+
+            // Replace original file with compacted version
+            try std.fs.cwd().rename(tmp_path, self.filename);
+            self.modified = false;
         }
 
-        /// Get first key
+        /// Get first key (for iteration)
         pub fn firstKey(self: *Self) ?K {
-            const key_slice = self.data.keys();
-            if (key_slice.len > 0) {
-                return key_slice[0];
+            var iter = self.data.iterator();
+            if (iter.next()) |entry| {
+                return entry.key_ptr.*;
             }
             return null;
         }
 
-        /// Get next key after given key
+        /// Get next key after given key (for iteration)
         pub fn nextKey(self: *Self, key: K) ?K {
-            _ = self;
-            _ = key;
-            // Would return next key in iteration order
+            // Find current key in iteration order, return next one
+            var iter = self.data.iterator();
+            var found_current = false;
+            while (iter.next()) |entry| {
+                if (found_current) {
+                    return entry.key_ptr.*;
+                }
+                if (K == []const u8 or K == []u8) {
+                    if (std.mem.eql(u8, entry.key_ptr.*, key)) {
+                        found_current = true;
+                    }
+                }
+            }
             return null;
+        }
+
+        /// Iterator for database keys
+        pub const KeyIterator = struct {
+            db: *Self,
+            iter: @TypeOf(@as(hashmap_helper.StringHashMap(V), undefined).iterator()),
+
+            pub fn next(it: *KeyIterator) ?K {
+                if (it.iter.next()) |entry| {
+                    return entry.key_ptr.*;
+                }
+                return null;
+            }
+        };
+
+        /// Get key iterator
+        pub fn keyIterator(self: *Self) KeyIterator {
+            return .{ .db = self, .iter = self.data.iterator() };
         }
     };
 }
