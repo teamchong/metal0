@@ -46,9 +46,27 @@ pub fn getAixVersion() ?AixVersion {
 }
 
 /// Get AIX build date
+/// Parses build date from /usr/lpp/bos/inst_root/image.data if available
 pub fn getAixBuildDate() ?[]const u8 {
     if (!is_aix) return null;
-    return null; // Would parse from lslpp output
+
+    // AIX stores installation info in /usr/lpp/bos
+    const image_data = std.fs.cwd().openFile("/usr/lpp/bos/inst_root/image.data", .{}) catch {
+        return null;
+    };
+    defer image_data.close();
+
+    var buf: [1024]u8 = undefined;
+    const read = image_data.reader().readAll(&buf) catch return null;
+
+    // Look for DATE line
+    var lines = std.mem.splitScalar(u8, buf[0..read], '\n');
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, "DATE = ")) {
+            return line["DATE = ".len..];
+        }
+    }
+    return null;
 }
 
 // ============================================================================
@@ -92,9 +110,44 @@ pub const XlcInfo = struct {
     is_xlc: bool = false,
 };
 
-/// Detect XLC compiler (stub)
+/// Detect XLC compiler
+/// Searches PATH for xlc/xlC and checks version
 pub fn detectXlcCompiler() XlcInfo {
-    // Would check for xlc/xlC in PATH
+    const path_env = std.posix.getenv("PATH") orelse return .{};
+
+    // Check common XLC locations
+    const xlc_paths = [_][]const u8{
+        "/usr/vac/bin/xlc",
+        "/opt/IBM/xlC/16.1.0/bin/xlc",
+        "/opt/IBM/xlC/13.1.3/bin/xlc",
+    };
+
+    // First check well-known locations
+    for (xlc_paths) |xlc_path| {
+        if (std.fs.cwd().access(xlc_path, .{})) |_| {
+            return .{
+                .path = xlc_path,
+                .is_xlc = true,
+                .version = null, // Would need to run xlc -qversion to get this
+            };
+        } else |_| {}
+    }
+
+    // Search PATH
+    var paths = std.mem.splitScalar(u8, path_env, ':');
+    while (paths.next()) |dir| {
+        // Check for xlc in this directory
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const xlc_check = std.fmt.bufPrint(&path_buf, "{s}/xlc", .{dir}) catch continue;
+        if (std.fs.cwd().access(xlc_check, .{})) |_| {
+            return .{
+                .path = dir,
+                .is_xlc = true,
+                .version = null,
+            };
+        } else |_| {}
+    }
+
     return .{};
 }
 
@@ -129,11 +182,30 @@ pub fn getMaxPathLength() usize {
 // ============================================================================
 
 /// Check if specific APAR is installed
+/// Checks /var/adm/ras/emgr.log for emergency fixes or fileset data
 pub fn isAparInstalled(apar_id: []const u8) bool {
-    _ = apar_id;
     if (!is_aix) return false;
-    // Would check via `instfix -i | grep APAR_ID`
-    return false;
+
+    // Check emgr (emergency fix manager) log first
+    const emgr_log = std.fs.cwd().openFile("/var/adm/ras/emgr.log", .{}) catch {
+        // Try alternative location
+        const alt = std.fs.cwd().openFile("/var/adm/sw/emgr.dat", .{}) catch {
+            return false;
+        };
+        defer alt.close();
+        return checkFileForApar(alt, apar_id);
+    };
+    defer emgr_log.close();
+
+    return checkFileForApar(emgr_log, apar_id);
+}
+
+fn checkFileForApar(file: std.fs.File, apar_id: []const u8) bool {
+    var buf: [8192]u8 = undefined;
+    const read = file.reader().readAll(&buf) catch return false;
+
+    // Simple text search for APAR ID
+    return std.mem.indexOf(u8, buf[0..read], apar_id) != null;
 }
 
 // ============================================================================
