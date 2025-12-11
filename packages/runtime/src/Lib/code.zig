@@ -70,11 +70,28 @@ pub const InteractiveInterpreter = struct {
     }
 
     /// Execute compiled code
+    /// In AOT context, this displays the code that would be executed
+    /// Real execution happens in compiled binaries
     pub fn runcode(self: *Self, code: CompiledCode) !void {
-        _ = self;
-        _ = code;
-        // Would actually execute the code here
+        // In an AOT compiler, we can't dynamically execute code
+        // Instead, show what would be executed and track execution state
+        if (self.exec_callback) |callback| {
+            // If a callback is registered, use it
+            try callback(code);
+        } else {
+            // Default behavior: display the code for inspection
+            try self.write(">>> ");
+            try self.write(code.source);
+            try self.write("\n");
+            // Mark as executed for interactive session tracking
+            self.last_executed = code.source;
+        }
     }
+
+    // Callback for actual execution (set by compiled runtime)
+    exec_callback: ?*const fn (CompiledCode) anyerror!void = null,
+    // Track last executed code
+    last_executed: ?[]const u8 = null,
 
     /// Display exception information
     pub fn showtraceback(self: *Self) !void {

@@ -259,9 +259,8 @@ pub fn openGzip(allocator: std.mem.Allocator, filename: []const u8, mode: []cons
 }
 
 /// Compress data in one shot
+/// compresslevel: 0-9 where 0=no compression, 1=fast, 9=best compression (default: 9)
 pub fn compress(allocator: std.mem.Allocator, data: []const u8, compresslevel: i32) ![]u8 {
-    _ = compresslevel; // Would be used for compression level
-
     var result = std.ArrayList(u8).init(allocator);
     errdefer result.deinit();
 
@@ -270,11 +269,30 @@ pub fn compress(allocator: std.mem.Allocator, data: []const u8, compresslevel: i
     try result.append(DEFLATE);
     try result.append(0); // flags
     try result.appendSlice(&[_]u8{ 0, 0, 0, 0 }); // mtime
-    try result.append(0); // extra flags
-    try result.append(255); // OS
 
-    // Compress data
-    var comp = try std.compress.zlib.compressor(result.writer(), .{});
+    // Extra flags field (XFL): 2 = compressor used max compression, 4 = compressor used fastest
+    const xfl: u8 = if (compresslevel >= 9) 2 else if (compresslevel <= 1) 4 else 0;
+    try result.append(xfl); // extra flags
+    try result.append(255); // OS (255 = unknown)
+
+    // Map Python gzip levels to zlib compression levels
+    // Python: 0-9, Zig zlib: .none, .level_1 to .level_9
+    const level: std.compress.flate.Level = switch (@as(u4, @intCast(@max(0, @min(9, compresslevel))))) {
+        0 => .none,
+        1 => .level_1,
+        2 => .level_2,
+        3 => .level_3,
+        4 => .level_4,
+        5 => .level_5,
+        6 => .level_6,
+        7 => .level_7,
+        8 => .level_8,
+        9 => .level_9,
+        else => .default,
+    };
+
+    // Compress data with specified level
+    var comp = try std.compress.zlib.compressor(result.writer(), .{ .level = level });
     try comp.writer().writeAll(data);
     try comp.finish();
 

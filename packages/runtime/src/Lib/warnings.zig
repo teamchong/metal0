@@ -8,6 +8,44 @@ const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
+// Call Stack Tracking (for stacklevel support)
+// ============================================================================
+
+/// Frame info for stack tracking
+pub const FrameInfo = struct {
+    filename: []const u8,
+    lineno: usize,
+    function: []const u8,
+};
+
+/// Thread-local call stack for stacklevel resolution
+threadlocal var call_stack: std.ArrayListUnmanaged(FrameInfo) = .{};
+threadlocal var call_stack_allocator: ?std.mem.Allocator = null;
+
+/// Push a frame onto the call stack (called by generated code on function entry)
+pub fn pushFrame(allocator: std.mem.Allocator, filename: []const u8, lineno: usize, function: []const u8) void {
+    if (call_stack_allocator == null) {
+        call_stack_allocator = allocator;
+    }
+    call_stack.append(allocator, .{ .filename = filename, .lineno = lineno, .function = function }) catch {};
+}
+
+/// Pop a frame from the call stack (called by generated code on function exit)
+pub fn popFrame() void {
+    if (call_stack.items.len > 0) {
+        _ = call_stack.pop();
+    }
+}
+
+/// Clear the call stack
+pub fn clearCallStack() void {
+    if (call_stack_allocator) |alloc| {
+        call_stack.deinit(alloc);
+        call_stack = .{};
+    }
+}
+
+// ============================================================================
 // Warning Categories
 // ============================================================================
 
@@ -223,16 +261,28 @@ fn getState(allocator: std.mem.Allocator) *WarningsState {
 // ============================================================================
 
 /// Issue a warning
+/// stacklevel: 1 = immediate caller, 2 = caller's caller, etc.
 pub fn warn(
     allocator: std.mem.Allocator,
     message: []const u8,
     category: WarningCategory,
     stacklevel: usize,
 ) !void {
-    _ = stacklevel; // Would be used for finding the correct stack frame
+    // Get caller information based on stacklevel
+    // In AOT context, we use a simplified approach with registered call stack
+    var filename: []const u8 = "<module>";
+    var lineno: usize = 0;
+
+    // Use the registered call stack if available
+    if (call_stack.items.len >= stacklevel) {
+        const frame_idx = call_stack.items.len - stacklevel;
+        const frame = call_stack.items[frame_idx];
+        filename = frame.filename;
+        lineno = frame.lineno;
+    }
 
     const state = getState(allocator);
-    const action = state.getAction(message, category, "<module>", 0);
+    const action = state.getAction(message, category, filename, lineno);
 
     switch (action) {
         .ignore => return,
