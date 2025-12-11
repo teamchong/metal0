@@ -17,22 +17,10 @@ const hashmap_helper = @import("utils.hashmap_helper");
 const LazyValue = @import("lazy.zig").LazyValue;
 const LazyString = @import("lazy.zig").LazyString;
 const simd = @import("json_simd");
+const primitives = @import("primitives.zig");
 
-pub const ParseError = error{
-    UnexpectedToken,
-    InvalidNumber,
-    InvalidString,
-    InvalidEscape,
-    InvalidUnicode,
-    UnterminatedString,
-    MaxDepthExceeded,
-    OutOfMemory,
-    TrailingData,
-    TrailingComma,
-    DuplicateKey,
-    UnexpectedEndOfInput,
-    NumberOutOfRange,
-};
+// Re-export from primitives
+pub const ParseError = primitives.ParseError;
 
 const ParseResult = struct {
     value: LazyValue,
@@ -98,51 +86,11 @@ fn parsePrimitive(data: []const u8, pos: usize) ParseError!ParseResult {
 }
 
 fn parseNumber(data: []const u8, pos: usize) ParseError!ParseResult {
-    var i = pos;
-    var has_decimal = false;
-    var has_exponent = false;
-
-    // Optional minus
-    if (i < data.len and data[i] == '-') i += 1;
-    if (i >= data.len) return ParseError.InvalidNumber;
-
-    // Integer part
-    if (data[i] == '0') {
-        i += 1;
-    } else if (data[i] >= '1' and data[i] <= '9') {
-        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
-    } else {
-        return ParseError.InvalidNumber;
-    }
-
-    // Decimal part
-    if (i < data.len and data[i] == '.') {
-        has_decimal = true;
-        i += 1;
-        const dec_start = i;
-        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
-        if (i == dec_start) return ParseError.InvalidNumber;
-    }
-
-    // Exponent part
-    if (i < data.len and (data[i] == 'e' or data[i] == 'E')) {
-        has_exponent = true;
-        i += 1;
-        if (i < data.len and (data[i] == '+' or data[i] == '-')) i += 1;
-        const exp_start = i;
-        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
-        if (i == exp_start) return ParseError.InvalidNumber;
-    }
-
-    const num_str = data[pos..i];
-
-    if (!has_decimal and !has_exponent) {
-        const value = std.fmt.parseInt(i64, num_str, 10) catch return ParseError.NumberOutOfRange;
-        return ParseResult.init(.{ .number_int = value }, i - pos);
-    }
-
-    const value = std.fmt.parseFloat(f64, num_str) catch return ParseError.InvalidNumber;
-    return ParseResult.init(.{ .number_float = value }, i - pos);
+    const result = try primitives.parseNumber(data, pos);
+    return switch (result.value) {
+        .int => |v| ParseResult.init(.{ .number_int = v }, result.consumed),
+        .float => |v| ParseResult.init(.{ .number_float = v }, result.consumed),
+    };
 }
 
 /// Parse string - LAZY: stores reference, doesn't copy

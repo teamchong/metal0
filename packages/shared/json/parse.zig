@@ -7,27 +7,15 @@ const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
 const Value = @import("value.zig").Value;
 const simd = @import("json_simd");
+const primitives = @import("primitives.zig");
 
 // Use SIMD-accelerated whitespace skipping
 fn skipWhitespace(data: []const u8, offset: usize) usize {
     return simd.skipWhitespace(data, offset);
 }
 
-pub const ParseError = error{
-    UnexpectedToken,
-    InvalidNumber,
-    InvalidString,
-    InvalidEscape,
-    InvalidUnicode,
-    UnterminatedString,
-    MaxDepthExceeded,
-    OutOfMemory,
-    TrailingData,
-    TrailingComma,
-    DuplicateKey,
-    UnexpectedEndOfInput,
-    NumberOutOfRange,
-};
+// Re-export ParseError from primitives for compatibility
+pub const ParseError = primitives.ParseError;
 
 /// Result of a parse operation
 const ParseResult = struct {
@@ -74,7 +62,7 @@ fn parseValue(data: []const u8, pos: usize, allocator: std.mem.Allocator) ParseE
 }
 
 // ============================================================================
-// Primitive parsing (null, true, false)
+// Primitive parsing (null, true, false) - delegates to shared primitives
 // ============================================================================
 
 fn parsePrimitive(data: []const u8, pos: usize) ParseError!ParseResult {
@@ -82,146 +70,32 @@ fn parsePrimitive(data: []const u8, pos: usize) ParseError!ParseResult {
 
     const c = data[pos];
     return switch (c) {
-        'n' => try parseNull(data, pos),
-        't' => try parseTrue(data, pos),
-        'f' => try parseFalse(data, pos),
+        'n' => {
+            const consumed = try primitives.parseNull(data, pos);
+            return ParseResult.init(.null_value, consumed);
+        },
+        't' => {
+            const consumed = try primitives.parseTrue(data, pos);
+            return ParseResult.init(.{ .bool_value = true }, consumed);
+        },
+        'f' => {
+            const consumed = try primitives.parseFalse(data, pos);
+            return ParseResult.init(.{ .bool_value = false }, consumed);
+        },
         else => ParseError.UnexpectedToken,
     };
 }
 
-fn parseNull(data: []const u8, pos: usize) ParseError!ParseResult {
-    if (pos + 4 > data.len) return ParseError.UnexpectedEndOfInput;
-    if (!std.mem.eql(u8, data[pos .. pos + 4], "null")) {
-        return ParseError.UnexpectedToken;
-    }
-    return ParseResult.init(.null_value, 4);
-}
-
-fn parseTrue(data: []const u8, pos: usize) ParseError!ParseResult {
-    if (pos + 4 > data.len) return ParseError.UnexpectedEndOfInput;
-    if (!std.mem.eql(u8, data[pos .. pos + 4], "true")) {
-        return ParseError.UnexpectedToken;
-    }
-    return ParseResult.init(.{ .bool_value = true }, 4);
-}
-
-fn parseFalse(data: []const u8, pos: usize) ParseError!ParseResult {
-    if (pos + 5 > data.len) return ParseError.UnexpectedEndOfInput;
-    if (!std.mem.eql(u8, data[pos .. pos + 5], "false")) {
-        return ParseError.UnexpectedToken;
-    }
-    return ParseResult.init(.{ .bool_value = false }, 5);
-}
-
 // ============================================================================
-// Number parsing (integers and floats)
+// Number parsing - delegates to shared primitives
 // ============================================================================
-
-/// Fast path for positive integers (most common case)
-fn parsePositiveInt(data: []const u8, pos: usize) ?struct { value: i64, consumed: usize } {
-    var value: i64 = 0;
-    var i: usize = 0;
-
-    while (pos + i < data.len) : (i += 1) {
-        const c = data[pos + i];
-        if (c < '0' or c > '9') break;
-
-        const digit = c - '0';
-        // Check for overflow
-        if (value > @divTrunc((@as(i64, std.math.maxInt(i64)) - digit), 10)) {
-            return null; // Overflow
-        }
-        value = value * 10 + digit;
-    }
-
-    if (i == 0) return null;
-    return .{ .value = value, .consumed = i };
-}
 
 fn parseNumber(data: []const u8, pos: usize) ParseError!ParseResult {
-    if (pos >= data.len) return ParseError.UnexpectedEndOfInput;
-
-    var i = pos;
-    var is_negative = false;
-    var has_decimal = false;
-    var has_exponent = false;
-
-    // Handle negative sign
-    if (data[i] == '-') {
-        is_negative = true;
-        i += 1;
-        if (i >= data.len) return ParseError.InvalidNumber;
-    }
-
-    // Fast path: simple positive integer
-    if (!is_negative) {
-        if (parsePositiveInt(data, i)) |result| {
-            // Check if number ends here (no decimal or exponent)
-            const next_pos = i + result.consumed;
-            if (next_pos >= data.len or !isNumberContinuation(data[next_pos])) {
-                return ParseResult.init(
-                    .{ .number_int = result.value },
-                    next_pos - pos,
-                );
-            }
-        }
-    }
-
-    // Full number parsing (handles decimals and exponents)
-    // Integer part
-    if (data[i] == '0') {
-        i += 1;
-        // Leading zero - must be followed by decimal or end
-        if (i < data.len and data[i] >= '0' and data[i] <= '9') {
-            return ParseError.InvalidNumber;
-        }
-    } else {
-        // Parse digits
-        const digit_start = i;
-        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
-        if (i == digit_start) return ParseError.InvalidNumber;
-    }
-
-    // Decimal part
-    if (i < data.len and data[i] == '.') {
-        has_decimal = true;
-        i += 1;
-        const decimal_start = i;
-        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
-        if (i == decimal_start) return ParseError.InvalidNumber; // Must have digits after decimal
-    }
-
-    // Exponent part
-    if (i < data.len and (data[i] == 'e' or data[i] == 'E')) {
-        has_exponent = true;
-        i += 1;
-        if (i >= data.len) return ParseError.InvalidNumber;
-
-        // Optional sign
-        if (data[i] == '+' or data[i] == '-') {
-            i += 1;
-        }
-
-        const exp_start = i;
-        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
-        if (i == exp_start) return ParseError.InvalidNumber; // Must have digits in exponent
-    }
-
-    const num_str = data[pos..i];
-
-    // Parse as integer if no decimal or exponent
-    if (!has_decimal and !has_exponent) {
-        const value = std.fmt.parseInt(i64, num_str, 10) catch return ParseError.NumberOutOfRange;
-        return ParseResult.init(.{ .number_int = value }, i - pos);
-    }
-
-    // Parse as float
-    const value = std.fmt.parseFloat(f64, num_str) catch return ParseError.InvalidNumber;
-    return ParseResult.init(.{ .number_float = value }, i - pos);
-}
-
-inline fn isNumberContinuation(c: u8) bool {
-    return c == '.' or c == 'e' or c == 'E';
+    const result = try primitives.parseNumber(data, pos);
+    return switch (result.value) {
+        .int => |v| ParseResult.init(.{ .number_int = v }, result.consumed),
+        .float => |v| ParseResult.init(.{ .number_float = v }, result.consumed),
+    };
 }
 
 // ============================================================================
@@ -245,8 +119,8 @@ fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) Parse
                 i + 1 - pos,
             );
         } else {
-            // Slow path: Need to unescape
-            const unescaped = try unescapeString(data[start..i], allocator);
+            // Slow path: Need to unescape - use shared primitives
+            const unescaped = try primitives.unescapeString(data[start..i], allocator);
             return ParseResult.init(
                 .{ .string = unescaped },
                 i + 1 - pos,
@@ -255,49 +129,6 @@ fn parseString(data: []const u8, pos: usize, allocator: std.mem.Allocator) Parse
     }
 
     return ParseError.UnterminatedString;
-}
-
-fn unescapeString(escaped: []const u8, allocator: std.mem.Allocator) ParseError![]const u8 {
-    var result = std.ArrayList(u8){};
-    errdefer result.deinit(allocator);
-
-    var i: usize = 0;
-    while (i < escaped.len) : (i += 1) {
-        if (escaped[i] == '\\') {
-            i += 1;
-            if (i >= escaped.len) return ParseError.InvalidEscape;
-
-            const c = escaped[i];
-            switch (c) {
-                '"' => result.append(allocator, '"') catch return ParseError.OutOfMemory,
-                '\\' => result.append(allocator, '\\') catch return ParseError.OutOfMemory,
-                '/' => result.append(allocator, '/') catch return ParseError.OutOfMemory,
-                'b' => result.append(allocator, '\x08') catch return ParseError.OutOfMemory,
-                'f' => result.append(allocator, '\x0C') catch return ParseError.OutOfMemory,
-                'n' => result.append(allocator, '\n') catch return ParseError.OutOfMemory,
-                'r' => result.append(allocator, '\r') catch return ParseError.OutOfMemory,
-                't' => result.append(allocator, '\t') catch return ParseError.OutOfMemory,
-                'u' => {
-                    // Unicode escape: \uXXXX
-                    if (i + 4 >= escaped.len) return ParseError.InvalidUnicode;
-                    const hex = escaped[i + 1 .. i + 5];
-                    const codepoint = std.fmt.parseInt(u16, hex, 16) catch return ParseError.InvalidUnicode;
-
-                    // Convert codepoint to UTF-8
-                    var utf8_buf: [4]u8 = undefined;
-                    const utf8_len = std.unicode.utf8Encode(@as(u21, codepoint), &utf8_buf) catch return ParseError.InvalidUnicode;
-                    result.appendSlice(allocator, utf8_buf[0..utf8_len]) catch return ParseError.OutOfMemory;
-
-                    i += 4; // Skip XXXX
-                },
-                else => return ParseError.InvalidEscape,
-            }
-        } else {
-            result.append(allocator, escaped[i]) catch return ParseError.OutOfMemory;
-        }
-    }
-
-    return result.toOwnedSlice(allocator) catch return ParseError.OutOfMemory;
 }
 
 // ============================================================================

@@ -14,10 +14,12 @@
 const std = @import("std");
 const runtime = @import("../../runtime.zig");
 const JsonArena = @import("arena.zig").JsonArena;
-const simd = @import("simd/dispatch.zig");
 const JsonError = @import("errors.zig").JsonError;
 const ParseResult = @import("errors.zig").ParseResult;
 const hashmap_helper = @import("utils.hashmap_helper");
+const json = @import("json");
+const primitives = json.primitives;
+const simd = json.simd;
 
 /// Thread-local key cache for interning (avoids repeated allocations)
 /// Using hash-based lookup instead of linear scan for O(1) cache checks
@@ -190,78 +192,51 @@ inline fn parseFalse(data: []const u8, pos: usize, arena: *JsonArena) JsonError!
     return ParseResult(*runtime.PyObject).init(runtime.Py_False, 5);
 }
 
-/// Parse number (integer or float) - uses small int cache for common values
+/// Parse number (integer or float) - uses shared primitives + small int cache
 fn parseNumber(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseResult(*runtime.PyObject) {
-    var i = pos;
-    var is_float = false;
-
-    // Optional minus
-    if (i < data.len and data[i] == '-') i += 1;
-
-    // Integer part
-    if (i >= data.len) return JsonError.UnexpectedEndOfInput;
-    if (data[i] == '0') {
-        i += 1;
-    } else if (data[i] >= '1' and data[i] <= '9') {
-        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
-    } else {
-        return JsonError.UnexpectedToken;
-    }
-
-    // Fractional part
-    if (i < data.len and data[i] == '.') {
-        is_float = true;
-        i += 1;
-        if (i >= data.len or data[i] < '0' or data[i] > '9') return JsonError.UnexpectedToken;
-        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
-    }
-
-    // Exponent
-    if (i < data.len and (data[i] == 'e' or data[i] == 'E')) {
-        is_float = true;
-        i += 1;
-        if (i < data.len and (data[i] == '+' or data[i] == '-')) i += 1;
-        if (i >= data.len or data[i] < '0' or data[i] > '9') return JsonError.UnexpectedToken;
-        while (i < data.len and data[i] >= '0' and data[i] <= '9') : (i += 1) {}
-    }
-
-    const num_str = data[pos..i];
-
-    if (is_float) {
-        // Allocate CPython-compatible PyFloatObject
-        const float_obj = arena.alloc(runtime.PyFloatObject) catch return JsonError.OutOfMemory;
-        float_obj.* = .{
-            .ob_base = .{
-                .ob_refcnt = 1,
-                .ob_type = &runtime.PyFloat_Type,
-            },
-            .ob_fval = std.fmt.parseFloat(f64, num_str) catch return JsonError.InvalidNumber,
+    const result = primitives.parseNumber(data, pos) catch |err| {
+        return switch (err) {
+            error.InvalidNumber => JsonError.InvalidNumber,
+            error.NumberOutOfRange => JsonError.InvalidNumber,
+            error.UnexpectedEndOfInput => JsonError.UnexpectedEndOfInput,
+            else => JsonError.InvalidNumber,
         };
-        return ParseResult(*runtime.PyObject).init(@ptrCast(float_obj), i - pos);
-    }
-
-    // Parse integer
-    const int_value = std.fmt.parseInt(i64, num_str, 10) catch return JsonError.InvalidNumber;
-
-    // Check small integer cache first (avoids allocation!)
-    if (getCachedInt(int_value)) |cached| {
-        return ParseResult(*runtime.PyObject).init(cached, i - pos);
-    }
-
-    // Not in cache - allocate CPython-compatible PyLongObject from arena
-    const long_obj = arena.alloc(runtime.PyLongObject) catch return JsonError.OutOfMemory;
-    long_obj.* = .{
-        .ob_base = .{
-            .ob_base = .{
-                .ob_refcnt = 1,
-                .ob_type = &runtime.PyLong_Type,
-            },
-            .ob_size = 1,
-        },
-        .ob_digit = int_value,
     };
 
-    return ParseResult(*runtime.PyObject).init(@ptrCast(long_obj), i - pos);
+    switch (result.value) {
+        .float => |float_val| {
+            // Allocate CPython-compatible PyFloatObject from arena
+            const float_obj = arena.alloc(runtime.PyFloatObject) catch return JsonError.OutOfMemory;
+            float_obj.* = .{
+                .ob_base = .{
+                    .ob_refcnt = 1,
+                    .ob_type = &runtime.PyFloat_Type,
+                },
+                .ob_fval = float_val,
+            };
+            return ParseResult(*runtime.PyObject).init(@ptrCast(float_obj), result.consumed);
+        },
+        .int => |int_value| {
+            // Check small integer cache first (avoids allocation!)
+            if (getCachedInt(int_value)) |cached| {
+                return ParseResult(*runtime.PyObject).init(cached, result.consumed);
+            }
+
+            // Not in cache - allocate CPython-compatible PyLongObject from arena
+            const long_obj = arena.alloc(runtime.PyLongObject) catch return JsonError.OutOfMemory;
+            long_obj.* = .{
+                .ob_base = .{
+                    .ob_base = .{
+                        .ob_refcnt = 1,
+                        .ob_type = &runtime.PyLong_Type,
+                    },
+                    .ob_size = 1,
+                },
+                .ob_digit = int_value,
+            };
+            return ParseResult(*runtime.PyObject).init(@ptrCast(long_obj), result.consumed);
+        },
+    }
 }
 
 /// Parse string (uses SIMD for fast quote/escape detection)
@@ -306,92 +281,13 @@ fn parseString(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
     return ParseResult(*runtime.PyObject).init(@ptrCast(str_obj), consumed);
 }
 
-/// Unescape JSON string - optimized to copy non-escape segments in bulk
+/// Unescape JSON string - uses shared optimized primitives with bulk copy and lookup tables
 fn unescapeString(str: []const u8, arena: *JsonArena) ![]const u8 {
-    // Allocate max possible size
+    // Allocate max possible size (escapes shrink, so result <= input length)
     const dest = try arena.allocSlice(u8, str.len);
-    var j: usize = 0;
-    var i: usize = 0;
-
-    while (i < str.len) {
-        // Find next backslash (start of escape sequence)
-        const copy_start = i;
-        while (i < str.len and str[i] != '\\') : (i += 1) {}
-
-        // Bulk copy non-escape segment
-        const copy_len = i - copy_start;
-        if (copy_len > 0) {
-            @memcpy(dest[j..][0..copy_len], str[copy_start..][0..copy_len]);
-            j += copy_len;
-        }
-
-        // Handle escape sequence if found
-        if (i < str.len and str[i] == '\\' and i + 1 < str.len) {
-            const escape_char = str[i + 1];
-            switch (escape_char) {
-                '"' => dest[j] = '"',
-                '\\' => dest[j] = '\\',
-                '/' => dest[j] = '/',
-                'b' => dest[j] = '\x08',
-                'f' => dest[j] = '\x0C',
-                'n' => dest[j] = '\n',
-                'r' => dest[j] = '\r',
-                't' => dest[j] = '\t',
-                'u' => {
-                    // Unicode escape: \uXXXX (RFC 8259 compliant with surrogate pair support)
-                    if (i + 6 <= str.len) {
-                        const hex = str[i + 2 .. i + 6];
-                        const code = std.fmt.parseInt(u16, hex, 16) catch {
-                            dest[j] = '?';
-                            j += 1;
-                            i += 6;
-                            continue;
-                        };
-
-                        var codepoint: u21 = code;
-
-                        // Handle UTF-16 surrogate pairs (\uD800-\uDBFF followed by \uDC00-\uDFFF)
-                        if (code >= 0xD800 and code <= 0xDBFF) {
-                            // High surrogate - check for low surrogate
-                            if (i + 12 <= str.len and str[i + 6] == '\\' and str[i + 7] == 'u') {
-                                const low_hex = str[i + 8 .. i + 12];
-                                const low_code = std.fmt.parseInt(u16, low_hex, 16) catch {
-                                    dest[j] = '?';
-                                    j += 1;
-                                    i += 6;
-                                    continue;
-                                };
-                                if (low_code >= 0xDC00 and low_code <= 0xDFFF) {
-                                    // Valid surrogate pair - decode to full codepoint
-                                    codepoint = 0x10000 + ((@as(u21, code) - 0xD800) << 10) + (@as(u21, low_code) - 0xDC00);
-                                    i += 6; // Skip the extra \uXXXX
-                                }
-                            }
-                        }
-
-                        // Proper UTF-8 encoding for all codepoints
-                        var utf8_buf: [4]u8 = undefined;
-                        const utf8_len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch {
-                            dest[j] = '?'; // Invalid codepoint
-                            j += 1;
-                            i += 6;
-                            continue;
-                        };
-                        @memcpy(dest[j..][0..utf8_len], utf8_buf[0..utf8_len]);
-                        j += utf8_len;
-                        i += 6;
-                        continue;
-                    }
-                    dest[j] = '?';
-                },
-                else => dest[j] = escape_char,
-            }
-            j += 1;
-            i += 2;
-        }
-    }
-
-    return dest[0..j];
+    // Use shared primitives which has lookup tables, bulk copy, and surrogate pair support
+    const actual_len = primitives.unescapeStringInto(str, dest) catch return error.InvalidEscape;
+    return dest[0..actual_len];
 }
 
 /// Parse array

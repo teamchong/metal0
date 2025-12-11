@@ -6,6 +6,7 @@
 const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
 const Value = @import("value.zig").Value;
+const primitives = @import("primitives.zig");
 
 /// Lazy string reference - stores slice into source, copies on access
 pub const LazyString = struct {
@@ -42,8 +43,8 @@ pub const LazyString = struct {
             // Fast path: just copy
             self.materialized = try self.allocator.dupe(u8, raw);
         } else {
-            // Slow path: unescape
-            self.materialized = try unescapeString(raw, self.allocator);
+            // Slow path: unescape - use shared primitives
+            self.materialized = primitives.unescapeString(raw, self.allocator) catch return error.InvalidEscape;
         }
         return self.materialized.?;
     }
@@ -152,45 +153,6 @@ pub const LazyValue = union(enum) {
         }
     }
 };
-
-/// Unescape JSON string (handles \n, \t, \uXXXX, etc.)
-fn unescapeString(escaped: []const u8, allocator: std.mem.Allocator) ![]const u8 {
-    var result = std.ArrayList(u8){};
-    errdefer result.deinit(allocator);
-
-    var i: usize = 0;
-    while (i < escaped.len) : (i += 1) {
-        if (escaped[i] == '\\') {
-            i += 1;
-            if (i >= escaped.len) return error.InvalidEscape;
-
-            switch (escaped[i]) {
-                '"' => try result.append(allocator, '"'),
-                '\\' => try result.append(allocator, '\\'),
-                '/' => try result.append(allocator, '/'),
-                'b' => try result.append(allocator, '\x08'),
-                'f' => try result.append(allocator, '\x0C'),
-                'n' => try result.append(allocator, '\n'),
-                'r' => try result.append(allocator, '\r'),
-                't' => try result.append(allocator, '\t'),
-                'u' => {
-                    if (i + 4 >= escaped.len) return error.InvalidUnicode;
-                    const hex = escaped[i + 1 .. i + 5];
-                    const codepoint = std.fmt.parseInt(u16, hex, 16) catch return error.InvalidUnicode;
-                    var utf8_buf: [4]u8 = undefined;
-                    const utf8_len = std.unicode.utf8Encode(@as(u21, codepoint), &utf8_buf) catch return error.InvalidUnicode;
-                    try result.appendSlice(allocator, utf8_buf[0..utf8_len]);
-                    i += 4;
-                },
-                else => return error.InvalidEscape,
-            }
-        } else {
-            try result.append(allocator, escaped[i]);
-        }
-    }
-
-    return try result.toOwnedSlice(allocator);
-}
 
 test "LazyString basic" {
     const allocator = std.testing.allocator;

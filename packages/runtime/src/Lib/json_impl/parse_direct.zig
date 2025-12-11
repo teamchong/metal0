@@ -3,7 +3,8 @@
 /// Supports lazy mode: strings borrow from source (zero-copy) when no escapes
 const std = @import("std");
 const runtime = @import("../../runtime.zig");
-const simd = @import("simd/dispatch.zig");
+const json = @import("json");
+const simd = json.simd;
 const JsonError = @import("errors.zig").JsonError;
 const ParseResult = @import("errors.zig").ParseResult;
 

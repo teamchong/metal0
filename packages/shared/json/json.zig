@@ -26,6 +26,13 @@ pub const LazyString = @import("lazy.zig").LazyString;
 // Stream parsing (fast extraction without full parse tree)
 pub const stream = @import("stream.zig");
 
+// Shared primitives for JSON parsing (used by runtime/json_impl too)
+pub const primitives = @import("primitives.zig");
+
+// SIMD utilities (used by runtime/json_impl too)
+// Imported via module dependency from build.zig to avoid duplicate module error
+pub const simd = @import("json_simd");
+
 // Re-export utility functions from value.zig
 pub const isWhitespace = @import("value.zig").isWhitespace;
 pub const skipWhitespace = @import("value.zig").skipWhitespace;
@@ -57,4 +64,5 @@ test {
     _ = @import("lazy.zig");
     _ = @import("parse_lazy.zig");
     _ = @import("stream.zig");
+    _ = @import("primitives.zig");
 }

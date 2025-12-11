@@ -145,6 +145,7 @@ pub fn build(b: *std.Build) void {
     runtime.addImport("utils.hashmap_helper", hashmap_helper);
     runtime.addImport("utils.allocator_helper", allocator_helper);
     runtime.addImport("json_simd", json_simd);
+    runtime.addImport("json", json_mod); // Shared JSON library with primitives
     runtime.addImport("regex", regex_mod);
     runtime.addImport("bigint", bigint_mod);
     runtime.addImport("gzip", gzip_module);
