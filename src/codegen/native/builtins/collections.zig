@@ -179,7 +179,8 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("try __zip_result.append(__global_allocator, .{ ");
     for (0..args.len) |i| {
         if (i > 0) try self.emit(", ");
-        try self.output.writer(self.allocator).print("__zip_arg_{d}[__zip_i]", .{i});
+        // Use named field initialization (.@"0" = val) for structs with named fields
+        try self.output.writer(self.allocator).print(".@\"{d}\" = __zip_arg_{d}[__zip_i]", .{ i, i });
     }
     try self.emit(" });\n");
     self.indent_level -= 1;
