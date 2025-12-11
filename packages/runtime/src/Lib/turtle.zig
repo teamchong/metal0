@@ -223,11 +223,19 @@ pub const Turtle = struct {
         }
     }
 
-    /// Draw a dot
+    /// Draw a dot (filled circle) at current position
     pub fn dot(self: *Self, size: ?f64) !void {
-        _ = self;
-        _ = size;
-        // Would draw a filled circle at current position
+        const dot_size = size orelse @max(self.pen_size + 4, self.pen_size * 2);
+
+        // Approximate a dot as a very short line at current position
+        // (A proper implementation would use a separate circles list)
+        const current = self.position;
+        try self.lines.append(.{
+            .start = current,
+            .end = .{ .x = current.x + 0.1, .y = current.y + 0.1 },
+            .color = self.pen_color,
+            .width = dot_size,
+        });
     }
 
     /// Stamp turtle shape

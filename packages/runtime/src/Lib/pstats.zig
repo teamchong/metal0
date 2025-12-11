@@ -127,6 +127,7 @@ pub const Stats = struct {
     primitive_calls: usize,
     total_time: f64,
     sort_keys: std.ArrayList(SortKey),
+    sort_ascending: bool,
     stream: std.fs.File,
 
     pub fn init(allocator: std.mem.Allocator) Self {
@@ -137,6 +138,7 @@ pub const Stats = struct {
             .primitive_calls = 0,
             .total_time = 0.0,
             .sort_keys = std.ArrayList(SortKey).init(allocator),
+            .sort_ascending = false, // Default to descending (highest first)
             .stream = std.io.getStdOut(),
         };
     }
@@ -197,10 +199,35 @@ pub const Stats = struct {
         }
     }
 
-    /// Strip directory from filenames
+    /// Strip directory from filenames (only keep basename)
     pub fn stripDirs(self: *Self) *Self {
-        // Would modify func_id filenames to only contain basename
-        _ = self;
+        // Create new stats with stripped filenames
+        var new_stats = hashmap_helper.StringHashMap(FuncStat).init(self.allocator);
+
+        var iter = self.stats.iterator();
+        while (iter.next()) |entry| {
+            // Parse func_id format: "filename:lineno(funcname)"
+            const key = entry.key_ptr.*;
+            var new_key_buf: [256]u8 = undefined;
+
+            if (std.mem.indexOf(u8, key, ":")) |colon_pos| {
+                const filename = key[0..colon_pos];
+                const rest = key[colon_pos..];
+
+                // Get basename of filename
+                const basename = std.fs.path.basename(filename);
+
+                // Reconstruct with basename
+                const new_key = std.fmt.bufPrint(&new_key_buf, "{s}{s}", .{ basename, rest }) catch key;
+                new_stats.put(new_key, entry.value_ptr.*) catch {};
+            } else {
+                new_stats.put(key, entry.value_ptr.*) catch {};
+            }
+        }
+
+        // Replace stats with new stripped version
+        self.stats.deinit();
+        self.stats = new_stats;
         return self;
     }
 
@@ -226,8 +253,8 @@ pub const Stats = struct {
 
     /// Reverse the current sort order
     pub fn reverseOrder(self: *Self) *Self {
-        // Would reverse the current sort
-        _ = self;
+        // Negate the sort_ascending flag to reverse order
+        self.sort_ascending = !self.sort_ascending;
         return self;
     }
 
