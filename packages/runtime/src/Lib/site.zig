@@ -21,6 +21,28 @@ var ENABLE_USER_SITE: ?bool = null;
 var USER_SITE: ?[]const u8 = null;
 /// The user base directory
 var USER_BASE: ?[]const u8 = null;
+/// sys.path - module search path (simulated)
+var sys_path: std.ArrayList([]const u8) = undefined;
+var sys_path_initialized: bool = false;
+
+/// Get sys.path (initializes if needed)
+pub fn getSysPath(allocator: std.mem.Allocator) *std.ArrayList([]const u8) {
+    if (!sys_path_initialized) {
+        sys_path = std.ArrayList([]const u8).init(allocator);
+        sys_path_initialized = true;
+    }
+    return &sys_path;
+}
+
+/// Add a path to sys.path if not already present
+pub fn addToSysPath(allocator: std.mem.Allocator, path: []const u8) !void {
+    const sp = getSysPath(allocator);
+    // Check if already in path
+    for (sp.items) |existing| {
+        if (std.mem.eql(u8, existing, path)) return;
+    }
+    try sp.append(path);
+}
 
 // ============================================================================
 // Site Initialization
@@ -89,13 +111,27 @@ fn getUserSitePackages(allocator: std.mem.Allocator, user_base: []const u8) ![]c
 
 /// Add a site-packages directory to sys.path
 pub fn addsitedir(allocator: std.mem.Allocator, sitedir: []const u8, known_paths: ?*hashmap_helper.StringHashMap(void)) !void {
-    _ = allocator;
-    _ = known_paths;
-
     // Verify directory exists
     std.fs.cwd().access(sitedir, .{}) catch return;
 
-    // Would add to sys.path here
+    // Add to sys.path
+    try addToSysPath(allocator, sitedir);
+
+    // Track known paths to avoid duplicates
+    if (known_paths) |kp| {
+        try kp.put(sitedir, {});
+    }
+
+    // Process .pth files in the directory
+    var dir = std.fs.cwd().openDir(sitedir, .{ .iterate = true }) catch return;
+    defer dir.close();
+
+    var iter = dir.iterate();
+    while (iter.next() catch null) |entry| {
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".pth")) {
+            addpackage(allocator, sitedir, entry.name) catch {};
+        }
+    }
 }
 
 /// Get standard site-packages directories
@@ -145,21 +181,38 @@ pub fn addpackage(allocator: std.mem.Allocator, sitedir: []const u8, name: []con
     const file = std.fs.cwd().openFile(path, .{}) catch return;
     defer file.close();
 
-    var buf_reader = std.io.bufferedReader(file.reader());
-    var reader = buf_reader.reader();
     var line_buf: [1024]u8 = undefined;
+    var buf_stream = std.io.fixedBufferStream(&line_buf);
+    _ = buf_stream;
 
-    while (reader.readUntilDelimiterOrEof(&line_buf, '\n') catch null) |line| {
+    const reader = file.reader();
+
+    while (true) {
+        const line = reader.readUntilDelimiter(&line_buf, '\n') catch |err| {
+            if (err == error.EndOfStream) break;
+            return;
+        };
+
         const trimmed = std.mem.trim(u8, line, " \t\r\n");
 
         // Skip comments and empty lines
         if (trimmed.len == 0 or trimmed[0] == '#') continue;
 
-        // Lines starting with 'import' are executed
+        // Lines starting with 'import' are executed (skip in AOT context)
         if (std.mem.startsWith(u8, trimmed, "import ")) continue;
 
-        // Other lines are added as paths
-        // Would add to sys.path here
+        // Resolve path relative to sitedir if not absolute
+        if (std.fs.path.isAbsolute(trimmed)) {
+            try addToSysPath(allocator, trimmed);
+        } else {
+            const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ sitedir, trimmed });
+            // Verify path exists before adding
+            if (std.fs.cwd().access(full_path, .{})) |_| {
+                try addToSysPath(allocator, full_path);
+            } else |_| {
+                allocator.free(full_path);
+            }
+        }
     }
 }
 
@@ -248,11 +301,20 @@ pub fn getExit() ?*const Quitter {
 var initialized: bool = false;
 
 /// Initialize the site module (called automatically on import)
-pub fn init() void {
+pub fn initWithAllocator(allocator: std.mem.Allocator) void {
     if (initialized) return;
     initialized = true;
 
-    // Would call main() here with an allocator
+    // Initialize sys.path
+    _ = getSysPath(allocator);
+
+    // Call main to set up site-packages
+    main(allocator);
+}
+
+/// Initialize the site module (uses page allocator as fallback)
+pub fn init() void {
+    initWithAllocator(std.heap.page_allocator);
 }
 
 /// Reset module state

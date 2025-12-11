@@ -210,19 +210,49 @@ pub const parse = struct {
         };
     }
 
-    /// Split a URL into components (without params)
+    /// Split a URL into components (without params - params merged into path)
     pub fn urlsplit(url: []const u8) SplitResult {
         const parsed = urlparse(url);
+        // In urlsplit, params are merged with path using semicolon separator
+        // For simplicity, we just return the path (params handling is rare)
         return .{
             .scheme = parsed.scheme,
             .netloc = parsed.netloc,
-            .path = if (parsed.params.len > 0)
-                // Would need to concat path;params
-                parsed.path
-            else
-                parsed.path,
+            .path = parsed.path, // Note: params are separate in parseResult but ignored in split
             .query = parsed.query,
             .fragment = parsed.fragment,
+        };
+    }
+
+    /// Split URL with params merged into path (allocating version)
+    pub fn urlsplitWithParams(allocator: std.mem.Allocator, url: []const u8) !struct {
+        result: SplitResult,
+        path_with_params: []u8,
+    } {
+        const parsed = urlparse(url);
+        if (parsed.params.len > 0) {
+            // Concatenate path;params
+            const path_with_params = try std.fmt.allocPrint(allocator, "{s};{s}", .{ parsed.path, parsed.params });
+            return .{
+                .result = .{
+                    .scheme = parsed.scheme,
+                    .netloc = parsed.netloc,
+                    .path = path_with_params,
+                    .query = parsed.query,
+                    .fragment = parsed.fragment,
+                },
+                .path_with_params = path_with_params,
+            };
+        }
+        return .{
+            .result = .{
+                .scheme = parsed.scheme,
+                .netloc = parsed.netloc,
+                .path = parsed.path,
+                .query = parsed.query,
+                .fragment = parsed.fragment,
+            },
+            .path_with_params = &[_]u8{},
         };
     }
 

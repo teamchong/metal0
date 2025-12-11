@@ -476,12 +476,26 @@ pub const HTMLParser = struct {
             // Regular text content
             const next_tag = std.mem.indexOfScalarPos(u8, data, i, '<') orelse data.len;
             if (next_tag > i) {
-                var text = data[i..next_tag];
+                const text = data[i..next_tag];
                 if (self.convert_charrefs) {
-                    // Would unescape entities here
-                }
-                if (self.handle_data) |handler| {
-                    handler(text);
+                    // Unescape HTML entities in text content
+                    if (std.mem.indexOf(u8, text, "&") != null) {
+                        const unescaped = unescape(self.allocator, text) catch text;
+                        if (self.handle_data) |handler| {
+                            handler(unescaped);
+                        }
+                        if (unescaped.ptr != text.ptr) {
+                            self.allocator.free(unescaped);
+                        }
+                    } else {
+                        if (self.handle_data) |handler| {
+                            handler(text);
+                        }
+                    }
+                } else {
+                    if (self.handle_data) |handler| {
+                        handler(text);
+                    }
                 }
             }
             i = next_tag;
