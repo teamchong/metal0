@@ -57,6 +57,37 @@ pub const copy_ops = @import("runtime/copy_ops.zig");
 /// Export itertools operations for native codegen (fixes comptime explosion in itertools functions)
 pub const itertools_ops = @import("runtime/itertools_ops.zig");
 
+// =============================================================================
+// Modular submodules (split from runtime.zig for organization)
+// These are available as separate imports for new code:
+// Usage: @import("runtime").bool_ops.toBool or @import("runtime/bool_ops.zig").toBool
+// The original functions remain in runtime.zig for backwards compatibility.
+// =============================================================================
+
+/// Boolean operations module
+pub const bool_ops = @import("runtime/bool_ops.zig");
+
+/// Equality operations module
+pub const equality_mod = @import("runtime/equality.zig");
+
+/// Hash operations module
+pub const hash_ops = @import("runtime/hash_ops.zig");
+
+/// Type operations module
+pub const type_ops = @import("runtime/type_ops.zig");
+
+/// PyObject types module
+pub const pyobject_mod = @import("runtime/pyobject.zig");
+
+/// Complex and Decimal types module
+pub const complex_decimal_mod = @import("runtime/complex_decimal.zig");
+
+/// List conversion helpers module
+pub const list_conversion_mod = @import("runtime/list_conversion.zig");
+
+/// Glob pattern matching module
+pub const glob_ops_mod = @import("runtime/glob_ops.zig");
+
 /// DynamicClosure - Type-erased closure for Python scope semantics
 /// Used when a function is defined in multiple if/else branches and used outside
 /// Holds a pointer to any closure struct and its call function
