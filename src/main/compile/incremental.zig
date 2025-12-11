@@ -23,8 +23,11 @@ const compiler = @import("../../compiler.zig");
 /// Global Zig cache directory (shared across all compilations)
 pub const ZIG_CACHE_DIR = ".metal0/.zig-cache";
 
-/// Path to precompiled runtime archive
+/// Path to precompiled runtime archive (release mode - DCE enabled)
 pub const RUNTIME_ARCHIVE_PATH = build_dirs.LIB ++ "/libruntime.a";
+
+/// Path to precompiled runtime shared library (dev mode - fast linking)
+pub const RUNTIME_SO_PATH = build_dirs.LIB ++ "/libruntime.so";
 
 /// Check if runtime archive exists
 pub fn hasRuntimeArchive() bool {
@@ -225,6 +228,109 @@ pub fn ensureRuntimeArchive(allocator: std.mem.Allocator) !void {
     if (runtime_stat.mtime > archive_stat.mtime) {
         std.debug.print("Rebuilding runtime archive (source changed)...\n", .{});
         try buildRuntimeArchive(allocator);
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SHARED LIBRARY (.so/.dylib) - For dev mode hot reload
+// No DCE but instant linking - perfect for development iteration
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Check if runtime shared library exists
+pub fn hasRuntimeSo() bool {
+    std.fs.cwd().access(RUNTIME_SO_PATH, .{}) catch return false;
+    return true;
+}
+
+/// Build runtime as shared library (dev mode - fast linking, no DCE)
+fn buildRuntimeSo(allocator: std.mem.Allocator) !void {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    try build_dirs.init();
+
+    // Create lib directory
+    std.fs.cwd().makeDir(build_dirs.LIB) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    // Create zig cache dir
+    std.fs.cwd().makeDir(ZIG_CACHE_DIR) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    const runtime_zig = "packages/runtime/src/runtime.zig";
+
+    // Build args for creating shared library
+    var args = std.ArrayList([]const u8){};
+
+    try args.append(aa, "zig");
+    try args.append(aa, "build-lib");
+
+    // Add module flags
+    try buildRuntimeModuleFlags(aa, &args, runtime_zig);
+
+    // Use Zig's cache
+    try args.append(aa, "--cache-dir");
+    try args.append(aa, ZIG_CACHE_DIR);
+
+    // Dev mode: Debug build for fast compile
+    try args.append(aa, "-ODebug");
+
+    // Shared library (dynamic)
+    try args.append(aa, "-dynamic");
+
+    // Output path
+    try args.append(aa, try std.fmt.allocPrint(aa, "-femit-bin={s}", .{RUNTIME_SO_PATH}));
+
+    // Link with libc
+    try args.append(aa, "-lc");
+
+    std.debug.print("Building runtime .so (dev mode)...\n", .{});
+
+    const result = try std.process.Child.run(.{
+        .allocator = aa,
+        .argv = args.items,
+        .max_output_bytes = 1024 * 1024,
+    });
+
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("Runtime .so build failed (exit {d}):\n{s}\n", .{ code, result.stderr });
+                return error.RuntimeSoBuildFailed;
+            }
+        },
+        else => {
+            std.debug.print("Runtime .so build terminated abnormally:\n{s}\n", .{result.stderr});
+            return error.RuntimeSoBuildFailed;
+        },
+    }
+}
+
+/// Ensure runtime shared library is up-to-date (dev mode)
+pub fn ensureRuntimeSo(allocator: std.mem.Allocator) !void {
+    if (!hasRuntimeSo()) {
+        std.debug.print("Building runtime .so (first time)...\n", .{});
+        try buildRuntimeSo(allocator);
+        return;
+    }
+
+    // Check if runtime.zig is newer
+    const runtime_stat = std.fs.cwd().statFile("packages/runtime/src/runtime.zig") catch {
+        try buildRuntimeSo(allocator);
+        return;
+    };
+
+    const so_stat = std.fs.cwd().statFile(RUNTIME_SO_PATH) catch {
+        try buildRuntimeSo(allocator);
+        return;
+    };
+
+    if (runtime_stat.mtime > so_stat.mtime) {
+        std.debug.print("Rebuilding runtime .so (source changed)...\n", .{});
+        try buildRuntimeSo(allocator);
     }
 }
 

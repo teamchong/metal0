@@ -18,6 +18,7 @@ pub const CompileOptions = struct {
     wasm: bool = false, // --wasm/-w flag for WebAssembly output (legacy, use target instead)
     emit_zig_only: bool = false, // --emit-zig flag - generate .zig file only, no compilation
     debug: bool = false, // --debug/-g flag - emit debug info (.metal0.dbg)
+    dev_mode: bool = false, // Dev mode: Debug build + .so runtime (fast iteration)
     target: Target = .native, // --target flag for cross-compilation
     pgo_generate: bool = false, // --pgo-generate flag - generate PGO instrumented binary
     pgo_use: ?[]const u8 = null, // --pgo-use=<profile> flag - use PGO profile data
