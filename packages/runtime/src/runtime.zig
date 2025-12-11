@@ -136,6 +136,9 @@ pub const dynamic_closure = @import("runtime/dynamic_closure.zig");
 /// Miscellaneous utilities
 pub const misc_utils = @import("runtime/misc_utils.zig");
 
+/// PyObject casting utilities
+pub const pyobject_cast = @import("runtime/pyobject_cast.zig");
+
 // Re-export DynamicClosure from dynamic_closure.zig
 pub const DynamicClosure = dynamic_closure.DynamicClosure;
 
@@ -1043,39 +1046,19 @@ pub fn decref(obj: *PyObject, allocator: std.mem.Allocator) void {
 /// Returns false for: None, False, 0, empty string, empty list/dict
 /// Returns true for everything else
 pub fn pyTruthy(obj: *PyObject) bool {
+    const cast = pyobject_cast.cast;
     const type_id = getTypeId(obj);
-    switch (type_id) {
-        .none => return false,
-        .bool => {
-            const bool_obj: *PyBoolObject = @ptrCast(@alignCast(obj));
-            return bool_obj.ob_digit != 0;
-        },
-        .int => {
-            const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
-            return long_obj.ob_digit != 0;
-        },
-        .float => {
-            const float_obj: *PyFloatObject = @ptrCast(@alignCast(obj));
-            return float_obj.ob_fval != 0.0;
-        },
-        .string => {
-            const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(obj));
-            return str_obj.length > 0;
-        },
-        .list => {
-            const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
-            return list_obj.ob_base.ob_size > 0;
-        },
-        .dict => {
-            const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
-            return dict_obj.ma_used > 0;
-        },
-        .tuple => {
-            const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
-            return tuple_obj.ob_base.ob_size > 0;
-        },
-        else => return true, // All other types (file, regex, etc.) are truthy
-    }
+    return switch (type_id) {
+        .none => false,
+        .bool => cast(PyBoolObject, obj).ob_digit != 0,
+        .int => cast(PyLongObject, obj).ob_digit != 0,
+        .float => cast(PyFloatObject, obj).ob_fval != 0.0,
+        .string => cast(PyUnicodeObject, obj).length > 0,
+        .list => cast(PyListObject, obj).ob_base.ob_size > 0,
+        .dict => cast(PyDictObject, obj).ma_used > 0,
+        .tuple => cast(PyTupleObject, obj).ob_base.ob_size > 0,
+        else => true, // All other types (file, regex, etc.) are truthy
+    };
 }
 
 /// Helper function to print PyObject based on runtime type
@@ -1085,22 +1068,14 @@ pub fn printPyObject(obj: *PyObject) void {
 
 /// Internal: print PyObject with quote_strings flag for container elements
 fn printPyObjectImpl(obj: *PyObject, quote_strings: bool) void {
+    const cast = pyobject_cast.cast;
     const type_id = getTypeId(obj);
     switch (type_id) {
-        .int => {
-            const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
-            std.debug.print("{}", .{long_obj.ob_digit});
-        },
-        .float => {
-            const float_obj: *PyFloatObject = @ptrCast(@alignCast(obj));
-            std.debug.print("{d}", .{float_obj.ob_fval});
-        },
-        .bool => {
-            const bool_obj: *PyBoolObject = @ptrCast(@alignCast(obj));
-            std.debug.print("{s}", .{if (bool_obj.ob_digit != 0) "True" else "False"});
-        },
+        .int => std.debug.print("{}", .{cast(PyLongObject, obj).ob_digit}),
+        .float => std.debug.print("{d}", .{cast(PyFloatObject, obj).ob_fval}),
+        .bool => std.debug.print("{s}", .{if (cast(PyBoolObject, obj).ob_digit != 0) "True" else "False"}),
         .string => {
-            const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(obj));
+            const str_obj = cast(PyUnicodeObject, obj);
             const len: usize = @intCast(str_obj.length);
             if (quote_strings) {
                 std.debug.print("'{s}'", .{str_obj.data[0..len]});
@@ -1108,56 +1083,49 @@ fn printPyObjectImpl(obj: *PyObject, quote_strings: bool) void {
                 std.debug.print("{s}", .{str_obj.data[0..len]});
             }
         },
-        .none => {
-            std.debug.print("None", .{});
-        },
-        .list => {
-            printList(obj);
-        },
-        .tuple => {
-            PyTuple.print(obj);
-        },
-        .dict => {
-            printDict(obj);
-        },
-        else => {
-            // For C extension types, try to call tp_str or tp_repr
-            const type_obj = Py_TYPE(obj);
-            if (type_obj.tp_str) |str_func| {
-                const str_result = str_func(obj);
-                // Check if result is a string type (PyUnicode) and print it
-                const result_type = Py_TYPE(str_result);
-                if (result_type == &PyUnicode_Type or
-                    std.mem.eql(u8, std.mem.span(result_type.tp_name), "str"))
-                {
-                    const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(str_result));
-                    const len: usize = @intCast(str_obj.length);
-                    std.debug.print("{s}", .{str_obj.data[0..len]});
-                    return;
-                }
-            }
-            if (type_obj.tp_repr) |repr_func| {
-                const repr_result = repr_func(obj);
-                const result_type = Py_TYPE(repr_result);
-                if (result_type == &PyUnicode_Type or
-                    std.mem.eql(u8, std.mem.span(result_type.tp_name), "str"))
-                {
-                    const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(repr_result));
-                    const len: usize = @intCast(str_obj.length);
-                    std.debug.print("{s}", .{str_obj.data[0..len]});
-                    return;
-                }
-            }
-            // Fallback: print type name and pointer
-            std.debug.print("<{s} at {*}>", .{ std.mem.span(type_obj.tp_name), obj });
-        },
+        .none => std.debug.print("None", .{}),
+        .list => printList(obj),
+        .tuple => PyTuple.print(obj),
+        .dict => printDict(obj),
+        else => printUnknownType(obj),
     }
+}
+
+/// Print unknown/extension types using tp_str or tp_repr
+fn printUnknownType(obj: *PyObject) void {
+    const cast = pyobject_cast.cast;
+    const type_obj = Py_TYPE(obj);
+    // Try tp_str first
+    if (type_obj.tp_str) |str_func| {
+        if (tryPrintStringResult(cast, str_func(obj))) return;
+    }
+    // Try tp_repr
+    if (type_obj.tp_repr) |repr_func| {
+        if (tryPrintStringResult(cast, repr_func(obj))) return;
+    }
+    // Fallback: print type name and pointer
+    std.debug.print("<{s} at {*}>", .{ std.mem.span(type_obj.tp_name), obj });
+}
+
+/// Try to print a string result from tp_str/tp_repr
+fn tryPrintStringResult(cast: anytype, result: *PyObject) bool {
+    const result_type = Py_TYPE(result);
+    if (result_type == &PyUnicode_Type or
+        std.mem.eql(u8, std.mem.span(result_type.tp_name), "str"))
+    {
+        const str_obj = cast(PyUnicodeObject, result);
+        const len: usize = @intCast(str_obj.length);
+        std.debug.print("{s}", .{str_obj.data[0..len]});
+        return true;
+    }
+    return false;
 }
 
 /// Helper function to print a dict in Python format: {'key': value, ...}
 fn printDict(obj: *PyObject) void {
     std.debug.assert(PyDict_Check(obj));
-    const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
+    const cast = pyobject_cast.cast;
+    const dict_obj = cast(PyDictObject, obj);
 
     std.debug.print("{{", .{});
     if (dict_obj.ma_keys) |keys_ptr| {
@@ -1165,12 +1133,8 @@ fn printDict(obj: *PyObject) void {
         var iter = map.iterator();
         var idx: usize = 0;
         while (iter.next()) |entry| {
-            if (idx > 0) {
-                std.debug.print(", ", .{});
-            }
-            // Print key with quotes (string keys)
+            if (idx > 0) std.debug.print(", ", .{});
             std.debug.print("'{s}': ", .{entry.key_ptr.*});
-            // Recursively print value (with quoted strings)
             printPyObjectImpl(entry.value_ptr.*, true);
             idx += 1;
         }
@@ -1181,34 +1145,14 @@ fn printDict(obj: *PyObject) void {
 /// Helper function to print a list in Python format: [elem1, elem2, elem3]
 pub fn printList(obj: *PyObject) void {
     std.debug.assert(PyList_Check(obj));
-    const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
+    const cast = pyobject_cast.cast;
+    const list_obj = cast(PyListObject, obj);
     const size: usize = @intCast(list_obj.ob_base.ob_size);
 
     std.debug.print("[", .{});
     for (0..size) |i| {
-        if (i > 0) {
-            std.debug.print(", ", .{});
-        }
-        const item = list_obj.ob_item[i];
-        // Print each element based on its type
-        const item_type = getTypeId(item);
-        switch (item_type) {
-            .int => {
-                const long_obj: *PyLongObject = @ptrCast(@alignCast(item));
-                std.debug.print("{}", .{long_obj.ob_digit});
-            },
-            .string => {
-                const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(item));
-                const len: usize = @intCast(str_obj.length);
-                std.debug.print("'{s}'", .{str_obj.data[0..len]});
-            },
-            .tuple => {
-                PyTuple.print(item);
-            },
-            else => {
-                std.debug.print("{*}", .{item});
-            },
-        }
+        if (i > 0) std.debug.print(", ", .{});
+        printPyObjectImpl(list_obj.ob_item[i], true); // Reuse printPyObjectImpl
     }
     std.debug.print("]", .{});
 }
