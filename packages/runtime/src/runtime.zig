@@ -2,6 +2,7 @@
 /// Core runtime support for compiled Python code
 const std = @import("std");
 const builtin = @import("builtin");
+const allocator_helper = @import("utils.allocator_helper");
 
 /// Browser WASM (freestanding) has no threading or OS support
 pub const is_freestanding = builtin.os.tag == .freestanding;

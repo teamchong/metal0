@@ -1,6 +1,7 @@
 /// Core PyString operations - creation, access, concatenation
 /// CPython ABI compatible using PyUnicodeObject
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const runtime = @import("../../runtime.zig");
 const PyObject = runtime.PyObject;
 const PyUnicodeObject = runtime.PyUnicodeObject;

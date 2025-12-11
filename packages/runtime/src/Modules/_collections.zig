@@ -1,6 +1,7 @@
 /// _collections - C accelerator module for collections
 /// Provides: deque, defaultdict, OrderedDict, Counter
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const hashmap_helper = @import("utils.hashmap_helper");
 const Allocator = std.mem.Allocator;
 

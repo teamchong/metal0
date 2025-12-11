@@ -2,6 +2,7 @@
 /// Provides compress, decompress, crc32, adler32 and related functions
 /// libdeflate is 2-3x faster than system zlib
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 
 const c = @cImport({
     @cInclude("libdeflate.h");
