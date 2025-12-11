@@ -1,7 +1,7 @@
 /// Pickle and Marshal serialization helpers
 const std = @import("std");
 const allocator_helper = @import("utils.allocator_helper");
-const pickle = @import("../Lib/pickle.zig");
+const pickle = @import("../Lib/pickle/pickle.zig");
 
 /// Marshal loads - decode simplified marshal format back to value
 /// Uses compile-time encoding: "T" = True, "F" = False

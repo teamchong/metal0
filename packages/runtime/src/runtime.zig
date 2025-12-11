@@ -778,110 +778,55 @@ pub inline fn Py_SET_SIZE(op: *PyObject, size: Py_ssize_t) void {
 /// Note: This function returns a slice backed by static storage for small lists
 /// or the original list's internal storage. Caller should not modify.
 pub fn pyObjectToList(obj: *PyObject) PyValue {
-    // Check if it's a list
+    const cast = pyobject_cast.cast;
+    const Static = struct {
+        threadlocal var buffer: [64]PyValue = undefined;
+    };
+
     if (PyList_Check(obj)) {
-        const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
+        const list_obj = cast(PyListObject, obj);
         const size = list_obj.ob_base.ob_size;
-        if (size <= 0) return .{ .list = &[_]PyValue{} };
-
-        // Convert list elements to PyValue slice
-        // Use thread-local static buffer for small lists to avoid allocation
-        const Static = struct {
-            threadlocal var buffer: [64]PyValue = undefined;
-        };
-
-        const count: usize = @intCast(size);
-        if (list_obj.ob_item == null) return .{ .list = &[_]PyValue{} };
-
-        const items = list_obj.ob_item.?;
-
-        // Small list - use thread-local buffer (no allocation needed)
-        if (count <= 64) {
-            for (0..count) |i| {
-                Static.buffer[i] = pyObjectToPyValue(items[i]);
-            }
-            return .{ .list = Static.buffer[0..count] };
-        }
-
-        // Large list - allocate on heap using c_allocator
-        // The caller must free this when done if needed
-        const heap_buffer = std.heap.c_allocator.alloc(PyValue, count) catch {
-            // Fallback: return first 64 elements on allocation failure
-            for (0..64) |i| {
-                Static.buffer[i] = pyObjectToPyValue(items[i]);
-            }
-            return .{ .list = Static.buffer[0..64] };
-        };
-        for (0..count) |i| {
-            heap_buffer[i] = pyObjectToPyValue(items[i]);
-        }
-        return .{ .list = heap_buffer };
+        if (size <= 0 or list_obj.ob_item == null) return .{ .list = &[_]PyValue{} };
+        return convertItemsToValue(list_obj.ob_item.?, @intCast(size), &Static.buffer);
     }
-    // Check if it's a tuple
     if (PyTuple_Check(obj)) {
-        const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
+        const tuple_obj = cast(PyTupleObject, obj);
         const size = tuple_obj.ob_base.ob_size;
         if (size <= 0) return .{ .list = &[_]PyValue{} };
-
-        const Static = struct {
-            threadlocal var buffer: [64]PyValue = undefined;
-        };
-
-        const count: usize = @intCast(size);
-        if (count <= 64) {
-            for (0..count) |i| {
-                Static.buffer[i] = pyObjectToPyValue(tuple_obj.ob_item[i]);
-            }
-            return .{ .list = Static.buffer[0..count] };
-        }
-
-        return .{ .list = &[_]PyValue{} };
+        return convertItemsToValue(@ptrCast(&tuple_obj.ob_item), @intCast(size), &Static.buffer);
     }
-    // Default: return empty list
     return .{ .list = &[_]PyValue{} };
+}
+
+fn convertItemsToValue(items: [*]*PyObject, count: usize, buffer: *[64]PyValue) PyValue {
+    if (count <= 64) {
+        for (0..count) |i| buffer[i] = pyObjectToPyValue(items[i]);
+        return .{ .list = buffer[0..count] };
+    }
+    const heap_buffer = std.heap.c_allocator.alloc(PyValue, count) catch {
+        for (0..64) |i| buffer[i] = pyObjectToPyValue(items[i]);
+        return .{ .list = buffer[0..64] };
+    };
+    for (0..count) |i| heap_buffer[i] = pyObjectToPyValue(items[i]);
+    return .{ .list = heap_buffer };
 }
 
 /// Convert a single PyObject to PyValue
 fn pyObjectToPyValue(obj: ?*PyObject) PyValue {
+    const cast = pyobject_cast.cast;
     const o = obj orelse return .{ .none = {} };
-
-    if (PyLong_Check(o)) {
-        // Get value from PyLongObject
-        const long_obj: *PyLongObject = @ptrCast(@alignCast(o));
-        return .{ .int = @intCast(long_obj.ob_digit) };
-    }
-    if (PyFloat_Check(o)) {
-        const float_obj: *PyFloatObject = @ptrCast(@alignCast(o));
-        return .{ .float = float_obj.ob_fval };
-    }
-    if (PyBool_Check(o)) {
-        const bool_obj: *PyBoolObject = @ptrCast(@alignCast(o));
-        return .{ .bool = bool_obj.ob_digit != 0 };
-    }
-    if (PyUnicode_Check(o)) {
-        // Return pointer as opaque - caller can cast to *PyObject for string ops
-        return .{ .ptr = o };
-    }
-    // Default: wrap as ptr
+    if (PyLong_Check(o)) return .{ .int = @intCast(cast(PyLongObject, o).ob_digit) };
+    if (PyFloat_Check(o)) return .{ .float = cast(PyFloatObject, o).ob_fval };
+    if (PyBool_Check(o)) return .{ .bool = cast(PyBoolObject, o).ob_digit != 0 };
     return .{ .ptr = o };
 }
 
-/// Extract value from PyObject for comparisons
-/// Returns f64 for numeric types (allows uniform comparison)
+/// Extract value from PyObject for comparisons (returns f64)
 pub fn pyObjectToValue(obj: *PyObject) f64 {
-    if (PyFloat_Check(obj)) {
-        const float_obj: *PyFloatObject = @ptrCast(@alignCast(obj));
-        return float_obj.ob_fval;
-    }
-    if (PyLong_Check(obj)) {
-        const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
-        return @floatFromInt(long_obj.ob_digit);
-    }
-    if (PyBool_Check(obj)) {
-        const bool_obj: *PyBoolObject = @ptrCast(@alignCast(obj));
-        return @floatFromInt(bool_obj.ob_digit);
-    }
-    // Default to 0 for non-numeric types
+    const cast = pyobject_cast.cast;
+    if (PyFloat_Check(obj)) return cast(PyFloatObject, obj).ob_fval;
+    if (PyLong_Check(obj)) return @floatFromInt(cast(PyLongObject, obj).ob_digit);
+    if (PyBool_Check(obj)) return @floatFromInt(cast(PyBoolObject, obj).ob_digit);
     return 0.0;
 }
 
@@ -965,81 +910,58 @@ pub fn decref(obj: *PyObject, allocator: std.mem.Allocator) void {
         return;
     }
     obj.ob_refcnt -= 1;
-    if (obj.ob_refcnt == 0) {
-        // Use type-based deallocation
-        const type_id = getTypeId(obj);
-        switch (type_id) {
-            .int => {
-                // PyLongObject is self-contained, just free it
-                const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
-                allocator.destroy(long_obj);
-            },
-            .float => {
-                const float_obj: *PyFloatObject = @ptrCast(@alignCast(obj));
-                allocator.destroy(float_obj);
-            },
-            .bool => {
-                const bool_obj: *PyBoolObject = @ptrCast(@alignCast(obj));
-                allocator.destroy(bool_obj);
-            },
-            .list => {
-                const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
-                const size: usize = @intCast(list_obj.ob_base.ob_size);
-                // Decref all items
-                for (0..size) |i| {
-                    decref(list_obj.ob_item[i], allocator);
-                }
-                // Free the item array
-                if (list_obj.allocated > 0) {
-                    const alloc_size: usize = @intCast(list_obj.allocated);
-                    allocator.free(list_obj.ob_item[0..alloc_size]);
-                }
-                allocator.destroy(list_obj);
-            },
-            .tuple => {
-                const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
-                const size: usize = @intCast(tuple_obj.ob_base.ob_size);
-                // Decref all items
-                for (0..size) |i| {
-                    decref(tuple_obj.ob_item[i], allocator);
-                }
-                // Free the tuple (items are inline in CPython, but we allocate separately)
-                allocator.free(tuple_obj.ob_item[0..size]);
-                allocator.destroy(tuple_obj);
-            },
-            .string => {
-                const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(obj));
-                // Free the string data if owned
-                const len: usize = @intCast(str_obj.length);
-                if (len > 0) {
-                    allocator.free(str_obj.data[0..len]);
-                }
-                allocator.destroy(str_obj);
-            },
-            .dict => {
-                const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));
-                // Free internal hashmap if present
-                if (dict_obj.ma_keys) |keys_ptr| {
-                    const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(keys_ptr));
-                    var it = map.iterator();
-                    while (it.next()) |entry| {
-                        allocator.free(entry.key_ptr.*);
-                        decref(entry.value_ptr.*, allocator);
-                    }
-                    map.deinit();
-                    allocator.destroy(map);
-                }
-                allocator.destroy(dict_obj);
-            },
-            .none => {
-                // Never free the None singleton
-            },
-            else => {
-                // Generic deallocation for unknown types
-                // Just free the base PyObject
-            },
-        }
+    if (obj.ob_refcnt == 0) deallocByType(obj, allocator);
+}
+
+fn deallocByType(obj: *PyObject, allocator: std.mem.Allocator) void {
+    const cast = pyobject_cast.cast;
+    switch (getTypeId(obj)) {
+        .int => allocator.destroy(cast(PyLongObject, obj)),
+        .float => allocator.destroy(cast(PyFloatObject, obj)),
+        .bool => allocator.destroy(cast(PyBoolObject, obj)),
+        .list => deallocList(cast(PyListObject, obj), allocator),
+        .tuple => deallocTuple(cast(PyTupleObject, obj), allocator),
+        .string => deallocString(cast(PyUnicodeObject, obj), allocator),
+        .dict => deallocDict(cast(PyDictObject, obj), allocator),
+        .none => {}, // Never free None singleton
+        else => {},
     }
+}
+
+fn deallocList(list_obj: *PyListObject, allocator: std.mem.Allocator) void {
+    const size: usize = @intCast(list_obj.ob_base.ob_size);
+    for (0..size) |i| decref(list_obj.ob_item[i], allocator);
+    if (list_obj.allocated > 0) {
+        allocator.free(list_obj.ob_item[0..@intCast(list_obj.allocated)]);
+    }
+    allocator.destroy(list_obj);
+}
+
+fn deallocTuple(tuple_obj: *PyTupleObject, allocator: std.mem.Allocator) void {
+    const size: usize = @intCast(tuple_obj.ob_base.ob_size);
+    for (0..size) |i| decref(tuple_obj.ob_item[i], allocator);
+    allocator.free(tuple_obj.ob_item[0..size]);
+    allocator.destroy(tuple_obj);
+}
+
+fn deallocString(str_obj: *PyUnicodeObject, allocator: std.mem.Allocator) void {
+    const len: usize = @intCast(str_obj.length);
+    if (len > 0) allocator.free(str_obj.data[0..len]);
+    allocator.destroy(str_obj);
+}
+
+fn deallocDict(dict_obj: *PyDictObject, allocator: std.mem.Allocator) void {
+    if (dict_obj.ma_keys) |keys_ptr| {
+        const map: *hashmap_helper.StringHashMap(*PyObject) = @ptrCast(@alignCast(keys_ptr));
+        var it = map.iterator();
+        while (it.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            decref(entry.value_ptr.*, allocator);
+        }
+        map.deinit();
+        allocator.destroy(map);
+    }
+    allocator.destroy(dict_obj);
 }
 
 /// Check if a PyObject is truthy (Python truthiness semantics)
@@ -1383,7 +1305,7 @@ pub const exec_module = if (is_freestanding) void else @import("Python/pythonrun
 pub const gzip = @import("gzip");
 pub const zlib = @import("Modules/zlibmodule.zig");
 pub const hashlib = @import("Modules/_hashlib.zig");
-pub const pickle = @import("Lib/pickle.zig");
+pub const pickle = @import("Lib/pickle/pickle.zig");
 pub const test_support = @import("runtime/test_support.zig");
 pub const list_tests = @import("runtime/list_tests.zig");
 pub const base64 = @import("Lib/base64.zig");
@@ -1571,7 +1493,7 @@ pub const Lib = struct {
     pub const itertools = @import("Lib/itertools.zig");
     pub const collections = @import("Lib/collections.zig");
     pub const unittest = @import("Lib/unittest.zig");
-    pub const pickle = @import("Lib/pickle.zig");
+    pub const pickle = @import("Lib/pickle/pickle.zig");
     pub const base64 = @import("Lib/base64.zig");
     pub const http = if (is_freestanding) void else @import("Lib/http.zig");
     pub const websocket = if (is_freestanding) void else @import("Lib/websocket.zig");
