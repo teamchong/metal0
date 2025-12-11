@@ -232,6 +232,124 @@ pub fn isParamReassignedInStmts(param_name: []const u8, stmts: []ast.Node) bool 
     return false;
 }
 
+/// Check if a variable is mutated via method calls in a list of statements
+/// This detects patterns like: var.append(x), var.extend(y), var[k] = v
+/// Used to determine if captured variables need to be captured by pointer
+pub fn isVarMutatedInStmts(var_name: []const u8, stmts: []const ast.Node) bool {
+    for (stmts) |stmt| {
+        if (isVarMutatedInNode(var_name, stmt)) return true;
+    }
+    return false;
+}
+
+/// List mutation methods that require mutable access
+const MutatingMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "append", {} },
+    .{ "extend", {} },
+    .{ "insert", {} },
+    .{ "remove", {} },
+    .{ "pop", {} },
+    .{ "clear", {} },
+    .{ "sort", {} },
+    .{ "reverse", {} },
+    .{ "add", {} }, // set.add()
+    .{ "discard", {} }, // set.discard()
+    .{ "update", {} }, // dict/set.update()
+    .{ "setdefault", {} }, // dict.setdefault()
+    .{ "popitem", {} }, // dict.popitem()
+});
+
+/// Check if a variable is mutated in a single node
+fn isVarMutatedInNode(var_name: []const u8, node: ast.Node) bool {
+    return switch (node) {
+        // Check for mutating method calls: var.append(x)
+        .expr_stmt => |e| isVarMutatedInExpr(var_name, e.value.*),
+        // Check for subscript assignment: var[k] = v
+        .assign => |a| blk: {
+            for (a.targets) |target| {
+                if (target == .subscript) {
+                    const sub = target.subscript;
+                    if (sub.value.* == .name and std.mem.eql(u8, sub.value.name.id, var_name)) {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        },
+        // Check for augmented assignment: var += x
+        .aug_assign => |a| blk: {
+            if (a.target.* == .name and std.mem.eql(u8, a.target.name.id, var_name)) {
+                break :blk true;
+            }
+            break :blk false;
+        },
+        // Recurse into compound statements
+        .if_stmt => |i| blk: {
+            for (i.body) |s| {
+                if (isVarMutatedInNode(var_name, s)) break :blk true;
+            }
+            for (i.else_body) |s| {
+                if (isVarMutatedInNode(var_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            for (f.body) |s| {
+                if (isVarMutatedInNode(var_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (isVarMutatedInNode(var_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| {
+                if (isVarMutatedInNode(var_name, s)) break :blk true;
+            }
+            for (t.handlers) |h| {
+                for (h.body) |s| {
+                    if (isVarMutatedInNode(var_name, s)) break :blk true;
+                }
+            }
+            for (t.finalbody) |s| {
+                if (isVarMutatedInNode(var_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (isVarMutatedInNode(var_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+/// Check if expression contains a mutating call on the variable
+fn isVarMutatedInExpr(var_name: []const u8, expr: ast.Node) bool {
+    return switch (expr) {
+        // Check for method calls: var.method(...)
+        .call => |c| blk: {
+            if (c.func.* == .attribute) {
+                const attr = c.func.attribute;
+                // Check if it's a call on our variable
+                if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, var_name)) {
+                    // Check if the method is mutating
+                    if (MutatingMethods.has(attr.attr)) {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
 /// Check if a parameter is reassigned in a node
 fn isParamReassignedInNode(param_name: []const u8, node: ast.Node) bool {
     return switch (node) {

@@ -44,9 +44,10 @@ fn findContextManagerTypeInExpr(expr: ast.Node) ?[]const u8 {
 /// This centralizes type inference logic for captured variables:
 /// - 'self' in class context -> *const ClassName
 /// - Known closures -> @TypeOf(closure_var_name) (closures have complex parameterized types)
+/// - Mutated vars -> pointer type (*T) so closure can modify the original
 /// - Inferred types -> use type inference
 /// - Unknown -> *runtime.PyObject as fallback
-fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
+fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: bool) CodegenError!void {
     const container_traits = @import("../../../../../analysis/traits/container_traits.zig");
 
     // Case 1: 'self' in a class context
@@ -60,7 +61,11 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8) CodegenError!
     // that can't be expressed statically. Use @TypeOf() to infer from the actual value.
     // Note: anytype can only be used in function params, not struct fields.
     if (self.closure_vars.contains(var_name)) {
-        try self.emit(": @TypeOf(");
+        if (is_mutated) {
+            try self.emit(": *@TypeOf(");
+        } else {
+            try self.emit(": @TypeOf(");
+        }
         // Check if variable was renamed (e.g., nested function `raiseVE` -> `__local_raiseVE_10`)
         if (self.var_renames.get(var_name)) |renamed| {
             try self.emit(renamed);
@@ -91,7 +96,12 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8) CodegenError!
             else => false,
         };
         if (has_unknown_element) {
-            try self.emit(": @TypeOf(");
+            // For mutated vars, use pointer to @TypeOf
+            if (is_mutated) {
+                try self.emit(": *@TypeOf(");
+            } else {
+                try self.emit(": @TypeOf(");
+            }
             if (self.var_renames.get(var_name)) |renamed| {
                 try self.emit(renamed);
             } else {
@@ -102,9 +112,16 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8) CodegenError!
         }
     }
 
-    const type_str = try self.nativeTypeToZigType(var_type);
-    defer self.allocator.free(type_str);
-    try self.output.writer(self.allocator).print(": {s}", .{type_str});
+    // For mutated vars, wrap with pointer
+    if (is_mutated) {
+        const type_str = try self.nativeTypeToZigType(var_type);
+        defer self.allocator.free(type_str);
+        try self.output.writer(self.allocator).print(": *{s}", .{type_str});
+    } else {
+        const type_str = try self.nativeTypeToZigType(var_type);
+        defer self.allocator.free(type_str);
+        try self.output.writer(self.allocator).print(": {s}", .{type_str});
+    }
 }
 
 /// Generate standard closure with captured variables
@@ -116,6 +133,16 @@ pub fn genStandardClosure(
     // Save counter before any nested generation that might increment it
     const saved_counter = self.lambda_counter;
     self.lambda_counter += 1;
+
+    // Identify captured vars that are mutated in the function body
+    // These need to be captured by pointer (*T) instead of by value (T)
+    var mutated_captures = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer mutated_captures.deinit();
+    for (captured_vars) |var_name| {
+        if (var_tracking.isVarMutatedInStmts(var_name, func.body)) {
+            try mutated_captures.put(var_name, {});
+        }
+    }
 
     // Generate comptime closure using runtime.Closure1 helper
     const closure_impl_name = try std.fmt.allocPrint(
@@ -140,7 +167,8 @@ pub fn genStandardClosure(
         try self.emit(" ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
         // Emit the type for this captured variable
-        try emitCapturedVarType(self, var_name);
+        // Mutated vars need pointer type so closure can modify them
+        try emitCapturedVarType(self, var_name, mutated_captures.contains(var_name));
     }
     try self.emit(" };\n");
 
@@ -620,13 +648,18 @@ pub fn genStandardClosure(
         );
 
         // Initialize captures - use renamed variable names from outer scope saved earlier
+        // For mutated captures, use & to take pointer
         for (captured_vars, 0..) |var_name, i| {
             if (i > 0) try self.emit(", ");
             // Check saved outer renames first (for params that were renamed in outer function),
             // then fall back to current var_renames, then the original name
             const actual_name = outer_capture_renames.get(var_name) orelse
                 self.var_renames.get(var_name) orelse var_name;
-            try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, actual_name });
+            if (mutated_captures.contains(var_name)) {
+                try self.output.writer(self.allocator).print(" .{s} = &{s}", .{ var_name, actual_name });
+            } else {
+                try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, actual_name });
+            }
         }
         try self.emit(" } };\n");
 
