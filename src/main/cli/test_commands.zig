@@ -295,6 +295,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     // This compiles all tests in one process, sharing runtime module analysis
     // Expected: 3-5x faster than individual compilations
     // ══════════════════════════════════════════════════════════════════════════════
+    var batch_succeeded = false;
     if (batch_mode and incremental.hasBatchBuildZig()) {
         // Filter to only files needing compilation
         var needs_compile_paths = std.ArrayList([]const u8){};
@@ -315,16 +316,20 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
             if (incremental.batchCompileWithZigBuild(allocator, ncpu)) |result| {
                 // Batch compile succeeded
                 _ = compile_ok.fetchAdd(result.success, .seq_cst);
+                batch_succeeded = true;
                 if (!dots_mode) std.debug.print("  Batch compile: {d}/{d}\n", .{ result.success, result.total });
             } else |err| {
                 printWarn("Batch compilation failed ({any}), falling back to individual compilation", .{err});
-                // Fall through to individual compilation below
-                needs_compile_paths.clearRetainingCapacity();
+                // Reset cached count since we counted them above but will recount in individual mode
+                compile_cached.store(0, .seq_cst);
             }
+        } else {
+            // All cached, no need to compile
+            batch_succeeded = true;
         }
 
-        // Skip to Phase 3 if batch mode succeeded
-        if (compile_ok.load(.seq_cst) > 0 or compile_cached.load(.seq_cst) > 0) {
+        // Print stats if batch succeeded
+        if (batch_succeeded) {
             const final_compile_ok = compile_ok.load(.seq_cst);
             const final_compile_cached = compile_cached.load(.seq_cst);
             if (!dots_mode) std.debug.print("  Compile: {d}/{d} (cached: {d})\n", .{ final_compile_ok + final_compile_cached, codegen_ok + codegen_cached, final_compile_cached });
@@ -332,9 +337,9 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // NORMAL MODE: Compile in parallel using thread pool
+    // NORMAL MODE (or fallback): Compile in parallel using thread pool
     // ══════════════════════════════════════════════════════════════════════════════
-    else {
+    if (!batch_succeeded) {
         const num_compile_threads = @min(ncpu, tasks.items.len);
         if (num_compile_threads > 0) {
             var threads: [32]std.Thread = undefined;
@@ -403,7 +408,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         const final_compile_ok = compile_ok.load(.seq_cst);
         const final_compile_cached = compile_cached.load(.seq_cst);
         if (!dots_mode) std.debug.print("  Compile: {d}/{d} (cached: {d})\n", .{ final_compile_ok + final_compile_cached, codegen_ok + codegen_cached, final_compile_cached });
-    } // End of normal mode else block
+    } // End of normal/fallback mode block
 
     // Phase 3: Run binaries
     if (!dots_mode) std.debug.print("Phase 3: Run...\n", .{});

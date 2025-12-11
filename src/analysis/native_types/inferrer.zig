@@ -325,6 +325,32 @@ pub const TypeInferrer = struct {
                 if (assign.value.* == .call) {
                     try self.checkConstructorCall(assign.value.call, arena_alloc);
                 }
+                // Also scan dict/list comprehensions and literals for function calls
+                if (assign.value.* == .dictcomp) {
+                    try self.collectCallsFromExpr(assign.value.dictcomp.key.*, arena_alloc);
+                    try self.collectCallsFromExpr(assign.value.dictcomp.value.*, arena_alloc);
+                }
+                if (assign.value.* == .listcomp) {
+                    try self.collectCallsFromExpr(assign.value.listcomp.elt.*, arena_alloc);
+                }
+                if (assign.value.* == .genexp) {
+                    try self.collectCallsFromExpr(assign.value.genexp.elt.*, arena_alloc);
+                }
+                // Dict literals: {key_expr: value_expr, ...}
+                if (assign.value.* == .dict) {
+                    for (assign.value.dict.keys) |key| {
+                        try self.collectCallsFromExpr(key, arena_alloc);
+                    }
+                    for (assign.value.dict.values) |val| {
+                        try self.collectCallsFromExpr(val, arena_alloc);
+                    }
+                }
+                // List literals: [expr, ...]
+                if (assign.value.* == .list) {
+                    for (assign.value.list.elts) |elt| {
+                        try self.collectCallsFromExpr(elt, arena_alloc);
+                    }
+                }
             },
             .expr_stmt => |expr| {
                 // Check for standalone constructor calls
@@ -446,6 +472,38 @@ pub const TypeInferrer = struct {
         }
     }
 
+    /// Recursively collect function calls from an expression (for comprehensions)
+    fn collectCallsFromExpr(self: *TypeInferrer, node: ast.Node, arena_alloc: std.mem.Allocator) InferError!void {
+        switch (node) {
+            .call => |call| {
+                try self.checkConstructorCall(call, arena_alloc);
+                // Also check arguments for nested calls
+                for (call.args) |arg| {
+                    try self.collectCallsFromExpr(arg, arena_alloc);
+                }
+            },
+            .binop => |b| {
+                try self.collectCallsFromExpr(b.left.*, arena_alloc);
+                try self.collectCallsFromExpr(b.right.*, arena_alloc);
+            },
+            .unaryop => |u| {
+                try self.collectCallsFromExpr(u.operand.*, arena_alloc);
+            },
+            .if_expr => |ie| {
+                try self.collectCallsFromExpr(ie.body.*, arena_alloc);
+                try self.collectCallsFromExpr(ie.orelse_value.*, arena_alloc);
+                try self.collectCallsFromExpr(ie.condition.*, arena_alloc);
+            },
+            .subscript => |s| {
+                try self.collectCallsFromExpr(s.value.*, arena_alloc);
+            },
+            .attribute => |a| {
+                try self.collectCallsFromExpr(a.value.*, arena_alloc);
+            },
+            else => {},
+        }
+    }
+
     /// Visit and analyze a statement node with scoped variable tracking
     fn visitStmt(self: *TypeInferrer, node: ast.Node) InferError!void {
         // Use arena allocator for type allocations
@@ -495,9 +553,21 @@ pub const TypeInferrer = struct {
         defer self.exitScope(old_scope);
 
         // Register function parameters in scoped var_types
-        for (func_def.args) |arg| {
+        for (func_def.args, 0..) |arg, param_idx| {
             var param_type = try core.pythonTypeHintToNative(arg.type_annotation, arena_alloc);
-            // Default to int if no type annotation (most common Python numeric type)
+            // If no type annotation, check call site types from function_call_args
+            if (type_traits.isUnknown(param_type)) {
+                if (self.function_call_args.get(func_def.name)) |call_arg_types| {
+                    if (param_idx < call_arg_types.len) {
+                        const call_type = call_arg_types[param_idx];
+                        // Use call site type if it's not unknown
+                        if (!type_traits.isUnknown(call_type)) {
+                            param_type = call_type;
+                        }
+                    }
+                }
+            }
+            // Default to int if still unknown (most common Python numeric type)
             if (type_traits.isUnknown(param_type)) {
                 param_type = .{ .int = .bounded };
             }
