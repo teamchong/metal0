@@ -295,9 +295,63 @@ pub fn open(allocator: std.mem.Allocator, filename: []const u8, flag: []const u8
 }
 
 /// Guess which db module should be used for a database file
+/// Examines file magic numbers to determine database type
 pub fn whichdb(filename: []const u8) ?[]const u8 {
-    // Would examine file to determine database type
-    _ = filename;
+    // Try to open and read magic bytes
+    const file = std.fs.cwd().openFile(filename, .{}) catch {
+        // File doesn't exist or can't be opened
+        // Check for associated files (.dir, .pag for dbm.ndbm)
+        var dir_buf: [512]u8 = undefined;
+        const dir_path = std.fmt.bufPrint(&dir_buf, "{s}.dir", .{filename}) catch return null;
+        if (std.fs.cwd().access(dir_path, .{})) |_| {
+            return "dbm.ndbm";
+        } else |_| {}
+
+        // Check for .db extension (Berkeley DB)
+        var db_buf: [512]u8 = undefined;
+        const db_path = std.fmt.bufPrint(&db_buf, "{s}.db", .{filename}) catch return null;
+        if (std.fs.cwd().access(db_path, .{})) |_| {
+            return "dbm.ndbm";
+        } else |_| {}
+
+        return null;
+    };
+    defer file.close();
+
+    // Read first 16 bytes for magic detection
+    var magic: [16]u8 = undefined;
+    const n = file.read(&magic) catch return "dbm.dumb";
+    if (n < 4) return "dbm.dumb";
+
+    // GDBM magic: 0x13579ace or 0x13579acd (little/big endian)
+    if (n >= 4) {
+        const gdbm_magic_le: u32 = 0x13579ace;
+        const gdbm_magic_be: u32 = 0x13579acd;
+        const file_magic = std.mem.readInt(u32, magic[0..4], .little);
+        if (file_magic == gdbm_magic_le or file_magic == gdbm_magic_be) {
+            return "dbm.gnu";
+        }
+    }
+
+    // Berkeley DB magic: 0x00061561 or 0x61150600
+    if (n >= 4) {
+        if (magic[0] == 0x00 and magic[1] == 0x06 and magic[2] == 0x15 and magic[3] == 0x61) {
+            return "dbm.ndbm";
+        }
+        if (magic[0] == 0x61 and magic[1] == 0x15 and magic[2] == 0x06 and magic[3] == 0x00) {
+            return "dbm.ndbm";
+        }
+    }
+
+    // Check if it looks like our dumb format (text with tabs)
+    for (magic[0..n]) |c| {
+        if (c == '\t' or c == '\n' or (c >= 0x20 and c <= 0x7e)) {
+            continue;
+        }
+        // Binary data - unknown format
+        return null;
+    }
+
     return "dbm.dumb";
 }
 

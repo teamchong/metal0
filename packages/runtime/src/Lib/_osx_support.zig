@@ -57,12 +57,51 @@ pub const MacOSVersion = struct {
     }
 };
 
-/// Get macOS version (stub on non-macOS)
+/// Get macOS version by parsing kern.osrelease via sysctl
 pub fn getMacOSVersion() ?MacOSVersion {
     if (!is_macos) return null;
-    // Would parse from sysctlbyname("kern.osrelease")
-    // Darwin 23.x = macOS 14 (Sonoma)
-    return MacOSVersion{ .major = 14, .minor = 0, .patch = 0 };
+
+    // Use std.c.sysctl to get kern.osrelease
+    // Darwin kernel version maps to macOS: Darwin 23.x = macOS 14, 22.x = 13, etc.
+    var buf: [256]u8 = undefined;
+    var len: usize = buf.len;
+
+    // CTL_KERN = 1, KERN_OSRELEASE = 2
+    var mib = [_]c_int{ 1, 2 };
+    if (std.c.sysctl(&mib, mib.len, &buf, &len, null, 0) != 0) {
+        // Fallback to default
+        return MacOSVersion{ .major = 14, .minor = 0, .patch = 0 };
+    }
+
+    // Parse "23.1.0" format (Darwin version)
+    const release = buf[0..len];
+    var darwin_major: u32 = 0;
+    var darwin_minor: u32 = 0;
+    var darwin_patch: u32 = 0;
+
+    var parts = std.mem.splitScalar(u8, release, '.');
+    if (parts.next()) |major_str| {
+        darwin_major = std.fmt.parseInt(u32, major_str, 10) catch 0;
+    }
+    if (parts.next()) |minor_str| {
+        darwin_minor = std.fmt.parseInt(u32, minor_str, 10) catch 0;
+    }
+    if (parts.next()) |patch_str| {
+        // Trim null terminator if present
+        const trimmed = std.mem.trimRight(u8, patch_str, &[_]u8{0});
+        darwin_patch = std.fmt.parseInt(u32, trimmed, 10) catch 0;
+    }
+
+    // Convert Darwin version to macOS version
+    // Darwin 24 = macOS 15, Darwin 23 = macOS 14, Darwin 22 = macOS 13, etc.
+    const macos_major: u32 = if (darwin_major >= 20) darwin_major - 9 else 10;
+    const macos_minor: u32 = if (darwin_major >= 20) darwin_minor else darwin_major - 4;
+
+    return MacOSVersion{
+        .major = macos_major,
+        .minor = macos_minor,
+        .patch = darwin_patch,
+    };
 }
 
 // ============================================================================
@@ -91,20 +130,52 @@ pub fn getXcodeInfo() XcodeInfo {
     };
 }
 
-/// Get SDK version from path
+/// Get SDK version from path by parsing "MacOSX14.0.sdk" format
 pub fn getSdkVersion(sdk_path: []const u8) ?[]const u8 {
-    // Parse version from path like "MacOSX14.0.sdk"
-    if (std.mem.indexOf(u8, sdk_path, "MacOSX")) |_| {
-        // Would extract version number
-        return "14.0";
+    // Parse version from path like "/path/to/MacOSX14.0.sdk"
+    const macosx_prefix = "MacOSX";
+    if (std.mem.indexOf(u8, sdk_path, macosx_prefix)) |start| {
+        const version_start = start + macosx_prefix.len;
+        if (version_start >= sdk_path.len) return null;
+
+        // Find end of version (at ".sdk")
+        const remaining = sdk_path[version_start..];
+        if (std.mem.indexOf(u8, remaining, ".sdk")) |end| {
+            if (end > 0) {
+                // Return pointer to static buffer for common versions
+                const version = remaining[0..end];
+                // Validate it looks like a version number
+                for (version) |c| {
+                    if (c != '.' and (c < '0' or c > '9')) return null;
+                }
+                return version;
+            }
+        }
     }
     return null;
 }
 
-/// Get developer directory
+/// Get developer directory from DEVELOPER_DIR env or xcode-select
 pub fn getDeveloperDir() ?[]const u8 {
     if (!is_macos) return null;
-    // Would run `xcode-select -p`
+
+    // Check DEVELOPER_DIR environment variable first
+    if (std.posix.getenv("DEVELOPER_DIR")) |dir| {
+        return dir;
+    }
+
+    // Check common paths
+    const common_paths = [_][]const u8{
+        "/Applications/Xcode.app/Contents/Developer",
+        "/Library/Developer/CommandLineTools",
+    };
+
+    for (common_paths) |path| {
+        if (std.fs.cwd().access(path, .{})) |_| {
+            return path;
+        } else |_| {}
+    }
+
     return "/Applications/Xcode.app/Contents/Developer";
 }
 
@@ -141,9 +212,13 @@ pub fn getCompilerFlags() CompilerFlags {
     return flags;
 }
 
-/// Get deployment target from environment
+/// Get deployment target from MACOSX_DEPLOYMENT_TARGET environment variable
 pub fn getDeploymentTarget() []const u8 {
-    // Would check MACOSX_DEPLOYMENT_TARGET env var
+    // Check MACOSX_DEPLOYMENT_TARGET env var
+    if (std.posix.getenv("MACOSX_DEPLOYMENT_TARGET")) |target| {
+        return target;
+    }
+    // Default to 10.15 Catalina (reasonable modern baseline)
     return "10.15";
 }
 

@@ -98,10 +98,9 @@ pub const InteractiveInterpreter = struct {
         try stdout.writeAll(data);
     }
 
-    /// Reset the buffer
+    /// Reset the buffer (clear accumulated incomplete input)
     pub fn resetbuffer(self: *Self) void {
-        _ = self;
-        // Would reset input buffer
+        self.buffer.clearRetainingCapacity();
     }
 };
 

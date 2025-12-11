@@ -171,8 +171,26 @@ pub const Parser = struct {
                     self.pos += 1;
                 }
 
-                // Would navigate to/create the table here
+                // Navigate to/create nested tables from key path like "a.b.c"
                 current_table = &root;
+                var key_parts = std.mem.splitScalar(u8, key, '.');
+                while (key_parts.next()) |part| {
+                    if (current_table.get(part)) |existing| {
+                        // Table already exists, navigate into it
+                        switch (existing) {
+                            .table => |*tbl| current_table = tbl,
+                            else => return error.InvalidSyntax, // Redefining as table
+                        }
+                    } else {
+                        // Create new nested table
+                        var new_table = hashmap_helper.StringHashMap(Value).init(self.allocator);
+                        try current_table.put(part, .{ .table = new_table });
+                        // Get pointer to the just-inserted table
+                        if (current_table.getPtr(part)) |ptr| {
+                            current_table = &ptr.table;
+                        }
+                    }
+                }
             } else if (c == '\n') {
                 self.pos += 1;
                 self.line += 1;

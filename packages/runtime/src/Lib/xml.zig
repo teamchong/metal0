@@ -714,23 +714,97 @@ pub const sax = struct {
         }
 
         pub fn parse(self: *XMLReader, source: []const u8) !void {
-            _ = self;
-            _ = source;
-            // Would parse with SAX events
+            // SAX-style event-driven parsing
+            if (self.content_handler) |handler| {
+                handler.startDocument();
+            }
+
+            var pos: usize = 0;
+            while (pos < source.len) {
+                if (source[pos] == '<') {
+                    if (pos + 1 < source.len and source[pos + 1] == '/') {
+                        // End tag </name>
+                        const tag_start = pos + 2;
+                        const tag_end = std.mem.indexOf(u8, source[tag_start..], ">") orelse break;
+                        const tag_name = source[tag_start .. tag_start + tag_end];
+                        if (self.content_handler) |handler| {
+                            handler.endElement("", tag_name, tag_name);
+                        }
+                        pos = tag_start + tag_end + 1;
+                    } else if (pos + 1 < source.len and source[pos + 1] == '?') {
+                        // Processing instruction <?...?>
+                        const pi_end = std.mem.indexOf(u8, source[pos..], "?>") orelse break;
+                        pos = pos + pi_end + 2;
+                    } else if (pos + 1 < source.len and source[pos + 1] == '!') {
+                        // Comment or CDATA
+                        if (std.mem.startsWith(u8, source[pos..], "<!--")) {
+                            const comment_end = std.mem.indexOf(u8, source[pos..], "-->") orelse break;
+                            pos = pos + comment_end + 3;
+                        } else if (std.mem.startsWith(u8, source[pos..], "<![CDATA[")) {
+                            const cdata_end = std.mem.indexOf(u8, source[pos..], "]]>") orelse break;
+                            const cdata_content = source[pos + 9 .. pos + cdata_end];
+                            if (self.content_handler) |handler| {
+                                handler.characters(cdata_content);
+                            }
+                            pos = pos + cdata_end + 3;
+                        } else {
+                            pos += 1;
+                        }
+                    } else {
+                        // Start tag <name attrs>
+                        const tag_end = std.mem.indexOfAny(u8, source[pos + 1 ..], " \t\n/>") orelse break;
+                        const tag_name = source[pos + 1 .. pos + 1 + tag_end];
+
+                        // Find end of tag
+                        const close = std.mem.indexOf(u8, source[pos..], ">") orelse break;
+                        const is_self_closing = close > 0 and source[pos + close - 1] == '/';
+
+                        if (self.content_handler) |handler| {
+                            handler.startElement("", tag_name, tag_name, null);
+                            if (is_self_closing) {
+                                handler.endElement("", tag_name, tag_name);
+                            }
+                        }
+                        pos = pos + close + 1;
+                    }
+                } else {
+                    // Text content
+                    const text_end = std.mem.indexOf(u8, source[pos..], "<") orelse source.len - pos;
+                    const text = std.mem.trim(u8, source[pos .. pos + text_end], " \t\n\r");
+                    if (text.len > 0) {
+                        if (self.content_handler) |handler| {
+                            handler.characters(text);
+                        }
+                    }
+                    pos = pos + text_end;
+                }
+            }
+
+            if (self.content_handler) |handler| {
+                handler.endDocument();
+            }
         }
 
         pub fn parseFile(self: *XMLReader, filename: []const u8) !void {
-            _ = self;
-            _ = filename;
-            // Would parse file with SAX events
+            // Read file and parse
+            const file = try std.fs.cwd().openFile(filename, .{});
+            defer file.close();
+
+            const stat = try file.stat();
+            const allocator = std.heap.page_allocator;
+            const content = try allocator.alloc(u8, stat.size);
+            defer allocator.free(content);
+
+            _ = try file.readAll(content);
+            try self.parse(content);
         }
     };
 
     /// Parse XML with handler
     pub fn parseString(xml_string: []const u8, handler: ContentHandler) !void {
-        _ = xml_string;
-        _ = handler;
-        // Would parse and call handler methods
+        var reader = XMLReader{};
+        reader.setContentHandler(handler);
+        try reader.parse(xml_string);
     }
 };
 

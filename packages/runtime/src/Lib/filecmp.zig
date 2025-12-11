@@ -342,7 +342,23 @@ pub const DirCmp = struct {
     /// Print full comparison report including subdirectories
     pub fn reportFull(self: *Self) !void {
         try self.report();
-        // Would recursively report on subdirs
+
+        // Recursively report on common subdirectories
+        const common_dirs = try self.getCommonDirs();
+        for (common_dirs) |subdir| {
+            var left_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var right_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+
+            const left_subpath = std.fmt.bufPrint(&left_path_buf, "{s}/{s}", .{ self.left, subdir }) catch continue;
+            const right_subpath = std.fmt.bufPrint(&right_path_buf, "{s}/{s}", .{ self.right, subdir }) catch continue;
+
+            var sub_cmp = DirCmp.init(self.allocator, left_subpath, right_subpath, self.ignore, self.hide);
+            defer sub_cmp.deinit();
+
+            const writer = std.io.getStdOut().writer();
+            try writer.print("\nDiff {s} {s}\n", .{ left_subpath, right_subpath });
+            try sub_cmp.reportFull();
+        }
     }
 
     /// Print partial comparison report

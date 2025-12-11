@@ -118,11 +118,38 @@ pub const Snapshot = struct {
         return Self.init(allocator, 1);
     }
 
-    /// Save snapshot to file
+    /// Save snapshot to file in JSON format
     pub fn dump(self: *const Self, filename: []const u8) !void {
-        _ = self;
-        _ = filename;
-        // Would serialize traces to file
+        const file = try std.fs.cwd().createFile(filename, .{});
+        defer file.close();
+
+        const writer = file.writer();
+
+        // Write JSON format
+        try writer.writeAll("{\n  \"traceback_limit\": ");
+        try writer.print("{d}", .{self.traceback_limit});
+        try writer.writeAll(",\n  \"traces\": [\n");
+
+        for (self.traces.items, 0..) |trace, i| {
+            if (i > 0) try writer.writeAll(",\n");
+            try writer.writeAll("    {\n");
+            try writer.print("      \"address\": {d},\n", .{trace.address});
+            try writer.print("      \"size\": {d},\n", .{trace.size});
+            try writer.writeAll("      \"frames\": [\n");
+
+            for (trace.traceback.frames.items, 0..) |frame, j| {
+                if (j > 0) try writer.writeAll(",\n");
+                try writer.writeAll("        {");
+                try writer.print("\"filename\": \"{s}\", ", .{frame.filename});
+                try writer.print("\"lineno\": {d}, ", .{frame.lineno});
+                try writer.print("\"name\": \"{s}\"", .{frame.name});
+                try writer.writeByte('}');
+            }
+
+            try writer.writeAll("\n      ]\n    }");
+        }
+
+        try writer.writeAll("\n  ]\n}\n");
     }
 
     /// Filter traces by filename pattern
