@@ -279,9 +279,64 @@ pub fn render_doc(allocator: std.mem.Allocator, name: []const u8) ![]u8 {
 
 /// Start the documentation server
 pub fn browse(port: u16) !void {
-    _ = port;
-    // Would start HTTP server
-    std.debug.print("Starting pydoc server...\n", .{});
+    std.debug.print("Starting pydoc server on port {d}...\n", .{port});
+
+    // Create TCP socket
+    const addr = std.net.Address.parseIp4("127.0.0.1", port) catch return;
+
+    var server = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch return;
+    defer std.posix.close(server);
+
+    // Set SO_REUSEADDR
+    const optval: u32 = 1;
+    std.posix.setsockopt(server, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, std.mem.asBytes(&optval)) catch {};
+
+    // Bind and listen
+    std.posix.bind(server, &addr.any, addr.getOsSockLen()) catch return;
+    std.posix.listen(server, 5) catch return;
+
+    std.debug.print("Server running at http://127.0.0.1:{d}/\n", .{port});
+
+    // Accept loop
+    while (true) {
+        var client_addr: std.posix.sockaddr = undefined;
+        var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr);
+
+        const client = std.posix.accept(server, &client_addr, &addr_len) catch continue;
+        defer std.posix.close(client);
+
+        // Read HTTP request
+        var buf: [4096]u8 = undefined;
+        const n = std.posix.recv(client, &buf, 0) catch continue;
+        if (n == 0) continue;
+
+        // Parse request path
+        const request = buf[0..n];
+        var path: []const u8 = "/";
+        if (std.mem.startsWith(u8, request, "GET ")) {
+            const path_end = std.mem.indexOfPos(u8, request, 4, " ") orelse n;
+            path = request[4..path_end];
+        }
+
+        // Generate response
+        const allocator = std.heap.page_allocator;
+        var response_body: []const u8 = "<html><body><h1>Python Documentation</h1></body></html>";
+
+        if (path.len > 1) {
+            // Try to render documentation for the requested module
+            const module_name = path[1..]; // Skip leading /
+            if (render_doc(allocator, module_name)) |doc| {
+                response_body = doc;
+            } else |_| {}
+        }
+
+        // Send HTTP response
+        var header_buf: [256]u8 = undefined;
+        const header = std.fmt.bufPrint(&header_buf, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {d}\r\n\r\n", .{response_body.len}) catch continue;
+
+        _ = std.posix.send(client, header, 0) catch continue;
+        _ = std.posix.send(client, response_body, 0) catch continue;
+    }
 }
 
 /// Write HTML documentation to file

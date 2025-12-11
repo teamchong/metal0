@@ -235,10 +235,23 @@ pub const UniversalArch = enum {
     ppc64, // Legacy
 };
 
-/// Check if binary is universal
+/// Check if binary is universal by reading Mach-O header
 pub fn isUniversalBinary(path: []const u8) bool {
-    _ = path;
-    // Would check with `lipo -info`
+    if (!is_macos) return false;
+
+    // Open file and read magic number
+    const file = std.fs.cwd().openFile(path, .{}) catch return false;
+    defer file.close();
+
+    var magic: [4]u8 = undefined;
+    _ = file.read(&magic) catch return false;
+
+    // FAT_MAGIC (0xcafebabe) or FAT_MAGIC_64 (0xcafebabf) indicates universal binary
+    // Note: These are big-endian
+    if (magic[0] == 0xca and magic[1] == 0xfe and magic[2] == 0xba and (magic[3] == 0xbe or magic[3] == 0xbf)) {
+        return true;
+    }
+
     return false;
 }
 
@@ -281,11 +294,27 @@ pub fn getHomebrewPrefix() []const u8 {
 // System Integrity Protection
 // ============================================================================
 
-/// Check if SIP is enabled (stub)
+/// Check if SIP is enabled by checking for protected paths
 pub fn isSIPEnabled() bool {
     if (!is_macos) return false;
-    // Would check via csrutil status
-    return true;
+
+    // SIP protects /System, /usr (except /usr/local), /bin, /sbin
+    // If we can't write to these, SIP is likely enabled
+    // We check by trying to access a known SIP-protected location
+
+    // Check if /System/Library is read-only (SIP indicator)
+    // A simpler check: if running on macOS 10.11+, SIP exists
+    // We assume SIP is enabled by default as disabling requires recovery mode
+
+    // Check for rootless boot arg (would indicate SIP disabled)
+    // This is a simplified check - real implementation would use csr_check()
+    if (std.fs.cwd().access("/System/Library/CoreServices", .{ .mode = .write_only })) |_| {
+        // If we can write to /System, SIP is disabled
+        return false;
+    } else |_| {
+        // Can't write = SIP enabled (normal case)
+        return true;
+    }
 }
 
 /// Check if running with reduced SIP
