@@ -5,6 +5,7 @@ const CompileOptions = @import("../../main.zig").CompileOptions;
 const compile_mod = @import("../compile.zig");
 const compiler = @import("../../compiler.zig");
 const build_dirs = @import("../../build_dirs.zig");
+const incremental = @import("../compile/incremental.zig");
 const Color = @import("common.zig").Color;
 const printSuccess = @import("common.zig").printSuccess;
 const printError = @import("common.zig").printError;
@@ -109,12 +110,19 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         if (filter_pattern) |f| std.debug.print("Filter: {s}\n", .{f});
     }
 
-    // Phase 0: Ensure cache dirs exist (runtime uses -M module flags, no file copying)
+    // Phase 0: Ensure cache dirs exist and runtime archive is built
     try build_dirs.init();
 
     // Ensure bin output dir exists
     std.fs.cwd().makeDir(".metal0/bin") catch |err| {
         if (err != error.PathAlreadyExists) return err;
+    };
+
+    // Build runtime archive if needed (ONE TIME - cached for all tests)
+    // This is the key optimization: compile runtime once, link 390 times
+    if (!dots_mode) std.debug.print("Checking runtime archive...\n", .{});
+    incremental.ensureRuntimeArchive(allocator) catch |err| {
+        printWarn("Runtime archive unavailable ({any}), using full compilation", .{err});
     };
 
     // Discover test files (with pattern matching)
@@ -286,6 +294,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
             compile_ok: *std.atomic.Value(usize),
             compile_cached: *std.atomic.Value(usize),
             next_task: std.atomic.Value(usize),
+            use_runtime_archive: bool,
 
             fn worker(ctx: *@This()) void {
                 while (true) {
@@ -305,7 +314,15 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                     const zig_code = zig_file.readToEndAlloc(ctx.allocator, 10 * 1024 * 1024) catch continue;
                     defer ctx.allocator.free(zig_code);
 
-                    compiler.compileZigWithOptions(ctx.allocator, zig_code, task.bin_path, &.{}, false, .{}) catch continue;
+                    // Use fast linking if runtime archive is available
+                    if (ctx.use_runtime_archive) {
+                        compileWithRuntimeArchive(ctx.allocator, zig_code, task.bin_path) catch {
+                            // Fall back to full compilation
+                            compiler.compileZigWithOptions(ctx.allocator, zig_code, task.bin_path, &.{}, false, .{}) catch continue;
+                        };
+                    } else {
+                        compiler.compileZigWithOptions(ctx.allocator, zig_code, task.bin_path, &.{}, false, .{}) catch continue;
+                    }
                     _ = ctx.compile_ok.fetchAdd(1, .seq_cst);
                 }
             }
@@ -317,6 +334,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
             .compile_ok = &compile_ok,
             .compile_cached = &compile_cached,
             .next_task = std.atomic.Value(usize).init(0),
+            .use_runtime_archive = incremental.hasRuntimeArchive(),
         };
 
         // Spawn worker threads
@@ -433,4 +451,157 @@ fn killAfterTimeout(child: *std.process.Child, timeout_ns: u64, done: *std.atomi
     }
     if (done.load(.seq_cst)) return;
     _ = child.kill() catch {};
+}
+
+/// Compile a test file by linking against the precompiled runtime archive
+/// This is MUCH faster than recompiling the entire runtime for each test
+fn compileWithRuntimeArchive(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    // Write zig code to temp file
+    const out_basename = std.fs.path.basename(output_path);
+    const out_stem = if (std.mem.lastIndexOf(u8, out_basename, ".")) |idx| out_basename[0..idx] else out_basename;
+    const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{s}_{d}.zig", .{ build_dirs.CACHE, out_stem, std.time.milliTimestamp() });
+
+    const tmp_file = try std.fs.cwd().createFile(tmp_path, .{});
+    defer tmp_file.close();
+    try tmp_file.writeAll(zig_code);
+
+    // Build command to compile main and link against runtime archive
+    var args = std.ArrayList([]const u8){};
+
+    try args.append(aa, "zig");
+    try args.append(aa, "build-exe");
+
+    // Add module flags for main module - it imports runtime, hashmap_helper, allocator_helper
+    try addCSourceFiles(aa, &args);
+
+    // Main module with deps
+    try args.append(aa, "--dep");
+    try args.append(aa, "runtime");
+    try args.append(aa, "--dep");
+    try args.append(aa, "utils.hashmap_helper");
+    try args.append(aa, "--dep");
+    try args.append(aa, "utils.allocator_helper");
+    try args.append(aa, try std.fmt.allocPrint(aa, "-Mmain={s}", .{tmp_path}));
+
+    // Runtime module (will be satisfied by the .a archive mostly, but we still need the module path)
+    // Note: The .a contains the compiled code, but we need the module definition for types
+    try addRuntimeModuleFlags(aa, &args);
+
+    // Link against the precompiled runtime archive
+    try args.append(aa, incremental.RUNTIME_ARCHIVE_PATH);
+
+    // Use Zig's cache
+    try args.append(aa, "--cache-dir");
+    try args.append(aa, incremental.ZIG_CACHE_DIR);
+
+    // Optimization
+    try args.append(aa, "-OReleaseFast");
+    try args.append(aa, "-fno-stack-check");
+    try args.append(aa, "-lc");
+
+    // Output
+    try args.append(aa, try std.fmt.allocPrint(aa, "-femit-bin={s}", .{output_path}));
+
+    const result = try std.process.Child.run(.{
+        .allocator = aa,
+        .argv = args.items,
+        .max_output_bytes = 1024 * 1024,
+    });
+
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                return error.CompilationFailed;
+            }
+        },
+        else => return error.CompilationFailed,
+    }
+}
+
+/// Add C source files for libdeflate (mirrors compiler.zig)
+fn addCSourceFiles(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8)) !void {
+    try args.append(allocator, "-I");
+    try args.append(allocator, "vendor/libdeflate");
+
+    try args.append(allocator, "-cflags");
+    try args.append(allocator, "-std=c99");
+    try args.append(allocator, "-O3");
+    try args.append(allocator, "--");
+
+    const libdeflate_srcs = [_][]const u8{
+        "vendor/libdeflate/lib/deflate_compress.c",
+        "vendor/libdeflate/lib/deflate_decompress.c",
+        "vendor/libdeflate/lib/utils.c",
+        "vendor/libdeflate/lib/gzip_compress.c",
+        "vendor/libdeflate/lib/gzip_decompress.c",
+        "vendor/libdeflate/lib/zlib_compress.c",
+        "vendor/libdeflate/lib/zlib_decompress.c",
+        "vendor/libdeflate/lib/adler32.c",
+        "vendor/libdeflate/lib/crc32.c",
+        "vendor/libdeflate/lib/arm/cpu_features.c",
+        "vendor/libdeflate/lib/x86/cpu_features.c",
+    };
+    for (libdeflate_srcs) |src| {
+        try args.append(allocator, src);
+    }
+}
+
+/// Add runtime module flags (mirrors incremental.zig RUNTIME_MODULES)
+fn addRuntimeModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8)) !void {
+    // allocator_helper (no deps)
+    try args.append(allocator, try std.fmt.allocPrint(allocator, "-M{s}={s}", .{ "utils.allocator_helper", "src/utils/allocator_helper.zig" }));
+
+    // Runtime module with its deps
+    for ([_][]const u8{
+        "utils.hashmap_helper",
+        "bigint",
+        "gzip",
+        "regex",
+        "tokenizer",
+        "green_thread",
+        "netpoller",
+        "scheduler",
+    }) |dep| {
+        try args.append(allocator, "--dep");
+        try args.append(allocator, dep);
+    }
+    try args.append(allocator, try std.fmt.allocPrint(allocator, "-Mruntime={s}", .{"packages/runtime/src/runtime.zig"}));
+
+    // Dependency modules in REVERSE order (dependents before dependencies)
+    const ModuleDef = struct {
+        name: []const u8,
+        path: []const u8,
+        deps: []const []const u8,
+    };
+
+    const RUNTIME_MODULES = [_]ModuleDef{
+        .{ .name = "utils.hashmap_helper", .path = "src/utils/hashmap_helper.zig", .deps = &.{} },
+        .{ .name = "bigint", .path = "packages/bigint/src/bigint.zig", .deps = &.{} },
+        .{ .name = "green_thread", .path = "packages/runtime/src/runtime/green_thread.zig", .deps = &.{} },
+        .{ .name = "gzip", .path = "packages/runtime/src/Modules/gzip/gzip.zig", .deps = &.{} },
+        .{ .name = "regex", .path = "packages/regex/src/pyregex/regex.zig", .deps = &.{} },
+        .{ .name = "json_simd", .path = "packages/shared/json/simd/dispatch.zig", .deps = &.{} },
+        .{ .name = "json", .path = "packages/shared/json/json.zig", .deps = &.{ "json_simd", "utils.hashmap_helper" } },
+        .{ .name = "netpoller", .path = "packages/runtime/src/runtime/netpoller.zig", .deps = &.{"green_thread"} },
+        .{ .name = "work_queue", .path = "packages/runtime/src/runtime/work_queue.zig", .deps = &.{"green_thread"} },
+        .{ .name = "scheduler", .path = "packages/runtime/src/runtime/scheduler.zig", .deps = &.{ "green_thread", "work_queue", "netpoller" } },
+        .{ .name = "tokenizer", .path = "packages/tokenizer/src/tokenizer.zig", .deps = &.{ "json", "utils.hashmap_helper" } },
+    };
+
+    var i: usize = RUNTIME_MODULES.len;
+    while (i > 0) {
+        i -= 1;
+        const mod = RUNTIME_MODULES[i];
+
+        for (mod.deps) |dep| {
+            try args.append(allocator, "--dep");
+            try args.append(allocator, dep);
+        }
+
+        try args.append(allocator, try std.fmt.allocPrint(allocator, "-M{s}={s}", .{ mod.name, mod.path }));
+    }
 }

@@ -32,6 +32,103 @@ pub fn hasRuntimeArchive() bool {
     return true;
 }
 
+/// Module definition for -M flag (mirrors compiler.zig MODULES)
+const ModuleDef = struct {
+    name: []const u8,
+    path: []const u8,
+    deps: []const []const u8,
+};
+
+/// All modules needed for runtime compilation - mirrors compiler.zig exactly
+/// Order matters: dependencies must come before dependents
+const RUNTIME_MODULES = [_]ModuleDef{
+    // Leaf modules (no deps)
+    .{ .name = "utils.hashmap_helper", .path = "src/utils/hashmap_helper.zig", .deps = &.{} },
+    .{ .name = "bigint", .path = "packages/bigint/src/bigint.zig", .deps = &.{} },
+    .{ .name = "green_thread", .path = "packages/runtime/src/runtime/green_thread.zig", .deps = &.{} },
+    .{ .name = "gzip", .path = "packages/runtime/src/Modules/gzip/gzip.zig", .deps = &.{} },
+    .{ .name = "regex", .path = "packages/regex/src/pyregex/regex.zig", .deps = &.{} },
+    .{ .name = "json_simd", .path = "packages/shared/json/simd/dispatch.zig", .deps = &.{} },
+
+    // Modules with deps
+    .{ .name = "json", .path = "packages/shared/json/json.zig", .deps = &.{ "json_simd", "utils.hashmap_helper" } },
+    .{ .name = "netpoller", .path = "packages/runtime/src/runtime/netpoller.zig", .deps = &.{"green_thread"} },
+    .{ .name = "work_queue", .path = "packages/runtime/src/runtime/work_queue.zig", .deps = &.{"green_thread"} },
+    .{ .name = "scheduler", .path = "packages/runtime/src/runtime/scheduler.zig", .deps = &.{ "green_thread", "work_queue", "netpoller" } },
+    .{ .name = "tokenizer", .path = "packages/tokenizer/src/tokenizer.zig", .deps = &.{ "json", "utils.hashmap_helper" } },
+};
+
+/// Add C source files for libdeflate (used by gzip module)
+fn addCSourceFiles(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8)) !void {
+    // Include path for @cImport in gzip module
+    try args.append(allocator, "-I");
+    try args.append(allocator, "vendor/libdeflate");
+
+    // C source files with compiler flags
+    try args.append(allocator, "-cflags");
+    try args.append(allocator, "-std=c99");
+    try args.append(allocator, "-O3");
+    try args.append(allocator, "--");
+
+    const libdeflate_srcs = [_][]const u8{
+        "vendor/libdeflate/lib/deflate_compress.c",
+        "vendor/libdeflate/lib/deflate_decompress.c",
+        "vendor/libdeflate/lib/utils.c",
+        "vendor/libdeflate/lib/gzip_compress.c",
+        "vendor/libdeflate/lib/gzip_decompress.c",
+        "vendor/libdeflate/lib/zlib_compress.c",
+        "vendor/libdeflate/lib/zlib_decompress.c",
+        "vendor/libdeflate/lib/adler32.c",
+        "vendor/libdeflate/lib/crc32.c",
+        "vendor/libdeflate/lib/arm/cpu_features.c",
+        "vendor/libdeflate/lib/x86/cpu_features.c",
+    };
+    for (libdeflate_srcs) |src| {
+        try args.append(allocator, src);
+    }
+}
+
+/// Build module flags for runtime library compilation
+/// Uses -M and --dep flags for proper module resolution
+fn buildRuntimeModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8), runtime_path: []const u8) !void {
+    // 1. C source files first
+    try addCSourceFiles(allocator, args);
+
+    // 2. Runtime module with its deps
+    for ([_][]const u8{
+        "utils.hashmap_helper",
+        "bigint",
+        "gzip",
+        "regex",
+        "tokenizer",
+        "green_thread",
+        "netpoller",
+        "scheduler",
+    }) |dep| {
+        try args.append(allocator, "--dep");
+        try args.append(allocator, dep);
+    }
+    const runtime_flag = try std.fmt.allocPrint(allocator, "-Mruntime={s}", .{runtime_path});
+    try args.append(allocator, runtime_flag);
+
+    // 3. Dependency modules in REVERSE order (dependents before dependencies)
+    var i: usize = RUNTIME_MODULES.len;
+    while (i > 0) {
+        i -= 1;
+        const mod = RUNTIME_MODULES[i];
+
+        // --dep BEFORE the module that needs the dependency
+        for (mod.deps) |dep| {
+            try args.append(allocator, "--dep");
+            try args.append(allocator, dep);
+        }
+
+        // -Mname=path
+        const m_flag = try std.fmt.allocPrint(allocator, "-M{s}={s}", .{ mod.name, mod.path });
+        try args.append(allocator, m_flag);
+    }
+}
+
 /// Build runtime.zig to static archive (.a) for fast linking
 /// This is done ONCE and cached - massive speed improvement
 pub fn buildRuntimeArchive(allocator: std.mem.Allocator) !void {
@@ -60,7 +157,9 @@ pub fn buildRuntimeArchive(allocator: std.mem.Allocator) !void {
 
     try args.append(aa, "zig");
     try args.append(aa, "build-lib");
-    try args.append(aa, runtime_zig);
+
+    // Add module flags (this is the key fix - runtime.zig needs -M flags for its imports)
+    try buildRuntimeModuleFlags(aa, &args, runtime_zig);
 
     // Use Zig's cache
     try args.append(aa, "--cache-dir");
@@ -74,22 +173,24 @@ pub fn buildRuntimeArchive(allocator: std.mem.Allocator) !void {
     try args.append(aa, "-ffunction-sections");
     try args.append(aa, "-fdata-sections");
 
-    // Static library output
-    try args.append(aa, "-fno-emit-bin");
+    // Static library output - note: use -femit-bin for the .a file
     try args.append(aa, try std.fmt.allocPrint(aa, "-femit-bin={s}", .{RUNTIME_ARCHIVE_PATH}));
 
     // Link with libc
     try args.append(aa, "-lc");
 
+    std.debug.print("Building runtime archive with {d} args...\n", .{args.items.len});
+
     const result = try std.process.Child.run(.{
         .allocator = aa,
         .argv = args.items,
+        .max_output_bytes = 1024 * 1024, // 1MB stderr buffer
     });
 
     switch (result.term) {
         .Exited => |code| {
             if (code != 0) {
-                std.debug.print("Runtime archive build failed:\n{s}\n", .{result.stderr});
+                std.debug.print("Runtime archive build failed (exit {d}):\n{s}\n", .{ code, result.stderr });
                 return error.RuntimeArchiveBuildFailed;
             }
         },
