@@ -123,6 +123,7 @@ pub const PathFuncs = std.StaticStringMap(H).initComptime(.{
     .{ "exists", genPathExists },
     .{ "isdir", genPathIsdir },
     .{ "isfile", genPathIsfile },
+    .{ "isabs", pathBlock("path_isabs", "", "_path.len > 0 and _path[0] == '/'") },
     .{ "abspath", genPathAbspath },
     .{ "join", genPathJoin },
     .{ "dirname", pathBlock("path_dirname", "", "std.fs.path.dirname(_path) orelse \"\"") },

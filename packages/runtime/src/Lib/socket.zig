@@ -3,694 +3,87 @@
 //! Provides access to the BSD socket interface.
 //!
 //! Mirrors: CPython Lib/socket.py
+//!
+//! This module has been split into a modular directory structure:
+//! - socket/constants.zig - Socket constants and enums
+//! - socket/address.zig - Address handling and parsing
+//! - socket/socket_class.zig - Socket class implementation
+//! - socket/utils.zig - Utility functions
+
+// Re-export all constants
+const constants = @import("socket/constants.zig");
+pub const AF_UNSPEC = constants.AF_UNSPEC;
+pub const AF_UNIX = constants.AF_UNIX;
+pub const AF_INET = constants.AF_INET;
+pub const AF_INET6 = constants.AF_INET6;
+pub const AF_LOCAL = constants.AF_LOCAL;
+pub const SOCK_STREAM = constants.SOCK_STREAM;
+pub const SOCK_DGRAM = constants.SOCK_DGRAM;
+pub const SOCK_RAW = constants.SOCK_RAW;
+pub const SOCK_SEQPACKET = constants.SOCK_SEQPACKET;
+pub const IPPROTO_IP = constants.IPPROTO_IP;
+pub const IPPROTO_ICMP = constants.IPPROTO_ICMP;
+pub const IPPROTO_TCP = constants.IPPROTO_TCP;
+pub const IPPROTO_UDP = constants.IPPROTO_UDP;
+pub const IPPROTO_IPV6 = constants.IPPROTO_IPV6;
+pub const SOL_SOCKET = constants.SOL_SOCKET;
+pub const SO_REUSEADDR = constants.SO_REUSEADDR;
+pub const SO_KEEPALIVE = constants.SO_KEEPALIVE;
+pub const SO_BROADCAST = constants.SO_BROADCAST;
+pub const SO_LINGER = constants.SO_LINGER;
+pub const SO_RCVBUF = constants.SO_RCVBUF;
+pub const SO_SNDBUF = constants.SO_SNDBUF;
+pub const SO_RCVTIMEO = constants.SO_RCVTIMEO;
+pub const SO_SNDTIMEO = constants.SO_SNDTIMEO;
+pub const IPPROTO_TCP_CONST = constants.IPPROTO_TCP_CONST;
+pub const TCP_NODELAY = constants.TCP_NODELAY;
+pub const INADDR_ANY = constants.INADDR_ANY;
+pub const INADDR_BROADCAST = constants.INADDR_BROADCAST;
+pub const INADDR_LOOPBACK = constants.INADDR_LOOPBACK;
+pub const SOMAXCONN = constants.SOMAXCONN;
+pub const TIMEOUT_NONE = constants.TIMEOUT_NONE;
+pub const TIMEOUT_DEFAULT = constants.TIMEOUT_DEFAULT;
+pub const SocketError = constants.SocketError;
+pub const ShutdownHow = constants.ShutdownHow;
+
+// Re-export address types and functions
+pub const address = @import("socket/address.zig");
+pub const Address = address.Address;
+pub const inet_aton = address.inet_aton;
+pub const inet_ntoa = address.inet_ntoa;
+pub const htons = address.htons;
+pub const ntohs = address.ntohs;
+pub const htonl = address.htonl;
+pub const ntohl = address.ntohl;
+
+// Re-export socket class
+pub const socket_class = @import("socket/socket_class.zig");
+pub const Socket = socket_class.Socket;
+pub const hasData = socket_class.hasData;
+pub const setInheritable = socket_class.setInheritable;
+
+// Re-export utility functions
+pub const utils = @import("socket/utils.zig");
+pub const socket = utils.socket;
+pub const socketpair = utils.socketpair;
+pub const createConnection = utils.createConnection;
+pub const gethostname = utils.gethostname;
+pub const getfqdn = utils.getfqdn;
+pub const getaddrinfo = utils.getaddrinfo;
+
+// Re-export tests from submodules
+comptime {
+    _ = constants;
+    _ = address;
+    _ = socket_class;
+    _ = utils;
+}
+
+// ============================================================================
+// Module-level Tests
+// ============================================================================
 
 const std = @import("std");
-const allocator_helper = @import("utils.allocator_helper");
-const builtin = @import("builtin");
-const os = std.os;
-const posix = std.posix;
-const net = std.net;
-
-// ============================================================================
-// Address Families
-// ============================================================================
-
-pub const AF_UNSPEC = posix.AF.UNSPEC;
-pub const AF_UNIX = posix.AF.UNIX;
-pub const AF_INET = posix.AF.INET;
-pub const AF_INET6 = posix.AF.INET6;
-
-// Platform-specific address families
-pub const AF_LOCAL = AF_UNIX;
-
-// ============================================================================
-// Socket Types
-// ============================================================================
-
-pub const SOCK_STREAM = posix.SOCK.STREAM;
-pub const SOCK_DGRAM = posix.SOCK.DGRAM;
-pub const SOCK_RAW = posix.SOCK.RAW;
-pub const SOCK_SEQPACKET = posix.SOCK.SEQPACKET;
-
-// ============================================================================
-// Protocol Numbers
-// ============================================================================
-
-pub const IPPROTO_IP = 0;
-pub const IPPROTO_ICMP = 1;
-pub const IPPROTO_TCP = 6;
-pub const IPPROTO_UDP = 17;
-pub const IPPROTO_IPV6 = 41;
-
-// ============================================================================
-// Socket Options
-// ============================================================================
-
-pub const SOL_SOCKET = posix.SOL.SOCKET;
-
-pub const SO_REUSEADDR = posix.SO.REUSEADDR;
-pub const SO_KEEPALIVE = posix.SO.KEEPALIVE;
-pub const SO_BROADCAST = posix.SO.BROADCAST;
-pub const SO_LINGER = posix.SO.LINGER;
-pub const SO_RCVBUF = posix.SO.RCVBUF;
-pub const SO_SNDBUF = posix.SO.SNDBUF;
-pub const SO_RCVTIMEO = posix.SO.RCVTIMEO;
-pub const SO_SNDTIMEO = posix.SO.SNDTIMEO;
-
-// TCP options
-pub const IPPROTO_TCP_CONST = 6;
-pub const TCP_NODELAY = 1;
-
-// ============================================================================
-// Special Constants
-// ============================================================================
-
-pub const INADDR_ANY: u32 = 0;
-pub const INADDR_BROADCAST: u32 = 0xFFFFFFFF;
-pub const INADDR_LOOPBACK: u32 = 0x7F000001;
-
-/// Default backlog for listen()
-pub const SOMAXCONN = 128;
-
-/// Special timeout values
-pub const TIMEOUT_NONE: ?f64 = null;
-pub const TIMEOUT_DEFAULT: f64 = -1;
-
-// ============================================================================
-// Error codes
-// ============================================================================
-
-pub const SocketError = error{
-    AddressInUse,
-    ConnectionRefused,
-    ConnectionReset,
-    NetworkUnreachable,
-    HostUnreachable,
-    TimedOut,
-    WouldBlock,
-    NotConnected,
-    InvalidArgument,
-    PermissionDenied,
-    SocketNotBound,
-    AlreadyConnected,
-    OperationNotSupported,
-};
-
-// ============================================================================
-// Socket - Main socket class
-// ============================================================================
-
-/// A socket object representing one endpoint of a network connection
-pub const Socket = struct {
-    const Self = @This();
-
-    handle: posix.socket_t,
-    family: i32,
-    sock_type: i32,
-    protocol: i32,
-    timeout: ?f64 = null,
-    blocking: bool = true,
-
-    /// Create a new socket
-    pub fn init(family: i32, sock_type: i32, protocol: i32) !Self {
-        const handle = try posix.socket(
-            @enumFromInt(family),
-            @enumFromInt(sock_type),
-            @enumFromInt(protocol),
-        );
-
-        return .{
-            .handle = handle,
-            .family = family,
-            .sock_type = sock_type,
-            .protocol = protocol,
-        };
-    }
-
-    /// Create socket from existing handle
-    pub fn fromHandle(handle: posix.socket_t, family: i32, sock_type: i32, protocol: i32) Self {
-        return .{
-            .handle = handle,
-            .family = family,
-            .sock_type = sock_type,
-            .protocol = protocol,
-        };
-    }
-
-    /// Close the socket
-    pub fn close(self: *Self) void {
-        posix.close(self.handle);
-    }
-
-    /// Bind the socket to an address
-    pub fn bind(self: *Self, address: Address) !void {
-        try posix.bind(self.handle, &address.addr, address.len);
-    }
-
-    /// Listen for incoming connections
-    pub fn listen(self: *Self, backlog: i32) !void {
-        try posix.listen(self.handle, @intCast(backlog));
-    }
-
-    /// Accept a connection
-    pub fn accept(self: *Self) !struct { socket: Self, address: Address } {
-        var addr: posix.sockaddr = undefined;
-        var addr_len: posix.socklen_t = @sizeOf(posix.sockaddr);
-
-        const new_handle = try posix.accept(self.handle, &addr, &addr_len);
-
-        return .{
-            .socket = Self.fromHandle(new_handle, self.family, self.sock_type, self.protocol),
-            .address = Address{ .addr = addr, .len = addr_len },
-        };
-    }
-
-    /// Connect to a remote address
-    pub fn connect(self: *Self, address: Address) !void {
-        try posix.connect(self.handle, &address.addr, address.len);
-    }
-
-    /// Send data
-    pub fn send(self: *Self, data: []const u8, flags: u32) !usize {
-        return try posix.send(self.handle, data, @bitCast(flags));
-    }
-
-    /// Send all data
-    pub fn sendall(self: *Self, data: []const u8, flags: u32) !void {
-        var sent: usize = 0;
-        while (sent < data.len) {
-            sent += try self.send(data[sent..], flags);
-        }
-    }
-
-    /// Receive data
-    pub fn recv(self: *Self, buffer: []u8, flags: u32) !usize {
-        return try posix.recv(self.handle, buffer, @bitCast(flags));
-    }
-
-    /// Send data to a specific address (UDP)
-    pub fn sendto(self: *Self, data: []const u8, flags: u32, address: Address) !usize {
-        return try posix.sendto(self.handle, data, @bitCast(flags), &address.addr, address.len);
-    }
-
-    /// Receive data and sender address (UDP)
-    pub fn recvfrom(self: *Self, buffer: []u8, flags: u32) !struct { size: usize, address: Address } {
-        var addr: posix.sockaddr = undefined;
-        var addr_len: posix.socklen_t = @sizeOf(posix.sockaddr);
-
-        const size = try posix.recvfrom(self.handle, buffer, @bitCast(flags), &addr, &addr_len);
-
-        return .{
-            .size = size,
-            .address = Address{ .addr = addr, .len = addr_len },
-        };
-    }
-
-    /// Set socket option
-    pub fn setsockopt(self: *Self, level: i32, optname: i32, value: i32) !void {
-        const val_bytes = std.mem.asBytes(&value);
-        try posix.setsockopt(
-            self.handle,
-            @enumFromInt(level),
-            @enumFromInt(optname),
-            val_bytes,
-        );
-    }
-
-    /// Get socket option
-    pub fn getsockopt(self: *Self, level: i32, optname: i32) !i32 {
-        var value: i32 = 0;
-        var value_bytes = std.mem.asBytes(&value);
-        _ = try posix.getsockopt(
-            self.handle,
-            @enumFromInt(level),
-            @enumFromInt(optname),
-            value_bytes,
-        );
-        return value;
-    }
-
-    /// Set socket timeout
-    pub fn settimeout(self: *Self, timeout: ?f64) !void {
-        self.timeout = timeout;
-
-        if (timeout) |t| {
-            const secs: i64 = @intFromFloat(t);
-            const usecs: i64 = @intFromFloat((t - @as(f64, @floatFromInt(secs))) * 1_000_000);
-
-            const tv = posix.timeval{
-                .tv_sec = secs,
-                .tv_usec = usecs,
-            };
-
-            const tv_bytes = std.mem.asBytes(&tv);
-            try posix.setsockopt(self.handle, posix.SOL.SOCKET, posix.SO.RCVTIMEO, tv_bytes);
-            try posix.setsockopt(self.handle, posix.SOL.SOCKET, posix.SO.SNDTIMEO, tv_bytes);
-
-            self.blocking = t > 0;
-        }
-    }
-
-    /// Get socket timeout
-    pub fn gettimeout(self: *Self) ?f64 {
-        return self.timeout;
-    }
-
-    /// Set blocking mode
-    pub fn setblocking(self: *Self, blocking: bool) !void {
-        self.blocking = blocking;
-        if (blocking) {
-            self.timeout = null;
-        } else {
-            self.timeout = 0;
-        }
-        // Note: In a full implementation, would use fcntl to set O_NONBLOCK
-    }
-
-    /// Get local socket address
-    pub fn getsockname(self: *Self) !Address {
-        var addr: posix.sockaddr = undefined;
-        var addr_len: posix.socklen_t = @sizeOf(posix.sockaddr);
-        try posix.getsockname(self.handle, &addr, &addr_len);
-        return Address{ .addr = addr, .len = addr_len };
-    }
-
-    /// Get remote socket address
-    pub fn getpeername(self: *Self) !Address {
-        var addr: posix.sockaddr = undefined;
-        var addr_len: posix.socklen_t = @sizeOf(posix.sockaddr);
-        try posix.getpeername(self.handle, &addr, &addr_len);
-        return Address{ .addr = addr, .len = addr_len };
-    }
-
-    /// Shutdown the socket
-    pub fn shutdown(self: *Self, how: ShutdownHow) !void {
-        try posix.shutdown(self.handle, @enumFromInt(@intFromEnum(how)));
-    }
-
-    /// Get the file descriptor
-    pub fn fileno(self: *Self) posix.socket_t {
-        return self.handle;
-    }
-
-    /// Duplicate the socket
-    pub fn dup(self: *Self) !Self {
-        const new_handle = try posix.dup(self.handle);
-        return Self.fromHandle(new_handle, self.family, self.sock_type, self.protocol);
-    }
-};
-
-/// Shutdown direction
-pub const ShutdownHow = enum(i32) {
-    SHUT_RD = 0,
-    SHUT_WR = 1,
-    SHUT_RDWR = 2,
-};
-
-// ============================================================================
-// Address - Socket address wrapper
-// ============================================================================
-
-/// Socket address
-pub const Address = struct {
-    addr: posix.sockaddr,
-    len: posix.socklen_t,
-
-    /// Create an IPv4 address
-    pub fn inet4(ip: []const u8, port: u16) !Address {
-        var addr: posix.sockaddr.in = undefined;
-        addr.family = posix.AF.INET;
-        addr.port = std.mem.nativeToBig(u16, port);
-
-        // Parse IP address
-        const parsed = try parseIpv4(ip);
-        addr.addr = parsed;
-
-        return Address{
-            .addr = @bitCast(addr),
-            .len = @sizeOf(posix.sockaddr.in),
-        };
-    }
-
-    /// Create an IPv6 address
-    pub fn inet6(ip: []const u8, port: u16) !Address {
-        var addr: posix.sockaddr.in6 = undefined;
-        addr.family = posix.AF.INET6;
-        addr.port = std.mem.nativeToBig(u16, port);
-        addr.flowinfo = 0;
-        addr.scope_id = 0;
-
-        // Parse IP address
-        const parsed = try parseIpv6(ip);
-        addr.addr = parsed;
-
-        return Address{
-            .addr = @bitCast(addr),
-            .len = @sizeOf(posix.sockaddr.in6),
-        };
-    }
-
-    /// Get the port number
-    pub fn getPort(self: *const Address) u16 {
-        if (self.addr.family == posix.AF.INET) {
-            const in_addr: *const posix.sockaddr.in = @ptrCast(&self.addr);
-            return std.mem.bigToNative(u16, in_addr.port);
-        } else if (self.addr.family == posix.AF.INET6) {
-            const in6_addr: *const posix.sockaddr.in6 = @ptrCast(&self.addr);
-            return std.mem.bigToNative(u16, in6_addr.port);
-        }
-        return 0;
-    }
-
-    /// Get IP as string
-    pub fn getIpString(self: *const Address, buffer: []u8) ![]u8 {
-        if (self.addr.family == posix.AF.INET) {
-            const in_addr: *const posix.sockaddr.in = @ptrCast(&self.addr);
-            const bytes = std.mem.asBytes(&in_addr.addr);
-            return std.fmt.bufPrint(buffer, "{}.{}.{}.{}", .{
-                bytes[0],
-                bytes[1],
-                bytes[2],
-                bytes[3],
-            }) catch return error.BufferTooSmall;
-        }
-        return error.UnsupportedFamily;
-    }
-};
-
-fn parseIpv4(ip: []const u8) !u32 {
-    var result: u32 = 0;
-    var octet: u8 = 0;
-    var octet_count: u8 = 0;
-    var shift: u5 = 24;
-
-    for (ip) |c| {
-        if (c == '.') {
-            result |= @as(u32, octet) << shift;
-            if (shift == 0) return error.InvalidAddress;
-            shift -= 8;
-            octet = 0;
-            octet_count += 1;
-        } else if (c >= '0' and c <= '9') {
-            octet = octet * 10 + (c - '0');
-        } else {
-            return error.InvalidAddress;
-        }
-    }
-    result |= @as(u32, octet) << shift;
-
-    if (octet_count != 3) return error.InvalidAddress;
-    return result;
-}
-
-fn parseIpv6(ip: []const u8) ![16]u8 {
-    var result: [16]u8 = [_]u8{0} ** 16;
-
-    // Handle :: (all zeros)
-    if (std.mem.eql(u8, ip, "::")) {
-        return result;
-    }
-
-    // Handle ::1 (loopback)
-    if (std.mem.eql(u8, ip, "::1")) {
-        result[15] = 1;
-        return result;
-    }
-
-    // Find :: position for compression
-    var double_colon_pos: ?usize = null;
-    if (std.mem.indexOf(u8, ip, "::")) |pos| {
-        double_colon_pos = pos;
-    }
-
-    var write_idx: usize = 0;
-    var iter = std.mem.splitScalar(u8, ip, ':');
-
-    while (iter.next()) |segment| {
-        if (segment.len == 0) {
-            // Part of :: compression
-            if (double_colon_pos != null and write_idx < 16) {
-                // Calculate how many zeros to insert
-                // Count remaining non-empty segments
-                var remaining: usize = 0;
-                var temp_iter = iter;
-                while (temp_iter.next()) |s| {
-                    if (s.len > 0) remaining += 1;
-                }
-                const zeros_needed = 16 - write_idx - (remaining * 2);
-                write_idx += zeros_needed;
-            }
-            continue;
-        }
-
-        if (segment.len > 4 or write_idx >= 15) return error.InvalidAddress;
-
-        // Parse hex value
-        const val = std.fmt.parseInt(u16, segment, 16) catch return error.InvalidAddress;
-        result[write_idx] = @intCast((val >> 8) & 0xFF);
-        result[write_idx + 1] = @intCast(val & 0xFF);
-        write_idx += 2;
-    }
-
-    return result;
-}
-
-// ============================================================================
-// Convenience Functions
-// ============================================================================
-
-/// Create a socket (convenience function)
-pub fn socket(family: i32, sock_type: i32, protocol: i32) !Socket {
-    return Socket.init(family, sock_type, protocol);
-}
-
-/// Create a TCP socket pair
-pub fn socketpair(family: i32, sock_type: i32, protocol: i32) !struct { a: Socket, b: Socket } {
-    const fds = try posix.socketpair(
-        @enumFromInt(family),
-        @enumFromInt(sock_type),
-        @enumFromInt(protocol),
-    );
-    return .{
-        .a = Socket.fromHandle(fds[0], family, sock_type, protocol),
-        .b = Socket.fromHandle(fds[1], family, sock_type, protocol),
-    };
-}
-
-/// Create a connected socket pair
-pub fn createConnection(allocator: std.mem.Allocator, host: []const u8, port: u16, timeout: ?f64) !Socket {
-    _ = allocator;
-
-    var sock = try Socket.init(AF_INET, SOCK_STREAM, 0);
-    errdefer sock.close();
-
-    if (timeout) |t| {
-        try sock.settimeout(t);
-    }
-
-    const addr = try Address.inet4(host, port);
-    try sock.connect(addr);
-
-    return sock;
-}
-
-/// Get host name
-pub fn gethostname(buffer: []u8) ![]u8 {
-    if (comptime builtin.os.tag == .windows) {
-        // Windows: use GetComputerNameExA
-        const kernel32 = @cImport(@cInclude("windows.h"));
-        var size: u32 = @intCast(buffer.len);
-        if (kernel32.GetComputerNameExA(kernel32.ComputerNameDnsHostname, buffer.ptr, &size) != 0) {
-            return buffer[0..size];
-        }
-        // Fallback: use environment variable
-        if (std.process.getEnvVarOwned(allocator_helper.fast_allocator, "COMPUTERNAME")) |name| {
-            defer allocator_helper.fast_allocator.free(name);
-            const copy_len = @min(name.len, buffer.len);
-            @memcpy(buffer[0..copy_len], name[0..copy_len]);
-            return buffer[0..copy_len];
-        } else |_| {}
-        return error.HostUnreachable;
-    } else {
-        // Unix: use uname
-        var name = posix.uname();
-        const len = std.mem.indexOfScalar(u8, &name.nodename, 0) orelse name.nodename.len;
-        const copy_len = @min(len, buffer.len);
-        @memcpy(buffer[0..copy_len], name.nodename[0..copy_len]);
-        return buffer[0..copy_len];
-    }
-}
-
-/// Get fully qualified domain name
-pub fn getfqdn(allocator: std.mem.Allocator, name: ?[]const u8) ![]u8 {
-    if (name) |n| {
-        return try allocator.dupe(u8, n);
-    }
-    var buffer: [256]u8 = undefined;
-    const hostname = try gethostname(&buffer);
-    return try allocator.dupe(u8, hostname);
-}
-
-/// Convert host byte order to network byte order (16-bit)
-pub fn htons(hostshort: u16) u16 {
-    return std.mem.nativeToBig(u16, hostshort);
-}
-
-/// Convert network byte order to host byte order (16-bit)
-pub fn ntohs(netshort: u16) u16 {
-    return std.mem.bigToNative(u16, netshort);
-}
-
-/// Convert host byte order to network byte order (32-bit)
-pub fn htonl(hostlong: u32) u32 {
-    return std.mem.nativeToBig(u32, hostlong);
-}
-
-/// Convert network byte order to host byte order (32-bit)
-pub fn ntohl(netlong: u32) u32 {
-    return std.mem.bigToNative(u32, netlong);
-}
-
-/// Convert IPv4 address to packed binary
-pub fn inet_aton(ip: []const u8) !u32 {
-    return parseIpv4(ip);
-}
-
-/// Convert packed binary to IPv4 address string
-pub fn inet_ntoa(packed: u32, buffer: []u8) ![]u8 {
-    const bytes = std.mem.asBytes(&packed);
-    return std.fmt.bufPrint(buffer, "{}.{}.{}.{}", .{
-        bytes[3],
-        bytes[2],
-        bytes[1],
-        bytes[0],
-    }) catch return error.BufferTooSmall;
-}
-
-/// Get address info (simplified)
-pub fn getaddrinfo(allocator: std.mem.Allocator, host: []const u8, port: u16) ![]Address {
-    // Use std.net.Address for DNS resolution
-    const std_net = std.net;
-
-    // Try to resolve the hostname using Zig's std library
-    var list = std_net.Address.resolveIp(host, port) catch |err| {
-        // Fallback: try parsing as IP address directly
-        _ = err;
-        const single = allocator.alloc(Address, 1) catch return error.OutOfMemory;
-        single[0] = try Address.inet4(host, port);
-        return single;
-    };
-
-    // Convert std.net.Address to our Address format
-    var addresses = std.ArrayList(Address).init(allocator);
-    defer list.deinit();
-
-    for (list.addrs) |addr| {
-        const our_addr = switch (addr.any.family) {
-            posix.AF.INET => blk: {
-                const in_addr = addr.in;
-                break :blk Address{
-                    .family = AF_INET,
-                    .port = std.mem.bigToNative(u16, in_addr.port),
-                    .addr = .{ .ipv4 = @bitCast(in_addr.addr) },
-                };
-            },
-            posix.AF.INET6 => blk: {
-                const in6_addr = addr.in6;
-                break :blk Address{
-                    .family = AF_INET6,
-                    .port = std.mem.bigToNative(u16, in6_addr.port),
-                    .addr = .{ .ipv6 = in6_addr.addr },
-                };
-            },
-            else => continue,
-        };
-        addresses.append(our_addr) catch continue;
-    }
-
-    if (addresses.items.len == 0) {
-        // Fallback to direct IP parse
-        const single = allocator.alloc(Address, 1) catch return error.OutOfMemory;
-        single[0] = try Address.inet4(host, port);
-        return single;
-    }
-
-    return addresses.toOwnedSlice();
-}
-
-/// Check if socket has pending data using poll()
-pub fn hasData(sock: *Socket) bool {
-    if (sock.fd < 0) return false;
-
-    var fds = [1]posix.pollfd{
-        .{
-            .fd = sock.fd,
-            .events = posix.POLL.IN,
-            .revents = 0,
-        },
-    };
-
-    // Poll with 0 timeout (non-blocking check)
-    const result = posix.poll(&fds, 0) catch return false;
-    if (result > 0 and (fds[0].revents & posix.POLL.IN) != 0) {
-        return true;
-    }
-    return false;
-}
-
-/// Set close-on-exec flag using fcntl
-pub fn setInheritable(sock: *Socket, inheritable: bool) !void {
-    if (sock.fd < 0) return error.InvalidSocket;
-
-    const current_flags = posix.fcntl(sock.fd, posix.F.GETFD, 0) catch |err| {
-        return switch (err) {
-            error.FileDescriptorInvalid => error.InvalidSocket,
-            else => error.FcntlFailed,
-        };
-    };
-
-    const new_flags = if (inheritable)
-        current_flags & ~@as(i32, posix.FD_CLOEXEC)
-    else
-        current_flags | posix.FD_CLOEXEC;
-
-    _ = posix.fcntl(sock.fd, posix.F.SETFD, new_flags) catch {
-        return error.FcntlFailed;
-    };
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-test "Socket create and close" {
-    var sock = try Socket.init(AF_INET, SOCK_STREAM, 0);
-    sock.close();
-}
-
-test "Address inet4" {
-    const addr = try Address.inet4("127.0.0.1", 8080);
-    try std.testing.expectEqual(@as(u16, 8080), addr.getPort());
-}
-
-test "htons/ntohs" {
-    const val: u16 = 0x1234;
-    const net = htons(val);
-    const host = ntohs(net);
-    try std.testing.expectEqual(val, host);
-}
-
-test "htonl/ntohl" {
-    const val: u32 = 0x12345678;
-    const net = htonl(val);
-    const host = ntohl(net);
-    try std.testing.expectEqual(val, host);
-}
-
-test "inet_aton" {
-    const packed = try inet_aton("192.168.1.1");
-    try std.testing.expect(packed != 0);
-}
 
 test "constants" {
     try std.testing.expectEqual(@as(i32, 2), AF_INET);
