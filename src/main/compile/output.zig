@@ -29,16 +29,31 @@ pub fn getBaseName(path: []const u8) []const u8 {
         basename;
 }
 
-/// Get module output path for a compiled .so file
+/// Get path with extension stripped (preserves directory structure)
+/// e.g., "tests/cpython/test_bool.py" -> "tests/cpython/test_bool"
+pub fn getPathNoExt(path: []const u8) []const u8 {
+    if (std.mem.lastIndexOf(u8, path, ".")) |idx| {
+        return path[0..idx];
+    }
+    return path;
+}
+
+/// Get module output path for a compiled .so file (mirrors source path)
 pub fn getModuleOutputPath(allocator: std.mem.Allocator, module_path: []const u8) ![]const u8 {
     const platform_dir = try ensurePlatformDir(allocator);
-    const name_no_ext = getBaseName(module_path);
+    const path_no_ext = getPathNoExt(module_path);
 
-    return try std.fmt.allocPrint(
+    const output = try std.fmt.allocPrint(
         allocator,
         "{s}/{s}.cpython-312-darwin.so",
-        .{ platform_dir, name_no_ext },
+        .{ platform_dir, path_no_ext },
     );
+
+    // Ensure parent directory exists
+    if (std.fs.path.dirname(output)) |parent| {
+        std.fs.cwd().makePath(parent) catch {};
+    }
+    return output;
 }
 
 /// Determine output path for notebook compilation
@@ -64,7 +79,7 @@ pub fn getNotebookOutputPath(allocator: std.mem.Allocator, input_file: []const u
     }
 }
 
-/// Determine output path for file compilation
+/// Determine output path for file compilation (mirrors source path)
 pub fn getFileOutputPath(allocator: std.mem.Allocator, input_file: []const u8, output_file: ?[]const u8, binary: bool) ![]const u8 {
     const platform_dir = try ensurePlatformDir(allocator);
 
@@ -78,13 +93,19 @@ pub fn getFileOutputPath(allocator: std.mem.Allocator, input_file: []const u8, o
         return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ platform_dir, path });
     }
 
-    const name_no_ext = getBaseName(input_file);
+    // Mirror source path structure to avoid conflicts
+    const path_no_ext = getPathNoExt(input_file);
 
-    if (binary) {
-        return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ platform_dir, name_no_ext });
-    } else {
-        return try std.fmt.allocPrint(allocator, "{s}/{s}.cpython-312-darwin.so", .{ platform_dir, name_no_ext });
+    const output = if (binary)
+        try std.fmt.allocPrint(allocator, "{s}/{s}", .{ platform_dir, path_no_ext })
+    else
+        try std.fmt.allocPrint(allocator, "{s}/{s}.cpython-312-darwin.so", .{ platform_dir, path_no_ext });
+
+    // Ensure parent directory exists
+    if (std.fs.path.dirname(output)) |parent| {
+        std.fs.cwd().makePath(parent) catch {};
     }
+    return output;
 }
 
 /// Get WASM output path
