@@ -49,6 +49,9 @@ pub const slice_ops = @import("runtime/slice_ops.zig");
 /// Export set operations for native codegen (fixes comptime explosion in set methods)
 pub const set_ops = @import("runtime/set_ops.zig");
 
+/// Export io_uring file reader for batch async I/O (Linux only, fallback on other platforms)
+pub const io_uring_reader = @import("runtime/io_uring_reader.zig");
+
 /// Export tuple operations for native codegen (fixes comptime explosion in dynamic tuple indexing)
 pub const tuple_ops = @import("runtime/tuple_ops.zig");
 
