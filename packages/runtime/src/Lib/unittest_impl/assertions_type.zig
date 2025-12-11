@@ -1,7 +1,7 @@
 /// metal0 unittest assertions - type-specific and container assertions
 const std = @import("std");
 const runner = @import("../unittest/runner.zig");
-const basic = @import("assertions_basic.zig");
+const basic = @import("assertions_basic/assertions_basic.zig");
 
 /// Assertion: assertCountEqual(a, b) - sequences have same elements (order independent)
 pub fn assertCountEqual(a: anytype, b: anytype) void {

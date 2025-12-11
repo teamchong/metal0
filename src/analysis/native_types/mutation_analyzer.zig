@@ -436,3 +436,320 @@ pub fn hasAttrMutation(mutations: hashmap_helper.StringHashMap(MutationInfo), va
     }
     return false;
 }
+
+/// Info about a closure that appends to a captured list
+pub const ClosureAppendInfo = struct {
+    func_name: []const u8, // Name of the function that appends
+    list_var: []const u8, // Name of the list being appended to
+    param_names: []const []const u8, // Function parameter names
+    append_tuple_indices: []const usize, // Which params are in the appended tuple (in order)
+};
+
+/// Map from list variable name -> closures that append to it
+pub const ClosureAppendMap = hashmap_helper.StringHashMap(std.ArrayListUnmanaged(ClosureAppendInfo));
+
+/// Analyze closures that append to captured lists
+/// Returns map of list_var -> ClosureAppendInfo for closures that append tuples
+pub fn analyzeClosureAppends(module: ast.Node.Module, allocator: std.mem.Allocator) !ClosureAppendMap {
+    var result = ClosureAppendMap.init(allocator);
+
+    for (module.body) |stmt| {
+        try collectClosureAppends(stmt, &result, allocator);
+    }
+
+    return result;
+}
+
+/// Recursively collect closure append patterns
+fn collectClosureAppends(
+    stmt: ast.Node,
+    result: *ClosureAppendMap,
+    allocator: std.mem.Allocator,
+) !void {
+    switch (stmt) {
+        .function_def => |func| {
+            // Check if this function appends to any captured variable
+            try analyzeClosureBody(func, result, allocator);
+
+            // Also check nested functions
+            for (func.body) |s| {
+                try collectClosureAppends(s, result, allocator);
+            }
+        },
+        .class_def => |class| {
+            for (class.body) |s| {
+                try collectClosureAppends(s, result, allocator);
+            }
+        },
+        .if_stmt => |i| {
+            for (i.body) |s| try collectClosureAppends(s, result, allocator);
+            for (i.else_body) |s| try collectClosureAppends(s, result, allocator);
+        },
+        .for_stmt => |f| {
+            for (f.body) |s| try collectClosureAppends(s, result, allocator);
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| try collectClosureAppends(s, result, allocator);
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| try collectClosureAppends(s, result, allocator);
+            for (t.handlers) |h| {
+                for (h.body) |s| try collectClosureAppends(s, result, allocator);
+            }
+            for (t.else_body) |s| try collectClosureAppends(s, result, allocator);
+            for (t.finalbody) |s| try collectClosureAppends(s, result, allocator);
+        },
+        .with_stmt => |w| {
+            for (w.body) |s| try collectClosureAppends(s, result, allocator);
+        },
+        else => {},
+    }
+}
+
+/// Analyze a function body for append patterns to captured variables
+fn analyzeClosureBody(
+    func: ast.Node.FunctionDef,
+    result: *ClosureAppendMap,
+    allocator: std.mem.Allocator,
+) !void {
+    // Collect parameter names
+    var param_names: std.ArrayListUnmanaged([]const u8) = .{};
+    defer param_names.deinit(allocator);
+
+    for (func.args) |arg| {
+        try param_names.append(allocator, arg.name);
+    }
+
+    // Look for append calls in the function body
+    for (func.body) |stmt| {
+        try findAppendToCapture(stmt, func.name, param_names.items, result, allocator);
+    }
+}
+
+/// Find append calls that use function parameters in tuples
+fn findAppendToCapture(
+    stmt: ast.Node,
+    func_name: []const u8,
+    param_names: []const []const u8,
+    result: *ClosureAppendMap,
+    allocator: std.mem.Allocator,
+) !void {
+    switch (stmt) {
+        .expr_stmt => |e| {
+            try checkExprForAppendCapture(e.value.*, func_name, param_names, result, allocator);
+        },
+        .if_stmt => |i| {
+            for (i.body) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+            for (i.else_body) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+        },
+        .for_stmt => |f| {
+            for (f.body) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+        },
+        else => {},
+    }
+}
+
+/// Check if expression is an append call with a tuple of parameters
+fn checkExprForAppendCapture(
+    expr: ast.Node,
+    func_name: []const u8,
+    param_names: []const []const u8,
+    result: *ClosureAppendMap,
+    allocator: std.mem.Allocator,
+) !void {
+    if (expr != .call) return;
+
+    const call = expr.call;
+    if (call.func.* != .attribute) return;
+
+    const attr = call.func.attribute;
+    if (!std.mem.eql(u8, attr.attr, "append")) return;
+    if (attr.value.* != .name) return;
+
+    const list_var = attr.value.name.id;
+
+    // Check if the argument is a tuple
+    if (call.args.len == 0) return;
+    const arg = call.args[0];
+
+    if (arg != .tuple) return;
+
+    // Check if tuple elements are function parameters
+    var tuple_param_indices: std.ArrayListUnmanaged(usize) = .{};
+    defer tuple_param_indices.deinit(allocator);
+
+    for (arg.tuple.elts) |elt| {
+        if (elt == .name) {
+            // Check if this name is a function parameter
+            for (param_names, 0..) |pname, idx| {
+                if (std.mem.eql(u8, elt.name.id, pname)) {
+                    try tuple_param_indices.append(allocator, idx);
+                    break;
+                }
+            }
+        }
+    }
+
+    // If we found parameters in the tuple, record this pattern
+    if (tuple_param_indices.items.len > 0) {
+        const info = ClosureAppendInfo{
+            .func_name = func_name,
+            .list_var = list_var,
+            .param_names = try allocator.dupe([]const u8, param_names),
+            .append_tuple_indices = try allocator.dupe(usize, tuple_param_indices.items),
+        };
+
+        const gop = try result.getOrPut(list_var);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{};
+        }
+        try gop.value_ptr.append(allocator, info);
+    }
+}
+
+/// Get closures that append to a given list variable
+pub fn getClosureAppendsForList(map: ClosureAppendMap, list_var: []const u8) ?[]const ClosureAppendInfo {
+    const list = map.get(list_var) orelse return null;
+    if (list.items.len == 0) return null;
+    return list.items;
+}
+
+/// Map from function name -> list of call site argument types
+pub const CallSiteMap = hashmap_helper.StringHashMap(std.ArrayListUnmanaged([]const ast.Node));
+
+/// Analyze call sites to functions in a module
+pub fn analyzeCallSites(module: ast.Node.Module, allocator: std.mem.Allocator) !CallSiteMap {
+    var result = CallSiteMap.init(allocator);
+
+    for (module.body) |stmt| {
+        try collectCallSites(stmt, &result, allocator);
+    }
+
+    return result;
+}
+
+/// Recursively collect call sites
+fn collectCallSites(
+    node: ast.Node,
+    result: *CallSiteMap,
+    allocator: std.mem.Allocator,
+) !void {
+    switch (node) {
+        .call => |c| {
+            // Direct function call: func(args)
+            if (c.func.* == .name) {
+                const func_name = c.func.name.id;
+                const args_copy = try allocator.dupe(ast.Node, c.args);
+                const gop = try result.getOrPut(func_name);
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = .{};
+                }
+                try gop.value_ptr.append(allocator, args_copy);
+            }
+            // Method call on closure: closure.call(args)
+            else if (c.func.* == .attribute) {
+                const attr = c.func.attribute;
+                if (std.mem.eql(u8, attr.attr, "call") and attr.value.* == .name) {
+                    const closure_name = attr.value.name.id;
+                    const args_copy = try allocator.dupe(ast.Node, c.args);
+                    const gop = try result.getOrPut(closure_name);
+                    if (!gop.found_existing) {
+                        gop.value_ptr.* = .{};
+                    }
+                    try gop.value_ptr.append(allocator, args_copy);
+                }
+            }
+            // Recurse into arguments
+            for (c.args) |arg| {
+                try collectCallSites(arg, result, allocator);
+            }
+        },
+        .expr_stmt => |e| try collectCallSites(e.value.*, result, allocator),
+        .assign => |a| try collectCallSites(a.value.*, result, allocator),
+        .function_def => |func| {
+            for (func.body) |s| try collectCallSites(s, result, allocator);
+        },
+        .class_def => |class| {
+            for (class.body) |s| try collectCallSites(s, result, allocator);
+        },
+        .if_stmt => |i| {
+            try collectCallSites(i.condition.*, result, allocator);
+            for (i.body) |s| try collectCallSites(s, result, allocator);
+            for (i.else_body) |s| try collectCallSites(s, result, allocator);
+        },
+        .for_stmt => |f| {
+            try collectCallSites(f.iter.*, result, allocator);
+            for (f.body) |s| try collectCallSites(s, result, allocator);
+        },
+        .while_stmt => |w| {
+            try collectCallSites(w.condition.*, result, allocator);
+            for (w.body) |s| try collectCallSites(s, result, allocator);
+        },
+        .return_stmt => |r| {
+            if (r.value) |v| try collectCallSites(v.*, result, allocator);
+        },
+        .dictcomp => |dc| {
+            try collectCallSites(dc.key.*, result, allocator);
+            try collectCallSites(dc.value.*, result, allocator);
+        },
+        .listcomp => |lc| {
+            try collectCallSites(lc.elt.*, result, allocator);
+        },
+        .binop => |b| {
+            try collectCallSites(b.left.*, result, allocator);
+            try collectCallSites(b.right.*, result, allocator);
+        },
+        .boolop => |b| {
+            for (b.values) |v| try collectCallSites(v, result, allocator);
+        },
+        .compare => |c| {
+            try collectCallSites(c.left.*, result, allocator);
+            for (c.comparators) |comp| try collectCallSites(comp, result, allocator);
+        },
+        .unaryop => |u| try collectCallSites(u.operand.*, result, allocator),
+        .subscript => |s| {
+            try collectCallSites(s.value.*, result, allocator);
+            switch (s.slice) {
+                .index => |idx| try collectCallSites(idx.*, result, allocator),
+                .slice => |rng| {
+                    if (rng.lower) |l| try collectCallSites(l.*, result, allocator);
+                    if (rng.upper) |u| try collectCallSites(u.*, result, allocator);
+                    if (rng.step) |st| try collectCallSites(st.*, result, allocator);
+                },
+            }
+        },
+        .attribute => |a| try collectCallSites(a.value.*, result, allocator),
+        .list => |l| {
+            for (l.elts) |e| try collectCallSites(e, result, allocator);
+        },
+        .tuple => |t| {
+            for (t.elts) |e| try collectCallSites(e, result, allocator);
+        },
+        .dict => |d| {
+            for (d.keys) |k| try collectCallSites(k, result, allocator);
+            for (d.values) |v| try collectCallSites(v, result, allocator);
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| try collectCallSites(s, result, allocator);
+            for (t.handlers) |h| {
+                for (h.body) |s| try collectCallSites(s, result, allocator);
+            }
+            for (t.else_body) |s| try collectCallSites(s, result, allocator);
+            for (t.finalbody) |s| try collectCallSites(s, result, allocator);
+        },
+        .with_stmt => |w| {
+            for (w.body) |s| try collectCallSites(s, result, allocator);
+        },
+        else => {},
+    }
+}
+
+/// Get call sites for a function
+pub fn getCallSitesForFunc(map: CallSiteMap, func_name: []const u8) ?[]const []const ast.Node {
+    const list = map.get(func_name) orelse return null;
+    if (list.items.len == 0) return null;
+    return list.items;
+}

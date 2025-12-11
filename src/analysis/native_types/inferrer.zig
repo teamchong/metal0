@@ -349,6 +349,82 @@ pub const TypeInferrer = struct {
                 }
             }
         }
+
+        // Eighth pass: Analyze closures that append to captured lists and infer element types from call sites
+        // This handles patterns like:
+        //   actual_calls = []
+        //   def add_call(pos, value):
+        //       actual_calls.append((pos, value))
+        //   add_call('key', k)  # pos is string, value is u8
+        const closure_appends = mutation_analyzer.analyzeClosureAppends(module, self.allocator) catch null;
+        const call_sites = mutation_analyzer.analyzeCallSites(module, self.allocator) catch null;
+
+        if (closure_appends != null and call_sites != null) {
+            const caps = closure_appends.?;
+            const sites = call_sites.?;
+            defer {
+                // Clean up closure_appends
+                var caps_copy = caps;
+                for (caps_copy.values()) |*list| {
+                    list.deinit(self.allocator);
+                }
+                caps_copy.deinit();
+                // Clean up call_sites
+                var sites_copy = sites;
+                for (sites_copy.values()) |*list| {
+                    list.deinit(self.allocator);
+                }
+                sites_copy.deinit();
+            }
+
+            // For each list variable, check if closures append to it
+            var var_iter2 = self.var_types.iterator();
+            while (var_iter2.next()) |entry| {
+                const var_name = entry.key_ptr.*;
+                const var_type = entry.value_ptr.*;
+
+                // Only process lists with unknown element type
+                if (var_type != .list) continue;
+                if (!type_traits.isUnknown(var_type.list.*)) continue;
+
+                // Check if any closures append to this list
+                if (mutation_analyzer.getClosureAppendsForList(caps, var_name)) |closure_infos| {
+                    for (closure_infos) |closure_info| {
+                        // Check call sites for this closure
+                        if (mutation_analyzer.getCallSitesForFunc(sites, closure_info.func_name)) |call_args_list| {
+                            // Use the first call site to infer parameter types
+                            if (call_args_list.len > 0) {
+                                const call_args = call_args_list[0];
+                                // Build tuple element types from call site args mapped through append_tuple_indices
+                                var tuple_elem_types: std.ArrayListUnmanaged(NativeType) = .{};
+                                defer tuple_elem_types.deinit(self.allocator);
+
+                                for (closure_info.append_tuple_indices) |param_idx| {
+                                    if (param_idx < call_args.len) {
+                                        const arg_type = self.inferExpr(call_args[param_idx]) catch .unknown;
+                                        try tuple_elem_types.append(self.allocator, arg_type);
+                                    }
+                                }
+
+                                // If we got tuple element types, create a tuple type
+                                if (tuple_elem_types.items.len > 0) {
+                                    // Copy tuple element types into arena allocator
+                                    const elem_slice = arena_alloc.alloc(NativeType, tuple_elem_types.items.len) catch continue;
+                                    for (tuple_elem_types.items, 0..) |elem_type, i| {
+                                        elem_slice[i] = elem_type;
+                                    }
+                                    const tuple_type = NativeType{ .tuple = elem_slice };
+                                    const list_elem_ptr = arena_alloc.create(NativeType) catch continue;
+                                    list_elem_ptr.* = tuple_type;
+                                    entry.value_ptr.* = .{ .list = list_elem_ptr };
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Collect constructor call argument types from a statement (recursive)
