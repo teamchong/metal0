@@ -399,6 +399,7 @@ pub const TypeInferrer = struct {
             }
 
             // For each list variable, check if closures append to it
+            // Process global var_types first
             var var_iter2 = self.var_types.iterator();
             while (var_iter2.next()) |entry| {
                 const var_name = entry.key_ptr.*;
@@ -407,6 +408,67 @@ pub const TypeInferrer = struct {
                 // Only process lists with unknown element type
                 if (var_type != .list) continue;
                 if (!type_traits.isUnknown(var_type.list.*)) continue;
+
+                // Check if any closures append to this list
+                if (mutation_analyzer.getClosureAppendsForList(caps, var_name)) |closure_infos| {
+                    for (closure_infos) |closure_info| {
+                        // Check call sites for this closure
+                        if (mutation_analyzer.getCallSitesForFunc(sites, closure_info.func_name)) |call_args_list| {
+                            // Use the first call site to infer parameter types
+                            if (call_args_list.len > 0) {
+                                const call_args = call_args_list[0];
+                                // Build tuple element types from call site args mapped through append_tuple_indices
+                                var tuple_elem_types: std.ArrayListUnmanaged(NativeType) = .{};
+                                defer tuple_elem_types.deinit(self.allocator);
+
+                                for (closure_info.append_tuple_indices) |param_idx| {
+                                    if (param_idx < call_args.len) {
+                                        var arg_type = self.inferExpr(call_args[param_idx]) catch .unknown;
+                                        // If the argument is unknown and is a simple name, it might be a comprehension variable
+                                        // In that case, fall back to i64/u8 (bounded int) for zip over strings
+                                        if (type_traits.isUnknown(arg_type) and call_args[param_idx] == .name) {
+                                            // Default to bounded int for comprehension variables (common case)
+                                            arg_type = .{ .int = .bounded };
+                                        }
+                                        try tuple_elem_types.append(self.allocator, arg_type);
+                                    }
+                                }
+
+                                // If we got tuple element types, create a tuple type
+                                if (tuple_elem_types.items.len > 0) {
+                                    // Copy tuple element types into arena allocator
+                                    const elem_slice = arena_alloc.alloc(NativeType, tuple_elem_types.items.len) catch continue;
+                                    for (tuple_elem_types.items, 0..) |elem_type, i| {
+                                        elem_slice[i] = elem_type;
+                                    }
+                                    const tuple_type = NativeType{ .tuple = elem_slice };
+                                    const list_elem_ptr = arena_alloc.create(NativeType) catch continue;
+                                    list_elem_ptr.* = tuple_type;
+                                    entry.value_ptr.* = .{ .list = list_elem_ptr };
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Also process scoped variables (local variables inside functions)
+            // These have keys like "function_name:var_name"
+            var scoped_iter = self.scoped_var_types.iterator();
+            while (scoped_iter.next()) |entry| {
+                const scoped_key = entry.key_ptr.*;
+                const var_type = entry.value_ptr.*;
+
+                // Only process lists with unknown element type
+                if (var_type != .list) continue;
+                if (!type_traits.isUnknown(var_type.list.*)) continue;
+
+                // Extract the variable name from scoped key (after the colon)
+                const var_name = if (std.mem.indexOf(u8, scoped_key, ":")) |idx|
+                    scoped_key[idx + 1 ..]
+                else
+                    scoped_key;
 
                 // Check if any closures append to this list
                 if (mutation_analyzer.getClosureAppendsForList(caps, var_name)) |closure_infos| {
