@@ -1241,30 +1241,12 @@ pub fn containsGeneric(container: anytype, item: anytype) bool {
 
 /// Generic 'in' operator - checks membership based on container type
 pub fn contains(needle: *PyObject, haystack: *PyObject) bool {
-    const haystack_type = getTypeId(haystack);
-    switch (haystack_type) {
-        .string => {
-            // String contains substring
-            return PyString.contains(haystack, needle);
-        },
-        .list => {
-            // List contains element
-            return PyList.contains(haystack, needle);
-        },
-        .dict => {
-            // Dict contains key (needle must be a string)
-            const needle_type = getTypeId(needle);
-            if (needle_type != .string) {
-                return false;
-            }
-            const key = PyString.getValue(needle);
-            return PyDict.contains(haystack, key);
-        },
-        else => {
-            // Unsupported type - return false
-            return false;
-        },
-    }
+    return switch (getTypeId(haystack)) {
+        .string => PyString.contains(haystack, needle),
+        .list => PyList.contains(haystack, needle),
+        .dict => if (getTypeId(needle) == .string) PyDict.contains(haystack, PyString.getValue(needle)) else false,
+        else => false,
+    };
 }
 
 /// Python list type - re-exported from pylist.zig
@@ -1375,49 +1357,35 @@ pub const pyHash = hash_ops.pyHash;
 pub const pyPow = hash_ops.pyPow;
 
 /// Python len() builtin for PyObject* types
-/// Dispatches to the appropriate type's len function based on type_id
 pub fn pyLen(obj: *PyObject) usize {
-    const type_id = getTypeId(obj);
-    return switch (type_id) {
+    return switch (getTypeId(obj)) {
         .list => PyList.len(obj),
         .dict => PyDict.len(obj),
         .tuple => PyTuple.len(obj),
         .string => PyString.len(obj),
-        else => 0, // None, int, float, bool don't have length
+        else => 0,
     };
 }
 
 /// Compare PyObject with integer (for eval() result comparisons)
 pub fn pyObjEqInt(obj: *PyObject, value: i64) bool {
-    const type_id = getTypeId(obj);
-    if (type_id == .int) {
-        return PyInt.getValue(obj) == value;
-    }
-    return false;
+    return if (getTypeId(obj) == .int) PyInt.getValue(obj) == value else false;
 }
 
 /// Extract int value from PyObject (for eval() results)
 pub fn pyObjToInt(obj: *PyObject) i64 {
-    const type_id = getTypeId(obj);
-    if (type_id == .int) {
-        return PyInt.getValue(obj);
-    }
-    return 0;
+    return if (getTypeId(obj) == .int) PyInt.getValue(obj) else 0;
 }
 
 /// Extract BigInt value from PyObject (for eval() results with large integers)
 pub fn pyObjToBigInt(obj: *PyObject, allocator: std.mem.Allocator) BigInt {
-    const type_id = getTypeId(obj);
-    if (type_id == .bigint) {
-        // PyBigIntObject - clone the BigInt value
-        const bigint_obj: *PyBigIntObject = @ptrCast(@alignCast(obj));
-        return bigint_obj.value.clone(allocator) catch BigInt.fromInt(allocator, 0) catch unreachable;
-    }
-    if (type_id == .int) {
-        const val = PyInt.getValue(obj);
-        return BigInt.fromInt(allocator, val) catch BigInt.fromInt(allocator, 0) catch unreachable;
-    }
-    return BigInt.fromInt(allocator, 0) catch unreachable;
+    const cast = pyobject_cast.cast;
+    const zero = BigInt.fromInt(allocator, 0) catch unreachable;
+    return switch (getTypeId(obj)) {
+        .bigint => cast(PyBigIntObject, obj).value.clone(allocator) catch zero,
+        .int => BigInt.fromInt(allocator, PyInt.getValue(obj)) catch zero,
+        else => zero,
+    };
 }
 
 // Re-export misc utilities from misc_utils.zig
