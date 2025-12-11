@@ -264,6 +264,7 @@ pub fn expanduser(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     }
 
     var home: ?[]const u8 = null;
+    var combined_home_buf: [512]u8 = undefined;
 
     if (i == 1) {
         // Just ~
@@ -271,9 +272,11 @@ pub fn expanduser(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
         if (home == null) {
             if (std.posix.getenv("HOMEPATH")) |homepath| {
                 if (std.posix.getenv("HOMEDRIVE")) |homedrive| {
-                    _ = homedrive;
-                    _ = homepath;
-                    // Would combine HOMEDRIVE + HOMEPATH
+                    // Combine HOMEDRIVE + HOMEPATH (e.g., "C:" + "\\Users\\Name")
+                    const combined = std.fmt.bufPrint(&combined_home_buf, "{s}{s}", .{ homedrive, homepath }) catch null;
+                    if (combined) |h| {
+                        home = h;
+                    }
                 }
             }
         }

@@ -53,21 +53,73 @@ pub const SdkVersion = struct {
     }
 };
 
-/// Get minimum deployment target
+/// Get minimum deployment target from environment or default
 pub fn getDeploymentTarget() ?SdkVersion {
     if (!is_apple) return null;
-    // Would check MACOSX_DEPLOYMENT_TARGET or IPHONEOS_DEPLOYMENT_TARGET
+
+    // Check environment variables for deployment target
+    const env_var = switch (builtin.os.tag) {
+        .macos => "MACOSX_DEPLOYMENT_TARGET",
+        .ios => "IPHONEOS_DEPLOYMENT_TARGET",
+        .tvos => "TVOS_DEPLOYMENT_TARGET",
+        .watchos => "WATCHOS_DEPLOYMENT_TARGET",
+        else => return null,
+    };
+
+    if (std.posix.getenv(env_var)) |target| {
+        // Parse version string like "10.15" or "14.0"
+        var parts = std.mem.splitScalar(u8, target, '.');
+        var version = SdkVersion{ .major = 0, .minor = 0, .patch = 0 };
+
+        if (parts.next()) |major_str| {
+            version.major = std.fmt.parseInt(u32, major_str, 10) catch 0;
+        }
+        if (parts.next()) |minor_str| {
+            version.minor = std.fmt.parseInt(u32, minor_str, 10) catch 0;
+        }
+        if (parts.next()) |patch_str| {
+            version.patch = std.fmt.parseInt(u32, patch_str, 10) catch 0;
+        }
+        return version;
+    }
+
+    // Return sensible defaults
     return switch (builtin.os.tag) {
         .macos => SdkVersion{ .major = 10, .minor = 15, .patch = 0 },
         .ios => SdkVersion{ .major = 13, .minor = 0, .patch = 0 },
+        .tvos => SdkVersion{ .major = 13, .minor = 0, .patch = 0 },
+        .watchos => SdkVersion{ .major = 6, .minor = 0, .patch = 0 },
         else => null,
     };
 }
 
-/// Get SDK path
+/// Get SDK path from SDKROOT env or common locations
 pub fn getSdkPath() ?[]const u8 {
     if (!is_apple) return null;
-    // Would run `xcrun --show-sdk-path`
+
+    // Check SDKROOT environment variable first
+    if (std.posix.getenv("SDKROOT")) |sdk| {
+        return sdk;
+    }
+
+    // Check common SDK paths
+    const sdk_paths = switch (builtin.os.tag) {
+        .macos => &[_][]const u8{
+            "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+            "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        },
+        .ios => &[_][]const u8{
+            "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk",
+        },
+        else => &[_][]const u8{},
+    };
+
+    for (sdk_paths) |path| {
+        if (std.fs.cwd().access(path, .{})) |_| {
+            return path;
+        } else |_| {}
+    }
+
     return "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
 }
 
@@ -87,11 +139,24 @@ pub fn getFrameworkPaths() FrameworkPaths {
     return .{};
 }
 
-/// Check if framework exists
+/// Check if framework exists in standard locations
 pub fn hasFramework(name: []const u8) bool {
     if (!is_apple) return false;
-    _ = name;
-    // Would check in framework paths
+
+    // Check common framework paths
+    const framework_dirs = [_][]const u8{
+        "/System/Library/Frameworks",
+        "/Library/Frameworks",
+    };
+
+    var path_buf: [512]u8 = undefined;
+    for (framework_dirs) |dir| {
+        const framework_path = std.fmt.bufPrint(&path_buf, "{s}/{s}.framework", .{ dir, name }) catch continue;
+        if (std.fs.cwd().access(framework_path, .{})) |_| {
+            return true;
+        } else |_| {}
+    }
+
     return false;
 }
 
