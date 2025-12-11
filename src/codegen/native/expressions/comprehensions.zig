@@ -1158,8 +1158,9 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     const parent = @import("../expressions.zig");
     const genExpr = parent.genExpr;
 
-    // Determine if key is an integer expression
-    const key_is_int = isIntExpr(dictcomp.key.*);
+    // NOTE: key_is_int is determined AFTER setting up temp vars for loop variables
+    // so that type inference can properly resolve function call return types.
+    // See below after temp vars are set up.
 
     // Generate unique ID for this comprehension to avoid variable shadowing
     const comp_id = self.output.items.len;
@@ -1284,7 +1285,11 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
         }
     }
 
-    // Now infer the value type with loop vars visible
+    // Now infer key and value types with loop vars visible
+    // Use type inferrer to properly resolve function call return types
+    const key_type = self.type_inferrer.inferExpr(dictcomp.key.*) catch .unknown;
+    const key_is_int = type_traits.isIntegral(key_type);
+
     // Check for target_dict_value_type context (set when assigning to widened dict variable)
     const value_type_str = if (self.target_dict_value_type) |target_type|
         target_type
@@ -1302,7 +1307,7 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     try self.emit(try std.fmt.allocPrint(self.allocator, "(dict_{d}: {{\n", .{label_id}));
     self.indent();
 
-    // Generate HashMap with properly inferred value type
+    // Generate HashMap with properly inferred key/value types
     try self.emitIndent();
     if (key_is_int) {
         try self.output.writer(self.allocator).print("var __dict_result = std.AutoHashMap(i64, {s}).init(__global_allocator);\n", .{value_type_str});
