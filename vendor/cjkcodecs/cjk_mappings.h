@@ -50,5 +50,7 @@ struct unim_index {
 #include "mappings_kr.h"
 #include "mappings_cn.h"
 #include "mappings_tw.h"
+#include "mappings_hk.h"
+#include "mappings_jisx0213_pair.h"
 
 #endif /* _CJK_MAPPINGS_H_ */
