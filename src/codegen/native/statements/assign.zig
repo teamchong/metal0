@@ -685,8 +685,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             }
 
             // Try compile-time evaluation FIRST
-            // Skip comptime eval for variables typed as bigint (need runtime BigInt.fromInt)
-            if (value_type != .bigint) {
+            // Skip comptime eval for:
+            // - bigint typed vars (need runtime BigInt.fromInt)
+            // - ArrayList lists (need runtime ArrayList for mutations like .append())
+            // The comptime path generates [N]T fixed arrays which can't be mutated.
+            if (value_type != .bigint and !is_arraylist) {
                 if (self.comptime_evaluator.tryEval(assign.value.*)) |comptime_val| {
                     // Check mutability BEFORE emitting
                     // Use isVarMutated() to check both module-level AND function-local mutations
@@ -809,7 +812,6 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
 
                 // First assignment: emit var/const declaration with type annotation
-                std.debug.print("DEBUG genAssign: First assignment for {s}, is_arraylist={}, value_type={s}\n", .{ var_name, is_arraylist, @tagName(value_type) });
                 try valueGen.emitVarDeclaration(
                     self,
                     var_name,
@@ -1050,7 +1052,6 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Special handling for list literals that will be mutated
             // Generate ArrayList initialization directly instead of fixed array
             if (is_arraylist and assign.value.* == .list) {
-                std.debug.print("DEBUG genAssign: ArrayList path for {s}, is_first_assignment={}\n", .{ var_name, is_first_assignment });
                 const list = assign.value.list;
                 try valueGen.genArrayListInit(self, var_name, list);
 
