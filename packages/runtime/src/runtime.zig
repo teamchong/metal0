@@ -179,6 +179,22 @@ pub const compile_builtin = @import("Python/ast.zig").compile_builtin;
 // Re-export eval from Python/ceval.zig for codegen
 pub const eval = @import("Python/ceval.zig").eval;
 
+// Re-export BytecodeProgram for codegen
+pub const BytecodeProgram = @import("Python/compile.zig").BytecodeProgram;
+
+// Re-export test_support for unittest codegen
+pub const test_support = @import("Lib/test/support.zig");
+
+// Re-export type builtins for codegen
+pub const boolBuiltinCall = @import("runtime/type_builtins.zig").boolBuiltinCall;
+pub const int__new__ = @import("runtime/type_builtins.zig").int__new__;
+
+// Re-export format_ops for codegen
+pub const formatInt = @import("runtime/format_ops.zig").formatInt;
+
+// Re-export PyComplex for codegen
+pub const PyComplex = @import("Objects/complexobject.zig").PyComplex;
+
 /// Export _string module (formatter_parser, etc.)
 pub const _string = @import("Modules/_string.zig");
 
