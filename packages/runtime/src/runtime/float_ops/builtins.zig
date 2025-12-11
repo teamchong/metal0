@@ -1,0 +1,253 @@
+/// Float and bool builtin call wrappers
+const std = @import("std");
+const exceptions = @import("../exceptions.zig");
+const parsing = @import("parsing.zig");
+const parseFloatWithUnicode = parsing.parseFloatWithUnicode;
+const parseFloatBytes = parsing.parseFloatBytes;
+
+/// Python error types
+pub const PythonError = error{
+    ZeroDivisionError,
+    IndexError,
+    ValueError,
+    TypeError,
+    KeyError,
+    OverflowError,
+    OutOfMemory,
+    Exception,
+};
+
+/// float() builtin call wrapper for assertRaises testing
+pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
+    const FirstType = @TypeOf(first);
+    const first_info = @typeInfo(FirstType);
+    const RestType = @TypeOf(rest);
+    const rest_info = @typeInfo(RestType);
+
+    const has_extra_args = rest_info == .@"struct" and rest_info.@"struct".fields.len > 0;
+    if (has_extra_args) {
+        return PythonError.TypeError;
+    }
+
+    if (first_info == .int or first_info == .comptime_int) {
+        return @as(f64, @floatFromInt(first));
+    }
+    if (first_info == .float or first_info == .comptime_float) {
+        return @as(f64, first);
+    }
+    if (first_info == .pointer) {
+        const child_type = first_info.pointer.child;
+        const child_info = @typeInfo(child_type);
+        if (child_info == .@"struct") {
+            if (@hasDecl(child_type, "__float__")) {
+                const result = first.__float__();
+                const ResultType = @TypeOf(result);
+                const result_info = @typeInfo(ResultType);
+                if (result_info == .error_union) {
+                    return result catch return PythonError.ValueError;
+                }
+                if (result_info == .float or result_info == .comptime_float) {
+                    return result;
+                }
+                return PythonError.TypeError;
+            }
+            if (@hasField(child_type, "__base_value__")) {
+                const base_value = first.__base_value__;
+                const BaseType = @TypeOf(base_value);
+                const base_info = @typeInfo(BaseType);
+                if (base_info == .float or base_info == .comptime_float) {
+                    return @as(f64, base_value);
+                }
+                if (base_info == .int or base_info == .comptime_int) {
+                    return @as(f64, @floatFromInt(base_value));
+                }
+                if (base_info == .pointer or base_info == .array) {
+                    return parseFloatWithUnicode(base_value) catch return PythonError.ValueError;
+                }
+            }
+            if (@hasDecl(child_type, "__index__")) {
+                const result = first.__index__();
+                const ResultType = @TypeOf(result);
+                const result_info = @typeInfo(ResultType);
+                if (result_info == .error_union) {
+                    const unwrapped = result catch return PythonError.ValueError;
+                    return @as(f64, @floatFromInt(unwrapped));
+                }
+                if (result_info == .int or result_info == .comptime_int) {
+                    return @as(f64, @floatFromInt(result));
+                }
+            }
+        }
+        return parseFloatWithUnicode(first) catch {
+            exceptions.setFloatConversionErrorStr(first);
+            return PythonError.ValueError;
+        };
+    }
+    if (first_info == .@"struct") {
+        if (@hasField(FirstType, "data") and @TypeOf(@field(first, "data")) == []const u8) {
+            return parseFloatBytes(first.data) catch {
+                exceptions.setFloatConversionError(first.data);
+                return PythonError.ValueError;
+            };
+        }
+        if (@hasDecl(FirstType, "toFloat") and @hasField(FirstType, "managed")) {
+            return (&first).toFloat();
+        }
+        if (@hasDecl(FirstType, "__float__")) {
+            const result = first.__float__();
+            const ResultType = @TypeOf(result);
+            const result_info = @typeInfo(ResultType);
+            if (result_info == .error_union) {
+                return result catch return PythonError.ValueError;
+            }
+            if (result_info == .float or result_info == .comptime_float) {
+                return result;
+            }
+            return PythonError.TypeError;
+        }
+        if (@hasDecl(FirstType, "__index__")) {
+            const result = first.__index__();
+            const ResultType = @TypeOf(result);
+            const result_info = @typeInfo(ResultType);
+            if (result_info == .error_union) {
+                const unwrapped = result catch return PythonError.ValueError;
+                return @as(f64, @floatFromInt(unwrapped));
+            }
+            if (result_info == .int or result_info == .comptime_int) {
+                return @as(f64, @floatFromInt(result));
+            }
+        }
+        if (@hasField(FirstType, "__base_value__")) {
+            const base_value = first.__base_value__;
+            const BaseType = @TypeOf(base_value);
+            const base_info = @typeInfo(BaseType);
+            if (base_info == .float or base_info == .comptime_float) {
+                return @as(f64, base_value);
+            }
+            if (base_info == .int or base_info == .comptime_int) {
+                return @as(f64, @floatFromInt(base_value));
+            }
+            if (base_info == .pointer or base_info == .array) {
+                return parseFloatWithUnicode(base_value) catch return PythonError.ValueError;
+            }
+        }
+    }
+    if (first_info == .@"union" and first_info.@"union".tag_type != null) {
+        if (@hasDecl(FirstType, "toFloat")) {
+            if (first.toFloat()) |val| {
+                return val;
+            }
+        }
+        if (@hasDecl(FirstType, "toInt")) {
+            if (first.toInt()) |val| {
+                return @as(f64, @floatFromInt(val));
+            }
+        }
+    }
+
+    return PythonError.TypeError;
+}
+
+/// bool() builtin call wrapper for assertRaises testing
+pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
+    const FirstType = @TypeOf(first);
+    const first_info = @typeInfo(FirstType);
+    const RestType = @TypeOf(rest);
+    const rest_info = @typeInfo(RestType);
+
+    const has_extra_args = rest_info == .@"struct" and rest_info.@"struct".fields.len > 0;
+    if (has_extra_args) {
+        return PythonError.TypeError;
+    }
+
+    if (FirstType == void or first_info == .@"struct" and first_info.@"struct".fields.len == 0) {
+        return false;
+    }
+
+    if (first_info == .bool) {
+        return first;
+    }
+    if (first_info == .int or first_info == .comptime_int) {
+        return first != 0;
+    }
+    if (first_info == .float or first_info == .comptime_float) {
+        return first != 0.0;
+    }
+    if (first_info == .pointer and first_info.pointer.size == .slice) {
+        return first.len > 0;
+    }
+    if (first_info == .pointer and first_info.pointer.size == .one) {
+        const child_info = @typeInfo(first_info.pointer.child);
+        if (child_info == .array) {
+            return child_info.array.len > 0;
+        }
+    }
+    if (first_info == .pointer and first_info.pointer.size == .one) {
+        const ChildType = first_info.pointer.child;
+        const child_info = @typeInfo(ChildType);
+        if (child_info == .@"struct") {
+            if (@hasDecl(ChildType, "__bool__")) {
+                const bool_fn = @typeInfo(@TypeOf(ChildType.__bool__));
+                const first_param = bool_fn.@"fn".params[0].type.?;
+                const result = if (@typeInfo(first_param) == .pointer and !@typeInfo(first_param).pointer.is_const)
+                    try @constCast(first).__bool__()
+                else
+                    try first.__bool__();
+                if (@TypeOf(result) != bool) {
+                    return PythonError.TypeError;
+                }
+                return result;
+            }
+            if (@hasDecl(ChildType, "__len__")) {
+                const len = try first.__len__();
+                if (len < 0) return PythonError.ValueError;
+                return len > 0;
+            }
+            if (@hasField(ChildType, "items")) {
+                return first.items.len > 0;
+            }
+            if (@hasField(ChildType, "__base_value__")) {
+                const base_value = first.__base_value__;
+                const BaseType = @TypeOf(base_value);
+                const base_info = @typeInfo(BaseType);
+                if (base_info == .bool) return base_value;
+                if (base_info == .int or base_info == .comptime_int) return base_value != 0;
+                if (base_info == .float or base_info == .comptime_float) return base_value != 0.0;
+                if (base_info == .pointer and base_info.pointer.size == .slice) return base_value.len > 0;
+            }
+        }
+    }
+    if (first_info == .@"struct") {
+        if (@hasDecl(FirstType, "__bool__")) {
+            const bool_fn = @typeInfo(@TypeOf(FirstType.__bool__));
+            const first_param = bool_fn.@"fn".params[0].type.?;
+            const result = if (@typeInfo(first_param) == .pointer and !@typeInfo(first_param).pointer.is_const)
+                try @constCast(&first).__bool__()
+            else
+                try first.__bool__();
+            if (@TypeOf(result) != bool) {
+                return PythonError.TypeError;
+            }
+            return result;
+        }
+        if (@hasDecl(FirstType, "__len__")) {
+            const len = try first.__len__();
+            if (len < 0) return PythonError.ValueError;
+            return len > 0;
+        }
+        if (@hasField(FirstType, "items")) {
+            return first.items.len > 0;
+        }
+        if (@hasField(FirstType, "__base_value__")) {
+            const base_value = first.__base_value__;
+            const BaseType = @TypeOf(base_value);
+            const base_info = @typeInfo(BaseType);
+            if (base_info == .bool) return base_value;
+            if (base_info == .int or base_info == .comptime_int) return base_value != 0;
+            if (base_info == .float or base_info == .comptime_float) return base_value != 0.0;
+            if (base_info == .pointer and base_info.pointer.size == .slice) return base_value.len > 0;
+        }
+    }
+
+    return true;
+}
