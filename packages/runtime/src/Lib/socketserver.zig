@@ -45,10 +45,10 @@ pub fn BaseServer(comptime RequestHandler: type) type {
             self.is_running = false;
         }
 
-        /// Handle a single request
+        /// Handle a single request (base implementation - subclasses override)
         pub fn handleRequest(self: *Self) !void {
+            // Base server doesn't have socket - concrete servers (TCP/UDP) override this
             _ = self;
-            // Would accept and handle request
         }
 
         /// Shutdown the server
@@ -62,12 +62,19 @@ pub fn BaseServer(comptime RequestHandler: type) type {
             self.is_running = false;
         }
 
-        /// Called when an error occurs
+        /// Called when an error occurs - logs to stderr
         pub fn handleError(self: *Self, request: anytype, client_address: anytype) void {
             _ = self;
             _ = request;
-            _ = client_address;
-            // Would log error
+            // Log error to stderr with client address info
+            const stderr = std.io.getStdErr().writer();
+            if (@TypeOf(client_address) == std.net.Address) {
+                var addr_buf: [64]u8 = undefined;
+                const addr_str = client_address.format(&addr_buf) catch "unknown";
+                stderr.print("Exception occurred during request from {s}\n", .{addr_str}) catch {};
+            } else {
+                stderr.print("Exception occurred during request\n", .{}) catch {};
+            }
         }
 
         /// Called before processing request
@@ -321,32 +328,132 @@ pub const StreamRequestHandler = struct {
     const Self = @This();
 
     base: BaseRequestHandler,
-    rfile: ?std.fs.File,
-    wfile: ?std.fs.File,
+    connection: ?std.posix.socket_t,
     rbufsize: usize,
     wbufsize: usize,
     timeout: ?f64,
     disable_nagle_algorithm: bool,
+    // Buffered I/O state
+    read_buffer: [8192]u8,
+    read_pos: usize,
+    read_end: usize,
+    write_buffer: [8192]u8,
+    write_pos: usize,
 
     pub fn init(request: ?*anyopaque, client_address: ?std.net.Address, server: ?*anyopaque) Self {
         return .{
             .base = BaseRequestHandler.init(request, client_address, server),
-            .rfile = null,
-            .wfile = null,
-            .rbufsize = 0, // Unbuffered
-            .wbufsize = 0, // Unbuffered
+            .connection = null,
+            .rbufsize = 8192,
+            .wbufsize = 8192,
             .timeout = null,
             .disable_nagle_algorithm = false,
+            .read_buffer = undefined,
+            .read_pos = 0,
+            .read_end = 0,
+            .write_buffer = undefined,
+            .write_pos = 0,
         };
     }
 
-    pub fn setup(self: *Self) void {
+    pub fn setup(self: *Self, conn: std.posix.socket_t) void {
         self.base.setup();
-        // Would set up buffered I/O
+        self.connection = conn;
+        self.read_pos = 0;
+        self.read_end = 0;
+        self.write_pos = 0;
+
+        // Disable Nagle algorithm if requested (for lower latency)
+        if (self.disable_nagle_algorithm) {
+            std.posix.setsockopt(conn, std.posix.IPPROTO.TCP, std.posix.TCP.NODELAY, &std.mem.toBytes(@as(c_int, 1))) catch {};
+        }
+
+        // Set socket timeout if specified
+        if (self.timeout) |timeout_secs| {
+            const timeout_us: i64 = @intFromFloat(timeout_secs * 1_000_000);
+            const tv = std.posix.timeval{
+                .tv_sec = @intCast(@divFloor(timeout_us, 1_000_000)),
+                .tv_usec = @intCast(@mod(timeout_us, 1_000_000)),
+            };
+            std.posix.setsockopt(conn, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&tv)) catch {};
+            std.posix.setsockopt(conn, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, std.mem.asBytes(&tv)) catch {};
+        }
+    }
+
+    /// Read from buffered input
+    pub fn read(self: *Self, buf: []u8) !usize {
+        if (self.connection == null) return error.NotConnected;
+
+        // If buffer is empty, refill it
+        if (self.read_pos >= self.read_end) {
+            const n = std.posix.recv(self.connection.?, &self.read_buffer, 0) catch |err| {
+                if (err == error.WouldBlock) return 0;
+                return err;
+            };
+            if (n == 0) return 0; // EOF
+            self.read_pos = 0;
+            self.read_end = n;
+        }
+
+        // Copy from buffer to output
+        const available = self.read_end - self.read_pos;
+        const to_copy = @min(available, buf.len);
+        @memcpy(buf[0..to_copy], self.read_buffer[self.read_pos..][0..to_copy]);
+        self.read_pos += to_copy;
+        return to_copy;
+    }
+
+    /// Read a line from buffered input
+    pub fn readline(self: *Self, buf: []u8) ![]u8 {
+        var pos: usize = 0;
+        while (pos < buf.len) {
+            var byte: [1]u8 = undefined;
+            const n = try self.read(&byte);
+            if (n == 0) break; // EOF
+            buf[pos] = byte[0];
+            pos += 1;
+            if (byte[0] == '\n') break;
+        }
+        return buf[0..pos];
+    }
+
+    /// Write to buffered output
+    pub fn write(self: *Self, data: []const u8) !usize {
+        if (self.connection == null) return error.NotConnected;
+
+        var written: usize = 0;
+        for (data) |byte| {
+            self.write_buffer[self.write_pos] = byte;
+            self.write_pos += 1;
+
+            // Flush if buffer is full
+            if (self.write_pos >= self.write_buffer.len) {
+                try self.flush();
+            }
+            written += 1;
+        }
+        return written;
+    }
+
+    /// Flush write buffer to socket
+    pub fn flush(self: *Self) !void {
+        if (self.connection == null) return error.NotConnected;
+        if (self.write_pos == 0) return;
+
+        var sent: usize = 0;
+        while (sent < self.write_pos) {
+            const n = std.posix.send(self.connection.?, self.write_buffer[sent..self.write_pos], 0) catch |err| {
+                if (err == error.WouldBlock) continue;
+                return err;
+            };
+            sent += n;
+        }
+        self.write_pos = 0;
     }
 
     pub fn finish(self: *Self) void {
-        // Would flush and close files
+        // Flush any remaining write buffer
+        self.flush() catch {};
         self.base.finish();
     }
 };
@@ -378,34 +485,83 @@ pub fn ForkingMixIn(comptime ServerType: type) type {
         const Self = @This();
 
         server: ServerType,
+        allocator: std.mem.Allocator,
         timeout: ?f64,
-        active_children: std.ArrayList(std.posix.pid_t),
+        active_children: std.ArrayListUnmanaged(std.posix.pid_t),
         max_children: u32,
         block_on_close: bool,
 
         pub fn init(allocator: std.mem.Allocator, server: ServerType) Self {
             return .{
                 .server = server,
+                .allocator = allocator,
                 .timeout = null,
-                .active_children = std.ArrayList(std.posix.pid_t).init(allocator),
+                .active_children = .{},
                 .max_children = 40,
                 .block_on_close = true,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.active_children.deinit();
+            // Wait for all children if block_on_close is set
+            if (self.block_on_close) {
+                self.collectChildren(true);
+            }
+            self.active_children.deinit(self.allocator);
         }
 
+        /// Collect zombie child processes
         pub fn collectChildren(self: *Self, blocking: bool) void {
-            _ = self;
-            _ = blocking;
-            // Would wait for child processes
+            // Remove terminated children from the active list
+            var i: usize = 0;
+            while (i < self.active_children.items.len) {
+                const pid = self.active_children.items[i];
+                const flags: u32 = if (blocking) 0 else std.posix.W.NOHANG;
+                const result = std.posix.waitpid(pid, flags);
+                if (result.pid != 0) {
+                    // Child has exited, remove from list
+                    _ = self.active_children.swapRemove(i);
+                } else {
+                    i += 1;
+                }
+            }
         }
 
-        pub fn processRequest(self: *Self) !void {
-            _ = self;
-            // Would fork and handle in child
+        /// Fork to handle request in child process
+        pub fn processRequest(self: *Self, conn: std.posix.socket_t, client_addr: std.net.Address) !void {
+            // Collect any finished children first
+            self.collectChildren(false);
+
+            // Check if we've hit max children
+            if (self.active_children.items.len >= self.max_children) {
+                // Wait for at least one child to finish
+                self.collectChildren(true);
+            }
+
+            const fork_result = std.posix.fork();
+            if (fork_result == 0) {
+                // Child process - handle the request
+                defer std.posix.exit(0);
+
+                // Close listening socket in child
+                if (@hasField(ServerType, "socket")) {
+                    if (self.server.socket) |sock| {
+                        std.posix.close(sock);
+                    }
+                }
+
+                // Handle the request using the server's handler
+                if (@hasDecl(ServerType, "handleRequest")) {
+                    self.server.handleRequest() catch {};
+                }
+            } else {
+                // Parent process - track the child
+                self.active_children.append(self.allocator, fork_result) catch {};
+
+                // Close connection in parent (child has it)
+                std.posix.close(conn);
+                _ = client_addr;
+            }
         }
     };
 }
@@ -416,20 +572,66 @@ pub fn ThreadingMixIn(comptime ServerType: type) type {
         const Self = @This();
 
         server: ServerType,
+        allocator: std.mem.Allocator,
         daemon_threads: bool,
         block_on_close: bool,
+        active_threads: std.ArrayListUnmanaged(std.Thread),
 
-        pub fn init(server: ServerType) Self {
+        pub fn init(allocator: std.mem.Allocator, server: ServerType) Self {
             return .{
                 .server = server,
+                .allocator = allocator,
                 .daemon_threads = false,
                 .block_on_close = true,
+                .active_threads = .{},
             };
         }
 
-        pub fn processRequest(self: *Self) !void {
-            _ = self;
-            // Would spawn thread to handle request
+        pub fn deinit(self: *Self) void {
+            // Join all threads if block_on_close is set
+            if (self.block_on_close) {
+                for (self.active_threads.items) |thread| {
+                    thread.join();
+                }
+            }
+            self.active_threads.deinit(self.allocator);
+        }
+
+        /// Thread entry point for handling requests
+        fn threadHandler(context: struct { server: *ServerType, conn: std.posix.socket_t, addr: std.net.Address }) void {
+            defer std.posix.close(context.conn);
+
+            // Handle the request using the server's handler
+            if (@hasDecl(ServerType, "handleConnectionInThread")) {
+                context.server.handleConnectionInThread(context.conn, context.addr);
+            }
+        }
+
+        /// Spawn a thread to handle request
+        pub fn processRequest(self: *Self, conn: std.posix.socket_t, client_addr: std.net.Address) !void {
+            // Clean up finished threads (check if joinable)
+            var i: usize = 0;
+            while (i < self.active_threads.items.len) {
+                // Try to remove threads that are done (simplified - just keep all for now)
+                i += 1;
+            }
+
+            // Spawn thread to handle this connection
+            const thread = try std.Thread.spawn(.{}, threadHandler, .{.{
+                .server = &self.server,
+                .conn = conn,
+                .addr = client_addr,
+            }});
+
+            // Track the thread
+            try self.active_threads.append(self.allocator, thread);
+
+            // If daemon threads, we don't need to track them
+            if (self.daemon_threads) {
+                thread.detach();
+                // Remove from active list since it's detached
+                _ = self.active_threads.pop();
+            }
         }
     };
 }
@@ -469,8 +671,8 @@ test "BaseRequestHandler" {
 
 test "StreamRequestHandler" {
     const handler = StreamRequestHandler.init(null, null, null);
-    try std.testing.expect(handler.rfile == null);
-    try std.testing.expectEqual(@as(usize, 0), handler.rbufsize);
+    try std.testing.expect(handler.connection == null);
+    try std.testing.expectEqual(@as(usize, 8192), handler.rbufsize);
 }
 
 test "DatagramRequestHandler" {

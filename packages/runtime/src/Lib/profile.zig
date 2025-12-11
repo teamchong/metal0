@@ -75,6 +75,7 @@ pub const Profile = struct {
     cur: ?[]const u8, // Current function
     timings: hashmap_helper.StringHashMap(i64),
     c: i64, // Call count for calibration
+    is_enabled: bool, // Whether profiling is active
 
     pub fn init(allocator: std.mem.Allocator, timer: ?fn () i64, bias: ?i64) Self {
         return .{
@@ -88,6 +89,7 @@ pub const Profile = struct {
             .cur = null,
             .timings = hashmap_helper.StringHashMap(i64).init(allocator),
             .c = 0,
+            .is_enabled = false,
         };
     }
 
@@ -104,16 +106,21 @@ pub const Profile = struct {
         return std.time.nanoTimestamp();
     }
 
-    /// Enable profiling
+    /// Enable profiling - starts timing
     pub fn enable(self: *Self) void {
-        _ = self;
-        // Would set trace function
+        self.is_enabled = true;
+        // In AOT context, profiling is done via explicit traceDispatchCall/Return
+        // This flag is used by generated code to decide whether to emit profiling calls
     }
 
-    /// Disable profiling
+    /// Disable profiling - stops timing
     pub fn disable(self: *Self) void {
-        _ = self;
-        // Would unset trace function
+        self.is_enabled = false;
+        // Finalize any pending timings
+        var timing_iter = self.timings.iterator();
+        while (timing_iter.next()) |entry| {
+            self.traceDispatchReturn(entry.key_ptr.*);
+        }
     }
 
     /// Create stats without enabling
@@ -192,11 +199,24 @@ pub const Profile = struct {
     }
 
     /// Run code under profiler
+    /// In AOT context, this simulates execution by recording the command as profiled
     pub fn run(self: *Self, cmd: []const u8) !void {
         self.enable();
         defer self.disable();
-        _ = cmd;
-        // Would execute command
+
+        // In AOT compilation, we can't dynamically execute code
+        // Instead, we record this as a profiled function call
+        const start = self.timer();
+        self.traceDispatchCall(cmd);
+
+        // The actual execution would happen in compiled code
+        // This is a placeholder for the profiling infrastructure
+        // Real profiling happens via generated traceDispatchCall/Return in compiled output
+
+        const elapsed = @as(f64, @floatFromInt(self.timer() - start)) / 1_000_000_000.0;
+        self.total_tt += elapsed;
+
+        self.traceDispatchReturn(cmd);
     }
 
     /// Run file under profiler
@@ -293,6 +313,7 @@ pub const Stats = struct {
     prim_calls: u64,
     total_tt: f64,
     sort_keys: []const SortKey,
+    reversed: bool,
 
     pub fn init(allocator: std.mem.Allocator, filename: ?[]const u8) !Self {
         var self = Self{
@@ -302,6 +323,7 @@ pub const Stats = struct {
             .prim_calls = 0,
             .total_tt = 0,
             .sort_keys = &[_]SortKey{},
+            .reversed = false,
         };
 
         if (filename) |f| {
@@ -410,28 +432,90 @@ pub const Stats = struct {
     }
 
     /// Print callees for a function
+    /// Shows which functions are called by each function in the profile
     pub fn printCallees(self: *Self, restrictions: ?[]const []const u8) !void {
-        _ = restrictions;
-        _ = self;
-        // Would print functions called by each function
+        const stdout = std.io.getStdOut().writer();
+
+        var iter = self.stats.iterator();
+        while (iter.next()) |entry| {
+            const func_name = entry.key_ptr.*;
+
+            // Apply restrictions if any
+            if (restrictions) |rest| {
+                var matches = false;
+                for (rest) |pattern| {
+                    if (std.mem.indexOf(u8, func_name, pattern) != null) {
+                        matches = true;
+                        break;
+                    }
+                }
+                if (!matches) continue;
+            }
+
+            try stdout.print("\nFunction: {s}\n", .{func_name});
+            try stdout.writeAll("  Called:\n");
+
+            // In a full implementation, we would track callee relationships
+            // For now, show functions that were called after this one based on timing
+            var callee_iter = self.stats.iterator();
+            while (callee_iter.next()) |callee| {
+                if (!std.mem.eql(u8, callee.key_ptr.*, func_name)) {
+                    // Check if this function's callers include the current function
+                    if (callee.value_ptr.callers.get(func_name)) |caller_stats| {
+                        try stdout.print("    -> {s}: {d} calls, {d:.6}s\n", .{
+                            callee.key_ptr.*,
+                            caller_stats.ncalls,
+                            caller_stats.tottime,
+                        });
+                    }
+                }
+            }
+        }
     }
 
-    /// Sort statistics
+    /// Sort statistics by the given keys
     pub fn sortStats(self: *Self, keys: []const SortKey) void {
         self.sort_keys = keys;
-        // Would sort stats
+        self.reversed = false;
+        // Sorting is applied during iteration in printStats
+        // The sort_keys field determines the sort order
     }
 
-    /// Reverse sort order
+    /// Reverse the current sort order
     pub fn reverseOrder(self: *Self) void {
-        _ = self;
-        // Would reverse sort order
+        self.reversed = !self.reversed;
     }
 
-    /// Strip directory names
+    /// Strip directory names from function identifiers
+    /// Converts "path/to/file.py:func" to "file.py:func"
     pub fn stripDirs(self: *Self) void {
-        _ = self;
-        // Would strip directory prefixes
+        // Create a new map with stripped keys
+        var new_stats = hashmap_helper.StringHashMap(FuncStats).init(self.allocator);
+
+        var iter = self.stats.iterator();
+        while (iter.next()) |entry| {
+            const full_name = entry.key_ptr.*;
+
+            // Find the last path separator
+            var stripped_name = full_name;
+            if (std.mem.lastIndexOfScalar(u8, full_name, '/')) |pos| {
+                stripped_name = full_name[pos + 1 ..];
+            } else if (std.mem.lastIndexOfScalar(u8, full_name, '\\')) |pos| {
+                stripped_name = full_name[pos + 1 ..];
+            }
+
+            // Duplicate the stripped name and add to new map
+            const key = self.allocator.dupe(u8, stripped_name) catch continue;
+            new_stats.put(key, entry.value_ptr.*) catch {
+                self.allocator.free(key);
+                continue;
+            };
+        }
+
+        // Replace old stats with new
+        // Note: We don't free old keys since they might be shared
+        self.stats.deinit();
+        self.stats = new_stats;
     }
 };
 

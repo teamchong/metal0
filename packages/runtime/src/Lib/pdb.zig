@@ -261,32 +261,48 @@ pub const Pdb = struct {
         }
     }
 
+    // Debugger state flags
+    stop_here: bool = false,
+    return_here: bool = false,
+    step_mode: StepMode = .none,
+
+    pub const StepMode = enum { none, step_into, step_over, step_return };
+
     /// Continue command (c/cont/continue)
+    /// Continues execution until next breakpoint or end
     pub fn do_continue(self: *Self, arg: []const u8) !void {
         _ = arg;
-        _ = self;
-        // Would continue execution
+        self.step_mode = .none;
+        self.stop_here = false;
+        self.return_here = false;
+        try self.message("Continuing...");
     }
 
     /// Step command (s/step)
+    /// Executes and stops at the next line (stepping into function calls)
     pub fn do_step(self: *Self, arg: []const u8) !void {
         _ = arg;
-        _ = self;
-        // Would step into
+        self.step_mode = .step_into;
+        self.stop_here = true;
+        try self.message("Stepping into...");
     }
 
     /// Next command (n/next)
+    /// Executes and stops at the next line in current function (stepping over calls)
     pub fn do_next(self: *Self, arg: []const u8) !void {
         _ = arg;
-        _ = self;
-        // Would step over
+        self.step_mode = .step_over;
+        self.stop_here = true;
+        try self.message("Stepping over...");
     }
 
     /// Return command (r/return)
+    /// Continues execution until the current function returns
     pub fn do_return(self: *Self, arg: []const u8) !void {
         _ = arg;
-        _ = self;
-        // Would continue until return
+        self.step_mode = .step_return;
+        self.return_here = true;
+        try self.message("Continuing until return...");
     }
 
     /// Where command (w/where/bt)
@@ -328,24 +344,90 @@ pub const Pdb = struct {
     }
 
     /// List command (l/list)
+    /// Lists source code around current line (default: 11 lines centered on current)
     pub fn do_list(self: *Self, arg: []const u8) !void {
-        _ = arg;
         if (self.curframe) |frame| {
-            try self.stdout.print("{s}:{d}\n", .{ frame.filename, frame.lineno });
-            // Would list source code around current line
+            // Parse optional line range
+            var first: usize = if (frame.lineno > 5) frame.lineno - 5 else 1;
+            var last: usize = frame.lineno + 5;
+
+            if (arg.len > 0) {
+                // Parse "first" or "first,last"
+                if (std.mem.indexOf(u8, arg, ",")) |comma| {
+                    first = std.fmt.parseInt(usize, arg[0..comma], 10) catch first;
+                    last = std.fmt.parseInt(usize, arg[comma + 1 ..], 10) catch last;
+                } else {
+                    const line = std.fmt.parseInt(usize, arg, 10) catch frame.lineno;
+                    first = if (line > 5) line - 5 else 1;
+                    last = line + 5;
+                }
+            }
+
+            // Read the source file
+            const file = std.fs.cwd().openFile(frame.filename, .{}) catch {
+                try self.error_msg("Could not open source file");
+                return;
+            };
+            defer file.close();
+
+            const content = file.readToEndAlloc(self.allocator, 10 * 1024 * 1024) catch {
+                try self.error_msg("Could not read source file");
+                return;
+            };
+            defer self.allocator.free(content);
+
+            // Split into lines and print
+            var lines = std.mem.splitScalar(u8, content, '\n');
+            var lineno: usize = 0;
+            while (lines.next()) |line| {
+                lineno += 1;
+                if (lineno < first) continue;
+                if (lineno > last) break;
+
+                // Mark current line with arrow
+                const marker = if (lineno == frame.lineno) "->" else "  ";
+                const bp_marker = if (self.hasBreakpoint(frame.filename, lineno)) "B" else " ";
+                try self.stdout.print("{s}{s}{d:>4}\t{s}\n", .{ marker, bp_marker, lineno, line });
+            }
         } else {
             try self.error_msg("No current frame");
         }
     }
 
+    /// Check if there's a breakpoint at given location
+    fn hasBreakpoint(self: *Self, filename: []const u8, lineno: usize) bool {
+        for (self.breakpoints.items) |bp| {
+            if (bp.enabled and bp.line == lineno and std.mem.eql(u8, bp.file, filename)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// Print command (p/print)
+    /// Evaluates and prints expression using current frame's locals/globals
     pub fn do_print(self: *Self, arg: []const u8) !void {
         if (arg.len == 0) {
             try self.error_msg("*** No expression given");
             return;
         }
-        // Would evaluate expression
-        try self.stdout.print("{s}\n", .{arg});
+
+        if (self.curframe) |frame| {
+            // Look up in locals first, then globals
+            if (frame.locals.get(arg)) |value| {
+                try self.stdout.print("{s}\n", .{value});
+            } else if (frame.globals.get(arg)) |value| {
+                try self.stdout.print("{s}\n", .{value});
+            } else {
+                // In AOT context, we can't dynamically evaluate expressions
+                // Show what we know about the expression
+                try self.stdout.print("*** NameError: name '{s}' is not defined\n", .{arg});
+                try self.stdout.print("(Note: In AOT mode, only tracked variables can be inspected)\n", .{});
+            }
+        } else {
+            // No frame - just echo (limited functionality)
+            try self.stdout.print("{s}\n", .{arg});
+        }
     }
 
     /// Pretty print command (pp)
@@ -354,11 +436,15 @@ pub const Pdb = struct {
     }
 
     /// Quit command (q/quit/exit)
+    /// Exits the debugger, aborting the program
     pub fn do_quit(self: *Self, arg: []const u8) !void {
         _ = arg;
-        _ = self;
-        // Would exit debugger
+        try self.message("The program finished and will be restarted");
+        self.quitting = true;
     }
+
+    // Quit flag
+    quitting: bool = false,
 
     /// Help command (h/help)
     pub fn do_help(self: *Self, arg: []const u8) !void {
@@ -368,8 +454,47 @@ pub const Pdb = struct {
             try self.message("break clear continue down help list next print");
             try self.message("pp quit return step up where");
         } else {
-            // Would show help for specific command
-            try self.stdout.print("Help for: {s}\n", .{arg});
+            // Show help for specific command
+            if (std.mem.eql(u8, arg, "break") or std.mem.eql(u8, arg, "b")) {
+                try self.message("b(reak) [([filename:]lineno | function) [, condition]]");
+                try self.message("        With no argument, list all breakpoints.");
+                try self.message("        With a line number, set a breakpoint at that line.");
+            } else if (std.mem.eql(u8, arg, "clear") or std.mem.eql(u8, arg, "cl")) {
+                try self.message("cl(ear) [bpnumber [bpnumber ...]]");
+                try self.message("        Clear the specified breakpoints (or all breakpoints).");
+            } else if (std.mem.eql(u8, arg, "continue") or std.mem.eql(u8, arg, "c")) {
+                try self.message("c(ont(inue))");
+                try self.message("        Continue execution, only stop when a breakpoint is encountered.");
+            } else if (std.mem.eql(u8, arg, "step") or std.mem.eql(u8, arg, "s")) {
+                try self.message("s(tep)");
+                try self.message("        Execute the current line, stop at first possible occasion.");
+            } else if (std.mem.eql(u8, arg, "next") or std.mem.eql(u8, arg, "n")) {
+                try self.message("n(ext)");
+                try self.message("        Continue execution until the next line in the current function.");
+            } else if (std.mem.eql(u8, arg, "return") or std.mem.eql(u8, arg, "r")) {
+                try self.message("r(eturn)");
+                try self.message("        Continue execution until the current function returns.");
+            } else if (std.mem.eql(u8, arg, "list") or std.mem.eql(u8, arg, "l")) {
+                try self.message("l(ist) [first[, last]]");
+                try self.message("        List source code for the current file.");
+            } else if (std.mem.eql(u8, arg, "print") or std.mem.eql(u8, arg, "p")) {
+                try self.message("p expression");
+                try self.message("        Print the value of the expression.");
+            } else if (std.mem.eql(u8, arg, "where") or std.mem.eql(u8, arg, "w") or std.mem.eql(u8, arg, "bt")) {
+                try self.message("w(here) / bt");
+                try self.message("        Print a stack trace, with the most recent frame at the bottom.");
+            } else if (std.mem.eql(u8, arg, "up") or std.mem.eql(u8, arg, "u")) {
+                try self.message("u(p) [count]");
+                try self.message("        Move the current frame count levels up in the stack trace.");
+            } else if (std.mem.eql(u8, arg, "down") or std.mem.eql(u8, arg, "d")) {
+                try self.message("d(own) [count]");
+                try self.message("        Move the current frame count levels down in the stack trace.");
+            } else if (std.mem.eql(u8, arg, "quit") or std.mem.eql(u8, arg, "q")) {
+                try self.message("q(uit) / exit");
+                try self.message("        Quit from the debugger. The program being executed is aborted.");
+            } else {
+                try self.stdout.print("*** No help on {s}\n", .{arg});
+            }
         }
     }
 
@@ -416,22 +541,45 @@ pub const Pdb = struct {
     // ========================================================================
 
     /// Run the debugger on a script
+    /// In AOT mode, this loads and displays the script for interactive debugging
     pub fn run(self: *Self, cmd: []const u8) !void {
-        _ = self;
-        _ = cmd;
-        // Would execute command under debugger
+        // Create initial frame from command
+        var frame = Frame.init(self.allocator, "<string>", 1, "<module>");
+        try self.stack.append(frame);
+        self.curindex = 0;
+        self.curframe = &self.stack.items[0];
+
+        try self.message("Starting debugger on command:");
+        try self.stdout.print("> {s}\n", .{cmd});
+
+        // Enter interactive mode
+        try self.interact();
     }
 
     /// Start debugging at the call site
+    /// Sets up trace infrastructure for AOT debugging
     pub fn setTrace(self: *Self) void {
-        _ = self;
-        // Would set trace function
+        self.step_mode = .step_into;
+        self.stop_here = true;
+        // In AOT context, we mark that debugging is active
+        // Generated code should check this flag and call debugger hooks
     }
 
     /// Post-mortem debugging
+    /// Examines the exception traceback
     pub fn postMortem(self: *Self) !void {
-        _ = self;
-        // Would examine exception traceback
+        try self.message("Post-mortem debugging");
+
+        // In AOT mode, we enter interactive mode with whatever stack we have
+        if (self.stack.items.len == 0) {
+            try self.message("(No traceback available)");
+        } else {
+            try self.message("Traceback (most recent call last):");
+            try self.printStack();
+        }
+
+        // Enter interactive mode
+        try self.interact();
     }
 
     /// Interactive debugging session
@@ -492,30 +640,65 @@ pub const Pdb = struct {
 // Module Functions
 // ============================================================================
 
-/// Convenience function to set a breakpoint
+// Global debugger instance (thread-local for safety)
+threadlocal var global_pdb: ?*Pdb = null;
+
+/// Convenience function to set a breakpoint at the call site
+/// Usage: pdb.set_trace()
 pub fn set_trace() void {
-    // Would set trace function
+    // In AOT mode, this is a no-op at runtime
+    // The compiled code should check for breakpoints
+    // This is a marker for developers to know debugging should start here
+    if (global_pdb) |pdb| {
+        pdb.setTrace();
+    }
 }
 
 /// Post-mortem debugging of last exception
+/// Usage: pdb.pm()
 pub fn pm() void {
-    // Would start post-mortem debugging
+    if (global_pdb) |pdb| {
+        pdb.postMortem() catch {};
+    }
 }
 
-/// Run a script under the debugger
+/// Run a statement under the debugger
+/// Usage: pdb.run(statement, globals, locals)
 pub fn run(statement: []const u8, globals: ?*anyopaque, locals: ?*anyopaque) void {
-    _ = statement;
     _ = globals;
     _ = locals;
-    // Would run statement under debugger
+    // Use heap allocator since we don't have access to one
+    const allocator = std.heap.page_allocator;
+    var pdb = Pdb.init(allocator, null);
+    defer pdb.deinit();
+    global_pdb = &pdb;
+    defer {
+        global_pdb = null;
+    }
+    pdb.run(statement) catch {};
 }
 
 /// Run a script file under the debugger
+/// Usage: pdb.runscript(filename)
 pub fn runscript(allocator: std.mem.Allocator, filename: []const u8) !void {
     var pdb = Pdb.init(allocator, null);
     defer pdb.deinit();
-    _ = filename;
-    // Would load and run file under debugger
+    global_pdb = &pdb;
+    defer {
+        global_pdb = null;
+    }
+
+    // Create frame for the script
+    var frame = Frame.init(allocator, filename, 1, "<module>");
+    try pdb.stack.append(frame);
+    pdb.curindex = 0;
+    pdb.curframe = &pdb.stack.items[0];
+
+    try pdb.message("Debugging script:");
+    try pdb.stdout.print("> {s}\n", .{filename});
+
+    // Enter interactive mode
+    try pdb.interact();
 }
 
 // ============================================================================
