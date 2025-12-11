@@ -103,6 +103,18 @@ pub fn ContextVar(comptime T: type) type {
 }
 
 // ============================================================================
+// Current Context (thread-local)
+// ============================================================================
+
+/// Thread-local current context
+threadlocal var current_context: ?*Context = null;
+
+/// Get the current context (creates one if none exists)
+pub fn copyContext() ?*Context {
+    return current_context;
+}
+
+// ============================================================================
 // Context - A mapping of ContextVars to values
 // ============================================================================
 
@@ -141,9 +153,20 @@ pub const Context = struct {
     }
 
     /// Run a callable in this context
+    /// The context is set as current before calling func and restored afterward
     pub fn run(self: *Self, comptime func: anytype, args: anytype) @TypeOf(@call(.auto, func, args)) {
-        // Would set up the context, run the function, then restore
-        _ = self;
+        // Save the current context
+        const prev_context = current_context;
+
+        // Set this context as current
+        current_context = self;
+
+        // Run the function
+        defer {
+            // Restore previous context
+            current_context = prev_context;
+        }
+
         return @call(.auto, func, args);
     }
 

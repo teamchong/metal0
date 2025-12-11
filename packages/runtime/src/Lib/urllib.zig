@@ -708,8 +708,32 @@ pub const robotparser = struct {
 
         pub fn read(self: *RobotFileParser) !void {
             if (self.url) |url| {
-                _ = url;
-                // Would fetch and parse robots.txt
+                // Fetch robots.txt using HTTP
+                var client = std.http.Client{ .allocator = self.allocator };
+                defer client.deinit();
+
+                const uri = std.Uri.parse(url) catch return;
+                var req = client.open(.GET, uri, .{}) catch return;
+                defer req.deinit();
+
+                req.send() catch return;
+                req.wait() catch return;
+
+                // Read response body
+                var body_buf: [64 * 1024]u8 = undefined;
+                const body_len = req.reader().readAll(&body_buf) catch return;
+                const body = body_buf[0..body_len];
+
+                // Split into lines and parse
+                var lines = std.ArrayList([]const u8).init(self.allocator);
+                defer lines.deinit();
+
+                var iter = std.mem.splitScalar(u8, body, '\n');
+                while (iter.next()) |line| {
+                    lines.append(line) catch continue;
+                }
+
+                try self.parse(lines.items);
             }
         }
 
