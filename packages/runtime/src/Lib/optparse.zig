@@ -501,10 +501,30 @@ pub const OptionParser = struct {
                 try values.set(option.getDest(), .{ .count = current + 1 });
             },
             .append => {
-                // Would need list handling
+                // Append value to a list
                 if (i + 1 < args.len) {
                     i += 1;
-                    try values.set(option.getDest(), .{ .string = args[i] });
+                    const dest = option.getDest();
+
+                    // Get or create the list
+                    if (values.values.getPtr(dest)) |existing| {
+                        switch (existing.*) {
+                            .string_list => |*list| {
+                                try list.append(args[i]);
+                            },
+                            else => {
+                                // Convert to list
+                                var list = std.ArrayList([]const u8).init(values.allocator);
+                                try list.append(args[i]);
+                                try values.set(dest, .{ .string_list = list });
+                            },
+                        }
+                    } else {
+                        // Create new list
+                        var list = std.ArrayList([]const u8).init(values.allocator);
+                        try list.append(args[i]);
+                        try values.set(dest, .{ .string_list = list });
+                    }
                 }
             },
             .help => {

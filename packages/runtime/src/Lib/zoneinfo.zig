@@ -220,9 +220,22 @@ pub const TZPATH: []const []const u8 = &.{
     "/etc/zoneinfo",
 };
 
-/// Reset the TZPATH (used for testing)
+/// Custom TZPATH (null means use default)
+var custom_tzpath: ?[]const []const u8 = null;
+
+/// Get the current TZPATH
+pub fn get_tzpath() []const []const u8 {
+    return custom_tzpath orelse TZPATH;
+}
+
+/// Set custom TZPATH (for testing or configuration)
+pub fn set_tzpath(paths: []const []const u8) void {
+    custom_tzpath = paths;
+}
+
+/// Reset the TZPATH to default (used for testing)
 pub fn reset_tzpath() void {
-    // Would reset to default
+    custom_tzpath = null;
 }
 
 // ============================================================================

@@ -412,7 +412,7 @@ pub const Stats = struct {
         }
     }
 
-    /// Print what functions call
+    /// Print what functions call (callee statistics)
     pub fn printCallees(self: *Self, restrictions: ?[]const []const u8) !void {
         const writer = self.stream.writer();
         try writer.writeAll("   Ordered by: standard name\n\n");
@@ -421,10 +421,27 @@ pub const Stats = struct {
 
         _ = restrictions;
 
-        // Would iterate through callees
+        // Iterate through all functions and print their callee info
         var it = self.stats.iterator();
         while (it.next()) |entry| {
+            const stat = entry.value_ptr.*;
             try writer.print("{s}\n", .{entry.key_ptr.*});
+
+            // Print callers (which represents who called this function)
+            // In pstats, we need to reverse this to show callees
+            var caller_it = stat.callers.iterator();
+            while (caller_it.next()) |caller_entry| {
+                const caller_id = caller_entry.key_ptr.*;
+                const info = caller_entry.value_ptr.*;
+                try writer.print("    <- {s}:{d}({s})  {d}  {d:.6}  {d:.6}\n", .{
+                    caller_id.filename,
+                    caller_id.lineno,
+                    caller_id.name,
+                    info.calls,
+                    info.total_time,
+                    info.cumulative_time,
+                });
+            }
         }
     }
 
