@@ -5,7 +5,7 @@ const runtime = @import("../runtime.zig");
 
 const PyObject = runtime.PyObject;
 const PyTupleObject = runtime.PyTupleObject;
-const PyTuple_Type = &runtime.PyTuple_Type;
+const PyTuple_Type = &runtime.cpython.PyTuple_Type;
 const PyLongObject = runtime.PyLongObject;
 const PyUnicodeObject = runtime.PyUnicodeObject;
 const incref = runtime.incref;
@@ -154,8 +154,8 @@ pub const PyTuple = struct {
             return std.mem.eql(u8, a_ptr[0..a_size], b_ptr[0..b_size]);
         }
 
-        if (runtime.Py_IS_TYPE(a, &runtime.PyNone_Type)) {
-            return runtime.Py_IS_TYPE(b, &runtime.PyNone_Type);
+        if (runtime.Py_IS_TYPE(a, &runtime.cpython.PyNone_Type)) {
+            return runtime.Py_IS_TYPE(b, &runtime.cpython.PyNone_Type);
         }
 
         // For other types, use identity comparison

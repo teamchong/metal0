@@ -4,7 +4,7 @@ const runtime = @import("../runtime.zig");
 
 pub const PyObject = runtime.PyObject;
 pub const PyComplexObject = runtime.PyComplexObject;
-pub const PyComplex_Type = &runtime.PyComplex_Type;
+pub const PyComplex_Type = &runtime.cpython.PyComplex_Type;
 
 /// Python complex type - wrapper around CPython-compatible PyComplexObject
 pub const PyComplex = struct {

@@ -6,7 +6,7 @@ const runtime = @import("../runtime.zig");
 // Re-export CPython-compatible types
 pub const PyObject = runtime.PyObject;
 pub const PyLongObject = runtime.PyLongObject;
-pub const PyLong_Type = &runtime.PyLong_Type;
+pub const PyLong_Type = &runtime.cpython.PyLong_Type;
 
 /// Python integer type - wrapper around CPython-compatible PyLongObject
 pub const PyInt = struct {

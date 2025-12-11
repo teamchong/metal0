@@ -5,7 +5,7 @@ const allocator_helper = @import("utils.allocator_helper");
 const runtime = @import("../../runtime.zig");
 const PyObject = runtime.PyObject;
 const PyUnicodeObject = runtime.PyUnicodeObject;
-const PyUnicode_Type = &runtime.PyUnicode_Type;
+const PyUnicode_Type = &runtime.cpython.PyUnicode_Type;
 const PythonError = runtime.PythonError;
 
 // Unicode state flags (simplified from CPython)

@@ -6,8 +6,8 @@ const runtime = @import("../runtime.zig");
 pub const PyObject = runtime.PyObject;
 pub const PySetObject = runtime.PySetObject;
 pub const setentry = runtime.setentry;
-pub const PySet_Type = &runtime.PySet_Type;
-pub const PyFrozenSet_Type = &runtime.PyFrozenSet_Type;
+pub const PySet_Type = &runtime.cpython.PySet_Type;
+pub const PyFrozenSet_Type = &runtime.cpython.PyFrozenSet_Type;
 pub const PySet_MINSIZE = runtime.PySet_MINSIZE;
 
 const incref = runtime.incref;

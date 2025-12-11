@@ -6,7 +6,7 @@ const runtime = @import("../runtime.zig");
 pub const PyObject = runtime.PyObject;
 pub const PyDequeObject = runtime.PyDequeObject;
 pub const DequeBlock = runtime.DequeBlock;
-pub const PyDeque_Type = &runtime.PyDeque_Type;
+pub const PyDeque_Type = &runtime.cpython.PyDeque_Type;
 pub const DEQUE_BLOCKLEN = runtime.DEQUE_BLOCKLEN;
 
 const incref = runtime.incref;

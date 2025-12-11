@@ -7,7 +7,7 @@ const hashmap_helper = @import("utils.hashmap_helper");
 // Re-export CPython-compatible types
 pub const PyObject = runtime.PyObject;
 pub const PyDictObject = runtime.PyDictObject;
-pub const PyDict_Type = &runtime.PyDict_Type;
+pub const PyDict_Type = &runtime.cpython.PyDict_Type;
 
 /// Python dict type - wrapper around CPython-compatible PyDictObject
 pub const PyDict = struct {

@@ -6,7 +6,7 @@ const runtime = @import("../runtime.zig");
 // Re-export CPython-compatible types
 pub const PyObject = runtime.PyObject;
 pub const PyFloatObject = runtime.PyFloatObject;
-pub const PyFloat_Type = &runtime.PyFloat_Type;
+pub const PyFloat_Type = &runtime.cpython.PyFloat_Type;
 
 /// Python float type - wrapper around CPython-compatible PyFloatObject
 pub const PyFloat = struct {

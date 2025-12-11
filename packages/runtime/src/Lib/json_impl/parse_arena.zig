@@ -51,7 +51,7 @@ fn initIntCache() void {
             .ob_base = .{
                 .ob_base = .{
                     .ob_refcnt = 1, // Never freed
-                    .ob_type = &runtime.PyLong_Type,
+                    .ob_type = &runtime.cpython.PyLong_Type,
                 },
                 .ob_size = 1,
             },
@@ -210,7 +210,7 @@ fn parseNumber(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
             float_obj.* = .{
                 .ob_base = .{
                     .ob_refcnt = 1,
-                    .ob_type = &runtime.PyFloat_Type,
+                    .ob_type = &runtime.cpython.PyFloat_Type,
                 },
                 .ob_fval = float_val,
             };
@@ -228,7 +228,7 @@ fn parseNumber(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
                 .ob_base = .{
                     .ob_base = .{
                         .ob_refcnt = 1,
-                        .ob_type = &runtime.PyLong_Type,
+                        .ob_type = &runtime.cpython.PyLong_Type,
                     },
                     .ob_size = 1,
                 },
@@ -269,7 +269,7 @@ fn parseString(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
     str_obj.* = .{
         .ob_base = .{
             .ob_refcnt = 1,
-            .ob_type = &runtime.PyUnicode_Type,
+            .ob_type = &runtime.cpython.PyUnicode_Type,
         },
         .length = @intCast(final_str.len),
         .hash = -1,
@@ -305,7 +305,7 @@ fn parseArray(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseRe
         .ob_base = .{
             .ob_base = .{
                 .ob_refcnt = 1,
-                .ob_type = &runtime.PyList_Type,
+                .ob_type = &runtime.cpython.PyList_Type,
             },
             .ob_size = 0,
         },
@@ -417,7 +417,7 @@ fn parseObject(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
     dict_obj.* = .{
         .ob_base = .{
             .ob_refcnt = 1,
-            .ob_type = &runtime.PyDict_Type,
+            .ob_type = &runtime.cpython.PyDict_Type,
         },
         .ma_used = 0,
         .ma_keys = map,

@@ -35,7 +35,7 @@ pub const PyFile = struct {
         file_obj.* = PyFileObject{
             .ob_base = runtime.PyObject{
                 .ob_refcnt = 1,
-                .ob_type = &runtime.PyFile_Type,
+                .ob_type = &runtime.cpython.PyFile_Type,
             },
             .file_data = file_data,
         };

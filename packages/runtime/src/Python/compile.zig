@@ -36,7 +36,7 @@ const PyBigInt = struct {
             .ob_base = .{
                 .ob_base = .{
                     .ob_refcnt = 1,
-                    .ob_type = &runtime.PyBigInt_Type,
+                    .ob_type = &runtime.cpython.PyBigInt_Type,
                 },
                 .ob_size = 1,
             },
@@ -52,7 +52,7 @@ const PyBigInt = struct {
             .ob_base = .{
                 .ob_base = .{
                     .ob_refcnt = 1,
-                    .ob_type = &runtime.PyBigInt_Type,
+                    .ob_type = &runtime.cpython.PyBigInt_Type,
                 },
                 .ob_size = 1,
             },
@@ -79,7 +79,7 @@ fn createPyBytes(allocator: std.mem.Allocator, data: []const u8) !*PyObject {
         .ob_base = .{
             .ob_base = .{
                 .ob_refcnt = 1,
-                .ob_type = &runtime.PyBytes_Type,
+                .ob_type = &runtime.cpython.PyBytes_Type,
             },
             .ob_size = @intCast(data.len),
         },

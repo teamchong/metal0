@@ -6,7 +6,7 @@ const runtime = @import("../runtime.zig");
 // Re-export CPython-compatible types
 pub const PyObject = runtime.PyObject;
 pub const PyListObject = runtime.PyListObject;
-pub const PyList_Type = &runtime.PyList_Type;
+pub const PyList_Type = &runtime.cpython.PyList_Type;
 const PyLongObject = runtime.PyLongObject;
 
 const incref = runtime.incref;

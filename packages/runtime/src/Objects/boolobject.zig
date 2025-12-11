@@ -6,7 +6,7 @@ const runtime = @import("../runtime.zig");
 // Re-export CPython-compatible types
 pub const PyObject = runtime.PyObject;
 pub const PyBoolObject = runtime.PyBoolObject;
-pub const PyBool_Type = &runtime.PyBool_Type;
+pub const PyBool_Type = &runtime.cpython.PyBool_Type;
 
 // Bool singletons (like CPython's Py_True and Py_False)
 var _Py_TrueStruct: PyBoolObject = .{
