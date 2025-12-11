@@ -926,34 +926,45 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
         return error.BatchCompileFailed;
     };
 
-    switch (result.term) {
-        .Exited => |code| {
-            if (code == 0) {
-                // Count binaries in .metal0/bin
-                var count: usize = 0;
-                var dir = std.fs.cwd().openDir(".metal0/bin", .{ .iterate = true }) catch {
-                    return .{ .success = 0, .total = 0 };
-                };
-                defer dir.close();
+    // With -k (keep going), we get partial results even on failure
+    // Count successfully compiled binaries regardless of exit code
+    var count: usize = 0;
+    var dir = std.fs.cwd().openDir(".metal0/bin", .{ .iterate = true }) catch {
+        // No binaries at all - that's a real failure
+        if (result.stderr.len > 0) {
+            std.debug.print("Batch compile errors:\n{s}\n", .{result.stderr});
+        }
+        return error.BatchCompileFailed;
+    };
+    defer dir.close();
 
-                var iter = dir.iterate();
-                while (iter.next() catch null) |entry| {
-                    if (entry.kind == .file) count += 1;
-                }
-
-                return .{ .success = count, .total = count };
-            } else {
-                if (result.stderr.len > 0) {
-                    std.debug.print("Batch compile errors:\n{s}\n", .{result.stderr});
-                }
-                return error.BatchCompileFailed;
-            }
-        },
-        else => {
-            std.debug.print("Batch compile terminated abnormally\n", .{});
-            return error.BatchCompileFailed;
-        },
+    var iter = dir.iterate();
+    while (iter.next() catch null) |entry| {
+        if (entry.kind == .file) count += 1;
     }
+
+    // Get total from manifest
+    const manifest_content = std.fs.cwd().readFileAlloc(allocator, ".metal0/manifest.zig", 1024 * 1024) catch {
+        return .{ .success = count, .total = count };
+    };
+    defer allocator.free(manifest_content);
+
+    // Count test entries in manifest
+    var total: usize = 0;
+    var lines = std.mem.splitScalar(u8, manifest_content, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.indexOf(u8, line, ".{ .name =") != null) total += 1;
+    }
+
+    if (count == 0 and total > 0) {
+        // Nothing compiled at all
+        if (result.stderr.len > 0) {
+            std.debug.print("Batch compile errors:\n{s}\n", .{result.stderr});
+        }
+        return error.BatchCompileFailed;
+    }
+
+    return .{ .success = count, .total = total };
 }
 
 /// Check if batch build.zig exists and copy if needed

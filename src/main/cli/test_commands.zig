@@ -35,7 +35,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var bail_count: usize = 0; // 0 = no limit
     var jobs: usize = std.Thread.getCpuCount() catch 8;
     var dots_mode: bool = false;
-    var batch_mode: bool = false; // Use batch compilation
+    var batch_mode: bool = true; // Use batch compilation by default (fast)
     var filter_pattern: ?[]const u8 = null;
     var file_patterns = std.ArrayList([]const u8){};
     defer file_patterns.deinit(allocator);
@@ -77,6 +77,8 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
             dots_mode = true;
         } else if (std.mem.eql(u8, arg, "--batch")) {
             batch_mode = true;
+        } else if (std.mem.eql(u8, arg, "--no-batch")) {
+            batch_mode = false;
         } else if (std.mem.eql(u8, arg, "-t") or std.mem.eql(u8, arg, "--filter")) {
             i += 1;
             if (i < args.len) filter_pattern = args[i];
