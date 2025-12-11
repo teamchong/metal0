@@ -5,21 +5,11 @@ const builtin = @import("builtin");
 const allocator_helper = @import("utils.allocator_helper");
 
 /// Browser WASM (freestanding) has no threading or OS support
-pub const is_freestanding = builtin.os.tag == .freestanding;
+pub const is_freestanding = print_utils.is_freestanding;
 
-/// Cross-platform print function
-/// - Native/WASI: uses std.debug.print (stderr)
-/// - Freestanding (browser): no-op (JS should use exported functions)
-pub fn print(comptime fmt: []const u8, args: anytype) void {
-    if (comptime !is_freestanding) {
-        std.debug.print(fmt, args);
-    }
-}
-
-/// Print a newline
-pub fn println() void {
-    print("\n", .{});
-}
+// Re-export print functions from print_utils.zig
+pub const print = print_utils.print;
+pub const println = print_utils.println;
 
 const hashmap_helper = @import("utils.hashmap_helper");
 const pyint = @import("Objects/intobject.zig");
@@ -137,36 +127,17 @@ pub const decimal_mod = @import("runtime/decimal.zig");
 /// Feature macros
 pub const feature_macros_mod = @import("runtime/feature_macros.zig");
 
-/// DynamicClosure - Type-erased closure for Python scope semantics
-/// Used when a function is defined in multiple if/else branches and used outside
-/// Holds a pointer to any closure struct and its call function
-pub const DynamicClosure = struct {
-    /// Opaque pointer to the actual closure struct
-    ptr: *anyopaque,
-    /// Type-erased call function that takes (ptr, arg1, arg2) and returns result
-    call_fn: *const fn (*anyopaque, anytype, anytype) anyerror!i64,
+/// Print utilities
+pub const print_utils = @import("runtime/print_utils.zig");
 
-    const Self = @This();
+/// Dynamic closure for Python scope semantics
+pub const dynamic_closure = @import("runtime/dynamic_closure.zig");
 
-    /// Create a DynamicClosure from any closure that has a .call() method
-    pub fn init(closure: anytype) Self {
-        const Closure = @TypeOf(closure);
-        return .{
-            .ptr = @ptrCast(@constCast(&closure)),
-            .call_fn = struct {
-                fn callWrapper(ptr: *anyopaque, arg1: anytype, arg2: anytype) anyerror!i64 {
-                    const c: *const Closure = @ptrCast(@alignCast(ptr));
-                    return c.call(arg1, arg2);
-                }
-            }.callWrapper,
-        };
-    }
+/// Miscellaneous utilities
+pub const misc_utils = @import("runtime/misc_utils.zig");
 
-    /// Call the wrapped closure
-    pub fn call(self: Self, arg1: anytype, arg2: anytype) anyerror!i64 {
-        return self.call_fn(self.ptr, arg1, arg2);
-    }
-};
+// Re-export DynamicClosure from dynamic_closure.zig
+pub const DynamicClosure = dynamic_closure.DynamicClosure;
 
 // Re-export logic operations from logic_ops.zig
 pub const pyOr = logic_ops.pyOr;
@@ -1633,21 +1604,9 @@ pub fn pyObjToBigInt(obj: *PyObject, allocator: std.mem.Allocator) BigInt {
     return BigInt.fromInt(allocator, 0) catch unreachable;
 }
 
-/// Bounds-checked array list access for exception handling
-/// Returns element at index or IndexError if out of bounds
-pub fn arrayListGet(comptime T: type, list: std.ArrayList(T), index: i64) PythonError!T {
-    const len: i64 = @intCast(list.items.len);
-
-    // Handle negative indices (Python-style)
-    const actual_index = if (index < 0) len + index else index;
-
-    // Bounds check
-    if (actual_index < 0 or actual_index >= len) {
-        return PythonError.IndexError;
-    }
-
-    return list.items[@intCast(actual_index)];
-}
+// Re-export misc utilities from misc_utils.zig
+pub const arrayListGet = misc_utils.arrayListGet;
+pub const concat = misc_utils.concat;
 
 /// Create a unique base object instance (for sentinel values)
 /// Each call returns a new unique object that can be compared by identity
@@ -1657,22 +1616,6 @@ pub fn createObject() *PyObject {
     const Sentinel = struct { _marker: u64 align(@alignOf(PyObject)) = 0 };
     const sentinel = Sentinel{};
     return @ptrCast(@alignCast(@constCast(&sentinel)));
-}
-
-/// Parse int from string with Unicode whitespace stripping (like Python's int())
-/// Strips Unicode whitespace (EM SPACE, EN SPACE, etc.) before parsing
-/// Returns error.ValueError for invalid strings (like Python's int())
-/// Supports base 0 for auto-detection from prefix (0x, 0o, 0b, 0X, 0O, 0B)
-/// Parse int from string directly to BigInt with Unicode whitespace stripping
-/// Use this when you know the result will be stored in a BigInt
-/// Check if codepoint is Unicode whitespace (Python's definition)
-/// Get numeric value of a Unicode digit character (0-9)
-/// Returns null if not a digit
-/// Parse integer from string with Unicode digit support
-/// Concatenate two arrays/slices - returns a new array with elements from both
-/// This is Python list concatenation: [1,2] + [3,4] = [1,2,3,4]
-pub inline fn concat(a: anytype, b: anytype) @TypeOf(a ++ b) {
-    return a ++ b;
 }
 
 // Re-export list concat/repeat operations from concat_repeat.zig
