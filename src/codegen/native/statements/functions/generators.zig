@@ -50,8 +50,9 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     }
 
     // Check if this is a generator function (contains yield)
-    // Use function_traits unified analysis
-    const is_generator = self.funcIsGenerator(func.name);
+    // First try call graph (for top-level functions), then fall back to AST check
+    // (for nested functions which aren't registered in call graph)
+    const is_generator = self.funcIsGenerator(func.name) or signature.hasYieldStatement(func.body);
     // Set flag for generator functions - must be set before signature generation
     // and persist through body generation
     if (is_generator) {

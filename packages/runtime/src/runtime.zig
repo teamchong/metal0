@@ -1690,14 +1690,14 @@ fn pyObjectToPyValue(obj: ?*PyObject) PyValue {
     }
     if (PyBool_Check(o)) {
         const bool_obj: *PyBoolObject = @ptrCast(@alignCast(o));
-        return .{ .boolean = bool_obj.ob_digit != 0 };
+        return .{ .bool = bool_obj.ob_digit != 0 };
     }
     if (PyUnicode_Check(o)) {
         // Return pointer as opaque - caller can cast to *PyObject for string ops
-        return .{ .object = o };
+        return .{ .ptr = o };
     }
-    // Default: wrap as object
-    return .{ .object = o };
+    // Default: wrap as ptr
+    return .{ .ptr = o };
 }
 
 /// Extract value from PyObject for comparisons

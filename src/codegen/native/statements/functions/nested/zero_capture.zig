@@ -7,6 +7,7 @@ const zig_keywords = @import("utils.zig_keywords");
 const hashmap_helper = @import("utils.hashmap_helper");
 const var_tracking = @import("var_tracking.zig");
 const type_traits = @import("../../../../../analysis/traits/type_traits.zig");
+const signature = @import("../generators/signature.zig");
 
 /// Generate zero-capture closure using comptime ZeroClosure
 pub fn genZeroCaptureClosure(
@@ -92,10 +93,16 @@ pub fn genZeroCaptureClosure(
             try self.emit("_: anytype");
         }
     }
+    // Check if this is a generator function (contains yield) - used for return type
+    const is_generator_func = signature.hasYieldStatement(func.body);
+
     // Look up the function's inferred return type from type inference
     // Use it for proper type safety, falling back to anytype workaround via @TypeOf
     const return_type = self.type_inferrer.func_return_types.get(func.name);
-    if (return_type) |rt| {
+    if (is_generator_func) {
+        // Generators return slice of PyValue
+        try self.emit(") ![]runtime.PyValue {\n");
+    } else if (return_type) |rt| {
         // We have a known return type from inference - use it
         try self.emit(") !");
         var type_buf = std.ArrayList(u8){};
@@ -247,8 +254,27 @@ pub fn genZeroCaptureClosure(
     const func_name_copy_early = try self.allocator.dupe(u8, func.name);
     try self.closure_vars.put(func_name_copy_early, {});
 
+    // Check if this is a generator function (contains yield)
+    const is_generator = signature.hasYieldStatement(func.body);
+    const saved_in_generator = self.in_generator_function;
+    if (is_generator) {
+        self.in_generator_function = true;
+        // Initialize __gen_result ArrayList for collecting yield values
+        try self.emitIndent();
+        try self.emit("var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
+        try self.emitIndent();
+        try self.emit("_ = &__gen_result;\n");
+    }
+    defer self.in_generator_function = saved_in_generator;
+
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
+    }
+
+    // For generators, return the collected results
+    if (is_generator and !self.control_flow_terminated) {
+        try self.emitIndent();
+        try self.emit("return __gen_result.items;\n");
     }
 
     // Free the reassigned param var names
@@ -258,25 +284,28 @@ pub fn genZeroCaptureClosure(
 
     // If function has non-void return type but no explicit return/raise, add default return
     // Both return_stmt and raise_stmt are terminating statements - don't add return after them
-    const has_explicit_return = blk: {
-        for (func.body) |stmt| {
-            if (stmt == .return_stmt or stmt == .raise_stmt) break :blk true;
-        }
-        break :blk false;
-    };
-    if (!has_explicit_return and return_type != null) {
-        // Add default return based on return type
-        try self.emitIndent();
-        if (return_type) |rt| {
-            if (rt == .int or rt == .usize) {
-                try self.emit("return 0;\n");
-            } else if (type_traits.isClassInstance(rt)) {
-                try self.emit("return undefined;\n");
-            } else {
-                try self.emit("return undefined;\n");
+    // Skip for generators - their return is handled above
+    if (!is_generator) {
+        const has_explicit_return = blk: {
+            for (func.body) |stmt| {
+                if (stmt == .return_stmt or stmt == .raise_stmt) break :blk true;
             }
-        } else {
-            try self.emit("return 0;\n");
+            break :blk false;
+        };
+        if (!has_explicit_return and return_type != null) {
+            // Add default return based on return type
+            try self.emitIndent();
+            if (return_type) |rt| {
+                if (rt == .int or rt == .usize) {
+                    try self.emit("return 0;\n");
+                } else if (type_traits.isClassInstance(rt)) {
+                    try self.emit("return undefined;\n");
+                } else {
+                    try self.emit("return undefined;\n");
+                }
+            } else {
+                try self.emit("return 0;\n");
+            }
         }
     }
 
@@ -311,7 +340,10 @@ pub fn genZeroCaptureClosure(
     const native_types = @import("../../../../../analysis/native_types.zig");
     var return_type_str = std.ArrayList(u8){};
     defer return_type_str.deinit(self.allocator);
-    if (return_type) |rt| {
+    if (is_generator_func) {
+        // Generators return slice of PyValue
+        try return_type_str.appendSlice(self.allocator, "[]runtime.PyValue");
+    } else if (return_type) |rt| {
         try native_types.NativeType.toZigType(rt, self.allocator, &return_type_str);
     } else {
         try return_type_str.appendSlice(self.allocator, "i64");
