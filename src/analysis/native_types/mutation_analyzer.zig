@@ -40,9 +40,12 @@ pub const MutationType = enum {
 pub const MutationInfo = struct {
     is_mutated: bool,
     mutation_types: std.ArrayList(MutationType),
+    /// Types of values appended via .append() - for inferring empty list element type
+    append_arg_nodes: std.ArrayList(ast.Node),
 
     pub fn deinit(self: *MutationInfo) void {
         self.mutation_types.deinit();
+        self.append_arg_nodes.deinit();
     }
 };
 
@@ -231,8 +234,12 @@ fn checkExprForMutation(
                     const obj_name = attr.value.name.id;
                     const method_name = attr.attr;
 
-                    // List mutating methods (O(1) lookup via StaticStringMap)
-                    if (ListMutationMethods.get(method_name)) |mutation_type| {
+                    // Special handling for append - capture the argument for element type inference
+                    if (std.mem.eql(u8, method_name, "append") and c.args.len > 0) {
+                        try recordAppendMutation(obj_name, c.args[0], mutations, allocator);
+                    }
+                    // Other list mutating methods (O(1) lookup via StaticStringMap)
+                    else if (ListMutationMethods.get(method_name)) |mutation_type| {
                         try recordMutation(obj_name, mutation_type, mutations, allocator);
                     }
                 }
@@ -306,10 +313,30 @@ fn recordMutation(
     var info = mutations.get(var_name) orelse MutationInfo{
         .is_mutated = false,
         .mutation_types = std.ArrayList(MutationType){},
+        .append_arg_nodes = std.ArrayList(ast.Node){},
     };
 
     info.is_mutated = true;
     try info.mutation_types.append(allocator, mutation_type);
+    try mutations.put(var_name, info);
+}
+
+/// Record a mutation with the append argument for element type inference
+fn recordAppendMutation(
+    var_name: []const u8,
+    append_arg: ast.Node,
+    mutations: *hashmap_helper.StringHashMap(MutationInfo),
+    allocator: std.mem.Allocator,
+) !void {
+    var info = mutations.get(var_name) orelse MutationInfo{
+        .is_mutated = false,
+        .mutation_types = std.ArrayList(MutationType){},
+        .append_arg_nodes = std.ArrayList(ast.Node){},
+    };
+
+    info.is_mutated = true;
+    try info.mutation_types.append(allocator, .list_append);
+    try info.append_arg_nodes.append(allocator, append_arg);
     try mutations.put(var_name, info);
 }
 
@@ -371,6 +398,14 @@ pub fn hasDictStrKeyMutation(mutations: hashmap_helper.StringHashMap(MutationInf
         if (mut_type == .dict_setitem_str_key) return true;
     }
     return false;
+}
+
+/// Get the AST nodes of values appended to a list variable
+/// Used for inferring empty list element types from .append() calls
+pub fn getAppendedNodes(mutations: hashmap_helper.StringHashMap(MutationInfo), var_name: []const u8) ?[]const ast.Node {
+    const info = mutations.get(var_name) orelse return null;
+    if (info.append_arg_nodes.items.len == 0) return null;
+    return info.append_arg_nodes.items;
 }
 
 /// Check if dict has mixed key types (both int and string keys)

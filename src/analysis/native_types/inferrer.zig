@@ -302,6 +302,7 @@ pub const TypeInferrer = struct {
             }
 
             // Check each variable - if it's an array and has list mutations, promote to list
+            // Also infer element type from .append() calls for empty lists
             var var_iter = self.var_types.iterator();
             while (var_iter.next()) |entry| {
                 const var_name = entry.key_ptr.*;
@@ -309,8 +310,41 @@ pub const TypeInferrer = struct {
 
                 if (var_type == .array) {
                     if (mutation_analyzer.hasListMutation(muts, var_name)) {
-                        // Promote array to list (ArrayList)
-                        entry.value_ptr.* = .{ .list = var_type.array.element_type };
+                        // Check if we can infer element type from append calls
+                        var elem_type = var_type.array.element_type.*;
+                        if (type_traits.isUnknown(elem_type)) {
+                            // Empty list - try to infer element type from .append() args
+                            if (mutation_analyzer.getAppendedNodes(muts, var_name)) |append_nodes| {
+                                for (append_nodes) |node| {
+                                    const inferred = self.inferExpr(node) catch .unknown;
+                                    if (!type_traits.isUnknown(inferred)) {
+                                        elem_type = inferred;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        // Promote array to list (ArrayList) with inferred element type
+                        const elem_ptr = arena_alloc.create(NativeType) catch continue;
+                        elem_ptr.* = elem_type;
+                        entry.value_ptr.* = .{ .list = elem_ptr };
+                    }
+                }
+                // Also handle lists with unknown element type
+                else if (var_type == .list) {
+                    if (type_traits.isUnknown(var_type.list.*)) {
+                        // Empty list - try to infer element type from .append() args
+                        if (mutation_analyzer.getAppendedNodes(muts, var_name)) |append_nodes| {
+                            for (append_nodes) |node| {
+                                const inferred = self.inferExpr(node) catch .unknown;
+                                if (!type_traits.isUnknown(inferred)) {
+                                    const elem_ptr = arena_alloc.create(NativeType) catch continue;
+                                    elem_ptr.* = inferred;
+                                    entry.value_ptr.* = .{ .list = elem_ptr };
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
             }

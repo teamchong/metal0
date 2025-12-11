@@ -120,6 +120,10 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         return;
     }
 
+    // Clean stale cache files that don't match current test set
+    // This prevents "Compile: 3/1" issues from orphaned files
+    cleanStaleCache(allocator, test_files.items);
+
     if (!dots_mode) {
         std.debug.print("Found {d} tests, using {d} workers (timeout: {d}s", .{ total, ncpu, timeout_sec });
         if (bail_count > 0) std.debug.print(", bail: {d}", .{bail_count});
@@ -613,4 +617,51 @@ fn addRuntimeModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]co
 
         try args.append(allocator, try std.fmt.allocPrint(allocator, "-M{s}={s}", .{ mod.name, mod.path }));
     }
+}
+
+/// Clean stale cache files that don't match current test set
+/// Prevents "Compile: 3/1" issues from orphaned .zig and binary files
+fn cleanStaleCache(allocator: std.mem.Allocator, test_files: []const []const u8) void {
+    // Build set of valid test stems (e.g., "test_bool", "test_float")
+    var valid_stems = std.StringHashMap(void).init(allocator);
+    defer valid_stems.deinit();
+
+    for (test_files) |test_path| {
+        const basename = std.fs.path.basename(test_path);
+        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
+        valid_stems.put(stem, {}) catch continue;
+    }
+
+    // Clean .metal0/cache/ - remove .zig files that don't match current tests
+    if (std.fs.cwd().openDir(".metal0/cache", .{ .iterate = true })) |cache_dir_val| {
+        var cache_dir = cache_dir_val;
+        defer cache_dir.close();
+        var iter = cache_dir.iterate();
+        while (iter.next() catch null) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+
+            // Extract stem from filename (e.g., "test_bool.zig" -> "test_bool")
+            const stem = if (std.mem.lastIndexOf(u8, entry.name, ".")) |idx| entry.name[0..idx] else entry.name;
+            if (!valid_stems.contains(stem)) {
+                cache_dir.deleteFile(entry.name) catch {};
+            }
+        }
+    } else |_| {}
+
+    // Clean .metal0/bin/ - remove binaries that don't match current tests
+    if (std.fs.cwd().openDir(".metal0/bin", .{ .iterate = true })) |bin_dir_val| {
+        var bin_dir = bin_dir_val;
+        defer bin_dir.close();
+        var iter = bin_dir.iterate();
+        while (iter.next() catch null) |entry| {
+            if (entry.kind != .file) continue;
+            // Skip non-test files (like .so, .hash files)
+            if (!std.mem.startsWith(u8, entry.name, "test_")) continue;
+
+            if (!valid_stems.contains(entry.name)) {
+                bin_dir.deleteFile(entry.name) catch {};
+            }
+        }
+    } else |_| {}
 }
