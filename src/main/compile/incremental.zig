@@ -393,6 +393,7 @@ const MODULE_OBJECTS = [_]ModuleObject{
     // packages/runtime/ (main runtime - last, has most deps)
     .{ .src = "packages/runtime/src/runtime.zig", .obj = "packages/runtime/src/runtime.o", .name = "runtime", .deps = &.{
         "utils.hashmap_helper",
+        "utils.allocator_helper",
         "bigint",
         "gzip",
         "regex",
