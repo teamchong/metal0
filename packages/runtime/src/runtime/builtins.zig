@@ -2560,8 +2560,8 @@ pub fn pyEqual(allocator: std.mem.Allocator, a: anytype, b: anytype) !bool {
     return a_val.eql(b_val);
 }
 
-/// Helper to compare a slice (from ArrayList) to a tuple (anonymous struct)
-/// Used by pyEqual when comparing generator expression results to tuple literals
+/// Helper to compare a slice (from ArrayList) to a tuple/array
+/// Used by pyEqual when comparing generator expression results to tuple literals or arrays
 fn pyEqualSliceToTuple(allocator: std.mem.Allocator, slice: anytype, tup: anytype) !bool {
     const SliceType = @TypeOf(slice);
     const TupleType = @TypeOf(tup);
@@ -2573,26 +2573,40 @@ fn pyEqualSliceToTuple(allocator: std.mem.Allocator, slice: anytype, tup: anytyp
         return false;
     }
 
-    // Tuple must be a struct (anonymous or named)
-    if (tup_info != .@"struct") {
-        return false;
-    }
-
-    const fields = tup_info.@"struct".fields;
-
-    // Length must match
-    if (slice.len != fields.len) {
-        return false;
-    }
-
-    // Compare each element
-    inline for (fields, 0..) |field, i| {
-        const tup_val = @field(tup, field.name);
-        if (!try pyEqual(allocator, slice[i], tup_val)) {
+    // Handle arrays (e.g., [_]i64{1, 2})
+    if (tup_info == .array) {
+        const arr_info = tup_info.array;
+        // Length must match
+        if (slice.len != arr_info.len) {
             return false;
         }
+        // Compare each element
+        for (0..arr_info.len) |i| {
+            if (!try pyEqual(allocator, slice[i], tup[i])) {
+                return false;
+            }
+        }
+        return true;
     }
-    return true;
+
+    // Handle struct (tuple)
+    if (tup_info == .@"struct") {
+        const fields = tup_info.@"struct".fields;
+        // Length must match
+        if (slice.len != fields.len) {
+            return false;
+        }
+        // Compare each element
+        inline for (fields, 0..) |field, i| {
+            const tup_val = @field(tup, field.name);
+            if (!try pyEqual(allocator, slice[i], tup_val)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    return false;
 }
 
 // ============================================================================

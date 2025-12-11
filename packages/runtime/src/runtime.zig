@@ -3709,8 +3709,70 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
         return list;
     }
 
-    // Handle structs (tuples)
+    // Handle pointer to struct (e.g., *TupleSubclass)
+    if (info == .pointer and info.pointer.size == .one) {
+        const child_info = @typeInfo(info.pointer.child);
+        if (child_info == .@"struct") {
+            // Check for tuple subclass with __base_value__
+            if (@hasField(info.pointer.child, "__base_value__")) {
+                const base = iterable.__base_value__;
+                const BaseType = @TypeOf(base);
+                // If __base_value__ is PyValue, extract the tuple/list data
+                if (BaseType == PyValue) {
+                    switch (base) {
+                        .tuple => |items| {
+                            for (items) |item| {
+                                list.append(allocator, item) catch {};
+                            }
+                            return list;
+                        },
+                        .list => |items| {
+                            for (items) |item| {
+                                list.append(allocator, item) catch {};
+                            }
+                            return list;
+                        },
+                        else => {},
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle structs (tuples and tuple subclasses)
     if (info == .@"struct") {
+        // Check for tuple subclass with __base_value__ - iterate over base tuple
+        if (@hasField(T, "__base_value__")) {
+            const base = iterable.__base_value__;
+            const BaseType = @TypeOf(base);
+            // If __base_value__ is PyValue, extract the tuple/list data
+            if (BaseType == PyValue) {
+                switch (base) {
+                    .tuple => |items| {
+                        for (items) |item| {
+                            list.append(allocator, item) catch {};
+                        }
+                        return list;
+                    },
+                    .list => |items| {
+                        for (items) |item| {
+                            list.append(allocator, item) catch {};
+                        }
+                        return list;
+                    },
+                    else => {},
+                }
+            }
+            const base_info = @typeInfo(BaseType);
+            if (base_info == .@"struct") {
+                inline for (base_info.@"struct".fields) |field| {
+                    const val = @field(base, field.name);
+                    list.append(allocator, PyValue.from(val)) catch {};
+                }
+                return list;
+            }
+        }
+        // Regular tuple - iterate over fields
         inline for (info.@"struct".fields) |field| {
             const val = @field(iterable, field.name);
             list.append(allocator, PyValue.from(val)) catch {};
