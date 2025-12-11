@@ -119,6 +119,15 @@ pub const pickle_marshal = @import("runtime/pickle_marshal.zig");
 /// String runtime operations
 pub const string_runtime = @import("runtime/string_runtime.zig");
 
+/// Type name and string conversion utilities
+pub const type_name = @import("runtime/type_name.zig");
+
+/// List concatenation and repetition
+pub const concat_repeat = @import("runtime/concat_repeat.zig");
+
+/// Integer conversion utilities
+pub const int_convert = @import("runtime/int_convert.zig");
+
 /// DynamicClosure - Type-erased closure for Python scope semantics
 /// Used when a function is defined in multiple if/else branches and used outside
 /// Holds a pointer to any closure struct and its call function
@@ -340,64 +349,8 @@ pub const toBoolValue = bool_ops.toBoolValue;
 pub const validateBoolReturn = bool_ops.validateBoolReturn;
 pub const validateFloatReturn = bool_ops.validateFloatReturn;
 
-/// Generic int conversion for __len__, __hash__, etc.
-/// Handles both native int types and PyValue
-/// Returns error for non-convertible types (e.g., string for __len__)
-pub fn pyToInt(value: anytype) PythonError!i64 {
-    const T = @TypeOf(value);
-    if (T == PyValue) {
-        // Extract int from PyValue, return error on non-convertible types
-        if (value.toInt()) |i| {
-            return i;
-        } else {
-            // Set exception message like Python: "'str' object cannot be interpreted as an integer"
-            // Use pre-computed messages for each type since Zig can't concat runtime strings
-            const msg = switch (value) {
-                .string => "'str' object cannot be interpreted as an integer",
-                .bytes => "'bytes' object cannot be interpreted as an integer",
-                .float => "'float' object cannot be interpreted as an integer",
-                .bool => "'bool' object cannot be interpreted as an integer",
-                .none => "'NoneType' object cannot be interpreted as an integer",
-                .list => "'list' object cannot be interpreted as an integer",
-                .tuple => "'tuple' object cannot be interpreted as an integer",
-                .complex => "'complex' object cannot be interpreted as an integer",
-                .ptr => "'object' object cannot be interpreted as an integer",
-                .int => "'int' object cannot be interpreted as an integer", // shouldn't happen
-                .bigint => "'int' object cannot be interpreted as an integer", // shouldn't happen - bigint should convert
-            };
-            setException("TypeError", msg);
-            return PythonError.TypeError;
-        }
-    } else if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize or T == comptime_int) {
-        return @intCast(value);
-    } else if (T == bool) {
-        return if (value) 1 else 0;
-    } else if (@typeInfo(T) == .optional) {
-        if (value) |v| return try pyToInt(v);
-        return 0;
-    } else {
-        // Return error for unsupported types at runtime
-        // Map Zig types to Python type names for better error messages
-        const type_info = @typeInfo(T);
-        const py_type_name = comptime blk: {
-            // Pointers to arrays are strings
-            if (type_info == .pointer and type_info.pointer.size == .one) {
-                const child = @typeInfo(type_info.pointer.child);
-                if (child == .array and child.array.child == u8) {
-                    break :blk "str";
-                }
-            }
-            // Slices of u8 are strings
-            if (type_info == .pointer and type_info.pointer.size == .slice and type_info.pointer.child == u8) {
-                break :blk "str";
-            }
-            // Default to Zig type name
-            break :blk @typeName(T);
-        };
-        setException("TypeError", "'" ++ py_type_name ++ "' object cannot be interpreted as an integer");
-        return PythonError.TypeError;
-    }
-}
+// Re-export pyToInt from int_convert.zig
+pub const pyToInt = int_convert.pyToInt;
 
 /// Generic int conversion for Python int() semantics
 /// Handles: integers (pass through), strings (parse), bools, floats
@@ -1395,39 +1348,8 @@ pub const PyPowResult = builtins.PyPowResult;
 pub const PyBytes = builtins.PyBytes;
 pub const pyStr = builtins.pyStr;
 
-/// Get Python type name for type() builtin
-/// Handles special cases like PyPowResult which can be float or complex
-pub fn pyTypeName(comptime T: type, value: T) []const u8 {
-    // Special handling for PyPowResult - check which variant it is
-    if (T == PyPowResult) {
-        return value.typeName();
-    }
-
-    // Map Zig types to Python type names
-    const info = @typeInfo(T);
-    if (info == .float or info == .comptime_float) {
-        return "float";
-    }
-    if (info == .int or info == .comptime_int) {
-        return "int";
-    }
-    if (info == .bool) {
-        return "bool";
-    }
-    if (T == []const u8 or T == []u8) {
-        return "str";
-    }
-
-    // For structs, check if it has a Python type name
-    if (info == .@"struct") {
-        if (@hasDecl(T, "__name__")) {
-            return T.__name__;
-        }
-    }
-
-    // Default: use Zig type name
-    return @typeName(T);
-}
+// Re-export type name functions from type_name.zig
+pub const pyTypeName = type_name.pyTypeName;
 
 // Import and re-export float operations
 pub const float_ops = @import("runtime/float_ops.zig");
@@ -1446,61 +1368,13 @@ pub const int_ops = @import("runtime/int_ops.zig");
 pub const toInt = int_ops.toInt;
 pub const toIntBig = int_ops.toIntBig;
 
-/// Convert value to integer for struct.pack - handles BigInt and regular integers
-pub inline fn packInt(value: anytype) u64 {
-    const T = @TypeOf(value);
-    // Handle BigInt directly
-    if (T == BigInt) {
-        // Try toInt64 first, then fallback to truncation for large values
-        return @bitCast(value.toInt64() orelse 0);
-    }
-    // Handle pointer to BigInt
-    if (@typeInfo(T) == .pointer) {
-        const child = @typeInfo(T).pointer.child;
-        if (child == BigInt) {
-            return @bitCast(value.toInt64() orelse 0);
-        }
-    }
-    // Handle regular integers and comptime_int
-    const info = @typeInfo(T);
-    if (info == .int or info == .comptime_int) {
-        return @as(u64, @intCast(value));
-    }
-    // Fallback
-    return 0;
-}
+pub const packInt = int_convert.packInt;
 pub const int__new__ = int_ops.int__new__;
 pub const divideInt = int_ops.divideInt;
 pub const moduloInt = int_ops.moduloInt;
 pub const pyIntFromAny = int_ops.pyIntFromAny;
 
-/// Convert any value to its string representation
-/// Used when code calls str(value) on an anytype parameter
-pub fn pyStrFromAny(value: anytype) []const u8 {
-    const T = @TypeOf(value);
-    const info = @typeInfo(T);
-
-    // String types - return as-is
-    if (T == []const u8 or T == []u8) {
-        return value;
-    }
-
-    // Pointer to array (string literal like *const [N:0]u8)
-    if (info == .pointer) {
-        const Child = info.pointer.child;
-        if (@typeInfo(Child) == .array) {
-            return value[0..];
-        }
-    }
-
-    // Struct with .data field (PyBytes)
-    if (info == .@"struct" and @hasField(T, "data")) {
-        return value.data;
-    }
-
-    // For other types, return empty string - caller should use pyStr with allocator
-    return "";
-}
+pub const pyStrFromAny = type_name.pyStrFromAny;
 pub const intToString = int_ops.intToString;
 pub const parseIntUnicode = int_ops.parseIntUnicode;
 pub const parseIntToBigInt = int_ops.parseIntToBigInt;
@@ -1552,51 +1426,9 @@ pub const setEqual = container_ops.setEqual;
 pub const arrayLessThan = container_ops.arrayLessThan;
 
 /// Generic 'in' operator for any type - works with ArrayLists, slices, etc.
+/// Wrapper around container_ops.containsGeneric with NativeList and pyAnyEql bound
 pub fn containsGeneric(container: anytype, item: anytype) bool {
-    const T = @TypeOf(container);
-    const info = @typeInfo(T);
-
-    // Check for NativeList type first (has .items which is an ArrayList, not a slice)
-    if (T == NativeList) {
-        for (container.items.items) |elem| {
-            if (pyAnyEql(elem, item)) return true;
-        }
-        return false;
-    }
-
-    // ArrayList: check .items (items is a slice)
-    if (info == .@"struct" and @hasField(T, "items")) {
-        for (container.items) |elem| {
-            if (pyAnyEql(elem, item)) return true;
-        }
-        return false;
-    }
-
-    // Array: iterate and compare (e.g., [_]i64{1, 2, 3})
-    if (info == .array) {
-        for (container) |elem| {
-            if (pyAnyEql(elem, item)) return true;
-        }
-        return false;
-    }
-
-    // Slice: iterate and compare
-    if (info == .pointer and info.pointer.size == .slice) {
-        for (container) |elem| {
-            if (pyAnyEql(elem, item)) return true;
-        }
-        return false;
-    }
-
-    // Empty list []
-    if (info == .pointer and info.pointer.size == .one) {
-        const child_info = @typeInfo(info.pointer.child);
-        if (child_info == .array and child_info.array.len == 0) {
-            return false;
-        }
-    }
-
-    return false;
+    return container_ops.containsGeneric(NativeList, pyAnyEql, container, item);
 }
 
 /// Generic 'in' operator - checks membership based on container type
@@ -1989,91 +1821,10 @@ pub inline fn concat(a: anytype, b: anytype) @TypeOf(a ++ b) {
     return a ++ b;
 }
 
-/// Runtime-friendly list concatenation that handles PyValue types
-/// Use this when values might not be comptime-known
-/// Returns PyValue (list variant) for Python semantic compatibility
-pub fn concatRuntime(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
-    var result = std.ArrayList(PyValue){};
-
-    // Add elements from a
-    const AType = @TypeOf(a);
-    const a_is_pyvalue = @typeInfo(AType) == .@"union" and @hasField(AType, "list");
-    const a_is_arraylist = @typeInfo(AType) == .@"struct" and @hasField(AType, "items") and @hasField(AType, "capacity");
-    if (a_is_pyvalue) {
-        const a_list = if (a == .list) a.list else if (a == .tuple) a.tuple else &[_]PyValue{};
-        try result.appendSlice(allocator, a_list);
-    } else if (a_is_arraylist) {
-        // ArrayList - iterate over items and convert each to PyValue
-        for (a.items) |item| {
-            try result.append(allocator, try PyValue.fromAlloc(allocator, item));
-        }
-    } else {
-        const a_slice = iterSlice(a);
-        for (a_slice) |item| {
-            try result.append(allocator, try PyValue.fromAlloc(allocator, item));
-        }
-    }
-
-    // Add elements from b
-    const BType = @TypeOf(b);
-    const b_is_pyvalue = @typeInfo(BType) == .@"union" and @hasField(BType, "list");
-    const b_is_arraylist = @typeInfo(BType) == .@"struct" and @hasField(BType, "items") and @hasField(BType, "capacity");
-    if (b_is_pyvalue) {
-        const b_list = if (b == .list) b.list else if (b == .tuple) b.tuple else &[_]PyValue{};
-        try result.appendSlice(allocator, b_list);
-    } else if (b_is_arraylist) {
-        // ArrayList - iterate over items and convert each to PyValue
-        for (b.items) |item| {
-            try result.append(allocator, try PyValue.fromAlloc(allocator, item));
-        }
-    } else {
-        const b_slice = iterSlice(b);
-        for (b_slice) |item| {
-            try result.append(allocator, try PyValue.fromAlloc(allocator, item));
-        }
-    }
-
-    return PyValue{ .list = result.items };
-}
-
-/// Python list repetition: [1, 2] * 3 = [1, 2, 1, 2, 1, 2]
-/// Returns a new list with elements repeated n times
-pub fn repeatRuntime(allocator: std.mem.Allocator, a: anytype, n: anytype) !PyValue {
-    var result = std.ArrayList(PyValue){};
-
-    // Convert count to usize
-    const count: usize = if (n < 0) 0 else @intCast(n);
-
-    // Get the source elements
-    const AType = @TypeOf(a);
-    const a_is_pyvalue = @typeInfo(AType) == .@"union" and @hasField(AType, "list");
-    const a_is_arraylist = @typeInfo(AType) == .@"struct" and @hasField(AType, "items") and @hasField(AType, "capacity");
-
-    // Repeat n times
-    for (0..count) |_| {
-        if (a_is_pyvalue) {
-            const a_list = if (a == .list) a.list else if (a == .tuple) a.tuple else &[_]PyValue{};
-            try result.appendSlice(allocator, a_list);
-        } else if (a_is_arraylist) {
-            for (a.items) |item| {
-                try result.append(allocator, try PyValue.fromAlloc(allocator, item));
-            }
-        } else {
-            const a_slice = iterSlice(a);
-            for (a_slice) |item| {
-                try result.append(allocator, try PyValue.fromAlloc(allocator, item));
-            }
-        }
-    }
-
-    return PyValue{ .list = result.items };
-}
-
-/// Repeat an array n times - returns a new array with elements repeated
-/// This is Python list multiplication: [1,2] * 3 = [1,2,1,2,1,2]
-pub inline fn listRepeat(arr: anytype, n: anytype) @TypeOf(arr ** @as(usize, @intCast(n))) {
-    return arr ** @as(usize, @intCast(n));
-}
+// Re-export list concat/repeat operations from concat_repeat.zig
+pub const concatRuntime = concat_repeat.concatRuntime;
+pub const repeatRuntime = concat_repeat.repeatRuntime;
+pub const listRepeat = concat_repeat.listRepeat;
 
 // Re-export pickle/marshal operations from pickle_marshal.zig
 pub const marshalLoads = pickle_marshal.marshalLoads;
