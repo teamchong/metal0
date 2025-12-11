@@ -708,18 +708,117 @@ pub fn ip_interface(address: []const u8) !IPv4Interface {
     return IPv4Interface.init(address);
 }
 
-/// Collapse list of networks to minimum set
-pub fn collapse_addresses(addresses: []const IPv4Network) []const IPv4Network {
-    // Would merge adjacent/overlapping networks
-    return addresses;
+/// Collapse list of networks to minimum set by merging adjacent/overlapping networks
+pub fn collapse_addresses(allocator: std.mem.Allocator, addresses: []const IPv4Network) ![]IPv4Network {
+    if (addresses.len == 0) return &[_]IPv4Network{};
+
+    // Copy and sort by network address
+    var sorted = try allocator.alloc(IPv4Network, addresses.len);
+    @memcpy(sorted, addresses);
+
+    // Sort by network address
+    std.mem.sort(IPv4Network, sorted, {}, struct {
+        fn lessThan(_: void, a: IPv4Network, b: IPv4Network) bool {
+            return a.network_address.packed < b.network_address.packed;
+        }
+    }.lessThan);
+
+    var result = std.ArrayList(IPv4Network).init(allocator);
+    errdefer result.deinit();
+
+    var i: usize = 0;
+    while (i < sorted.len) {
+        var current = sorted[i];
+
+        // Try to merge with following networks
+        while (i + 1 < sorted.len) {
+            const next = sorted[i + 1];
+
+            // Check if current contains next
+            const curr_broadcast = current.network_address.packed | ~current.netmask.packed;
+            if (next.network_address.packed <= curr_broadcast + 1) {
+                // Networks overlap or are adjacent
+                const next_broadcast = next.network_address.packed | ~next.netmask.packed;
+                if (next_broadcast > curr_broadcast) {
+                    // Extend current to include next
+                    const new_broadcast = next_broadcast;
+                    // Find smallest prefix that covers both
+                    var new_prefix: u8 = current.prefixlen;
+                    while (new_prefix > 0) {
+                        const mask = @as(u32, 0xFFFFFFFF) << @intCast(32 - new_prefix);
+                        const start = current.network_address.packed & mask;
+                        const end = start | ~mask;
+                        if (start <= current.network_address.packed and end >= new_broadcast) {
+                            current.network_address = IPv4Address.fromInt(start);
+                            current.prefixlen = new_prefix;
+                            current.netmask = IPv4Address.fromInt(mask);
+                            current.hostmask = IPv4Address.fromInt(~mask);
+                            break;
+                        }
+                        new_prefix -= 1;
+                    }
+                }
+                i += 1;
+            } else {
+                break;
+            }
+        }
+
+        try result.append(current);
+        i += 1;
+    }
+
+    allocator.free(sorted);
+    return result.toOwnedSlice();
 }
 
-/// Summarize networks into smallest set
-pub fn summarize_address_range(first: IPv4Address, last: IPv4Address) ![]const IPv4Network {
-    _ = first;
-    _ = last;
-    // Would return list of networks covering the range
-    return &[_]IPv4Network{};
+/// Summarize networks into smallest set covering the address range
+pub fn summarize_address_range(allocator: std.mem.Allocator, first: IPv4Address, last: IPv4Address) ![]IPv4Network {
+    if (first.packed > last.packed) {
+        return error.LastAddressBeforeFirst;
+    }
+
+    var networks = std.ArrayList(IPv4Network).init(allocator);
+    errdefer networks.deinit();
+
+    var ip = first.packed;
+    const end = last.packed;
+
+    while (ip <= end) {
+        // Find the largest prefix that:
+        // 1. Starts at ip
+        // 2. Doesn't go past end
+        var nbits: u8 = 32;
+
+        while (nbits > 0) {
+            // Check if this prefix length works
+            const mask = if (nbits == 0) 0 else @as(u32, 0xFFFFFFFF) << @intCast(32 - nbits);
+            const network_start = ip & mask;
+            const broadcast = network_start | ~mask;
+
+            // Prefix must start exactly at ip and not go past end
+            if (network_start == ip and broadcast <= end) {
+                break;
+            }
+            nbits += 1;
+        }
+
+        // Create network with this prefix
+        var net: IPv4Network = undefined;
+        net.network_address = IPv4Address.fromInt(ip);
+        net.prefixlen = nbits;
+        net.netmask = IPv4Address.fromInt(if (nbits == 0) 0 else @as(u32, 0xFFFFFFFF) << @intCast(32 - nbits));
+        net.hostmask = IPv4Address.fromInt(~net.netmask.packed);
+
+        try networks.append(net);
+
+        // Move to next address after this network
+        const broadcast = ip | ~net.netmask.packed;
+        if (broadcast == 0xFFFFFFFF) break; // Avoid overflow
+        ip = broadcast + 1;
+    }
+
+    return networks.toOwnedSlice();
 }
 
 // ============================================================================
