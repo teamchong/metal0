@@ -216,31 +216,85 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
 
     const argv = try args.toOwnedSlice(aa);
 
-    const result = try std.process.Child.run(.{
-        .allocator = aa,
-        .argv = argv,
-        .max_output_bytes = 10 * 1024 * 1024,
-    });
+    // Use spawn + timeout instead of blocking run (15s timeout for compilation)
+    // If Zig can't compile in 15s, the generated code likely has comptime explosion
+    const timeout_ns: u64 = 15 * std.time.ns_per_s;
 
-    switch (result.term) {
+    var child = std.process.Child.init(argv, aa);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
+
+    var done = std.atomic.Value(bool).init(false);
+
+    child.spawn() catch |err| {
+        std.debug.print("Failed to spawn Zig compiler: {any}\n", .{err});
+        return error.ZigCompilationFailed;
+    };
+
+    // Start killer thread
+    const killer = std.Thread.spawn(.{}, killAfterTimeout, .{ &child, timeout_ns, &done }) catch null;
+
+    // Read stderr while waiting
+    var stderr_list = std.ArrayList(u8){};
+    defer stderr_list.deinit(aa);
+
+    if (child.stderr) |stderr| {
+        var buf: [4096]u8 = undefined;
+        while (true) {
+            const n = stderr.read(&buf) catch break;
+            if (n == 0) break;
+            stderr_list.appendSlice(aa, buf[0..n]) catch break;
+        }
+    }
+
+    const term = child.wait() catch |err| {
+        done.store(true, .seq_cst);
+        if (killer) |k| k.join();
+        std.debug.print("Failed to wait for Zig compiler: {any}\n", .{err});
+        return error.ZigCompilationFailed;
+    };
+
+    done.store(true, .seq_cst);
+    if (killer) |k| k.join();
+
+    switch (term) {
         .Exited => |code| {
             if (code != 0) {
-                std.debug.print("Zig compilation failed:\n{s}\n", .{result.stderr});
+                std.debug.print("Zig compilation failed:\n{s}\n", .{stderr_list.items});
                 return error.ZigCompilationFailed;
             }
         },
         .Signal => |sig| {
-            std.debug.print("Zig compilation killed by signal {d}:\n{s}\n", .{ sig, result.stderr });
+            if (sig == std.posix.SIG.KILL) {
+                std.debug.print("Zig compilation timed out (>{d}s)\n", .{timeout_ns / std.time.ns_per_s});
+            } else {
+                std.debug.print("Zig compilation killed by signal {d}:\n{s}\n", .{ sig, stderr_list.items });
+            }
             return error.ZigCompilationFailed;
         },
         .Stopped => |sig| {
-            std.debug.print("Zig compilation stopped by signal {d}:\n{s}\n", .{ sig, result.stderr });
+            std.debug.print("Zig compilation stopped by signal {d}:\n{s}\n", .{ sig, stderr_list.items });
             return error.ZigCompilationFailed;
         },
         .Unknown => |val| {
-            std.debug.print("Zig compilation unknown termination {d}:\n{s}\n", .{ val, result.stderr });
+            std.debug.print("Zig compilation unknown termination {d}:\n{s}\n", .{ val, stderr_list.items });
             return error.ZigCompilationFailed;
         },
+    }
+}
+
+fn killAfterTimeout(child: *std.process.Child, timeout_ns: u64, done: *std.atomic.Value(bool)) void {
+    const poll_interval: u64 = 100 * std.time.ns_per_ms; // Check every 100ms
+    var elapsed: u64 = 0;
+    while (elapsed < timeout_ns) {
+        if (done.load(.seq_cst)) return;
+        std.Thread.sleep(poll_interval);
+        elapsed += poll_interval;
+    }
+    // Timeout - kill the process
+    if (!done.load(.seq_cst)) {
+        _ = std.posix.kill(child.id, std.posix.SIG.KILL) catch {};
     }
 }
 

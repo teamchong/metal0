@@ -1250,49 +1250,130 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
         const is_range = gen.iter.* == .call and gen.iter.call.func.* == .name and
             std.mem.eql(u8, gen.iter.call.func.name.id, "range");
 
-        if (is_range) {
+        // Check if this is [*range(n)] pattern - list with single starred range call
+        const is_starred_range = blk: {
+            if (gen.iter.* == .list) {
+                const list = gen.iter.list;
+                if (list.elts.len == 1 and list.elts[0] == .starred) {
+                    const starred_val = list.elts[0].starred.value;
+                    if (starred_val.* == .call and starred_val.call.func.* == .name and
+                        std.mem.eql(u8, starred_val.call.func.name.id, "range"))
+                    {
+                        break :blk true;
+                    }
+                }
+            }
+            // Also check (*range(n),) tuple pattern
+            if (gen.iter.* == .tuple) {
+                const tup = gen.iter.tuple;
+                if (tup.elts.len == 1 and tup.elts[0] == .starred) {
+                    const starred_val = tup.elts[0].starred.value;
+                    if (starred_val.* == .call and starred_val.call.func.* == .name and
+                        std.mem.eql(u8, starred_val.call.func.name.id, "range"))
+                    {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        };
+
+        // Get range args for starred patterns
+        const range_args_for_starred: ?[]ast.Node = blk: {
+            if (!is_starred_range) break :blk null;
+            if (gen.iter.* == .list) {
+                break :blk gen.iter.list.elts[0].starred.value.call.args;
+            }
+            if (gen.iter.* == .tuple) {
+                break :blk gen.iter.tuple.elts[0].starred.value.call.args;
+            }
+            break :blk null;
+        };
+
+        if (is_range or is_starred_range) {
             // Generate range loop as while loop
             // Use unique mangled name to avoid shadowing outer variables
             const orig_var_name = gen.target.name.id;
-            const args = gen.iter.call.args;
+            // Get args from direct range() or from starred range
+            const args = if (is_starred_range) range_args_for_starred.? else gen.iter.call.args;
 
             // Create mangled name and add to var_renames so key/value expressions use it
             const mangled_name = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ orig_var_name, comp_id });
             try self.var_renames.put(orig_var_name, mangled_name);
             try renamed_vars.append(self.allocator, orig_var_name);
 
-            // Parse range arguments
+            // Parse range arguments - support non-constant expressions
             var start_val: i64 = 0;
             var stop_val: i64 = 0;
-            const step_val: i64 = 1;
+            var step_val: i64 = 1;
+            var has_constant_start = false;
+            var has_constant_stop = false;
+            var has_constant_step = false;
 
-            if (args.len == 1) {
-                // range(stop)
-                if (args[0] == .constant and args[0].constant.value == .int) {
-                    stop_val = args[0].constant.value.int;
-                }
-            } else if (args.len == 2) {
-                // range(start, stop)
-                if (args[0] == .constant and args[0].constant.value == .int) {
-                    start_val = args[0].constant.value.int;
-                }
-                if (args[1] == .constant and args[1].constant.value == .int) {
-                    stop_val = args[1].constant.value.int;
+            if (args.len >= 1) {
+                if (args.len == 1) {
+                    // range(stop)
+                    if (args[0] == .constant and args[0].constant.value == .int) {
+                        stop_val = args[0].constant.value.int;
+                        has_constant_stop = true;
+                    }
+                } else {
+                    // range(start, stop) or range(start, stop, step)
+                    if (args[0] == .constant and args[0].constant.value == .int) {
+                        start_val = args[0].constant.value.int;
+                        has_constant_start = true;
+                    }
+                    if (args[1] == .constant and args[1].constant.value == .int) {
+                        stop_val = args[1].constant.value.int;
+                        has_constant_stop = true;
+                    }
+                    if (args.len >= 3 and args[2] == .constant and args[2].constant.value == .int) {
+                        step_val = args[2].constant.value.int;
+                        has_constant_step = true;
+                    }
                 }
             }
 
             // Generate: var __comp_<orig>_<id>: i64 = <start>;
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("var {s}: i64 = {d};\n", .{ mangled_name, start_val });
+            if (has_constant_start or args.len == 1) {
+                try self.output.writer(self.allocator).print("var {s}: i64 = {d};\n", .{ mangled_name, start_val });
+            } else {
+                try self.output.writer(self.allocator).print("var {s}: i64 = @intCast(", .{mangled_name});
+                try genExpr(self, args[0]);
+                try self.emit(");\n");
+            }
+
+            // Generate: const __stop_<id>: i64 = <stop>;
+            if (!has_constant_stop) {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("const __stop_{d}_{d}: i64 = @intCast(", .{ label_id, gen_idx });
+                if (args.len == 1) {
+                    try genExpr(self, args[0]);
+                } else {
+                    try genExpr(self, args[1]);
+                }
+                try self.emit(");\n");
+            }
 
             // Generate: while (__comp_<orig>_<id> < <stop>) {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("while ({s} < {d}) {{\n", .{ mangled_name, stop_val });
+            if (has_constant_stop) {
+                try self.output.writer(self.allocator).print("while ({s} < {d}) {{\n", .{ mangled_name, stop_val });
+            } else {
+                try self.output.writer(self.allocator).print("while ({s} < __stop_{d}_{d}) {{\n", .{ mangled_name, label_id, gen_idx });
+            }
             self.indent();
 
             // Defer increment: defer __comp_<orig>_<id> += <step>;
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ mangled_name, step_val });
+            if (has_constant_step or args.len < 3) {
+                try self.output.writer(self.allocator).print("defer {s} += {d};\n", .{ mangled_name, step_val });
+            } else {
+                try self.output.writer(self.allocator).print("defer {s} += @intCast(", .{mangled_name});
+                try genExpr(self, args[2]);
+                try self.emit(");\n");
+            }
         } else {
             // Regular iteration - check if source is constant array, ArrayList, or anytype param
             const is_direct_iterable = blk: {
