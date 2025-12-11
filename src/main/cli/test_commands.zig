@@ -141,16 +141,17 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         break :blk stat.mtime;
     };
 
-    // Phase 1: Codegen (.py → .zig) - fail fast, track failures
-    if (!dots_mode) std.debug.print("Phase 1: Codegen...\n", .{});
-    var codegen_ok: usize = 0;
-    var codegen_fail: usize = 0;
-    var codegen_cached: usize = 0;
-    var zig_files = std.ArrayList([]const u8){};
-    defer {
-        for (zig_files.items) |f| allocator.free(f);
-        zig_files.deinit(allocator);
-    }
+    // Phase 1: Codegen (.py → .zig) - PARALLEL for speed
+    if (!dots_mode) std.debug.print("Phase 1: Codegen (parallel)...\n", .{});
+
+    // Build task list first
+    const CodegenTask = struct {
+        file_path: []const u8,
+        zig_path: []const u8,
+        needs_codegen: bool,
+    };
+    var codegen_tasks = std.ArrayList(CodegenTask){};
+    defer codegen_tasks.deinit(allocator);
 
     for (test_files.items) |file_path| {
         const basename = std.fs.path.basename(file_path);
@@ -166,26 +167,101 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
             break :blk false;
         };
 
-        if (needs_codegen) {
-            const opts = CompileOptions{ .input_file = file_path, .mode = "build", .force = false, .emit_zig_only = true };
-            compile_mod.compileFile(allocator, opts) catch {
-                codegen_fail += 1;
-                allocator.free(zig_path);
-                continue; // Fail fast - skip this test, continue others
-            };
-            codegen_ok += 1;
-        } else {
-            codegen_cached += 1;
-        }
-
-        try zig_files.append(allocator, zig_path);
+        try codegen_tasks.append(allocator, .{
+            .file_path = file_path,
+            .zig_path = zig_path,
+            .needs_codegen = needs_codegen,
+        });
     }
 
-    const codegen_total = codegen_ok + codegen_cached;
+    // Run codegen in parallel
+    var codegen_ok = std.atomic.Value(usize).init(0);
+    var codegen_fail = std.atomic.Value(usize).init(0);
+    var codegen_cached = std.atomic.Value(usize).init(0);
+
+    const CodegenContext = struct {
+        tasks: []CodegenTask,
+        next_task: std.atomic.Value(usize),
+        codegen_ok: *std.atomic.Value(usize),
+        codegen_fail: *std.atomic.Value(usize),
+        codegen_cached: *std.atomic.Value(usize),
+
+        fn worker(ctx: *@This()) void {
+            while (true) {
+                const idx = ctx.next_task.fetchAdd(1, .seq_cst);
+                if (idx >= ctx.tasks.len) break;
+
+                const task = ctx.tasks[idx];
+                if (!task.needs_codegen) {
+                    _ = ctx.codegen_cached.fetchAdd(1, .seq_cst);
+                    continue;
+                }
+
+                // Use thread-local allocator for codegen
+                var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+                defer arena.deinit();
+
+                const opts = CompileOptions{
+                    .input_file = task.file_path,
+                    .mode = "build",
+                    .force = false,
+                    .emit_zig_only = true,
+                };
+                compile_mod.compileFile(arena.allocator(), opts) catch {
+                    _ = ctx.codegen_fail.fetchAdd(1, .seq_cst);
+                    continue;
+                };
+                _ = ctx.codegen_ok.fetchAdd(1, .seq_cst);
+            }
+        }
+    };
+
+    var codegen_ctx = CodegenContext{
+        .tasks = codegen_tasks.items,
+        .next_task = std.atomic.Value(usize).init(0),
+        .codegen_ok = &codegen_ok,
+        .codegen_fail = &codegen_fail,
+        .codegen_cached = &codegen_cached,
+    };
+
+    // Spawn codegen worker threads
+    const num_codegen_threads = @min(ncpu, codegen_tasks.items.len);
+    var codegen_threads: [32]std.Thread = undefined;
+    const actual_codegen_threads = @min(num_codegen_threads, 32);
+
+    for (0..actual_codegen_threads) |ti| {
+        codegen_threads[ti] = std.Thread.spawn(.{}, CodegenContext.worker, .{&codegen_ctx}) catch continue;
+    }
+    for (0..actual_codegen_threads) |ti| {
+        codegen_threads[ti].join();
+    }
+
+    // Build zig_files list from successful codegens
+    var zig_files = std.ArrayList([]const u8){};
+    defer {
+        for (zig_files.items) |f| allocator.free(f);
+        zig_files.deinit(allocator);
+    }
+
+    for (codegen_tasks.items) |task| {
+        // Only add if codegen succeeded or was cached
+        if (std.fs.cwd().access(task.zig_path, .{})) |_| {
+            // zig_path was allocated earlier, keep it
+            try zig_files.append(allocator, task.zig_path);
+        } else |_| {
+            // Failed - free the path
+            allocator.free(task.zig_path);
+        }
+    }
+
+    const final_codegen_ok = codegen_ok.load(.seq_cst);
+    const final_codegen_cached = codegen_cached.load(.seq_cst);
+    const final_codegen_fail = codegen_fail.load(.seq_cst);
+    const codegen_total = final_codegen_ok + final_codegen_cached;
     if (!dots_mode) {
         std.debug.print("  Codegen: {d}/{d}", .{ codegen_total, total });
-        if (codegen_cached > 0) std.debug.print(" (cached: {d})", .{codegen_cached});
-        if (codegen_fail > 0) std.debug.print(" | {s}{d} failed{s}", .{ Color.red, codegen_fail, Color.reset });
+        if (final_codegen_cached > 0) std.debug.print(" (cached: {d})", .{final_codegen_cached});
+        if (final_codegen_fail > 0) std.debug.print(" | {s}{d} failed{s}", .{ Color.red, final_codegen_fail, Color.reset });
         std.debug.print("\n", .{});
     }
 
@@ -278,7 +354,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         if (batch_succeeded) {
             const final_compile_ok = compile_ok.load(.seq_cst);
             const final_compile_cached = compile_cached.load(.seq_cst);
-            if (!dots_mode) std.debug.print("  Compile: {d}/{d} (cached: {d})\n", .{ final_compile_ok + final_compile_cached, codegen_ok + codegen_cached, final_compile_cached });
+            if (!dots_mode) std.debug.print("  Compile: {d}/{d} (cached: {d})\n", .{ final_compile_ok + final_compile_cached, codegen_total, final_compile_cached });
         }
     }
 
@@ -353,7 +429,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
         const final_compile_ok = compile_ok.load(.seq_cst);
         const final_compile_cached = compile_cached.load(.seq_cst);
-        if (!dots_mode) std.debug.print("  Compile: {d}/{d} (cached: {d})\n", .{ final_compile_ok + final_compile_cached, codegen_ok + codegen_cached, final_compile_cached });
+        if (!dots_mode) std.debug.print("  Compile: {d}/{d} (cached: {d})\n", .{ final_compile_ok + final_compile_cached, codegen_total, final_compile_cached });
     } // End of normal/fallback mode block
 
     // Phase 3: Run binaries that exist
@@ -398,7 +474,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (dots_mode) std.debug.print("\n", .{});
     std.debug.print("\n", .{});
 
-    if (run_ok == total and codegen_fail == 0 and compile_fail == 0) {
+    if (run_ok == total and final_codegen_fail == 0 and compile_fail == 0) {
         printSuccess("All {d} tests passed!", .{total});
     } else {
         const passed_pct = if (total > 0) @as(f64, @floatFromInt(run_ok)) / @as(f64, @floatFromInt(total)) * 100.0 else 0.0;
@@ -412,7 +488,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
             Color.reset,
         });
         // Show failure breakdown
-        if (codegen_fail > 0) std.debug.print(" | {s}{d} codegen{s}", .{ Color.red, codegen_fail, Color.reset });
+        if (final_codegen_fail > 0) std.debug.print(" | {s}{d} codegen{s}", .{ Color.red, final_codegen_fail, Color.reset });
         if (compile_fail > 0) std.debug.print(" | {s}{d} compile{s}", .{ Color.red, compile_fail, Color.reset });
         if (run_fail > 0) std.debug.print(" | {s}{d} runtime{s}", .{ Color.red, run_fail, Color.reset });
         if (run_timeout_count > 0) std.debug.print(" | {s}{d} timeout{s}", .{ Color.yellow, run_timeout_count, Color.reset });
