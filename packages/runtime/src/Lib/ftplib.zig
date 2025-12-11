@@ -3,595 +3,189 @@
 //! Provides FTP client functionality.
 //!
 //! Mirrors: CPython Lib/ftplib.py
+//!
+//! This module is now organized as a modular directory structure:
+//! - types.zig: Constants, errors, FtpResponse
+//! - client.zig: Core FTP client and connection management
+//! - commands.zig: FTP command implementations
+//! - transfer.zig: File transfer operations
+//! - ftp_tls.zig: TLS support
 
 const std = @import("std");
 
-// ============================================================================
-// Constants
-// ============================================================================
+// Re-export from submodules
+pub const types = @import("ftplib/types.zig");
+pub const client = @import("ftplib/client.zig");
+pub const commands = @import("ftplib/commands.zig");
+pub const transfer = @import("ftplib/transfer.zig");
+pub const ftp_tls = @import("ftplib/ftp_tls.zig");
 
-/// Default FTP port
-pub const FTP_PORT = 21;
-
-/// Default buffer size
-pub const MAXLINE = 8192;
-
-/// Timeout for blocking operations
-pub const DEFAULT_TIMEOUT: f64 = 30.0;
-
-// ============================================================================
-// Error Types
-// ============================================================================
-
-pub const FtpError = error{
-    /// Base FTP error
-    Error,
-    /// Reply error (4xx or 5xx)
-    ReplyError,
-    /// Temporary error (4xx)
-    TempError,
-    /// Permanent error (5xx)
-    PermError,
-    /// Protocol error (unexpected reply)
-    ProtoError,
-    /// Connection refused
-    ConnectionRefused,
-    /// Socket timeout
-    Timeout,
-    /// Not logged in
-    NotLoggedIn,
-};
+// Re-export commonly used types and constants
+pub const FTP_PORT = types.FTP_PORT;
+pub const MAXLINE = types.MAXLINE;
+pub const DEFAULT_TIMEOUT = types.DEFAULT_TIMEOUT;
+pub const FtpError = types.FtpError;
+pub const FtpResponse = types.FtpResponse;
+pub const FTP = FTPWithMethods;
+pub const FTP_TLS = ftp_tls.FTP_TLS;
 
 // ============================================================================
-// FTP Response
+// FTP with Methods
 // ============================================================================
 
-/// FTP response structure
-pub const FtpResponse = struct {
-    code: u16,
-    message: []const u8,
-
-    pub fn isPositive(self: *const FtpResponse) bool {
-        return self.code >= 100 and self.code < 400;
-    }
-
-    pub fn isComplete(self: *const FtpResponse) bool {
-        return self.code >= 200 and self.code < 300;
-    }
-
-    pub fn isIntermediate(self: *const FtpResponse) bool {
-        return self.code >= 300 and self.code < 400;
-    }
-
-    pub fn isNegativeTransient(self: *const FtpResponse) bool {
-        return self.code >= 400 and self.code < 500;
-    }
-
-    pub fn isNegativePermanent(self: *const FtpResponse) bool {
-        return self.code >= 500 and self.code < 600;
-    }
-};
-
-// ============================================================================
-// FTP
-// ============================================================================
-
-/// FTP client
-pub const FTP = struct {
+/// Extended FTP client with all command methods
+pub const FTPWithMethods = struct {
     const Self = @This();
 
-    allocator: std.mem.Allocator,
-    host: []const u8,
-    port: u16,
-    timeout: f64,
-    sock: ?std.posix.socket_t,
-    file: ?std.net.Stream,
-    welcome: ?[]const u8,
-    passiveserver: bool,
-    encoding: []const u8,
-    debugging: u8,
-
-    // Transfer state
-    lastresp: ?[]const u8,
+    base: client.FTP,
 
     pub fn init(allocator: std.mem.Allocator, host: ?[]const u8, port: ?u16, timeout: ?f64) Self {
         return .{
-            .allocator = allocator,
-            .host = host orelse "",
-            .port = port orelse FTP_PORT,
-            .timeout = timeout orelse DEFAULT_TIMEOUT,
-            .sock = null,
-            .file = null,
-            .welcome = null,
-            .passiveserver = true,
-            .encoding = "utf-8",
-            .debugging = 0,
-            .lastresp = null,
+            .base = client.FTP.init(allocator, host, port, timeout),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.close();
+        self.base.deinit();
     }
 
-    /// Connect to FTP server
+    // Connection management
     pub fn connect(self: *Self, host: ?[]const u8, port: ?u16, timeout: ?f64) ![]const u8 {
-        if (host) |h| self.host = h;
-        if (port) |p| self.port = p;
-        if (timeout) |t| self.timeout = t;
-
-        // Create socket
-        self.sock = try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
-
-        // Set socket timeout
-        if (self.timeout > 0) {
-            const secs: i64 = @intFromFloat(self.timeout);
-            const usecs: i64 = @intFromFloat((self.timeout - @as(f64, @floatFromInt(secs))) * 1_000_000);
-            const tv = std.posix.timeval{ .tv_sec = secs, .tv_usec = usecs };
-            const tv_bytes = std.mem.asBytes(&tv);
-            std.posix.setsockopt(self.sock.?, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, tv_bytes) catch {};
-            std.posix.setsockopt(self.sock.?, std.posix.SOL.SOCKET, std.posix.SO.SNDTIMEO, tv_bytes) catch {};
-        }
-
-        // Resolve and connect
-        const address = std.net.Address.resolveIp4(self.host, self.port) catch return FtpError.ConnectionRefused;
-        std.posix.connect(self.sock.?, &address.any, address.getOsSockLen()) catch return FtpError.ConnectionRefused;
-
-        // Get welcome message
-        const resp = try self.getResp();
-        self.welcome = resp.message;
-        return self.welcome.?;
+        return self.base.connect(host, port, timeout);
     }
 
-    /// Login to FTP server
     pub fn login(self: *Self, user: ?[]const u8, passwd: ?[]const u8, acct: ?[]const u8) !FtpResponse {
-        const username = user orelse "anonymous";
-        const password = passwd orelse "";
-
-        var resp = try self.sendCmd("USER", username);
-
-        if (resp.code == 331) {
-            resp = try self.sendCmd("PASS", password);
-        }
-
-        if (resp.code == 332) {
-            resp = try self.sendCmd("ACCT", acct orelse "");
-        }
-
-        if (!resp.isPositive()) {
-            return FtpError.NotLoggedIn;
-        }
-
-        return resp;
+        return self.base.login(user, passwd, acct);
     }
 
-    /// Send a command and get response
     pub fn sendCmd(self: *Self, cmd: []const u8, arg: ?[]const u8) !FtpResponse {
-        try self.putCmd(cmd, arg);
-        return self.getResp();
+        return self.base.sendCmd(cmd, arg);
     }
 
-    /// Send command without waiting for response
-    fn putCmd(self: *Self, cmd: []const u8, arg: ?[]const u8) !void {
-        if (self.sock == null) {
-            return FtpError.Error;
-        }
-
-        var buf: [MAXLINE]u8 = undefined;
-        var len: usize = 0;
-
-        // Build command
-        for (cmd) |c| {
-            buf[len] = c;
-            len += 1;
-        }
-
-        if (arg) |a| {
-            buf[len] = ' ';
-            len += 1;
-            for (a) |c| {
-                buf[len] = c;
-                len += 1;
-            }
-        }
-
-        buf[len] = '\r';
-        len += 1;
-        buf[len] = '\n';
-        len += 1;
-
-        if (self.debugging > 0) {
-            std.debug.print("*cmd* {s}\n", .{buf[0..len]});
-        }
-
-        // Send command over socket
-        _ = std.posix.send(self.sock.?, buf[0..len], 0) catch return FtpError.Error;
-    }
-
-    /// Get response from server
-    fn getResp(self: *Self) !FtpResponse {
-        if (self.sock == null) {
-            return FtpError.Error;
-        }
-
-        var buf: [MAXLINE]u8 = undefined;
-        var total_len: usize = 0;
-
-        // Read response line(s)
-        while (total_len < buf.len - 1) {
-            const n = std.posix.recv(self.sock.?, buf[total_len..], 0) catch |err| {
-                if (err == error.WouldBlock) return FtpError.Timeout;
-                return FtpError.Error;
-            };
-            if (n == 0) break; // Connection closed
-            total_len += n;
-
-            // Check for end of response (line ending with \r\n)
-            if (total_len >= 2 and buf[total_len - 2] == '\r' and buf[total_len - 1] == '\n') {
-                // Check if this is a multiline response (code followed by -)
-                if (total_len >= 4 and buf[3] != '-') break;
-            }
-        }
-
-        if (total_len < 3) return FtpError.ProtoError;
-
-        // Parse response code
-        const code = std.fmt.parseInt(u16, buf[0..3], 10) catch return FtpError.ProtoError;
-
-        // Extract message (skip code and space, trim CRLF)
-        var msg_start: usize = 4;
-        if (total_len > 3 and (buf[3] == ' ' or buf[3] == '-')) {
-            msg_start = 4;
-        } else {
-            msg_start = 3;
-        }
-        var msg_end = total_len;
-        while (msg_end > msg_start and (buf[msg_end - 1] == '\r' or buf[msg_end - 1] == '\n')) {
-            msg_end -= 1;
-        }
-
-        if (self.debugging > 0) {
-            std.debug.print("*resp* {d} {s}\n", .{ code, buf[msg_start..msg_end] });
-        }
-
-        return FtpResponse{
-            .code = code,
-            .message = buf[msg_start..msg_end],
-        };
-    }
-
-    /// Get multiline response
-    fn getMultiLine(self: *Self) !FtpResponse {
-        // For multiline responses, keep reading until we get a final line
-        // (code followed by space, not hyphen)
-        return self.getResp();
-    }
-
-    // ========================================================================
-    // FTP Commands
-    // ========================================================================
-
-    /// Change to parent directory
-    pub fn cdup(self: *Self) !FtpResponse {
-        return self.sendCmd("CDUP", null);
-    }
-
-    /// Print working directory
-    pub fn pwd(self: *Self) ![]const u8 {
-        const resp = try self.sendCmd("PWD", null);
-        // Parse directory from response
-        return resp.message;
-    }
-
-    /// Change working directory
-    pub fn cwd(self: *Self, dirname: []const u8) !FtpResponse {
-        if (std.mem.eql(u8, dirname, "..")) {
-            return self.cdup();
-        }
-        return self.sendCmd("CWD", dirname);
-    }
-
-    /// Get file size
-    pub fn size(self: *Self, filename: []const u8) !?u64 {
-        const resp = try self.sendCmd("SIZE", filename);
-        if (resp.code == 213) {
-            return std.fmt.parseInt(u64, resp.message, 10) catch null;
-        }
-        return null;
-    }
-
-    /// Make a directory
-    pub fn mkd(self: *Self, dirname: []const u8) ![]const u8 {
-        const resp = try self.sendCmd("MKD", dirname);
-        return resp.message;
-    }
-
-    /// Remove a directory
-    pub fn rmd(self: *Self, dirname: []const u8) !FtpResponse {
-        return self.sendCmd("RMD", dirname);
-    }
-
-    /// Delete a file
-    pub fn delete(self: *Self, filename: []const u8) !FtpResponse {
-        const resp = try self.sendCmd("DELE", filename);
-        if (resp.code >= 500) {
-            return FtpError.PermError;
-        }
-        return resp;
-    }
-
-    /// Rename a file
-    pub fn rename(self: *Self, fromname: []const u8, toname: []const u8) !FtpResponse {
-        var resp = try self.sendCmd("RNFR", fromname);
-        if (resp.code != 350) {
-            return FtpError.ReplyError;
-        }
-        return self.sendCmd("RNTO", toname);
-    }
-
-    /// Set transfer type (ASCII or binary)
-    pub fn setType(self: *Self, typecode: []const u8) !FtpResponse {
-        return self.sendCmd("TYPE", typecode);
-    }
-
-    /// Set ASCII transfer mode
-    pub fn setAscii(self: *Self) !FtpResponse {
-        return self.setType("A");
-    }
-
-    /// Set binary transfer mode
-    pub fn setBinary(self: *Self) !FtpResponse {
-        return self.setType("I");
-    }
-
-    /// List directory contents
-    pub fn dir(self: *Self, dirname: ?[]const u8) ![]const u8 {
-        return try self.nlst(dirname);
-    }
-
-    /// Name list of directory
-    pub fn nlst(self: *Self, dirname: ?[]const u8) ![]const u8 {
-        const resp = try self.sendCmd("NLST", dirname);
-        return resp.message;
-    }
-
-    /// Long directory listing
-    pub fn mlsd(self: *Self, path: ?[]const u8) ![]const u8 {
-        const resp = try self.sendCmd("MLSD", path);
-        return resp.message;
-    }
-
-    /// Retrieve a file in binary mode
-    pub fn retrbinary(self: *Self, cmd: []const u8, callback: *const fn ([]const u8) void, blocksize: ?usize, rest: ?u64) !FtpResponse {
-        // Set transfer position if specified
-        if (rest) |r| {
-            _ = try self.sendCmd("REST", std.fmt.allocPrint(self.allocator, "{d}", .{r}) catch "0");
-        }
-
-        // Send RETR command
-        const resp = try self.sendCmd("RETR", cmd);
-        if (resp.code < 100 or resp.code >= 300) {
-            return resp;
-        }
-
-        // Open data connection and receive data
-        const block = blocksize orelse 8192;
-        var buf: [8192]u8 = undefined;
-        const read_buf = buf[0..@min(block, buf.len)];
-
-        if (self.sock) |sock| {
-            while (true) {
-                const n = std.posix.recv(sock, read_buf, 0) catch break;
-                if (n == 0) break;
-                callback(read_buf[0..n]);
-            }
-        }
-
-        return resp;
-    }
-
-    /// Retrieve file as lines
-    pub fn retrlines(self: *Self, cmd: []const u8, callback: ?*const fn ([]const u8) void) !FtpResponse {
-        // Send RETR command
-        const resp = try self.sendCmd("RETR", cmd);
-        if (resp.code < 100 or resp.code >= 300) {
-            return resp;
-        }
-
-        // Read lines from data connection
-        if (self.sock) |sock| {
-            var line_buf = std.ArrayList(u8).init(self.allocator);
-            defer line_buf.deinit();
-            var buf: [1]u8 = undefined;
-
-            while (true) {
-                const n = std.posix.recv(sock, &buf, 0) catch break;
-                if (n == 0) break;
-
-                if (buf[0] == '\n') {
-                    if (callback) |cb| {
-                        cb(line_buf.items);
-                    }
-                    line_buf.clearRetainingCapacity();
-                } else if (buf[0] != '\r') {
-                    line_buf.append(buf[0]) catch break;
-                }
-            }
-
-            // Handle last line without newline
-            if (line_buf.items.len > 0) {
-                if (callback) |cb| {
-                    cb(line_buf.items);
-                }
-            }
-        }
-
-        return resp;
-    }
-
-    /// Store a file (binary)
-    pub fn storbinary(self: *Self, cmd: []const u8, fp: anytype, blocksize: ?usize, callback: ?*const fn ([]const u8) void, rest: ?u64) !FtpResponse {
-        // Set transfer position if specified
-        if (rest) |r| {
-            _ = try self.sendCmd("REST", std.fmt.allocPrint(self.allocator, "{d}", .{r}) catch "0");
-        }
-
-        // Send STOR command
-        const resp = try self.sendCmd("STOR", cmd);
-        if (resp.code < 100 or resp.code >= 300) {
-            return resp;
-        }
-
-        // Send data from file
-        const block = blocksize orelse 8192;
-        var buf: [8192]u8 = undefined;
-        const write_buf = buf[0..@min(block, buf.len)];
-
-        if (self.sock) |sock| {
-            while (true) {
-                const n = fp.read(write_buf) catch break;
-                if (n == 0) break;
-
-                _ = std.posix.send(sock, write_buf[0..n], 0) catch break;
-
-                if (callback) |cb| {
-                    cb(write_buf[0..n]);
-                }
-            }
-        }
-
-        return resp;
-    }
-
-    /// Store a file (lines)
-    pub fn storlines(self: *Self, cmd: []const u8, fp: anytype, callback: ?*const fn ([]const u8) void) !FtpResponse {
-        // Send STOR command
-        const resp = try self.sendCmd("STOR", cmd);
-        if (resp.code < 100 or resp.code >= 300) {
-            return resp;
-        }
-
-        // Send lines from file
-        var line_buf: [4096]u8 = undefined;
-
-        if (self.sock) |sock| {
-            while (true) {
-                const line = fp.readUntilDelimiter(&line_buf, '\n') catch |err| {
-                    if (err == error.EndOfStream) break;
-                    return err;
-                };
-
-                // Send line with CRLF
-                _ = std.posix.send(sock, line, 0) catch break;
-                _ = std.posix.send(sock, "\r\n", 0) catch break;
-
-                if (callback) |cb| {
-                    cb(line);
-                }
-            }
-        }
-
-        return resp;
-    }
-
-    /// Send NOOP to keep connection alive
-    pub fn noop(self: *Self) !FtpResponse {
-        return self.sendCmd("NOOP", null);
-    }
-
-    /// Quit and close connection
-    pub fn quit(self: *Self) !FtpResponse {
-        const resp = try self.sendCmd("QUIT", null);
-        self.close();
-        return resp;
-    }
-
-    /// Close the connection
     pub fn close(self: *Self) void {
-        if (self.sock) |sock| {
-            std.posix.close(sock);
-            self.sock = null;
-        }
-        self.file = null;
+        self.base.close();
     }
 
-    // ========================================================================
-    // Passive/Active Mode
-    // ========================================================================
-
-    /// Enter passive mode
+    // Passive/Active mode
     pub fn pasv(self: *Self) !struct { host: []const u8, port: u16 } {
-        const resp = try self.sendCmd("PASV", null);
-        // Parse host and port from response
-        _ = resp;
-        return .{ .host = "127.0.0.1", .port = 20 };
+        return self.base.pasv();
     }
 
-    /// Set passive mode
     pub fn setPassive(self: *Self, val: bool) void {
-        self.passiveserver = val;
+        self.base.setPassive(val);
     }
 
-    // ========================================================================
     // Debugging
-    // ========================================================================
-
-    /// Set debugging level
     pub fn setDebugLevel(self: *Self, level: u8) void {
-        self.debugging = level;
-    }
-};
-
-// ============================================================================
-// FTP_TLS
-// ============================================================================
-
-/// FTP client with TLS support
-pub const FTP_TLS = struct {
-    const Self = @This();
-
-    ftp: FTP,
-    ssl_context: ?*anyopaque,
-    prot_p: bool,
-
-    pub fn init(allocator: std.mem.Allocator, host: ?[]const u8, port: ?u16, timeout: ?f64) Self {
-        return .{
-            .ftp = FTP.init(allocator, host, port, timeout),
-            .ssl_context = null,
-            .prot_p = false,
-        };
+        self.base.setDebugLevel(level);
     }
 
-    pub fn deinit(self: *Self) void {
-        self.ftp.deinit();
+    // Directory operations
+    pub fn cdup(self: *Self) !FtpResponse {
+        return commands.cdup(&self.base);
     }
 
-    /// Upgrade connection to TLS
-    pub fn auth(self: *Self) !FtpResponse {
-        return self.ftp.sendCmd("AUTH", "TLS");
+    pub fn pwd(self: *Self) ![]const u8 {
+        return commands.pwd(&self.base);
     }
 
-    /// Set protection buffer size
-    pub fn pbsz(self: *Self, size: u32) !FtpResponse {
-        var buf: [32]u8 = undefined;
-        const len = std.fmt.formatIntBuf(&buf, size, 10, .lower, .{});
-        return self.ftp.sendCmd("PBSZ", buf[0..len]);
+    pub fn cwd(self: *Self, dirname: []const u8) !FtpResponse {
+        return commands.cwd(&self.base, dirname);
     }
 
-    /// Set protection level
-    pub fn prot(self: *Self, level: []const u8) !FtpResponse {
-        self.prot_p = std.mem.eql(u8, level, "P");
-        return self.ftp.sendCmd("PROT", level);
+    pub fn mkd(self: *Self, dirname: []const u8) ![]const u8 {
+        return commands.mkd(&self.base, dirname);
     }
 
-    /// Set up protected data connection
-    pub fn protP(self: *Self) !FtpResponse {
-        return self.prot("P");
+    pub fn rmd(self: *Self, dirname: []const u8) !FtpResponse {
+        return commands.rmd(&self.base, dirname);
     }
 
-    /// Set up clear data connection
-    pub fn protC(self: *Self) !FtpResponse {
-        return self.prot("C");
+    // File operations
+    pub fn size(self: *Self, filename: []const u8) !?u64 {
+        return commands.size(&self.base, filename);
+    }
+
+    pub fn delete(self: *Self, filename: []const u8) !FtpResponse {
+        return commands.delete(&self.base, filename);
+    }
+
+    pub fn rename(self: *Self, fromname: []const u8, toname: []const u8) !FtpResponse {
+        return commands.rename(&self.base, fromname, toname);
+    }
+
+    // Transfer mode
+    pub fn setType(self: *Self, typecode: []const u8) !FtpResponse {
+        return commands.setType(&self.base, typecode);
+    }
+
+    pub fn setAscii(self: *Self) !FtpResponse {
+        return commands.setAscii(&self.base);
+    }
+
+    pub fn setBinary(self: *Self) !FtpResponse {
+        return commands.setBinary(&self.base);
+    }
+
+    // Directory listing
+    pub fn dir(self: *Self, dirname: ?[]const u8) ![]const u8 {
+        return commands.dir(&self.base, dirname);
+    }
+
+    pub fn nlst(self: *Self, dirname: ?[]const u8) ![]const u8 {
+        return commands.nlst(&self.base, dirname);
+    }
+
+    pub fn mlsd(self: *Self, path: ?[]const u8) ![]const u8 {
+        return commands.mlsd(&self.base, path);
+    }
+
+    // Connection management
+    pub fn noop(self: *Self) !FtpResponse {
+        return commands.noop(&self.base);
+    }
+
+    pub fn quit(self: *Self) !FtpResponse {
+        return commands.quit(&self.base);
+    }
+
+    // File transfer
+    pub fn retrbinary(
+        self: *Self,
+        cmd: []const u8,
+        callback: *const fn ([]const u8) void,
+        blocksize: ?usize,
+        rest: ?u64,
+    ) !FtpResponse {
+        return transfer.retrbinary(&self.base, cmd, callback, blocksize, rest);
+    }
+
+    pub fn retrlines(
+        self: *Self,
+        cmd: []const u8,
+        callback: ?*const fn ([]const u8) void,
+    ) !FtpResponse {
+        return transfer.retrlines(&self.base, cmd, callback);
+    }
+
+    pub fn storbinary(
+        self: *Self,
+        cmd: []const u8,
+        fp: anytype,
+        blocksize: ?usize,
+        callback: ?*const fn ([]const u8) void,
+        rest: ?u64,
+    ) !FtpResponse {
+        return transfer.storbinary(&self.base, cmd, fp, blocksize, callback, rest);
+    }
+
+    pub fn storlines(
+        self: *Self,
+        cmd: []const u8,
+        fp: anytype,
+        callback: ?*const fn ([]const u8) void,
+    ) !FtpResponse {
+        return transfer.storlines(&self.base, cmd, fp, callback);
     }
 };
 
@@ -599,37 +193,20 @@ pub const FTP_TLS = struct {
 // Tests
 // ============================================================================
 
+test "ftplib module structure" {
+    // Test that all submodules are accessible
+    _ = types;
+    _ = client;
+    _ = commands;
+    _ = transfer;
+    _ = ftp_tls;
+}
+
 test "FTP init" {
     const allocator = std.testing.allocator;
     var ftp = FTP.init(allocator, null, null, null);
     defer ftp.deinit();
 
-    try std.testing.expectEqual(@as(u16, FTP_PORT), ftp.port);
-    try std.testing.expect(ftp.passiveserver);
-}
-
-test "FtpResponse isPositive" {
-    const resp = FtpResponse{ .code = 220, .message = "Service ready" };
-    try std.testing.expect(resp.isPositive());
-    try std.testing.expect(resp.isComplete());
-    try std.testing.expect(!resp.isNegativeTransient());
-    try std.testing.expect(!resp.isNegativePermanent());
-}
-
-test "FtpResponse isNegative" {
-    const resp = FtpResponse{ .code = 550, .message = "File not found" };
-    try std.testing.expect(!resp.isPositive());
-    try std.testing.expect(resp.isNegativePermanent());
-}
-
-test "FTP_TLS init" {
-    const allocator = std.testing.allocator;
-    var ftp_tls = FTP_TLS.init(allocator, null, null, null);
-    defer ftp_tls.deinit();
-
-    try std.testing.expect(!ftp_tls.prot_p);
-}
-
-test "FTP_PORT constant" {
-    try std.testing.expectEqual(@as(u16, 21), FTP_PORT);
+    try std.testing.expectEqual(@as(u16, FTP_PORT), ftp.base.port);
+    try std.testing.expect(ftp.base.passiveserver);
 }
