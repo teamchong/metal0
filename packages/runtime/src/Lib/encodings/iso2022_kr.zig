@@ -134,13 +134,26 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             }
             try result.append(@intCast(cp));
         } else {
-            // Would need Unicode to KS X 1001 mapping for non-ASCII
-            if (mode == .strict) return error.UnencodableCharacter;
-            if (in_korean) {
-                try result.append(SI);
-                in_korean = false;
+            // Use CJK mapping tables for KS X 1001 encoding
+            const cjk = @import("cjk_mappings.zig");
+            if (cjk.encodeKsx1001(cp)) |ks_code| {
+                // Switch to Korean if not already
+                if (!in_korean) {
+                    try result.append(SO);
+                    in_korean = true;
+                }
+                // Output without high bit (ISO-2022 uses 7-bit)
+                try result.append(@intCast(ks_code >> 8));
+                try result.append(@intCast(ks_code & 0xFF));
+            } else {
+                // No mapping available
+                if (mode == .strict) return error.UnencodableCharacter;
+                if (in_korean) {
+                    try result.append(SI);
+                    in_korean = false;
+                }
+                try result.append('?');
             }
-            try result.append('?');
         }
     }
 

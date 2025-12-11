@@ -190,10 +190,22 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             // Half-width katakana
             try result.append(byte);
         } else {
-            // Would need reverse mapping table for full support
-            // For now, use replacement character or error
-            if (mode == .strict) return error.UnencodableCharacter;
-            try result.append('?');
+            // Use CJK mapping tables for full support
+            const cjk = @import("cjk_mappings.zig");
+            if (cjk.encodeJisx0208(cp)) |jis_code| {
+                // Transform JIS X 0208 to Shift-JIS
+                const sjis = cjk.jisToShiftJis(jis_code);
+                try result.append(sjis.c1);
+                try result.append(sjis.c2);
+            } else if (cjk.encodeCp932Ext(cp)) |code| {
+                // CP932 extension characters
+                try result.append(@intCast(code >> 8));
+                try result.append(@intCast(code & 0xFF));
+            } else {
+                // No mapping available
+                if (mode == .strict) return error.UnencodableCharacter;
+                try result.append('?');
+            }
         }
     }
 

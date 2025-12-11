@@ -183,9 +183,17 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             try result.append(0x8E);
             try result.append(@intCast(0xA1 + (cp - 0xFF61)));
         } else {
-            // Would need reverse mapping for full support
-            if (mode == .strict) return error.UnencodableCharacter;
-            try result.append('?');
+            // Use CJK mapping tables for full support
+            const cjk = @import("cjk_mappings.zig");
+            if (cjk.encodeJisx0208(cp)) |jis_code| {
+                // JIS X 0208 -> EUC-JP: add 0x80 to each byte
+                try result.append(@as(u8, @intCast(jis_code >> 8)) | 0x80);
+                try result.append(@as(u8, @intCast(jis_code & 0xFF)) | 0x80);
+            } else {
+                // No mapping available
+                if (mode == .strict) return error.UnencodableCharacter;
+                try result.append('?');
+            }
         }
     }
 

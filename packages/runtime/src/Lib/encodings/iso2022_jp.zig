@@ -184,13 +184,25 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             }
             try result.append(@intCast(cp));
         } else {
-            // Would need Unicode to JIS mapping for non-ASCII
-            if (mode == .strict) return error.UnencodableCharacter;
-            if (!in_ascii) {
-                try result.appendSlice(&[_]u8{ ESC, '(', 'B' });
-                in_ascii = true;
+            // Use CJK mapping tables for JIS X 0208 encoding
+            const cjk = @import("cjk_mappings.zig");
+            if (cjk.encodeJisx0208(cp)) |jis_code| {
+                // Switch to JIS X 0208 if not already
+                if (in_ascii) {
+                    try result.appendSlice(&[_]u8{ ESC, '$', 'B' }); // JIS X 0208
+                    in_ascii = false;
+                }
+                try result.append(@intCast(jis_code >> 8));
+                try result.append(@intCast(jis_code & 0xFF));
+            } else {
+                // No mapping available
+                if (mode == .strict) return error.UnencodableCharacter;
+                if (!in_ascii) {
+                    try result.appendSlice(&[_]u8{ ESC, '(', 'B' });
+                    in_ascii = true;
+                }
+                try result.append('?');
             }
-            try result.append('?');
         }
     }
 

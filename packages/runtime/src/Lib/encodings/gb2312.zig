@@ -181,24 +181,14 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             // ASCII
             try result.append(@intCast(cp));
         } else {
-            // Would need reverse mapping for full support
-            // Check for fullwidth digits/letters
-            if (cp >= 0xFF10 and cp <= 0xFF19) {
-                // Fullwidth digits
-                const col: u8 = @intCast(cp - 0xFF10);
-                try result.append(0xA3);
-                try result.append(0xB0 + col);
-            } else if (cp >= 0xFF21 and cp <= 0xFF3A) {
-                // Fullwidth uppercase
-                const col: u8 = @intCast(cp - 0xFF21 + 1);
-                try result.append(0xA3);
-                try result.append(0xC1 + col - 1);
-            } else if (cp >= 0xFF41 and cp <= 0xFF5A) {
-                // Fullwidth lowercase
-                const col: u8 = @intCast(cp - 0xFF41 + 1);
-                try result.append(0xA3);
-                try result.append(0xE1 + col - 1);
+            // Use CJK mapping tables for full support
+            const cjk = @import("cjk_mappings.zig");
+            if (cjk.encodeGb2312(cp)) |gb_code| {
+                // GB2312 -> EUC-CN: add 0x80 to each byte
+                try result.append(@as(u8, @intCast(gb_code >> 8)) | 0x80);
+                try result.append(@as(u8, @intCast(gb_code & 0xFF)) | 0x80);
             } else {
+                // No mapping available
                 if (mode == .strict) return error.UnencodableCharacter;
                 try result.append('?');
             }
