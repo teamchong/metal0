@@ -1327,11 +1327,34 @@ pub const NativeCodegen = struct {
         }
     }
 
+    /// Static indent strings for O(1) lookup instead of O(n) loop
+    /// Supports up to 20 levels of nesting (80 spaces)
+    const INDENT_STRINGS = [_][]const u8{
+        "",
+        "    ",
+        "        ",
+        "            ",
+        "                ",
+        "                    ",
+        "                        ",
+        "                            ",
+        "                                ",
+        "                                    ",
+        "                                        ",
+        "                                            ",
+        "                                                ",
+        "                                                    ",
+        "                                                        ",
+        "                                                            ",
+        "                                                                ",
+        "                                                                    ",
+        "                                                                        ",
+        "                                                                            ",
+    };
+
     pub fn emitIndent(self: *NativeCodegen) CodegenError!void {
-        var i: usize = 0;
-        while (i < self.indent_level) : (i += 1) {
-            try self.emit("    ");
-        }
+        const level = @min(self.indent_level, INDENT_STRINGS.len - 1);
+        try self.emit(INDENT_STRINGS[level]);
     }
 
     pub fn indent(self: *NativeCodegen) void {
