@@ -168,6 +168,21 @@ pub fn cmdBuildRuntime(allocator: std.mem.Allocator) !void {
     std.debug.print("Future compilations will link against this archive (10x faster).\n", .{});
 }
 
+/// Build precompiled module objects (.o files) for ultra-fast linking
+/// Usage: metal0 build-objects
+pub fn cmdBuildObjects(allocator: std.mem.Allocator) !void {
+    const incr = @import("../compile/incremental.zig");
+
+    std.debug.print("{s}=== Building Precompiled Module Objects ==={s}\n", .{ Color.bold, Color.reset });
+    std.debug.print("Building .metal0/obj/*.o files (one-time, then link-only builds)...\n\n", .{});
+
+    try incr.buildAllModuleObjects(allocator);
+
+    printSuccess("Module objects built in .metal0/obj/", .{});
+    std.debug.print("\nFuture builds will link against these objects (~10x faster).\n", .{});
+    std.debug.print("To rebuild: rm -rf .metal0/obj && metal0 build-objects\n", .{});
+}
+
 /// Codegen-only batch command: fast parallel codegen with error summary
 /// Usage: metal0 codegen tests/cpython
 pub fn cmdCodegen(allocator: std.mem.Allocator, args: []const []const u8) !void {

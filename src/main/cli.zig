@@ -90,6 +90,8 @@ pub fn main() !void {
         try build_commands.cmdBuildFast(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "build-runtime")) {
         try build_commands.cmdBuildRuntime(allocator);
+    } else if (std.mem.eql(u8, command, "build-objects")) {
+        try build_commands.cmdBuildObjects(allocator);
     } else if (std.mem.eql(u8, command, "setup-runtime")) {
         try build_commands.cmdSetupRuntime(allocator);
     } else if (std.mem.eql(u8, command, "profile")) {

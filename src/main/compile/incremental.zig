@@ -228,6 +228,335 @@ pub fn ensureRuntimeArchive(allocator: std.mem.Allocator) !void {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// PRECOMPILED OBJECT FILES (.o) - For ultra-fast linking
+// Each module compiled to .o ONCE, then linked when building apps
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Directory for precompiled .o files (mirrors source structure)
+const OBJECTS_DIR = ".metal0/obj";
+
+/// Module object files with paths mirroring source structure
+const ModuleObject = struct {
+    /// Source .zig path
+    src: []const u8,
+    /// Output .o path (relative to OBJECTS_DIR)
+    obj: []const u8,
+    /// Module name for -M flag
+    name: []const u8,
+    /// Dependencies
+    deps: []const []const u8,
+};
+
+/// All module objects - mirrors source folder structure
+const MODULE_OBJECTS = [_]ModuleObject{
+    // src/utils/
+    .{ .src = "src/utils/hashmap_helper.zig", .obj = "src/utils/hashmap_helper.o", .name = "utils.hashmap_helper", .deps = &.{} },
+    .{ .src = "src/utils/allocator_helper.zig", .obj = "src/utils/allocator_helper.o", .name = "utils.allocator_helper", .deps = &.{} },
+
+    // packages/bigint/
+    .{ .src = "packages/bigint/src/bigint.zig", .obj = "packages/bigint/src/bigint.o", .name = "bigint", .deps = &.{} },
+
+    // packages/runtime/src/runtime/
+    .{ .src = "packages/runtime/src/runtime/green_thread.zig", .obj = "packages/runtime/src/runtime/green_thread.o", .name = "green_thread", .deps = &.{} },
+    .{ .src = "packages/runtime/src/runtime/netpoller.zig", .obj = "packages/runtime/src/runtime/netpoller.o", .name = "netpoller", .deps = &.{"green_thread"} },
+    .{ .src = "packages/runtime/src/runtime/work_queue.zig", .obj = "packages/runtime/src/runtime/work_queue.o", .name = "work_queue", .deps = &.{"green_thread"} },
+    .{ .src = "packages/runtime/src/runtime/scheduler.zig", .obj = "packages/runtime/src/runtime/scheduler.o", .name = "scheduler", .deps = &.{ "green_thread", "work_queue", "netpoller" } },
+
+    // packages/runtime/src/Modules/
+    .{ .src = "packages/runtime/src/Modules/gzip/gzip.zig", .obj = "packages/runtime/src/Modules/gzip/gzip.o", .name = "gzip", .deps = &.{} },
+
+    // packages/regex/
+    .{ .src = "packages/regex/src/pyregex/regex.zig", .obj = "packages/regex/src/pyregex/regex.o", .name = "regex", .deps = &.{} },
+
+    // packages/shared/json/
+    .{ .src = "packages/shared/json/simd/dispatch.zig", .obj = "packages/shared/json/simd/dispatch.o", .name = "json_simd", .deps = &.{} },
+    .{ .src = "packages/shared/json/json.zig", .obj = "packages/shared/json/json.o", .name = "json", .deps = &.{ "json_simd", "utils.hashmap_helper" } },
+
+    // packages/tokenizer/
+    .{ .src = "packages/tokenizer/src/tokenizer.zig", .obj = "packages/tokenizer/src/tokenizer.o", .name = "tokenizer", .deps = &.{ "json", "utils.hashmap_helper" } },
+
+    // packages/runtime/ (main runtime - last, has most deps)
+    .{ .src = "packages/runtime/src/runtime.zig", .obj = "packages/runtime/src/runtime.o", .name = "runtime", .deps = &.{
+        "utils.hashmap_helper",
+        "bigint",
+        "gzip",
+        "regex",
+        "tokenizer",
+        "green_thread",
+        "netpoller",
+        "scheduler",
+    } },
+};
+
+/// Check if all precompiled objects exist
+pub fn hasPrecompiledObjects() bool {
+    for (MODULE_OBJECTS) |mod| {
+        var buf: [512]u8 = undefined;
+        const path = std.fmt.bufPrint(&buf, "{s}/{s}", .{ OBJECTS_DIR, mod.obj }) catch return false;
+        std.fs.cwd().access(path, .{}) catch return false;
+    }
+    return true;
+}
+
+/// Create directory structure for an object file path
+fn ensureObjDir(allocator: std.mem.Allocator, obj_path: []const u8) !void {
+    if (std.fs.path.dirname(obj_path)) |dir| {
+        const full_dir = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ OBJECTS_DIR, dir });
+        defer allocator.free(full_dir);
+        std.fs.cwd().makePath(full_dir) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
+    }
+}
+
+/// Recursively collect all dependencies (transitive closure)
+fn collectAllDeps(allocator: std.mem.Allocator, mod_name: []const u8, visited: *std.StringHashMap(void)) !void {
+    if (visited.contains(mod_name)) return;
+    try visited.put(mod_name, {});
+
+    // Find the module
+    for (MODULE_OBJECTS) |m| {
+        if (std.mem.eql(u8, m.name, mod_name)) {
+            // Recursively add its deps
+            for (m.deps) |dep| {
+                try collectAllDeps(allocator, dep, visited);
+            }
+            break;
+        }
+    }
+}
+
+/// Build a single module to .o file
+fn buildModuleObjectNew(allocator: std.mem.Allocator, mod: ModuleObject) !void {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    // Ensure output directory exists
+    try ensureObjDir(aa, mod.obj);
+
+    const obj_path = try std.fmt.allocPrint(aa, "{s}/{s}", .{ OBJECTS_DIR, mod.obj });
+
+    var args = std.ArrayList([]const u8){};
+
+    try args.append(aa, "zig");
+    try args.append(aa, "build-obj");
+
+    // Add C sources if this is gzip module
+    if (std.mem.eql(u8, mod.name, "gzip")) {
+        try addCSourceFiles(aa, &args);
+    }
+
+    // Collect ALL transitive dependencies
+    var all_deps = std.StringHashMap(void).init(aa);
+    for (mod.deps) |dep| {
+        try collectAllDeps(aa, dep, &all_deps);
+    }
+
+    // Add direct dependencies first
+    for (mod.deps) |dep| {
+        try args.append(aa, "--dep");
+        try args.append(aa, dep);
+    }
+
+    // Module definition for the module being built
+    try args.append(aa, try std.fmt.allocPrint(aa, "-M{s}={s}", .{ mod.name, mod.src }));
+
+    // Add ALL dependency module definitions (including transitive)
+    // Process in reverse order so dependencies come after their dependents
+    var i: usize = MODULE_OBJECTS.len;
+    while (i > 0) {
+        i -= 1;
+        const dep_mod = MODULE_OBJECTS[i];
+
+        // Skip if this is the module being built
+        if (std.mem.eql(u8, dep_mod.name, mod.name)) continue;
+
+        // Only add if it's in our transitive deps
+        if (!all_deps.contains(dep_mod.name)) continue;
+
+        // Add the dependency's own deps first
+        for (dep_mod.deps) |dd| {
+            try args.append(aa, "--dep");
+            try args.append(aa, dd);
+        }
+        try args.append(aa, try std.fmt.allocPrint(aa, "-M{s}={s}", .{ dep_mod.name, dep_mod.src }));
+    }
+
+    // Cache and optimization
+    try args.append(aa, "--cache-dir");
+    try args.append(aa, ZIG_CACHE_DIR);
+    try args.append(aa, "-OReleaseFast");
+    try args.append(aa, "-fno-stack-check");
+    try args.append(aa, "-ffunction-sections");
+    try args.append(aa, "-fdata-sections");
+
+    // Include path for libdeflate
+    try args.append(aa, "-I");
+    try args.append(aa, "vendor/libdeflate");
+
+    // Output
+    try args.append(aa, try std.fmt.allocPrint(aa, "-femit-bin={s}", .{obj_path}));
+
+    // Link libc
+    try args.append(aa, "-lc");
+
+    const result = try std.process.Child.run(.{
+        .allocator = aa,
+        .argv = args.items,
+        .max_output_bytes = 1024 * 1024,
+    });
+
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("Failed to build {s}:\n{s}\n", .{ mod.name, result.stderr });
+                return error.ObjectBuildFailed;
+            }
+        },
+        else => return error.ObjectBuildFailed,
+    }
+}
+
+/// Build all module .o files (call once, then link fast)
+/// Objects are organized mirroring source folder structure:
+///   .metal0/obj/src/utils/hashmap_helper.o
+///   .metal0/obj/packages/runtime/src/runtime.o
+///   etc.
+pub fn buildAllModuleObjects(allocator: std.mem.Allocator) !void {
+    // Ensure base directories exist
+    try build_dirs.init();
+    std.fs.cwd().makePath(OBJECTS_DIR) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+    std.fs.cwd().makePath(ZIG_CACHE_DIR) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    std.debug.print("Building precompiled module objects (mirroring source structure)...\n", .{});
+
+    // Build all modules in order (deps come before dependents in MODULE_OBJECTS)
+    for (MODULE_OBJECTS) |mod| {
+        std.debug.print("  {s} -> {s}/{s}\n", .{ mod.name, OBJECTS_DIR, mod.obj });
+        buildModuleObjectNew(allocator, mod) catch |err| {
+            std.debug.print("    Warning: Failed to build {s}: {any}\n", .{ mod.name, err });
+        };
+    }
+
+    std.debug.print("\nDone! Objects in {s}/\n", .{OBJECTS_DIR});
+}
+
+/// Ensure all precompiled objects are up-to-date
+pub fn ensurePrecompiledObjects(allocator: std.mem.Allocator) !void {
+    if (!hasPrecompiledObjects()) {
+        try buildAllModuleObjects(allocator);
+    }
+    // TODO: Check mtimes and rebuild if source changed
+}
+
+/// Get list of all .o file paths for linking
+pub fn getObjectPaths(allocator: std.mem.Allocator) ![]const []const u8 {
+    var paths = std.ArrayList([]const u8){};
+    for (MODULE_OBJECTS) |mod| {
+        const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ OBJECTS_DIR, mod.obj });
+        try paths.append(allocator, path);
+    }
+    return paths.toOwnedSlice(allocator);
+}
+
+/// Compile user code and link against precompiled .o files (FAST!)
+pub fn compileWithPrecompiledObjects(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    // Write zig code to temp file
+    const basename = std.fs.path.basename(output_path);
+    const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
+    const tmp_path = try std.fmt.allocPrint(aa, "{s}/main_{s}_{d}.zig", .{ build_dirs.CACHE, stem, std.time.milliTimestamp() });
+
+    const tmp_file = try std.fs.cwd().createFile(tmp_path, .{});
+    try tmp_file.writeAll(zig_code);
+    tmp_file.close();
+
+    // Build command
+    var args = std.ArrayList([]const u8){};
+
+    try args.append(aa, "zig");
+    try args.append(aa, "build-exe");
+
+    // Add all precompiled .o files
+    for (MODULE_OBJECTS) |mod| {
+        try args.append(aa, try std.fmt.allocPrint(aa, "{s}/{s}", .{ OBJECTS_DIR, mod.obj }));
+    }
+
+    // Add C sources (needed for libdeflate symbols)
+    try addCSourceFiles(aa, &args);
+
+    // Main module with deps
+    try args.append(aa, "--dep");
+    try args.append(aa, "runtime");
+    try args.append(aa, "--dep");
+    try args.append(aa, "utils.hashmap_helper");
+    try args.append(aa, "--dep");
+    try args.append(aa, "utils.allocator_helper");
+    try args.append(aa, try std.fmt.allocPrint(aa, "-Mmain={s}", .{tmp_path}));
+
+    // Module definitions (needed for type info even though .o has the code)
+    try addRuntimeModuleFlagsNew(aa, &args);
+
+    // Cache and optimization
+    try args.append(aa, "--cache-dir");
+    try args.append(aa, ZIG_CACHE_DIR);
+    try args.append(aa, "-OReleaseFast");
+    try args.append(aa, "-fno-stack-check");
+
+    // DCE at link time
+    try args.append(aa, "--gc-sections");
+
+    // Output
+    try args.append(aa, try std.fmt.allocPrint(aa, "-femit-bin={s}", .{output_path}));
+
+    // Link libc
+    try args.append(aa, "-lc");
+
+    const result = try std.process.Child.run(.{
+        .allocator = aa,
+        .argv = args.items,
+        .max_output_bytes = 1024 * 1024,
+    });
+
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("Linking failed:\n{s}\n", .{result.stderr});
+                return error.LinkFailed;
+            }
+        },
+        else => return error.LinkFailed,
+    }
+}
+
+/// Add runtime module -M flags for type resolution (using MODULE_OBJECTS)
+fn addRuntimeModuleFlagsNew(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8)) !void {
+    // Add all modules in reverse order (dependents before dependencies for Zig's parser)
+    var i: usize = MODULE_OBJECTS.len;
+    while (i > 0) {
+        i -= 1;
+        const mod = MODULE_OBJECTS[i];
+
+        // Add deps first
+        for (mod.deps) |dep| {
+            try args.append(allocator, "--dep");
+            try args.append(allocator, dep);
+        }
+
+        // Module definition
+        try args.append(allocator, try std.fmt.allocPrint(allocator, "-M{s}={s}", .{ mod.name, mod.src }));
+    }
+}
+
 /// Batch compile: compile multiple .zig files in parallel
 /// Returns number of successful compilations
 pub fn batchCompile(allocator: std.mem.Allocator, zig_files: []const []const u8, parallelism: usize) !usize {
