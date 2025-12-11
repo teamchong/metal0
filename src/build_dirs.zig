@@ -30,19 +30,35 @@ pub fn init() !void {
     }
 }
 
-/// Get path for generated Zig source
-pub fn zigPath(allocator: std.mem.Allocator, module_name: []const u8) ![]const u8 {
-    return std.fmt.allocPrint(allocator, CACHE ++ "/{s}.zig", .{module_name});
+/// Get path for generated Zig source (mirrors source path to avoid conflicts)
+/// e.g., "tests/cpython/test_bool.py" -> ".metal0/cache/tests/cpython/test_bool.zig"
+pub fn zigPath(allocator: std.mem.Allocator, source_path: []const u8) ![]const u8 {
+    // Remove .py extension and add .zig
+    const stem = if (std.mem.endsWith(u8, source_path, ".py"))
+        source_path[0 .. source_path.len - 3]
+    else
+        source_path;
+    return std.fmt.allocPrint(allocator, CACHE ++ "/{s}.zig", .{stem});
 }
 
-/// Get path for compiled object file
-pub fn objectPath(allocator: std.mem.Allocator, module_name: []const u8) ![]const u8 {
-    return std.fmt.allocPrint(allocator, CACHE ++ "/{s}.o", .{module_name});
+/// Get path for compiled object file (mirrors source path)
+pub fn objectPath(allocator: std.mem.Allocator, source_path: []const u8) ![]const u8 {
+    const stem = if (std.mem.endsWith(u8, source_path, ".py"))
+        source_path[0 .. source_path.len - 3]
+    else if (std.mem.endsWith(u8, source_path, ".zig"))
+        source_path[0 .. source_path.len - 4]
+    else
+        source_path;
+    return std.fmt.allocPrint(allocator, CACHE ++ "/{s}.o", .{stem});
 }
 
 /// Get path for hash file (for incremental build detection)
-pub fn hashPath(allocator: std.mem.Allocator, module_name: []const u8) ![]const u8 {
-    return std.fmt.allocPrint(allocator, CACHE ++ "/{s}.o.hash", .{module_name});
+pub fn hashPath(allocator: std.mem.Allocator, source_path: []const u8) ![]const u8 {
+    const stem = if (std.mem.endsWith(u8, source_path, ".py"))
+        source_path[0 .. source_path.len - 3]
+    else
+        source_path;
+    return std.fmt.allocPrint(allocator, CACHE ++ "/{s}.hash", .{stem});
 }
 
 /// Get path for static archive
@@ -50,9 +66,23 @@ pub fn archivePath(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
     return std.fmt.allocPrint(allocator, LIB ++ "/lib{s}.a", .{name});
 }
 
-/// Get path for final binary
-pub fn binaryPath(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
-    return std.fmt.allocPrint(allocator, BIN ++ "/{s}", .{name});
+/// Get path for final binary (mirrors source path)
+/// e.g., "tests/cpython/test_bool.py" -> ".metal0/bin/tests/cpython/test_bool"
+pub fn binaryPath(allocator: std.mem.Allocator, source_path: []const u8) ![]const u8 {
+    const stem = if (std.mem.endsWith(u8, source_path, ".py"))
+        source_path[0 .. source_path.len - 3]
+    else
+        source_path;
+    return std.fmt.allocPrint(allocator, BIN ++ "/{s}", .{stem});
+}
+
+/// Ensure parent directories exist for a path
+pub fn ensureParentDir(path: []const u8) !void {
+    if (std.fs.path.dirname(path)) |parent| {
+        std.fs.cwd().makePath(parent) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
+    }
 }
 
 /// Get runtime directory (for cached runtime files)
