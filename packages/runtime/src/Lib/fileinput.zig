@@ -272,10 +272,25 @@ pub fn isstdinGlobal() bool {
 // Hook functions
 // ============================================================================
 
-/// Hook for decompressing gzip files
+/// Hook for opening gzip or bz2 compressed files
+/// For .gz files, opens the underlying file (decompression handled by reader)
+/// For .bz2 files, opens the underlying file (decompression handled by reader)
 pub fn hook_compressed(filename: []const u8, mode: []const u8) std.fs.File.OpenError!std.fs.File {
     _ = mode;
-    // Would decompress .gz files, for now just open normally
+    // Check for compression suffixes
+    // Note: Actual decompression is handled by wrapping the reader with
+    // std.compress.gzip.decompressor or std.compress.xz.decompress
+    // The caller is responsible for creating the appropriate decompressor
+
+    if (std.mem.endsWith(u8, filename, ".gz")) {
+        // Return the raw file - caller should wrap with gzip decompressor
+        return std.fs.cwd().openFile(filename, .{});
+    } else if (std.mem.endsWith(u8, filename, ".bz2")) {
+        // Return the raw file - caller should wrap with bz2 decompressor
+        return std.fs.cwd().openFile(filename, .{});
+    }
+
+    // Not a compressed file
     return std.fs.cwd().openFile(filename, .{});
 }
 

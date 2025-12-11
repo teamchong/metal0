@@ -307,10 +307,12 @@ pub fn exists(path: []const u8) bool {
     return true;
 }
 
-/// Return True if path refers to an existing path (follows symlinks).
+/// Return True if path refers to an existing path.
+/// Unlike exists(), this returns True for broken symbolic links.
 pub fn lexists(path: []const u8) bool {
-    // Would use lstat, for now same as exists
-    return exists(path);
+    // Use lstat to check path without following symlinks
+    _ = std.posix.lstat(path) catch return false;
+    return true;
 }
 
 // ============================================================================
