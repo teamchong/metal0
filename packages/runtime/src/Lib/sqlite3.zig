@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const allocator_helper = @import("utils.allocator_helper");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // SQLite3 C API Bindings
@@ -593,13 +594,13 @@ pub fn connect(allocator: std.mem.Allocator, database: []const u8, options: Conn
 }
 
 // Global adapter and converter registries
-var adapters_map: ?std.StringHashMap(*const anyopaque) = null;
-var converters_map: ?std.StringHashMap(*const anyopaque) = null;
+var adapters_map: ?hashmap_helper.StringHashMap(*const anyopaque) = null;
+var converters_map: ?hashmap_helper.StringHashMap(*const anyopaque) = null;
 
 /// Register an adapter for a Python type to SQLite
 pub fn registerAdapter(comptime T: type, adapter: *const fn (value: T) []const u8) void {
     if (adapters_map == null) {
-        adapters_map = std.StringHashMap(*const anyopaque).init(allocator_helper.fast_allocator);
+        adapters_map = hashmap_helper.StringHashMap(*const anyopaque).init(allocator_helper.fast_allocator);
     }
     adapters_map.?.put(@typeName(T), @ptrCast(adapter)) catch {};
 }
@@ -607,7 +608,7 @@ pub fn registerAdapter(comptime T: type, adapter: *const fn (value: T) []const u
 /// Register a converter from SQLite type to Python
 pub fn registerConverter(typename: []const u8, converter: *const anyopaque) void {
     if (converters_map == null) {
-        converters_map = std.StringHashMap(*const anyopaque).init(allocator_helper.fast_allocator);
+        converters_map = hashmap_helper.StringHashMap(*const anyopaque).init(allocator_helper.fast_allocator);
     }
     converters_map.?.put(typename, converter) catch {};
 }

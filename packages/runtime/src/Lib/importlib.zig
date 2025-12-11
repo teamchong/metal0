@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/importlib/
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -232,7 +233,7 @@ pub fn reload(module: *anyopaque) !*anyopaque {
 }
 
 /// Module cache for import tracking
-var module_cache: ?std.StringHashMap(*anyopaque) = null;
+var module_cache: ?hashmap_helper.StringHashMap(*anyopaque) = null;
 
 /// Invalidate cached finders and module cache
 pub fn invalidate_caches() void {

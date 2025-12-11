@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/tkinter/
 
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
 // Error Types
@@ -106,17 +107,17 @@ pub const Widget = struct {
     children: std.ArrayList(*Widget),
     allocator: std.mem.Allocator,
     /// Widget options storage
-    options: std.StringHashMap(OptionValue),
+    options: hashmap_helper.StringHashMap(OptionValue),
     /// Event bindings
-    bindings: std.StringHashMap(*const fn () void),
+    bindings: hashmap_helper.StringHashMap(*const fn () void),
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Self {
         return Self{
             .name = name,
             .allocator = allocator,
             .children = std.ArrayList(*Widget).init(allocator),
-            .options = std.StringHashMap(OptionValue).init(allocator),
-            .bindings = std.StringHashMap(*const fn () void).init(allocator),
+            .options = hashmap_helper.StringHashMap(OptionValue).init(allocator),
+            .bindings = hashmap_helper.StringHashMap(*const fn () void).init(allocator),
         };
     }
 
