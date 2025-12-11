@@ -141,7 +141,6 @@ pub fn matchClass(
             // Handle keyword matches
         }
     }
-    _ = kwargs;
 
     const result = runtime.PyTuple.create(allocator, matched_values.items) catch return null;
     return @ptrCast(result);

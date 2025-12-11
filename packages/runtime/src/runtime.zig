@@ -120,6 +120,9 @@ pub const pickle_marshal = @import("runtime/pickle_marshal.zig");
 /// String runtime operations
 pub const string_runtime = @import("runtime/string_runtime.zig");
 
+// Re-export strRepeat for codegen
+pub const strRepeat = string_runtime.strRepeat;
+
 /// Type name and string conversion utilities
 pub const type_name = @import("runtime/type_name.zig");
 
@@ -172,6 +175,9 @@ pub const assertEqualGeneric = builtins.assertEqualGeneric;
 
 // Re-export compile_builtin from Python/ast.zig for codegen
 pub const compile_builtin = @import("Python/ast.zig").compile_builtin;
+
+// Re-export eval from Python/ceval.zig for codegen
+pub const eval = @import("Python/ceval.zig").eval;
 
 /// Export _string module (formatter_parser, etc.)
 pub const _string = @import("Modules/_string.zig");
