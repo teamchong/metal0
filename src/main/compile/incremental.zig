@@ -35,6 +35,14 @@ pub fn hasRuntimeArchive() bool {
     return true;
 }
 
+/// Get runtime archive mtime (for cache invalidation)
+pub fn getRuntimeArchiveMtime() i128 {
+    const file = std.fs.cwd().openFile(RUNTIME_ARCHIVE_PATH, .{}) catch return 0;
+    defer file.close();
+    const stat = file.stat() catch return 0;
+    return stat.mtime;
+}
+
 /// Module definition for -M flag (mirrors compiler.zig MODULES)
 const ModuleDef = struct {
     name: []const u8,

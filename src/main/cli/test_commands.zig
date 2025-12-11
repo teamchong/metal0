@@ -276,6 +276,9 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     //   - normal mode: Parallel zig build-exe (slower but more granular caching)
     if (!dots_mode) std.debug.print("Phase 2: Compile ({s})...\n", .{if (batch_mode) "batch" else "parallel"});
 
+    // Get runtime archive mtime - invalidate cache if runtime was rebuilt
+    const runtime_mtime = incremental.getRuntimeArchiveMtime();
+
     var compile_ok = std.atomic.Value(usize).init(0);
     var compile_cached = std.atomic.Value(usize).init(0);
     var bin_paths = std.ArrayList([]const u8){};
@@ -305,6 +308,8 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
             const bin_stat = std.fs.cwd().statFile(bin_path) catch break :blk true;
             if (bin_stat.mtime < zig_stat.mtime) break :blk true;
             if (compiler_mtime > 0 and bin_stat.mtime < compiler_mtime) break :blk true;
+            // Also check if runtime archive was rebuilt (needs relinking)
+            if (runtime_mtime > 0 and bin_stat.mtime < runtime_mtime) break :blk true;
             break :blk false;
         };
 
