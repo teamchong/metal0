@@ -1,5 +1,5 @@
-/// Test command: Bun-style parallel test runner
-/// Usage: metal0 test <dir> [patterns...] [options]
+/// Test command: Zero-config fast test runner
+/// Usage: metal0 test [dir] [patterns...]
 const std = @import("std");
 const CompileOptions = @import("../../main.zig").CompileOptions;
 const compile_mod = @import("../compile.zig");
@@ -11,94 +11,35 @@ const printSuccess = @import("common.zig").printSuccess;
 const printError = @import("common.zig").printError;
 const printWarn = @import("common.zig").printWarn;
 
-/// Bun-style test command: metal0 test <dir> [patterns...] [options]
-/// Options:
-///   --timeout=N      Per-test timeout in seconds (default: 5)
-///   --bail=N         Stop after N failures (default: 0 = no limit)
-///   --jobs=N         Parallelism (default: CPU count)
-///   --dots           Compact dot output (. = pass, x = fail, ? = timeout)
-///   --batch          Use batch compilation (single zig build, 3-5x faster)
-///   -t, --filter=P   Only run tests matching pattern P
-///   --help           Show help
+/// Zero-config test runner: metal0 test [dir] [patterns...]
+/// Fast by default. Fail fast. No flags needed.
 ///
 /// Examples:
-///   metal0 test tests/cpython                    # Run all tests
-///   metal0 test tests/cpython bool float         # Only test_bool.py, test_float.py
-///   metal0 test tests/cpython -t "test_add"      # Filter by test name
-///   metal0 test tests/cpython --timeout=10       # 10s per test (default: 5s)
-///   metal0 test tests/cpython --bail=5           # Stop after 5 failures
-///   metal0 test tests/cpython --batch            # Use batch compilation (faster)
+///   metal0 test tests/cpython              # Run all tests
+///   metal0 test tests/cpython bool float   # Only test_bool.py, test_float.py
 pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    // Parse options
+    // Zero config - sensible defaults
     var test_dir: []const u8 = "tests/cpython";
-    var timeout_sec: u64 = 5; // Default 5s per test - we're the fastest runtime, fail fast!
-    var bail_count: usize = 0; // 0 = no limit
-    var jobs: usize = std.Thread.getCpuCount() catch 8;
-    var dots_mode: bool = false;
-    var batch_mode: bool = true; // Use batch compilation by default (fast)
-    var filter_pattern: ?[]const u8 = null;
+    const timeout_sec: u64 = 5; // 5s per test - fail fast
+    const bail_count: usize = 0; // Run all tests
+    const jobs: usize = std.Thread.getCpuCount() catch 8;
+    const dots_mode: bool = false;
+    const batch_mode: bool = true; // Fast batch compilation
+    const filter_pattern: ?[]const u8 = null;
     var file_patterns = std.ArrayList([]const u8){};
     defer file_patterns.deinit(allocator);
 
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const arg = args[i];
-        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            std.debug.print(
-                \\{s}metal0 test{s} - Fast parallel test runner
-                \\
-                \\{s}Usage:{s}
-                \\  metal0 test [dir] [patterns...] [options]
-                \\
-                \\{s}Options:{s}
-                \\  --timeout=N      Per-test timeout in seconds (default: 5)
-                \\  --bail=N         Stop after N failures (default: 0 = no limit)
-                \\  --jobs=N         Parallelism (default: CPU count)
-                \\  --dots           Compact dot output (. = pass, x = fail, ? = timeout)
-                \\  -t, --filter=P   Only run tests matching pattern P
-                \\  --help           Show this help
-                \\
-                \\{s}Examples:{s}
-                \\  metal0 test tests/cpython                    # Run all tests
-                \\  metal0 test tests/cpython bool float         # Only test_bool.py, test_float.py
-                \\  metal0 test tests/cpython -t "add|sub"       # Filter by test name regex
-                \\  metal0 test tests/cpython --timeout=10       # 10s per test (default: 5s)
-                \\  metal0 test tests/cpython --bail=5 --dots    # Stop after 5 failures, compact output
-                \\
-            , .{ Color.bold, Color.reset, Color.bold, Color.reset, Color.bold, Color.reset, Color.bold, Color.reset });
-            return;
-        } else if (std.mem.startsWith(u8, arg, "--timeout=")) {
-            timeout_sec = std.fmt.parseInt(u64, arg["--timeout=".len..], 10) catch 5;
-        } else if (std.mem.startsWith(u8, arg, "--bail=")) {
-            bail_count = std.fmt.parseInt(usize, arg["--bail=".len..], 10) catch 0;
-        } else if (std.mem.startsWith(u8, arg, "--jobs=")) {
-            jobs = std.fmt.parseInt(usize, arg["--jobs=".len..], 10) catch jobs;
-        } else if (std.mem.eql(u8, arg, "--dots")) {
-            dots_mode = true;
-        } else if (std.mem.eql(u8, arg, "--batch")) {
-            batch_mode = true;
-        } else if (std.mem.eql(u8, arg, "--no-batch")) {
-            batch_mode = false;
-        } else if (std.mem.eql(u8, arg, "-t") or std.mem.eql(u8, arg, "--filter")) {
-            i += 1;
-            if (i < args.len) filter_pattern = args[i];
-        } else if (std.mem.startsWith(u8, arg, "--filter=")) {
-            filter_pattern = arg["--filter=".len..];
-        } else if (std.mem.startsWith(u8, arg, "-t=")) {
-            filter_pattern = arg["-t=".len..];
-        } else if (!std.mem.startsWith(u8, arg, "-")) {
-            // First non-flag is directory, rest are patterns
-            if (i == 0 or (i == 1 and std.mem.endsWith(u8, args[0], "test"))) {
+    // Simple arg parsing - first arg is dir, rest are patterns
+    var first_pos = true;
+    for (args) |arg| {
+        if (!std.mem.startsWith(u8, arg, "-")) {
+            if (first_pos) {
                 test_dir = arg;
+                first_pos = false;
             } else {
                 try file_patterns.append(allocator, arg);
             }
         }
-    }
-
-    // If first positional looks like a directory, use it
-    if (args.len > 0 and !std.mem.startsWith(u8, args[0], "-")) {
-        test_dir = args[0];
     }
 
     const run_timeout_ns = timeout_sec * std.time.ns_per_s;
