@@ -1692,7 +1692,7 @@ fn cmdBuildFast(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
 /// Bun-style test command: metal0 test <dir> [patterns...] [options]
 /// Options:
-///   --timeout=N      Per-test timeout in seconds (default: 60)
+///   --timeout=N      Per-test timeout in seconds (default: 5)
 ///   --bail=N         Stop after N failures (default: 0 = no limit)
 ///   --jobs=N         Parallelism (default: CPU count)
 ///   --dots           Compact dot output (. = pass, x = fail, ? = timeout)
@@ -1703,12 +1703,12 @@ fn cmdBuildFast(allocator: std.mem.Allocator, args: []const []const u8) !void {
 ///   metal0 test tests/cpython                    # Run all tests
 ///   metal0 test tests/cpython bool float         # Only test_bool.py, test_float.py
 ///   metal0 test tests/cpython -t "test_add"      # Filter by test name
-///   metal0 test tests/cpython --timeout=30       # 30s per test
+///   metal0 test tests/cpython --timeout=10       # 10s per test (default: 5s)
 ///   metal0 test tests/cpython --bail=5           # Stop after 5 failures
 fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     // Parse options
     var test_dir: []const u8 = "tests/cpython";
-    var timeout_sec: u64 = 60; // Default 60s per test
+    var timeout_sec: u64 = 5; // Default 5s per test - we're the fastest runtime, fail fast!
     var bail_count: usize = 0; // 0 = no limit
     var jobs: usize = std.Thread.getCpuCount() catch 8;
     var dots_mode: bool = false;
@@ -1727,7 +1727,7 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                 \\  metal0 test [dir] [patterns...] [options]
                 \\
                 \\{s}Options:{s}
-                \\  --timeout=N      Per-test timeout in seconds (default: 60)
+                \\  --timeout=N      Per-test timeout in seconds (default: 5)
                 \\  --bail=N         Stop after N failures (default: 0 = no limit)
                 \\  --jobs=N         Parallelism (default: CPU count)
                 \\  --dots           Compact dot output (. = pass, x = fail, ? = timeout)
@@ -1738,13 +1738,13 @@ fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                 \\  metal0 test tests/cpython                    # Run all tests
                 \\  metal0 test tests/cpython bool float         # Only test_bool.py, test_float.py
                 \\  metal0 test tests/cpython -t "add|sub"       # Filter by test name regex
-                \\  metal0 test tests/cpython --timeout=30       # 30s per test
+                \\  metal0 test tests/cpython --timeout=10       # 10s per test (default: 5s)
                 \\  metal0 test tests/cpython --bail=5 --dots    # Stop after 5 failures, compact output
                 \\
             , .{ Color.bold, Color.reset, Color.bold, Color.reset, Color.bold, Color.reset, Color.bold, Color.reset });
             return;
         } else if (std.mem.startsWith(u8, arg, "--timeout=")) {
-            timeout_sec = std.fmt.parseInt(u64, arg["--timeout=".len..], 10) catch 60;
+            timeout_sec = std.fmt.parseInt(u64, arg["--timeout=".len..], 10) catch 5;
         } else if (std.mem.startsWith(u8, arg, "--bail=")) {
             bail_count = std.fmt.parseInt(usize, arg["--bail=".len..], 10) catch 0;
         } else if (std.mem.startsWith(u8, arg, "--jobs=")) {

@@ -69,6 +69,68 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
+    // Handle range() calls - generate inline loop to avoid *PyObject/PyValue mismatch
+    // list(range(n)) -> loop from 0 to n, building ArrayListUnmanaged(i64)
+    if (args[0] == .call and args[0].call.func.* == .name) {
+        const func_name = args[0].call.func.name.id;
+        if (std.mem.eql(u8, func_name, "range")) {
+            const range_args = args[0].call.args;
+            const list_label = self.block_label_counter;
+            self.block_label_counter += 1;
+            try self.emitFmt("list_range_blk_{d}: {{\n", .{list_label});
+            // Use ArrayListUnmanaged(i64) directly - matches print and other list operations
+            try self.emit("var _list = std.ArrayListUnmanaged(i64){};\n");
+
+            if (range_args.len == 1) {
+                // range(stop) -> for (0..stop)
+                try self.emit("const _stop: i64 = @intCast(");
+                try self.genExpr(range_args[0]);
+                try self.emit(");\n");
+                try self.emit("var _i: i64 = 0;\n");
+                try self.emit("while (_i < _stop) : (_i += 1) {\n");
+                try self.emitFmt("try _list.append({s}, _i);\n", .{alloc_name});
+                try self.emit("}\n");
+            } else if (range_args.len == 2) {
+                // range(start, stop) -> for (start..stop)
+                try self.emit("const _start: i64 = @intCast(");
+                try self.genExpr(range_args[0]);
+                try self.emit(");\n");
+                try self.emit("const _stop: i64 = @intCast(");
+                try self.genExpr(range_args[1]);
+                try self.emit(");\n");
+                try self.emit("var _i: i64 = _start;\n");
+                try self.emit("while (_i < _stop) : (_i += 1) {\n");
+                try self.emitFmt("try _list.append({s}, _i);\n", .{alloc_name});
+                try self.emit("}\n");
+            } else if (range_args.len >= 3) {
+                // range(start, stop, step)
+                try self.emit("const _start: i64 = @intCast(");
+                try self.genExpr(range_args[0]);
+                try self.emit(");\n");
+                try self.emit("const _stop: i64 = @intCast(");
+                try self.genExpr(range_args[1]);
+                try self.emit(");\n");
+                try self.emit("const _step: i64 = @intCast(");
+                try self.genExpr(range_args[2]);
+                try self.emit(");\n");
+                try self.emit("var _i: i64 = _start;\n");
+                try self.emit("if (_step > 0) {\n");
+                try self.emit("while (_i < _stop) : (_i += _step) {\n");
+                try self.emitFmt("try _list.append({s}, _i);\n", .{alloc_name});
+                try self.emit("}\n");
+                try self.emit("} else if (_step < 0) {\n");
+                try self.emit("while (_i > _stop) : (_i += _step) {\n");
+                try self.emitFmt("try _list.append({s}, _i);\n", .{alloc_name});
+                try self.emit("}\n");
+                try self.emit("}\n");
+            }
+
+            try self.emitFmt("break :list_range_blk_{d} _list;\n", .{list_label});
+            try self.emit("}");
+            return;
+        }
+    }
+
     // Handle generator expressions specially - they already generate ArrayList
     // So list(gen_expr) is just the generator expression itself
     if (args[0] == .genexp) {

@@ -2490,6 +2490,19 @@ pub fn pyEqual(allocator: std.mem.Allocator, a: anytype, b: anytype) !bool {
         return pyEqual(allocator, a, b.__base_value__);
     }
 
+    // === ARRAYLIST TO ARRAYLIST COMPARISON ===
+    // Both sides are ArrayList-like - compare their .items slices element-wise
+    if (info_a == .@"struct" and @hasField(TypeA, "items") and @hasField(TypeA, "capacity") and
+        info_b == .@"struct" and @hasField(TypeB, "items") and @hasField(TypeB, "capacity"))
+    {
+        // Both are ArrayList-like, compare items slices
+        if (a.items.len != b.items.len) return false;
+        for (a.items, b.items) |item_a, item_b| {
+            if (!try pyEqual(allocator, item_a, item_b)) return false;
+        }
+        return true;
+    }
+
     // === ARRAYLIST TO TUPLE COMPARISON ===
     // Generator expressions produce ArrayListUnmanaged, but we compare against tuple literals
     // Handle ArrayListUnmanaged(T).items vs tuple comparison
