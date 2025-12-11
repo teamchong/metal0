@@ -2490,6 +2490,18 @@ pub fn pyEqual(allocator: std.mem.Allocator, a: anytype, b: anytype) !bool {
         return pyEqual(allocator, a, b.__base_value__);
     }
 
+    // === ARRAYLIST TO TUPLE COMPARISON ===
+    // Generator expressions produce ArrayListUnmanaged, but we compare against tuple literals
+    // Handle ArrayListUnmanaged(T).items vs tuple comparison
+    if (info_a == .@"struct" and @hasField(TypeA, "items") and @hasField(TypeA, "capacity")) {
+        // a is ArrayList-like, compare a.items slice to b
+        return pyEqualSliceToTuple(allocator, a.items, b);
+    }
+    if (info_b == .@"struct" and @hasField(TypeB, "items") and @hasField(TypeB, "capacity")) {
+        // b is ArrayList-like, compare a to b.items slice
+        return pyEqualSliceToTuple(allocator, b.items, a);
+    }
+
     // === TUPLE/STRUCT ELEMENT-WISE COMPARISON ===
     // For anonymous structs (tuples), compare element by element with pyEqual
     // This handles (BigInt, BigInt) == (i64, i64) by recursively comparing elements
@@ -2546,6 +2558,41 @@ pub fn pyEqual(allocator: std.mem.Allocator, a: anytype, b: anytype) !bool {
     const a_val = try object.toPyValue(allocator, a);
     const b_val = try object.toPyValue(allocator, b);
     return a_val.eql(b_val);
+}
+
+/// Helper to compare a slice (from ArrayList) to a tuple (anonymous struct)
+/// Used by pyEqual when comparing generator expression results to tuple literals
+fn pyEqualSliceToTuple(allocator: std.mem.Allocator, slice: anytype, tup: anytype) !bool {
+    const SliceType = @TypeOf(slice);
+    const TupleType = @TypeOf(tup);
+    const slice_info = @typeInfo(SliceType);
+    const tup_info = @typeInfo(TupleType);
+
+    // Slice must be a pointer to array/slice
+    if (slice_info != .pointer or slice_info.pointer.size != .slice) {
+        return false;
+    }
+
+    // Tuple must be a struct (anonymous or named)
+    if (tup_info != .@"struct") {
+        return false;
+    }
+
+    const fields = tup_info.@"struct".fields;
+
+    // Length must match
+    if (slice.len != fields.len) {
+        return false;
+    }
+
+    // Compare each element
+    inline for (fields, 0..) |field, i| {
+        const tup_val = @field(tup, field.name);
+        if (!try pyEqual(allocator, slice[i], tup_val)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // ============================================================================
