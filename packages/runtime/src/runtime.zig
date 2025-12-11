@@ -92,6 +92,21 @@ pub const list_conversion_mod = @import("runtime/list_conversion.zig");
 /// Glob pattern matching module
 pub const glob_ops_mod = @import("runtime/glob_ops.zig");
 
+/// Tuple runtime operations (tupleConcat, tupleMultiply, tupleRepeat, sliceRepeatDynamic)
+pub const tuple_runtime = @import("runtime/tuple_runtime.zig");
+
+/// Type builtin stubs (boolBuiltin, intBuiltin, etc.)
+pub const type_builtins = @import("runtime/type_builtins.zig");
+
+/// Whitespace detection (isUnicodeWhitespace, isUnicodeCodepointWhitespace, isStringAllWhitespace)
+pub const whitespace = @import("runtime/whitespace.zig");
+
+/// Container operations (setEqual, arrayLessThan)
+pub const container_ops = @import("runtime/container_ops.zig");
+
+/// Format operations (formatInt, FormatMode)
+pub const format_ops = @import("runtime/format_ops.zig");
+
 /// DynamicClosure - Type-erased closure for Python scope semantics
 /// Used when a function is defined in multiple if/else branches and used outside
 /// Holds a pointer to any closure struct and its call function
@@ -1399,233 +1414,19 @@ pub fn strRepeat(allocator: std.mem.Allocator, s: anytype, n: usize) []const u8 
     return result;
 }
 
-/// Concatenate two tuples (Python tuple + tuple)
-/// Returns a new tuple struct with all elements from both tuples
-/// Uses comptime to create the correct result type
-pub fn tupleConcat(a: anytype, b: anytype) TupleConcatResult(@TypeOf(a), @TypeOf(b)) {
-    const A = @TypeOf(a);
-    const B = @TypeOf(b);
-    const a_fields = @typeInfo(A).@"struct".fields;
-    const b_fields = @typeInfo(B).@"struct".fields;
-    const Result = TupleConcatResult(A, B);
+// Re-export tuple operations from tuple_runtime.zig
+pub const tupleConcat = tuple_runtime.tupleConcat;
+pub const TupleConcatResult = tuple_runtime.TupleConcatResult;
+pub const tupleMultiply = tuple_runtime.tupleMultiply;
+pub const TupleMultiplyResult = tuple_runtime.TupleMultiplyResult;
+pub const tupleRepeat = tuple_runtime.tupleRepeat;
+pub const sliceRepeatDynamic = tuple_runtime.sliceRepeatDynamic;
+pub const getElemType = tuple_runtime.getElemType;
 
-    // Build result tuple using comptime field initialization
-    var result: Result = undefined;
-    inline for (a_fields, 0..) |field, i| {
-        @field(result, std.fmt.comptimePrint("{d}", .{i})) = @field(a, field.name);
-    }
-    inline for (b_fields, 0..) |field, i| {
-        @field(result, std.fmt.comptimePrint("{d}", .{a_fields.len + i})) = @field(b, field.name);
-    }
-
-    return result;
-}
-
-/// Helper type for tuple concatenation result
-/// Returns an anonymous struct (tuple) type with fields named "0", "1", etc.
-fn TupleConcatResult(comptime A: type, comptime B: type) type {
-    const a_info = @typeInfo(A);
-    const b_info = @typeInfo(B);
-    if (a_info != .@"struct" or b_info != .@"struct") {
-        @compileError("tupleConcat expects two tuple/struct types");
-    }
-
-    const a_fields = a_info.@"struct".fields;
-    const b_fields = b_info.@"struct".fields;
-    const total_len = a_fields.len + b_fields.len;
-
-    // Build struct field definitions
-    var fields: [total_len]std.builtin.Type.StructField = undefined;
-    inline for (a_fields, 0..) |afield, i| {
-        fields[i] = .{
-            .name = std.fmt.comptimePrint("{d}", .{i}),
-            .type = afield.type,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(afield.type),
-        };
-    }
-    inline for (b_fields, 0..) |bfield, i| {
-        fields[a_fields.len + i] = .{
-            .name = std.fmt.comptimePrint("{d}", .{a_fields.len + i}),
-            .type = bfield.type,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(bfield.type),
-        };
-    }
-
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &fields,
-            .decls = &.{},
-            .is_tuple = true,
-        },
-    });
-}
-
-/// Repeat tuple n times at comptime (Python tuple * n where n is known at compile time)
-/// Returns a new tuple struct with elements repeated n times
-pub fn tupleMultiply(comptime n: usize, tuple: anytype) TupleMultiplyResult(@TypeOf(tuple), n) {
-    const T = @TypeOf(tuple);
-    const info = @typeInfo(T);
-    if (info != .@"struct") @compileError("tupleMultiply expects a tuple/struct");
-
-    const src_fields = info.@"struct".fields;
-    const tuple_len = src_fields.len;
-    const Result = TupleMultiplyResult(T, n);
-
-    var result: Result = undefined;
-    inline for (0..n) |rep| {
-        inline for (src_fields, 0..) |field, i| {
-            @field(result, std.fmt.comptimePrint("{d}", .{rep * tuple_len + i})) = @field(tuple, field.name);
-        }
-    }
-    return result;
-}
-
-/// Helper type for tuple multiplication result
-/// Returns an anonymous struct (tuple) type with fields named "0", "1", etc.
-fn TupleMultiplyResult(comptime T: type, comptime n: usize) type {
-    const info = @typeInfo(T);
-    if (info != .@"struct") @compileError("TupleMultiplyResult expects a tuple/struct type");
-    const src_fields = info.@"struct".fields;
-    const total_len = src_fields.len * n;
-
-    // Build struct field definitions
-    var fields: [total_len]std.builtin.Type.StructField = undefined;
-    inline for (0..n) |rep| {
-        inline for (src_fields, 0..) |sfield, i| {
-            fields[rep * src_fields.len + i] = .{
-                .name = std.fmt.comptimePrint("{d}", .{rep * src_fields.len + i}),
-                .type = sfield.type,
-                .default_value_ptr = null,
-                .is_comptime = false,
-                .alignment = @alignOf(sfield.type),
-            };
-        }
-    }
-
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &fields,
-            .decls = &.{},
-            .is_tuple = true,
-        },
-    });
-}
-
-/// Repeat tuple n times (Python tuple * n) - dynamic version
-/// Takes a Zig tuple (anonymous struct) and returns a slice with elements repeated
-pub fn tupleRepeat(allocator: std.mem.Allocator, tuple: anytype, n: usize) []const @typeInfo(@TypeOf(tuple)).@"struct".fields[0].type {
-    const T = @TypeOf(tuple);
-    const info = @typeInfo(T);
-    if (info != .@"struct") @compileError("tupleRepeat expects a tuple/struct");
-
-    const fields = info.@"struct".fields;
-    const tuple_len = fields.len;
-    const ElemType = fields[0].type;
-    const total_len = tuple_len * n;
-
-    if (n == 0) return &[_]ElemType{};
-
-    const result = allocator.alloc(ElemType, total_len) catch return &[_]ElemType{};
-    var idx: usize = 0;
-    for (0..n) |_| {
-        inline for (fields) |field| {
-            result[idx] = @field(tuple, field.name);
-            idx += 1;
-        }
-    }
-    return result;
-}
-
-/// Repeat list/slice/array n times dynamically (Python list * n with runtime n)
-/// Accepts arrays, slices, or pointers to arrays
-pub fn sliceRepeatDynamic(allocator: std.mem.Allocator, list: anytype, n: usize) []const getElemType(@TypeOf(list)) {
-    const T = @TypeOf(list);
-    const ElemType = getElemType(T);
-
-    // Get as slice for uniform handling
-    const as_slice: []const ElemType = if (@typeInfo(T) == .array)
-        &list
-    else if (@typeInfo(T) == .pointer and @typeInfo(@typeInfo(T).pointer.child) == .array)
-        list
-    else
-        list;
-
-    const list_len = as_slice.len;
-    const total_len = list_len * n;
-
-    if (n == 0) return &[_]ElemType{};
-
-    const result = allocator.alloc(ElemType, total_len) catch return &[_]ElemType{};
-    for (0..n) |i| {
-        @memcpy(result[i * list_len ..][0..list_len], as_slice);
-    }
-    return result;
-}
-
-/// Get element type from array, slice, or pointer to array
-fn getElemType(comptime T: type) type {
-    const info = @typeInfo(T);
-    return switch (info) {
-        .array => |a| a.child,
-        .pointer => |p| switch (@typeInfo(p.child)) {
-            .array => |a| a.child,
-            else => p.child,
-        },
-        else => @compileError("Expected array, slice, or pointer to array"),
-    };
-}
-
-/// Check if a byte is Unicode whitespace
-/// Handles ASCII whitespace plus Unicode whitespace characters like \xa0 (NBSP)
-pub fn isUnicodeWhitespace(c: u8) bool {
-    // ASCII whitespace
-    if (std.ascii.isWhitespace(c)) return true;
-    // Non-breaking space (Unicode 0xA0)
-    if (c == 0xA0) return true;
-    // Other common Unicode whitespace in Latin-1 range
-    return false;
-}
-
-/// Check if a Unicode codepoint is whitespace
-pub fn isUnicodeCodepointWhitespace(cp: u21) bool {
-    // ASCII whitespace (0x09-0x0D, 0x20)
-    if (cp <= 0x20) {
-        return cp == 0x20 or (cp >= 0x09 and cp <= 0x0D);
-    }
-    // Unicode whitespace characters
-    return switch (cp) {
-        0x00A0, // Non-breaking space
-        0x1680, // Ogham space
-        0x2000...0x200A, // Various typographic spaces
-        0x2028, // Line separator
-        0x2029, // Paragraph separator
-        0x202F, // Narrow no-break space
-        0x205F, // Medium mathematical space
-        0x3000, // Ideographic space
-        => true,
-        else => false,
-    };
-}
-
-/// Check if a UTF-8 string contains only whitespace characters
-pub fn isStringAllWhitespace(text: []const u8) bool {
-    if (text.len == 0) return false;
-    var i: usize = 0;
-    while (i < text.len) {
-        const cp_len = std.unicode.utf8ByteSequenceLength(text[i]) catch return false;
-        if (i + cp_len > text.len) return false;
-        const cp = std.unicode.utf8Decode(text[i..][0..cp_len]) catch return false;
-        if (!isUnicodeCodepointWhitespace(cp)) return false;
-        i += cp_len;
-    }
-    return true;
-}
+// Re-export whitespace operations from whitespace.zig
+pub const isUnicodeWhitespace = whitespace.isUnicodeWhitespace;
+pub const isUnicodeCodepointWhitespace = whitespace.isUnicodeCodepointWhitespace;
+pub const isStringAllWhitespace = whitespace.isStringAllWhitespace;
 
 /// Convert primitive i64 to PyString
 // Import and re-export built-in functions
@@ -1800,117 +1601,28 @@ pub const boolBuiltinCall = float_ops.boolBuiltinCall;
 pub const parseFloatWithUnicode = float_ops.parseFloatWithUnicode;
 pub const parseFloatStr = float_ops.parseFloatStr;
 
-/// Type builtin wrappers - simple functions that return a truthy []const u8
-/// Used when types are stored as first-class values in lists
-/// These return a non-empty string so bool(type) returns True
-pub fn boolBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "bool";
-}
+// Re-export type builtins from type_builtins.zig
+pub const boolBuiltin = type_builtins.boolBuiltin;
+pub const intBuiltin = type_builtins.intBuiltin;
+pub const floatBuiltin = type_builtins.floatBuiltin;
+pub const strBuiltin = type_builtins.strBuiltin;
+pub const bytesBuiltin = type_builtins.bytesBuiltin;
+pub const listBuiltin = type_builtins.listBuiltin;
+pub const dictBuiltin = type_builtins.dictBuiltin;
+pub const setBuiltin = type_builtins.setBuiltin;
+pub const tupleBuiltin = type_builtins.tupleBuiltin;
+pub const frozensetBuiltin = type_builtins.frozensetBuiltin;
+pub const typeBuiltin = type_builtins.typeBuiltin;
+pub const objectBuiltin = type_builtins.objectBuiltin;
+pub const complexBuiltin = type_builtins.complexBuiltin;
 
-pub fn intBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "int";
-}
+// Re-export format operations from format_ops.zig
+pub const FormatMode = format_ops.FormatMode;
+pub const formatInt = format_ops.formatInt;
 
-pub fn floatBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "float";
-}
-
-pub fn strBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "str";
-}
-
-pub fn bytesBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "bytes";
-}
-
-pub fn listBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "list";
-}
-
-pub fn dictBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "dict";
-}
-
-pub fn setBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "set";
-}
-
-pub fn tupleBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "tuple";
-}
-
-pub fn frozensetBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "frozenset";
-}
-
-pub fn typeBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "type";
-}
-
-pub fn objectBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "object";
-}
-
-pub fn complexBuiltin(arg: []const u8) []const u8 {
-    return if (arg.len > 0) arg else "complex";
-}
-
-/// Format mode for formatInt
-pub const FormatMode = enum {
-    hex_lower,
-    hex_upper,
-    octal,
-    decimal,
-};
-
-/// Convert any numeric value (including bool) to a hex/octal formatted string
-/// This is needed because Zig's {x} format doesn't support bool directly
-/// Returns a stack-allocated formatted string (valid for the current scope)
-pub fn formatInt(value: anytype, mode: FormatMode) []const u8 {
-    const T = @TypeOf(value);
-    const info = @typeInfo(T);
-
-    // Convert to unsigned int for formatting
-    const int_val: u64 = if (info == .bool)
-        @as(u64, if (value) 1 else 0)
-    else if (info == .int or info == .comptime_int)
-        @as(u64, @intCast(if (value < 0) @as(i64, value) +% @as(i64, @bitCast(@as(u64, std.math.maxInt(u64)))) +% 1 else @as(i64, value)))
-    else if (info == .float or info == .comptime_float)
-        @as(u64, @intFromFloat(@abs(value)))
-    else
-        0;
-
-    // Use thread-local buffer for result
-    const S = struct {
-        threadlocal var buf: [32]u8 = undefined;
-    };
-
-    const len = switch (mode) {
-        .hex_lower => std.fmt.bufPrint(&S.buf, "{x}", .{int_val}) catch return "0",
-        .hex_upper => std.fmt.bufPrint(&S.buf, "{X}", .{int_val}) catch return "0",
-        .octal => std.fmt.bufPrint(&S.buf, "{o}", .{int_val}) catch return "0",
-        .decimal => std.fmt.bufPrint(&S.buf, "{d}", .{int_val}) catch return "0",
-    };
-    return len;
-}
-
-/// Compare two sets for equality
-/// Sets are equal if they have the same elements (order doesn't matter)
-pub fn setEqual(a: anytype, b: anytype) bool {
-    // If they're the same pointer, they're equal (identity)
-    if (@intFromPtr(&a) == @intFromPtr(&b)) return true;
-
-    // Check if they have the same count
-    if (a.count() != b.count()) return false;
-
-    // Check if all elements in a are in b
-    var iter = a.iterator();
-    while (iter.next()) |entry| {
-        if (b.get(entry.key_ptr.*) == null) return false;
-    }
-
-    return true;
-}
+// Re-export container operations from container_ops.zig
+pub const setEqual = container_ops.setEqual;
+pub const arrayLessThan = container_ops.arrayLessThan;
 
 /// Generic 'in' operator for any type - works with ArrayLists, slices, etc.
 pub fn containsGeneric(container: anytype, item: anytype) bool {
@@ -2428,28 +2140,6 @@ pub fn repeatRuntime(allocator: std.mem.Allocator, a: anytype, n: anytype) !PyVa
     }
 
     return PyValue{ .list = result.items };
-}
-
-/// Safe array/list comparison that handles different lengths
-/// Python semantics: compare element by element, shorter list is "less" if equal prefix
-pub fn arrayLessThan(a: anytype, b: anytype) bool {
-    const a_slice = iterSlice(a);
-    const b_slice = iterSlice(b);
-    const min_len = @min(a_slice.len, b_slice.len);
-
-    for (a_slice[0..min_len], b_slice[0..min_len]) |ea, eb| {
-        if (comptime @typeInfo(@TypeOf(ea)) == .@"struct") {
-            // Handle tuple elements by comparing field by field
-            const ea_val: i64 = if (@hasField(@TypeOf(ea), "@\"0\"")) @intCast(ea.@"0") else 0;
-            const eb_val: i64 = if (@hasField(@TypeOf(eb), "@\"0\"")) @intCast(eb.@"0") else 0;
-            if (ea_val < eb_val) return true;
-            if (ea_val > eb_val) return false;
-        } else {
-            if (ea < eb) return true;
-            if (ea > eb) return false;
-        }
-    }
-    return a_slice.len < b_slice.len;
 }
 
 /// Repeat an array n times - returns a new array with elements repeated
