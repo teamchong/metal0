@@ -182,6 +182,7 @@ pub const SymbolTable = struct {
     is_nested: bool,
     has_children: bool,
     has_exec: bool,
+    has_import_star: bool,
     has_varkeywords: bool,
     has_varargs: bool,
     has_free: bool,
@@ -212,6 +213,7 @@ pub const SymbolTable = struct {
             .is_nested = false,
             .has_children = false,
             .has_exec = false,
+            .has_import_star = false,
             .has_varkeywords = false,
             .has_varargs = false,
             .has_free = false,
@@ -270,10 +272,27 @@ pub const SymbolTable = struct {
         return self.has_exec;
     }
 
-    /// Check if block has import star
+    /// Check if block has import star (from module import *)
     pub fn hasImportStar(self: *const Self) bool {
-        // Would check for import * usage
-        return false;
+        // Check for the special "*" symbol which indicates "from x import *"
+        if (self.symbols.get("*")) |_| {
+            return true;
+        }
+
+        // Also check if any symbol has import flag and is a wildcard import marker
+        var iter = self.symbols.iterator();
+        while (iter.next()) |entry| {
+            const sym = entry.value_ptr.*;
+            // In CPython, import * sets a special flag on the namespace
+            if (sym.flags & SymbolFlags.DEF_IMPORT != 0) {
+                // Check if this is a star import marker (name starts with special prefix)
+                if (std.mem.startsWith(u8, entry.key_ptr.*, "__import_star_")) {
+                    return true;
+                }
+            }
+        }
+
+        return self.has_import_star;
     }
 
     /// Get identifiers in this scope

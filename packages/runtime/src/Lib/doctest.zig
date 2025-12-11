@@ -101,27 +101,33 @@ pub const DocTestParser = struct {
 
         // Simple parsing: look for >>> and expected output
         var lines = std.mem.splitScalar(u8, docstring, '\n');
-        var current_source: ?[]const u8 = null;
         var collecting_output = false;
         var output_lines = std.ArrayList(u8){};
         defer output_lines.deinit(allocator);
+
+        // Use ArrayList to build multi-line source (for ... continuations)
+        var source_lines = std.ArrayList(u8){};
+        defer source_lines.deinit(allocator);
 
         while (lines.next()) |line| {
             const trimmed = std.mem.trimLeft(u8, line, " \t");
 
             if (std.mem.startsWith(u8, trimmed, ">>> ")) {
                 // New example - save previous if any
-                if (current_source) |src| {
+                if (source_lines.items.len > 0) {
+                    const src = source_lines.toOwnedSlice(allocator) catch "";
                     const want = output_lines.toOwnedSlice(allocator) catch "";
                     test_obj.examples.append(allocator, Example.init(src, want)) catch {};
                     output_lines.clearRetainingCapacity();
                 }
-                current_source = trimmed[4..];
+                // Start new source
+                source_lines.appendSlice(allocator, trimmed[4..]) catch {};
                 collecting_output = true;
             } else if (std.mem.startsWith(u8, trimmed, "... ")) {
-                // Continuation line - append to source
-                if (current_source) |_| {
-                    // Would need to concat, skip for simplicity
+                // Continuation line - append to source with newline
+                if (source_lines.items.len > 0) {
+                    source_lines.append(allocator, '\n') catch {};
+                    source_lines.appendSlice(allocator, trimmed[4..]) catch {};
                 }
             } else if (collecting_output and trimmed.len > 0) {
                 // Output line
@@ -133,7 +139,8 @@ pub const DocTestParser = struct {
         }
 
         // Save last example
-        if (current_source) |src| {
+        if (source_lines.items.len > 0) {
+            const src = source_lines.toOwnedSlice(allocator) catch "";
             const want = output_lines.toOwnedSlice(allocator) catch "";
             test_obj.examples.append(allocator, Example.init(src, want)) catch {};
         }

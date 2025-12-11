@@ -78,10 +78,46 @@ pub fn uninstall(
     // Would remove pip installation
 }
 
-/// Check if pip is installed
+/// Check if pip is installed by looking for pip executable or package
 pub fn is_pip_installed(allocator: std.mem.Allocator) bool {
     _ = allocator;
-    // Would check if pip module is importable
+
+    // Check common pip locations
+    const pip_paths = [_][]const u8{
+        "/usr/bin/pip3",
+        "/usr/local/bin/pip3",
+        "/usr/bin/pip",
+        "/usr/local/bin/pip",
+    };
+
+    for (pip_paths) |path| {
+        if (std.fs.cwd().access(path, .{})) |_| {
+            return true;
+        } else |_| {}
+    }
+
+    // Check if pip package exists in site-packages
+    const site_packages = [_][]const u8{
+        "/usr/lib/python3/dist-packages/pip",
+        "/usr/local/lib/python3.12/site-packages/pip",
+        "/usr/lib/python3.12/site-packages/pip",
+    };
+
+    for (site_packages) |path| {
+        if (std.fs.cwd().access(path, .{})) |_| {
+            return true;
+        } else |_| {}
+    }
+
+    // Check VIRTUAL_ENV for pip
+    if (std.posix.getenv("VIRTUAL_ENV")) |venv| {
+        var path_buf: [512]u8 = undefined;
+        const venv_pip = std.fmt.bufPrint(&path_buf, "{s}/bin/pip", .{venv}) catch return false;
+        if (std.fs.cwd().access(venv_pip, .{})) |_| {
+            return true;
+        } else |_| {}
+    }
+
     return false;
 }
 
