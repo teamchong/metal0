@@ -47,6 +47,8 @@ fn findContextManagerTypeInExpr(expr: ast.Node) ?[]const u8 {
 /// - Inferred types -> use type inference
 /// - Unknown -> *runtime.PyObject as fallback
 fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
+    const container_traits = @import("../../../../../analysis/traits/container_traits.zig");
+
     // Case 1: 'self' in a class context
     if (std.mem.eql(u8, var_name, "self") and self.current_class_name != null) {
         try self.output.writer(self.allocator).print(": *const {s}", .{self.current_class_name.?});
@@ -74,6 +76,32 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8) CodegenError!
         self.getVarType(var_name) orelse
         self.type_inferrer.getScopedVar(var_name) orelse
         .unknown;
+
+    // Case 4: For mutable containers (lists, dicts) with unknown element types,
+    // use @TypeOf() to get the actual type from the variable at capture time.
+    // This avoids type mismatches when mutation analysis inside nested functions
+    // determines a different element type than static analysis.
+    // E.g., actual_calls = []; def f(): actual_calls.append((pos, value))
+    // Static analysis sees .list with unknown element, but declaration uses tuple type.
+    if (container_traits.isList(var_type) or container_traits.isDict(var_type)) {
+        // Check if element type is unknown (couldn't be determined statically)
+        const has_unknown_element = switch (var_type) {
+            .list => |elem| elem.* == .unknown,
+            .dict => |kv| kv.value.* == .unknown,
+            else => false,
+        };
+        if (has_unknown_element) {
+            try self.emit(": @TypeOf(");
+            if (self.var_renames.get(var_name)) |renamed| {
+                try self.emit(renamed);
+            } else {
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            }
+            try self.emit(")");
+            return;
+        }
+    }
+
     const type_str = try self.nativeTypeToZigType(var_type);
     defer self.allocator.free(type_str);
     try self.output.writer(self.allocator).print(": {s}", .{type_str});

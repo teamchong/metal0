@@ -698,46 +698,69 @@ fn addRuntimeModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]co
 /// Clean stale cache files that don't match current test set
 /// Prevents "Compile: 3/1" issues from orphaned .zig and binary files
 fn cleanStaleCache(allocator: std.mem.Allocator, test_files: []const []const u8) void {
-    // Build set of valid test stems (e.g., "test_bool", "test_float")
-    var valid_stems = std.StringHashMap(void).init(allocator);
-    defer valid_stems.deinit();
+    // Build set of valid test paths (full paths without extension)
+    // e.g., "tests/cpython/test_bool" for "tests/cpython/test_bool.py"
+    var valid_paths = std.StringHashMap(void).init(allocator);
+    defer valid_paths.deinit();
 
     for (test_files) |test_path| {
-        const basename = std.fs.path.basename(test_path);
-        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
-        valid_stems.put(stem, {}) catch continue;
+        // Strip .py extension to get the base path
+        const path_no_ext = if (std.mem.endsWith(u8, test_path, ".py"))
+            test_path[0 .. test_path.len - 3]
+        else
+            test_path;
+        valid_paths.put(path_no_ext, {}) catch continue;
     }
 
-    // Clean .metal0/cache/ - remove .zig files that don't match current tests
-    if (std.fs.cwd().openDir(".metal0/cache", .{ .iterate = true })) |cache_dir_val| {
-        var cache_dir = cache_dir_val;
-        defer cache_dir.close();
-        var iter = cache_dir.iterate();
-        while (iter.next() catch null) |entry| {
-            if (entry.kind != .file) continue;
-            if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+    // Clean .metal0/bin/ recursively - remove files that don't match current tests
+    cleanDirRecursive(allocator, ".metal0/bin", &valid_paths);
+}
 
-            // Extract stem from filename (e.g., "test_bool.zig" -> "test_bool")
-            const stem = if (std.mem.lastIndexOf(u8, entry.name, ".")) |idx| entry.name[0..idx] else entry.name;
-            if (!valid_stems.contains(stem)) {
-                cache_dir.deleteFile(entry.name) catch {};
+/// Recursively clean directory, removing files not in valid_paths
+fn cleanDirRecursive(allocator: std.mem.Allocator, dir_path: []const u8, valid_paths: *std.StringHashMap(void)) void {
+    var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch return;
+    defer dir.close();
+
+    var walker = dir.walk(allocator) catch return;
+    defer walker.deinit();
+
+    // Collect files to delete (can't delete while iterating)
+    var to_delete: std.ArrayList([]const u8) = .{};
+    defer {
+        for (to_delete.items) |path| allocator.free(path);
+        to_delete.deinit(allocator);
+    }
+
+    while (walker.next() catch null) |entry| {
+        if (entry.kind != .file) continue;
+
+        // Convert sentinel-terminated to regular slice
+        const path: []const u8 = entry.path;
+
+        // Only clean test-related files (.so, .hash, binaries starting with test_)
+        const is_test_file = std.mem.indexOf(u8, path, "test_") != null;
+        if (!is_test_file) continue;
+
+        // Get the base path (strip .so, .hash, .cpython-* suffixes)
+        var base_path: []const u8 = path;
+        if (std.mem.indexOf(u8, base_path, ".cpython-")) |idx| {
+            base_path = base_path[0..idx];
+        } else if (std.mem.endsWith(u8, base_path, ".hash")) {
+            base_path = base_path[0 .. base_path.len - 5];
+            if (std.mem.indexOf(u8, base_path, ".cpython-")) |idx| {
+                base_path = base_path[0..idx];
             }
         }
-    } else |_| {}
 
-    // Clean .metal0/bin/ - remove binaries that don't match current tests
-    if (std.fs.cwd().openDir(".metal0/bin", .{ .iterate = true })) |bin_dir_val| {
-        var bin_dir = bin_dir_val;
-        defer bin_dir.close();
-        var iter = bin_dir.iterate();
-        while (iter.next() catch null) |entry| {
-            if (entry.kind != .file) continue;
-            // Skip non-test files (like .so, .hash files)
-            if (!std.mem.startsWith(u8, entry.name, "test_")) continue;
-
-            if (!valid_stems.contains(entry.name)) {
-                bin_dir.deleteFile(entry.name) catch {};
-            }
+        // Check if this matches any valid test path
+        if (!valid_paths.contains(base_path)) {
+            const full_path = std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, path }) catch continue;
+            to_delete.append(allocator, full_path) catch continue;
         }
-    } else |_| {}
+    }
+
+    // Delete stale files
+    for (to_delete.items) |path| {
+        std.fs.cwd().deleteFile(path) catch {};
+    }
 }
