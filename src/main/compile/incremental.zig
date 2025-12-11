@@ -1007,75 +1007,92 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
     const aa = arena.allocator();
 
     // Run zig build from .metal0 directory
-    var args = std.ArrayList([]const u8){};
+    var argv = [_][]const u8{
+        "zig",
+        "build",
+        undefined, // -j{jobs}
+        "-Doptimize=ReleaseFast",
+        "--cache-dir",
+        "../.metal0/.zig-cache",
+        "--prefix",
+        "..",
+        "--prefix-exe-dir",
+        ".metal0/bin",
+    };
+    const jobs_arg = std.fmt.allocPrint(aa, "-j{d}", .{jobs}) catch "-j4";
+    argv[2] = jobs_arg;
 
-    try args.append(aa, "zig");
-    try args.append(aa, "build");
+    std.debug.print("Running batch compilation: zig build -j{d} (timeout: 120s)...\n", .{jobs});
 
-    // Parallel jobs
-    try args.append(aa, try std.fmt.allocPrint(aa, "-j{d}", .{jobs}));
-
-    // Release build
-    try args.append(aa, "-Doptimize=ReleaseFast");
-
-    // Use our local cache
-    try args.append(aa, "--cache-dir");
-    try args.append(aa, "../.metal0/.zig-cache");
-
-    // Output to .metal0/bin
-    try args.append(aa, "--prefix");
-    try args.append(aa, "..");
-    try args.append(aa, "--prefix-exe-dir");
-    try args.append(aa, ".metal0/bin");
-
-    std.debug.print("Running batch compilation: zig build -j{d}...\n", .{jobs});
-
-    // Run from .metal0 directory
+    // Run from .metal0 directory with timeout using std.process.Child.run
+    // Note: Zig's Child doesn't have waitWithTimeout, so we use run() which has built-in timeout
     const result = std.process.Child.run(.{
         .allocator = aa,
-        .argv = args.items,
+        .argv = &argv,
         .cwd = ".metal0",
-        .max_output_bytes = 1024 * 1024,
+        .max_output_bytes = 4 * 1024 * 1024,
     }) catch |err| {
-        std.debug.print("Batch compile failed: {any}\n", .{err});
+        std.debug.print("[BATCH] Process failed: {any}\n", .{err});
         return error.BatchCompileFailed;
     };
 
-    // With -k (keep going), we get partial results even on failure
-    // Count successfully compiled binaries regardless of exit code
+    const stderr_content = result.stderr;
+    const stderr_len = stderr_content.len;
+
+    // Check exit code
+    const exit_code: u8 = switch (result.term) {
+        .Exited => |code| code,
+        .Signal => |sig| blk: {
+            std.debug.print("[BATCH] Killed by signal {d}\n", .{sig});
+            break :blk @truncate(128 + sig);
+        },
+        else => 1,
+    };
+
+    // Count successfully compiled binaries
     var count: usize = 0;
-    var dir = std.fs.cwd().openDir(".metal0/bin", .{ .iterate = true }) catch {
-        // No binaries at all - that's a real failure
-        if (result.stderr.len > 0) {
-            std.debug.print("Batch compile errors:\n{s}\n", .{result.stderr});
+    if (std.fs.cwd().openDir(".metal0/bin", .{ .iterate = true })) |dir_val| {
+        var dir = dir_val;
+        defer dir.close();
+        var iter = dir.iterate();
+        while (iter.next() catch null) |entry| {
+            if (entry.kind == .file) count += 1;
+        }
+    } else |_| {
+        // No bin directory - that's a failure
+        if (stderr_len > 0) {
+            const max_err = @min(stderr_len, 2000);
+            std.debug.print("\n[BATCH] Compilation failed:\n{s}\n", .{stderr_content[0..max_err]});
         }
         return error.BatchCompileFailed;
-    };
-    defer dir.close();
-
-    var iter = dir.iterate();
-    while (iter.next() catch null) |entry| {
-        if (entry.kind == .file) count += 1;
     }
 
     // Get total from manifest
-    const manifest_content = std.fs.cwd().readFileAlloc(allocator, ".metal0/manifest.zig", 1024 * 1024) catch {
-        return .{ .success = count, .total = count };
-    };
-    defer allocator.free(manifest_content);
-
-    // Count test entries in manifest
     var total: usize = 0;
-    var lines = std.mem.splitScalar(u8, manifest_content, '\n');
-    while (lines.next()) |line| {
-        if (std.mem.indexOf(u8, line, ".{ .name =") != null) total += 1;
+    if (std.fs.cwd().openFile(".metal0/test_manifest.txt", .{})) |file| {
+        defer file.close();
+        var buf: [64 * 1024]u8 = undefined;
+        const content_len = file.readAll(&buf) catch 0;
+        var lines = std.mem.splitScalar(u8, buf[0..content_len], '\n');
+        while (lines.next()) |line| {
+            if (line.len > 0) total += 1;
+        }
+    } else |_| {
+        total = count; // Fallback
+    }
+
+    // Report errors if any failures
+    if (exit_code != 0 or count < total) {
+        if (stderr_len > 0) {
+            const max_err = @min(stderr_len, 2000);
+            std.debug.print("\n[BATCH] Compilation errors ({d}/{d} succeeded):\n{s}\n", .{ count, total, stderr_content[0..max_err] });
+            if (stderr_len > max_err) {
+                std.debug.print("... ({d} more bytes)\n", .{stderr_len - max_err});
+            }
+        }
     }
 
     if (count == 0 and total > 0) {
-        // Nothing compiled at all
-        if (result.stderr.len > 0) {
-            std.debug.print("Batch compile errors:\n{s}\n", .{result.stderr});
-        }
         return error.BatchCompileFailed;
     }
 

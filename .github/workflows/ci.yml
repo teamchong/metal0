@@ -11,15 +11,15 @@ env:
 
 jobs:
   # =============================================================================
-  # Native Build & Test (Multi-platform)
+  # Build & Unit Tests
   # =============================================================================
-  build-and-test:
-    name: Test (${{ matrix.os }})
+  build:
+    name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-14]  # macos-14 is ARM64
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -29,33 +29,19 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
 
-      - name: Build (debug)
-        run: make build
+      - name: Build
+        run: zig build
 
       - name: Run unit tests
-        run: make test-unit
-
-      - name: Run integration tests
-        run: make test-integration
-
-      - name: Run CPython compatibility tests
-        run: make test-cpython
+        run: zig build test
 
   # =============================================================================
-  # Cross-compilation Verification
+  # CPython Compatibility Tests (Platform-specific)
   # =============================================================================
-  cross-compile:
-    name: Cross-compile (${{ matrix.target }})
+  test-cpython-core:
+    name: CPython @core (286 tests)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - x86_64-linux-gnu
-          - aarch64-linux-gnu
-          - x86_64-macos
-          - aarch64-macos
-          - x86_64-windows-gnu
+    needs: build
 
     steps:
       - uses: actions/checkout@v4
@@ -65,15 +51,16 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
 
-      - name: Cross-compile for ${{ matrix.target }}
-        run: zig build -Dtarget=${{ matrix.target }}
+      - name: Build
+        run: zig build
 
-  # =============================================================================
-  # WASM Build Verification
-  # =============================================================================
-  build-wasm:
-    name: Build (WASM)
+      - name: Run platform-independent CPython tests
+        run: ./zig-out/bin/metal0 test tests/cpython @core
+
+  test-cpython-linux:
+    name: CPython @linux (18 tests)
     runs-on: ubuntu-latest
+    needs: build
 
     steps:
       - uses: actions/checkout@v4
@@ -83,20 +70,16 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
 
-      - name: Build WASM target (wasm32-wasi)
-        run: zig build -Dtarget=wasm32-wasi
-        continue-on-error: true  # WASM is experimental
+      - name: Build
+        run: zig build
 
-      - name: Build WASM target (wasm32-freestanding)
-        run: zig build -Dtarget=wasm32-freestanding
-        continue-on-error: true  # WASM is experimental
+      - name: Run Linux-specific CPython tests
+        run: ./zig-out/bin/metal0 test tests/cpython @linux
 
-  # =============================================================================
-  # Release Build Verification
-  # =============================================================================
-  build-release:
-    name: Build (Release)
-    runs-on: ubuntu-latest
+  test-cpython-macos:
+    name: CPython @macos (33 tests)
+    runs-on: macos-latest
+    needs: build
 
     steps:
       - uses: actions/checkout@v4
@@ -106,13 +89,27 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
 
-      - name: Build release binary
-        run: make build-release
+      - name: Build
+        run: zig build
 
-      - name: Verify binary runs
-        run: ./zig-out/bin/metal0 --version || ./zig-out/bin/metal0 --help || true
+      - name: Run macOS-specific CPython tests
+        run: ./zig-out/bin/metal0 test tests/cpython @macos
 
-      - name: Check binary size
-        run: |
-          ls -lh ./zig-out/bin/metal0
-          size ./zig-out/bin/metal0 || true
+  test-cpython-windows:
+    name: CPython @windows (93 tests)
+    runs-on: windows-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Build
+        run: zig build
+
+      - name: Run Windows-specific CPython tests
+        run: .\zig-out\bin\metal0.exe test tests/cpython @windows

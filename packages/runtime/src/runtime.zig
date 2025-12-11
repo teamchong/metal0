@@ -123,6 +123,12 @@ pub const string_runtime = @import("runtime/string_runtime.zig");
 // Re-export strRepeat for codegen
 pub const strRepeat = string_runtime.strRepeat;
 
+/// Bltinmodule sequences (len, all, any, etc.)
+const bltinmodule_sequences = @import("Python/bltinmodule/sequences.zig");
+
+// Re-export builtinLen for codegen
+pub const builtinLen = bltinmodule_sequences.len_builtin;
+
 /// Type name and string conversion utilities
 pub const type_name = @import("runtime/type_name.zig");
 
@@ -179,21 +185,59 @@ pub const compile_builtin = @import("Python/ast.zig").compile_builtin;
 // Re-export eval from Python/ceval.zig for codegen
 pub const eval = @import("Python/ceval.zig").eval;
 
-// Re-export BytecodeProgram for codegen
+// Re-export BytecodeProgram and VM for codegen
 pub const BytecodeProgram = @import("Python/compile.zig").BytecodeProgram;
+pub const BytecodeVM = @import("Python/compile.zig").VM;
 
 // Re-export test_support for unittest codegen
 pub const test_support = @import("Lib/test/support.zig");
 
-// Re-export type builtins for codegen
-pub const boolBuiltinCall = @import("runtime/type_builtins.zig").boolBuiltinCall;
-pub const int__new__ = @import("runtime/type_builtins.zig").int__new__;
+// Re-export all type builtins for codegen (via existing type_builtins import at line 100)
+pub const boolBuiltinCall = type_builtins.boolBuiltinCall;
+pub const boolBuiltin = type_builtins.boolBuiltin;
+pub const intBuiltin = type_builtins.intBuiltin;
+pub const floatBuiltin = type_builtins.floatBuiltin;
+pub const strBuiltin = type_builtins.strBuiltin;
+pub const bytesBuiltin = type_builtins.bytesBuiltin;
+pub const listBuiltin = type_builtins.listBuiltin;
+pub const dictBuiltin = type_builtins.dictBuiltin;
+pub const setBuiltin = type_builtins.setBuiltin;
+pub const tupleBuiltin = type_builtins.tupleBuiltin;
+pub const frozensetBuiltin = type_builtins.frozensetBuiltin;
+pub const typeBuiltin = type_builtins.typeBuiltin;
+pub const objectBuiltin = type_builtins.objectBuiltin;
+pub const complexBuiltin = type_builtins.complexBuiltin;
+pub const hasattr_builtin = @import("runtime/dynamic_attrs.zig").hasattr_builtin;
+
+// Re-export pickle for codegen (use actual pickle implementation with loads/dumps)
+pub const pickle = @import("Lib/pickle/pickle.zig");
 
 // Re-export format_ops for codegen
 pub const formatInt = @import("runtime/format_ops.zig").formatInt;
 
-// Re-export PyComplex for codegen
-pub const PyComplex = @import("Objects/complexobject.zig").PyComplex;
+// Re-export PyComplex for codegen (use pycomplex.zig which has fromValue)
+pub const PyComplex = @import("runtime/pycomplex.zig").PyComplex;
+
+// Re-export type_ops for codegen
+pub const isCallable = @import("runtime/type_ops.zig").isCallable;
+pub const isSubclass = @import("runtime/type_ops.zig").isSubclass;
+
+// Re-export float_ops for codegen
+pub const divideFloat = @import("runtime/float_ops.zig").divideFloat;
+
+// Re-export whitespace for codegen
+pub const isStringAllWhitespace = @import("runtime/whitespace.zig").isStringAllWhitespace;
+
+// Re-export file operations for codegen
+pub const PyFile = @import("Objects/fileobject.zig").PyFile;
+
+// Re-export numeric operations for codegen
+pub const addNum = @import("runtime/float_ops.zig").addNum;
+pub const intFromBytes = @import("runtime/int_ops.zig").intFromBytes;
+pub const int__new__ = @import("runtime/int_ops.zig").int__new__;
+
+// Re-export class operations for codegen
+pub const classInstanceEq = @import("runtime/builtins/operators.zig").classInstanceEq;
 
 /// Export _string module (formatter_parser, etc.)
 pub const _string = @import("Modules/_string.zig");

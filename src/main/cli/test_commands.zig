@@ -1,5 +1,11 @@
 /// Test command: Zero-config fast test runner
-/// Usage: metal0 test [dir] [patterns...]
+/// Usage: metal0 test [dir] [patterns...] [@group...]
+///
+/// Supports @group syntax for platform-specific test groups:
+///   @core    - Platform-independent tests (no skip decorators)
+///   @linux   - Linux-specific tests
+///   @macos   - macOS-specific tests
+///   @windows - Windows-specific tests
 const std = @import("std");
 const CompileOptions = @import("../../main.zig").CompileOptions;
 const compile_mod = @import("../compile.zig");
@@ -10,6 +16,54 @@ const Color = @import("common.zig").Color;
 const printSuccess = @import("common.zig").printSuccess;
 const printError = @import("common.zig").printError;
 const printWarn = @import("common.zig").printWarn;
+
+/// Load test patterns from a group file (.claude/test_groups/{group}.txt)
+/// Returns slice of test names (e.g., ["bool", "float", "int"])
+fn loadTestGroup(allocator: std.mem.Allocator, group_name: []const u8) ![]const []const u8 {
+    // Try .claude/test_groups/{group}.txt
+    var path_buf: [256]u8 = undefined;
+    const group_path = std.fmt.bufPrint(&path_buf, ".claude/test_groups/{s}.txt", .{group_name}) catch {
+        return error.PathTooLong;
+    };
+
+    const file = std.fs.cwd().openFile(group_path, .{}) catch {
+        return error.GroupFileNotFound;
+    };
+    defer file.close();
+
+    const content = file.readToEndAlloc(allocator, 1024 * 1024) catch {
+        return error.ReadFailed;
+    };
+    defer allocator.free(content);
+
+    // Count lines
+    var line_count: usize = 0;
+    var iter = std.mem.splitScalar(u8, content, '\n');
+    while (iter.next()) |line| {
+        if (line.len > 0 and !std.mem.startsWith(u8, line, "#")) {
+            line_count += 1;
+        }
+    }
+
+    // Allocate result array
+    var patterns = try allocator.alloc([]const u8, line_count);
+    var idx: usize = 0;
+
+    iter = std.mem.splitScalar(u8, content, '\n');
+    while (iter.next()) |line| {
+        if (line.len > 0 and !std.mem.startsWith(u8, line, "#")) {
+            // For multi.txt format "name: platform1,platform2", extract just the name
+            const name = if (std.mem.indexOf(u8, line, ":")) |colon_pos|
+                line[0..colon_pos]
+            else
+                line;
+            patterns[idx] = try allocator.dupe(u8, name);
+            idx += 1;
+        }
+    }
+
+    return patterns[0..idx];
+}
 
 /// Zero-config test runner: metal0 test [dir] [patterns...]
 /// Fast by default. Fail fast. No flags needed.
@@ -30,12 +84,23 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     defer file_patterns.deinit(allocator);
 
     // Simple arg parsing - first arg is dir, rest are patterns
+    // Supports @group syntax: @core, @linux, @macos, @windows
     var first_pos = true;
     for (args) |arg| {
         if (!std.mem.startsWith(u8, arg, "-")) {
             if (first_pos) {
                 test_dir = arg;
                 first_pos = false;
+            } else if (std.mem.startsWith(u8, arg, "@")) {
+                // @group syntax - load patterns from group file
+                const group_name = arg[1..]; // Remove '@'
+                const group_patterns = loadTestGroup(allocator, group_name) catch |err| {
+                    printWarn("Failed to load test group @{s}: {any}", .{ group_name, err });
+                    continue;
+                };
+                for (group_patterns) |pattern| {
+                    try file_patterns.append(allocator, pattern);
+                }
             } else {
                 try file_patterns.append(allocator, arg);
             }
@@ -651,6 +716,7 @@ fn addRuntimeModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]co
 
     // Runtime module with its deps
     for ([_][]const u8{
+        "utils.allocator_helper",
         "utils.hashmap_helper",
         "bigint",
         "gzip",
