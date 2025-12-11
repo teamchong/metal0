@@ -107,6 +107,18 @@ pub const container_ops = @import("runtime/container_ops.zig");
 /// Format operations (formatInt, FormatMode)
 pub const format_ops = @import("runtime/format_ops.zig");
 
+/// Logic operations (pyOr, pyAnd)
+pub const logic_ops = @import("runtime/logic_ops.zig");
+
+/// Floor division operations
+pub const floor_div = @import("runtime/floor_div.zig");
+
+/// Pickle and marshal serialization
+pub const pickle_marshal = @import("runtime/pickle_marshal.zig");
+
+/// String runtime operations
+pub const string_runtime = @import("runtime/string_runtime.zig");
+
 /// DynamicClosure - Type-erased closure for Python scope semantics
 /// Used when a function is defined in multiple if/else branches and used outside
 /// Holds a pointer to any closure struct and its call function
@@ -138,31 +150,9 @@ pub const DynamicClosure = struct {
     }
 };
 
-/// Python `or` semantics for incompatible types
-/// Returns a if truthy, else b (as PyValue)
-/// IMPORTANT: Must call toBool() BEFORE toPyValue() to invoke __bool__ methods
-pub fn pyOr(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
-    // Check truthiness using toBool which handles __bool__ methods via comptime introspection
-    // This must happen BEFORE toPyValue conversion which loses method information
-    const a_truthy = try toBoolWithError(a);
-    if (a_truthy) {
-        return try toPyValue(allocator, a);
-    }
-    return try toPyValue(allocator, b);
-}
-
-/// Python `and` semantics for incompatible types
-/// Returns a if falsy, else b (as PyValue)
-/// IMPORTANT: Must call toBool() BEFORE toPyValue() to invoke __bool__ methods
-pub fn pyAnd(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
-    // Check truthiness using toBool which handles __bool__ methods via comptime introspection
-    // This must happen BEFORE toPyValue conversion which loses method information
-    const a_truthy = try toBoolWithError(a);
-    if (!a_truthy) {
-        return try toPyValue(allocator, a);
-    }
-    return try toPyValue(allocator, b);
-}
+// Re-export logic operations from logic_ops.zig
+pub const pyOr = logic_ops.pyOr;
+pub const pyAnd = logic_ops.pyAnd;
 
 /// Export _string module (formatter_parser, etc.)
 pub const _string = @import("Modules/_string.zig");
@@ -259,25 +249,8 @@ pub const pyFloatMod = runtime_format.pyFloatMod;
 pub const pyFloatFloorDiv = runtime_format.pyFloatFloorDiv;
 pub const pyStringFormat = runtime_format.pyStringFormat;
 
-/// Python floor division (//) for unknown types at runtime
-/// Returns i64 for integer types, f64 for float types
-pub fn pyFloorDiv(_: std.mem.Allocator, a: anytype, b: anytype) i64 {
-    const T = @TypeOf(a);
-    const info = @typeInfo(T);
-
-    // For integers, use @divFloor
-    if (info == .int or info == .comptime_int) {
-        return @divFloor(@as(i64, a), @as(i64, b));
-    }
-
-    // For floats, use @floor(a / b) and convert to i64
-    if (info == .float or info == .comptime_float) {
-        return @intFromFloat(@floor(@as(f64, a) / @as(f64, b)));
-    }
-
-    // Fallback for other types
-    return @divFloor(@as(i64, a), @as(i64, b));
-}
+// Re-export floor division from floor_div.zig
+pub const pyFloorDiv = floor_div.pyFloorDiv;
 
 /// Export exception types from runtime/exceptions.zig
 pub const exceptions = @import("runtime/exceptions.zig");
@@ -1364,55 +1337,9 @@ pub const FeatureMacros = struct {
 /// Python file type - re-exported from pyfile.zig
 pub const PyFile = pyfile.PyFile;
 
-/// Helper functions for operations that can raise exceptions
-/// True division (Python's / operator) - always returns float
-/// Integer division (floor division //) with zero check
-/// Modulo with zero check
-/// Split string on whitespace (Python str.split() with no args)
-/// Returns ArrayList of string slices, removes empty strings
-pub fn stringSplitWhitespace(text: []const u8, allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
-    var result = std.ArrayList([]const u8){};
-
-    // Split on any whitespace, skip empty parts (like Python's split())
-    var iter = std.mem.tokenizeAny(u8, text, " \t\n\r\x0c\x0b");
-    while (iter.next()) |part| {
-        try result.append(allocator, part);
-    }
-
-    return result;
-}
-
-/// Convert any value to i64 (Python int() constructor)
-/// Handles strings, floats, ints, and types with __int__ method
-/// Repeat string n times (Python str * n or bytes * n)
-/// Accepts both []const u8 and PyBytes for bytes literal support
-pub fn strRepeat(allocator: std.mem.Allocator, s: anytype, n: usize) []const u8 {
-    // Extract the actual slice from either []const u8, PyBytes, or string literal pointer at comptime type check
-    const T = @TypeOf(s);
-    const actual_slice: []const u8 = if (T == []const u8)
-        s
-    else if (@typeInfo(T) == .@"struct" and @hasField(T, "data"))
-        // PyBytes has a .data field
-        s.data
-    else if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .one) blk: {
-        // Pointer to array (string literal like *const [N:0]u8) - coerce to slice
-        const child_info = @typeInfo(@typeInfo(T).pointer.child);
-        if (child_info == .array and child_info.array.child == u8) {
-            break :blk s;
-        } else {
-            @compileError("strRepeat expects []const u8, PyBytes, or string literal, got " ++ @typeName(T));
-        }
-    } else @compileError("strRepeat expects []const u8, PyBytes, or string literal, got " ++ @typeName(T));
-
-    if (n == 0) return "";
-    if (n == 1) return actual_slice;
-
-    const result = allocator.alloc(u8, actual_slice.len * n) catch return "";
-    for (0..n) |i| {
-        @memcpy(result[i * actual_slice.len ..][0..actual_slice.len], actual_slice);
-    }
-    return result;
-}
+// Re-export string runtime operations from string_runtime.zig
+pub const stringSplitWhitespace = string_runtime.stringSplitWhitespace;
+pub const strRepeat = string_runtime.strRepeat;
 
 // Re-export tuple operations from tuple_runtime.zig
 pub const tupleConcat = tuple_runtime.tupleConcat;
@@ -2148,39 +2075,10 @@ pub inline fn listRepeat(arr: anytype, n: anytype) @TypeOf(arr ** @as(usize, @in
     return arr ** @as(usize, @intCast(n));
 }
 
-/// Marshal loads - decode simplified marshal format back to value
-/// Uses compile-time encoding: "T" = True, "F" = False
-pub fn marshalLoads(data: []const u8) bool {
-    if (data.len == 0) return false;
-    // "T" for True, "F" for False
-    return data[0] == 'T';
-}
-
-/// Pickle loads - decode pickle format back to value using full pickle implementation
-/// Returns a PickleValue which can be any Python type
-pub fn pickleLoads(data: []const u8) pickle.PickleValue {
-    // Use global allocator for pickle deserialization
-    const allocator = if (@import("builtin").is_test)
-        std.testing.allocator
-    else
-        allocator_helper.fast_allocator;
-
-    return pickle.loads(data, allocator) catch .{ .none = {} };
-}
-
-/// Pickle loads returning bool (legacy compatibility for bool-only pickle)
-pub fn pickleLoadsBool(data: []const u8) bool {
-    if (data.len < 4) return false;
-    // Protocol 0: "I01\n." = True, "I00\n." = False
-    if (data[0] == 'I' and data[1] == '0') {
-        return data[2] == '1';
-    }
-    // Protocol 2+: \x88 = True, \x89 = False
-    if (data.len >= 4 and data[0] == 0x80 and data[1] == 0x02) {
-        return data[2] == 0x88;
-    }
-    return false;
-}
+// Re-export pickle/marshal operations from pickle_marshal.zig
+pub const marshalLoads = pickle_marshal.marshalLoads;
+pub const pickleLoads = pickle_marshal.pickleLoads;
+pub const pickleLoadsBool = pickle_marshal.pickleLoadsBool;
 
 // Glob operations - re-exported from glob_ops.zig
 pub const globMatch = glob_ops_mod.globMatch;
