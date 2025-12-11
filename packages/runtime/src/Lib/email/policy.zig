@@ -1,7 +1,39 @@
-//! Python stdlib module stub
-//! Not needed: Windows API via Zig's std.os.windows
+//! Email policy classes
+//!
+//! Provides policy classes for controlling email message behavior.
+
 const std = @import("std");
 
-pub fn __stub__() void {
-    // Stub - see module header for why this isn't needed
-}
+/// Email policy
+pub const Policy = struct {
+    max_line_length: usize,
+    utf8: bool,
+    cte_type: []const u8,
+
+    pub const default = Policy{
+        .max_line_length = 78,
+        .utf8 = false,
+        .cte_type = "7bit",
+    };
+
+    pub const compat32 = Policy{
+        .max_line_length = 998,
+        .utf8 = false,
+        .cte_type = "7bit",
+    };
+
+    pub const smtp = Policy{
+        .max_line_length = 998,
+        .utf8 = false,
+        .cte_type = "7bit",
+    };
+
+    pub const smtputf8 = Policy{
+        .max_line_length = 998,
+        .utf8 = true,
+        .cte_type = "8bit",
+    };
+};
+
+/// Email policy (alias)
+pub const EmailPolicy = Policy;

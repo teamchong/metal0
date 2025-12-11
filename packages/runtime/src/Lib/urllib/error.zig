@@ -1,7 +1,15 @@
-//! Python stdlib module stub
-//! Not needed: Windows API via Zig's std.os.windows
+//! Python 'urllib.error' module - Exception classes
+//!
+//! Provides URL-related exception types.
+//!
+//! Mirrors: CPython Lib/urllib/error.py
+
 const std = @import("std");
 
-pub fn __stub__() void {
-    // Stub - see module header for why this isn't needed
-}
+/// URL-related errors
+pub const Error = error{
+    URLError,
+    HTTPError,
+    ContentTooShort,
+    NotImplemented,
+};
