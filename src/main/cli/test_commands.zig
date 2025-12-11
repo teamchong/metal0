@@ -135,11 +135,10 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         break :blk stat.mtime;
     };
 
-    // Phase 1: Parallel codegen (.py → .zig)
-    // Use batched processing with arena reset to prevent memory accumulation
-    // CACHING: Skip codegen if .zig file exists and is newer than .py source
+    // Phase 1: Codegen (.py → .zig) - fail fast, track failures
     if (!dots_mode) std.debug.print("Phase 1: Codegen...\n", .{});
     var codegen_ok: usize = 0;
+    var codegen_fail: usize = 0;
     var codegen_cached: usize = 0;
     var zig_files = std.ArrayList([]const u8){};
     defer {
@@ -147,46 +146,44 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         zig_files.deinit(allocator);
     }
 
-    const BATCH_SIZE = 50; // Process in batches to limit memory
-    var batch_start: usize = 0;
-    while (batch_start < test_files.items.len) {
-        const batch_end = @min(batch_start + BATCH_SIZE, test_files.items.len);
+    for (test_files.items) |file_path| {
+        const basename = std.fs.path.basename(file_path);
+        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
+        const zig_path = try std.fmt.allocPrint(allocator, "{s}/{s}.zig", .{ build_dirs.CACHE, stem });
 
-        for (test_files.items[batch_start..batch_end]) |file_path| {
-            // Get the generated zig file path
-            const basename = std.fs.path.basename(file_path);
-            const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
-            const zig_path = try std.fmt.allocPrint(allocator, "{s}/{s}.zig", .{ build_dirs.CACHE, stem });
+        // Check cache
+        const needs_codegen = blk: {
+            const py_stat = std.fs.cwd().statFile(file_path) catch break :blk true;
+            const zig_stat = std.fs.cwd().statFile(zig_path) catch break :blk true;
+            if (zig_stat.mtime < py_stat.mtime) break :blk true;
+            if (compiler_mtime > 0 and zig_stat.mtime < compiler_mtime) break :blk true;
+            break :blk false;
+        };
 
-            // CACHING: Check if .zig file is newer than .py source AND compiler
-            const needs_codegen = blk: {
-                const py_stat = std.fs.cwd().statFile(file_path) catch break :blk true;
-                const zig_stat = std.fs.cwd().statFile(zig_path) catch break :blk true;
-                // Regenerate if: zig older than py, OR zig older than compiler
-                if (zig_stat.mtime < py_stat.mtime) break :blk true;
-                if (compiler_mtime > 0 and zig_stat.mtime < compiler_mtime) break :blk true;
-                break :blk false;
+        if (needs_codegen) {
+            const opts = CompileOptions{ .input_file = file_path, .mode = "build", .force = false, .emit_zig_only = true };
+            compile_mod.compileFile(allocator, opts) catch {
+                codegen_fail += 1;
+                allocator.free(zig_path);
+                continue; // Fail fast - skip this test, continue others
             };
-
-            if (needs_codegen) {
-                const opts = CompileOptions{ .input_file = file_path, .mode = "build", .force = false, .emit_zig_only = true };
-                compile_mod.compileFile(allocator, opts) catch {
-                    allocator.free(zig_path);
-                    continue;
-                };
-                codegen_ok += 1;
-            } else {
-                codegen_cached += 1;
-            }
-
-            try zig_files.append(allocator, zig_path);
+            codegen_ok += 1;
+        } else {
+            codegen_cached += 1;
         }
 
-        batch_start = batch_end;
+        try zig_files.append(allocator, zig_path);
     }
-    if (!dots_mode) std.debug.print("  Codegen: {d}/{d} (cached: {d})\n", .{ codegen_ok + codegen_cached, total, codegen_cached });
 
-    if (codegen_ok == 0 and codegen_cached == 0) {
+    const codegen_total = codegen_ok + codegen_cached;
+    if (!dots_mode) {
+        std.debug.print("  Codegen: {d}/{d}", .{ codegen_total, total });
+        if (codegen_cached > 0) std.debug.print(" (cached: {d})", .{codegen_cached});
+        if (codegen_fail > 0) std.debug.print(" | {s}{d} failed{s}", .{ Color.red, codegen_fail, Color.reset });
+        std.debug.print("\n", .{});
+    }
+
+    if (codegen_total == 0) {
         printError("All codegen failed", .{});
         return;
     }
@@ -353,13 +350,20 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         if (!dots_mode) std.debug.print("  Compile: {d}/{d} (cached: {d})\n", .{ final_compile_ok + final_compile_cached, codegen_ok + codegen_cached, final_compile_cached });
     } // End of normal/fallback mode block
 
-    // Phase 3: Run binaries
+    // Phase 3: Run binaries that exist
     if (!dots_mode) std.debug.print("Phase 3: Run...\n", .{});
     var run_ok: usize = 0;
     var run_fail: usize = 0;
     var run_timeout_count: usize = 0;
+    var compile_fail: usize = 0;
 
     for (bin_paths.items) |bin_path| {
+        // Skip if binary doesn't exist (compile failed)
+        std.fs.cwd().access(bin_path, .{}) catch {
+            compile_fail += 1;
+            continue;
+        };
+
         const result = runBinaryWithTimeout(allocator, bin_path, run_timeout_ns);
         switch (result) {
             .ok => {
@@ -384,15 +388,14 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         }
     }
 
-    // Summary
+    // Summary - show all failure types
     if (dots_mode) std.debug.print("\n", .{});
     std.debug.print("\n", .{});
 
-    const passed_pct = if (total > 0) @as(f64, @floatFromInt(run_ok)) / @as(f64, @floatFromInt(total)) * 100.0 else 0.0;
-
-    if (run_ok == total) {
+    if (run_ok == total and codegen_fail == 0 and compile_fail == 0) {
         printSuccess("All {d} tests passed!", .{total});
     } else {
+        const passed_pct = if (total > 0) @as(f64, @floatFromInt(run_ok)) / @as(f64, @floatFromInt(total)) * 100.0 else 0.0;
         std.debug.print("{s}Results:{s} {s}{d}/{d} passed ({d:.1}%%){s}", .{
             Color.bold,
             Color.reset,
@@ -402,7 +405,10 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
             passed_pct,
             Color.reset,
         });
-        if (run_fail > 0) std.debug.print(" | {s}{d} failed{s}", .{ Color.red, run_fail, Color.reset });
+        // Show failure breakdown
+        if (codegen_fail > 0) std.debug.print(" | {s}{d} codegen{s}", .{ Color.red, codegen_fail, Color.reset });
+        if (compile_fail > 0) std.debug.print(" | {s}{d} compile{s}", .{ Color.red, compile_fail, Color.reset });
+        if (run_fail > 0) std.debug.print(" | {s}{d} runtime{s}", .{ Color.red, run_fail, Color.reset });
         if (run_timeout_count > 0) std.debug.print(" | {s}{d} timeout{s}", .{ Color.yellow, run_timeout_count, Color.reset });
         std.debug.print("\n", .{});
     }
