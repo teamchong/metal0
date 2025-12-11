@@ -466,9 +466,13 @@ pub fn visitStmtScoped(
                             if (i < targets.len and targets[i] == .name) {
                                 // Infer element type from the arg (could be name or list literal)
                                 const arg_type = expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, arg, type_inferrer) catch .unknown;
-                                const elem_type = switch (arg_type) {
+                                const elem_type: NativeType = switch (arg_type) {
                                     .list => |l| l.*,
                                     .array => |a| a.element_type.*,
+                                    // Iterating over a string yields single-char strings (u8 in Zig)
+                                    .string => .{ .int = .bounded },
+                                    // Iterating over bytes yields integers (u8)
+                                    .bytes => .{ .int = .bounded },
                                     else => .unknown,
                                 };
                                 try var_types.put(targets[i].name.id, elem_type);

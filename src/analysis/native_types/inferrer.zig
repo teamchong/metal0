@@ -401,7 +401,13 @@ pub const TypeInferrer = struct {
 
                                 for (closure_info.append_tuple_indices) |param_idx| {
                                     if (param_idx < call_args.len) {
-                                        const arg_type = self.inferExpr(call_args[param_idx]) catch .unknown;
+                                        var arg_type = self.inferExpr(call_args[param_idx]) catch .unknown;
+                                        // If the argument is unknown and is a simple name, it might be a comprehension variable
+                                        // In that case, fall back to i64/u8 (bounded int) for zip over strings
+                                        if (type_traits.isUnknown(arg_type) and call_args[param_idx] == .name) {
+                                            // Default to bounded int for comprehension variables (common case)
+                                            arg_type = .{ .int = .bounded };
+                                        }
                                         try tuple_elem_types.append(self.allocator, arg_type);
                                     }
                                 }
@@ -437,8 +443,45 @@ pub const TypeInferrer = struct {
                 }
                 // Also scan dict/list comprehensions and literals for function calls
                 if (assign.value.* == .dictcomp) {
-                    try self.collectCallsFromExpr(assign.value.dictcomp.key.*, arena_alloc);
-                    try self.collectCallsFromExpr(assign.value.dictcomp.value.*, arena_alloc);
+                    const dc = assign.value.dictcomp;
+                    // Set up temp vars for comprehension variables before collecting calls
+                    var saved_types: [8]struct { name: []const u8, old_type: ?NativeType } = undefined;
+                    var saved_count: usize = 0;
+                    for (dc.generators) |gen| {
+                        if (gen.target.* == .tuple or gen.target.* == .list) {
+                            const target_elts = if (gen.target.* == .tuple) gen.target.tuple.elts else gen.target.list.elts;
+                            // Handle zip() unpacking
+                            if (gen.iter.* == .call and gen.iter.call.func.* == .name and
+                                std.mem.eql(u8, gen.iter.call.func.name.id, "zip"))
+                            {
+                                for (gen.iter.call.args, 0..) |arg, idx| {
+                                    if (idx < target_elts.len and target_elts[idx] == .name) {
+                                        const t_var_name = target_elts[idx].name.id;
+                                        // Infer element type from the zip argument
+                                        const arg_type = expressions.inferExpr(arena_alloc, &self.var_types, &self.class_fields, &self.func_return_types, arg) catch .unknown;
+                                        const elem_type: NativeType = switch (arg_type) {
+                                            .list => |l| l.*,
+                                            .array => |a| a.element_type.*,
+                                            .string => .{ .int = .bounded },
+                                            .bytes => .{ .int = .bounded },
+                                            else => .unknown,
+                                        };
+                                        if (saved_count < saved_types.len) {
+                                            saved_types[saved_count] = .{ .name = t_var_name, .old_type = self.putTempVar(t_var_name, elem_type) catch null };
+                                            saved_count += 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    defer {
+                        for (saved_types[0..saved_count]) |saved| {
+                            self.restoreTempVar(saved.name, saved.old_type);
+                        }
+                    }
+                    try self.collectCallsFromExpr(dc.key.*, arena_alloc);
+                    try self.collectCallsFromExpr(dc.value.*, arena_alloc);
                 }
                 if (assign.value.* == .listcomp) {
                     try self.collectCallsFromExpr(assign.value.listcomp.elt.*, arena_alloc);

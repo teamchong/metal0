@@ -797,6 +797,40 @@ pub fn inferExprWithInferrer(
                             }
                         }
                     }
+                    // Handle zip() unpacking: for k, v in zip(list1, list2)
+                    // Type each target variable from the corresponding zip argument's element type
+                    else if (gen.iter.* == .call and gen.iter.call.func.* == .name and
+                        std.mem.eql(u8, gen.iter.call.func.name.id, "zip"))
+                    {
+                        for (gen.iter.call.args, 0..) |arg, idx| {
+                            if (idx < target_elts.len and target_elts[idx] == .name) {
+                                const t_var_name = target_elts[idx].name.id;
+                                // Infer element type from the zip argument
+                                const arg_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, arg, type_inferrer);
+                                const elem_type: NativeType = switch (arg_type) {
+                                    .list => |l| l.*,
+                                    .array => |a| a.element_type.*,
+                                    // Iterating over a string yields single-char strings (u8 in Zig)
+                                    .string => .{ .int = .bounded },
+                                    .bytes => .{ .int = .bounded },
+                                    else => .unknown,
+                                };
+
+                                if (type_inferrer) |ti| {
+                                    if (saved_count < saved_types.len) {
+                                        saved_types[saved_count] = .{ .name = t_var_name, .old_type = ti.putTempVar(t_var_name, elem_type) catch null };
+                                        saved_count += 1;
+                                    }
+                                } else {
+                                    if (saved_count < saved_types.len) {
+                                        saved_types[saved_count] = .{ .name = t_var_name, .old_type = var_types.get(t_var_name) };
+                                        saved_count += 1;
+                                    }
+                                    try var_types.put(t_var_name, elem_type);
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
