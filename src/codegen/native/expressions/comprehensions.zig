@@ -500,23 +500,41 @@ fn genExprWithSubs(
             try self.emit(")");
         },
         .compare => |cmp| {
-            // Handle comparisons with substitution
-            try self.emit("(");
-            try genExprWithSubs(self, cmp.left.*, subs);
-            for (cmp.ops, 0..) |op, idx| {
-                const op_str = switch (op) {
-                    .Eq => " == ",
-                    .NotEq => " != ",
-                    .Lt => " < ",
-                    .LtEq => " <= ",
-                    .Gt => " > ",
-                    .GtEq => " >= ",
-                    else => " ? ",
-                };
-                try self.emit(op_str);
-                try genExprWithSubs(self, cmp.comparators[idx], subs);
+            // For complex comparisons (in, not in, is, is not), delegate to main genExpr
+            // which handles container membership, identity checks, etc. properly
+            const has_complex_op = blk: {
+                for (cmp.ops) |op| {
+                    if (op == .In or op == .NotIn or op == .Is or op == .IsNot) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+
+            if (has_complex_op) {
+                // Apply substitutions first by setting up temp vars, then delegate
+                // For now, just delegate directly - the loop var will be found
+                const parent = @import("../expressions.zig");
+                try parent.genExpr(self, expr);
+            } else {
+                // Simple comparisons can be handled inline with substitution
+                try self.emit("(");
+                try genExprWithSubs(self, cmp.left.*, subs);
+                for (cmp.ops, 0..) |op, idx| {
+                    const op_str = switch (op) {
+                        .Eq => " == ",
+                        .NotEq => " != ",
+                        .Lt => " < ",
+                        .LtEq => " <= ",
+                        .Gt => " > ",
+                        .GtEq => " >= ",
+                        else => " == ", // Fallback (shouldn't reach here)
+                    };
+                    try self.emit(op_str);
+                    try genExprWithSubs(self, cmp.comparators[idx], subs);
+                }
+                try self.emit(")");
             }
-            try self.emit(")");
         },
         else => {
             // For other expressions, fallback to regular genExpr
