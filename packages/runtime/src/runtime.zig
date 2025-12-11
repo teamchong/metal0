@@ -128,6 +128,15 @@ pub const concat_repeat = @import("runtime/concat_repeat.zig");
 /// Integer conversion utilities
 pub const int_convert = @import("runtime/int_convert.zig");
 
+/// Complex number type
+pub const pycomplex = @import("runtime/pycomplex.zig");
+
+/// Decimal type
+pub const decimal_mod = @import("runtime/decimal.zig");
+
+/// Feature macros
+pub const feature_macros_mod = @import("runtime/feature_macros.zig");
+
 /// DynamicClosure - Type-erased closure for Python scope semantics
 /// Used when a function is defined in multiple if/else branches and used outside
 /// Holds a pointer to any closure struct and its call function
@@ -1246,46 +1255,8 @@ pub const PyBool = pybool.PyBool;
 pub const Py_True = pybool.Py_True;
 pub const Py_False = pybool.Py_False;
 
-/// Feature macros struct - CPython build configuration with comptime-known values
-/// Supports subscript access: feature_macros["HAVE_FORK"] returns bool
-pub const FeatureMacros = struct {
-    /// Comptime subscript access - used when key is known at compile time
-    pub fn index(_: FeatureMacros, comptime key: []const u8) bool {
-        if (comptime std.mem.eql(u8, key, "HAVE_FORK")) return true;
-        if (comptime std.mem.eql(u8, key, "MS_WINDOWS")) return false;
-        if (comptime std.mem.eql(u8, key, "PY_HAVE_THREAD_NATIVE_ID")) return true;
-        if (comptime std.mem.eql(u8, key, "Py_REF_DEBUG")) return false;
-        if (comptime std.mem.eql(u8, key, "Py_TRACE_REFS")) return false;
-        if (comptime std.mem.eql(u8, key, "USE_STACKCHECK")) return false;
-        return false;
-    }
-
-    /// Runtime key lookup - returns bool for known keys
-    pub fn get(_: FeatureMacros, key: []const u8) bool {
-        if (std.mem.eql(u8, key, "HAVE_FORK")) return true;
-        if (std.mem.eql(u8, key, "MS_WINDOWS")) return false;
-        if (std.mem.eql(u8, key, "PY_HAVE_THREAD_NATIVE_ID")) return true;
-        if (std.mem.eql(u8, key, "Py_REF_DEBUG")) return false;
-        if (std.mem.eql(u8, key, "Py_TRACE_REFS")) return false;
-        if (std.mem.eql(u8, key, "USE_STACKCHECK")) return false;
-        return false;
-    }
-
-    /// Static key list for iteration
-    pub const key_list: [6][]const u8 = .{
-        "HAVE_FORK",
-        "MS_WINDOWS",
-        "PY_HAVE_THREAD_NATIVE_ID",
-        "Py_REF_DEBUG",
-        "Py_TRACE_REFS",
-        "USE_STACKCHECK",
-    };
-
-    /// Iterator for keys() - returns comptime slice of keys
-    pub fn keys() []const []const u8 {
-        return &key_list;
-    }
-};
+// Re-export FeatureMacros from feature_macros.zig
+pub const FeatureMacros = feature_macros_mod.FeatureMacros;
 
 /// Python file type - re-exported from pyfile.zig
 pub const PyFile = pyfile.PyFile;
@@ -1551,128 +1522,11 @@ pub const isCallable = type_ops.isCallable;
 pub const isSubclass = type_ops.isSubclass;
 pub const isSubclassMulti = type_ops.isSubclassMulti;
 
-/// Complex number type
-pub const PyComplex = struct {
-    real: f64,
-    imag: f64,
+// Re-export PyComplex from pycomplex.zig
+pub const PyComplex = pycomplex.PyComplex;
 
-    pub fn create(real: f64, imag: f64) PyComplex {
-        return .{ .real = real, .imag = imag };
-    }
-
-    pub fn fromValue(value: anytype) PyComplex {
-        const T = @TypeOf(value);
-        return switch (@typeInfo(T)) {
-            .int, .comptime_int => .{ .real = @floatFromInt(value), .imag = 0.0 },
-            .float, .comptime_float => .{ .real = value, .imag = 0.0 },
-            .bool => .{ .real = if (value) 1.0 else 0.0, .imag = 0.0 },
-            else => .{ .real = 0.0, .imag = 0.0 },
-        };
-    }
-
-    pub fn add(self: PyComplex, other: PyComplex) PyComplex {
-        return .{ .real = self.real + other.real, .imag = self.imag + other.imag };
-    }
-
-    pub fn sub(self: PyComplex, other: PyComplex) PyComplex {
-        return .{ .real = self.real - other.real, .imag = self.imag - other.imag };
-    }
-
-    pub fn mul(self: PyComplex, other: PyComplex) PyComplex {
-        return .{
-            .real = self.real * other.real - self.imag * other.imag,
-            .imag = self.real * other.imag + self.imag * other.real,
-        };
-    }
-
-    pub fn div(self: PyComplex, other: PyComplex) PyComplex {
-        // (a + bi) / (c + di) = (ac + bd) / (c^2 + d^2) + ((bc - ad) / (c^2 + d^2))i
-        const denom = other.real * other.real + other.imag * other.imag;
-        return .{
-            .real = (self.real * other.real + self.imag * other.imag) / denom,
-            .imag = (self.imag * other.real - self.real * other.imag) / denom,
-        };
-    }
-
-    /// Negation operator for PyComplex (-c)
-    pub fn neg(self: PyComplex) PyComplex {
-        return .{ .real = -self.real, .imag = -self.imag };
-    }
-
-    pub fn eql(self: PyComplex, other: anytype) bool {
-        const T = @TypeOf(other);
-        switch (@typeInfo(T)) {
-            .int, .comptime_int => {
-                const f: f64 = @floatFromInt(other);
-                return self.real == f and self.imag == 0.0;
-            },
-            .float, .comptime_float => {
-                return self.real == other and self.imag == 0.0;
-            },
-            .bool => {
-                // complex(False) == False is True (both are "zero")
-                const f: f64 = if (other) 1.0 else 0.0;
-                return self.real == f and self.imag == 0.0;
-            },
-            .@"struct" => {
-                if (T == PyComplex) {
-                    return self.real == other.real and self.imag == other.imag;
-                }
-            },
-            else => {},
-        }
-        return false;
-    }
-};
-
-/// Decimal type for fixed-point decimal arithmetic (Python's decimal module)
-/// This is a simplified implementation using f64 for now
-pub const Decimal = struct {
-    value: f64,
-
-    pub fn create(value: f64) Decimal {
-        return .{ .value = value };
-    }
-
-    pub fn fromString(s: []const u8) Decimal {
-        return .{ .value = std.fmt.parseFloat(f64, s) catch 0 };
-    }
-
-    pub fn add(self: Decimal, other: Decimal) Decimal {
-        return .{ .value = self.value + other.value };
-    }
-
-    pub fn sub(self: Decimal, other: Decimal) Decimal {
-        return .{ .value = self.value - other.value };
-    }
-
-    pub fn mul(self: Decimal, other: Decimal) Decimal {
-        return .{ .value = self.value * other.value };
-    }
-
-    pub fn div(self: Decimal, other: Decimal) Decimal {
-        return .{ .value = self.value / other.value };
-    }
-
-    pub fn neg(self: Decimal) Decimal {
-        return .{ .value = -self.value };
-    }
-
-    pub fn eql(self: Decimal, other: anytype) bool {
-        const T = @TypeOf(other);
-        switch (@typeInfo(T)) {
-            .int, .comptime_int => return self.value == @as(f64, @floatFromInt(other)),
-            .float, .comptime_float => return self.value == other,
-            .@"struct" => {
-                if (T == Decimal) {
-                    return self.value == other.value;
-                }
-            },
-            else => {},
-        }
-        return false;
-    }
-};
+// Re-export Decimal from decimal.zig
+pub const Decimal = decimal_mod.Decimal;
 
 // Tests
 test "PyInt creation and retrieval" {
