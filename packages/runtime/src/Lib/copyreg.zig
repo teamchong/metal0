@@ -244,13 +244,50 @@ pub const ReduceSlot = struct {
 pub fn registerBuiltinTypes(allocator: std.mem.Allocator) !void {
     initDispatchTable(allocator);
 
-    // Would register reduce functions for built-in types like:
-    // - complex
-    // - set
-    // - frozenset
-    // - dict
-    // - list
-    // - etc.
+    // Register reduce functions for built-in types
+    // These define how to pickle/unpickle standard types
+
+    // Complex numbers: complex(real, imag)
+    try pickle("complex", complexReduce);
+
+    // Sets: set(iterable)
+    try pickle("set", setReduce);
+
+    // Frozensets: frozenset(iterable)
+    try pickle("frozenset", frozensetReduce);
+}
+
+fn complexReduce(args: anytype) ReduceResult {
+    // complex(real, imag) reconstruction
+    return .{
+        .callable = "complex",
+        .args = args,
+        .state = null,
+        .list_items = null,
+        .dict_items = null,
+    };
+}
+
+fn setReduce(args: anytype) ReduceResult {
+    // set(iterable) reconstruction
+    return .{
+        .callable = "set",
+        .args = args,
+        .state = null,
+        .list_items = null,
+        .dict_items = null,
+    };
+}
+
+fn frozensetReduce(args: anytype) ReduceResult {
+    // frozenset(iterable) reconstruction
+    return .{
+        .callable = "frozenset",
+        .args = args,
+        .state = null,
+        .list_items = null,
+        .dict_items = null,
+    };
 }
 
 // ============================================================================

@@ -673,10 +673,17 @@ pub const request = struct {
         };
     }
 
-    /// Install opener
-    pub fn install_opener(opener: *OpenerDirector) void {
-        _ = opener;
-        // Would install as default opener
+    /// Default opener (module-level)
+    var default_opener: ?*OpenerDirector = null;
+
+    /// Install opener as the default for urlopen
+    pub fn install_opener(opener: ?*OpenerDirector) void {
+        default_opener = opener;
+    }
+
+    /// Get the currently installed opener
+    pub fn get_opener() ?*OpenerDirector {
+        return default_opener;
     }
 
     /// Build opener with handlers

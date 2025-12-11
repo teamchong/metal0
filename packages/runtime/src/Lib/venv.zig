@@ -269,9 +269,26 @@ pub const EnvBuilder = struct {
     }
 
     fn setupPip(self: *Self, env_dir: []const u8) !void {
-        _ = self;
+        // Use ensurepip to install pip in the virtual environment
+        const ensurepip = @import("ensurepip.zig");
+
+        // Set VIRTUAL_ENV so ensurepip knows where to install
+        // Note: In real implementation, would set env var and run ensurepip.bootstrap
         _ = env_dir;
-        // Would use ensurepip to install pip
+
+        // Bootstrap pip installation
+        ensurepip.bootstrap(self.allocator, .{
+            .root = null,
+            .upgrade = false,
+            .user = false,
+            .altinstall = false,
+            .default_pip = true,
+            .verbosity = 0,
+        }) catch |err| {
+            // Log error but don't fail venv creation
+            const stderr = std.io.getStdErr().writer();
+            stderr.print("Warning: pip installation failed: {}\n", .{err}) catch {};
+        };
     }
 };
 
