@@ -128,10 +128,12 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     // Get compiler mtime - invalidate cache if compiler is newer than cached files
     const compiler_mtime: i128 = blk: {
-        // Get self exe path
         var path_buf: [4096]u8 = undefined;
         const self_exe = std.fs.selfExePath(&path_buf) catch break :blk 0;
-        const stat = std.fs.cwd().statFile(self_exe) catch break :blk 0;
+        // Use openFileAbsolute for absolute paths
+        const file = std.fs.openFileAbsolute(self_exe, .{}) catch break :blk 0;
+        defer file.close();
+        const stat = file.stat() catch break :blk 0;
         break :blk stat.mtime;
     };
 
