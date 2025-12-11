@@ -216,9 +216,9 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
 
     const argv = try args.toOwnedSlice(aa);
 
-    // Use spawn + timeout instead of blocking run (15s timeout for compilation)
-    // If Zig can't compile in 15s, the generated code likely has comptime explosion
-    const timeout_ns: u64 = 15 * std.time.ns_per_s;
+    // Use spawn + timeout instead of blocking run (10s timeout for compilation)
+    // If Zig can't compile in 10s, the generated code likely has comptime explosion
+    const timeout_ns: u64 = 10 * std.time.ns_per_s;
 
     var child = std.process.Child.init(argv, aa);
     child.stdin_behavior = .Ignore;
