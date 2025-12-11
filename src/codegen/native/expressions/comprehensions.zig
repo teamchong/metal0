@@ -1250,6 +1250,38 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
                 saved_count += 1;
             }
         }
+        // Handle tuple unpacking: for j, k in [(i+1, i+2)]
+        else if (gen.target.* == .tuple or gen.target.* == .list) {
+            const target_elts = if (gen.target.* == .tuple) gen.target.tuple.elts else gen.target.list.elts;
+
+            // Get first element of iterator to infer tuple element types
+            // For [(i+1, i+2)], we infer from (i+1, i+2)
+            if (gen.iter.* == .list and gen.iter.list.elts.len > 0) {
+                const first_elem = gen.iter.list.elts[0];
+                // If first element is a tuple, type each target var from corresponding tuple element
+                if (first_elem == .tuple) {
+                    const tuple_elts = first_elem.tuple.elts;
+                    for (target_elts, 0..) |target_elt, idx| {
+                        if (target_elt == .name and idx < tuple_elts.len) {
+                            const var_name = target_elt.name.id;
+                            const elem_type = self.type_inferrer.inferExpr(tuple_elts[idx]) catch .unknown;
+                            const loop_var_type: NativeType = if (type_traits.isIntegral(elem_type))
+                                .{ .int = .bounded }
+                            else
+                                elem_type;
+
+                            if (saved_count < saved_types.len) {
+                                saved_types[saved_count] = .{
+                                    .name = var_name,
+                                    .old_type = self.type_inferrer.putTempVar(var_name, loop_var_type) catch null,
+                                };
+                                saved_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Now infer the value type with loop vars visible

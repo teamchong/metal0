@@ -761,6 +761,43 @@ pub fn inferExprWithInferrer(
                         }
                     }
                 }
+                // Handle tuple unpacking: for j, k in [(i+1, i+2)]
+                else if (gen.target.* == .tuple or gen.target.* == .list) {
+                    const target_elts = if (gen.target.* == .tuple) gen.target.tuple.elts else gen.target.list.elts;
+
+                    // Get first element of iterator to infer tuple element types
+                    // For [(i+1, i+2)], we infer from (i+1, i+2)
+                    if (gen.iter.* == .list and gen.iter.list.elts.len > 0) {
+                        const first_elem = gen.iter.list.elts[0];
+                        // If first element is a tuple, type each target var from corresponding tuple element
+                        if (first_elem == .tuple) {
+                            const tuple_elts = first_elem.tuple.elts;
+                            for (target_elts, 0..) |target_elt, idx| {
+                                if (target_elt == .name and idx < tuple_elts.len) {
+                                    const t_var_name = target_elt.name.id;
+                                    const elem_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, tuple_elts[idx], type_inferrer);
+                                    const loop_var_type: NativeType = if (type_traits.isIntegral(elem_type))
+                                        .{ .int = .bounded }
+                                    else
+                                        elem_type;
+
+                                    if (type_inferrer) |ti| {
+                                        if (saved_count < saved_types.len) {
+                                            saved_types[saved_count] = .{ .name = t_var_name, .old_type = ti.putTempVar(t_var_name, loop_var_type) catch null };
+                                            saved_count += 1;
+                                        }
+                                    } else {
+                                        if (saved_count < saved_types.len) {
+                                            saved_types[saved_count] = .{ .name = t_var_name, .old_type = var_types.get(t_var_name) };
+                                            saved_count += 1;
+                                        }
+                                        try var_types.put(t_var_name, loop_var_type);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // Infer types from key and value expressions
