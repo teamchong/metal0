@@ -809,6 +809,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
 
                 // First assignment: emit var/const declaration with type annotation
+                std.debug.print("DEBUG genAssign: First assignment for {s}, is_arraylist={}, value_type={s}\n", .{ var_name, is_arraylist, @tagName(value_type) });
                 try valueGen.emitVarDeclaration(
                     self,
                     var_name,
@@ -1049,6 +1050,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Special handling for list literals that will be mutated
             // Generate ArrayList initialization directly instead of fixed array
             if (is_arraylist and assign.value.* == .list) {
+                std.debug.print("DEBUG genAssign: ArrayList path for {s}, is_first_assignment={}\n", .{ var_name, is_first_assignment });
                 const list = assign.value.list;
                 try valueGen.genArrayListInit(self, var_name, list);
 

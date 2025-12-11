@@ -11,6 +11,7 @@ const server_commands = @import("cli/server_commands.zig");
 const build_commands = @import("cli/build_commands.zig");
 const test_commands = @import("cli/test_commands.zig");
 const python_compat = @import("cli/python_compat.zig");
+const daemon = @import("cli/daemon.zig");
 
 // Re-export common utilities for external use
 pub const Color = common.Color;
@@ -98,6 +99,8 @@ pub fn main() !void {
         try profile_commands.cmdProfile(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "server")) {
         try server_commands.cmdServer(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "daemon")) {
+        try daemon.cmdDaemon(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "version")) {
         python_compat.cmdVersion();
     } else if (std.mem.eql(u8, command, "help")) {
