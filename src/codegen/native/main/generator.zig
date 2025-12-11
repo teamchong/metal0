@@ -181,10 +181,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("const string_utils = runtime.string_utils;\n");
     }
     if (analysis.needs_hashmap_helper) {
-        try self.emit("const hashmap_helper = @import(\"utils.hashmap_helper\");\n");
+        // Use runtime.hashmap_helper - hashmap_helper is re-exported from runtime module
+        try self.emit("const hashmap_helper = runtime.hashmap_helper;\n");
     }
     // Always import allocator_helper - needs_allocator defaults to true and most code uses it
-    try self.emit("const allocator_helper = @import(\"utils.allocator_helper\");\n");
+    // Use runtime.allocator_helper - allocator_helper is re-exported from runtime module
+    try self.emit("const allocator_helper = runtime.allocator_helper;\n");
 
     // Emit @import statements for compiled user/stdlib modules (collected in PHASE 1.6)
     for (inlined_modules.items) |import_stmt| {
@@ -1368,10 +1370,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             try self.emit("const string_utils = runtime.string_utils;\n");
         }
         if (analysis.needs_hashmap_helper) {
-            try self.emit("const hashmap_helper = @import(\"utils.hashmap_helper\");\n");
+            // Use runtime.hashmap_helper - hashmap_helper is re-exported from runtime module
+            try self.emit("const hashmap_helper = runtime.hashmap_helper;\n");
         }
         // Always import allocator_helper (matches the non-lambda path)
-        try self.emit("const allocator_helper = @import(\"utils.allocator_helper\");\n");
+        // Use runtime.allocator_helper - allocator_helper is re-exported from runtime module
+        try self.emit("const allocator_helper = runtime.allocator_helper;\n");
 
         // Add module imports (Phase 3.7 copy for lambda path)
         // First, emit @import for compiled Python modules

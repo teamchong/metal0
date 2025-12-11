@@ -66,13 +66,13 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.emit("    if (!runtime.scheduler_initialized) {\n");
                 try self.emit("        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
                 try self.emit("        runtime.scheduler = try runtime.Scheduler.init(__global_allocator, __num_threads);\n");
-                try self.emit("        try runtime.scheduler.start();\n");
+                try self.emit("        try runtime.scheduler.?.start();\n");
                 try self.emit("        runtime.scheduler_initialized = true;\n");
                 try self.emit("    }\n");
                 try self.emit("    const __main_thread = try ");
                 try self.emit(actual_name);
                 try self.emit("_async();\n");
-                try self.emit("    runtime.scheduler.wait(__main_thread);\n");
+                try self.emit("    runtime.scheduler.?.wait(__main_thread);\n");
                 try self.emit("    break :__asyncio_run;\n");
                 try self.emit("}");
             }
@@ -151,7 +151,7 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
         // Wait for all and collect results
         try self.emit("    var __results: std.ArrayListUnmanaged(i64) = .{};\n");
         try self.emit("    for (__threads.items) |__t| {\n");
-        try self.emit("        runtime.scheduler.wait(__t);\n");
+        try self.emit("        runtime.scheduler.?.wait(__t);\n");
         try self.emit("        if (__t.result) |__r| {\n");
         try self.emit("            try __results.append(__global_allocator, @as(*i64, @ptrCast(@alignCast(__r))).*);\n");
         try self.emit("        }\n");
@@ -266,7 +266,7 @@ pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
                     try self.genExpr(arg);
                 }
                 try self.emit(");\n");
-                try self.emit("    runtime.scheduler.wait(__thread);\n");
+                try self.emit("    runtime.scheduler.?.wait(__thread);\n");
                 try self.emit("    break :blk if (__thread.result) |__r| @as(*i64, @ptrCast(@alignCast(__r))).* else 0;\n");
                 try self.emit("}");
             }
@@ -302,7 +302,7 @@ pub fn genAsyncFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) Cod
         try self.emit(": i64");
     }
     try self.emit(") !*runtime.GreenThread {\n");
-    try self.emit("    return try runtime.scheduler.spawn(");
+    try self.emit("    return try runtime.scheduler.?.spawn(");
     try self.emit(name);
     try self.emit("_impl, .{");
     for (func.params.args, 0..) |arg, i| {

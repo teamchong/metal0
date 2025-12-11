@@ -15,7 +15,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
     // Initialize test runner
     try self.emitIndent();
-    try self.emit("_ = try runtime.unittest.initRunner(__global_allocator);\n\n");
+    try self.emit("_ = try unittest.initRunner(__global_allocator);\n\n");
 
     // Count total runnable tests
     var total_tests: usize = 0;
@@ -71,7 +71,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("runtime.scheduler = try runtime.Scheduler.init(__global_allocator, 0);\n");
     try self.emitIndent();
-    try self.emit("try runtime.scheduler.start();\n");
+    try self.emit("try runtime.scheduler.?.start();\n");
     try self.emitIndent();
     try self.emit("runtime.scheduler_initialized = true;\n");
     self.dedent();
@@ -242,7 +242,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
     // Finalize
     try self.emitIndent();
-    try self.emit("runtime.unittest.finalize();\n");
+    try self.emit("unittest.finalize();\n");
 
     self.dedent();
     try self.emitIndent();
@@ -252,7 +252,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 /// Generate code for unittest.finalize() - called at end of tests
 pub fn genUnittestFinalize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("runtime.unittest.finalize()");
+    try self.emit("unittest.finalize()");
 }
 
 /// Generate code for self.addCleanup(func, *args)

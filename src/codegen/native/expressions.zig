@@ -415,7 +415,7 @@ fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!v
     try self.emit("    const __thread = ");
     try genExpr(self, await_node.value.*);
     try self.emit(";\n");
-    try self.emit("    runtime.scheduler.wait(__thread);\n");
+    try self.emit("    runtime.scheduler.?.wait(__thread);\n");
     try self.emit("    const __result = __thread.result orelse unreachable;\n");
     try self.output.writer(self.allocator).print("    break :__await_blk @as(*{s}, @ptrCast(@alignCast(__result))).*;\n", .{result_type});
     try self.emit("})");

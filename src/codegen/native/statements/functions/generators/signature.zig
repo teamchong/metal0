@@ -888,11 +888,11 @@ fn genAsyncFunctionSignature(
 
     // Use spawn0() for zero-parameter functions, spawn() for functions with parameters
     if (func.args.len == 0) {
-        try self.emit("    return try runtime.scheduler.spawn0(");
+        try self.emit("    return try runtime.scheduler.?.spawn0(");
         try self.emit(func_name);
         try self.emit("_impl);\n");
     } else {
-        try self.emit("    return try runtime.scheduler.spawn(");
+        try self.emit("    return try runtime.scheduler.?.spawn(");
         try self.emit(func_name);
         try self.emit("_impl, .{");
 

@@ -2,7 +2,8 @@
 /// Core runtime support for compiled Python code
 const std = @import("std");
 const builtin = @import("builtin");
-const allocator_helper = @import("utils.allocator_helper");
+/// Re-export allocator_helper for generated code (so it can use runtime.allocator_helper)
+pub const allocator_helper = @import("utils.allocator_helper");
 
 /// Browser WASM (freestanding) has no threading or OS support
 pub const is_freestanding = print_utils.is_freestanding;
@@ -11,7 +12,8 @@ pub const is_freestanding = print_utils.is_freestanding;
 pub const print = print_utils.print;
 pub const println = print_utils.println;
 
-const hashmap_helper = @import("utils.hashmap_helper");
+/// Re-export hashmap_helper for generated code (so it can use runtime.hashmap_helper)
+pub const hashmap_helper = @import("utils.hashmap_helper");
 const pyint = @import("Objects/intobject.zig");
 pub const PyInt = pyint.PyInt;
 const pyfloat = @import("Objects/floatobject.zig");
@@ -63,6 +65,9 @@ pub const itertools_ops = @import("runtime/itertools_ops.zig");
 // Usage: @import("runtime").bool_ops.toBool or @import("runtime/bool_ops.zig").toBool
 // The original functions remain in runtime.zig for backwards compatibility.
 // =============================================================================
+
+/// Builtins module - Python built-in functions
+pub const builtins = @import("runtime/builtins.zig");
 
 /// Boolean operations module
 pub const bool_ops = @import("runtime/bool_ops.zig");
@@ -148,9 +153,25 @@ pub const pyobject_cast = @import("runtime/pyobject_cast.zig");
 // Re-export DynamicClosure from dynamic_closure.zig
 pub const DynamicClosure = dynamic_closure.DynamicClosure;
 
+/// Global scheduler initialization flag for async/await codegen
+/// Used by generated code to check if scheduler is initialized before spawning tasks
+pub var scheduler_initialized: bool = false;
+
+/// Re-export Scheduler type from scheduler module for async/await codegen
+pub const Scheduler = @import("scheduler").Scheduler;
+
+/// Global scheduler instance for async/await codegen
+pub var scheduler: ?Scheduler = null;
+
 // Re-export logic operations from logic_ops.zig
 pub const pyOr = logic_ops.pyOr;
 pub const pyAnd = logic_ops.pyAnd;
+
+// Re-export assertion functions from builtins for unittest
+pub const assertEqualGeneric = builtins.assertEqualGeneric;
+
+// Re-export compile_builtin from Python/ast.zig for codegen
+pub const compile_builtin = @import("Python/ast.zig").compile_builtin;
 
 /// Export _string module (formatter_parser, etc.)
 pub const _string = @import("Modules/_string.zig");

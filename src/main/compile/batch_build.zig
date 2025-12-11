@@ -126,6 +126,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     runtime.addImport("utils.hashmap_helper", hashmap_helper);
+    runtime.addImport("utils.allocator_helper", allocator_helper);
     runtime.addImport("bigint", bigint);
     runtime.addImport("gzip", gzip);
     runtime.addImport("regex", regex);

@@ -151,19 +151,40 @@ pub const TypeInferrer = struct {
 
     /// Temporarily add a variable type for comprehension/block scope inference
     /// Returns the old type (if any) so caller can restore it after
-    /// This does NOT use the scoped_var_types system - it's for temporary overrides during inference
+    /// IMPORTANT: When in a scope, puts into scoped_var_types so it shadows outer scope vars
     pub fn putTempVar(self: *TypeInferrer, name: []const u8, var_type: NativeType) !?NativeType {
-        const old_type = self.var_types.get(name);
-        try self.var_types.put(name, var_type);
-        return old_type;
+        // If we're in a scope, use scoped_var_types to properly shadow outer scope variables
+        if (self.current_scope_name) |scope| {
+            const scoped_key = try std.fmt.allocPrint(self.arena.allocator(), "{s}:{s}", .{ scope, name });
+            const old_type = self.scoped_var_types.get(scoped_key);
+            try self.scoped_var_types.put(scoped_key, var_type);
+            return old_type;
+        } else {
+            // No scope - use global var_types
+            const old_type = self.var_types.get(name);
+            try self.var_types.put(name, var_type);
+            return old_type;
+        }
     }
 
     /// Restore a variable type after temporary override (or remove if old_type is null)
+    /// IMPORTANT: Must match putTempVar's scoping behavior
     pub fn restoreTempVar(self: *TypeInferrer, name: []const u8, old_type: ?NativeType) void {
-        if (old_type) |old| {
-            self.var_types.put(name, old) catch {};
+        // If we're in a scope, restore in scoped_var_types
+        if (self.current_scope_name) |scope| {
+            const scoped_key = std.fmt.allocPrint(self.arena.allocator(), "{s}:{s}", .{ scope, name }) catch return;
+            if (old_type) |old| {
+                self.scoped_var_types.put(scoped_key, old) catch {};
+            } else {
+                _ = self.scoped_var_types.swapRemove(scoped_key);
+            }
         } else {
-            _ = self.var_types.swapRemove(name);
+            // No scope - use global var_types
+            if (old_type) |old| {
+                self.var_types.put(name, old) catch {};
+            } else {
+                _ = self.var_types.swapRemove(name);
+            }
         }
     }
 
