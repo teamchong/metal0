@@ -486,6 +486,144 @@ pub fn build(allocator: std.mem.Allocator, zig_source: []const u8, module_name: 
     try linkBinary(allocator, module_name, output_path);
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// BATCH COMPILATION - compile all tests in a single zig build invocation
+// This is THE key optimization: share runtime module analysis across all tests
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Path to batch build.zig (in .metal0, copied from src at runtime)
+const BATCH_BUILD_ZIG = ".metal0/build.zig";
+
+/// Source path for batch build.zig
+const BATCH_BUILD_ZIG_SRC = "src/main/compile/batch_build.zig";
+
+/// Path to test manifest (list of zig files to compile)
+const TEST_MANIFEST = ".metal0/test_manifest.txt";
+
+/// Generate test manifest file for batch compilation
+/// Format: each line is "relative_zig_path:binary_name"
+pub fn generateTestManifest(allocator: std.mem.Allocator, zig_paths: []const []const u8) !void {
+    _ = allocator;
+
+    // Ensure .metal0 directory exists
+    std.fs.cwd().makeDir(".metal0") catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    const file = try std.fs.cwd().createFile(TEST_MANIFEST, .{});
+    defer file.close();
+
+    for (zig_paths) |zig_path| {
+        // Convert to relative path from .metal0/ directory
+        // e.g., ".metal0/cache/test_bool.zig" -> "cache/test_bool.zig"
+        const rel_path = if (std.mem.startsWith(u8, zig_path, ".metal0/"))
+            zig_path[8..] // Skip ".metal0/"
+        else
+            zig_path;
+
+        // Extract binary name (test_bool.zig -> test_bool)
+        const basename = std.fs.path.basename(zig_path);
+        const bin_name = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
+            basename[0..idx]
+        else
+            basename;
+
+        // Write line: relative_path:bin_name
+        try file.writeAll(rel_path);
+        try file.writeAll(":");
+        try file.writeAll(bin_name);
+        try file.writeAll("\n");
+    }
+}
+
+/// Batch compile all tests using zig build
+/// Returns: tuple of (success_count, total_count)
+pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !struct { success: usize, total: usize } {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    // Run zig build from .metal0 directory
+    var args = std.ArrayList([]const u8){};
+
+    try args.append(aa, "zig");
+    try args.append(aa, "build");
+
+    // Parallel jobs
+    try args.append(aa, try std.fmt.allocPrint(aa, "-j{d}", .{jobs}));
+
+    // Release build
+    try args.append(aa, "-Doptimize=ReleaseFast");
+
+    // Use our local cache
+    try args.append(aa, "--cache-dir");
+    try args.append(aa, "../.metal0/.zig-cache");
+
+    // Output to .metal0/bin
+    try args.append(aa, "--prefix");
+    try args.append(aa, "..");
+    try args.append(aa, "--prefix-exe-dir");
+    try args.append(aa, ".metal0/bin");
+
+    std.debug.print("Running batch compilation: zig build -j{d}...\n", .{jobs});
+
+    // Run from .metal0 directory
+    const result = std.process.Child.run(.{
+        .allocator = aa,
+        .argv = args.items,
+        .cwd = ".metal0",
+        .max_output_bytes = 1024 * 1024,
+    }) catch |err| {
+        std.debug.print("Batch compile failed: {any}\n", .{err});
+        return error.BatchCompileFailed;
+    };
+
+    switch (result.term) {
+        .Exited => |code| {
+            if (code == 0) {
+                // Count binaries in .metal0/bin
+                var count: usize = 0;
+                var dir = std.fs.cwd().openDir(".metal0/bin", .{ .iterate = true }) catch {
+                    return .{ .success = 0, .total = 0 };
+                };
+                defer dir.close();
+
+                var iter = dir.iterate();
+                while (iter.next() catch null) |entry| {
+                    if (entry.kind == .file) count += 1;
+                }
+
+                return .{ .success = count, .total = count };
+            } else {
+                if (result.stderr.len > 0) {
+                    std.debug.print("Batch compile errors:\n{s}\n", .{result.stderr});
+                }
+                return error.BatchCompileFailed;
+            }
+        },
+        else => {
+            std.debug.print("Batch compile terminated abnormally\n", .{});
+            return error.BatchCompileFailed;
+        },
+    }
+}
+
+/// Check if batch build.zig exists and copy if needed
+pub fn hasBatchBuildZig() bool {
+    // Check if source exists
+    std.fs.cwd().access(BATCH_BUILD_ZIG_SRC, .{}) catch return false;
+
+    // Copy to .metal0/ if needed
+    std.fs.cwd().makeDir(".metal0") catch |err| {
+        if (err != error.PathAlreadyExists) return false;
+    };
+
+    // Always copy to ensure it's up to date
+    std.fs.cwd().copyFile(BATCH_BUILD_ZIG_SRC, std.fs.cwd(), BATCH_BUILD_ZIG, .{}) catch return false;
+
+    return true;
+}
+
 test "incremental build flow" {
     const allocator = std.testing.allocator;
 
