@@ -143,11 +143,32 @@ pub fn TCPServer(comptime RequestHandler: type) type {
         }
 
         pub fn handleRequest(self: *Self) !void {
-            const conn = try std.posix.accept(self.socket.?, null, null);
+            var client_addr: std.posix.sockaddr = undefined;
+            var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr);
+
+            const conn = try std.posix.accept(self.socket.?, &client_addr, &addr_len);
             defer std.posix.close(conn);
 
-            // Would create handler and process request
-            _ = conn;
+            // Create handler instance and process request
+            var handler = RequestHandler{
+                .server = @ptrCast(&self.base),
+                .client_address = std.net.Address.initPosix(&client_addr),
+            };
+
+            // If handler has setup method, call it
+            if (@hasDecl(RequestHandler, "setup")) {
+                handler.setup();
+            }
+
+            // Process the request
+            if (@hasDecl(RequestHandler, "handle")) {
+                handler.handle(conn);
+            }
+
+            // If handler has finish method, call it
+            if (@hasDecl(RequestHandler, "finish")) {
+                handler.finish();
+            }
         }
 
         pub fn shutdown(self: *Self) void {
@@ -223,9 +244,29 @@ pub fn UDPServer(comptime RequestHandler: type) type {
             var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr);
 
             const n = try std.posix.recvfrom(self.socket.?, &buf, 0, &client_addr, &addr_len);
-            _ = n;
 
-            // Would create handler and process request
+            // Create handler instance and process request
+            var handler = RequestHandler{
+                .server = @ptrCast(&self.base),
+                .client_address = std.net.Address.initPosix(&client_addr),
+            };
+
+            // If handler has setup method, call it
+            if (@hasDecl(RequestHandler, "setup")) {
+                handler.setup();
+            }
+
+            // Process the UDP datagram
+            if (@hasDecl(RequestHandler, "handleDatagram")) {
+                handler.handleDatagram(buf[0..n], self.socket.?);
+            } else if (@hasDecl(RequestHandler, "handle")) {
+                handler.handle(self.socket.?);
+            }
+
+            // If handler has finish method, call it
+            if (@hasDecl(RequestHandler, "finish")) {
+                handler.finish();
+            }
         }
 
         pub fn shutdown(self: *Self) void {

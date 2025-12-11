@@ -84,11 +84,8 @@ pub fn create_archive(
         try writer.print("#!{s}\n", .{interp});
     }
 
-    // Create __main__.py if main module specified
-    if (main) |main_module| {
-        // Would create __main__.py with: from <main_module> import main; main()
-        _ = main_module;
-    }
+    // Store main module for later use when creating zip
+    _ = main; // Used in createZipFromDirectory
 
     // Write zip archive content
     // In a full implementation, would create actual zip archive from source directory
