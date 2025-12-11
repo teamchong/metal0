@@ -713,6 +713,13 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     } else {
         // Try fast path: link against precompiled .o files
         const incremental = @import("compile/incremental.zig");
+
+        // Auto-build/rebuild precompiled objects if needed
+        incremental.ensurePrecompiledObjects(allocator) catch |err| {
+            std.debug.print("Warning: Could not build precompiled objects ({any})\n", .{err});
+        };
+
+        // Use fast link if objects available
         if (incremental.hasPrecompiledObjects()) {
             std.debug.print("Compiling to native binary (fast link)...\n", .{});
             incremental.compileWithPrecompiledObjects(aa, zig_code, bin_path) catch |err| {

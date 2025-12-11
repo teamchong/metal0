@@ -447,12 +447,32 @@ pub fn buildAllModuleObjects(allocator: std.mem.Allocator) !void {
     std.debug.print("\nDone! Objects in {s}/\n", .{OBJECTS_DIR});
 }
 
+/// Check if any source file is newer than its .o file
+pub fn needsRebuild() bool {
+    for (MODULE_OBJECTS) |mod| {
+        // Get source mtime
+        const src_stat = std.fs.cwd().statFile(mod.src) catch continue;
+
+        // Get object mtime
+        var buf: [512]u8 = undefined;
+        const obj_path = std.fmt.bufPrint(&buf, "{s}/{s}", .{ OBJECTS_DIR, mod.obj }) catch continue;
+        const obj_stat = std.fs.cwd().statFile(obj_path) catch return true; // .o missing
+
+        // If source is newer than object, need rebuild
+        if (src_stat.mtime > obj_stat.mtime) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// Ensure all precompiled objects are up-to-date
+/// Auto-rebuilds if source files changed
 pub fn ensurePrecompiledObjects(allocator: std.mem.Allocator) !void {
-    if (!hasPrecompiledObjects()) {
+    if (!hasPrecompiledObjects() or needsRebuild()) {
+        std.debug.print("Building precompiled modules...\n", .{});
         try buildAllModuleObjects(allocator);
     }
-    // TODO: Check mtimes and rebuild if source changed
 }
 
 /// Get list of all .o file paths for linking
