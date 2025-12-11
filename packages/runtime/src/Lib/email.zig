@@ -929,15 +929,51 @@ pub const utils = struct {
         return result.toOwnedSlice();
     }
 
-    /// Format a date for email
+    // Day names for RFC 2822
+    const day_names = [_][]const u8{ "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
+    const month_names = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+
+    /// Format a date for email (RFC 2822 format)
+    /// Example: "Thu, 01 Jan 1970 00:00:00 +0000"
     pub fn formatdate(localtime: bool, usegmt: bool) []const u8 {
         _ = localtime;
-        _ = usegmt;
-        // Would format current time as RFC 2822 date
-        return "Thu, 01 Jan 1970 00:00:00 +0000";
+
+        const timestamp = std.time.timestamp();
+        const epoch_secs: u64 = @intCast(timestamp);
+        const epoch_day = std.time.epoch.EpochDay{ .day = @intCast(epoch_secs / std.time.s_per_day) };
+        const year_day = epoch_day.calculateYearDay();
+        const month_day = year_day.calculateMonthDay();
+
+        const day_seconds = @mod(epoch_secs, std.time.s_per_day);
+        const hour: u8 = @intCast(day_seconds / 3600);
+        const minute: u8 = @intCast(@mod(day_seconds, 3600) / 60);
+        const second: u8 = @intCast(@mod(day_seconds, 60));
+
+        const weekday = @mod(@as(i32, @intCast(epoch_day.day)) + 3, 7); // Jan 1, 1970 was Thursday (3)
+        const day_name = day_names[@intCast(weekday)];
+        const month_name = month_names[month_day.month.numeric() - 1];
+
+        const tz = if (usegmt) "GMT" else "+0000";
+
+        // Use static buffer for the formatted date
+        const Static = struct {
+            var buf: [64]u8 = undefined;
+        };
+        const result = std.fmt.bufPrint(&Static.buf, "{s}, {d:0>2} {s} {d} {d:0>2}:{d:0>2}:{d:0>2} {s}", .{
+            day_name,
+            month_day.day_of_month,
+            month_name,
+            year_day.year,
+            hour,
+            minute,
+            second,
+            tz,
+        }) catch return "Thu, 01 Jan 1970 00:00:00 +0000";
+
+        return result;
     }
 
-    /// Parse a date from email
+    /// Parse a date from email (RFC 2822 format)
     pub fn parsedate(date: []const u8) ?struct {
         year: i32,
         month: u8,
@@ -946,9 +982,46 @@ pub const utils = struct {
         minute: u8,
         second: u8,
     } {
-        _ = date;
-        // Would parse RFC 2822 date
-        return null;
+        // Skip day name if present (e.g., "Thu, ")
+        var input = date;
+        if (std.mem.indexOf(u8, input, ", ")) |comma_idx| {
+            input = input[comma_idx + 2 ..];
+        }
+
+        // Parse: "01 Jan 1970 00:00:00 +0000"
+        var iter = std.mem.tokenizeAny(u8, input, " :");
+
+        const day_str = iter.next() orelse return null;
+        const month_str = iter.next() orelse return null;
+        const year_str = iter.next() orelse return null;
+        const hour_str = iter.next() orelse return null;
+        const minute_str = iter.next() orelse return null;
+        const second_str = iter.next() orelse return null;
+
+        const day = std.fmt.parseInt(u8, day_str, 10) catch return null;
+        const year = std.fmt.parseInt(i32, year_str, 10) catch return null;
+        const hour = std.fmt.parseInt(u8, hour_str, 10) catch return null;
+        const minute = std.fmt.parseInt(u8, minute_str, 10) catch return null;
+        const second = std.fmt.parseInt(u8, second_str, 10) catch return null;
+
+        // Parse month name
+        var month: u8 = 0;
+        for (month_names, 1..) |name, i| {
+            if (std.ascii.eqlIgnoreCase(month_str, name)) {
+                month = @intCast(i);
+                break;
+            }
+        }
+        if (month == 0) return null;
+
+        return .{
+            .year = year,
+            .month = month,
+            .day = day,
+            .hour = hour,
+            .minute = minute,
+            .second = second,
+        };
     }
 
     /// Create a unique message ID

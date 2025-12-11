@@ -401,21 +401,59 @@ pub const NullTranslations = struct {
 // Locale helpers
 // ============================================================================
 
-/// Get list of languages from environment
-pub fn getLanguages() []const []const u8 {
-    // Check LANGUAGE, LC_ALL, LC_MESSAGES, LANG
-    const env_vars = [_][]const u8{
-        "LANGUAGE",
-        "LC_ALL",
-        "LC_MESSAGES",
-        "LANG",
-    };
+/// Static storage for language list results
+var language_result: [16][]const u8 = undefined;
+var language_count: usize = 0;
 
+/// Get list of languages from environment
+/// LANGUAGE is colon-separated, others are single values
+pub fn getLanguages() []const []const u8 {
+    language_count = 0;
+
+    // LANGUAGE has highest priority and can be colon-separated
+    if (std.posix.getenv("LANGUAGE")) |value| {
+        if (value.len > 0 and !std.mem.eql(u8, value, "C") and !std.mem.eql(u8, value, "POSIX")) {
+            // Split on ':' for multiple languages
+            var iter = std.mem.splitScalar(u8, value, ':');
+            while (iter.next()) |lang| {
+                if (lang.len > 0 and language_count < language_result.len) {
+                    // Also handle locale modifiers (strip .encoding and @modifier)
+                    var clean_lang = lang;
+                    if (std.mem.indexOf(u8, clean_lang, ".")) |dot_idx| {
+                        clean_lang = clean_lang[0..dot_idx];
+                    }
+                    if (std.mem.indexOf(u8, clean_lang, "@")) |at_idx| {
+                        clean_lang = clean_lang[0..at_idx];
+                    }
+                    if (clean_lang.len > 0) {
+                        language_result[language_count] = clean_lang;
+                        language_count += 1;
+                    }
+                }
+            }
+            if (language_count > 0) {
+                return language_result[0..language_count];
+            }
+        }
+    }
+
+    // Fall back to LC_ALL, LC_MESSAGES, LANG (single values)
+    const env_vars = [_][]const u8{ "LC_ALL", "LC_MESSAGES", "LANG" };
     for (env_vars) |var_name| {
         if (std.posix.getenv(var_name)) |value| {
             if (value.len > 0 and !std.mem.eql(u8, value, "C") and !std.mem.eql(u8, value, "POSIX")) {
-                // Would split on ':' for LANGUAGE
-                return &[_][]const u8{value};
+                // Strip encoding and modifier
+                var clean_lang = value;
+                if (std.mem.indexOf(u8, clean_lang, ".")) |dot_idx| {
+                    clean_lang = clean_lang[0..dot_idx];
+                }
+                if (std.mem.indexOf(u8, clean_lang, "@")) |at_idx| {
+                    clean_lang = clean_lang[0..at_idx];
+                }
+                if (clean_lang.len > 0) {
+                    language_result[0] = clean_lang;
+                    return language_result[0..1];
+                }
             }
         }
     }

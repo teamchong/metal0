@@ -429,25 +429,75 @@ pub const Maildir = struct {
             return "";
         }
 
-        /// Set flags in info string
+        /// Set flags in info string (Maildir flags: D=Draft, F=Flagged, P=Passed, R=Replied, S=Seen, T=Trashed)
         pub fn setFlags(self: *MaildirMessage, flags: []const u8) void {
-            _ = self;
-            _ = flags;
-            // Would update info string
+            // Info string format: "2,<flags>" where flags are sorted uppercase letters
+            var new_info: [32]u8 = undefined;
+            var len: usize = 2;
+            new_info[0] = '2';
+            new_info[1] = ',';
+
+            // Sort flags alphabetically
+            var sorted_flags: [6]u8 = undefined;
+            var flag_count: usize = 0;
+            for (flags) |f| {
+                const upper = std.ascii.toUpper(f);
+                if (upper == 'D' or upper == 'F' or upper == 'P' or upper == 'R' or upper == 'S' or upper == 'T') {
+                    sorted_flags[flag_count] = upper;
+                    flag_count += 1;
+                }
+            }
+            std.mem.sort(u8, sorted_flags[0..flag_count], {}, std.sort.asc(u8));
+            for (sorted_flags[0..flag_count]) |f| {
+                new_info[len] = f;
+                len += 1;
+            }
+
+            self.info = new_info[0..len];
         }
 
-        /// Add flags
+        /// Add a flag to the message
         pub fn addFlag(self: *MaildirMessage, flag: u8) void {
-            _ = self;
-            _ = flag;
-            // Would add flag to info string
+            const upper = std.ascii.toUpper(flag);
+            if (self.info) |info| {
+                // Check if flag already present
+                if (std.mem.indexOf(u8, info, &[_]u8{upper}) != null) return;
+
+                // Add flag and re-sort
+                var current_flags: [7]u8 = undefined;
+                var count: usize = 0;
+                for (info) |c| {
+                    if (std.ascii.isUpper(c)) {
+                        current_flags[count] = c;
+                        count += 1;
+                    }
+                }
+                current_flags[count] = upper;
+                count += 1;
+                self.setFlags(current_flags[0..count]);
+            } else {
+                self.setFlags(&[_]u8{upper});
+            }
         }
 
-        /// Remove flags
+        /// Remove a flag from the message
         pub fn removeFlag(self: *MaildirMessage, flag: u8) void {
-            _ = self;
-            _ = flag;
-            // Would remove flag from info string
+            const upper = std.ascii.toUpper(flag);
+            if (self.info) |info| {
+                var new_flags: [6]u8 = undefined;
+                var count: usize = 0;
+                for (info) |c| {
+                    if (std.ascii.isUpper(c) and c != upper) {
+                        new_flags[count] = c;
+                        count += 1;
+                    }
+                }
+                if (count > 0) {
+                    self.setFlags(new_flags[0..count]);
+                } else {
+                    self.info = "2,";
+                }
+            }
         }
     };
 
@@ -489,19 +539,57 @@ pub const Maildir = struct {
         _ = self;
     }
 
-    /// Add a message
+    /// Add a message - writes to tmp/ then moves to new/
     pub fn add(self: *Self, message: anytype) ![]const u8 {
-        _ = self;
-        _ = message;
-        // Would write to tmp, then move to new
-        return "unique_key";
+        // Generate unique filename
+        const timestamp = std.time.timestamp();
+        var rng = std.Random.DefaultPrng.init(@intCast(timestamp));
+        const random = rng.random().int(u32);
+
+        var filename_buf: [128]u8 = undefined;
+        const filename = std.fmt.bufPrint(&filename_buf, "{d}.{d}.{d}", .{
+            timestamp,
+            std.Thread.getCurrentId(),
+            random,
+        }) catch return error.InvalidPath;
+
+        // Write to tmp/
+        var tmp_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const tmp_path = std.fmt.bufPrint(&tmp_path_buf, "{s}/tmp/{s}", .{ self.path, filename }) catch return error.InvalidPath;
+
+        const file = std.fs.createFileAbsolute(tmp_path, .{}) catch return error.FileNotFound;
+        defer file.close();
+
+        // Write message content
+        const T = @TypeOf(message);
+        if (T == []const u8) {
+            file.writeAll(message) catch return error.WriteError;
+        } else if (@hasField(T, "data")) {
+            file.writeAll(message.data) catch return error.WriteError;
+        }
+
+        // Move to new/
+        var new_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const new_path = std.fmt.bufPrint(&new_path_buf, "{s}/new/{s}", .{ self.path, filename }) catch return error.InvalidPath;
+
+        std.fs.renameAbsolute(tmp_path, new_path) catch return error.RenameError;
+
+        // Return the key (filename without info)
+        return self.allocator.dupe(u8, filename) catch return error.OutOfMemory;
     }
 
-    /// Remove a message
+    /// Remove a message by deleting the file
     pub fn remove(self: *Self, key: []const u8) !void {
-        _ = self;
-        _ = key;
-        // Would delete file
+        // Try cur/ first, then new/
+        var cur_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        var new_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+
+        const cur_path = std.fmt.bufPrint(&cur_path_buf, "{s}/cur/{s}", .{ self.path, key }) catch return;
+        const new_path = std.fmt.bufPrint(&new_path_buf, "{s}/new/{s}", .{ self.path, key }) catch return;
+
+        std.fs.deleteFileAbsolute(cur_path) catch {
+            std.fs.deleteFileAbsolute(new_path) catch return error.KeyError;
+        };
     }
 
     /// Get a message
@@ -531,17 +619,44 @@ pub const Maildir = struct {
         return Maildir.init(self.allocator, folder_path, null, true);
     }
 
-    /// Remove folder
+    /// Remove folder by deleting the folder directory
     pub fn removeFolder(self: *Self, folder: []const u8) !void {
-        _ = self;
-        _ = folder;
-        // Would delete folder
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const folder_path = std.fmt.bufPrint(&path_buf, "{s}/.{s}", .{ self.path, folder }) catch return;
+
+        // Delete all subdirs (tmp, new, cur) then the folder itself
+        const subdirs = [_][]const u8{ "tmp", "new", "cur" };
+        for (subdirs) |subdir| {
+            var sub_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+            const sub_path = std.fmt.bufPrint(&sub_path_buf, "{s}/{s}", .{ folder_path, subdir }) catch continue;
+            std.fs.deleteTreeAbsolute(sub_path) catch {};
+        }
+        std.fs.deleteDirAbsolute(folder_path) catch {};
     }
 
-    /// Clean tmp directory
+    /// Clean tmp directory - remove files older than 36 hours
     pub fn clean(self: *Self) void {
-        _ = self;
-        // Would remove old files from tmp
+        var tmp_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const tmp_path = std.fmt.bufPrint(&tmp_path_buf, "{s}/tmp", .{self.path}) catch return;
+
+        const now = std.time.timestamp();
+        const threshold = now - (36 * 60 * 60); // 36 hours ago
+
+        var dir = std.fs.openDirAbsolute(tmp_path, .{ .iterate = true }) catch return;
+        defer dir.close();
+
+        var iter = dir.iterate();
+        while (iter.next() catch null) |entry| {
+            if (entry.kind != .file) continue;
+
+            // Get file mtime
+            const stat = dir.statFile(entry.name) catch continue;
+            const mtime: i64 = @intCast(stat.mtime / std.time.ns_per_s);
+
+            if (mtime < threshold) {
+                dir.deleteFile(entry.name) catch {};
+            }
+        }
     }
 
     /// Flush changes

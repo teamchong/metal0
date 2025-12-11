@@ -346,8 +346,27 @@ fn writeXMLValue(writer: anytype, value: PlistValue, indent: usize) !void {
         },
         .data => |d| {
             try writer.writeAll("<data>\n");
-            // Would base64 encode
-            _ = d;
+            // Base64 encode the data
+            const base64_encoder = std.base64.standard;
+            const encoded_len = base64_encoder.Encoder.calcSize(d.len);
+            var encoded_buf: [4096]u8 = undefined;
+            if (encoded_len <= encoded_buf.len) {
+                const encoded = base64_encoder.Encoder.encode(&encoded_buf, d);
+                // Write in lines of 76 characters
+                var pos: usize = 0;
+                while (pos < encoded.len) {
+                    const end = @min(pos + 76, encoded.len);
+                    for (0..indent + 1) |_| {
+                        try writer.writeAll(indent_str);
+                    }
+                    try writer.writeAll(encoded[pos..end]);
+                    try writer.writeAll("\n");
+                    pos = end;
+                }
+            }
+            for (0..indent) |_| {
+                try writer.writeAll(indent_str);
+            }
             try writer.writeAll("</data>\n");
         },
         .date => |timestamp| {
