@@ -10,6 +10,7 @@
 /// - Package initialization
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const builtin = @import("builtin");
 const hashmap_helper = @import("utils.hashmap_helper");
 
@@ -324,7 +325,7 @@ pub fn init() void {
     if (import_state != null) {
         return; // Already initialized
     }
-    import_state = ImportState.init(std.heap.page_allocator);
+    import_state = ImportState.init(allocator_helper.fast_allocator);
 }
 
 /// Finalize the import system
@@ -391,7 +392,7 @@ pub fn lockHeld() bool {
 /// Mirrors: _PyImport_InitModules()
 pub fn initModules() !void {
     var state = &(import_state orelse return error.NotInitialized);
-    state.modules = hashmap_helper.StringHashMap(?*anyopaque).init(std.heap.page_allocator);
+    state.modules = hashmap_helper.StringHashMap(?*anyopaque).init(allocator_helper.fast_allocator);
 }
 
 /// Get sys.modules dictionary

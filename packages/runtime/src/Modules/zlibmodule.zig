@@ -52,7 +52,7 @@ pub const DEF_BUF_SIZE: usize = 16384;
 
 /// Compress data using zlib format
 pub fn compress(data: []const u8, level: i32) ![]u8 {
-    return compressWithAllocator(std.heap.page_allocator, data, level);
+    return compressWithAllocator(allocator_helper.fast_allocator, data, level);
 }
 
 /// Compress data using zlib with custom allocator
@@ -87,7 +87,7 @@ pub fn compressWithAllocator(allocator: std.mem.Allocator, data: []const u8, lev
 
 /// Decompress zlib-compressed data
 pub fn decompress(data: []const u8, bufsize: usize) ![]u8 {
-    return decompressWithAllocator(std.heap.page_allocator, data, bufsize);
+    return decompressWithAllocator(allocator_helper.fast_allocator, data, bufsize);
 }
 
 /// Decompress with custom allocator
@@ -142,10 +142,10 @@ pub fn adler32(data: []const u8, value: u32) u32 {
 test "compress and decompress" {
     const data = "Hello, World! This is a test of zlib compression.";
     const compressed = try compress(data, Z_DEFAULT_COMPRESSION);
-    defer std.heap.page_allocator.free(compressed);
+    defer allocator_helper.fast_allocator.free(compressed);
 
     const decompressed = try decompress(compressed, 0);
-    defer std.heap.page_allocator.free(decompressed);
+    defer allocator_helper.fast_allocator.free(decompressed);
 
     try std.testing.expectEqualStrings(data, decompressed);
 }

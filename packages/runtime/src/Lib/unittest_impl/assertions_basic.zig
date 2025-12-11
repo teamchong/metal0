@@ -1,5 +1,6 @@
 /// metal0 unittest assertions - basic comparison assertions
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const runner = @import("../unittest/runner.zig");
 const runtime = @import("../../runtime.zig");
 const PyValue = runtime.PyValue;
@@ -1013,7 +1014,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                 const params = eq_info.@"fn".params;
                 // Check arg count: self + allocator + other = 3, or self + other = 2
                 const result = if (params.len == 3)
-                    a.__eq__(std.heap.page_allocator, b)
+                    a.__eq__(allocator_helper.fast_allocator, b)
                 else
                     a.__eq__(b);
                 // Handle error union
@@ -1038,7 +1039,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (eq_info == .@"fn") {
                 const params = eq_info.@"fn".params;
                 const result = if (params.len == 3)
-                    b.__eq__(std.heap.page_allocator, a)
+                    b.__eq__(allocator_helper.fast_allocator, a)
                 else
                     b.__eq__(a);
                 const ResultType = @TypeOf(result);

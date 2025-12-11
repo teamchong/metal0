@@ -5,6 +5,7 @@
 /// (Py_BuildValue) and for module initialization helpers (PyModule_Add*).
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 /// Built value types
@@ -542,7 +543,7 @@ pub const ModuleObject = struct {
 /// This function returns a module placeholder that can be used for compatibility.
 pub fn moduleCreate(def: *const ModuleDef) !*ModuleObject {
     // Use page allocator for module objects (long-lived)
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     const module = try allocator.create(ModuleObject);
     module.* = .{
         .name = def.name,

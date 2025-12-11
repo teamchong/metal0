@@ -11,6 +11,7 @@
 /// Works with runtime/exceptions.zig which defines exception types and thread-local storage.
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const exceptions = @import("../runtime/exceptions.zig");
 
 // ============================================================================
@@ -180,7 +181,7 @@ pub fn setRaisedException(tstate: *ThreadState, exc: ?*ExceptionValue) void {
 /// Mirrors: _PyErr_SetObject, PyErr_SetObject
 pub fn setObject(exception_type: []const u8, value: []const u8) void {
     const tstate = getThreadState();
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
 
     const exc = ExceptionValue.create(allocator, exception_type, value) catch {
         // Fall back to thread-local for OOM
@@ -307,7 +308,7 @@ pub fn restore(type_name: ?[]const u8, value: ?[]const u8, traceback: ?[]const u
         return;
     }
 
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     const exc = ExceptionValue.create(allocator, type_name.?, value orelse "") catch {
         exceptions.setException(type_name.?, value orelse "");
         return;

@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/ntpath.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 
 // ============================================================================
 // Constants
@@ -195,7 +196,7 @@ pub fn split(path: []const u8) struct { head: []const u8, tail: []const u8 } {
 
             // Combine drive and head
             if (d.len > 0) {
-                var combined = std.ArrayList(u8).init(std.heap.page_allocator);
+                var combined = std.ArrayList(u8).init(allocator_helper.fast_allocator);
                 combined.appendSlice(d) catch {};
                 combined.appendSlice(head) catch {};
                 return .{ .head = combined.items, .tail = tail };

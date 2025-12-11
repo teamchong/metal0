@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/codecs.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
@@ -45,8 +46,8 @@ var registry_initialized = false;
 
 fn initRegistry() void {
     if (registry_initialized) return;
-    codec_registry = hashmap_helper.StringHashMap(CodecInfo).init(std.heap.page_allocator);
-    search_functions = std.ArrayList(*const fn (name: []const u8) ?CodecInfo).init(std.heap.page_allocator);
+    codec_registry = hashmap_helper.StringHashMap(CodecInfo).init(allocator_helper.fast_allocator);
+    search_functions = std.ArrayList(*const fn (name: []const u8) ?CodecInfo).init(allocator_helper.fast_allocator);
     registry_initialized = true;
 }
 
@@ -470,7 +471,7 @@ pub fn charmapEncode(input: []const u8, errors: []const u8, mapping: ?[]const ?u
         return @constCast(input);
     }
 
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.ArrayList(u8).init(allocator_helper.fast_allocator);
     for (input) |c| {
         if (mapping.?[c]) |mapped| {
             try result.append(mapped);
@@ -488,7 +489,7 @@ pub fn charmapDecode(input: []const u8, errors: []const u8, mapping: ?[]const ?u
         return @constCast(input);
     }
 
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.ArrayList(u8).init(allocator_helper.fast_allocator);
     for (input) |c| {
         if (mapping.?[c]) |codepoint| {
             var buf: [4]u8 = undefined;

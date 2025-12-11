@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/pdb.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
@@ -668,7 +669,7 @@ pub fn run(statement: []const u8, globals: ?*anyopaque, locals: ?*anyopaque) voi
     _ = globals;
     _ = locals;
     // Use heap allocator since we don't have access to one
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     var pdb = Pdb.init(allocator, null);
     defer pdb.deinit();
     global_pdb = &pdb;

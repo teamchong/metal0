@@ -5,6 +5,7 @@
 /// Used by Python's REPL and error messages for syntax highlighting.
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const builtin = @import("builtin");
 
 // ============================================================================
@@ -157,8 +158,8 @@ pub fn canUseColor() bool {
     if (!stdout.isTty()) return false;
 
     // Check TERM environment variable
-    if (std.process.getEnvVarOwned(std.heap.page_allocator, "TERM")) |term| {
-        defer std.heap.page_allocator.free(term);
+    if (std.process.getEnvVarOwned(allocator_helper.fast_allocator, "TERM")) |term| {
+        defer allocator_helper.fast_allocator.free(term);
         if (std.mem.eql(u8, term, "dumb")) return false;
     } else |_| {}
 

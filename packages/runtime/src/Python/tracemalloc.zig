@@ -8,6 +8,7 @@
 /// - Peak memory tracking
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const Allocator = std.mem.Allocator;
 const Atomic = std.atomic.Value;
 
@@ -271,7 +272,7 @@ var global_state: ?TracemallocState = null;
 /// Get or create global state
 pub fn getState() *TracemallocState {
     if (global_state == null) {
-        global_state = TracemallocState.init(std.heap.page_allocator);
+        global_state = TracemallocState.init(allocator_helper.fast_allocator);
     }
     return &global_state.?;
 }

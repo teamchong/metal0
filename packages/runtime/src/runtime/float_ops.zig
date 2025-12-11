@@ -1,6 +1,7 @@
 /// Float operations for runtime
 /// Extracted from runtime.zig for better organization
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const bigint = @import("bigint");
 const BigInt = bigint.BigInt;
 const exceptions = @import("exceptions.zig");
@@ -508,7 +509,7 @@ pub const IntResult = union(enum) {
         _ = options;
         switch (self) {
             .small => |v| try writer.print("{d}", .{v}),
-            .big => |b| try writer.print("{s}", .{b.toString(std.heap.page_allocator) catch "BigInt"}),
+            .big => |b| try writer.print("{s}", .{b.toString(allocator_helper.fast_allocator) catch "BigInt"}),
         }
     }
 };

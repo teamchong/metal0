@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/mimetypes.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
@@ -363,7 +364,7 @@ var global_inited: bool = false;
 /// Initialize the global database
 pub fn init(files: ?[]const []const u8) !void {
     if (global_inited) return;
-    global_db = try MimeTypes.init(std.heap.page_allocator, files, true);
+    global_db = try MimeTypes.init(allocator_helper.fast_allocator, files, true);
     global_inited = true;
 }
 

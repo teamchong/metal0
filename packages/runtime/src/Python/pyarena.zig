@@ -7,6 +7,7 @@
 /// - Used by the parser for AST construction
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const Allocator = std.mem.Allocator;
 
 // ============================================================================
@@ -227,7 +228,7 @@ pub const ArenaStats = struct {
 
 /// Create a new arena
 pub fn PyArena_New() !*PyArena {
-    return PyArena.create(std.heap.page_allocator);
+    return PyArena.create(allocator_helper.fast_allocator);
 }
 
 /// Free an arena

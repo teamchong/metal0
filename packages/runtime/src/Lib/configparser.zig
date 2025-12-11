@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/configparser.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
@@ -33,7 +34,7 @@ pub const BasicInterpolation = struct {
 
 /// Extended interpolation with ${section:option} syntax
 pub const ExtendedInterpolation = struct {
-    allocator: std.mem.Allocator = std.heap.page_allocator,
+    allocator: std.mem.Allocator = allocator_helper.fast_allocator,
     max_depth: u8 = 10,
 
     /// Perform ${section:option} or ${option} interpolation

@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/wsgiref/
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
@@ -324,7 +325,7 @@ pub fn demo_app(environ: *Environ, start_response: StartResponse) !std.ArrayList
 
     try start_response("200 OK", &headers);
 
-    var response = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var response = std.ArrayList([]const u8).init(allocator_helper.fast_allocator);
     try response.append("Hello, World!\n");
     return response;
 }

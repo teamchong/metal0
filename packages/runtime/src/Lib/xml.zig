@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/xml/
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
@@ -791,7 +792,7 @@ pub const sax = struct {
             defer file.close();
 
             const stat = try file.stat();
-            const allocator = std.heap.page_allocator;
+            const allocator = allocator_helper.fast_allocator;
             const content = try allocator.alloc(u8, stat.size);
             defer allocator.free(content);
 

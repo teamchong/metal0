@@ -319,7 +319,7 @@ fn resolveAddress(host: []const u8) !std.net.Address {
     } else |_| {}
 
     // For testing, use a simple DNS lookup
-    const list = try std.net.getAddressList(std.heap.page_allocator, host, port);
+    const list = try std.net.getAddressList(allocator_helper.fast_allocator, host, port);
     defer list.deinit();
 
     if (list.addrs.len == 0) {

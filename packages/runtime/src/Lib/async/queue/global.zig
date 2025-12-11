@@ -113,7 +113,7 @@ pub const GlobalQueue = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        var tasks = std.ArrayList(?*Task).init(std.heap.page_allocator);
+        var tasks = std.ArrayList(?*Task).init(allocator_helper.fast_allocator);
         var current = self.head.load(.acquire);
         var count: usize = 0;
 

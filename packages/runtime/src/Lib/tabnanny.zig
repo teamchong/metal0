@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/tabnanny.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 
 // ============================================================================
 // Error Types
@@ -185,7 +186,7 @@ pub const TokenType = enum {
 
 /// Process tokens for indentation checking
 pub fn processTokens(tokens: []const struct { type: TokenType, value: []const u8, line: usize }) ?NannyNag {
-    var indent_stack = std.ArrayList(Whitespace).init(std.heap.page_allocator);
+    var indent_stack = std.ArrayList(Whitespace).init(allocator_helper.fast_allocator);
     defer indent_stack.deinit();
 
     for (tokens) |token| {

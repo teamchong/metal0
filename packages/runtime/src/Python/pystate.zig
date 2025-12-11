@@ -9,6 +9,7 @@
 /// - Cross-interpreter operations
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const builtin = @import("builtin");
 
 // Re-export the core types from pylifecycle for consistency
@@ -117,7 +118,7 @@ pub const ThreadState = struct {
     _whence: ThreadStateWhence = .unknown,
 
     /// Allocator used for this thread state
-    allocator: std.mem.Allocator = std.heap.page_allocator,
+    allocator: std.mem.Allocator = allocator_helper.fast_allocator,
 
     /// Per-thread dictionary for thread-local storage
     /// Used by threading.local() and other thread-specific data
@@ -229,7 +230,7 @@ pub const InterpreterState = struct {
     ceval: CEvalState = .{},
 
     /// Allocator
-    allocator: std.mem.Allocator = std.heap.page_allocator,
+    allocator: std.mem.Allocator = allocator_helper.fast_allocator,
 
     const Self = @This();
 
@@ -504,7 +505,7 @@ pub fn threadStateSetAsyncExc(id: u64, exc: ?*anyopaque) i32 {
 /// Create a new interpreter state
 /// Mirrors: PyInterpreterState_New()
 pub fn interpreterStateNew() ?*InterpreterState {
-    const interp = std.heap.page_allocator.create(InterpreterState) catch {
+    const interp = allocator_helper.fast_allocator.create(InterpreterState) catch {
         return null;
     };
     interp.* = .{};
@@ -550,7 +551,7 @@ pub fn interpreterStateDelete(interp: *InterpreterState) void {
         interpreters.main = null;
     }
 
-    std.heap.page_allocator.destroy(interp);
+    allocator_helper.fast_allocator.destroy(interp);
 }
 
 /// Clear interpreter state

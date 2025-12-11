@@ -43,7 +43,7 @@ fn testSignalHandling() !void {
     }
 
     // Test cooperative preemption marking
-    var processor = Processor.init(std.heap.page_allocator, 0);
+    var processor = Processor.init(allocator_helper.fast_allocator, 0);
     defer processor.deinit();
 
     var task = Task.init(1, undefined, undefined);
@@ -63,8 +63,8 @@ fn testStackOperations() !void {
     std.debug.print("Testing Stack Operations:\n", .{});
 
     // Test stack allocation
-    const stack_mem = try stack.allocateStack(std.heap.page_allocator, 4096);
-    defer stack.freeStack(std.heap.page_allocator, stack_mem);
+    const stack_mem = try stack.allocateStack(allocator_helper.fast_allocator, 4096);
+    defer stack.freeStack(allocator_helper.fast_allocator, stack_mem);
 
     if (stack_mem.len >= 4096) {
         std.debug.print("  ✓ Stack allocation successful ({d} bytes)\n", .{stack_mem.len});
@@ -108,8 +108,8 @@ fn testPreemptionTimer() !void {
     std.debug.print("Testing Preemption Timer:\n", .{});
 
     // Create processors
-    var processor1 = Processor.init(std.heap.page_allocator, 0);
-    var processor2 = Processor.init(std.heap.page_allocator, 1);
+    var processor1 = Processor.init(allocator_helper.fast_allocator, 0);
+    var processor2 = Processor.init(allocator_helper.fast_allocator, 1);
     defer processor1.deinit();
     defer processor2.deinit();
 

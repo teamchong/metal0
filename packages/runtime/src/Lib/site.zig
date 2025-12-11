@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/site.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const builtin = @import("builtin");
 const hashmap_helper = @import("utils.hashmap_helper");
 
@@ -314,7 +315,7 @@ pub fn initWithAllocator(allocator: std.mem.Allocator) void {
 
 /// Initialize the site module (uses page allocator as fallback)
 pub fn init() void {
-    initWithAllocator(std.heap.page_allocator);
+    initWithAllocator(allocator_helper.fast_allocator);
 }
 
 /// Reset module state

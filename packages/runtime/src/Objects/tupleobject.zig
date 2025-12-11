@@ -1,5 +1,6 @@
 /// PyTuple implementation - Python tuple type (CPython ABI compatible)
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const runtime = @import("../runtime.zig");
 
 const PyObject = runtime.PyObject;
@@ -190,7 +191,7 @@ pub const PyTuple = struct {
 
 // CPython-compatible C API functions
 pub fn PyTuple_New(size: runtime.Py_ssize_t) callconv(.C) *PyObject {
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     return PyTuple.create(allocator, @intCast(size)) catch @panic("PyTuple_New allocation failed");
 }
 

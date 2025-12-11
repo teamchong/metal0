@@ -12,6 +12,7 @@
 //! - Windows: IOCP (future)
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const builtin = @import("builtin");
 const GreenThread = @import("green_thread").GreenThread;
 
@@ -519,7 +520,7 @@ var simple_timers_initialized = false;
 
 fn ensureSimpleTimersInit() void {
     if (!simple_timers_initialized) {
-        simple_timers = std.AutoHashMap(u64, SimpleTimer).init(std.heap.page_allocator);
+        simple_timers = std.AutoHashMap(u64, SimpleTimer).init(allocator_helper.fast_allocator);
         simple_timers_initialized = true;
     }
 }

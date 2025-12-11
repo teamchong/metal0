@@ -1,5 +1,6 @@
 /// Async HTTP client with non-blocking I/O
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const Request = @import("request.zig").Request;
 const Response = @import("response.zig").Response;
 const Method = @import("request.zig").Method;
@@ -319,7 +320,7 @@ fn resolveAddress(host: []const u8) !std.net.Address {
     } else |_| {}
 
     // For testing, use a simple DNS lookup
-    const list = try std.net.getAddressList(std.heap.page_allocator, host, port);
+    const list = try std.net.getAddressList(allocator_helper.fast_allocator, host, port);
     defer list.deinit();
 
     if (list.addrs.len == 0) {

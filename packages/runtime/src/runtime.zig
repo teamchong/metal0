@@ -2469,7 +2469,7 @@ pub fn pickleLoads(data: []const u8) pickle.PickleValue {
     const allocator = if (@import("builtin").is_test)
         std.testing.allocator
     else
-        std.heap.page_allocator;
+        allocator_helper.fast_allocator;
 
     return pickle.loads(data, allocator) catch .{ .none = {} };
 }

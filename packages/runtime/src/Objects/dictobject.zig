@@ -1,5 +1,6 @@
 /// Python dict type implementation (CPython ABI compatible)
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const runtime = @import("../runtime.zig");
 const hashmap_helper = @import("utils.hashmap_helper");
 
@@ -269,7 +270,7 @@ pub const PyDict = struct {
 
 // CPython-compatible C API functions
 pub fn PyDict_New() callconv(.C) *PyObject {
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     return PyDict.create(allocator) catch @panic("PyDict_New allocation failed");
 }
 

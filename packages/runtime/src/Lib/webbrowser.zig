@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/webbrowser.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const builtin = @import("builtin");
 
 // ============================================================================
@@ -366,7 +367,7 @@ pub fn register(name: []const u8, klass: BrowserType, instance: ?BrowserType, up
     _ = update_tryorder;
 
     if (_browsers == null) {
-        _browsers = std.ArrayList(BrowserEntry).init(std.heap.page_allocator);
+        _browsers = std.ArrayList(BrowserEntry).init(allocator_helper.fast_allocator);
     }
 
     try _browsers.?.append(.{ .name = name, .klass = klass });
@@ -397,10 +398,10 @@ pub fn get(using: ?[]const u8) !BrowserType {
 /// Get default browser for current platform
 fn getDefaultBrowser() BrowserType {
     return switch (builtin.os.tag) {
-        .macos => .{ .macos = MacOSDefaultBrowser.init(std.heap.page_allocator) },
-        .windows => .{ .windows = WindowsDefault.init(std.heap.page_allocator) },
-        .linux => .{ .xdg = XdgOpen.init(std.heap.page_allocator) },
-        else => .{ .xdg = XdgOpen.init(std.heap.page_allocator) },
+        .macos => .{ .macos = MacOSDefaultBrowser.init(allocator_helper.fast_allocator) },
+        .windows => .{ .windows = WindowsDefault.init(allocator_helper.fast_allocator) },
+        .linux => .{ .xdg = XdgOpen.init(allocator_helper.fast_allocator) },
+        else => .{ .xdg = XdgOpen.init(allocator_helper.fast_allocator) },
     };
 }
 

@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/pydoc.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 
 // ============================================================================
 // Error Types
@@ -319,7 +320,7 @@ pub fn browse(port: u16) !void {
         }
 
         // Generate response
-        const allocator = std.heap.page_allocator;
+        const allocator = allocator_helper.fast_allocator;
         var response_body: []const u8 = "<html><body><h1>Python Documentation</h1></body></html>";
 
         if (path.len > 1) {

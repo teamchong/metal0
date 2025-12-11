@@ -1523,7 +1523,7 @@ pub fn NamedTuple(comptime field_count: usize) type {
 
         /// _field_defaults - Return dict of default values (empty for base)
         pub fn _field_defaults(_: Self) hashmap_helper.StringHashMap(i64) {
-            return hashmap_helper.StringHashMap(i64).init(std.heap.page_allocator);
+            return hashmap_helper.StringHashMap(i64).init(allocator_helper.fast_allocator);
         }
     };
 }

@@ -1,5 +1,6 @@
 /// Python float type implementation (CPython ABI compatible)
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const runtime = @import("../runtime.zig");
 
 // Re-export CPython-compatible types
@@ -48,7 +49,7 @@ pub const PyFloat = struct {
 
 // CPython-compatible C API functions
 pub fn PyFloat_FromDouble(val: f64) callconv(.C) *PyObject {
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     return PyFloat.create(allocator, val) catch @panic("PyFloat_FromDouble allocation failed");
 }
 

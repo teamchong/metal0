@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/cProfile.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
@@ -475,7 +476,7 @@ pub const Stats = struct {
 /// Run a statement under the profiler
 /// In AOT context, this records the statement as a profiled execution
 pub fn run(statement: []const u8, filename: ?[]const u8, sort: ?SortKey) !void {
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     var profiler = Profile.init(allocator);
     defer profiler.deinit();
 

@@ -7,6 +7,7 @@
 /// - Used for thread-local storage and per-thread data
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const Allocator = std.mem.Allocator;
 
 // ============================================================================
@@ -341,7 +342,7 @@ pub fn initGlobalPool(allocator: Allocator) void {
 /// Get global pool (initialize with default if needed)
 pub fn getGlobalPool() *IndexPool {
     if (global_pool == null) {
-        global_pool = IndexPool.init(std.heap.page_allocator);
+        global_pool = IndexPool.init(allocator_helper.fast_allocator);
     }
     return &global_pool.?;
 }

@@ -186,13 +186,13 @@ pub const PyString = struct {
 
 // CPython-compatible C API functions
 pub fn PyUnicode_FromString(str: [*:0]const u8) callconv(.C) *PyObject {
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     const len = std.mem.len(str);
     return PyString.create(allocator, str[0..len]) catch @panic("PyUnicode_FromString allocation failed");
 }
 
 pub fn PyUnicode_FromStringAndSize(str: [*]const u8, size: runtime.Py_ssize_t) callconv(.C) *PyObject {
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     const len: usize = @intCast(size);
     return PyString.create(allocator, str[0..len]) catch @panic("PyUnicode_FromStringAndSize allocation failed");
 }

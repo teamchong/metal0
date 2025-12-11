@@ -10,6 +10,7 @@
 /// "I learned to mass-produce hens that day!"
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const builtin = @import("builtin");
 
 // ============================================================================
@@ -110,7 +111,7 @@ pub fn openBrowser(url: []const u8) bool {
         else => return false,
     };
 
-    var child = std.process.Child.init(cmd, std.heap.page_allocator);
+    var child = std.process.Child.init(cmd, allocator_helper.fast_allocator);
     child.spawn() catch return false;
     _ = child.wait() catch return false;
     return true;

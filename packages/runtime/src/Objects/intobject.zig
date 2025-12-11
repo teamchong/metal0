@@ -1,5 +1,6 @@
 /// Python integer type implementation (CPython ABI compatible)
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const runtime = @import("../runtime.zig");
 
 // Re-export CPython-compatible types
@@ -43,7 +44,7 @@ pub const PyInt = struct {
 // CPython-compatible C API functions
 pub fn PyLong_FromLong(val: c_long) callconv(.C) *PyObject {
     // Note: This uses a global allocator - in practice you'd want arena/pool
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     return PyInt.create(allocator, val) catch @panic("PyLong_FromLong allocation failed");
 }
 

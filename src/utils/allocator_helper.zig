@@ -11,11 +11,22 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+/// Fast allocator - drop-in replacement for page_allocator
+/// - Release native: c_allocator (2-5x faster than page_allocator)
+/// - Debug/WASM: page_allocator (for safety/compatibility)
+///
+/// Use this instead of std.heap.page_allocator everywhere in runtime!
+pub const fast_allocator: std.mem.Allocator = blk: {
+    const is_wasm = (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64);
+    const is_debug = (builtin.mode == .Debug);
+    break :blk if (is_wasm or is_debug) std.heap.page_allocator else std.heap.c_allocator;
+};
+
 /// Returns true if we should use c_allocator (fast path, no cleanup needed)
 pub fn useFastAllocator() bool {
-    const is_wasm = comptime (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64);
-    const is_debug = comptime (builtin.mode == .Debug);
-    return !is_wasm and !is_debug;
+    const is_wasm = (builtin.target.cpu.arch == .wasm32 or builtin.target.cpu.arch == .wasm64);
+    const is_debug = (builtin.mode == .Debug);
+    return comptime (!is_wasm and !is_debug);
 }
 
 /// Get the appropriate allocator for generated code

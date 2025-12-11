@@ -13,7 +13,7 @@ pub const aliases = [_][]const u8{ "646", "us-ascii" };
 /// Decode ASCII bytes to UTF-8 string
 /// ASCII is a subset of UTF-8, so valid ASCII bytes are already valid UTF-8
 pub fn decode(input: []const u8, errors: ErrorHandler) !DecodeResult {
-    var output = std.ArrayList(u8).init(std.heap.page_allocator);
+    var output = std.ArrayList(u8).init(allocator_helper.fast_allocator);
     errdefer output.deinit();
     var bytes_consumed: usize = 0;
 
@@ -55,7 +55,7 @@ pub fn decode(input: []const u8, errors: ErrorHandler) !DecodeResult {
 /// Encode UTF-8 string to ASCII bytes
 /// Only codepoints 0x00-0x7F can be encoded; others raise an error
 pub fn encode(input: []const u8, errors: ErrorHandler) !EncodeResult {
-    var output = std.ArrayList(u8).init(std.heap.page_allocator);
+    var output = std.ArrayList(u8).init(allocator_helper.fast_allocator);
     errdefer output.deinit();
     var chars_consumed: usize = 0;
 
@@ -139,7 +139,7 @@ pub fn getregentry() CodecInfo {
 // Tests
 test "ascii decode valid" {
     const result = try decode("Hello, World!", .strict);
-    defer std.heap.page_allocator.free(result.output);
+    defer allocator_helper.fast_allocator.free(result.output);
     try std.testing.expectEqualStrings("Hello, World!", result.output);
 }
 
@@ -150,13 +150,13 @@ test "ascii decode invalid strict" {
 
 test "ascii decode invalid replace" {
     const result = try decode("Hi\x80!", .replace);
-    defer std.heap.page_allocator.free(result.output);
+    defer allocator_helper.fast_allocator.free(result.output);
     try std.testing.expectEqualStrings("Hi\xEF\xBF\xBD!", result.output);
 }
 
 test "ascii encode valid" {
     const result = try encode("Hello", .strict);
-    defer std.heap.page_allocator.free(result.output);
+    defer allocator_helper.fast_allocator.free(result.output);
     try std.testing.expectEqualStrings("Hello", result.output);
 }
 

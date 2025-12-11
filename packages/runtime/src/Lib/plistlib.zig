@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/plistlib.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
@@ -73,8 +74,8 @@ pub fn loads(allocator: std.mem.Allocator, data: []const u8) !PlistValue {
 
 /// Dump a plist to a file
 pub fn dump(value: PlistValue, file: std.fs.File, fmt: PlistFormat) !void {
-    const data = try dumps(std.heap.page_allocator, value, fmt);
-    defer std.heap.page_allocator.free(data);
+    const data = try dumps(allocator_helper.fast_allocator, value, fmt);
+    defer allocator_helper.fast_allocator.free(data);
     try file.writeAll(data);
 }
 

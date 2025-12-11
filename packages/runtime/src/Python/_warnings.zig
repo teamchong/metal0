@@ -8,6 +8,7 @@
 /// - Per-module warning state
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const Allocator = std.mem.Allocator;
 
 // ============================================================================
@@ -371,7 +372,7 @@ var global_state: ?WarningsState = null;
 /// Get or create global warnings state
 pub fn getState() *WarningsState {
     if (global_state == null) {
-        global_state = WarningsState.create(std.heap.page_allocator);
+        global_state = WarningsState.create(allocator_helper.fast_allocator);
     }
     return &global_state.?;
 }

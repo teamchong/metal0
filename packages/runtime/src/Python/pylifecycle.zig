@@ -9,6 +9,7 @@
 /// - Exit functions (atexit handlers)
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const builtin = @import("builtin");
 
 // ============================================================================
@@ -567,7 +568,7 @@ fn initMain() Status {
 /// Create the main interpreter
 fn createMainInterpreter(config: *const Config) Status {
     // Allocate interpreter state
-    var interp = std.heap.page_allocator.create(InterpreterState) catch {
+    var interp = allocator_helper.fast_allocator.create(InterpreterState) catch {
         return Status.noMemory();
     };
     interp.* = .{};
@@ -577,7 +578,7 @@ fn createMainInterpreter(config: *const Config) Status {
     interp._ready = true;
 
     // Allocate main thread state
-    var tstate = std.heap.page_allocator.create(ThreadState) catch {
+    var tstate = allocator_helper.fast_allocator.create(ThreadState) catch {
         return Status.noMemory();
     };
     tstate.* = .{};
@@ -918,7 +919,7 @@ pub fn newInterpreter() ?*ThreadState {
     }
 
     // Allocate interpreter state
-    var interp = std.heap.page_allocator.create(InterpreterState) catch {
+    var interp = allocator_helper.fast_allocator.create(InterpreterState) catch {
         return null;
     };
     interp.* = .{};
@@ -931,8 +932,8 @@ pub fn newInterpreter() ?*ThreadState {
     }
 
     // Allocate thread state
-    var tstate = std.heap.page_allocator.create(ThreadState) catch {
-        std.heap.page_allocator.destroy(interp);
+    var tstate = allocator_helper.fast_allocator.create(ThreadState) catch {
+        allocator_helper.fast_allocator.destroy(interp);
         return null;
     };
     tstate.* = .{};
@@ -952,9 +953,9 @@ pub fn endInterpreter(tstate: *ThreadState) void {
     if (tstate.interp) |interp| {
         interp.finalizing = true;
         // Cleanup
-        std.heap.page_allocator.destroy(interp);
+        allocator_helper.fast_allocator.destroy(interp);
     }
-    std.heap.page_allocator.destroy(tstate);
+    allocator_helper.fast_allocator.destroy(tstate);
 }
 
 // ============================================================================
@@ -964,7 +965,7 @@ pub fn endInterpreter(tstate: *ThreadState) void {
 /// Create a new thread state
 /// Mirrors: PyThreadState_New()
 pub fn threadStateNew(interp: *InterpreterState) ?*ThreadState {
-    var tstate = std.heap.page_allocator.create(ThreadState) catch {
+    var tstate = allocator_helper.fast_allocator.create(ThreadState) catch {
         return null;
     };
     tstate.* = .{};
@@ -997,7 +998,7 @@ pub fn threadStateDelete(tstate: *ThreadState) void {
         }
         interp.threads_count -= 1;
     }
-    std.heap.page_allocator.destroy(tstate);
+    allocator_helper.fast_allocator.destroy(tstate);
 }
 
 /// Swap thread state

@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/locale.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 
 // ============================================================================
 // Locale Categories
@@ -308,7 +309,7 @@ pub fn atof(str: []const u8) !f64 {
     const conv = localeconv();
 
     // Replace locale decimal point with '.'
-    var normalized = std.ArrayList(u8).init(std.heap.page_allocator);
+    var normalized = std.ArrayList(u8).init(allocator_helper.fast_allocator);
     defer normalized.deinit();
 
     for (str) |c| {
@@ -329,7 +330,7 @@ pub fn atoi(str: []const u8) !i64 {
     const conv = localeconv();
 
     // Remove thousands separators
-    var normalized = std.ArrayList(u8).init(std.heap.page_allocator);
+    var normalized = std.ArrayList(u8).init(allocator_helper.fast_allocator);
     defer normalized.deinit();
 
     for (str) |c| {

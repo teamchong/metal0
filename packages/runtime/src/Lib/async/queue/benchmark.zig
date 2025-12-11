@@ -5,7 +5,7 @@ const Task = @import("task.zig").Task;
 
 /// Benchmark queue performance
 pub fn main() !void {
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     var stdout_buf: [4096]u8 = undefined;
     var stdout = std.io.getStdOut().writer();
     var buffered = std.io.bufferedWriter(stdout);

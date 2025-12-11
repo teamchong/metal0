@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/modulefinder.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const hashmap_helper = @import("utils.hashmap_helper");
 
 // ============================================================================
@@ -197,8 +198,8 @@ pub const ModuleFinder = struct {
 
         for (search_path) |p| {
             // Try as package
-            const pkg_path = try std.fmt.allocPrint(std.heap.page_allocator, "{s}/{s}/__init__.py", .{ p, name });
-            defer std.heap.page_allocator.free(pkg_path);
+            const pkg_path = try std.fmt.allocPrint(allocator_helper.fast_allocator, "{s}/{s}/__init__.py", .{ p, name });
+            defer allocator_helper.fast_allocator.free(pkg_path);
 
             if (std.fs.cwd().openFile(pkg_path, .{})) |file| {
                 return .{
@@ -209,8 +210,8 @@ pub const ModuleFinder = struct {
             } else |_| {}
 
             // Try as module
-            const mod_path = try std.fmt.allocPrint(std.heap.page_allocator, "{s}/{s}.py", .{ p, name });
-            defer std.heap.page_allocator.free(mod_path);
+            const mod_path = try std.fmt.allocPrint(allocator_helper.fast_allocator, "{s}/{s}.py", .{ p, name });
+            defer allocator_helper.fast_allocator.free(mod_path);
 
             if (std.fs.cwd().openFile(mod_path, .{})) |file| {
                 return .{

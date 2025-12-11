@@ -1,5 +1,6 @@
 /// PyList implementation - Python list type (CPython ABI compatible)
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const runtime = @import("../runtime.zig");
 
 // Re-export CPython-compatible types
@@ -268,7 +269,7 @@ pub const PyList = struct {
                         list_obj.ob_item[j] = list_obj.ob_item[j + 1];
                     }
                     list_obj.ob_base.ob_size -= 1;
-                    decref(item, std.heap.page_allocator);
+                    decref(item, allocator_helper.fast_allocator);
                     return;
                 }
             }
@@ -353,7 +354,7 @@ pub const PyList = struct {
         // Need to grow?
         if (size >= allocated) {
             const new_capacity = if (allocated == 0) 4 else allocated * 2;
-            const alloc = std.heap.page_allocator;
+            const alloc = allocator_helper.fast_allocator;
             const new_items = try alloc.alloc(*PyObject, new_capacity);
 
             if (size > 0) {
@@ -497,7 +498,7 @@ pub const PyList = struct {
 
 // CPython-compatible C API functions
 pub fn PyList_New(size: runtime.Py_ssize_t) callconv(.C) *PyObject {
-    const allocator = std.heap.page_allocator;
+    const allocator = allocator_helper.fast_allocator;
     const list_obj = allocator.create(PyListObject) catch @panic("PyList_New allocation failed");
 
     const capacity: usize = if (size > 0) @intCast(size) else 4;

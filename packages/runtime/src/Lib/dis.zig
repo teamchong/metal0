@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/dis.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 
 // ============================================================================
 // Opcode Definitions
@@ -488,7 +489,7 @@ pub fn getInstructions(allocator: std.mem.Allocator, x: anytype, first_line: ?u3
 
 /// Find labels (jump targets) in bytecode
 pub fn findlabels(code: []const u8) ![]usize {
-    var labels = std.ArrayList(usize).init(std.heap.page_allocator);
+    var labels = std.ArrayList(usize).init(allocator_helper.fast_allocator);
     defer labels.deinit();
 
     var offset: usize = 0;
@@ -515,7 +516,7 @@ pub fn findlabels(code: []const u8) ![]usize {
 /// Find line starts in bytecode
 pub fn findlinestarts(co: anytype) !std.AutoHashMap(usize, u32) {
     _ = co;
-    return std.AutoHashMap(usize, u32).init(std.heap.page_allocator);
+    return std.AutoHashMap(usize, u32).init(allocator_helper.fast_allocator);
 }
 
 /// Show code object info - prints detailed code object information

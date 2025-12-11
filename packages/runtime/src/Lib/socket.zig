@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/socket.py
 
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const builtin = @import("builtin");
 const os = std.os;
 const posix = std.posix;
@@ -503,8 +504,8 @@ pub fn gethostname(buffer: []u8) ![]u8 {
             return buffer[0..size];
         }
         // Fallback: use environment variable
-        if (std.process.getEnvVarOwned(std.heap.page_allocator, "COMPUTERNAME")) |name| {
-            defer std.heap.page_allocator.free(name);
+        if (std.process.getEnvVarOwned(allocator_helper.fast_allocator, "COMPUTERNAME")) |name| {
+            defer allocator_helper.fast_allocator.free(name);
             const copy_len = @min(name.len, buffer.len);
             @memcpy(buffer[0..copy_len], name[0..copy_len]);
             return buffer[0..copy_len];

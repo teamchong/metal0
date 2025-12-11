@@ -1,6 +1,7 @@
 /// Dynamic value type for runtime attribute storage
 /// Supports comptime SIMD operations for string comparisons
 const std = @import("std");
+const allocator_helper = @import("utils.allocator_helper");
 const bigint = @import("bigint");
 
 /// PyValue - Runtime-typed value for dynamic attributes
@@ -51,7 +52,7 @@ pub const PyValue = union(enum) {
                 if (items.len == 1) try writer.writeAll(",");
                 try writer.writeAll(")");
             },
-            .bigint => |v| try writer.print("{s}", .{v.toString(std.heap.page_allocator, 10) catch "<bigint>"}),
+            .bigint => |v| try writer.print("{s}", .{v.toString(allocator_helper.fast_allocator, 10) catch "<bigint>"}),
             .complex => |v| {
                 if (v.imag >= 0) {
                     try writer.print("({d}+{d}j)", .{ v.real, v.imag });
