@@ -113,7 +113,7 @@ pub fn IntEnum(comptime members: anytype) type {
 pub fn AutoIntEnum(comptime names: anytype, comptime start: i64) type {
     const pairs = blk: {
         var result: [names.len]struct { []const u8, i64 } = undefined;
-        inline for (names, 0..) |name, i| {
+        for (names, 0..) |name, i| {
             result[i] = .{ name, start + @as(i64, @intCast(i)) };
         }
         break :blk result;
@@ -129,7 +129,7 @@ pub fn AutoIntEnum(comptime names: anytype, comptime start: i64) type {
 pub fn StrEnum(comptime names: anytype) type {
     const pairs = blk: {
         var result: [names.len]struct { []const u8, []const u8 } = undefined;
-        inline for (names, 0..) |name, i| {
+        for (names, 0..) |name, i| {
             result[i] = .{ name, name };
         }
         break :blk result;
@@ -213,7 +213,7 @@ pub fn Flag(comptime members: anytype) type {
 pub fn AutoFlag(comptime names: anytype) type {
     const pairs = blk: {
         var result: [names.len]struct { []const u8, u64 } = undefined;
-        inline for (names, 0..) |name, i| {
+        for (names, 0..) |name, i| {
             result[i] = .{ name, @as(u64, 1) << @as(u6, @intCast(i)) };
         }
         break :blk result;
