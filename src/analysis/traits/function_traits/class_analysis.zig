@@ -114,10 +114,78 @@ pub fn analyzeAllClassTraits(
                 while (if_iter.next()) |entry| {
                     try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
                 }
-                const else_nested = try analyzeAllClassTraits(allocator, if_stmt.@"orelse", parent_scope);
+                const else_nested = try analyzeAllClassTraits(allocator, if_stmt.else_body, parent_scope);
                 var else_iter = else_nested.iterator();
                 while (else_iter.next()) |entry| {
                     try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                }
+            },
+            .for_stmt => |for_stmt| {
+                const for_nested = try analyzeAllClassTraits(allocator, for_stmt.body, parent_scope);
+                var for_iter = for_nested.iterator();
+                while (for_iter.next()) |entry| {
+                    try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                }
+                if (for_stmt.orelse_body) |orelse_body| {
+                    const orelse_nested = try analyzeAllClassTraits(allocator, orelse_body, parent_scope);
+                    var orelse_iter = orelse_nested.iterator();
+                    while (orelse_iter.next()) |entry| {
+                        try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                    }
+                }
+            },
+            .while_stmt => |while_stmt| {
+                const while_nested = try analyzeAllClassTraits(allocator, while_stmt.body, parent_scope);
+                var while_iter = while_nested.iterator();
+                while (while_iter.next()) |entry| {
+                    try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                }
+                if (while_stmt.orelse_body) |orelse_body| {
+                    const orelse_nested = try analyzeAllClassTraits(allocator, orelse_body, parent_scope);
+                    var orelse_iter = orelse_nested.iterator();
+                    while (orelse_iter.next()) |entry| {
+                        try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                    }
+                }
+            },
+            .try_stmt => |try_stmt| {
+                const try_nested = try analyzeAllClassTraits(allocator, try_stmt.body, parent_scope);
+                var try_iter = try_nested.iterator();
+                while (try_iter.next()) |entry| {
+                    try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                }
+                for (try_stmt.handlers) |handler| {
+                    const handler_nested = try analyzeAllClassTraits(allocator, handler.body, parent_scope);
+                    var handler_iter = handler_nested.iterator();
+                    while (handler_iter.next()) |entry| {
+                        try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                    }
+                }
+                const else_nested = try analyzeAllClassTraits(allocator, try_stmt.else_body, parent_scope);
+                var else_iter = else_nested.iterator();
+                while (else_iter.next()) |entry| {
+                    try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                }
+                const finally_nested = try analyzeAllClassTraits(allocator, try_stmt.finalbody, parent_scope);
+                var finally_iter = finally_nested.iterator();
+                while (finally_iter.next()) |entry| {
+                    try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                }
+            },
+            .with_stmt => |with_stmt| {
+                const with_nested = try analyzeAllClassTraits(allocator, with_stmt.body, parent_scope);
+                var with_iter = with_nested.iterator();
+                while (with_iter.next()) |entry| {
+                    try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                }
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    const case_nested = try analyzeAllClassTraits(allocator, case.body, parent_scope);
+                    var case_iter = case_nested.iterator();
+                    while (case_iter.next()) |entry| {
+                        try result.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+                    }
                 }
             },
             else => {},
@@ -197,14 +265,30 @@ fn collectBoundMethodRefs(stmt: ast.Node, class_methods: []const []const u8, res
         },
         .for_stmt => |for_stmt| {
             for (for_stmt.body) |s| collectBoundMethodRefs(s, class_methods, result);
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| collectBoundMethodRefs(s, class_methods, result);
+            }
         },
         .while_stmt => |while_stmt| {
             for (while_stmt.body) |s| collectBoundMethodRefs(s, class_methods, result);
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| collectBoundMethodRefs(s, class_methods, result);
+            }
         },
         .try_stmt => |try_stmt| {
             for (try_stmt.body) |s| collectBoundMethodRefs(s, class_methods, result);
             for (try_stmt.handlers) |handler| {
                 for (handler.body) |s| collectBoundMethodRefs(s, class_methods, result);
+            }
+            for (try_stmt.else_body) |s| collectBoundMethodRefs(s, class_methods, result);
+            for (try_stmt.finalbody) |s| collectBoundMethodRefs(s, class_methods, result);
+        },
+        .with_stmt => |with_stmt| {
+            for (with_stmt.body) |s| collectBoundMethodRefs(s, class_methods, result);
+        },
+        .match_stmt => |match_stmt| {
+            for (match_stmt.cases) |case| {
+                for (case.body) |s| collectBoundMethodRefs(s, class_methods, result);
             }
         },
         else => {},
