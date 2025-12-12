@@ -109,7 +109,8 @@ pub fn genSwapcase(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
 /// Generate code for text.index(sub[, start[, end]])
 /// Like find() but raises ValueError if not found (we return -1 for now)
 pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // str.index() requires at least 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     if (args.len == 1) {
         try self.emit("if (std.mem.indexOf(u8, ");
@@ -145,7 +146,8 @@ pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Generate code for text.rfind(sub[, start[, end]])
 /// Find from right
 pub fn genRfind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // str.rfind() requires at least 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     if (args.len == 1) {
         try self.emit("if (std.mem.lastIndexOf(u8, ");
@@ -181,7 +183,8 @@ pub fn genRfind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Generate code for text.rindex(sub[, start[, end]])
 /// Like rfind() but raises ValueError if not found (we return -1 for now)
 pub fn genRindex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // str.rindex() requires at least 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     if (args.len == 1) {
         try self.emit("if (std.mem.lastIndexOf(u8, ");
@@ -217,7 +220,8 @@ pub fn genRindex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 /// Generate code for text.ljust(width[, fillchar])
 /// Left justify with spaces or fillchar
 pub fn genLjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // str.ljust() requires at least 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
@@ -246,7 +250,8 @@ pub fn genLjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Generate code for text.rjust(width[, fillchar])
 /// Right justify with spaces or fillchar
 pub fn genRjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // str.rjust() requires at least 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
@@ -276,7 +281,8 @@ pub fn genRjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Generate code for text.center(width[, fillchar])
 /// Center with spaces or fillchar
 pub fn genCenter(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // str.center() requires at least 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
@@ -308,7 +314,8 @@ pub fn genCenter(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 /// Generate code for text.zfill(width)
 /// Pad with zeros on left
 pub fn genZfill(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // str.zfill() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");

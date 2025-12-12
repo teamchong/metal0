@@ -222,7 +222,8 @@ fn genValueToPyObject(self: *NativeCodegen, value_expr: []const u8, value_type: 
 /// Generate code for json.load(file)
 /// Reads from file object and parses JSON
 pub fn genJsonLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) return;
+    // json.load() requires at least 1 argument
+    if (args.len < 1) return error.UnsupportedSyntax;
 
     try self.emit("json_load_blk: {\n");
     self.indent();
@@ -242,7 +243,8 @@ pub fn genJsonLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for json.dump(obj, file)
 /// Writes JSON to file object
 pub fn genJsonDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    // json.dump() requires at least 2 arguments
+    if (args.len < 2) return error.UnsupportedSyntax;
 
     try self.emit("json_dump_blk: {\n");
     self.indent();
