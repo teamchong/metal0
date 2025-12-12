@@ -472,36 +472,66 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate code for hex(x) - convert int to hex string prefixed with "0x"
+/// Two-Flow: Extract int from PyValue for uncertain types
 pub fn genHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         try self.emit("@compileError(\"hex() takes exactly one argument\")");
         return;
     }
-    try self.emit("runtime.builtins.hex(__global_allocator, ");
-    try self.genExpr(args[0]);
-    try self.emit(")");
+    // Two-Flow: Check if argument is uncertain (PyValue)
+    const arg_type = self.inferExprScoped(args[0]) catch .unknown;
+    if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
+        // Extract int from PyValue using asInt()
+        try self.emit("runtime.builtins.hex(__global_allocator, (");
+        try self.genExpr(args[0]);
+        try self.emit(").asInt())");
+    } else {
+        try self.emit("runtime.builtins.hex(__global_allocator, ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    }
 }
 
 /// Generate code for oct(x) - convert int to octal string prefixed with "0o"
+/// Two-Flow: Extract int from PyValue for uncertain types
 pub fn genOct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         try self.emit("@compileError(\"oct() takes exactly one argument\")");
         return;
     }
-    try self.emit("runtime.builtins.oct(__global_allocator, ");
-    try self.genExpr(args[0]);
-    try self.emit(")");
+    // Two-Flow: Check if argument is uncertain (PyValue)
+    const arg_type = self.inferExprScoped(args[0]) catch .unknown;
+    if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
+        // Extract int from PyValue using asInt()
+        try self.emit("runtime.builtins.oct(__global_allocator, (");
+        try self.genExpr(args[0]);
+        try self.emit(").asInt())");
+    } else {
+        try self.emit("runtime.builtins.oct(__global_allocator, ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    }
 }
 
 /// Generate code for bin(x) - convert int to binary string prefixed with "0b"
+/// Two-Flow: Extract int from PyValue for uncertain types
 pub fn genBin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         try self.emit("@compileError(\"bin() takes exactly one argument\")");
         return;
     }
-    try self.emit("runtime.builtins.bin(__global_allocator, ");
-    try self.genExpr(args[0]);
-    try self.emit(")");
+    // Two-Flow: Check if argument is uncertain (PyValue)
+    const arg_type = self.inferExprScoped(args[0]) catch .unknown;
+    if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
+        // Extract int from PyValue using asInt()
+        try self.emit("runtime.builtins.bin(__global_allocator, (");
+        try self.genExpr(args[0]);
+        try self.emit(").asInt())");
+    } else {
+        try self.emit("runtime.builtins.bin(__global_allocator, ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+    }
 }
 
 /// Generate code for bool(obj)

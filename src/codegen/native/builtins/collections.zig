@@ -78,11 +78,8 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const iterable = args[0];
     const start = if (args.len > 1) args[1] else null;
 
-    // Infer iterable type
-    const iterable_type = try self.inferExprScoped(iterable);
-    const needs_items = container_traits.isList(iterable_type);
-
     // Generate block that builds list of (index, value) tuples
+    // Two-Flow: Use runtime.iterSlice for universal handling (ArrayList, PyValue, slice, etc.)
     try self.emit("(enum_blk: {\n");
     self.indent();
     try self.emitIndent();
@@ -90,11 +87,8 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(iterable);
     try self.emit(";\n");
     try self.emitIndent();
-    if (needs_items) {
-        try self.emit("const __enum_slice = __enum_iterable.items;\n");
-    } else {
-        try self.emit("const __enum_slice = __enum_iterable;\n");
-    }
+    // runtime.iterSlice handles all iterable types: ArrayList→.items, PyValue→.list/.tuple, slice→slice
+    try self.emit("const __enum_slice = runtime.iterSlice(__enum_iterable);\n");
     try self.emitIndent();
     try self.emit("var __enum_result = std.ArrayListUnmanaged(std.meta.Tuple(&[_]type{i64, @TypeOf(__enum_slice[0])})){};\n");
     try self.emitIndent();
@@ -138,17 +132,13 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.output.writer(self.allocator).print("zip_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
-    // Store each iterable with .items access for ArrayLists
+    // Store each iterable with runtime.iterSlice for universal handling
+    // Two-Flow: iterSlice handles ArrayList, PyValue, slice, etc.
     for (args, 0..) |arg, i| {
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const __zip_arg_{d} = ", .{i});
+        try self.output.writer(self.allocator).print("const __zip_arg_{d} = runtime.iterSlice(", .{i});
         try self.genExpr(arg);
-        // Check if it's a list type that needs .items
-        const arg_type = self.type_inferrer.inferExpr(arg) catch .unknown;
-        if (container_traits.isList(arg_type)) {
-            try self.emit(".items");
-        }
-        try self.emit(";\n");
+        try self.emit(");\n");
     }
 
     // Calculate minimum length

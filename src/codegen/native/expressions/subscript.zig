@@ -236,7 +236,8 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
             const is_dict = container_traits.isDict(value_type);
             const is_counter = (value_type == .counter);
-            const is_unknown_pyobject = type_traits.isUnknown(value_type);
+            // Two-Flow: Include .pyvalue for uncertain container subscript routing
+            const is_unknown_pyobject = type_traits.isUnknown(value_type) or value_type == .pyvalue;
 
             // Check if value type is a slice (e.g., from [0] * n with runtime n)
             const is_slice = (value_type == .slice);

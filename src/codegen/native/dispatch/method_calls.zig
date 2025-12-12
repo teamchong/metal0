@@ -394,18 +394,23 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         }
     }
 
-    // Try list methods - but NOT if we know it's a dict or set
+    // Try list methods - but NOT if we know it's a dict, set, or uncertain type
+    // Two-Flow: Skip list dispatch for PyValue/unknown to let them fall through to runtime
     if (ListMethods.get(method_name)) |handler| {
         // Skip list dispatch for dict/set types to avoid list.pop() on dicts
-        if (!container_traits.isDict(obj_type) and !container_traits.isSet(obj_type) and obj_type != .counter) {
+        // Also skip for uncertain types (pyvalue/unknown) - they need runtime dispatch
+        if (!container_traits.isDict(obj_type) and !container_traits.isSet(obj_type) and
+            obj_type != .counter and obj_type != .pyvalue and !type_traits.isUnknown(obj_type))
+        {
             try handler(self, obj, call.args);
             return true;
         }
     }
 
-    // Try dict methods for unknown types (fallback for untyped dicts)
+    // Try dict methods for unknown/PyValue types (fallback for untyped dicts)
+    // Two-Flow: Include .pyvalue for uncertain container method dispatch
     if (DictMethods.get(method_name)) |handler| {
-        if (type_traits.isUnknown(obj_type) and !SetMethods.has(method_name)) {
+        if ((type_traits.isUnknown(obj_type) or obj_type == .pyvalue) and !SetMethods.has(method_name)) {
             try handler(self, obj, call.args);
             return true;
         }
@@ -413,9 +418,12 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
 
     // Try set methods (for set types)
     // Set method names are unique enough (update, discard, intersection_update, etc.)
-    // that we can safely dispatch on unknown and class_instance types too
+    // that we can safely dispatch on unknown, pyvalue, and class_instance types too
+    // Two-Flow: Include .pyvalue for uncertain container method dispatch
     if (SetMethods.get(method_name)) |handler| {
-        if (container_traits.isSet(obj_type) or type_traits.isUnknown(obj_type) or type_traits.isClassInstance(obj_type)) {
+        if (container_traits.isSet(obj_type) or type_traits.isUnknown(obj_type) or
+            obj_type == .pyvalue or type_traits.isClassInstance(obj_type))
+        {
             try handler(self, obj, call.args);
             return true;
         }

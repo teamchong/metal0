@@ -92,12 +92,14 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
         // Generate type-appropriate truthiness check
         // Note: string is a tagged union with payload StringKind, so we check the tag
         // Use runtime.toBool for unknown types (handles __bool__ duck typing)
+        // Two-Flow: explicit .pyvalue/.unknown cases for safety on uncertain types
         const truthy_check: []const u8 = switch (a_tag) {
             .string => "_a.len > 0",
             .int, .usize => "_a != 0",
             .float => "_a != 0.0",
             .bool => "_a",
             .bigint => "!_a.isZero()",
+            .pyvalue, .unknown => "runtime.toBool(_a)", // Two-Flow: uncertain types use runtime
             else => "runtime.toBool(_a)",
         };
 
