@@ -171,12 +171,22 @@ fn stmtUsesVar(stmt: ast.Node, var_name: []const u8) bool {
             for (f.body) |s| {
                 if (stmtUsesVar(s, var_name)) break :blk true;
             }
+            if (f.orelse_body) |ob| {
+                for (ob) |s| {
+                    if (stmtUsesVar(s, var_name)) break :blk true;
+                }
+            }
             break :blk false;
         },
         .while_stmt => |w| blk: {
             if (exprUsesVar(w.condition.*, var_name)) break :blk true;
             for (w.body) |s| {
                 if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            if (w.orelse_body) |ob| {
+                for (ob) |s| {
+                    if (stmtUsesVar(s, var_name)) break :blk true;
+                }
             }
             break :blk false;
         },
@@ -240,6 +250,18 @@ fn stmtUsesVar(stmt: ast.Node, var_name: []const u8) bool {
         },
         .yield_stmt => |y| if (y.value) |v| exprUsesVar(v.*, var_name) else false,
         .yield_from_stmt => |yf| exprUsesVar(yf.value.*, var_name),
+        .match_stmt => |m| blk: {
+            if (exprUsesVar(m.subject.*, var_name)) break :blk true;
+            for (m.cases) |case| {
+                if (case.guard) |g| {
+                    if (exprUsesVar(g.*, var_name)) break :blk true;
+                }
+                for (case.body) |s| {
+                    if (stmtUsesVar(s, var_name)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
         else => false,
     };
 }
