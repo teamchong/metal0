@@ -19,7 +19,8 @@ fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
 /// Generate code for set.add(elem)
 /// Adds element to set (no-op if already present)
 pub fn genAdd(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // set.add() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     // Generate: try set.put(elem, {})
     // Zig HashMap uses put(key, value) - for sets, value is void ({})
@@ -33,7 +34,8 @@ pub fn genAdd(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 /// Generate code for set.remove(elem)
 /// Removes element, raises KeyError if not present
 pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // set.remove() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     // Use runtime helper to avoid comptime explosion from @hasDecl/@TypeOf inline checks
     // runtime.set_ops.SetOps(KeyType).remove(&set, key) handles AutoHashMap vs ArrayHashMap
@@ -49,7 +51,8 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 /// Generate code for set.discard(elem)
 /// Removes element if present (no error if missing)
 pub fn genDiscard(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // set.discard() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     // Use runtime helper to avoid comptime explosion from @hasDecl/@TypeOf inline checks
     try self.emit("runtime.set_ops.SetOps(@TypeOf(");
