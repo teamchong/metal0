@@ -134,12 +134,20 @@ fn stmtUsesFirstParamWithContext(node: ast.Node, param_name: []const u8, has_par
         },
         .while_stmt => |while_stmt| {
             if (exprUsesFirstParamWithContext(while_stmt.condition.*, param_name, has_parent)) return true;
-            return usesFirstParamWithContext(while_stmt.body, param_name, has_parent);
+            if (usesFirstParamWithContext(while_stmt.body, param_name, has_parent)) return true;
+            if (while_stmt.orelse_body) |orelse_body| {
+                if (usesFirstParamWithContext(orelse_body, param_name, has_parent)) return true;
+            }
+            return false;
         },
         .for_stmt => |for_stmt| {
             // Check both the iterator expression AND the body
             if (exprUsesFirstParamWithContext(for_stmt.iter.*, param_name, has_parent)) return true;
-            return usesFirstParamWithContext(for_stmt.body, param_name, has_parent);
+            if (usesFirstParamWithContext(for_stmt.body, param_name, has_parent)) return true;
+            if (for_stmt.orelse_body) |orelse_body| {
+                if (usesFirstParamWithContext(orelse_body, param_name, has_parent)) return true;
+            }
+            return false;
         },
         .try_stmt => |try_stmt| {
             // Check try body
