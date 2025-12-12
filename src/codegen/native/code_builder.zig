@@ -291,7 +291,7 @@ pub const Templates = struct {
                 const key = template[start..end];
 
                 // Look up key in values
-                inline for (@typeInfo(@TypeOf(values)).Struct.fields) |field| {
+                inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |field| {
                     if (std.mem.eql(u8, field.name, key)) {
                         const value = @field(values, field.name);
                         try result.appendSlice(allocator, @as([]const u8, value));

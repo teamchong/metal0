@@ -267,7 +267,7 @@ pub fn comptimeBatchGenerate(comptime specs: []const FunctionSpec) type {
         }
 
         return @Type(.{
-            .Struct = .{
+            .@"struct" = .{
                 .layout = .auto,
                 .fields = &fields,
                 .decls = &.{},

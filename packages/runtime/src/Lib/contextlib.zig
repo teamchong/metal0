@@ -406,7 +406,7 @@ pub fn aclosing(comptime T: type, thing: T) AsyncClosing(T) {
 pub fn withContext(
     comptime CM: type,
     cm: *CM,
-    comptime func: fn (*@typeInfo(@TypeOf(CM.enter)).Fn.return_type.?) anyerror!void,
+    comptime func: fn (*@typeInfo(@TypeOf(CM.enter)).@"fn".return_type.?) anyerror!void,
 ) !void {
     const value = try cm.enter();
     defer cm.exit(null);

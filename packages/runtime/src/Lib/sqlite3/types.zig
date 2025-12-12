@@ -127,10 +127,10 @@ pub const PrepareProtocol = struct {
     pub fn prepare(allocator: std.mem.Allocator, value: anytype) ![]u8 {
         const T = @TypeOf(value);
         return switch (@typeInfo(T)) {
-            .Int, .ComptimeInt => std.fmt.allocPrint(allocator, "{d}", .{value}),
-            .Float, .ComptimeFloat => std.fmt.allocPrint(allocator, "{d}", .{value}),
-            .Bool => if (value) allocator.dupe(u8, "1") else allocator.dupe(u8, "0"),
-            .Pointer => |ptr| {
+            .int, .comptime_int => std.fmt.allocPrint(allocator, "{d}", .{value}),
+            .float, .comptime_float => std.fmt.allocPrint(allocator, "{d}", .{value}),
+            .bool => if (value) allocator.dupe(u8, "1") else allocator.dupe(u8, "0"),
+            .pointer => |ptr| {
                 if (ptr.size == .Slice and ptr.child == u8) {
                     // String - escape single quotes
                     var result = std.ArrayList(u8).init(allocator);
@@ -144,7 +144,7 @@ pub const PrepareProtocol = struct {
                 }
                 return error.UnsupportedType;
             },
-            .Optional => if (value) |v| prepare(allocator, v) else allocator.dupe(u8, "NULL"),
+            .optional => if (value) |v| prepare(allocator, v) else allocator.dupe(u8, "NULL"),
             else => error.UnsupportedType,
         };
     }
