@@ -13,13 +13,52 @@ pub const PyValue = union(enum) {
     bytes: @import("../runtime/builtins.zig").PyBytes, // Python bytes type
     bool: bool,
     none: void,
-    list: []const PyValue,
+    list: *std.ArrayListUnmanaged(PyValue), // Mutable list (Two-Flow Phase 11)
     tuple: []const PyValue,
     bigint: bigint.BigInt, // For integers that don't fit in i64
     complex: Complex, // Python complex number
     ptr: *anyopaque, // For types that can't be represented
 
     pub const Complex = struct { real: f64, imag: f64 };
+
+    /// Create a PyValue list from a slice (allocates ArrayList on heap)
+    pub fn listFromSlice(allocator: std.mem.Allocator, items: []const PyValue) !PyValue {
+        const al = try allocator.create(std.ArrayListUnmanaged(PyValue));
+        al.* = .{};
+        try al.appendSlice(allocator, items);
+        return .{ .list = al };
+    }
+
+    /// Create an empty PyValue list
+    pub fn emptyList(allocator: std.mem.Allocator) !PyValue {
+        const al = try allocator.create(std.ArrayListUnmanaged(PyValue));
+        al.* = .{};
+        return .{ .list = al };
+    }
+
+    /// Set element at index in list (for list[i] = val)
+    pub fn pyListSet(self: PyValue, idx: usize, value: PyValue) void {
+        if (self == .list) {
+            self.list.items[idx] = value;
+        }
+    }
+
+    /// Append element to list
+    pub fn pyListAppend(self: PyValue, allocator: std.mem.Allocator, value: PyValue) !void {
+        if (self == .list) {
+            try self.list.append(allocator, value);
+        }
+    }
+
+    /// Get list items as slice (for iteration)
+    pub fn listItems(self: PyValue) []const PyValue {
+        return if (self == .list) self.list.items else &[_]PyValue{};
+    }
+
+    /// Get mutable list items (for direct mutation)
+    pub fn listItemsMut(self: PyValue) []PyValue {
+        return if (self == .list) self.list.items else &[_]PyValue{};
+    }
 
     /// Format value for printing
     pub fn format(
@@ -35,9 +74,9 @@ pub const PyValue = union(enum) {
             .bytes => |v| try writer.print("{s}", .{v.data}),
             .bool => |v| try writer.print("{}", .{v}),
             .none => try writer.writeAll("None"),
-            .list => |items| {
+            .list => |list| {
                 try writer.writeAll("[");
-                for (items, 0..) |item, i| {
+                for (list.items, 0..) |item, i| {
                     if (i > 0) try writer.writeAll(", ");
                     try item.format(fmt, options, writer);
                 }
@@ -94,7 +133,7 @@ pub const PyValue = union(enum) {
             .string => |v| v.len > 0,
             .bytes => |v| v.data.len > 0,
             .none => false,
-            .list => |v| v.len > 0,
+            .list => |list| list.items.len > 0,
             .tuple => |v| v.len > 0,
             .bigint => |v| !v.isZero(),
             .complex => |v| v.real != 0.0 or v.imag != 0.0, // 0j is falsy
@@ -105,7 +144,7 @@ pub const PyValue = union(enum) {
     /// Get length for list/tuple/string PyValues
     pub fn pyLen(self: PyValue) usize {
         return switch (self) {
-            .list => |v| v.len,
+            .list => |list| list.items.len,
             .tuple => |v| v.len,
             .string => |v| v.len,
             else => 0,
@@ -132,7 +171,7 @@ pub const PyValue = union(enum) {
     /// Index into list/tuple PyValue
     pub fn pyAt(self: PyValue, idx: usize) PyValue {
         return switch (self) {
-            .list => |v| v[idx],
+            .list => |list| list.items[idx],
             .tuple => |v| v[idx],
             else => .{ .none = {} },
         };
@@ -741,10 +780,10 @@ pub const PyValue = union(enum) {
                 .bytes => |v| std.mem.eql(u8, v.data, other.bytes.data),
                 .bool => |v| v == other.bool,
                 .none => true,
-                .list => |v| blk: {
-                    const w = other.list;
-                    if (v.len != w.len) break :blk false;
-                    for (v, w) |a, b| {
+                .list => |list| blk: {
+                    const other_list = other.list;
+                    if (list.items.len != other_list.items.len) break :blk false;
+                    for (list.items, other_list.items) |a, b| {
                         if (!a.eql(b)) break :blk false;
                     }
                     break :blk true;
@@ -811,9 +850,9 @@ pub const PyValue = union(enum) {
     /// For Two-Flow: handles uncertain iterables at runtime
     pub fn pySum(self: PyValue) PyValue {
         return switch (self) {
-            .list => |items| {
+            .list => |list| {
                 var total: PyValue = .{ .int = 0 };
-                for (items) |item| {
+                for (list.items) |item| {
                     total = total.add(item);
                 }
                 return total;
@@ -835,8 +874,8 @@ pub const PyValue = union(enum) {
     /// For Two-Flow: handles uncertain iterables at runtime
     pub fn pyAll(self: PyValue) bool {
         return switch (self) {
-            .list => |items| {
-                for (items) |item| {
+            .list => |list| {
+                for (list.items) |item| {
                     if (!item.isTruthy()) return false;
                 }
                 return true;
@@ -856,8 +895,8 @@ pub const PyValue = union(enum) {
     /// For Two-Flow: handles uncertain iterables at runtime
     pub fn pyAny(self: PyValue) bool {
         return switch (self) {
-            .list => |items| {
-                for (items) |item| {
+            .list => |list| {
+                for (list.items) |item| {
                     if (item.isTruthy()) return true;
                 }
                 return false;
@@ -1048,7 +1087,8 @@ pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
         for (value, 0..) |item, i| {
             list[i] = try toPyValue(allocator, item);
         }
-        return .{ .list = list };
+        // Use listFromSlice to properly allocate ArrayList on heap
+        return try PyValue.listFromSlice(allocator, list);
     }
 
     // Tagged unions (IntResult, PyPowResult, etc.) - extract active field and convert

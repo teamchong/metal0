@@ -320,7 +320,7 @@ pub inline fn iterSlice(value: anytype) IterSliceType(@TypeOf(value)) {
     // Handle PyValue - extract list slice
     if (T == PyValue) {
         return switch (value) {
-            .list => |l| l,
+            .list => |l| l.items,
             .tuple => |t| t,
             else => &[_]PyValue{},
         };

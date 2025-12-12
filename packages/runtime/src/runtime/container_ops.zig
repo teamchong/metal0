@@ -1,6 +1,7 @@
 /// Container operations for Python semantics
 /// Handles set equality, generic contains, concatenation, repetition
 const std = @import("std");
+const PyValue = @import("../Objects/object.zig").PyValue;
 
 /// Compare two sets for equality
 /// Sets are equal if they have the same elements (order doesn't matter)
@@ -22,9 +23,47 @@ pub fn setEqual(a: anytype, b: anytype) bool {
 
 /// Generic 'in' operator for any type - works with ArrayLists, slices, etc.
 /// Uses runtime's pyAnyEql for comparison
+/// Two-Flow: Handles PyValue containers for uncertain types
 pub fn containsGeneric(comptime NativeList: type, pyAnyEql: anytype, container: anytype, item: anytype) bool {
     const T = @TypeOf(container);
     const info = @typeInfo(T);
+
+    // Two-Flow: Handle PyValue (uncertain type wrapper)
+    if (T == PyValue) {
+        return switch (container) {
+            .list => |list| blk: {
+                for (list.items) |elem| {
+                    // For PyValue items, use PyValue comparison
+                    const ItemT = @TypeOf(item);
+                    if (ItemT == PyValue) {
+                        if (elem.eql(item)) break :blk true;
+                    } else if (pyAnyEql(elem, item)) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            },
+            .tuple => |tuple_items| blk: {
+                for (tuple_items) |elem| {
+                    const ItemT = @TypeOf(item);
+                    if (ItemT == PyValue) {
+                        if (elem.eql(item)) break :blk true;
+                    } else if (pyAnyEql(elem, item)) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            },
+            .string => |s| blk: {
+                const ItemT = @TypeOf(item);
+                if (ItemT == []const u8 or ItemT == []u8) {
+                    break :blk std.mem.indexOf(u8, s, item) != null;
+                }
+                break :blk false;
+            },
+            else => false,
+        };
+    }
 
     // Check for NativeList type first (has .items which is an ArrayList, not a slice)
     if (T == NativeList) {

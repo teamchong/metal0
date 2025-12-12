@@ -8,7 +8,7 @@ const genStat = h.wrap("blk: { const path = ", "; const stat = std.fs.cwd().stat
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "getcwd", h.c("blk: { var buf: [4096]u8 = undefined; break :blk std.fs.cwd().realpath(\".\", &buf) catch \".\"; }") },
     .{ "chdir", h.wrap("blk: { const path = ", "; std.posix.chdir(path) catch {}; break :blk {}; }", "{}") },
-    .{ "listdir", h.c("metal0_runtime.PyList([]const u8).init()") },
+    .{ "listdir", h.c("runtime.NativeList.init()") },
     .{ "mkdir", h.wrap("blk: { const path = ", "; std.fs.cwd().makeDir(path) catch {}; break :blk {}; }", "{}") },
     .{ "rmdir", h.wrap("blk: { const path = ", "; std.fs.cwd().deleteDir(path) catch {}; break :blk {}; }", "{}") },
     .{ "unlink", h.wrap("blk: { const path = ", "; std.fs.cwd().deleteFile(path) catch {}; break :blk {}; }", "{}") },
@@ -21,7 +21,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "access", h.wrap("blk: { const path = ", "; _ = std.fs.cwd().statFile(path) catch break :blk false; break :blk true; }", "false") },
     .{ "symlink", h.wrap2("blk: { const src = ", "; const dst = ", "; std.fs.cwd().symLink(src, dst, .{}) catch {}; break :blk {}; }", "{}") },
     .{ "readlink", h.wrap("blk: { const path = ", "; var buf: [4096]u8 = undefined; break :blk std.fs.cwd().readLink(path, &buf) catch \"\"; }", "\"\"") },
-    .{ "urandom", h.wrap("blk: { const n = ", "; var buf = metal0_allocator.alloc(u8, @intCast(n)) catch break :blk \"\"; std.crypto.random.bytes(buf); break :blk buf; }", "\"\"") },
+    .{ "urandom", h.wrap("blk: { const n = ", "; var buf = __global_allocator.alloc(u8, @intCast(n)) catch break :blk \"\"; std.crypto.random.bytes(buf); break :blk buf; }", "\"\"") },
     .{ "fstat", h.c(statDefault) },
     .{ "getpid", h.c("@as(i32, @intCast(std.c.getpid()))") },
     .{ "getppid", h.c("@as(i32, @intCast(std.c.getppid()))") },

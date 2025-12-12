@@ -10,8 +10,8 @@ pub fn pyJoin(allocator: std.mem.Allocator, separator: []const u8, list: anytype
     // Handle PyValue union
     if (T == PyValue) {
         switch (list) {
-            .list => |items| {
-                return pyJoinSlice(allocator, separator, items);
+            .list => |l| {
+                return pyJoinSlice(allocator, separator, l.items);
             },
             .tuple => |items| {
                 return pyJoinSlice(allocator, separator, items);

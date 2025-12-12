@@ -9,5 +9,5 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "METHOD_BLOWFISH", h.c(".{ .name = \"BLOWFISH\", .ident = \"$2b$\", .salt_chars = 22, .total_size = 59 }") },
     .{ "METHOD_MD5", h.c(".{ .name = \"MD5\", .ident = \"$1$\", .salt_chars = 8, .total_size = 34 }") },
     .{ "METHOD_CRYPT", h.c(".{ .name = \"CRYPT\", .ident = \"\", .salt_chars = 2, .total_size = 13 }") },
-    .{ "methods", h.c("metal0_runtime.PyList(@TypeOf(.{ .name = \"\", .ident = \"\", .salt_chars = @as(i32, 0), .total_size = @as(i32, 0) })).init()") },
+    .{ "methods", h.c("runtime.NativeList.init()") },
 });

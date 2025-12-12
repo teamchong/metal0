@@ -286,7 +286,14 @@ pub const VM = struct {
                     i -= 1;
                     items[i] = try self.pop();
                 }
-                try self.push(.{ .list = items });
+                if (runtime_available) {
+                    // Production: use mutable ArrayList via listFromSlice
+                    try self.push(try StackValue.listFromSlice(self.allocator, items));
+                    self.allocator.free(items); // Free temp slice
+                } else {
+                    // Test mode: use slice directly
+                    try self.push(.{ .list = items });
+                }
             },
 
             // Subscript
@@ -294,7 +301,18 @@ pub const VM = struct {
                 const index = try self.pop();
                 const obj = try self.pop();
                 try self.push(switch (obj) {
-                    .list, .tuple => |items| blk: {
+                    .list => |list_val| blk: {
+                        if (index != .int) return VMError.TypeError;
+                        // Get items - pointer.items in production, slice in test
+                        const items = if (runtime_available) list_val.items else list_val;
+                        const idx: usize = if (index.int < 0)
+                            @intCast(@as(i64, @intCast(items.len)) + index.int)
+                        else
+                            @intCast(index.int);
+                        if (idx >= items.len) return VMError.IndexError;
+                        break :blk items[idx];
+                    },
+                    .tuple => |items| blk: {
                         if (index != .int) return VMError.TypeError;
                         const idx: usize = if (index.int < 0)
                             @intCast(@as(i64, @intCast(items.len)) + index.int)
@@ -581,7 +599,7 @@ pub const VM = struct {
             if (args.len != 1) return VMError.TypeError;
             return switch (args[0]) {
                 .string => |s| .{ .int = @intCast(s.len) },
-                .list => |l| .{ .int = @intCast(l.len) },
+                .list => |l| .{ .int = @intCast(if (runtime_available) l.items.len else l.len) },
                 .tuple => |t| .{ .int = @intCast(t.len) },
                 else => VMError.TypeError,
             };
@@ -678,9 +696,9 @@ fn stackValueToPyObject(allocator: std.mem.Allocator, val: StackValue) !*anyopaq
             .bool => |b| @ptrCast(try runtime_mod.PyBool.create(allocator, b)),
             .string => |s| @ptrCast(try runtime_mod.PyString.create(allocator, s)),
             .none => @ptrCast(runtime_mod.Py_None()),
-            .list => |items| blk: {
+            .list => |list_ptr| blk: {
                 const list = try runtime_mod.PyList.create(allocator);
-                for (items) |item| {
+                for (list_ptr.items) |item| {
                     const py_item: *runtime_mod.PyObject = @ptrCast(@alignCast(try stackValueToPyObject(allocator, item)));
                     try runtime_mod.PyList.append(list, py_item);
                 }

@@ -129,8 +129,8 @@ pub fn pyValueEql(a: PyValue, b: PyValue) bool {
         .none => b == .none,
         .list => |av| switch (b) {
             .list => |bv| blk: {
-                if (av.len != bv.len) break :blk false;
-                for (av, bv) |ae, be| {
+                if (av.items.len != bv.items.len) break :blk false;
+                for (av.items, bv.items) |ae, be| {
                     if (!pyValueEql(ae, be)) break :blk false;
                 }
                 break :blk true;

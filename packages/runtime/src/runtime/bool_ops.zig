@@ -19,9 +19,15 @@ const PythonError = exceptions.PythonError;
 /// Generic bool conversion for Python truthiness semantics
 /// Returns false for: 0, 0.0, false, empty strings, empty slices
 /// Returns true for everything else
+/// Two-Flow: Handles PyValue for uncertain types
 pub fn toBool(value: anytype) bool {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
+
+    // Two-Flow: Handle PyValue (uncertain type wrapper)
+    if (T == PyValue) {
+        return value.isTruthy();
+    }
 
     // Handle integers
     if (info == .int or info == .comptime_int) {
@@ -189,9 +195,15 @@ pub fn toBool(value: anytype) bool {
 
 /// Error-propagating version of toBool for use in contexts where __bool__ errors should propagate
 /// This is used by pyOr/pyAnd which need to report __bool__ errors instead of swallowing them
+/// Two-Flow: Handles PyValue for uncertain types
 pub fn toBoolWithError(value: anytype) !bool {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
+
+    // Two-Flow: Handle PyValue (uncertain type wrapper)
+    if (T == PyValue) {
+        return value.isTruthy();
+    }
 
     // Handle integers
     if (info == .int or info == .comptime_int) {
@@ -363,7 +375,7 @@ pub fn toBoolValue(value: PyValue) bool {
         .bool => |b| b,
         .string => |s| s.len > 0,
         .none => false,
-        .list => |l| l.len > 0,
+        .list => |l| l.items.len > 0,
         .tuple => |t| t.len > 0,
         .bytes => |b| b.data.len > 0,
         .bigint => |b| !b.isZero(),

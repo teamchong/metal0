@@ -367,6 +367,10 @@ fn getEntryValueType(self: *NativeCodegen, key: ast.Node, value: ast.Node) Codeg
         if (container_traits.isDict(dict_type)) {
             return dict_type.dict.value.*;
         }
+        // Two-Flow: PyValue dict - value type is also PyValue
+        if (dict_type == .pyvalue) {
+            return .pyvalue;
+        }
         return .unknown;
     }
     return try self.type_inferrer.inferExpr(value);

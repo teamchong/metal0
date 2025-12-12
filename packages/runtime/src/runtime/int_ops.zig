@@ -6,11 +6,18 @@ const BigInt = bigint.BigInt;
 const PythonError = runtime_core.PythonError;
 const PyObject = runtime_core.PyObject;
 const PyString = runtime_core.pystring.PyString;
+const PyValue = @import("../Objects/object.zig").PyValue;
 
 /// Convert any value to i64 (supports __int__ protocol)
+/// Two-Flow: Handles PyValue for uncertain types
 pub fn toInt(value: anytype) !i64 {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
+
+    // Two-Flow: Handle PyValue (uncertain type wrapper)
+    if (T == PyValue) {
+        return value.asInt();
+    }
 
     // Handle integers - pass through
     if (info == .int or info == .comptime_int) {

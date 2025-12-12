@@ -635,6 +635,36 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // Step
                     try genExpr(self, slice_range.step.?.*);
                     try self.emit(")).items; }");
+                } else if (value_type == .pyvalue) {
+                    // Two-Flow: PyValue container slicing with step
+                    // Extract list/tuple items from PyValue, slice, return as slice of PyValue
+                    const label_id = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.emitFmt("pyslice_{d}: {{ const __pv = ", .{label_id});
+                    try genExpr(self, subscript.value.*);
+                    // Extract items from PyValue (list or tuple)
+                    try self.emit("; const __items = switch (__pv) { .list => |l| l, .tuple => |t| t, else => &[_]runtime.PyValue{} }");
+                    try self.emitFmt("; break :pyslice_{d} (try runtime.slice_ops.sliceWithStep(runtime.PyValue, __global_allocator, __items, ", .{label_id});
+
+                    // Start
+                    if (slice_range.lower) |lower| {
+                        try genExpr(self, lower.*);
+                    } else {
+                        try self.emit("null");
+                    }
+                    try self.emit(", ");
+
+                    // End
+                    if (slice_range.upper) |upper| {
+                        try genExpr(self, upper.*);
+                    } else {
+                        try self.emit("null");
+                    }
+                    try self.emit(", ");
+
+                    // Step
+                    try genExpr(self, slice_range.step.?.*);
+                    try self.emit(")).items; }");
                 } else {
                     // Unknown type - use runtime helper with generic element type detection
                     // Access .items from SliceResult

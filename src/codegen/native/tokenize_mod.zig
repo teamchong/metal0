@@ -3,9 +3,9 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "tokenize", h.c("metal0_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()") },
-    .{ "generate_tokens", h.c("metal0_runtime.PyList(@TypeOf(.{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" })).init()") },
-    .{ "detect_encoding", h.c(".{ \"utf-8\", metal0_runtime.PyList([]const u8).init() }") },
+    .{ "tokenize", h.c("runtime.NativeList.init()") },
+    .{ "generate_tokens", h.c("runtime.NativeList.init()") },
+    .{ "detect_encoding", h.c(".{ \"utf-8\", runtime.NativeList.init() }") },
     .{ "open", h.wrap("blk: { const path = ", "; break :blk std.fs.cwd().openFile(path, .{}) catch null; }", "@as(?std.fs.File, null)") },
     .{ "untokenize", h.c("\"\"") },
     .{ "TokenInfo", h.c(".{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" }") },

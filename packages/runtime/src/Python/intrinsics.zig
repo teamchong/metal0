@@ -130,8 +130,8 @@ pub fn unaryPositive(value: PyValue) !PyValue {
 /// Convert list to tuple
 pub fn listToTuple(allocator: Allocator, value: PyValue) !PyValue {
     switch (value) {
-        .list => |items| {
-            const tuple = try allocator.dupe(PyValue, items);
+        .list => |list| {
+            const tuple = try allocator.dupe(PyValue, list.items);
             return .{ .tuple = tuple };
         },
         else => return error.TypeError,

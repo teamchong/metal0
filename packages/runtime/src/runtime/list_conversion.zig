@@ -110,8 +110,8 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
                             }
                             return list;
                         },
-                        .list => |items| {
-                            for (items) |item| {
+                        .list => |l| {
+                            for (l.items) |item| {
                                 list.append(allocator, item) catch {};
                             }
                             return list;
@@ -138,8 +138,8 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
                         }
                         return list;
                     },
-                    .list => |items| {
-                        for (items) |item| {
+                    .list => |l| {
+                        for (l.items) |item| {
                             list.append(allocator, item) catch {};
                         }
                         return list;

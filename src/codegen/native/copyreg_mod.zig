@@ -3,10 +3,10 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "pickle", h.c("{}") }, .{ "constructor", h.pass("@as(?*const fn() anytype, null)") }, .{ "dispatch_table", h.c("metal0_runtime.PyDict(usize, @TypeOf(.{ null, null })).init()") },
-    .{ "_extension_registry", h.c("metal0_runtime.PyDict(@TypeOf(.{ \"\", \"\" }), i32).init()") },
-    .{ "_inverted_registry", h.c("metal0_runtime.PyDict(i32, @TypeOf(.{ \"\", \"\" })).init()") },
-    .{ "_extension_cache", h.c("metal0_runtime.PyDict(i32, ?anyopaque).init()") },
+    .{ "pickle", h.c("{}") }, .{ "constructor", h.pass("@as(?*const fn() anytype, null)") }, .{ "dispatch_table", h.c("hashmap_helper.AutoHashMap(usize, ?*anyopaque).init(__global_allocator)") },
+    .{ "_extension_registry", h.c("hashmap_helper.StringHashMap(i32).init(__global_allocator)") },
+    .{ "_inverted_registry", h.c("hashmap_helper.AutoHashMap(i32, []const u8).init(__global_allocator)") },
+    .{ "_extension_cache", h.c("hashmap_helper.AutoHashMap(i32, ?*anyopaque).init(__global_allocator)") },
     .{ "add_extension", h.c("{}") }, .{ "remove_extension", h.c("{}") },
     .{ "clear_extension_cache", h.c("{}") }, .{ "__newobj__", h.wrap("blk: { const cls = ", "; break :blk cls{}; }", ".{}") }, .{ "__newobj_ex__", h.wrap("blk: { const cls = ", "; break :blk cls{}; }", ".{}") },
 });

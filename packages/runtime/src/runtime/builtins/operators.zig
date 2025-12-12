@@ -28,9 +28,15 @@ pub fn operatorNe(a: anytype, b: anytype) bool {
 }
 
 /// operator.lt - less than comparison
+/// Two-Flow: Handles PyValue for uncertain types
 pub fn operatorLt(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
+
+    // Two-Flow: Handle PyValue comparisons
+    if (TypeA == PyValue and TypeB == PyValue) {
+        return a.lt(b);
+    }
 
     if (TypeA == TypeB) {
         const info = @typeInfo(TypeA);
@@ -42,9 +48,15 @@ pub fn operatorLt(a: anytype, b: anytype) bool {
 }
 
 /// operator.le - less than or equal comparison
+/// Two-Flow: Handles PyValue for uncertain types
 pub fn operatorLe(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
+
+    // Two-Flow: Handle PyValue comparisons
+    if (TypeA == PyValue and TypeB == PyValue) {
+        return a.le(b);
+    }
 
     if (TypeA == TypeB) {
         const info = @typeInfo(TypeA);
@@ -56,9 +68,15 @@ pub fn operatorLe(a: anytype, b: anytype) bool {
 }
 
 /// operator.gt - greater than comparison
+/// Two-Flow: Handles PyValue for uncertain types
 pub fn operatorGt(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
+
+    // Two-Flow: Handle PyValue comparisons
+    if (TypeA == PyValue and TypeB == PyValue) {
+        return a.gt(b);
+    }
 
     if (TypeA == TypeB) {
         const info = @typeInfo(TypeA);
@@ -70,9 +88,15 @@ pub fn operatorGt(a: anytype, b: anytype) bool {
 }
 
 /// operator.ge - greater than or equal comparison
+/// Two-Flow: Handles PyValue for uncertain types
 pub fn operatorGe(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
+
+    // Two-Flow: Handle PyValue comparisons
+    if (TypeA == PyValue and TypeB == PyValue) {
+        return a.ge(b);
+    }
 
     if (TypeA == TypeB) {
         const info = @typeInfo(TypeA);

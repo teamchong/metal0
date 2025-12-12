@@ -10,7 +10,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "basename", h.wrap("blk: { const path = ", "; break :blk std.fs.path.basename(path); }", "\"\"") },
     .{ "dirname", h.wrap("blk: { const path = ", "; break :blk std.fs.path.dirname(path) orelse \"\"; }", "\"\"") },
     .{ "exists", h.wrap("blk: { const path = ", "; _ = std.fs.cwd().statFile(path) catch break :blk false; break :blk true; }", "false") },
-    .{ "expanduser", h.wrap("blk: { const path = ", "; if (path.len > 0 and path[0] == '~') { const home = std.posix.getenv(\"USERPROFILE\") orelse std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(metal0_allocator, \"{s}{s}\", .{ home, path[1..] }) catch path; } break :blk path; }", "\"\"") },
+    .{ "expanduser", h.wrap("blk: { const path = ", "; if (path.len > 0 and path[0] == '~') { const home = std.posix.getenv(\"USERPROFILE\") orelse std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(__global_allocator, \"{s}{s}\", .{ home, path[1..] }) catch path; } break :blk path; }", "\"\"") },
     .{ "expandvars", h.pass("\"\"") },
     .{ "getsize", h.wrap("blk: { const path = ", "; const stat = std.fs.cwd().statFile(path) catch break :blk @as(i64, 0); break :blk @intCast(stat.size); }", "@as(i64, 0)") },
     .{ "isabs", h.wrap("blk: { const path = ", "; break :blk (path.len > 0 and path[0] == '/') or (path.len > 2 and path[1] == ':'); }", "false") },
@@ -19,7 +19,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "islink", h.wrap("blk: { const path = ", "; const stat = std.fs.cwd().statFile(path) catch break :blk false; break :blk stat.kind == .sym_link; }", "false") },
     .{ "join", genJoin },
     .{ "lexists", h.wrap("blk: { const path = ", "; _ = std.fs.cwd().statFile(path) catch break :blk false; break :blk true; }", "false") },
-    .{ "normcase", h.wrap("blk: { const path = ", "; var result = metal0_allocator.alloc(u8, path.len) catch break :blk path; for (path, 0..) |c, i| { result[i] = if (c >= 'A' and c <= 'Z') c + 32 else if (c == '/') '\\\\' else c; } break :blk result; }", "\"\"") },
+    .{ "normcase", h.wrap("blk: { const path = ", "; var result = __global_allocator.alloc(u8, path.len) catch break :blk path; for (path, 0..) |c, i| { result[i] = if (c >= 'A' and c <= 'Z') c + 32 else if (c == '/') '\\\\' else c; } break :blk result; }", "\"\"") },
     .{ "normpath", h.pass("\"\"") },
     .{ "realpath", h.wrap("blk: { const path = ", "; var buf: [4096]u8 = undefined; break :blk std.fs.cwd().realpath(path, &buf) catch path; }", "\"\"") },
     .{ "relpath", h.pass("\"\"") },
@@ -39,6 +39,6 @@ fn genJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.emit("blk: { var parts: [16][]const u8 = undefined; var count: usize = 0; ");
         for (args, 0..) |arg, i| { try self.emitFmt("parts[{d}] = ", .{i}); try self.genExpr(arg); try self.emit("; count += 1; "); }
-        try self.emit("break :blk std.fs.path.join(metal0_allocator, parts[0..count]) catch \"\"; }");
+        try self.emit("break :blk std.fs.path.join(__global_allocator, parts[0..count]) catch \"\"; }");
     } else try self.emit("\"\"");
 }
