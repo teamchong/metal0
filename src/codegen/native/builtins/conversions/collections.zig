@@ -33,7 +33,8 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    if (args.len != 1) return;
+    // list() takes 0 or 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     // Check AST node type to determine if arg already produces an ArrayList
     // List literals and comprehensions produce ArrayList directly
@@ -275,7 +276,8 @@ pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    if (args.len != 1) return;
+    // tuple() takes 0 or 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     // Handle literal lists - convert to tuple literal directly
     // tuple([]) -> .{}
@@ -401,7 +403,8 @@ pub fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    if (args.len != 1) return;
+    // dict() takes 0 or 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
@@ -427,7 +430,8 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    if (args.len != 1) return;
+    // set() takes 0 or 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     // Special case: set(feature_macros) or set(get_feature_macros())
     // FeatureMacros is a struct, not iterable - use .keys() to get string array
