@@ -1120,6 +1120,38 @@ pub const NativeCodegen = struct {
         return self.symbol_table.getType(name);
     }
 
+    /// Check if a variable has uncertain type confidence (needs PyValue)
+    /// Returns true if the variable's type cannot be proven certain at compile time
+    /// Uses the Two-Flow Type System: uncertain = use PyValue, certain = use raw Zig types
+    pub fn isVarUncertain(self: *NativeCodegen, name: []const u8) bool {
+        return self.type_inferrer.isUncertain(name);
+    }
+
+    /// Check if a variable has certain type confidence (can use raw Zig types)
+    /// Returns true if the variable's type is 100% provable at compile time
+    pub fn isVarCertain(self: *NativeCodegen, name: []const u8) bool {
+        return self.type_inferrer.isCertain(name);
+    }
+
+    /// Get the TypedValue (type + confidence) for a variable
+    /// Returns null if variable not found
+    pub fn getTypedVar(self: *NativeCodegen, name: []const u8) ?native_types.TypedValue {
+        return self.type_inferrer.getTypedVar(name);
+    }
+
+    /// Check if codegen should emit PyValue for a variable assignment
+    /// This is the main entry point for the Two-Flow Type System in codegen
+    /// When true, emit: const x: runtime.PyValue = runtime.PyValue.from(...);
+    /// When false, emit: const x: i64 = ...; (or let Zig infer)
+    pub fn shouldUsePyValue(self: *NativeCodegen, name: []const u8) bool {
+        // Check confidence level - uncertain types need PyValue
+        if (self.type_inferrer.isUncertain(name)) {
+            return true;
+        }
+        // Variable is certain - use raw Zig type for performance
+        return false;
+    }
+
     /// Infer expression type with scope-aware variable type lookup
     /// For variables, prefers local scope type over global type inferrer
     /// This prevents cross-function type pollution from widened types
