@@ -190,6 +190,11 @@ fn emitInferredReturnType(self: *NativeCodegen, func_name: []const u8, needs_err
     if (needs_error) try self.emit("!");
     try self.emit(type_info.str);
     try self.emit(" {\n");
+
+    // Two-Flow: Track if this function returns PyValue (needs boxing at return statements)
+    if (std.mem.eql(u8, type_info.str, "runtime.PyValue")) {
+        self.current_function_returns_pyvalue = true;
+    }
 }
 
 /// Check if an expression produces BigInt (for determining parameter types)
@@ -1255,8 +1260,11 @@ pub fn genMethodSignatureWithSkip(
     const is_new_method = std.mem.eql(u8, method.name, "__new__");
 
     // Check for @staticmethod and @classmethod decorators
+    // Note: __init_subclass__ and __class_getitem__ are implicit classmethods in Python
     const is_staticmethod = hasStaticmethodDecorator(method.decorators);
-    const is_classmethod = hasClassmethodDecorator(method.decorators);
+    const is_implicit_classmethod = std.mem.eql(u8, method.name, "__init_subclass__") or
+        std.mem.eql(u8, method.name, "__class_getitem__");
+    const is_classmethod = hasClassmethodDecorator(method.decorators) or is_implicit_classmethod;
 
     // Check if class has a known parent - for parameter usage detection
     const has_known_parent = self.getParentClassName(class_name) != null;
@@ -1330,10 +1338,12 @@ pub fn genMethodSignatureWithSkip(
             is_first_python_param = false;
             if (!is_staticmethod) {
                 // Skip self/cls for regular methods and classmethods
+                // NOTE: Don't increment param_index here - it's 0-based for non-self params
                 continue;
             }
         }
-        defer param_index += 1;
+        // NOTE: param_index is incremented at the end of the loop, not with defer,
+        // so it doesn't increment when we continue (skip first param for non-static methods)
 
         // Add comma separator before this parameter (if not the first parameter overall)
         if (has_first_param or param_index > 0) {
@@ -1481,11 +1491,18 @@ pub fn genMethodSignatureWithSkip(
             try self.emit("anytype");
             try self.anytype_params.put(arg.name, {});
         }
+
+        // Increment param_index at end of loop (not defer) so it doesn't increment when we continue
+        param_index += 1;
     }
+
+    // Track if any parameter has been emitted (for proper comma handling)
+    var any_param_emitted = has_first_param or param_index > 0;
 
     // Add *args parameter as a slice if present
     if (method.vararg) |vararg_name| {
-        try self.emit(", ");
+        if (any_param_emitted) try self.emit(", ");
+        any_param_emitted = true;
         const is_vararg_used = param_analyzer.isNameUsedInBody(method.body, vararg_name);
         if (is_skipped or !is_vararg_used) {
             try self.emit("_: anytype"); // Use anonymous for unused
@@ -1497,7 +1514,7 @@ pub fn genMethodSignatureWithSkip(
 
     // Add **kwargs parameter if present
     if (method.kwarg) |kwarg_name| {
-        try self.emit(", ");
+        if (any_param_emitted) try self.emit(", ");
         const is_kwarg_used = param_analyzer.isNameUsedInBody(method.body, kwarg_name);
         if (is_skipped or !is_kwarg_used) {
             try self.emit("_: anytype"); // Use anonymous for unused

@@ -169,7 +169,16 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
                 try self.output.writer(self.allocator).print("{s}.*", .{self_name});
             }
         } else {
-            try self.genExpr(value.*);
+            // Two-Flow: Box return values when function returns PyValue
+            // This handles isinstance narrowing where local vars become raw types
+            // inside if blocks but function still returns PyValue
+            if (self.current_function_returns_pyvalue) {
+                try self.emit("runtime.PyValue.from(");
+                try self.genExpr(value.*);
+                try self.emit(")");
+            } else {
+                try self.genExpr(value.*);
+            }
         }
     } else {
         try self.emit("return ");

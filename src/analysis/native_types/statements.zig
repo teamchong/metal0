@@ -21,6 +21,70 @@ const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 const FnvArgsMap = hashmap_helper.StringHashMap([]const NativeType);
 
+// ============================================================================
+// isinstance Pattern Detection (for Flow-Sensitive Type Narrowing)
+// ============================================================================
+
+/// Result of detecting an isinstance(var, Type) pattern in a condition
+const IsinstancePattern = struct {
+    var_name: []const u8,
+    narrowed_type: NativeType,
+};
+
+/// Detect if an expression is isinstance(var, Type) and extract components
+/// Returns null if the pattern doesn't match
+fn detectIsinstancePattern(condition: ast.Node) ?IsinstancePattern {
+    // Must be a function call
+    if (condition != .call) return null;
+    const call = condition.call;
+
+    // Function must be a simple name "isinstance"
+    if (call.func.* != .name) return null;
+    if (!std.mem.eql(u8, call.func.name.id, "isinstance")) return null;
+
+    // Must have exactly 2 arguments
+    if (call.args.len != 2) return null;
+
+    // First argument must be a simple variable name
+    const first_arg = call.args[0];
+    if (first_arg != .name) return null;
+    const var_name = first_arg.name.id;
+
+    // Second argument is the type - must be a name
+    const second_arg = call.args[1];
+    if (second_arg != .name) return null;
+    const type_name = second_arg.name.id;
+
+    // Map Python type name to NativeType
+    const narrowed_type = pythonTypeToNative(type_name) orelse return null;
+
+    return IsinstancePattern{
+        .var_name = var_name,
+        .narrowed_type = narrowed_type,
+    };
+}
+
+/// Map Python builtin type names to NativeType
+fn pythonTypeToNative(type_name: []const u8) ?NativeType {
+    // Common Python types
+    if (std.mem.eql(u8, type_name, "int")) return .{ .int = .unbounded };
+    if (std.mem.eql(u8, type_name, "float")) return .float;
+    if (std.mem.eql(u8, type_name, "str")) return .{ .string = .runtime }; // Default to runtime string
+    if (std.mem.eql(u8, type_name, "bool")) return .bool;
+    if (std.mem.eql(u8, type_name, "bytes")) return .bytes;
+    // Note: list, dict, set require element/key types which we don't have from isinstance
+    // For now, skip these - narrowing for collections would need special handling
+    // if (std.mem.eql(u8, type_name, "list")) return .{ .list = undefined };
+    // if (std.mem.eql(u8, type_name, "dict")) return .{ .dict = undefined };
+    // if (std.mem.eql(u8, type_name, "tuple")) return .{ .tuple = &[_]NativeType{} };
+    // if (std.mem.eql(u8, type_name, "set")) return .set;
+    // None type
+    if (std.mem.eql(u8, type_name, "NoneType")) return .none;
+    // For user-defined classes, return class_instance
+    // Note: This is a simplified version - full implementation would track class names
+    return null;
+}
+
 /// Dict-aware widening for legacy mode (when TypeInferrer is not available)
 /// When two dicts have same key type but different value types, widen to dict with pyvalue values
 fn widenDictAwareLegacy(allocator: std.mem.Allocator, existing: NativeType, new_type: NativeType) !NativeType {
@@ -431,8 +495,32 @@ pub fn visitStmtScoped(
             }
         },
         .if_stmt => |if_stmt| {
-            for (if_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
-            for (if_stmt.else_body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
+            // Flow-sensitive type narrowing for isinstance checks
+            // When we see: if isinstance(x, int): we narrow x to int inside the if body
+            const isinstance_pattern = detectIsinstancePattern(if_stmt.condition.*);
+            var saved_state: ?inferrer_mod.TypeInferrer.NarrowedTypeState = null;
+
+            if (isinstance_pattern) |pattern| {
+                if (type_inferrer) |ti| {
+                    // Narrow the variable's type for the if body
+                    saved_state = ti.narrowTypeForIsinstance(pattern.var_name, pattern.narrowed_type) catch null;
+                }
+            }
+
+            // Visit if body (with narrowed type if applicable)
+            for (if_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {}, s, type_inferrer);
+
+            // Restore original type after if body
+            if (saved_state) |state| {
+                if (isinstance_pattern) |pattern| {
+                    if (type_inferrer) |ti| {
+                        ti.restoreNarrowedType(pattern.var_name, state) catch {};
+                    }
+                }
+            }
+
+            // Visit else body (with original type - no narrowing)
+            for (if_stmt.else_body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {}, s, type_inferrer);
         },
         .while_stmt => |while_stmt| {
             for (while_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);

@@ -266,6 +266,48 @@ pub const TypeInferrer = struct {
         try self.putConfidence(name, .uncertain);
     }
 
+    // ============================================================================
+    // Flow-Sensitive Type Narrowing (isinstance narrowing)
+    // ============================================================================
+
+    /// Saved state for type narrowing (to restore after if block)
+    pub const NarrowedTypeState = struct {
+        original_type: ?NativeType,
+        original_confidence: core.TypeConfidence,
+    };
+
+    /// Narrow a variable's type inside an isinstance check block
+    /// Returns the original state to be restored after the block
+    /// Usage:
+    ///   if isinstance(x, int):  # detect this pattern
+    ///       # inside here, x is Certain<int>
+    ///       saved = ti.narrowTypeForIsinstance("x", .int)
+    ///       ... process body ...
+    ///       ti.restoreNarrowedType("x", saved)
+    pub fn narrowTypeForIsinstance(self: *TypeInferrer, name: []const u8, narrowed_type: NativeType) !NarrowedTypeState {
+        // Save original state
+        const original_type = self.getScopedVar(name) orelse self.var_types.get(name);
+        const original_confidence = self.getConfidence(name);
+
+        // Narrow to the checked type with CERTAIN confidence
+        // isinstance(x, int) guarantees x is int inside the if block
+        try self.putScopedVar(name, narrowed_type);
+        try self.putConfidence(name, .certain);
+
+        return .{
+            .original_type = original_type,
+            .original_confidence = original_confidence,
+        };
+    }
+
+    /// Restore a variable's type after isinstance block ends
+    pub fn restoreNarrowedType(self: *TypeInferrer, name: []const u8, saved: NarrowedTypeState) !void {
+        if (saved.original_type) |orig_type| {
+            try self.putScopedVar(name, orig_type);
+        }
+        try self.putConfidence(name, saved.original_confidence);
+    }
+
     /// Widen a variable type in current scope (for reassignments)
     /// Special handling for dict types: when value types differ, widen to dict with pyvalue values
     /// CONFIDENCE: When type is widened to a DIFFERENT type, confidence degrades to uncertain

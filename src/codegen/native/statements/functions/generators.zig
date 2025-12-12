@@ -166,6 +166,8 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     // Clear current function name after body generation
     self.current_function_name = null;
+    // Two-Flow: Reset PyValue return tracking
+    self.current_function_returns_pyvalue = false;
 
     // Register decorated functions for application in main()
     if (func.decorators.len > 0) {
@@ -739,6 +741,20 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 // Skip private/dunder attributes
                 if (std.mem.startsWith(u8, attr_name, "__")) continue;
 
+                // Skip attributes that have the same name as a method in this class
+                // In Python, later definitions shadow earlier ones, so `def spam(self):`
+                // after `spam = property(...)` means the method takes precedence
+                var has_method_with_same_name = false;
+                for (class.body) |check_stmt| {
+                    if (check_stmt == .function_def) {
+                        if (std.mem.eql(u8, check_stmt.function_def.name, attr_name)) {
+                            has_method_with_same_name = true;
+                            break;
+                        }
+                    }
+                }
+                if (has_method_with_same_name) continue;
+
                 // Check if this is a complex expression that needs lazy computation
                 const is_complex = switch (assign.value.*) {
                     .constant, .name => false, // Simple - can use pub const
@@ -1302,6 +1318,19 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
                 // Skip private/dunder attributes (usually handled specially)
                 if (std.mem.startsWith(u8, attr_name, "__")) continue;
+
+                // Skip attributes that have the same name as a method in this class
+                // In Python, later definitions shadow earlier ones (method takes precedence)
+                var attr_has_method_conflict = false;
+                for (class.body) |check_stmt| {
+                    if (check_stmt == .function_def) {
+                        if (std.mem.eql(u8, check_stmt.function_def.name, attr_name)) {
+                            attr_has_method_conflict = true;
+                            break;
+                        }
+                    }
+                }
+                if (attr_has_method_conflict) continue;
 
                 // Check if this needs lazy computation (complex expression)
                 if (lazy_attrs.get(attr_name)) |info| {

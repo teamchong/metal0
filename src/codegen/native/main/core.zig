@@ -544,6 +544,10 @@ pub const NativeCodegen = struct {
     // When true, yield statements append to __gen_result ArrayList
     in_generator_function: bool,
 
+    // Two-Flow: Track if current function returns PyValue (needs boxing at return)
+    // Set when function has uncertain params or mixed return types
+    current_function_returns_pyvalue: bool,
+
     // Track if we're inside a try block body
     // When true, error-returning builtins use 'try' instead of 'catch default'
     // This allows errors to propagate to except handlers
@@ -793,6 +797,7 @@ pub const NativeCodegen = struct {
             .current_function_name = null,
             .current_function_body = null,
             .in_generator_function = false,
+            .current_function_returns_pyvalue = false,
             .inside_try_body = false,
             .target_wasm_browser = false,
             .skipped_modules = FnvVoidMap.init(allocator),
