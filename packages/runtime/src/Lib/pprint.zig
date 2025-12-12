@@ -44,12 +44,12 @@ pub const PrettyPrinter = struct {
 
     /// Format a value as a pretty-printed string
     pub fn pformat(self: *const PrettyPrinter, value: anytype) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         try self.formatValue(&result, value, 0, 0);
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Print a value to stdout
@@ -67,7 +67,7 @@ pub const PrettyPrinter = struct {
         // Check depth limit
         if (self.options.depth) |max_depth| {
             if (level >= max_depth) {
-                try result.appendSlice("...");
+                try result.appendSlice(self.allocator, "...");
                 return;
             }
         }
@@ -82,7 +82,7 @@ pub const PrettyPrinter = struct {
                 try self.formatFloat(result, value);
             },
             .bool => {
-                try result.appendSlice(if (value) "True" else "False");
+                try result.appendSlice(self.allocator, if (value) "True" else "False");
             },
             .pointer => |ptr| {
                 if (ptr.size == .Slice) {
@@ -117,7 +117,7 @@ pub const PrettyPrinter = struct {
                 if (value) |v| {
                     try self.formatValue(result, v, level, allowance);
                 } else {
-                    try result.appendSlice("None");
+                    try result.appendSlice(self.allocator, "None");
                 }
             },
             .@"struct" => |s| {
@@ -131,10 +131,10 @@ pub const PrettyPrinter = struct {
                 try self.formatEnum(result, value);
             },
             .void => {
-                try result.appendSlice("None");
+                try result.appendSlice(self.allocator, "None");
             },
             else => {
-                try result.appendSlice("<unprintable>");
+                try result.appendSlice(self.allocator, "<unprintable>");
             },
         }
     }
@@ -145,61 +145,59 @@ pub const PrettyPrinter = struct {
 
         if (self.options.underscore_numbers and str.len > 4) {
             // Add underscores for readability (e.g., 1_000_000)
-            var formatted = std.ArrayList(u8).init(self.allocator);
-            defer formatted.deinit();
+            var formatted: std.ArrayList(u8) = .{};
+            defer formatted.deinit(self.allocator);
 
             var count: usize = 0;
             var i = str.len;
             while (i > 0) : (i -= 1) {
                 if (count > 0 and count % 3 == 0 and str[i - 1] != '-') {
-                    try formatted.insert(0, '_');
+                    try formatted.insert(self.allocator, 0, '_');
                 }
-                try formatted.insert(0, str[i - 1]);
+                try formatted.insert(self.allocator, 0, str[i - 1]);
                 count += 1;
             }
-            try result.appendSlice(formatted.items);
+            try result.appendSlice(self.allocator, formatted.items);
         } else {
-            try result.appendSlice(str);
+            try result.appendSlice(self.allocator, str);
         }
     }
 
     fn formatFloat(self: *const PrettyPrinter, result: *std.ArrayList(u8), value: anytype) !void {
-        _ = self;
         var buf: [64]u8 = undefined;
         const str = std.fmt.bufPrint(&buf, "{d}", .{value}) catch return;
-        try result.appendSlice(str);
+        try result.appendSlice(self.allocator, str);
     }
 
     fn formatString(self: *const PrettyPrinter, result: *std.ArrayList(u8), value: []const u8) !void {
-        _ = self;
-        try result.append('\'');
+        try result.append(self.allocator, '\'');
         for (value) |c| {
             switch (c) {
-                '\'' => try result.appendSlice("\\'"),
-                '\\' => try result.appendSlice("\\\\"),
-                '\n' => try result.appendSlice("\\n"),
-                '\r' => try result.appendSlice("\\r"),
-                '\t' => try result.appendSlice("\\t"),
+                '\'' => try result.appendSlice(self.allocator, "\\'"),
+                '\\' => try result.appendSlice(self.allocator, "\\\\"),
+                '\n' => try result.appendSlice(self.allocator, "\\n"),
+                '\r' => try result.appendSlice(self.allocator, "\\r"),
+                '\t' => try result.appendSlice(self.allocator, "\\t"),
                 else => {
                     if (c < 32 or c > 126) {
                         var buf: [6]u8 = undefined;
                         const hex = std.fmt.bufPrint(&buf, "\\x{x:0>2}", .{c}) catch continue;
-                        try result.appendSlice(hex);
+                        try result.appendSlice(self.allocator, hex);
                     } else {
-                        try result.append(c);
+                        try result.append(self.allocator, c);
                     }
                 },
             }
         }
-        try result.append('\'');
+        try result.append(self.allocator, '\'');
     }
 
     fn formatSlice(self: *const PrettyPrinter, result: *std.ArrayList(u8), value: anytype, level: usize, allowance: usize) !void {
-        try result.append('[');
+        try result.append(self.allocator, '[');
 
         const items = value;
         if (items.len == 0) {
-            try result.append(']');
+            try result.append(self.allocator, ']');
             return;
         }
 
@@ -212,77 +210,77 @@ pub const PrettyPrinter = struct {
 
         for (items, 0..) |item, i| {
             if (use_multiline) {
-                try result.append('\n');
-                try result.appendSlice(indent_str);
+                try result.append(self.allocator, '\n');
+                try result.appendSlice(self.allocator, indent_str);
             } else if (i > 0) {
-                try result.appendSlice(", ");
+                try result.appendSlice(self.allocator, ", ");
             }
 
             try self.formatValue(result, item, new_level, allowance);
 
             if (use_multiline and i < items.len - 1) {
-                try result.append(',');
+                try result.append(self.allocator, ',');
             }
         }
 
         if (use_multiline) {
-            try result.append('\n');
+            try result.append(self.allocator, '\n');
             const outer_indent = try self.getIndent(level);
             defer self.allocator.free(outer_indent);
-            try result.appendSlice(outer_indent);
+            try result.appendSlice(self.allocator, outer_indent);
         }
 
-        try result.append(']');
+        try result.append(self.allocator, ']');
     }
 
     fn formatArray(self: *const PrettyPrinter, result: *std.ArrayList(u8), value: anytype, level: usize, allowance: usize) !void {
-        try result.append('[');
+        try result.append(self.allocator, '[');
 
         const arr = value.*;
         if (arr.len == 0) {
-            try result.append(']');
+            try result.append(self.allocator, ']');
             return;
         }
 
         for (arr, 0..) |item, i| {
             if (i > 0) {
-                try result.appendSlice(", ");
+                try result.appendSlice(self.allocator, ", ");
             }
             try self.formatValue(result, item, level + 1, allowance);
         }
 
-        try result.append(']');
+        try result.append(self.allocator, ']');
     }
 
     fn formatTuple(self: *const PrettyPrinter, result: *std.ArrayList(u8), value: anytype, level: usize, allowance: usize) !void {
-        try result.append('(');
+        try result.append(self.allocator, '(');
 
         const fields = @typeInfo(@TypeOf(value)).@"struct".fields;
 
         inline for (fields, 0..) |field, i| {
             if (i > 0) {
-                try result.appendSlice(", ");
+                try result.appendSlice(self.allocator, ", ");
             }
             try self.formatValue(result, @field(value, field.name), level + 1, allowance);
         }
 
         // Single element tuple needs trailing comma
         if (fields.len == 1) {
-            try result.append(',');
+            try result.append(self.allocator, ',');
         }
 
-        try result.append(')');
+        try result.append(self.allocator, ')');
     }
 
     fn formatStruct(self: *const PrettyPrinter, result: *std.ArrayList(u8), value: anytype, level: usize, allowance: usize) !void {
         const T = @TypeOf(value);
         const type_name = @typeName(T);
 
-        try result.append('{');
+        try result.append(self.allocator, '{');
 
         const fields = @typeInfo(T).@"struct".fields;
         if (fields.len == 0) {
-            try result.append('}');
+            try result.append(self.allocator, '}');
             return;
         }
 
@@ -291,45 +289,43 @@ pub const PrettyPrinter = struct {
 
         inline for (fields, 0..) |field, i| {
             if (use_multiline) {
-                try result.append('\n');
+                try result.append(self.allocator, '\n');
                 const indent_str = try self.getIndent(new_level);
                 defer self.allocator.free(indent_str);
-                try result.appendSlice(indent_str);
+                try result.appendSlice(self.allocator, indent_str);
             } else if (i > 0) {
-                try result.appendSlice(", ");
+                try result.appendSlice(self.allocator, ", ");
             }
 
-            try result.append('\'');
-            try result.appendSlice(field.name);
-            try result.appendSlice("': ");
+            try result.append(self.allocator, '\'');
+            try result.appendSlice(self.allocator, field.name);
+            try result.appendSlice(self.allocator, "': ");
             try self.formatValue(result, @field(value, field.name), new_level, allowance);
 
             if (use_multiline and i < fields.len - 1) {
-                try result.append(',');
+                try result.append(self.allocator, ',');
             }
         }
 
         if (use_multiline) {
-            try result.append('\n');
+            try result.append(self.allocator, '\n');
             const outer_indent = try self.getIndent(level);
             defer self.allocator.free(outer_indent);
-            try result.appendSlice(outer_indent);
+            try result.appendSlice(self.allocator, outer_indent);
         }
 
-        try result.append('}');
+        try result.append(self.allocator, '}');
         _ = type_name;
     }
 
     fn formatEnum(self: *const PrettyPrinter, result: *std.ArrayList(u8), value: anytype) !void {
-        _ = self;
         const name = @tagName(value);
-        try result.appendSlice(name);
+        try result.appendSlice(self.allocator, name);
     }
 
     fn formatPointer(self: *const PrettyPrinter, result: *std.ArrayList(u8), value: anytype) !void {
-        _ = self;
         _ = value;
-        try result.appendSlice("<pointer>");
+        try result.appendSlice(self.allocator, "<pointer>");
     }
 
     fn getIndent(self: *const PrettyPrinter, level: usize) ![]u8 {

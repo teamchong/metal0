@@ -42,8 +42,8 @@ pub fn disassemble(allocator: std.mem.Allocator, co: *CodeObject, lasti: ?i32) !
 
 /// Disassemble bytecode bytes
 pub fn disassembleBytes(allocator: std.mem.Allocator, code: []const u8, lasti: ?i32, varnames: ?[][]const u8, names: ?[][]const u8, constants: anytype) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var offset: usize = 0;
     while (offset < code.len) {
@@ -61,7 +61,7 @@ pub fn disassembleBytes(allocator: std.mem.Allocator, code: []const u8, lasti: ?
         else
             std.fmt.bufPrint(&line_buf, "{d:>6} {s:<20}\n", .{ offset, opcode.name() }) catch "";
 
-        try result.appendSlice(line);
+        try result.appendSlice(allocator, line);
 
         // Handle jump target marker
         if (lasti != null and @as(i32, @intCast(offset)) == lasti.?) {
@@ -75,7 +75,7 @@ pub fn disassembleBytes(allocator: std.mem.Allocator, code: []const u8, lasti: ?
     _ = names;
     _ = constants;
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Get instructions from a code object

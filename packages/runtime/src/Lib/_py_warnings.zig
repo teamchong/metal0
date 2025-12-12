@@ -178,26 +178,26 @@ pub const WarningsState = struct {
     pub fn init(allocator: Allocator) Self {
         return Self{
             .allocator = allocator,
-            .filters = std.ArrayList(WarningFilter).init(allocator),
+            .filters = .{},
             .registry = hashmap_helper.StringHashMap(void).init(allocator),
             .once_registry = std.AutoHashMap(u64, void).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.filters.deinit();
+        self.filters.deinit(self.allocator);
         self.registry.deinit();
         self.once_registry.deinit();
     }
 
     /// Add a filter
     pub fn addFilter(self: *Self, filter: WarningFilter) !void {
-        try self.filters.append(filter);
+        try self.filters.append(self.allocator, filter);
     }
 
     /// Insert filter at beginning (higher priority)
     pub fn insertFilter(self: *Self, filter: WarningFilter) !void {
-        try self.filters.insert(0, filter);
+        try self.filters.insert(self.allocator, 0, filter);
     }
 
     /// Reset filters to default
@@ -273,8 +273,8 @@ pub fn formatWarning(
     lineno: u32,
     line: ?[]const u8,
 ) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    const writer = result.writer();
+    var result: std.ArrayList(u8) = .{};
+    const writer = result.writer(allocator);
 
     // Main warning line
     try writer.print("{s}:{d}: {s}: {s}\n", .{
@@ -292,7 +292,7 @@ pub fn formatWarning(
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Simple warn function
@@ -328,28 +328,28 @@ pub fn warnExplicit(
 
 /// Get default warning filters
 pub fn getDefaultFilters(allocator: Allocator) !std.ArrayList(WarningFilter) {
-    var filters = std.ArrayList(WarningFilter).init(allocator);
+    var filters: std.ArrayList(WarningFilter) = .{};
 
     // Default CPython filters:
     // 1. Ignore DeprecationWarning and PendingDeprecationWarning by default
-    try filters.append(.{
+    try filters.append(allocator, .{
         .action = .default,
         .category = .deprecation_warning,
     });
 
-    try filters.append(.{
+    try filters.append(allocator, .{
         .action = .default,
         .category = .pending_deprecation_warning,
     });
 
     // 2. Ignore ImportWarning
-    try filters.append(.{
+    try filters.append(allocator, .{
         .action = .default,
         .category = .import_warning,
     });
 
     // 3. Ignore ResourceWarning
-    try filters.append(.{
+    try filters.append(allocator, .{
         .action = .default,
         .category = .resource_warning,
     });
