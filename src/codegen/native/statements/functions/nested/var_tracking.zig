@@ -132,6 +132,11 @@ fn collectLocallyAssignedVarsInNode(allocator: std.mem.Allocator, node: ast.Node
             for (f.body) |s| {
                 try collectLocallyAssignedVarsInNode(allocator, s, assigned);
             }
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                }
+            }
         },
         .if_stmt => |i| {
             for (i.body) |s| {
@@ -144,6 +149,18 @@ fn collectLocallyAssignedVarsInNode(allocator: std.mem.Allocator, node: ast.Node
         .while_stmt => |w| {
             for (w.body) |s| {
                 try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+            }
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                }
+            }
+        },
+        .match_stmt => |m| {
+            for (m.cases) |case| {
+                for (case.body) |s| {
+                    try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                }
             }
         },
         .try_stmt => |t| {
@@ -297,11 +314,21 @@ fn isVarMutatedInNode(var_name: []const u8, node: ast.Node) bool {
             for (f.body) |s| {
                 if (isVarMutatedInNode(var_name, s)) break :blk true;
             }
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (isVarMutatedInNode(var_name, s)) break :blk true;
+                }
+            }
             break :blk false;
         },
         .while_stmt => |w| blk: {
             for (w.body) |s| {
                 if (isVarMutatedInNode(var_name, s)) break :blk true;
+            }
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (isVarMutatedInNode(var_name, s)) break :blk true;
+                }
             }
             break :blk false;
         },
@@ -503,9 +530,15 @@ fn collectLocalClassNamesInNode(node: ast.Node, classes: *LocalClassArray) void 
         },
         .for_stmt => |f| {
             for (f.body) |s| collectLocalClassNamesInNode(s, classes);
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |s| collectLocalClassNamesInNode(s, classes);
+            }
         },
         .while_stmt => |w| {
             for (w.body) |s| collectLocalClassNamesInNode(s, classes);
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |s| collectLocalClassNamesInNode(s, classes);
+            }
         },
         .try_stmt => |t| {
             for (t.body) |s| collectLocalClassNamesInNode(s, classes);
@@ -514,6 +547,14 @@ fn collectLocalClassNamesInNode(node: ast.Node, classes: *LocalClassArray) void 
             }
             for (t.else_body) |s| collectLocalClassNamesInNode(s, classes);
             for (t.finalbody) |s| collectLocalClassNamesInNode(s, classes);
+        },
+        .with_stmt => |w| {
+            for (w.body) |s| collectLocalClassNamesInNode(s, classes);
+        },
+        .match_stmt => |m| {
+            for (m.cases) |case| {
+                for (case.body) |s| collectLocalClassNamesInNode(s, classes);
+            }
         },
         else => {},
     }
@@ -585,11 +626,21 @@ fn isReassignmentTypeChangingInNodeWithClasses(param_name: []const u8, node: ast
             for (f.body) |s| {
                 if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
             }
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
+                }
+            }
             break :blk true;
         },
         .while_stmt => |w| blk: {
             for (w.body) |s| {
                 if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
+            }
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
+                }
             }
             break :blk true;
         },
@@ -607,6 +658,20 @@ fn isReassignmentTypeChangingInNodeWithClasses(param_name: []const u8, node: ast
             }
             for (t.finalbody) |s| {
                 if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
+            }
+            break :blk true;
+        },
+        .with_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
+            }
+            break :blk true;
+        },
+        .match_stmt => |m| blk: {
+            for (m.cases) |case| {
+                for (case.body) |s| {
+                    if (!isReassignmentTypeChangingInNodeWithClasses(param_name, s, local_classes)) break :blk false;
+                }
             }
             break :blk true;
         },

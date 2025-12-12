@@ -198,6 +198,40 @@ pub fn usesTypeAttribute(node: ast.Node, class_name: []const u8, class_type_attr
             for (for_stmt.body) |stmt| {
                 if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
             }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+                }
+            }
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            if (usesTypeAttribute(while_stmt.condition.*, class_name, class_type_attrs)) return true;
+            for (while_stmt.body) |stmt| {
+                if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+            }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+                }
+            }
+            return false;
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |stmt| {
+                if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |stmt| {
+                    if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+                }
+            }
+            for (try_stmt.else_body) |stmt| {
+                if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+            }
+            for (try_stmt.finalbody) |stmt| {
+                if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+            }
             return false;
         },
         .with_stmt => |with_stmt| {
@@ -206,6 +240,18 @@ pub fn usesTypeAttribute(node: ast.Node, class_name: []const u8, class_type_attr
             // Check body
             for (with_stmt.body) |stmt| {
                 if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        .match_stmt => |match_stmt| {
+            if (usesTypeAttribute(match_stmt.subject.*, class_name, class_type_attrs)) return true;
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    if (usesTypeAttribute(guard.*, class_name, class_type_attrs)) return true;
+                }
+                for (case.body) |stmt| {
+                    if (usesTypeAttribute(stmt, class_name, class_type_attrs)) return true;
+                }
             }
             return false;
         },
@@ -250,6 +296,59 @@ fn containsSelfReference(node: ast.Node) bool {
         .for_stmt => |for_stmt| {
             for (for_stmt.body) |stmt| {
                 if (containsSelfReference(stmt)) return true;
+            }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    if (containsSelfReference(stmt)) return true;
+                }
+            }
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            if (containsSelfReference(while_stmt.condition.*)) return true;
+            for (while_stmt.body) |stmt| {
+                if (containsSelfReference(stmt)) return true;
+            }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    if (containsSelfReference(stmt)) return true;
+                }
+            }
+            return false;
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |stmt| {
+                if (containsSelfReference(stmt)) return true;
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |stmt| {
+                    if (containsSelfReference(stmt)) return true;
+                }
+            }
+            for (try_stmt.else_body) |stmt| {
+                if (containsSelfReference(stmt)) return true;
+            }
+            for (try_stmt.finalbody) |stmt| {
+                if (containsSelfReference(stmt)) return true;
+            }
+            return false;
+        },
+        .with_stmt => |with_stmt| {
+            if (containsSelfReference(with_stmt.context_expr.*)) return true;
+            for (with_stmt.body) |stmt| {
+                if (containsSelfReference(stmt)) return true;
+            }
+            return false;
+        },
+        .match_stmt => |match_stmt| {
+            if (containsSelfReference(match_stmt.subject.*)) return true;
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    if (containsSelfReference(guard.*)) return true;
+                }
+                for (case.body) |stmt| {
+                    if (containsSelfReference(stmt)) return true;
+                }
             }
             return false;
         },
@@ -328,6 +427,40 @@ pub fn usesRegularSelf(node: ast.Node, class_name: []const u8, class_type_attrs:
             for (for_stmt.body) |stmt| {
                 if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
             }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+                }
+            }
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            if (usesRegularSelf(while_stmt.condition.*, class_name, class_type_attrs)) return true;
+            for (while_stmt.body) |stmt| {
+                if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+            }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+                }
+            }
+            return false;
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |stmt| {
+                if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |stmt| {
+                    if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+                }
+            }
+            for (try_stmt.else_body) |stmt| {
+                if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+            }
+            for (try_stmt.finalbody) |stmt| {
+                if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+            }
             return false;
         },
         .with_stmt => |with_stmt| {
@@ -336,6 +469,18 @@ pub fn usesRegularSelf(node: ast.Node, class_name: []const u8, class_type_attrs:
             // Check body
             for (with_stmt.body) |stmt| {
                 if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+            }
+            return false;
+        },
+        .match_stmt => |match_stmt| {
+            if (usesRegularSelf(match_stmt.subject.*, class_name, class_type_attrs)) return true;
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    if (usesRegularSelf(guard.*, class_name, class_type_attrs)) return true;
+                }
+                for (case.body) |stmt| {
+                    if (usesRegularSelf(stmt, class_name, class_type_attrs)) return true;
+                }
             }
             return false;
         },
