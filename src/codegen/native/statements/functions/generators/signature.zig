@@ -1560,9 +1560,12 @@ pub fn genMethodSignatureWithSkip(
         // that only have bare `return` (no value) should return void, not i64.
         // e.g., `def test_foo(self): if cond: return; ... # rest of code`
         const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
-        if (needs_error) {
-            try self.emit("!");
-        }
+
+        // NOTE: Don't emit error union here! The nested class constructor path
+        // (getReturnedNestedClassConstructor) unconditionally emits error union.
+        // Emitting here would cause double error union (!!). Instead, we only emit
+        // the error union in the specific paths that need it but don't already add it.
+
         // Check if method returns a lambda that captures self (closure)
         if (getReturnedLambda(method.body)) |lambda| {
             if (lambdaCapturesSelf(lambda.body.*)) {
@@ -1597,6 +1600,7 @@ pub fn genMethodSignatureWithSkip(
         if (returns_self) {
             // For nested classes, self is a pointer, so returning self returns a pointer
             const current_class_is_nested = self.nested_class_names.contains(class_name);
+            if (needs_error) try self.emit("!");
             if (current_class_is_nested) {
                 try self.emit("*@This() {\n");
                 return;
@@ -1630,6 +1634,7 @@ pub fn genMethodSignatureWithSkip(
         if (returned_param_name) |param_name| {
             // Method returns an anytype param - use @TypeOf(param)
             // Use writeParamName to handle renamed params (e.g., init -> init_arg)
+            if (needs_error) try self.emit("!");
             try self.emit("@TypeOf(");
             try zig_keywords.writeParamName(self.output.writer(self.allocator), param_name);
             try self.emit(")");
@@ -1665,6 +1670,9 @@ pub fn genMethodSignatureWithSkip(
             // Try to get inferred return type from class_fields.methods
             const class_info = self.type_inferrer.class_fields.get(class_name);
             const inferred_type = if (class_info) |info| info.methods.get(method.name) else null;
+
+            // Emit error union before the type
+            if (needs_error) try self.emit("!");
 
             if (inferred_type) |inf_type| {
                 // Use inferred type (skip if .int or .unknown - those are defaults)
