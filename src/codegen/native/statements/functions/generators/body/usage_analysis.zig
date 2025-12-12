@@ -179,11 +179,21 @@ pub fn collectUsesInNode(self: *NativeCodegen, node: ast.Node) !void {
             for (while_stmt.body) |body_stmt| {
                 try collectUsesInNode(self, body_stmt);
             }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |body_stmt| {
+                    try collectUsesInNode(self, body_stmt);
+                }
+            }
         },
         .for_stmt => |for_stmt| {
             try collectUsesInNode(self, for_stmt.iter.*);
             for (for_stmt.body) |body_stmt| {
                 try collectUsesInNode(self, body_stmt);
+            }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |body_stmt| {
+                    try collectUsesInNode(self, body_stmt);
+                }
             }
         },
         .try_stmt => |try_stmt| {
@@ -206,6 +216,17 @@ pub fn collectUsesInNode(self: *NativeCodegen, node: ast.Node) !void {
             try collectUsesInNode(self, with_stmt.context_expr.*);
             for (with_stmt.body) |body_stmt| {
                 try collectUsesInNode(self, body_stmt);
+            }
+        },
+        .match_stmt => |match_stmt| {
+            try collectUsesInNode(self, match_stmt.subject.*);
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    try collectUsesInNode(self, guard.*);
+                }
+                for (case.body) |body_stmt| {
+                    try collectUsesInNode(self, body_stmt);
+                }
             }
         },
         .assert_stmt => |assert_stmt| {
@@ -365,6 +386,11 @@ fn collectAssignedVars(locals: *hashmap_helper.StringHashMap(void), node: ast.No
             for (for_s.body) |body_stmt| {
                 collectAssignedVars(locals, body_stmt);
             }
+            if (for_s.orelse_body) |orelse_body| {
+                for (orelse_body) |body_stmt| {
+                    collectAssignedVars(locals, body_stmt);
+                }
+            }
         },
         .if_stmt => |if_s| {
             for (if_s.body) |body_stmt| {
@@ -377,6 +403,11 @@ fn collectAssignedVars(locals: *hashmap_helper.StringHashMap(void), node: ast.No
         .while_stmt => |while_s| {
             for (while_s.body) |body_stmt| {
                 collectAssignedVars(locals, body_stmt);
+            }
+            if (while_s.orelse_body) |orelse_body| {
+                for (orelse_body) |body_stmt| {
+                    collectAssignedVars(locals, body_stmt);
+                }
             }
         },
         .try_stmt => |try_s| {
@@ -391,6 +422,12 @@ fn collectAssignedVars(locals: *hashmap_helper.StringHashMap(void), node: ast.No
                     collectAssignedVars(locals, body_stmt);
                 }
             }
+            for (try_s.else_body) |body_stmt| {
+                collectAssignedVars(locals, body_stmt);
+            }
+            for (try_s.finalbody) |body_stmt| {
+                collectAssignedVars(locals, body_stmt);
+            }
         },
         .with_stmt => |with_s| {
             if (with_s.optional_vars) |vars| {
@@ -400,6 +437,13 @@ fn collectAssignedVars(locals: *hashmap_helper.StringHashMap(void), node: ast.No
             }
             for (with_s.body) |body_stmt| {
                 collectAssignedVars(locals, body_stmt);
+            }
+        },
+        .match_stmt => |match_s| {
+            for (match_s.cases) |case| {
+                for (case.body) |body_stmt| {
+                    collectAssignedVars(locals, body_stmt);
+                }
             }
         },
         else => {},
@@ -491,6 +535,11 @@ fn collectUsesExcludingLocals(self: *NativeCodegen, node: ast.Node, locals: *con
             for (for_s.body) |body_stmt| {
                 try collectUsesExcludingLocals(self, body_stmt, locals);
             }
+            if (for_s.orelse_body) |orelse_body| {
+                for (orelse_body) |body_stmt| {
+                    try collectUsesExcludingLocals(self, body_stmt, locals);
+                }
+            }
         },
         .if_stmt => |if_s| {
             try collectUsesExcludingLocals(self, if_s.condition.*, locals);
@@ -505,6 +554,44 @@ fn collectUsesExcludingLocals(self: *NativeCodegen, node: ast.Node, locals: *con
             try collectUsesExcludingLocals(self, while_s.condition.*, locals);
             for (while_s.body) |body_stmt| {
                 try collectUsesExcludingLocals(self, body_stmt, locals);
+            }
+            if (while_s.orelse_body) |orelse_body| {
+                for (orelse_body) |body_stmt| {
+                    try collectUsesExcludingLocals(self, body_stmt, locals);
+                }
+            }
+        },
+        .try_stmt => |try_s| {
+            for (try_s.body) |body_stmt| {
+                try collectUsesExcludingLocals(self, body_stmt, locals);
+            }
+            for (try_s.handlers) |handler| {
+                for (handler.body) |body_stmt| {
+                    try collectUsesExcludingLocals(self, body_stmt, locals);
+                }
+            }
+            for (try_s.else_body) |body_stmt| {
+                try collectUsesExcludingLocals(self, body_stmt, locals);
+            }
+            for (try_s.finalbody) |body_stmt| {
+                try collectUsesExcludingLocals(self, body_stmt, locals);
+            }
+        },
+        .with_stmt => |with_s| {
+            try collectUsesExcludingLocals(self, with_s.context_expr.*, locals);
+            for (with_s.body) |body_stmt| {
+                try collectUsesExcludingLocals(self, body_stmt, locals);
+            }
+        },
+        .match_stmt => |match_s| {
+            try collectUsesExcludingLocals(self, match_s.subject.*, locals);
+            for (match_s.cases) |case| {
+                if (case.guard) |guard| {
+                    try collectUsesExcludingLocals(self, guard.*, locals);
+                }
+                for (case.body) |body_stmt| {
+                    try collectUsesExcludingLocals(self, body_stmt, locals);
+                }
             }
         },
         else => {},
