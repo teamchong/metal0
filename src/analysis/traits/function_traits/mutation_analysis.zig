@@ -153,13 +153,28 @@ fn collectUsedVars(node: ast.Node, result: *UsedVarsSet) void {
         .attribute => |attr| collectUsedVars(attr.value.*, result),
         .subscript => |sub| {
             collectUsedVars(sub.value.*, result);
-            collectUsedVars(sub.slice.*, result);
+            switch (sub.slice) {
+                .index => |idx| collectUsedVars(idx.*, result),
+                .slice => |range| {
+                    if (range.lower) |l| collectUsedVars(l.*, result);
+                    if (range.upper) |u| collectUsedVars(u.*, result);
+                    if (range.step) |s| collectUsedVars(s.*, result);
+                },
+            }
         },
         .call => |call| {
             collectUsedVars(call.func.*, result);
-            for (call.args) |arg| collectUsedVars(arg, result);
-            for (call.keywords) |kw| {
-                if (kw.value) |v| collectUsedVars(v.*, result);
+            for (call.args) |arg| {
+                if (arg == .starred) {
+                    collectUsedVars(arg.starred.value.*, result);
+                } else if (arg == .double_starred) {
+                    collectUsedVars(arg.double_starred.value.*, result);
+                } else {
+                    collectUsedVars(arg, result);
+                }
+            }
+            for (call.keyword_args) |kw| {
+                collectUsedVars(kw.value, result);
             }
         },
         .binop => |binop| {
@@ -174,10 +189,10 @@ fn collectUsedVars(node: ast.Node, result: *UsedVarsSet) void {
         .boolop => |boolop| {
             for (boolop.values) |v| collectUsedVars(v, result);
         },
-        .ifexp => |ifexp| {
-            collectUsedVars(ifexp.condition.*, result);
-            collectUsedVars(ifexp.body.*, result);
-            collectUsedVars(ifexp.@"orelse".*, result);
+        .if_expr => |if_expr| {
+            collectUsedVars(if_expr.condition.*, result);
+            collectUsedVars(if_expr.body.*, result);
+            collectUsedVars(if_expr.orelse_value.*, result);
         },
         .list => |list| {
             for (list.elts) |e| collectUsedVars(e, result);
@@ -222,17 +237,18 @@ fn collectUsedVars(node: ast.Node, result: *UsedVarsSet) void {
             }
         },
         .lambda => |lambda| collectUsedVars(lambda.body.*, result),
-        .slice => |slice| {
-            if (slice.lower) |l| collectUsedVars(l.*, result);
-            if (slice.upper) |u| collectUsedVars(u.*, result);
-            if (slice.step) |s| collectUsedVars(s.*, result);
-        },
         .starred => |starred| collectUsedVars(starred.value.*, result),
         .await_expr => |await_e| collectUsedVars(await_e.value.*, result),
-        .joined_str => |js| {
-            for (js.values) |v| collectUsedVars(v, result);
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| collectUsedVars(e.node.*, result),
+                    .format_expr => |fe| collectUsedVars(fe.expr.*, result),
+                    .conv_expr => |ce| collectUsedVars(ce.expr.*, result),
+                    .literal => {},
+                }
+            }
         },
-        .formatted_value => |fv| collectUsedVars(fv.value.*, result),
         // Statements - recurse into their expression parts
         .assign => |assign| {
             // Only collect from RHS (value), not LHS (targets)
