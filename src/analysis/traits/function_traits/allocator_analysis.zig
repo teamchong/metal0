@@ -235,15 +235,26 @@ fn stmtNeedsAlloc(stmt: ast.Node) bool {
         },
         .while_stmt => |w| exprNeedsAlloc(w.condition.*) or blk: {
             for (w.body) |s| if (stmtNeedsAlloc(s)) break :blk true;
+            if (w.orelse_body) |ob| for (ob) |s| if (stmtNeedsAlloc(s)) break :blk true;
             break :blk false;
         },
         .for_stmt => |f| exprNeedsAlloc(f.iter.*) or blk: {
             for (f.body) |s| if (stmtNeedsAlloc(s)) break :blk true;
+            if (f.orelse_body) |ob| for (ob) |s| if (stmtNeedsAlloc(s)) break :blk true;
             break :blk false;
         },
         .try_stmt => |t| blk: {
             for (t.body) |s| if (stmtNeedsAlloc(s)) break :blk true;
             for (t.handlers) |h| for (h.body) |s| if (stmtNeedsAlloc(s)) break :blk true;
+            for (t.else_body) |s| if (stmtNeedsAlloc(s)) break :blk true;
+            for (t.finalbody) |s| if (stmtNeedsAlloc(s)) break :blk true;
+            break :blk false;
+        },
+        .match_stmt => |m| exprNeedsAlloc(m.subject.*) or blk: {
+            for (m.cases) |case| {
+                if (case.guard) |g| if (exprNeedsAlloc(g.*)) break :blk true;
+                for (case.body) |s| if (stmtNeedsAlloc(s)) break :blk true;
+            }
             break :blk false;
         },
         .class_def => |c| blk: {
@@ -331,15 +342,26 @@ fn stmtUsesAllocParam(stmt: ast.Node, func_name: []const u8, nested: []const []c
         },
         .while_stmt => |w| exprUsesAllocParam(w.condition.*, func_name, nested) or blk: {
             for (w.body) |s| if (stmtUsesAllocParam(s, func_name, nested)) break :blk true;
+            if (w.orelse_body) |ob| for (ob) |s| if (stmtUsesAllocParam(s, func_name, nested)) break :blk true;
             break :blk false;
         },
         .for_stmt => |f| exprUsesAllocParam(f.iter.*, func_name, nested) or blk: {
             for (f.body) |s| if (stmtUsesAllocParam(s, func_name, nested)) break :blk true;
+            if (f.orelse_body) |ob| for (ob) |s| if (stmtUsesAllocParam(s, func_name, nested)) break :blk true;
             break :blk false;
         },
         .try_stmt => |t| blk: {
             for (t.body) |s| if (stmtUsesAllocParam(s, func_name, nested)) break :blk true;
             for (t.handlers) |h| for (h.body) |s| if (stmtUsesAllocParam(s, func_name, nested)) break :blk true;
+            for (t.else_body) |s| if (stmtUsesAllocParam(s, func_name, nested)) break :blk true;
+            for (t.finalbody) |s| if (stmtUsesAllocParam(s, func_name, nested)) break :blk true;
+            break :blk false;
+        },
+        .match_stmt => |m| exprUsesAllocParam(m.subject.*, func_name, nested) or blk: {
+            for (m.cases) |case| {
+                if (case.guard) |g| if (exprUsesAllocParam(g.*, func_name, nested)) break :blk true;
+                for (case.body) |s| if (stmtUsesAllocParam(s, func_name, nested)) break :blk true;
+            }
             break :blk false;
         },
         .class_def => |c| blk: {
