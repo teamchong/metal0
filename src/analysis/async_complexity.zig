@@ -296,6 +296,36 @@ fn checkPurity(ctx: *PurityContext, stmt: ast.Node) void {
                 checkPurity(ctx, s);
             }
         },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |s| {
+                checkPurity(ctx, s);
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |s| {
+                    checkPurity(ctx, s);
+                }
+            }
+            for (try_stmt.else_body) |s| {
+                checkPurity(ctx, s);
+            }
+            for (try_stmt.finalbody) |s| {
+                checkPurity(ctx, s);
+            }
+        },
+        .with_stmt => |with_stmt| {
+            checkExprPurity(ctx, with_stmt.context_expr.*);
+            for (with_stmt.body) |s| {
+                checkPurity(ctx, s);
+            }
+        },
+        .aug_assign => |aug| {
+            // Augmented assignment may mutate
+            const target = aug.target.*;
+            if (target == .attribute or target == .subscript) {
+                ctx.has_mutation = true;
+            }
+            checkExprPurity(ctx, aug.value.*);
+        },
         else => {},
     }
 }
@@ -304,7 +334,7 @@ fn checkExprPurity(ctx: *PurityContext, expr: ast.Node) void {
     switch (expr) {
         .call => |call| {
             // Check for I/O functions
-            if (call.func == .name) {
+            if (call.func.* == .name) {
                 const func_name = call.func.name.id;
                 if (std.mem.eql(u8, func_name, "print") or
                     std.mem.eql(u8, func_name, "input") or
@@ -312,7 +342,7 @@ fn checkExprPurity(ctx: *PurityContext, expr: ast.Node) void {
                 {
                     ctx.has_io = true;
                 }
-            } else if (call.func == .attribute) {
+            } else if (call.func.* == .attribute) {
                 // Check for method calls that might do I/O
                 const attr = call.func.attribute;
                 if (std.mem.eql(u8, attr.attr, "write") or
@@ -327,16 +357,24 @@ fn checkExprPurity(ctx: *PurityContext, expr: ast.Node) void {
             for (call.args) |arg| {
                 checkExprPurity(ctx, arg);
             }
+            for (call.keyword_args) |kw| {
+                checkExprPurity(ctx, kw.value);
+            }
         },
         .await_expr => |await_expr| {
             checkExprPurity(ctx, await_expr.value.*);
         },
-        .bin_op => |bin_op| {
-            checkExprPurity(ctx, bin_op.left.*);
-            checkExprPurity(ctx, bin_op.right.*);
+        .binop => |binop| {
+            checkExprPurity(ctx, binop.left.*);
+            checkExprPurity(ctx, binop.right.*);
         },
-        .unary_op => |unary_op| {
-            checkExprPurity(ctx, unary_op.operand.*);
+        .unaryop => |unaryop| {
+            checkExprPurity(ctx, unaryop.operand.*);
+        },
+        .boolop => |boolop| {
+            for (boolop.values) |val| {
+                checkExprPurity(ctx, val);
+            }
         },
         .compare => |compare| {
             checkExprPurity(ctx, compare.left.*);
@@ -346,13 +384,25 @@ fn checkExprPurity(ctx: *PurityContext, expr: ast.Node) void {
         },
         .subscript => |subscript| {
             checkExprPurity(ctx, subscript.value.*);
-            checkExprPurity(ctx, subscript.slice.*);
+            switch (subscript.slice) {
+                .index => |idx| checkExprPurity(ctx, idx.*),
+                .slice => |sr| {
+                    if (sr.lower) |l| checkExprPurity(ctx, l.*);
+                    if (sr.upper) |u| checkExprPurity(ctx, u.*);
+                    if (sr.step) |s| checkExprPurity(ctx, s.*);
+                },
+            }
         },
         .attribute => |attr| {
             checkExprPurity(ctx, attr.value.*);
         },
         .list => |list| {
             for (list.elts) |elt| {
+                checkExprPurity(ctx, elt);
+            }
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |elt| {
                 checkExprPurity(ctx, elt);
             }
         },
@@ -363,6 +413,55 @@ fn checkExprPurity(ctx: *PurityContext, expr: ast.Node) void {
             for (dict.values) |val| {
                 checkExprPurity(ctx, val);
             }
+        },
+        .if_expr => |ie| {
+            checkExprPurity(ctx, ie.condition.*);
+            checkExprPurity(ctx, ie.body.*);
+            checkExprPurity(ctx, ie.orelse_value.*);
+        },
+        .fstring => |fs| {
+            for (fs.parts) |part| {
+                switch (part) {
+                    .expr => |e| checkExprPurity(ctx, e.node.*),
+                    .format_expr => |fe| checkExprPurity(ctx, fe.expr.*),
+                    .conv_expr => |ce| checkExprPurity(ctx, ce.expr.*),
+                    .literal => {},
+                }
+            }
+        },
+        .listcomp => |lc| {
+            checkExprPurity(ctx, lc.elt.*);
+            for (lc.generators) |gen| {
+                checkExprPurity(ctx, gen.iter.*);
+                for (gen.ifs) |cond| {
+                    checkExprPurity(ctx, cond);
+                }
+            }
+        },
+        .dictcomp => |dc| {
+            checkExprPurity(ctx, dc.key.*);
+            checkExprPurity(ctx, dc.value.*);
+            for (dc.generators) |gen| {
+                checkExprPurity(ctx, gen.iter.*);
+                for (gen.ifs) |cond| {
+                    checkExprPurity(ctx, cond);
+                }
+            }
+        },
+        .genexp => |ge| {
+            checkExprPurity(ctx, ge.elt.*);
+            for (ge.generators) |gen| {
+                checkExprPurity(ctx, gen.iter.*);
+                for (gen.ifs) |cond| {
+                    checkExprPurity(ctx, cond);
+                }
+            }
+        },
+        .lambda => |lam| {
+            checkExprPurity(ctx, lam.body.*);
+        },
+        .starred => |st| {
+            checkExprPurity(ctx, st.value.*);
         },
         else => {},
     }

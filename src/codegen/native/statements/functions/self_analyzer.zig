@@ -185,6 +185,36 @@ fn stmtUsesFirstParamWithContext(node: ast.Node, param_name: []const u8, has_par
             // Check if body uses param
             return usesFirstParamWithContext(with_stmt.body, param_name, has_parent);
         },
+        .ann_assign => |ann| {
+            if (ann.value) |val| {
+                return exprUsesFirstParamWithContext(val.*, param_name, has_parent);
+            }
+            return false;
+        },
+        .assert_stmt => |assert| {
+            if (exprUsesFirstParamWithContext(assert.condition.*, param_name, has_parent)) return true;
+            if (assert.msg) |msg| {
+                return exprUsesFirstParamWithContext(msg.*, param_name, has_parent);
+            }
+            return false;
+        },
+        .yield_stmt => |y| {
+            if (y.value) |val| {
+                return exprUsesFirstParamWithContext(val.*, param_name, has_parent);
+            }
+            return false;
+        },
+        .yield_from_stmt => |y| exprUsesFirstParamWithContext(y.value.*, param_name, has_parent),
+        .match_stmt => |m| {
+            if (exprUsesFirstParamWithContext(m.subject.*, param_name, has_parent)) return true;
+            for (m.cases) |case| {
+                if (case.guard) |guard| {
+                    if (exprUsesFirstParamWithContext(guard.*, param_name, has_parent)) return true;
+                }
+                if (usesFirstParamWithContext(case.body, param_name, has_parent)) return true;
+            }
+            return false;
+        },
         else => false,
     };
 }
@@ -202,8 +232,90 @@ fn exprUsesSelfForWith(node: ast.Node) bool {
             for (call.args) |arg| {
                 if (exprUsesSelfForWith(arg)) return true;
             }
+            for (call.keyword_args) |kw| {
+                if (exprUsesSelfForWith(kw.value)) return true;
+            }
             return false;
         },
+        .binop => |b| exprUsesSelfForWith(b.left.*) or exprUsesSelfForWith(b.right.*),
+        .unaryop => |u| exprUsesSelfForWith(u.operand.*),
+        .boolop => |b| {
+            for (b.values) |val| {
+                if (exprUsesSelfForWith(val)) return true;
+            }
+            return false;
+        },
+        .compare => |comp| {
+            if (exprUsesSelfForWith(comp.left.*)) return true;
+            for (comp.comparators) |c| {
+                if (exprUsesSelfForWith(c)) return true;
+            }
+            return false;
+        },
+        .subscript => |sub| {
+            if (exprUsesSelfForWith(sub.value.*)) return true;
+            return switch (sub.slice) {
+                .index => |idx| exprUsesSelfForWith(idx.*),
+                .slice => |sl| {
+                    if (sl.lower) |l| if (exprUsesSelfForWith(l.*)) return true;
+                    if (sl.upper) |u| if (exprUsesSelfForWith(u.*)) return true;
+                    if (sl.step) |s| if (exprUsesSelfForWith(s.*)) return true;
+                    return false;
+                },
+            };
+        },
+        .if_expr => |ie| exprUsesSelfForWith(ie.condition.*) or exprUsesSelfForWith(ie.body.*) or exprUsesSelfForWith(ie.orelse_value.*),
+        .list => |list| {
+            for (list.elts) |elt| if (exprUsesSelfForWith(elt)) return true;
+            return false;
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |elt| if (exprUsesSelfForWith(elt)) return true;
+            return false;
+        },
+        .dict => |dict| {
+            for (dict.keys) |key| if (exprUsesSelfForWith(key)) return true;
+            for (dict.values) |val| if (exprUsesSelfForWith(val)) return true;
+            return false;
+        },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (exprUsesSelfForWith(e.node.*)) return true,
+                    .format_expr => |fe| if (exprUsesSelfForWith(fe.expr.*)) return true,
+                    .conv_expr => |ce| if (exprUsesSelfForWith(ce.expr.*)) return true,
+                    .literal => {},
+                }
+            }
+            return false;
+        },
+        .listcomp => |lc| {
+            if (exprUsesSelfForWith(lc.elt.*)) return true;
+            for (lc.generators) |gen| {
+                if (exprUsesSelfForWith(gen.iter.*)) return true;
+                for (gen.ifs) |cond| if (exprUsesSelfForWith(cond)) return true;
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (exprUsesSelfForWith(dc.key.*)) return true;
+            if (exprUsesSelfForWith(dc.value.*)) return true;
+            for (dc.generators) |gen| {
+                if (exprUsesSelfForWith(gen.iter.*)) return true;
+                for (gen.ifs) |cond| if (exprUsesSelfForWith(cond)) return true;
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            if (exprUsesSelfForWith(ge.elt.*)) return true;
+            for (ge.generators) |gen| {
+                if (exprUsesSelfForWith(gen.iter.*)) return true;
+                for (gen.ifs) |cond| if (exprUsesSelfForWith(cond)) return true;
+            }
+            return false;
+        },
+        .lambda => |lam| exprUsesSelfForWith(lam.body.*),
+        .starred => |st| exprUsesSelfForWith(st.value.*),
         else => false,
     };
 }

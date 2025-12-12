@@ -308,6 +308,20 @@ fn stmtContainsAwait(stmt: ast.Node) bool {
             for (wth.body) |s| if (stmtContainsAwait(s)) break :blk true;
             break :blk false;
         },
+        .match_stmt => |m| blk: {
+            if (exprContainsAwait(m.subject.*)) break :blk true;
+            for (m.cases) |case| {
+                if (case.guard) |g| if (exprContainsAwait(g.*)) break :blk true;
+                for (case.body) |s| if (stmtContainsAwait(s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .assert_stmt => |a| blk: {
+            if (exprContainsAwait(a.condition.*)) break :blk true;
+            if (a.msg) |msg| if (exprContainsAwait(msg.*)) break :blk true;
+            break :blk false;
+        },
+        .ann_assign => |a| if (a.value) |v| exprContainsAwait(v.*) else false,
         else => false,
     };
 }
@@ -438,6 +452,12 @@ fn stmtContainsYield(stmt: ast.Node) bool {
             for (wth.body) |s| if (stmtContainsYield(s)) break :blk true;
             break :blk false;
         },
+        .match_stmt => |m| blk: {
+            for (m.cases) |case| {
+                for (case.body) |s| if (stmtContainsYield(s)) break :blk true;
+            }
+            break :blk false;
+        },
         else => false,
     };
 }
@@ -468,16 +488,26 @@ fn stmtCanError(stmt: ast.Node) bool {
         .for_stmt => |f| blk: {
             if (exprCanError(f.iter.*)) break :blk true;
             for (f.body) |s| if (stmtCanError(s)) break :blk true;
+            if (f.orelse_body) |ob| for (ob) |s| if (stmtCanError(s)) break :blk true;
             break :blk false;
         },
         .while_stmt => |w| blk: {
             if (exprCanError(w.condition.*)) break :blk true;
             for (w.body) |s| if (stmtCanError(s)) break :blk true;
+            if (w.orelse_body) |ob| for (ob) |s| if (stmtCanError(s)) break :blk true;
             break :blk false;
         },
         .with_stmt => |w| blk: {
             if (exprCanError(w.context_expr.*)) break :blk true;
             for (w.body) |s| if (stmtCanError(s)) break :blk true;
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            if (exprCanError(m.subject.*)) break :blk true;
+            for (m.cases) |case| {
+                if (case.guard) |g| if (exprCanError(g.*)) break :blk true;
+                for (case.body) |s| if (stmtCanError(s)) break :blk true;
+            }
             break :blk false;
         },
         else => false,
@@ -505,6 +535,7 @@ fn exprCanError(expr: ast.Node) bool {
             }
             // Check arguments
             for (c.args) |arg| if (exprCanError(arg)) break :blk true;
+            for (c.keyword_args) |kw| if (exprCanError(kw.value)) break :blk true;
             break :blk exprCanError(c.func.*);
         },
         .subscript => |s| blk: {
@@ -519,6 +550,10 @@ fn exprCanError(expr: ast.Node) bool {
         },
         .attribute => |a| exprCanError(a.value.*),
         .unaryop => |u| exprCanError(u.operand.*),
+        .boolop => |bo| blk: {
+            for (bo.values) |v| if (exprCanError(v)) break :blk true;
+            break :blk false;
+        },
         .compare => |c| blk: {
             if (exprCanError(c.left.*)) break :blk true;
             for (c.comparators) |cmp| if (exprCanError(cmp)) break :blk true;
@@ -538,6 +573,43 @@ fn exprCanError(expr: ast.Node) bool {
             for (d.values) |v| if (exprCanError(v)) break :blk true;
             break :blk false;
         },
+        .fstring => |fstr| blk: {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (exprCanError(e.node.*)) break :blk true,
+                    .format_expr => |fe| if (exprCanError(fe.expr.*)) break :blk true,
+                    .conv_expr => |ce| if (exprCanError(ce.expr.*)) break :blk true,
+                    .literal => {},
+                }
+            }
+            break :blk false;
+        },
+        .listcomp => |lc| blk: {
+            if (exprCanError(lc.elt.*)) break :blk true;
+            for (lc.generators) |gen| {
+                if (exprCanError(gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| if (exprCanError(cond)) break :blk true;
+            }
+            break :blk false;
+        },
+        .dictcomp => |dc| blk: {
+            if (exprCanError(dc.key.*) or exprCanError(dc.value.*)) break :blk true;
+            for (dc.generators) |gen| {
+                if (exprCanError(gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| if (exprCanError(cond)) break :blk true;
+            }
+            break :blk false;
+        },
+        .genexp => |ge| blk: {
+            if (exprCanError(ge.elt.*)) break :blk true;
+            for (ge.generators) |gen| {
+                if (exprCanError(gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| if (exprCanError(cond)) break :blk true;
+            }
+            break :blk false;
+        },
+        .lambda => |lam| exprCanError(lam.body.*),
+        .starred => |st| exprCanError(st.value.*),
         else => false,
     };
 }

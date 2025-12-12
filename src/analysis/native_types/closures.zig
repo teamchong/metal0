@@ -58,6 +58,10 @@ fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), alloc
             for (c.args) |arg| {
                 try findUsedVars(arg, vars, allocator);
             }
+            // Check keyword arguments
+            for (c.keyword_args) |kw| {
+                try findUsedVars(kw.value, vars, allocator);
+            }
         },
         .subscript => |s| {
             try findUsedVars(s.value.*, vars, allocator);
@@ -105,6 +109,9 @@ fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), alloc
             try findUsedVars(lc.elt.*, vars, allocator);
             for (lc.generators) |gen| {
                 try findUsedVars(gen.iter.*, vars, allocator);
+                for (gen.ifs) |cond| {
+                    try findUsedVars(cond, vars, allocator);
+                }
             }
         },
         .dictcomp => |dc| {
@@ -112,7 +119,30 @@ fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), alloc
             try findUsedVars(dc.value.*, vars, allocator);
             for (dc.generators) |gen| {
                 try findUsedVars(gen.iter.*, vars, allocator);
+                for (gen.ifs) |cond| {
+                    try findUsedVars(cond, vars, allocator);
+                }
             }
+        },
+        .genexp => |ge| {
+            try findUsedVars(ge.elt.*, vars, allocator);
+            for (ge.generators) |gen| {
+                try findUsedVars(gen.iter.*, vars, allocator);
+                for (gen.ifs) |cond| {
+                    try findUsedVars(cond, vars, allocator);
+                }
+            }
+        },
+        .if_expr => |ie| {
+            try findUsedVars(ie.condition.*, vars, allocator);
+            try findUsedVars(ie.body.*, vars, allocator);
+            try findUsedVars(ie.orelse_value.*, vars, allocator);
+        },
+        .lambda => |lam| {
+            try findUsedVars(lam.body.*, vars, allocator);
+        },
+        .starred => |st| {
+            try findUsedVars(st.value.*, vars, allocator);
         },
         else => {},
     }
@@ -155,11 +185,21 @@ fn findUsedVarsInStmt(node: ast.Node, vars: *hashmap_helper.StringHashMap(void),
             for (f.body) |stmt| {
                 try findUsedVarsInStmt(stmt, vars, allocator);
             }
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try findUsedVarsInStmt(stmt, vars, allocator);
+                }
+            }
         },
         .while_stmt => |w| {
             try findUsedVars(w.condition.*, vars, allocator);
             for (w.body) |stmt| {
                 try findUsedVarsInStmt(stmt, vars, allocator);
+            }
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try findUsedVarsInStmt(stmt, vars, allocator);
+                }
             }
         },
         .function_def => {
@@ -183,9 +223,37 @@ fn findUsedVarsInStmt(node: ast.Node, vars: *hashmap_helper.StringHashMap(void),
                     try findUsedVarsInStmt(stmt, vars, allocator);
                 }
             }
+            for (t.else_body) |stmt| {
+                try findUsedVarsInStmt(stmt, vars, allocator);
+            }
             for (t.finalbody) |stmt| {
                 try findUsedVarsInStmt(stmt, vars, allocator);
             }
+        },
+        .with_stmt => |w| {
+            try findUsedVars(w.context_expr.*, vars, allocator);
+            for (w.body) |stmt| {
+                try findUsedVarsInStmt(stmt, vars, allocator);
+            }
+        },
+        .match_stmt => |m| {
+            try findUsedVars(m.subject.*, vars, allocator);
+            for (m.cases) |case| {
+                if (case.guard) |guard| {
+                    try findUsedVars(guard.*, vars, allocator);
+                }
+                for (case.body) |stmt| {
+                    try findUsedVarsInStmt(stmt, vars, allocator);
+                }
+            }
+        },
+        .yield_stmt => |y| {
+            if (y.value) |val| {
+                try findUsedVars(val.*, vars, allocator);
+            }
+        },
+        .yield_from_stmt => |y| {
+            try findUsedVars(y.value.*, vars, allocator);
         },
         .class_def => |c| {
             // Nested class methods may use variables from outer scope

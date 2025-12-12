@@ -314,6 +314,9 @@ fn isVarMutatedInNode(var_name: []const u8, node: ast.Node) bool {
                     if (isVarMutatedInNode(var_name, s)) break :blk true;
                 }
             }
+            for (t.else_body) |s| {
+                if (isVarMutatedInNode(var_name, s)) break :blk true;
+            }
             for (t.finalbody) |s| {
                 if (isVarMutatedInNode(var_name, s)) break :blk true;
             }
@@ -322,6 +325,14 @@ fn isVarMutatedInNode(var_name: []const u8, node: ast.Node) bool {
         .with_stmt => |w| blk: {
             for (w.body) |s| {
                 if (isVarMutatedInNode(var_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            for (m.cases) |case| {
+                for (case.body) |s| {
+                    if (isVarMutatedInNode(var_name, s)) break :blk true;
+                }
             }
             break :blk false;
         },
@@ -405,8 +416,25 @@ fn isParamReassignedInNode(param_name: []const u8, node: ast.Node) bool {
                     if (isParamReassignedInNode(param_name, s)) break :blk true;
                 }
             }
+            for (t.else_body) |s| {
+                if (isParamReassignedInNode(param_name, s)) break :blk true;
+            }
             for (t.finalbody) |s| {
                 if (isParamReassignedInNode(param_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (isParamReassignedInNode(param_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            for (m.cases) |case| {
+                for (case.body) |s| {
+                    if (isParamReassignedInNode(param_name, s)) break :blk true;
+                }
             }
             break :blk false;
         },
