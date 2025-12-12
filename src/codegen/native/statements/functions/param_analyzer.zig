@@ -246,6 +246,9 @@ fn isFirstParamUsedNonUnittestInExpr(expr: ast.Node, name: []const u8) bool {
                         for (call.args) |arg| {
                             if (isFirstParamUsedNonUnittestInExpr(arg, name)) return true;
                         }
+                        for (call.keyword_args) |kw| {
+                            if (isFirstParamUsedNonUnittestInExpr(kw.value, name)) return true;
+                        }
                         return false;
                     }
                 }
@@ -253,6 +256,9 @@ fn isFirstParamUsedNonUnittestInExpr(expr: ast.Node, name: []const u8) bool {
             if (isFirstParamUsedNonUnittestInExpr(call.func.*, name)) return true;
             for (call.args) |arg| {
                 if (isFirstParamUsedNonUnittestInExpr(arg, name)) return true;
+            }
+            for (call.keyword_args) |kw| {
+                if (isFirstParamUsedNonUnittestInExpr(kw.value, name)) return true;
             }
             return false;
         },
@@ -280,7 +286,11 @@ fn isFirstParamUsedNonUnittestInExpr(expr: ast.Node, name: []const u8) bool {
                 .index => |idx| {
                     if (isFirstParamUsedNonUnittestInExpr(idx.*, name)) return true;
                 },
-                else => {},
+                .slice => |range| {
+                    if (range.lower) |l| if (isFirstParamUsedNonUnittestInExpr(l.*, name)) return true;
+                    if (range.upper) |u| if (isFirstParamUsedNonUnittestInExpr(u.*, name)) return true;
+                    if (range.step) |s| if (isFirstParamUsedNonUnittestInExpr(s.*, name)) return true;
+                },
             }
             return false;
         },
@@ -311,6 +321,48 @@ fn isFirstParamUsedNonUnittestInExpr(expr: ast.Node, name: []const u8) bool {
             if (isFirstParamUsedNonUnittestInExpr(tern.condition.*, name)) return true;
             if (isFirstParamUsedNonUnittestInExpr(tern.body.*, name)) return true;
             if (isFirstParamUsedNonUnittestInExpr(tern.orelse_value.*, name)) return true;
+            return false;
+        },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (isFirstParamUsedNonUnittestInExpr(e.node.*, name)) return true,
+                    .format_expr => |fe| if (isFirstParamUsedNonUnittestInExpr(fe.expr.*, name)) return true,
+                    .conv_expr => |ce| if (isFirstParamUsedNonUnittestInExpr(ce.expr.*, name)) return true,
+                    .literal => {},
+                }
+            }
+            return false;
+        },
+        .listcomp => |lc| {
+            if (isFirstParamUsedNonUnittestInExpr(lc.elt.*, name)) return true;
+            for (lc.generators) |gen| {
+                if (isFirstParamUsedNonUnittestInExpr(gen.iter.*, name)) return true;
+                for (gen.ifs) |cond| {
+                    if (isFirstParamUsedNonUnittestInExpr(cond, name)) return true;
+                }
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (isFirstParamUsedNonUnittestInExpr(dc.key.*, name)) return true;
+            if (isFirstParamUsedNonUnittestInExpr(dc.value.*, name)) return true;
+            for (dc.generators) |gen| {
+                if (isFirstParamUsedNonUnittestInExpr(gen.iter.*, name)) return true;
+                for (gen.ifs) |cond| {
+                    if (isFirstParamUsedNonUnittestInExpr(cond, name)) return true;
+                }
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            if (isFirstParamUsedNonUnittestInExpr(ge.elt.*, name)) return true;
+            for (ge.generators) |gen| {
+                if (isFirstParamUsedNonUnittestInExpr(gen.iter.*, name)) return true;
+                for (gen.ifs) |cond| {
+                    if (isFirstParamUsedNonUnittestInExpr(cond, name)) return true;
+                }
+            }
             return false;
         },
         else => false,
