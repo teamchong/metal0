@@ -4,6 +4,8 @@
 const std = @import("std");
 const errors = @import("../errors.zig");
 const conversions = @import("conversions.zig");
+const pyobject_utils = @import("../../runtime/pyobject_utils.zig");
+const cpython = @import("../../cpython.zig");
 
 // ============================================================================
 // Sequence Functions
@@ -11,25 +13,37 @@ const conversions = @import("conversions.zig");
 
 /// Get length of sequence
 /// Mirrors: builtin len()
-pub fn len_builtin(value: anytype) !usize {
+/// Returns usize directly (not error union) for codegen compatibility
+pub fn len_builtin(value: anytype) usize {
     const T = @TypeOf(value);
     return switch (@typeInfo(T)) {
         .pointer => |ptr_info| {
-            if (ptr_info.size == .Slice) {
+            if (ptr_info.size == .slice) {
                 return value.len;
             }
             if (ptr_info.child == u8) {
                 // C-string
                 return std.mem.len(value);
             }
-            errors.setString("TypeError", "object has no len()");
-            return error.TypeError;
+            // Check if this is a *PyObject (from runtime.eval)
+            if (ptr_info.child == cpython.PyObject) {
+                return pyobject_utils.pyLen(value);
+            }
+            return 0; // Fallback for non-len types
         },
         .array => |arr_info| arr_info.len,
-        else => {
-            errors.setString("TypeError", "object has no len()");
-            return error.TypeError;
+        .@"struct" => |struct_info| {
+            // Handle structs with .items field (ArrayList-like)
+            if (@hasField(T, "items")) {
+                return value.items.len;
+            }
+            // Handle structs with .len field
+            if (@hasField(T, "len")) {
+                return value.len;
+            }
+            return struct_info.fields.len; // Tuple-like struct
         },
+        else => 0, // Fallback
     };
 }
 
