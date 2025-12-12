@@ -95,6 +95,47 @@ fn getStringArg(arg: ast.Node) ?[]const u8 {
     return arg.constant.value.string;
 }
 
+/// Evaluate getattr(sys, 'attr', default) at compile time
+/// Returns the default value if the sys attribute is not defined in metal0
+/// Returns null if the pattern is not recognized
+fn evaluateGetattr(call: anytype) ?[]const u8 {
+    // Check if it's getattr(sys, 'attr', default)
+    if (call.func.* != .name) return null;
+    if (!std.mem.eql(u8, call.func.name.id, "getattr")) return null;
+    if (call.args.len < 3) return null;
+
+    // First arg must be 'sys'
+    if (call.args[0] != .name) return null;
+    if (!std.mem.eql(u8, call.args[0].name.id, "sys")) return null;
+
+    // Second arg must be the attribute name string
+    const attr_name = getStringArg(call.args[1]) orelse return null;
+
+    // Third arg is the default value
+    const default_value = getStringArg(call.args[2]) orelse return null;
+
+    // Check if sys has this attribute in metal0
+    // Known sys attributes we support:
+    if (std.mem.eql(u8, attr_name, "platform")) {
+        return current_platform;
+    }
+    // sys.float_repr_style - not defined in metal0, return default
+    if (std.mem.eql(u8, attr_name, "float_repr_style")) {
+        return default_value;
+    }
+    // sys.int_max_str_digits - not defined in metal0, return default
+    if (std.mem.eql(u8, attr_name, "int_max_str_digits")) {
+        return default_value;
+    }
+    // sys.hash_info - not defined in metal0, return default
+    if (std.mem.eql(u8, attr_name, "hash_info")) {
+        return default_value;
+    }
+
+    // For unknown attributes, conservatively return null
+    return null;
+}
+
 /// Evaluate a condition expression at compile time
 /// Returns null if condition cannot be evaluated statically
 fn evaluateCondition(expr: ast.Node, skipped_modules: *const hashmap_helper.StringHashMap(void)) ?bool {
@@ -128,6 +169,19 @@ fn evaluateCondition(expr: ast.Node, skipped_modules: *const hashmap_helper.Stri
                         const module_name = cmp.left.name.id;
                         const is_none = skipped_modules.contains(module_name);
                         return if (cmp.ops[0] == .Is) is_none else !is_none;
+                    }
+                }
+                // getattr(sys, 'attr', default) == 'value'
+                // Handle patterns like: getattr(sys, 'float_repr_style', '') == 'short'
+                if (cmp.left.* == .call) {
+                    if (evaluateGetattr(cmp.left.call)) |getattr_value| {
+                        const compare_str = getStringArg(cmp.comparators[0]) orelse return null;
+                        const matches = std.mem.eql(u8, getattr_value, compare_str);
+                        return switch (cmp.ops[0]) {
+                            .Eq => matches,
+                            .NotEq => !matches,
+                            else => null,
+                        };
                     }
                 }
             }
