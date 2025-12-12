@@ -523,6 +523,170 @@ pub const PyValue = union(enum) {
         };
     }
 
+    // ============================================================================
+    // Bitwise Operations (for Two-Flow uncertain operands)
+    // ============================================================================
+
+    /// Bitwise AND of two PyValues (a & b)
+    /// For Two-Flow: handles uncertain integer types at runtime
+    pub fn pyBitAnd(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| .{ .int = a & b },
+                .bool => |b| .{ .int = a & @as(i64, if (b) 1 else 0) },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| .{ .int = @as(i64, if (a) 1 else 0) & b },
+                .bool => |b| .{ .bool = a and b },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Bitwise OR of two PyValues (a | b)
+    /// For Two-Flow: handles uncertain integer types at runtime
+    pub fn pyBitOr(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| .{ .int = a | b },
+                .bool => |b| .{ .int = a | @as(i64, if (b) 1 else 0) },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| .{ .int = @as(i64, if (a) 1 else 0) | b },
+                .bool => |b| .{ .bool = a or b },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Bitwise XOR of two PyValues (a ^ b)
+    /// For Two-Flow: handles uncertain integer types at runtime
+    pub fn pyBitXor(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| .{ .int = a ^ b },
+                .bool => |b| .{ .int = a ^ @as(i64, if (b) 1 else 0) },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| .{ .int = @as(i64, if (a) 1 else 0) ^ b },
+                .bool => |b| .{ .bool = a != b },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Bitwise left shift of two PyValues (a << b)
+    /// For Two-Flow: handles uncertain integer types at runtime
+    pub fn pyLShift(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| blk: {
+                    if (b < 0 or b >= 64) break :blk .{ .none = {} };
+                    break :blk .{ .int = a << @as(u6, @intCast(b)) };
+                },
+                .bool => |b| .{ .int = if (b) a << 1 else a },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| blk: {
+                    if (b < 0 or b >= 64) break :blk .{ .none = {} };
+                    break :blk .{ .int = @as(i64, if (a) 1 else 0) << @as(u6, @intCast(b)) };
+                },
+                .bool => |b| .{ .int = if (a) (if (b) @as(i64, 2) else @as(i64, 1)) else 0 },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Bitwise right shift of two PyValues (a >> b)
+    /// For Two-Flow: handles uncertain integer types at runtime
+    pub fn pyRShift(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| blk: {
+                    if (b < 0 or b >= 64) break :blk .{ .none = {} };
+                    break :blk .{ .int = a >> @as(u6, @intCast(b)) };
+                },
+                .bool => |b| .{ .int = if (b) a >> 1 else a },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| blk: {
+                    if (b < 0 or b >= 64) break :blk .{ .none = {} };
+                    break :blk .{ .int = @as(i64, if (a) 1 else 0) >> @as(u6, @intCast(b)) };
+                },
+                .bool => |b| .{ .int = if (a) (if (b) @as(i64, 0) else @as(i64, 1)) else 0 },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Bitwise invert of a PyValue (~a)
+    /// For Two-Flow: handles uncertain integer types at runtime
+    pub fn pyInvert(self: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| .{ .int = ~a },
+            .bool => |a| .{ .int = if (a) -2 else -1 }, // ~True=-2, ~False=-1
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Power of two PyValues (a ** b)
+    /// For Two-Flow: handles uncertain numeric types at runtime
+    pub fn pyPow(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| blk: {
+                    if (b < 0) {
+                        // Negative exponent returns float
+                        break :blk .{ .float = std.math.pow(f64, @as(f64, @floatFromInt(a)), @as(f64, @floatFromInt(b))) };
+                    }
+                    // Positive exponent returns int (with overflow)
+                    var result: i64 = 1;
+                    var base = a;
+                    var exp = b;
+                    while (exp > 0) {
+                        if (exp & 1 == 1) result *%= base;
+                        base *%= base;
+                        exp >>= 1;
+                    }
+                    break :blk .{ .int = result };
+                },
+                .float => |b| .{ .float = std.math.pow(f64, @as(f64, @floatFromInt(a)), b) },
+                .bool => |b| .{ .int = if (b) a else 1 },
+                else => .{ .none = {} },
+            },
+            .float => |a| switch (other) {
+                .int => |b| .{ .float = std.math.pow(f64, a, @as(f64, @floatFromInt(b))) },
+                .float => |b| .{ .float = std.math.pow(f64, a, b) },
+                .bool => |b| .{ .float = if (b) a else 1.0 },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| blk: {
+                    const base: i64 = if (a) 1 else 0;
+                    if (b < 0) {
+                        if (base == 0) break :blk .{ .none = {} }; // 0**-n is undefined
+                        break :blk .{ .float = 1.0 }; // 1**-n = 1.0
+                    }
+                    break :blk .{ .int = if (a) 1 else (if (b == 0) @as(i64, 1) else @as(i64, 0)) };
+                },
+                .float => |b| .{ .float = std.math.pow(f64, if (a) 1.0 else 0.0, b) },
+                .bool => |b| .{ .int = if (a) 1 else (if (b) 0 else 1) }, // 0**0=1, 0**1=0, 1**x=1
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
     /// Compare two PyValues (less than)
     pub fn lt(self: PyValue, other: PyValue) bool {
         return switch (self) {

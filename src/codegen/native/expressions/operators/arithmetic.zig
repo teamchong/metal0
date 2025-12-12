@@ -474,6 +474,13 @@ const PyValueMethods = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Div", "div" },
     .{ "FloorDiv", "floordiv" },
     .{ "Mod", "mod" },
+    // Bitwise operations for Two-Flow uncertain operands
+    .{ "BitAnd", "pyBitAnd" },
+    .{ "BitOr", "pyBitOr" },
+    .{ "BitXor", "pyBitXor" },
+    .{ "LShift", "pyLShift" },
+    .{ "RShift", "pyRShift" },
+    .{ "Pow", "pyPow" },
 });
 
 /// Check if an expression operand is uncertain (needs PyValue)
@@ -1548,6 +1555,21 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
             // Cast to i64 to handle comptime_int literals
             // For booleans, need to convert to int first (Python: ~False = -1, ~True = -2)
             const operand_type = try self.inferExprScoped(unaryop.operand.*);
+
+            // TWO-FLOW TYPE SYSTEM: Check if operand is a PyValue variable
+            // If so, use PyValue.pyInvert() method instead of Zig's invert operator
+            const is_pyvalue = if (unaryop.operand.* == .name) blk: {
+                const name = unaryop.operand.name.id;
+                const vt = self.type_inferrer.getScopedVar(name) orelse
+                    self.type_inferrer.var_types.get(name);
+                break :blk if (vt) |v| (v == .pyvalue or v == .unknown) else false;
+            } else false;
+            if (is_pyvalue) {
+                try self.emit("(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(").pyInvert()");
+                return;
+            }
 
             // Check if operand is a boolean constant or name (True/False)
             const is_bool = blk: {
