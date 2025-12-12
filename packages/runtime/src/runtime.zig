@@ -239,6 +239,13 @@ pub const toIntBig = @import("runtime/int_ops.zig").toIntBig;
 // Re-export hash operations for codegen
 pub const pyHash = @import("runtime/hash_ops.zig").pyHash;
 
+// Re-export float format and pack operations for codegen
+pub const floatGetFormat = @import("runtime/float_ops/conversion.zig").floatGetFormat;
+pub const packInt = @import("runtime/int_convert.zig").packInt;
+
+// Re-export math module for codegen (runtime.math.isnan, etc.)
+pub const math = std.math;
+
 // Re-export list operations for codegen
 pub const PyList = @import("Objects/listobject.zig").PyList;
 
