@@ -74,12 +74,12 @@ pub fn dedent(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     for (text, 0..) |c, i| {
         if (c == '\n') {
             if (line_start < i) {
-                const indent = countIndent(text[line_start..i]);
-                if (indent < i - line_start) { // Not a blank line
+                const line_indent = countIndent(text[line_start..i]);
+                if (line_indent < i - line_start) { // Not a blank line
                     if (min_indent) |mi| {
-                        min_indent = @min(mi, indent);
+                        min_indent = @min(mi, line_indent);
                     } else {
-                        min_indent = indent;
+                        min_indent = line_indent;
                     }
                 }
             }
@@ -89,12 +89,12 @@ pub fn dedent(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
 
     // Handle last line
     if (line_start < text.len) {
-        const indent = countIndent(text[line_start..]);
-        if (indent < text.len - line_start) {
+        const line_indent = countIndent(text[line_start..]);
+        if (line_indent < text.len - line_start) {
             if (min_indent) |mi| {
-                min_indent = @min(mi, indent);
+                min_indent = @min(mi, line_indent);
             } else {
-                min_indent = indent;
+                min_indent = line_indent;
             }
         }
     }

@@ -205,7 +205,6 @@ pub fn concat(allocator: std.mem.Allocator, a: anytype, b: @TypeOf(a)) !@TypeOf(
         return result;
     } else {
         // For non-slices, just return a (no allocation possible)
-        _ = b;
         return a;
     }
 }
@@ -277,54 +276,54 @@ pub fn itemgetter(comptime index: usize) fn (anytype) @typeInfo(@TypeOf(undefine
 // ============================================================================
 
 /// In-place addition: a += b
-pub fn iadd(a: *anytype, b: @TypeOf(a.*)) void {
+pub fn iadd(comptime T: type, a: *T, b: T) void {
     a.* += b;
 }
 
 /// In-place subtraction: a -= b
-pub fn isub(a: *anytype, b: @TypeOf(a.*)) void {
+pub fn isub(comptime T: type, a: *T, b: T) void {
     a.* -= b;
 }
 
 /// In-place multiplication: a *= b
-pub fn imul(a: *anytype, b: @TypeOf(a.*)) void {
+pub fn imul(comptime T: type, a: *T, b: T) void {
     a.* *= b;
 }
 
 /// In-place floor division: a //= b
-pub fn ifloordiv(a: *anytype, b: @TypeOf(a.*)) void {
+pub fn ifloordiv(comptime T: type, a: *T, b: T) void {
     a.* = @divFloor(a.*, b);
 }
 
 /// In-place modulo: a %= b
-pub fn imod(a: *anytype, b: @TypeOf(a.*)) void {
+pub fn imod(comptime T: type, a: *T, b: T) void {
     a.* = @mod(a.*, b);
 }
 
 /// In-place and: a &= b
-pub fn iand(a: *anytype, b: @TypeOf(a.*)) void {
+pub fn iand(comptime T: type, a: *T, b: T) void {
     a.* &= b;
 }
 
 /// In-place or: a |= b
-pub fn ior(a: *anytype, b: @TypeOf(a.*)) void {
+pub fn ior(comptime T: type, a: *T, b: T) void {
     a.* |= b;
 }
 
 /// In-place xor: a ^= b
-pub fn ixor(a: *anytype, b: @TypeOf(a.*)) void {
+pub fn ixor(comptime T: type, a: *T, b: T) void {
     a.* ^= b;
 }
 
 /// In-place left shift: a <<= b
-pub fn ilshift(a: *anytype, b: anytype) void {
-    const shift: std.math.Log2Int(@TypeOf(a.*)) = @intCast(b);
+pub fn ilshift(comptime T: type, comptime S: type, a: *T, b: S) void {
+    const shift: std.math.Log2Int(T) = @intCast(b);
     a.* <<= shift;
 }
 
 /// In-place right shift: a >>= b
-pub fn irshift(a: *anytype, b: anytype) void {
-    const shift: std.math.Log2Int(@TypeOf(a.*)) = @intCast(b);
+pub fn irshift(comptime T: type, comptime S: type, a: *T, b: S) void {
+    const shift: std.math.Log2Int(T) = @intCast(b);
     a.* >>= shift;
 }
 

@@ -298,8 +298,6 @@ pub fn prepare_class(
     name: []const u8,
     bases: []const *TypeType,
 ) struct { name: []const u8, bases: []const *TypeType } {
-    _ = bases;
-    _ = name;
     return .{
         .name = name,
         .bases = bases,
@@ -374,7 +372,8 @@ pub const None = NoneType{};
 // ============================================================================
 
 /// Resolve a forward reference string to a type
-pub fn resolve_bases(bases: []const anytype) []const *TypeType {
+/// Note: Takes anytype since bases can be heterogeneous types at runtime
+pub fn resolve_bases(bases: anytype) []const *TypeType {
     _ = bases;
     return &[_]*TypeType{};
 }
