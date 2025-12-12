@@ -80,6 +80,22 @@ fn analyzeStmtForLists(
             for (if_stmt.body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
             for (if_stmt.else_body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
         },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+            }
+            for (try_stmt.else_body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+            for (try_stmt.finalbody) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+        },
+        .with_stmt => |with_stmt| {
+            for (with_stmt.body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+        },
+        .match_stmt => |match_stmt| {
+            for (match_stmt.cases) |case| {
+                for (case.body) |s| analyzeStmtForLists(s, list_vars, list_aliases, allocator);
+            }
+        },
         else => {},
     }
 }
@@ -135,6 +151,22 @@ fn checkHeterogeneousAugAssign(
         .if_stmt => |if_stmt| {
             for (if_stmt.body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
             for (if_stmt.else_body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+            }
+            for (try_stmt.else_body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+            for (try_stmt.finalbody) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+        },
+        .with_stmt => |with_stmt| {
+            for (with_stmt.body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+        },
+        .match_stmt => |match_stmt| {
+            for (match_stmt.cases) |case| {
+                for (case.body) |s| checkHeterogeneousAugAssign(s, list_vars, heterogeneous_vars, allocator);
+            }
         },
         else => {},
     }

@@ -356,6 +356,11 @@ fn findLocalVarsInStmt(stmt: ast.Node, vars: *hashmap_helper.StringHashMap(void)
             try vars.put(c.name, {});
             // Don't recurse - nested class has its own scope
         },
+        .match_stmt => |m| {
+            for (m.cases) |case| {
+                try findLocalVarsInStmts(case.body, vars);
+            }
+        },
         else => {},
     }
 }
