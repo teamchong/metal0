@@ -255,7 +255,7 @@ fn genNamedExpr(self: *NativeCodegen, ne: ast.Node.NamedExpr) CodegenError!void 
     // Get the target name
     const target_name = switch (ne.target.*) {
         .name => |n| n.id,
-        else => return, // Should be unreachable, walrus target must be a name
+        else => return error.UnsupportedSyntax, // Walrus target must be a name
     };
 
     // Generate: (blk: { target = value; break :blk target; })
