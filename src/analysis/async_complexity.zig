@@ -225,6 +225,16 @@ fn analyzeExpr(ctx: *AnalysisContext, expr: ast.Node) void {
             }
             ctx.op_count += 1;
         },
+        .set => |set_expr| {
+            for (set_expr.elts) |elt| {
+                analyzeExpr(ctx, elt);
+            }
+            ctx.op_count += 1;
+        },
+        .named_expr => |named| {
+            analyzeExpr(ctx, named.value.*);
+            ctx.op_count += 1;
+        },
         .fstring => |fs| {
             for (fs.parts) |part| {
                 switch (part) {

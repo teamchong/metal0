@@ -184,6 +184,52 @@ pub fn analyzeExpressions(info: *types.SemanticInfo, node: ast.Node) !void {
                 try analyzeExpressions(info, msg.*);
             }
         },
+        .set => |set_expr| {
+            for (set_expr.elts) |elt| {
+                try analyzeExpressions(info, elt);
+            }
+        },
+        .named_expr => |named| {
+            try analyzeExpressions(info, named.value.*);
+        },
+        .lambda => |lam| {
+            try analyzeExpressions(info, lam.body.*);
+        },
+        .genexp => |ge| {
+            try analyzeExpressions(info, ge.elt.*);
+            for (ge.generators) |gen| {
+                try analyzeExpressions(info, gen.iter.*);
+                for (gen.ifs) |if_node| {
+                    try analyzeExpressions(info, if_node);
+                }
+            }
+        },
+        .dictcomp => |dc| {
+            try analyzeExpressions(info, dc.key.*);
+            try analyzeExpressions(info, dc.value.*);
+            for (dc.generators) |gen| {
+                try analyzeExpressions(info, gen.iter.*);
+                for (gen.ifs) |if_node| {
+                    try analyzeExpressions(info, if_node);
+                }
+            }
+        },
+        .fstring => |fs| {
+            for (fs.parts) |part| {
+                switch (part) {
+                    .expr => |e| try analyzeExpressions(info, e.node.*),
+                    .format_expr => |fe| try analyzeExpressions(info, fe.expr.*),
+                    .conv_expr => |ce| try analyzeExpressions(info, ce.expr.*),
+                    .literal => {},
+                }
+            }
+        },
+        .starred => |st| try analyzeExpressions(info, st.value.*),
+        .if_expr => |ie| {
+            try analyzeExpressions(info, ie.condition.*);
+            try analyzeExpressions(info, ie.body.*);
+            try analyzeExpressions(info, ie.orelse_value.*);
+        },
         // Leaf nodes
         .name, .constant, .import_stmt, .import_from => {
             // No expressions to analyze

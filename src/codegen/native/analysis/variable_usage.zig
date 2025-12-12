@@ -287,6 +287,19 @@ pub fn isNameUsedInExpr(expr: ast.Node, name: []const u8) bool {
             return false;
         },
         .starred => |starred| isNameUsedInExpr(starred.value.*, name),
+        .set => |set_expr| {
+            for (set_expr.elts) |elem| {
+                if (isNameUsedInExpr(elem, name)) return true;
+            }
+            return false;
+        },
+        .await_expr => |await| isNameUsedInExpr(await.value.*, name),
+        .named_expr => |named| {
+            // Check both target (for assignment) and value
+            if (isNameUsedInExpr(named.target.*, name)) return true;
+            if (isNameUsedInExpr(named.value.*, name)) return true;
+            return false;
+        },
         else => false,
     };
 }

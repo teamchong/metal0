@@ -144,6 +144,19 @@ fn findUsedVars(node: ast.Node, vars: *hashmap_helper.StringHashMap(void), alloc
         .starred => |st| {
             try findUsedVars(st.value.*, vars, allocator);
         },
+        .set => |set_expr| {
+            for (set_expr.elts) |elt| {
+                try findUsedVars(elt, vars, allocator);
+            }
+        },
+        .await_expr => |await| {
+            try findUsedVars(await.value.*, vars, allocator);
+        },
+        .named_expr => |named| {
+            // Check both target (for assignment) and value
+            try findUsedVars(named.target.*, vars, allocator);
+            try findUsedVars(named.value.*, vars, allocator);
+        },
         else => {},
     }
 }
