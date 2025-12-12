@@ -84,6 +84,7 @@ pub const CodegenMode = enum {
 pub const CodegenError = error{
     OutOfMemory,
     UnsupportedModule,
+    UnsupportedSyntax,
 } || native_types.InferError;
 
 /// Tracks a function with decorators for later application

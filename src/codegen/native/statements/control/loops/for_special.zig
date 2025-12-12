@@ -74,7 +74,7 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
 
     // Extract iterable (first argument to enumerate)
     if (args.len == 0) {
-        @panic("enumerate() requires at least 1 argument");
+        return error.UnsupportedSyntax; // enumerate() requires at least 1 argument
     }
     const iterable = args[0];
 
@@ -235,19 +235,19 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
     const target_elts = switch (target) {
         .list => |l| l.elts,
         .tuple => |t| t.elts,
-        else => @panic("zip() requires tuple unpacking: for x, y in zip(...)"),
+        else => return error.UnsupportedSyntax, // zip() requires tuple unpacking: for x, y in zip(...)
     };
 
     const num_vars = target_elts.len;
 
     // Verify number of variables matches number of iterables
     if (num_vars != args.len) {
-        @panic("zip() variable count must match number of iterables");
+        return error.UnsupportedSyntax; // zip() variable count must match number of iterables
     }
 
     // zip() requires at least 2 iterables
     if (args.len < 2) {
-        @panic("zip() requires at least 2 iterables");
+        return error.UnsupportedSyntax; // zip() requires at least 2 iterables
     }
 
     // Open block for scoping

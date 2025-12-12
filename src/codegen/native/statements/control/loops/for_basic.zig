@@ -367,10 +367,10 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     const target_elts = switch (target) {
         .list => |l| l.elts,
         .tuple => |t| t.elts,
-        else => @panic("Tuple unpacking requires list or tuple target"),
+        else => return error.UnsupportedSyntax, // Tuple unpacking requires list or tuple target
     };
     if (target_elts.len == 0) {
-        @panic("Tuple unpacking requires at least one variable");
+        return error.UnsupportedSyntax; // Tuple unpacking requires at least one variable
     }
 
     // Extract variable names - handle nested unpacking by using placeholder
