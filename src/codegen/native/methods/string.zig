@@ -206,7 +206,8 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 /// Generate code for sep.join(list)
 /// Joins list elements with separator
 pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // sep.join() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     // Generate: blk: { break :blk try runtime.string_utils.pyJoin(allocator, separator, list); }
     // Uses runtime.string_utils.pyJoin which handles PyValue, slices, arrays, and ArrayLists
@@ -224,7 +225,8 @@ pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 /// Generate code for text.startswith(prefix[, start[, end]])
 /// Checks if string starts with prefix
 pub fn genStartswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // str.startswith() requires at least 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     if (args.len == 1) {
         // Simple case: s.startswith(prefix)
@@ -263,7 +265,8 @@ pub fn genStartswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 /// Generate code for text.endswith(suffix[, start[, end]])
 /// Checks if string ends with suffix
 pub fn genEndswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // str.endswith() requires at least 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     if (args.len == 1) {
         // Simple case: s.endswith(suffix)
@@ -302,7 +305,8 @@ pub fn genEndswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
 /// Generate code for text.find(substring[, start[, end]])
 /// Returns index of first occurrence, or -1 if not found
 pub fn genFind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // str.find() requires at least 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     if (args.len == 1) {
         // Simple case: s.find(sub) - no start/end
@@ -344,7 +348,8 @@ pub fn genFind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 /// Generate code for text.count(substring[, start[, end]])
 /// Counts non-overlapping occurrences
 pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // str.count() requires at least 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     // Generate loop to count occurrences
     try self.emit("blk: {\n");
@@ -473,7 +478,8 @@ pub fn genSplitlines(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 /// Generate code for text.partition(sep)
 /// Returns 3-tuple: (before, sep, after) or (text, "", "") if sep not found
 pub fn genPartition(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // str.partition() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
@@ -495,7 +501,8 @@ pub fn genPartition(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 /// Generate code for text.rpartition(sep)
 /// Like partition but searches from the right
 pub fn genRpartition(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // str.rpartition() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
@@ -517,7 +524,8 @@ pub fn genRpartition(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 /// Generate code for text.removeprefix(prefix)
 /// Returns string with prefix removed if present, otherwise original string
 pub fn genRemoveprefix(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // str.removeprefix() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
@@ -539,7 +547,8 @@ pub fn genRemoveprefix(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 /// Generate code for text.removesuffix(suffix)
 /// Returns string with suffix removed if present, otherwise original string
 pub fn genRemovesuffix(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // str.removesuffix() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
