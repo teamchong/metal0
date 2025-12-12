@@ -100,7 +100,7 @@ fn analyzeExpr(ctx: *AnalysisContext, expr: ast.Node) void {
         },
         .call => |call| {
             // Check for recursion
-            if (call.func == .name) {
+            if (call.func.* == .name) {
                 if (std.mem.eql(u8, call.func.name.id, ctx.func_name)) {
                     ctx.is_recursive = true;
                 }
@@ -109,15 +109,24 @@ fn analyzeExpr(ctx: *AnalysisContext, expr: ast.Node) void {
             for (call.args) |arg| {
                 analyzeExpr(ctx, arg);
             }
+            for (call.keyword_args) |kw| {
+                analyzeExpr(ctx, kw.value);
+            }
             ctx.op_count += 2; // Call overhead
         },
-        .bin_op => |bin_op| {
-            analyzeExpr(ctx, bin_op.left.*);
-            analyzeExpr(ctx, bin_op.right.*);
+        .binop => |b| {
+            analyzeExpr(ctx, b.left.*);
+            analyzeExpr(ctx, b.right.*);
             ctx.op_count += 1;
         },
-        .unary_op => |unary_op| {
-            analyzeExpr(ctx, unary_op.operand.*);
+        .unaryop => |u| {
+            analyzeExpr(ctx, u.operand.*);
+            ctx.op_count += 1;
+        },
+        .boolop => |b| {
+            for (b.values) |v| {
+                analyzeExpr(ctx, v);
+            }
             ctx.op_count += 1;
         },
         .compare => |compare| {
@@ -127,9 +136,22 @@ fn analyzeExpr(ctx: *AnalysisContext, expr: ast.Node) void {
             }
             ctx.op_count += 1;
         },
-        .subscript => |subscript| {
-            analyzeExpr(ctx, subscript.value.*);
-            analyzeExpr(ctx, subscript.slice.*);
+        .if_expr => |ie| {
+            analyzeExpr(ctx, ie.condition.*);
+            analyzeExpr(ctx, ie.body.*);
+            analyzeExpr(ctx, ie.orelse_value.*);
+            ctx.op_count += 1;
+        },
+        .subscript => |sub| {
+            analyzeExpr(ctx, sub.value.*);
+            switch (sub.slice) {
+                .index => |idx| analyzeExpr(ctx, idx.*),
+                .slice => |sr| {
+                    if (sr.lower) |l| analyzeExpr(ctx, l.*);
+                    if (sr.upper) |u| analyzeExpr(ctx, u.*);
+                    if (sr.step) |s| analyzeExpr(ctx, s.*);
+                },
+            }
             ctx.op_count += 1;
         },
         .attribute => |attr| {
@@ -138,6 +160,12 @@ fn analyzeExpr(ctx: *AnalysisContext, expr: ast.Node) void {
         },
         .list => |list| {
             for (list.elts) |elt| {
+                analyzeExpr(ctx, elt);
+            }
+            ctx.op_count += 1;
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |elt| {
                 analyzeExpr(ctx, elt);
             }
             ctx.op_count += 1;
@@ -151,6 +179,47 @@ fn analyzeExpr(ctx: *AnalysisContext, expr: ast.Node) void {
             }
             ctx.op_count += 1;
         },
+        .fstring => |fs| {
+            for (fs.parts) |part| {
+                switch (part) {
+                    .expr => |e| analyzeExpr(ctx, e.node.*),
+                    .format_expr => |fe| analyzeExpr(ctx, fe.expr.*),
+                    .conv_expr => |ce| analyzeExpr(ctx, ce.expr.*),
+                    .literal => {},
+                }
+            }
+            ctx.op_count += 1;
+        },
+        .listcomp => |lc| {
+            analyzeExpr(ctx, lc.elt.*);
+            for (lc.generators) |gen| {
+                analyzeExpr(ctx, gen.iter.*);
+                for (gen.ifs) |cond| analyzeExpr(ctx, cond);
+            }
+            ctx.op_count += 3; // Comprehensions are expensive
+        },
+        .dictcomp => |dc| {
+            analyzeExpr(ctx, dc.key.*);
+            analyzeExpr(ctx, dc.value.*);
+            for (dc.generators) |gen| {
+                analyzeExpr(ctx, gen.iter.*);
+                for (gen.ifs) |cond| analyzeExpr(ctx, cond);
+            }
+            ctx.op_count += 3;
+        },
+        .genexp => |ge| {
+            analyzeExpr(ctx, ge.elt.*);
+            for (ge.generators) |gen| {
+                analyzeExpr(ctx, gen.iter.*);
+                for (gen.ifs) |cond| analyzeExpr(ctx, cond);
+            }
+            ctx.op_count += 2;
+        },
+        .lambda => |lam| {
+            analyzeExpr(ctx, lam.body.*);
+            ctx.op_count += 1;
+        },
+        .starred => |st| analyzeExpr(ctx, st.value.*),
         else => {
             // Leaf nodes (constants, names, etc.)
         },
