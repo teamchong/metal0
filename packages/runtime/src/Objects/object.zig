@@ -260,7 +260,7 @@ pub const PyValue = union(enum) {
         } else if (T == PyValue) {
             return value;
         } else if (T == []const PyValue or T == []PyValue) {
-            return .{ .list = value };
+            @compileError("Cannot convert []PyValue to PyValue.list without allocator. Use PyValue.listFromSlice(allocator, slice) instead.");
         } else if (@typeInfo(T) == .pointer) {
             const ptr_info = @typeInfo(T).pointer;
             // Check for sentinel-terminated pointer to u8 (C strings)
@@ -316,7 +316,7 @@ pub const PyValue = union(enum) {
         } else if (T == PyValue) {
             return value;
         } else if (T == []const PyValue or T == []PyValue) {
-            return .{ .list = value };
+            @compileError("Cannot convert []PyValue to PyValue.list without allocator. Use PyValue.listFromSlice(allocator, slice) instead.");
         } else if (@typeInfo(T) == .pointer) {
             const ptr_info = @typeInfo(T).pointer;
             // Check for sentinel-terminated pointer to u8 (C strings)

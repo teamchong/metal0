@@ -354,7 +354,7 @@ fn IterSliceType(comptime T: type) type {
         }
     }
 
-    // PyValue -> []const PyValue
+    // PyValue type returns []const PyValue as element slice type for comparison
     if (T == PyValue) {
         return []const PyValue;
     }
