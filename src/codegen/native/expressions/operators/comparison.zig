@@ -1080,10 +1080,31 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     },
                 }
             } else {
-                // Right is class instance - use reflected method
-                // TODO: Handle all operators for reflected comparisons
-                try self.emit("runtime.classInstanceEq(");
-                try genExpr(self, compare.comparators[i]);
+                // Right is class instance - use reflected method with swapped operands
+                // Python reflection: a < ClassInstance calls ClassInstance.__gt__(a)
+                switch (op) {
+                    .Lt => {
+                        // a < b where b is class instance → b.__gt__(a)
+                        try self.emit("runtime.classInstanceGt(");
+                    },
+                    .LtEq => {
+                        // a <= b where b is class instance → b.__ge__(a)
+                        try self.emit("runtime.classInstanceGe(");
+                    },
+                    .Gt => {
+                        // a > b where b is class instance → b.__lt__(a)
+                        try self.emit("runtime.classInstanceLt(");
+                    },
+                    .GtEq => {
+                        // a >= b where b is class instance → b.__le__(a)
+                        try self.emit("runtime.classInstanceLe(");
+                    },
+                    else => {
+                        // Eq, NotEq - symmetrical
+                        try self.emit("runtime.classInstanceEq(");
+                    },
+                }
+                try genExpr(self, compare.comparators[i]); // class instance first
                 try self.emit(", ");
                 try genExpr(self, current_left);
                 try self.emit(", __global_allocator)");
