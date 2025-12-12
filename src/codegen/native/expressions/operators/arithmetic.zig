@@ -466,12 +466,63 @@ fn genComplexBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Nativ
     }
 }
 
+/// PyValue method names for binary operations
+const PyValueMethods = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "add" },
+    .{ "Sub", "sub" },
+    .{ "Mult", "mul" },
+    .{ "Div", "div" },
+    .{ "FloorDiv", "floordiv" },
+    .{ "Mod", "mod" },
+});
+
+/// Check if an expression operand is uncertain (needs PyValue)
+fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
+    // Check if this is a variable with uncertain confidence
+    if (expr == .name) {
+        return self.isVarUncertain(expr.name.id);
+    }
+    return false;
+}
+
+/// Generate PyValue binary operations for uncertain operands
+fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
+    const method_name = PyValueMethods.get(@tagName(binop.op)) orelse {
+        // Unsupported operation - fall back to compile error
+        try self.emit("@compileError(\"Unsupported PyValue operation: ");
+        try self.emit(@tagName(binop.op));
+        try self.emit("\")");
+        return;
+    };
+
+    // Emit: left.method(right) - both are PyValue
+    try self.emit("(");
+    try genExpr(self, binop.left.*);
+    try self.emit(").");
+    try self.emit(method_name);
+    try self.emit("(");
+    try genExpr(self, binop.right.*);
+    try self.emit(")");
+}
+
 /// Generate binary operations (+, -, *, /, %, //)
 pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // Check for BigInt operations first
     // Use scope-aware type inference to prevent cross-function type pollution
     const bigint_left_type = try self.inferExprScoped(binop.left.*);
     const bigint_right_type = try self.inferExprScoped(binop.right.*);
+
+    // TWO-FLOW TYPE SYSTEM: Check if either operand is uncertain (needs PyValue)
+    // If so, use safe PyValue arithmetic methods instead of raw Zig operators
+    const left_uncertain = isOperandUncertain(self, binop.left.*);
+    const right_uncertain = isOperandUncertain(self, binop.right.*);
+    if (left_uncertain or right_uncertain) {
+        // Only use PyValue ops for supported arithmetic operations
+        if (PyValueMethods.get(@tagName(binop.op)) != null) {
+            try genPyValueBinOp(self, binop);
+            return;
+        }
+    }
 
     // If left operand needs BigInt (explicit bigint or unbounded int), use BigInt method calls
     if (needsBigInt(bigint_left_type)) {
