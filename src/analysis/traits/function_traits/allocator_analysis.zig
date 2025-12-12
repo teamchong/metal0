@@ -358,7 +358,7 @@ fn exprUsesAllocParam(expr: ast.Node, func_name: []const u8, nested: []const []c
     return switch (expr) {
         .binop => |b| exprUsesAllocParam(b.left.*, func_name, nested) or exprUsesAllocParam(b.right.*, func_name, nested),
         .call => |c| callUsesAllocParam(c, func_name, nested),
-        .listcomp, .dictcomp => true,
+        .listcomp, .dictcomp, .genexp => true,
         .list => |l| blk: {
             for (l.elts) |e| if (exprUsesAllocParam(e, func_name, nested)) break :blk true;
             break :blk false;
@@ -367,9 +367,16 @@ fn exprUsesAllocParam(expr: ast.Node, func_name: []const u8, nested: []const []c
             for (t.elts) |e| if (exprUsesAllocParam(e, func_name, nested)) break :blk true;
             break :blk false;
         },
+        .dict => |d| blk: {
+            for (d.keys) |k| if (exprUsesAllocParam(k, func_name, nested)) break :blk true;
+            for (d.values) |v| if (exprUsesAllocParam(v, func_name, nested)) break :blk true;
+            break :blk false;
+        },
         .subscript => |s| exprUsesAllocParam(s.value.*, func_name, nested) or switch (s.slice) {
             .index => |i| exprUsesAllocParam(i.*, func_name, nested),
-            .slice => |r| (if (r.lower) |l| exprUsesAllocParam(l.*, func_name, nested) else false) or (if (r.upper) |u| exprUsesAllocParam(u.*, func_name, nested) else false),
+            .slice => |r| (if (r.lower) |l| exprUsesAllocParam(l.*, func_name, nested) else false) or
+                (if (r.upper) |u| exprUsesAllocParam(u.*, func_name, nested) else false) or
+                (if (r.step) |st| exprUsesAllocParam(st.*, func_name, nested) else false),
         },
         .attribute => |a| exprUsesAllocParam(a.value.*, func_name, nested),
         .compare => |co| exprUsesAllocParam(co.left.*, func_name, nested) or blk: {
@@ -382,13 +389,28 @@ fn exprUsesAllocParam(expr: ast.Node, func_name: []const u8, nested: []const []c
         },
         .unaryop => |u| exprUsesAllocParam(u.operand.*, func_name, nested),
         .name => |n| std.mem.eql(u8, n.id, "allocator"),
-        .if_expr => |ie| exprUsesAllocParam(ie.body.*, func_name, nested) or exprUsesAllocParam(ie.orelse_value.*, func_name, nested),
+        .if_expr => |ie| exprUsesAllocParam(ie.condition.*, func_name, nested) or
+            exprUsesAllocParam(ie.body.*, func_name, nested) or exprUsesAllocParam(ie.orelse_value.*, func_name, nested),
+        .fstring => |fs| blk: {
+            for (fs.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (exprUsesAllocParam(e.node.*, func_name, nested)) break :blk true,
+                    .format_expr => |fe| if (exprUsesAllocParam(fe.expr.*, func_name, nested)) break :blk true,
+                    .conv_expr => |ce| if (exprUsesAllocParam(ce.expr.*, func_name, nested)) break :blk true,
+                    .literal => {},
+                }
+            }
+            break :blk false;
+        },
+        .lambda => |lam| exprUsesAllocParam(lam.body.*, func_name, nested),
+        .starred => |st| exprUsesAllocParam(st.value.*, func_name, nested),
         else => false,
     };
 }
 
 fn callUsesAllocParam(call: ast.Node.Call, func_name: []const u8, nested: []const []const u8) bool {
     for (call.args) |a| if (exprUsesAllocParam(a, func_name, nested)) return true;
+    for (call.keyword_args) |kw| if (exprUsesAllocParam(kw.value, func_name, nested)) return true;
     if (call.func.* == .attribute) {
         if (AllocatorMethods.has(call.func.attribute.attr)) return true;
         if (call.func.attribute.value.* == .name) {
