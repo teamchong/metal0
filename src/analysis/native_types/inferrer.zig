@@ -67,6 +67,7 @@ pub const TypeInferrer = struct {
     function_call_args: FnvArgsMap, // function_name -> call arg types (for regular functions)
     ctypes_functions: hashmap_helper.StringHashMap(CTypesFuncInfo), // ctypes function tracking
     from_imports: hashmap_helper.StringHashMap([]const u8), // from-import tracking: symbol -> module (e.g., "datetime" -> "datetime")
+    annotated_functions: hashmap_helper.StringHashMap(void), // functions with explicit return type annotations (set)
 
     pub fn init(allocator: std.mem.Allocator) InferError!TypeInferrer {
         // Allocate arena on heap to avoid copy issues
@@ -87,6 +88,7 @@ pub const TypeInferrer = struct {
             .function_call_args = FnvArgsMap.init(allocator),
             .ctypes_functions = hashmap_helper.StringHashMap(CTypesFuncInfo).init(allocator),
             .from_imports = hashmap_helper.StringHashMap([]const u8).init(allocator),
+            .annotated_functions = hashmap_helper.StringHashMap(void).init(allocator),
         };
     }
 
@@ -108,6 +110,7 @@ pub const TypeInferrer = struct {
         self.function_call_args.deinit();
         self.ctypes_functions.deinit();
         self.from_imports.deinit();
+        self.annotated_functions.deinit();
 
         // Free arena and all type allocations
         const alloc = self.allocator;
@@ -246,6 +249,16 @@ pub const TypeInferrer = struct {
     /// Check if a variable has uncertain (needs PyValue) type
     pub fn isUncertain(self: *TypeInferrer, name: []const u8) bool {
         return self.getConfidence(name) == .uncertain;
+    }
+
+    /// Mark a function as having explicit return type annotation
+    pub fn markFunctionAnnotated(self: *TypeInferrer, func_name: []const u8) !void {
+        try self.annotated_functions.put(func_name, {});
+    }
+
+    /// Check if a function has explicit return type annotation
+    pub fn isFunctionAnnotated(self: *const TypeInferrer, func_name: []const u8) bool {
+        return self.annotated_functions.contains(func_name);
     }
 
     /// Degrade confidence when widening (reassignment makes type uncertain)

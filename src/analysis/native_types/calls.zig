@@ -19,6 +19,8 @@ const inferrer_mod = @import("inferrer.zig");
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
 pub const ClassInfo = core.ClassInfo;
+pub const TypeConfidence = core.TypeConfidence;
+pub const TypedValue = core.TypedValue;
 
 const hashmap_helper = @import("utils.hashmap_helper");
 const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
@@ -304,4 +306,157 @@ pub fn inferCallWithInferrer(
     }
 
     return .unknown;
+}
+
+/// Infer type from function/method call with confidence tracking
+/// Returns TypedValue with both the inferred type and confidence level
+pub fn inferCallTyped(
+    allocator: std.mem.Allocator,
+    var_types: *FnvHashMap,
+    class_fields: *FnvClassMap,
+    func_return_types: *FnvHashMap,
+    call: ast.Node.Call,
+    type_inferrer: ?*inferrer_mod.TypeInferrer,
+) InferError!TypedValue {
+    // Check if this is a direct function call by name
+    if (call.func.* == .name) {
+        const func_name = call.func.name.id;
+
+        // Check if this is a registered user-defined function
+        if (func_return_types.get(func_name)) |return_type| {
+            // User-defined function - check if it has type annotation
+            if (type_inferrer) |ti| {
+                // Check if function has explicit return type annotation
+                if (ti.isFunctionAnnotated(func_name)) {
+                    return TypedValue.certain(return_type, .annotation);
+                }
+            }
+            // User function without annotation - uncertain
+            return TypedValue.uncertain(return_type, .inferred);
+        }
+
+        // Check if this is a tracked ctypes function
+        if (type_inferrer) |ti| {
+            if (ti.ctypes_functions.get(func_name)) |ctypes_info| {
+                const ctype = ctypesToNativeType(ctypes_info.restype);
+                return TypedValue.certain(ctype, .builtin);
+            }
+
+            // Check if this is a from-imported module function
+            if (ti.from_imports.get(func_name)) |module_name| {
+                const result = try module_calls.inferModuleFunctionCall(
+                    allocator,
+                    var_types,
+                    class_fields,
+                    func_return_types,
+                    module_name,
+                    func_name,
+                );
+                if (@as(std.meta.Tag(NativeType), result) != .unknown) {
+                    return TypedValue.certain(result, .builtin);
+                }
+            }
+        }
+
+        // Try builtin call - these are always certain
+        const builtin_result = try builtin_calls.inferBuiltinCall(
+            allocator,
+            var_types,
+            class_fields,
+            func_return_types,
+            func_name,
+            call,
+            type_inferrer,
+        );
+        if (@as(std.meta.Tag(NativeType), builtin_result) != .unknown) {
+            return TypedValue.certain(builtin_result, .builtin);
+        }
+
+        // Unknown function - uncertain
+        return TypedValue.uncertain(.unknown, .inferred);
+    }
+
+    // Check if this is a method call (attribute access)
+    if (call.func.* == .attribute) {
+        const attr = call.func.attribute;
+
+        // Check for module function calls (module.function)
+        if (attr.value.* == .name) {
+            const module_name = attr.value.name.id;
+            const func_name = attr.attr;
+
+            // Builtin type class methods are certain
+            if (std.mem.eql(u8, module_name, "int") or std.mem.eql(u8, module_name, "bool") or
+                std.mem.eql(u8, module_name, "float") or std.mem.eql(u8, module_name, "str") or
+                std.mem.eql(u8, module_name, "bytes") or std.mem.eql(u8, module_name, "bytearray") or
+                std.mem.eql(u8, module_name, "dict"))
+            {
+                const result = try inferCallWithInferrer(allocator, var_types, class_fields, func_return_types, call, type_inferrer);
+                if (@as(std.meta.Tag(NativeType), result) != .unknown) {
+                    return TypedValue.certain(result, .builtin);
+                }
+            }
+
+            // Class instance method calls - uncertain for user classes
+            const var_type = var_types.get(module_name) orelse .unknown;
+            if (var_type == .class_instance) {
+                const class_name = var_type.class_instance;
+                if (class_fields.get(class_name)) |class_info| {
+                    if (class_info.methods.get(attr.attr)) |method_return_type| {
+                        // User-defined class method - uncertain unless annotated
+                        return TypedValue.uncertain(method_return_type, .inferred);
+                    }
+                }
+            }
+
+            // Module function calls from stdlib - certain
+            const result = try module_calls.inferModuleFunctionCall(
+                allocator,
+                var_types,
+                class_fields,
+                func_return_types,
+                module_name,
+                func_name,
+            );
+            if (@as(std.meta.Tag(NativeType), result) != .unknown) {
+                return TypedValue.certain(result, .builtin);
+            }
+        }
+
+        // Infer object type for method calls
+        const obj_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, attr.value.*, type_inferrer);
+
+        // ctypes CDLL function calls - certain
+        if (obj_type == .cdll) {
+            return TypedValue.certain(.usize, .builtin);
+        }
+
+        // Class instance method calls
+        if (obj_type == .class_instance) {
+            const class_name = obj_type.class_instance;
+            if (class_fields.get(class_name)) |class_info| {
+                if (class_info.methods.get(attr.attr)) |method_return_type| {
+                    return TypedValue.uncertain(method_return_type, .inferred);
+                }
+            }
+        }
+
+        // Try instance method call - stdlib methods are certain
+        const method_result = try method_calls.inferMethodCall(
+            allocator,
+            var_types,
+            class_fields,
+            func_return_types,
+            obj_type,
+            attr.attr,
+            call,
+        );
+        if (@as(std.meta.Tag(NativeType), method_result) != .unknown) {
+            // Methods on known types (list, dict, str, etc.) are certain
+            return TypedValue.certain(method_result, .builtin);
+        }
+    }
+
+    // Fall through - uncertain unknown
+    return TypedValue.uncertain(.unknown, .inferred);
 }
