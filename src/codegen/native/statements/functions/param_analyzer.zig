@@ -453,6 +453,7 @@ fn isFirstParamUsedNonUnittestInExpr(expr: ast.Node, name: []const u8) bool {
             }
             return false;
         },
+        .starred => |st| isFirstParamUsedNonUnittestInExpr(st.value.*, name),
         else => false,
     };
 }
