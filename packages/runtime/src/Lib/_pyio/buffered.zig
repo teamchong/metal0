@@ -74,7 +74,7 @@ pub const BufferedReader = struct {
     }
 
     pub fn readline(self: *Self, allocator: Allocator, limit: ?usize) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
+        var result: std.ArrayList(u8) = .{};
         const max = limit orelse std.math.maxInt(usize);
 
         while (result.items.len < max) {
@@ -87,12 +87,12 @@ pub const BufferedReader = struct {
 
             const c = self.buffer[self.buf_start];
             self.buf_start += 1;
-            try result.append(c);
+            try result.append(allocator, c);
 
             if (c == '\n') break;
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 

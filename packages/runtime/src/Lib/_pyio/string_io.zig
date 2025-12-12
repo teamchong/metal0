@@ -20,9 +20,9 @@ pub const StringIO = struct {
     allocator: Allocator,
 
     pub fn init(allocator: Allocator, initial: ?[]const u8) !Self {
-        var buffer = std.ArrayList(u8).init(allocator);
+        var buffer: std.ArrayList(u8) = .{};
         if (initial) |data| {
-            try buffer.appendSlice(data);
+            try buffer.appendSlice(allocator, data);
         }
         return Self{
             .allocator = allocator,
@@ -36,7 +36,7 @@ pub const StringIO = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     pub fn getvalue(self: *const Self) []const u8 {
@@ -54,7 +54,7 @@ pub const StringIO = struct {
     pub fn write(self: *Self, data: []const u8) !usize {
         // Extend buffer if needed
         if (self.pos + data.len > self.buffer.items.len) {
-            try self.buffer.resize(self.pos + data.len);
+            try self.buffer.resize(self.allocator, self.pos + data.len);
         }
         @memcpy(self.buffer.items[self.pos..][0..data.len], data);
         self.pos += data.len;
@@ -78,7 +78,7 @@ pub const StringIO = struct {
 
     pub fn truncate(self: *Self, size: ?usize) !void {
         const new_size = size orelse self.pos;
-        try self.buffer.resize(new_size);
+        try self.buffer.resize(self.allocator, new_size);
         if (self.pos > new_size) {
             self.pos = new_size;
         }

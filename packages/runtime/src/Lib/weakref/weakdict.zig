@@ -27,12 +27,12 @@ pub fn WeakKeyDictionary(comptime K: type, comptime V: type) type {
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .allocator = allocator,
-                .entries = std.ArrayList(Entry).init(allocator),
+                .entries = .{},
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.entries.deinit();
+            self.entries.deinit(self.allocator);
         }
 
         /// Set a value for a key (creates weak reference to key)
@@ -45,7 +45,7 @@ pub fn WeakKeyDictionary(comptime K: type, comptime V: type) type {
                 }
             }
             // Add new entry
-            try self.entries.append(.{
+            try self.entries.append(self.allocator, .{
                 .key = WeakRef(K).init(key, null),
                 .value = value,
             });
@@ -146,13 +146,13 @@ pub fn WeakValueDictionary(comptime K: type, comptime V: type) type {
 
         /// Remove all entries with dead references
         pub fn compact(self: *Self) void {
-            var to_remove = std.ArrayList(K).init(self.allocator);
-            defer to_remove.deinit();
+            var to_remove: std.ArrayList(K) = .{};
+            defer to_remove.deinit(self.allocator);
 
             var iter = self.entries.iterator();
             while (iter.next()) |entry| {
                 if (!entry.value_ptr.alive()) {
-                    to_remove.append(entry.key_ptr.*) catch continue;
+                    to_remove.append(self.allocator, entry.key_ptr.*) catch continue;
                 }
             }
 

@@ -34,7 +34,7 @@ pub const Stats = struct {
             .total_calls = 0,
             .primitive_calls = 0,
             .total_time = 0.0,
-            .sort_keys = std.ArrayList(types.SortKey).init(allocator),
+            .sort_keys = .{},
             .sort_ascending = false, // Default to descending (highest first)
             .stream = std.io.getStdOut(),
         };
@@ -53,7 +53,7 @@ pub const Stats = struct {
             entry.value_ptr.callers.deinit();
         }
         self.stats.deinit();
-        self.sort_keys.deinit();
+        self.sort_keys.deinit(self.allocator);
     }
 
     /// Load profile data from file
@@ -119,7 +119,7 @@ pub const Stats = struct {
     pub fn sortStats(self: *Self, keys: []const types.SortKey) *Self {
         self.sort_keys.clearRetainingCapacity();
         for (keys) |key| {
-            self.sort_keys.append(key) catch {};
+            self.sort_keys.append(self.allocator, key) catch {};
         }
         return self;
     }
@@ -129,7 +129,7 @@ pub const Stats = struct {
         self.sort_keys.clearRetainingCapacity();
         for (key_strings) |s| {
             if (types.SortKey.fromString(s)) |key| {
-                self.sort_keys.append(key) catch {};
+                self.sort_keys.append(self.allocator, key) catch {};
             }
         }
         return self;
@@ -182,11 +182,11 @@ pub const Stats = struct {
 
     /// Get function entries, sorted
     pub fn getTopFunctions(self: *Self, count: usize) ![]types.FuncStat {
-        var entries = std.ArrayList(types.FuncStat).init(self.allocator);
+        var entries: std.ArrayList(types.FuncStat) = .{};
 
         var it = self.stats.iterator();
         while (it.next()) |entry| {
-            try entries.append(entry.value_ptr.*);
+            try entries.append(self.allocator, entry.value_ptr.*);
         }
 
         // Sort by cumulative time

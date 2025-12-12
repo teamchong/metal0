@@ -198,8 +198,8 @@ fn deserializeResult(data: []const u8) StackValue {
 
 /// Serialize result for sending to client
 pub fn serializeResult(allocator: std.mem.Allocator, value: StackValue) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     switch (value) {
         .none => {
@@ -229,7 +229,7 @@ pub fn serializeResult(allocator: std.mem.Allocator, value: StackValue) ![]u8 {
         },
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Server for handling WASI socket connections

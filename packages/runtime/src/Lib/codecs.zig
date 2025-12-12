@@ -41,20 +41,19 @@ pub const DecodeResult = struct {
 // ============================================================================
 
 var codec_registry: ?hashmap_helper.StringHashMap(CodecInfo) = null;
-var search_functions: std.ArrayList(*const fn (name: []const u8) ?CodecInfo) = undefined;
+var search_functions: std.ArrayList(*const fn (name: []const u8) ?CodecInfo) = .{};
 var registry_initialized = false;
 
 fn initRegistry() void {
     if (registry_initialized) return;
     codec_registry = hashmap_helper.StringHashMap(CodecInfo).init(allocator_helper.fast_allocator);
-    search_functions = std.ArrayList(*const fn (name: []const u8) ?CodecInfo).init(allocator_helper.fast_allocator);
     registry_initialized = true;
 }
 
 /// Register a codec search function
 pub fn register(search_function: *const fn (name: []const u8) ?CodecInfo) !void {
     initRegistry();
-    try search_functions.append(search_function);
+    try search_functions.append(allocator_helper.fast_allocator, search_function);
 }
 
 /// Look up a codec by name
@@ -163,20 +162,20 @@ pub const IncrementalEncoder = struct {
     pub fn init(allocator: std.mem.Allocator, errors: []const u8) Self {
         return .{
             .errors = errors,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .{},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     pub fn encodeChunk(self: *Self, input: []const u8, final: bool) ![]u8 {
         _ = final;
         // Default: just copy
-        try self.buffer.appendSlice(input);
-        const result = try self.buffer.toOwnedSlice();
+        try self.buffer.appendSlice(self.allocator, input);
+        const result = try self.buffer.toOwnedSlice(self.allocator);
         return result;
     }
 
@@ -190,7 +189,7 @@ pub const IncrementalEncoder = struct {
 
     pub fn setstate(self: *Self, state: struct { buffer: []u8, state: i32 }) void {
         self.buffer.clearRetainingCapacity();
-        self.buffer.appendSlice(state.buffer) catch {};
+        self.buffer.appendSlice(self.allocator, state.buffer) catch {};
     }
 };
 
@@ -205,19 +204,19 @@ pub const IncrementalDecoder = struct {
     pub fn init(allocator: std.mem.Allocator, errors: []const u8) Self {
         return .{
             .errors = errors,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .{},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     pub fn decodeChunk(self: *Self, input: []const u8, final: bool) ![]u8 {
         _ = final;
-        try self.buffer.appendSlice(input);
-        const result = try self.buffer.toOwnedSlice();
+        try self.buffer.appendSlice(self.allocator, input);
+        const result = try self.buffer.toOwnedSlice(self.allocator);
         return result;
     }
 
@@ -231,7 +230,7 @@ pub const IncrementalDecoder = struct {
 
     pub fn setstate(self: *Self, state: struct { buffer: []u8, state: i32 }) void {
         self.buffer.clearRetainingCapacity();
-        self.buffer.appendSlice(state.buffer) catch {};
+        self.buffer.appendSlice(self.allocator, state.buffer) catch {};
     }
 };
 
@@ -269,13 +268,13 @@ pub fn StreamReader(comptime ReaderType: type) type {
         }
 
         pub fn readline(self: *Self) ![]u8 {
-            var line = std.ArrayList(u8).init(self.allocator);
+            var line: std.ArrayList(u8) = .{};
             while (true) {
                 const byte = self.reader.readByte() catch |err| {
                     if (err == error.EndOfStream) break;
                     return err;
                 };
-                try line.append(byte);
+                try line.append(self.allocator, byte);
                 if (byte == '\n') break;
             }
             return decode(self.allocator, line.items, self.encoding, self.errors);
@@ -471,15 +470,15 @@ pub fn charmapEncode(input: []const u8, errors: []const u8, mapping: ?[]const ?u
         return @constCast(input);
     }
 
-    var result = std.ArrayList(u8).init(allocator_helper.fast_allocator);
+    var result: std.ArrayList(u8) = .{};
     for (input) |c| {
         if (mapping.?[c]) |mapped| {
-            try result.append(mapped);
+            try result.append(allocator_helper.fast_allocator, mapped);
         } else {
-            try result.append(c);
+            try result.append(allocator_helper.fast_allocator, c);
         }
     }
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator_helper.fast_allocator);
 }
 
 /// Create a charmap decoder
@@ -489,17 +488,17 @@ pub fn charmapDecode(input: []const u8, errors: []const u8, mapping: ?[]const ?u
         return @constCast(input);
     }
 
-    var result = std.ArrayList(u8).init(allocator_helper.fast_allocator);
+    var result: std.ArrayList(u8) = .{};
     for (input) |c| {
         if (mapping.?[c]) |codepoint| {
             var buf: [4]u8 = undefined;
             const len = std.unicode.utf8Encode(codepoint, &buf) catch continue;
-            try result.appendSlice(buf[0..len]);
+            try result.appendSlice(allocator_helper.fast_allocator, buf[0..len]);
         } else {
-            try result.append(c);
+            try result.append(allocator_helper.fast_allocator, c);
         }
     }
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator_helper.fast_allocator);
 }
 
 // ============================================================================

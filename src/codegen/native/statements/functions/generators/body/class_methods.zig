@@ -402,8 +402,8 @@ pub fn genInitMethod(
 
     // Track renamed parameters: original name -> renamed name
     const RenamedParam = struct { original: []const u8, renamed: []const u8 };
-    var renamed_params = std.ArrayList(RenamedParam).init(self.allocator);
-    defer renamed_params.deinit();
+    var renamed_params: std.ArrayList(RenamedParam) = .{};
+    defer renamed_params.deinit(self.allocator);
 
     // Parameters (skip 'self')
     for (init_def.args) |arg| {
@@ -446,7 +446,7 @@ pub fn genInitMethod(
             try self.emit(renamed);
             try self.emit(": ");
             // Track for var_renames setup later (store both original and renamed)
-            try renamed_params.append(.{ .original = arg.name, .renamed = renamed });
+            try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed });
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
             try self.emit(": ");

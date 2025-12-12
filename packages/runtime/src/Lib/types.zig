@@ -254,25 +254,25 @@ pub const SimpleNamespace = struct {
     }
 
     pub fn repr(self: Self, allocator: std.mem.Allocator) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(allocator);
 
-        try result.appendSlice("namespace(");
+        try result.appendSlice(allocator, "namespace(");
         var first = true;
         var iter = self.attrs.iterator();
         while (iter.next()) |entry| {
             if (!first) {
-                try result.appendSlice(", ");
+                try result.appendSlice(allocator, ", ");
             }
             first = false;
-            try result.appendSlice(entry.key_ptr.*);
-            try result.appendSlice("='");
-            try result.appendSlice(entry.value_ptr.*);
-            try result.append('\'');
+            try result.appendSlice(allocator, entry.key_ptr.*);
+            try result.appendSlice(allocator, "='");
+            try result.appendSlice(allocator, entry.value_ptr.*);
+            try result.append(allocator, '\'');
         }
-        try result.append(')');
+        try result.append(allocator, ')');
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 

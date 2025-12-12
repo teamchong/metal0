@@ -10,8 +10,8 @@ const Opcode = opcode_mod.Opcode;
 
 /// Find labels (jump targets) in bytecode
 pub fn findlabels(code: []const u8) ![]usize {
-    var labels = std.ArrayList(usize).init(allocator_helper.fast_allocator);
-    defer labels.deinit();
+    var labels: std.ArrayList(usize) = .{};
+    errdefer labels.deinit(allocator_helper.fast_allocator);
 
     var offset: usize = 0;
     while (offset < code.len) {
@@ -24,14 +24,14 @@ pub fn findlabels(code: []const u8) ![]usize {
                     offset + 2 + arg
                 else
                     arg;
-                try labels.append(target);
+                try labels.append(allocator_helper.fast_allocator, target);
             }
         }
 
         offset += if (opcode.hasArg()) @as(usize, 2) else @as(usize, 1);
     }
 
-    return labels.toOwnedSlice();
+    return labels.toOwnedSlice(allocator_helper.fast_allocator);
 }
 
 /// Find line starts in bytecode

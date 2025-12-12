@@ -179,13 +179,13 @@ pub const WasiBindings = struct {
     pub fn init(allocator: std.mem.Allocator) WasiBindings {
         return .{
             .capabilities = std.EnumSet(WasiCapability).initEmpty(),
-            .functions = std.ArrayList(WasiFunction).init(allocator),
+            .functions = .{},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *WasiBindings) void {
-        self.functions.deinit();
+        self.functions.deinit(self.allocator);
     }
 
     pub fn hasCapability(self: *const WasiBindings, cap: WasiCapability) bool {
@@ -194,15 +194,15 @@ pub const WasiBindings = struct {
 
     pub fn addFunction(self: *WasiBindings, func: WasiFunction) !void {
         self.capabilities.insert(func.capability);
-        try self.functions.append(func);
+        try self.functions.append(self.allocator, func);
     }
 };
 
 /// Generate Zig externs for WASI imports
 pub fn generateZigExterns(allocator: std.mem.Allocator, bindings: *const WasiBindings) ![]const u8 {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
-    const w = output.writer();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
+    const w = output.writer(allocator);
 
     try w.writeAll(
         \\// Auto-generated WASI imports by metal0
@@ -257,14 +257,14 @@ pub fn generateZigExterns(allocator: std.mem.Allocator, bindings: *const WasiBin
         \\
     );
 
-    return output.toOwnedSlice();
+    return output.toOwnedSlice(allocator);
 }
 
 /// Generate capability manifest for WASI runtime
 pub fn generateCapabilityManifest(allocator: std.mem.Allocator, bindings: *const WasiBindings) ![]const u8 {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
-    const w = output.writer();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
+    const w = output.writer(allocator);
 
     try w.writeAll(
         \\# WASI Capability Manifest
@@ -298,7 +298,7 @@ pub fn generateCapabilityManifest(allocator: std.mem.Allocator, bindings: *const
         try w.writeAll("# wasmedge --enable-wasi-socket module.wasm\n");
     }
 
-    return output.toOwnedSlice();
+    return output.toOwnedSlice(allocator);
 }
 
 test "WasiType.toZigType" {

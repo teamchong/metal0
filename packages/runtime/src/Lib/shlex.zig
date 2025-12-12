@@ -57,8 +57,8 @@ pub const Shlex = struct {
             .posix = posix,
             .punctuation_chars = punctuation_chars orelse "",
             .state = ' ',
-            .pushback = std.ArrayList([]const u8).init(allocator),
-            .token = std.ArrayList(u8).init(allocator),
+            .pushback = .{},
+            .token = .{},
             .infile = null,
             .lineno = 1,
             .debug = 0,
@@ -74,13 +74,13 @@ pub const Shlex = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.pushback.deinit();
-        self.token.deinit();
+        self.pushback.deinit(self.allocator);
+        self.token.deinit(self.allocator);
     }
 
     /// Push a token back on the stack
     pub fn pushToken(self: *Self, tok: []const u8) !void {
-        try self.pushback.append(tok);
+        try self.pushback.append(self.allocator, tok);
     }
 
     /// Get the next input character
@@ -147,21 +147,21 @@ pub const Shlex = struct {
                     escapedstate = 'a';
                     self.state = c;
                 } else if (inStr(self.wordchars, c)) {
-                    try self.token.append(c);
+                    try self.token.append(self.allocator, c);
                     self.state = 'a';
                 } else if (inStr(self.quotes, c)) {
                     if (!self.posix) {
-                        try self.token.append(c);
+                        try self.token.append(self.allocator, c);
                     }
                     self.state = c;
                 } else if (self.whitespace_split) {
-                    try self.token.append(c);
+                    try self.token.append(self.allocator, c);
                     self.state = 'a';
                 } else if (inStr(self.punctuation_chars, c)) {
-                    try self.token.append(c);
+                    try self.token.append(self.allocator, c);
                     self.state = 'c';
                 } else {
-                    try self.token.append(c);
+                    try self.token.append(self.allocator, c);
                     if (self.token.items.len > 0 or (self.posix and quoted)) {
                         break;
                     }
@@ -169,7 +169,7 @@ pub const Shlex = struct {
             } else if (self.state.? == 'c') {
                 // Punctuation state
                 if (inStr(self.punctuation_chars, c)) {
-                    try self.token.append(c);
+                    try self.token.append(self.allocator, c);
                 } else {
                     if (!inStr(self.whitespace, c)) {
                         self.pos -= 1; // Push back
@@ -182,7 +182,7 @@ pub const Shlex = struct {
                 quoted = true;
                 if (c == self.state.?) {
                     if (!self.posix) {
-                        try self.token.append(c);
+                        try self.token.append(self.allocator, c);
                         self.state = ' ';
                         break;
                     } else {
@@ -192,14 +192,14 @@ pub const Shlex = struct {
                     escapedstate = self.state;
                     self.state = c;
                 } else {
-                    try self.token.append(c);
+                    try self.token.append(self.allocator, c);
                 }
             } else if (inStr(self.escape, self.state.?)) {
                 // Escape state
                 if (inStr(self.quotes, escapedstate orelse 0) and c != self.state.? and c != escapedstate.?) {
-                    try self.token.append(self.state.?);
+                    try self.token.append(self.allocator, self.state.?);
                 }
-                try self.token.append(c);
+                try self.token.append(self.allocator, c);
                 self.state = escapedstate;
             } else if (self.state.? == 'a') {
                 // Word state
@@ -225,7 +225,7 @@ pub const Shlex = struct {
                     escapedstate = 'a';
                     self.state = c;
                 } else if (inStr(self.wordchars, c) or inStr(self.quotes, c) or (self.whitespace_split and !inStr(self.punctuation_chars, c))) {
-                    try self.token.append(c);
+                    try self.token.append(self.allocator, c);
                 } else if (inStr(self.punctuation_chars, c)) {
                     self.pos -= 1; // Push back
                     self.state = ' ';
@@ -270,19 +270,19 @@ pub const Shlex = struct {
             lex.commenters = "";
         }
 
-        var result = std.ArrayList([]const u8).init(allocator);
+        var result: std.ArrayList([]const u8) = .{};
         errdefer {
             for (result.items) |item| {
                 allocator.free(item);
             }
-            result.deinit();
+            result.deinit(allocator);
         }
 
         while (try lex.getToken()) |tok| {
-            try result.append(tok);
+            try result.append(allocator, tok);
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 
@@ -315,37 +315,37 @@ pub fn quote(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
     }
 
     // Use single quotes, escaping any existing single quotes
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
-    try result.append('\'');
+    try result.append(allocator, '\'');
     for (s) |c| {
         if (c == '\'') {
-            try result.appendSlice("'\"'\"'");
+            try result.appendSlice(allocator, "'\"'\"'");
         } else {
-            try result.append(c);
+            try result.append(allocator, c);
         }
     }
-    try result.append('\'');
+    try result.append(allocator, '\'');
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Join a list of words into a shell command
 pub fn join(allocator: std.mem.Allocator, split_command: []const []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     for (split_command, 0..) |word, i| {
         if (i > 0) {
-            try result.append(' ');
+            try result.append(allocator, ' ');
         }
         const quoted = try quote(allocator, word);
         defer allocator.free(quoted);
-        try result.appendSlice(quoted);
+        try result.appendSlice(allocator, quoted);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================

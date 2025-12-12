@@ -131,14 +131,14 @@ pub const Scheduler = struct {
         self.lock.lock();
         defer self.lock.unlock();
 
-        var result = std.ArrayList(Event).init(self.allocator);
+        var result: std.ArrayList(Event) = .{};
 
         // Copy queue contents
         var temp_queue = EventQueue.init(self.allocator, {});
         defer temp_queue.deinit();
 
         while (self.queue.removeOrNull()) |e| {
-            try result.append(e);
+            try result.append(self.allocator, e);
             try temp_queue.add(e);
         }
 
@@ -147,7 +147,7 @@ pub const Scheduler = struct {
             self.queue.add(e) catch {};
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Run scheduled events

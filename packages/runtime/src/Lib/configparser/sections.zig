@@ -31,11 +31,11 @@ pub fn removeSection(parser: anytype, section: []const u8) bool {
 
 /// Get all section names
 pub fn getSections(parser: anytype) ![][]const u8 {
-    var result = std.ArrayList([]const u8).init(parser.allocator);
+    var result: std.ArrayList([]const u8) = .{};
     for (parser.sections.keys()) |key| {
-        try result.append(key);
+        try result.append(parser.allocator, key);
     }
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(parser.allocator);
 }
 
 /// Clear all sections and options

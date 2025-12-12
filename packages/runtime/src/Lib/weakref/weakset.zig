@@ -22,12 +22,12 @@ pub fn WeakSet(comptime T: type) type {
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .allocator = allocator,
-                .items = std.ArrayList(WeakT).init(allocator),
+                .items = .{},
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.items.deinit();
+            self.items.deinit(self.allocator);
         }
 
         /// Add an item to the set
@@ -38,7 +38,7 @@ pub fn WeakSet(comptime T: type) type {
                     return;
                 }
             }
-            try self.items.append(WeakRef(T).init(item, null));
+            try self.items.append(self.allocator, WeakRef(T).init(item, null));
         }
 
         /// Remove an item from the set
