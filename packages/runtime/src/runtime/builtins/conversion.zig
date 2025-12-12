@@ -195,31 +195,35 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
         // Use duck-typing: check if it's a tagged union with int/bigint fields
         const first_info = @typeInfo(FirstT);
         if (first_info == .@"union" and first_info.@"union".tag_type != null) {
-            // Check for .int field - use switch for proper tagged union access
+            // Get the active tag at runtime
+            const active_tag = @intFromEnum(first);
+
+            // Find the int field index and check if active
             if (@hasField(FirstT, "int")) {
-                switch (first) {
-                    .int => |v| break :blk @intCast(v),
-                    else => {},
+                const int_idx = @intFromEnum(@field(std.meta.FieldEnum(FirstT), "int"));
+                if (active_tag == int_idx) {
+                    break :blk @intCast(first.int);
                 }
             }
-            // Check for .bigint field
+
+            // Find the bigint field index and check if active
             if (@hasField(FirstT, "bigint")) {
-                switch (first) {
-                    .bigint => |bi| {
-                        // For BigInt, try to convert to i32 if it fits
-                        if (bi.toInt(i32)) |val| {
-                            break :blk val;
-                        } else |_| {
-                            // BigInt is too large for ndigits, use extreme value
-                            // Check if negative (very small n) or positive (very large n)
-                            if (bi.isNegative()) {
-                                break :blk -1000; // Will trigger early return for 0.0
-                            } else {
-                                break :blk 1000; // Will trigger early return for original value
-                            }
+                const bigint_idx = @intFromEnum(@field(std.meta.FieldEnum(FirstT), "bigint"));
+                if (active_tag == bigint_idx) {
+                    // Use pointer to avoid copying BigInt (contains allocator ref)
+                    const bi_ptr = &first.bigint;
+                    // For BigInt, try to convert to i32 if it fits
+                    if (bi_ptr.toInt(i32)) |val| {
+                        break :blk val;
+                    } else |_| {
+                        // BigInt is too large for ndigits, use extreme value
+                        // Check if negative (very small n) or positive (very large n)
+                        if (bi_ptr.isNegative()) {
+                            break :blk -1000; // Will trigger early return for 0.0
+                        } else {
+                            break :blk 1000; // Will trigger early return for original value
                         }
-                    },
-                    else => {},
+                    }
                 }
             }
         }
@@ -239,7 +243,7 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
     }
 
     // For very large positive ndigits, the multiplier overflows to inf
-    // but the division brings it back, so we can still compute correctly
+    // For subnormal floats, we need two-step scaling to avoid overflow
     const multiplier = std.math.pow(f64, 10.0, @floatFromInt(ndigits));
 
     // Guard against multiplier underflow to 0
@@ -247,10 +251,37 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
         return if (float_val < 0) -0.0 else 0.0;
     }
 
-    // If multiplier is inf, the result is the original value
-    // (any finite * inf that rounds stays infinite, infinite / inf = same sign finite)
+    // If multiplier is inf, use two-step scaling for subnormal floats
+    // e.g., round(1.4e-315, 315) needs special handling
     if (std.math.isInf(multiplier)) {
-        // For very large ndigits, rounding has no effect on finite numbers
+        // Check if value is subnormal or very small (abs < 1e-300)
+        const abs_val = @abs(float_val);
+        if (abs_val > 0 and abs_val < 1e-300) {
+            // Two-step scaling: first bring to normal range, then apply remaining
+            const partial_scale: i32 = 307; // Safe scale that won't overflow
+            const partial_mult = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(partial_scale)));
+            const intermediate = float_val * partial_mult;
+
+            const remaining_ndigits = ndigits - partial_scale;
+            // Only proceed if remaining_ndigits is within safe bounds (0-308)
+            // If remaining_ndigits > 308, final_mult would overflow to inf
+            // and we'd get nan from inf/inf - just return original value
+            if (remaining_ndigits >= 0 and remaining_ndigits <= 308) {
+                const final_mult = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(remaining_ndigits)));
+                const scaled_two_step = intermediate * final_mult;
+                const rounded_two_step = bankersRound(scaled_two_step);
+                const result_two_step = rounded_two_step / final_mult / partial_mult;
+
+                // Preserve sign of input when result is zero
+                if (result_two_step == 0.0 and std.math.signbit(float_val)) {
+                    return -0.0;
+                }
+                return result_two_step;
+            }
+            // remaining_ndigits out of bounds - rounding has no effect
+            return float_val;
+        }
+        // For normal values with very large ndigits, rounding has no effect
         return float_val;
     }
 

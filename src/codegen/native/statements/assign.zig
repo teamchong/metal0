@@ -35,29 +35,17 @@ fn isBigIntExpression(expr: ast.Node) bool {
         }
     }
     // Pow operator (2**100) produces BigInt when result would overflow
-    // The genExpr for Pow uses BigInt.pow() which returns BigInt
+    // The genExpr for Pow uses BigInt.pow() when exp >= 20 (see arithmetic.zig:1013)
     if (expr == .binop and expr.binop.op == .Pow) {
         const rhs = expr.binop.right.*;
         // If RHS is not a small constant, pow produces BigInt
         if (rhs != .constant or rhs.constant.value != .int) {
             return true;
         }
-        // Even small bases with large exponents overflow
-        // e.g., 2**100 overflows i64
-        if (rhs.constant.value.int >= 63) {
+        // Codegen uses BigInt for any exponent >= 20 (see arithmetic.zig:1013)
+        // Must match the threshold used in codegen to avoid type mismatch
+        if (rhs.constant.value.int >= 20) {
             return true;
-        }
-        // Check if base is also small - 2**10 fits in i64, but 2**100 doesn't
-        const lhs = expr.binop.left.*;
-        if (lhs == .constant and lhs.constant.value == .int) {
-            const base = lhs.constant.value.int;
-            const exp = rhs.constant.value.int;
-            // Rough check: if base^exp would overflow i64
-            // log2(base^exp) = exp * log2(base), overflow if > 63
-            if (base >= 2 and exp >= 63) return true;
-            if (base >= 4 and exp >= 32) return true;
-            if (base >= 16 and exp >= 16) return true;
-            if (base >= 256 and exp >= 8) return true;
         }
     }
     // int() call with non-literal argument could produce BigInt
