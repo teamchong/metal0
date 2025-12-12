@@ -496,11 +496,11 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (arg_type == .pyvalue) {
         const set_label = self.block_label_counter;
         self.block_label_counter += 1;
-        // PyValue.list is []const PyValue - iterate and build set
+        // PyValue.list is *ArrayListUnmanaged(PyValue) - iterate items and build set
         try self.emitFmt("set_pyval_{d}: {{\n", .{set_label});
         try self.emit("const __pyval_iter = ");
         try self.genExpr(args[0]);
-        try self.emit(".list;\n"); // Extract list from PyValue
+        try self.emit(".list.items;\n"); // Extract items slice from PyValue.list pointer
         try self.emitFmt("var _set = std.AutoHashMap(runtime.PyValue, void).init({s});\n", .{alloc_name});
         try self.emit("for (__pyval_iter) |_item| {\n");
         try self.emit("try _set.put(_item, {});\n");

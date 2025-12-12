@@ -643,7 +643,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     try self.emitFmt("pyslice_{d}: {{ const __pv = ", .{label_id});
                     try genExpr(self, subscript.value.*);
                     // Extract items from PyValue (list or tuple)
-                    try self.emit("; const __items = switch (__pv) { .list => |l| l, .tuple => |t| t, else => &[_]runtime.PyValue{} }");
+                    try self.emit("; const __items = switch (__pv) { .list => |l| l.items, .tuple => |t| t, else => &[_]runtime.PyValue{} }");
                     try self.emitFmt("; break :pyslice_{d} (try runtime.slice_ops.sliceWithStep(runtime.PyValue, __global_allocator, __items, ", .{label_id});
 
                     // Start

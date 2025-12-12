@@ -350,8 +350,12 @@ pub fn pyListAppend(allocator: std.mem.Allocator, list_ptr: anytype, item: anyty
     if (info == .@"struct" and @hasField(T, "items") and @hasDecl(T, "append")) {
         // ArrayList - use standard append
         list_ptr.append(allocator, item) catch {};
+    } else if (T == PyValue) {
+        // PyValue.list is *ArrayListUnmanaged(PyValue) - can mutate via pointer
+        if (list_ptr.* == .list) {
+            list_ptr.list.append(allocator, PyValue.from(item)) catch {};
+        }
     }
-    // For PyValue.list (slice) - we can't mutate, no-op safety net
 }
 
 /// Extend a list with items from another (handles both ArrayList and PyValue.list)
@@ -370,8 +374,20 @@ pub fn pyListExtend(allocator: std.mem.Allocator, list_ptr: anytype, other: anyt
         } else if (other_info == .pointer and other_info.pointer.size == .Slice) {
             list_ptr.appendSlice(allocator, other) catch {};
         }
+    } else if (T == PyValue) {
+        // PyValue.list is *ArrayListUnmanaged(PyValue) - can mutate via pointer
+        if (list_ptr.* == .list) {
+            const OtherT = @TypeOf(other);
+            const other_info = @typeInfo(OtherT);
+            if (OtherT == PyValue and other == .list) {
+                list_ptr.list.appendSlice(allocator, other.list.items) catch {};
+            } else if (other_info == .pointer and other_info.pointer.size == .Slice) {
+                for (other) |item| {
+                    list_ptr.list.append(allocator, PyValue.from(item)) catch {};
+                }
+            }
+        }
     }
-    // For PyValue.list (slice) - we can't mutate, no-op safety net
 }
 
 /// Insert item at index in a list (handles both ArrayList and PyValue.list)

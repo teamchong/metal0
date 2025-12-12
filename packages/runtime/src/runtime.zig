@@ -537,34 +537,54 @@ pub fn pyObjectToList(obj: *PyObject) PyValue {
     const cast = pyobject_cast.cast;
     const Static = struct {
         threadlocal var buffer: [64]PyValue = undefined;
+        threadlocal var small_list: std.ArrayListUnmanaged(PyValue) = .{};
+        threadlocal var empty_list: std.ArrayListUnmanaged(PyValue) = .{};
     };
 
     if (PyList_Check(obj)) {
         const list_obj = cast(PyListObject, obj);
         const size = list_obj.ob_base.ob_size;
-        if (size <= 0 or list_obj.ob_item == null) return .{ .list = &[_]PyValue{} };
-        return convertItemsToValue(list_obj.ob_item.?, @intCast(size), &Static.buffer);
+        if (size <= 0 or list_obj.ob_item == null) return .{ .list = &Static.empty_list };
+        return convertItemsToValue(list_obj.ob_item.?, @intCast(size), &Static.buffer, &Static.small_list);
     }
     if (PyTuple_Check(obj)) {
         const tuple_obj = cast(PyTupleObject, obj);
         const size = tuple_obj.ob_base.ob_size;
-        if (size <= 0) return .{ .list = &[_]PyValue{} };
-        return convertItemsToValue(@ptrCast(&tuple_obj.ob_item), @intCast(size), &Static.buffer);
+        if (size <= 0) return .{ .list = &Static.empty_list };
+        return convertItemsToValue(@ptrCast(&tuple_obj.ob_item), @intCast(size), &Static.buffer, &Static.small_list);
     }
-    return .{ .list = &[_]PyValue{} };
+    return .{ .list = &Static.empty_list };
 }
 
-fn convertItemsToValue(items: [*]*PyObject, count: usize, buffer: *[64]PyValue) PyValue {
+fn convertItemsToValue(items: [*]*PyObject, count: usize, buffer: *[64]PyValue, small_list: *std.ArrayListUnmanaged(PyValue)) PyValue {
     if (count <= 64) {
         for (0..count) |i| buffer[i] = pyObjectToPyValue(items[i]);
-        return .{ .list = buffer[0..count] };
+        // Point small_list.items to the static buffer slice
+        small_list.items.ptr = buffer;
+        small_list.items.len = count;
+        small_list.capacity = count;
+        return .{ .list = small_list };
     }
-    const heap_buffer = std.heap.c_allocator.alloc(PyValue, count) catch {
+    // For large lists, allocate both the ArrayList and items on heap
+    const list_ptr = std.heap.c_allocator.create(std.ArrayListUnmanaged(PyValue)) catch {
+        // Fallback: use buffer for first 64 elements
         for (0..64) |i| buffer[i] = pyObjectToPyValue(items[i]);
-        return .{ .list = buffer[0..64] };
+        small_list.items.ptr = buffer;
+        small_list.items.len = 64;
+        small_list.capacity = 64;
+        return .{ .list = small_list };
+    };
+    const heap_buffer = std.heap.c_allocator.alloc(PyValue, count) catch {
+        std.heap.c_allocator.destroy(list_ptr);
+        for (0..64) |i| buffer[i] = pyObjectToPyValue(items[i]);
+        small_list.items.ptr = buffer;
+        small_list.items.len = 64;
+        small_list.capacity = 64;
+        return .{ .list = small_list };
     };
     for (0..count) |i| heap_buffer[i] = pyObjectToPyValue(items[i]);
-    return .{ .list = heap_buffer };
+    list_ptr.* = .{ .items = heap_buffer, .capacity = count };
+    return .{ .list = list_ptr };
 }
 
 /// Convert a single PyObject to PyValue

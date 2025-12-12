@@ -36,6 +36,16 @@ pub const PyValue = union(enum) {
         return .{ .list = al };
     }
 
+    /// Static empty list for compile-time defaults (threadlocal, no allocation needed)
+    /// Use this for default initializers where allocator isn't available
+    const StaticEmpty = struct {
+        threadlocal var empty_list: std.ArrayListUnmanaged(PyValue) = .{};
+    };
+
+    pub fn staticEmptyList() PyValue {
+        return .{ .list = &StaticEmpty.empty_list };
+    }
+
     /// Set element at index in list (for list[i] = val)
     pub fn pyListSet(self: PyValue, idx: usize, value: PyValue) void {
         if (self == .list) {

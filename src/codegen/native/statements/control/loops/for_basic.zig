@@ -1099,8 +1099,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     }
 
     // TWO-FLOW: Handle PyValue iteration (uncertain types)
-    // PyValue.list is []const PyValue (a slice), not ArrayList
-    // So we iterate directly over the slice without .items accessor
+    // PyValue.list is *ArrayListUnmanaged(PyValue) - need .items to get slice
+    // For iteration, extract items from the ArrayList pointer
     if (iter_type == .pyvalue) {
         // Generate: for (iter.list) |item| { ... } or runtime dispatch
         const label_id = self.block_label_counter;
@@ -1119,7 +1119,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 "const T = @TypeOf(__pyval_{d}); " ++
                 "const info = @typeInfo(T); " ++
                 "break :blk if (info == .pointer and info.pointer.size == .slice) __pyval_{d} " ++
-                "else if (info == .@\"struct\" and @hasField(T, \"list\")) __pyval_{d}.list " ++
+                "else if (info == .@\"struct\" and @hasField(T, \"list\")) __pyval_{d}.list.items " ++
                 "else if (info == .@\"struct\" and @hasField(T, \"items\")) __pyval_{d}.items " ++
                 "else __pyval_{d}; }};\n",
             .{ label_id, label_id, label_id, label_id, label_id, label_id },

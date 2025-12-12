@@ -44,8 +44,11 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
         .Add => {
             // String/bytes concatenation
             if (string_traits.canConcat(left, right)) return string_traits.getConcatResultType(left, right) orelse .unknown;
-            // List concatenation: list + list → pyvalue (concatRuntime returns PyValue)
-            if (container_traits.isList(left) and container_traits.isList(right)) return .pyvalue;
+            // List/array concatenation: list/array + list/array → pyvalue (concatRuntime returns PyValue)
+            // Note: Both .list and .array types use concatRuntime when variables are involved
+            const left_is_listlike = container_traits.isList(left) or left_tag == .array;
+            const right_is_listlike = container_traits.isList(right) or right_tag == .array;
+            if (left_is_listlike and right_is_listlike) return .pyvalue;
             // UnifiedInt propagation (unified_int preserves ability to hold small or big)
             if (left_is_unified or right_is_unified) return .unified_int;
             // BigInt propagation
@@ -73,9 +76,11 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             // String/bytes repetition
             if (string_traits.canRepeat(left) and isIntegral(right)) return string_traits.getRepeatResultType(left) orelse .unknown;
             if (string_traits.canRepeat(right) and isIntegral(left)) return string_traits.getRepeatResultType(right) orelse .unknown;
-            // List repetition: list * int → pyvalue (repeatRuntime returns PyValue)
-            if (container_traits.isList(left) and isIntegral(right)) return .pyvalue;
-            if (container_traits.isList(right) and isIntegral(left)) return .pyvalue;
+            // List/array repetition: list/array * int → pyvalue (repeatRuntime returns PyValue)
+            const left_is_listlike = container_traits.isList(left) or left_tag == .array;
+            const right_is_listlike = container_traits.isList(right) or right_tag == .array;
+            if (left_is_listlike and isIntegral(right)) return .pyvalue;
+            if (right_is_listlike and isIntegral(left)) return .pyvalue;
             // UnifiedInt propagation
             if (left_is_unified or right_is_unified) return .unified_int;
             // BigInt propagation

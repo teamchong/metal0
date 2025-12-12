@@ -20,7 +20,7 @@ pub fn concatRuntime(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyVa
     const a_is_pyvalue = @typeInfo(AType) == .@"union" and @hasField(AType, "list");
     const a_is_arraylist = @typeInfo(AType) == .@"struct" and @hasField(AType, "items") and @hasField(AType, "capacity");
     if (a_is_pyvalue) {
-        const a_list = if (a == .list) a.list else if (a == .tuple) a.tuple else &[_]PyValue{};
+        const a_list = if (a == .list) a.list.items else if (a == .tuple) a.tuple else &[_]PyValue{};
         try result.appendSlice(allocator, a_list);
     } else if (a_is_arraylist) {
         // ArrayList - iterate over items and convert each to PyValue
@@ -39,7 +39,7 @@ pub fn concatRuntime(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyVa
     const b_is_pyvalue = @typeInfo(BType) == .@"union" and @hasField(BType, "list");
     const b_is_arraylist = @typeInfo(BType) == .@"struct" and @hasField(BType, "items") and @hasField(BType, "capacity");
     if (b_is_pyvalue) {
-        const b_list = if (b == .list) b.list else if (b == .tuple) b.tuple else &[_]PyValue{};
+        const b_list = if (b == .list) b.list.items else if (b == .tuple) b.tuple else &[_]PyValue{};
         try result.appendSlice(allocator, b_list);
     } else if (b_is_arraylist) {
         // ArrayList - iterate over items and convert each to PyValue
@@ -53,7 +53,7 @@ pub fn concatRuntime(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyVa
         }
     }
 
-    return PyValue{ .list = result.items };
+    return try PyValue.listFromSlice(allocator, result.items);
 }
 
 /// Python list repetition: [1, 2] * 3 = [1, 2, 1, 2, 1, 2]
@@ -72,7 +72,7 @@ pub fn repeatRuntime(allocator: std.mem.Allocator, a: anytype, n: anytype) !PyVa
     // Repeat n times
     for (0..count) |_| {
         if (a_is_pyvalue) {
-            const a_list = if (a == .list) a.list else if (a == .tuple) a.tuple else &[_]PyValue{};
+            const a_list = if (a == .list) a.list.items else if (a == .tuple) a.tuple else &[_]PyValue{};
             try result.appendSlice(allocator, a_list);
         } else if (a_is_arraylist) {
             for (a.items) |item| {
@@ -86,7 +86,7 @@ pub fn repeatRuntime(allocator: std.mem.Allocator, a: anytype, n: anytype) !PyVa
         }
     }
 
-    return PyValue{ .list = result.items };
+    return try PyValue.listFromSlice(allocator, result.items);
 }
 
 /// Repeat an array n times - returns a new array with elements repeated

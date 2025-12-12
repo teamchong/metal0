@@ -404,6 +404,11 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             // but in Zig the function is already defined so we skip hoisting
             if (self.module_level_funcs.contains(v.name)) continue;
 
+            // Skip variables that are renamed parameters (e.g., d -> __m2_p_d)
+            // The parameter was renamed to avoid shadowing, but the Python code still
+            // uses the original name. We should not create a new var for the original name.
+            if (self.var_renames.contains(v.name)) continue;
+
             // Skip function aliases - the assignment value is a module-level function
             // e.g., `permutations = rpermutation` - rpermutation is already a function
             if (v.node == .name) {

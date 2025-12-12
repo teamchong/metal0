@@ -46,11 +46,11 @@ const builtin_bases = std.StaticStringMap(B).initComptime(.{
     } } },
     // dict subclass - stores the dict value as PyValue (caller passes PyValue from fromAlloc)
     .{ "dict", B{ .zig_type = "runtime.PyValue", .zig_init = "__value", .init_args = &[_]A{
-        .{ .name = "__value", .zig_type = "runtime.PyValue", .default = ".{ .list = &[_]runtime.PyValue{} }" },
+        .{ .name = "__value", .zig_type = "runtime.PyValue", .default = "runtime.PyValue.staticEmptyList()" },
     } } },
     // list subclass - stores the list value as PyValue (caller passes PyValue from fromAlloc)
     .{ "list", B{ .zig_type = "runtime.PyValue", .zig_init = "__value", .init_args = &[_]A{
-        .{ .name = "__value", .zig_type = "runtime.PyValue", .default = ".{ .list = &[_]runtime.PyValue{} }" },
+        .{ .name = "__value", .zig_type = "runtime.PyValue", .default = "runtime.PyValue.staticEmptyList()" },
     } } },
     // tuple subclass - stores the tuple value as PyValue (caller passes PyValue from fromAlloc)
     .{ "tuple", B{ .zig_type = "runtime.PyValue", .zig_init = "__value", .init_args = &[_]A{
@@ -58,7 +58,7 @@ const builtin_bases = std.StaticStringMap(B).initComptime(.{
     } } },
     // set subclass - stores the set value as PyValue (caller passes PyValue from fromAlloc)
     .{ "set", B{ .zig_type = "runtime.PyValue", .zig_init = "__value", .init_args = &[_]A{
-        .{ .name = "__value", .zig_type = "runtime.PyValue", .default = ".{ .list = &[_]runtime.PyValue{} }" },
+        .{ .name = "__value", .zig_type = "runtime.PyValue", .default = "runtime.PyValue.staticEmptyList()" },
     } } },
 });
 

@@ -401,12 +401,15 @@ pub fn genInitMethod(
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
 
     // Track renamed parameters: original name -> renamed name
-    const RenamedParam = struct { original: []const u8, renamed: []const u8 };
+    // needs_mutable_copy: true if param is reassigned in body, needs a mutable local copy
+    const RenamedParam = struct { original: []const u8, renamed: []const u8, needs_mutable_copy: bool };
     var renamed_params: std.ArrayList(RenamedParam) = .{};
     defer {
-        // Clean up var_renames for renamed params (must happen after function body generated)
+        // Clean up var_renames for renamed params (only those that were put in var_renames)
         for (renamed_params.items) |entry| {
-            _ = self.var_renames.swapRemove(entry.original);
+            if (!entry.needs_mutable_copy) {
+                _ = self.var_renames.swapRemove(entry.original);
+            }
         }
         renamed_params.deinit(self.allocator);
     }
@@ -446,7 +449,9 @@ pub fn genInitMethod(
             try self.emit(renamed);
             try self.emit(": ");
             // Track for var_renames setup later (store both original and renamed)
-            try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed });
+            // If param is reassigned in body, we'll create a mutable copy instead
+            // of putting in var_renames. This allows: var d = __m2_p_d; d = {};
+            try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed, .needs_mutable_copy = shadows_local_assign });
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
             try self.emit(": ");
@@ -489,14 +494,35 @@ pub fn genInitMethod(
 
     // Add var_renames for parameters that were renamed to avoid shadowing
     // Use the same renamed name from signature generation
+    // Skip params with needs_mutable_copy - they get a mutable local copy instead
     for (renamed_params.items) |entry| {
-        try self.var_renames.put(entry.original, entry.renamed);
+        if (!entry.needs_mutable_copy) {
+            try self.var_renames.put(entry.original, entry.renamed);
+        }
     }
 
     // Analyze local variable uses BEFORE generating code
     // This ensures variables like `g = gcd(...)` that are used in field assignments
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
     try usage_analysis.analyzeFunctionLocalUses(self, init_def);
+
+    // Generate mutable local copies for params that are reassigned in the body
+    // e.g., def __init__(self, d=None): if not d: d = {}
+    // Generates: var d: @TypeOf(__m2_p_d) = __m2_p_d;
+    for (renamed_params.items) |entry| {
+        if (entry.needs_mutable_copy) {
+            try self.emitIndent();
+            try self.emit("var ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.original);
+            try self.emit(": @TypeOf(");
+            try self.emit(entry.renamed);
+            try self.emit(") = ");
+            try self.emit(entry.renamed);
+            try self.emit(";\n");
+            // Mark as declared so assignment code doesn't try to redeclare
+            try self.declareVar(entry.original);
+        }
+    }
 
     // Detect type-check-raise patterns at the start of the function body for anytype params
     // These need comptime branching to prevent invalid type instantiations from being analyzed
@@ -669,12 +695,15 @@ pub fn genInitMethodWithBuiltinBase(
     const alloc_name = if (is_nested) "__alloc" else "allocator";
 
     // Track renamed params for cleanup at end (params that shadow methods or module-level decls)
-    const RenamedParamBuiltin = struct { original: []const u8, renamed: []const u8 };
+    // needs_mutable_copy: true if param is reassigned in body, needs a mutable local copy
+    const RenamedParamBuiltin = struct { original: []const u8, renamed: []const u8, needs_mutable_copy: bool };
     var renamed_params = std.ArrayList(RenamedParamBuiltin){};
     defer {
-        // Clean up var_renames for renamed params
+        // Clean up var_renames for renamed params (only those that were put in var_renames)
         for (renamed_params.items) |entry| {
-            _ = self.var_renames.swapRemove(entry.original);
+            if (!entry.needs_mutable_copy) {
+                _ = self.var_renames.swapRemove(entry.original);
+            }
         }
         renamed_params.deinit(self.allocator);
     }
@@ -729,8 +758,12 @@ pub fn genInitMethodWithBuiltinBase(
                 if (shadows_class_method or shadows_module_level or shadows_local_assign) {
                     // Rename parameter using NameGen for unique naming
                     const renamed = try self.name_gen.param(arg.name);
-                    try self.var_renames.put(arg.name, renamed);
-                    try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed });
+                    // If param is reassigned in body, we'll create a mutable copy instead
+                    // of putting in var_renames. This allows: var d = __m2_p_d; d = {};
+                    if (!shadows_local_assign) {
+                        try self.var_renames.put(arg.name, renamed);
+                    }
+                    try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed, .needs_mutable_copy = shadows_local_assign });
                     try self.emit(renamed);
                 } else {
                     try writeInitParamName(self, arg.name, class_body);
@@ -812,6 +845,24 @@ pub fn genInitMethodWithBuiltinBase(
     // This ensures variables like `g = gcd(...)` that are used in field assignments
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
     try usage_analysis.analyzeFunctionLocalUses(self, init);
+
+    // Generate mutable local copies for params that are reassigned in the body
+    // e.g., def __init__(self, d=None): if not d: d = {}
+    // Generates: var d: @TypeOf(__m2_p_d) = __m2_p_d;
+    for (renamed_params.items) |entry| {
+        if (entry.needs_mutable_copy) {
+            try self.emitIndent();
+            try self.emit("var ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.original);
+            try self.emit(": @TypeOf(");
+            try self.emit(entry.renamed);
+            try self.emit(") = ");
+            try self.emit(entry.renamed);
+            try self.emit(";\n");
+            // Mark as declared so assignment code doesn't try to redeclare
+            try self.declareVar(entry.original);
+        }
+    }
 
     if (has_type_checks) try emitComptimeTypeGuard(self, type_checks.checks);
 
@@ -1002,8 +1053,13 @@ pub fn genInitMethodWithBuiltinBase(
             for (init.args) |arg| {
                 if (std.mem.eql(u8, arg.name, "self")) continue;
                 // Use the escaped parameter name (handles Zig keywords)
+                // Check if param was renamed (e.g., d -> __m2_p_d to avoid shadowing)
                 try self.emit(".__base_value__ = ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                if (self.var_renames.get(arg.name)) |renamed| {
+                    try self.emit(renamed);
+                } else {
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                }
                 try self.emit(",\n");
                 break;
             }
@@ -1118,12 +1174,15 @@ pub fn genInitMethodFromNew(
     const alloc_name = if (is_nested) "__alloc" else "allocator";
 
     // Track renamed params for cleanup at end (params that shadow methods or module-level decls)
-    const RenamedParamNew = struct { original: []const u8, renamed: []const u8 };
+    // needs_mutable_copy: true if param is reassigned in body, needs a mutable local copy
+    const RenamedParamNew = struct { original: []const u8, renamed: []const u8, needs_mutable_copy: bool };
     var renamed_params = std.ArrayList(RenamedParamNew){};
     defer {
-        // Clean up var_renames for renamed params
+        // Clean up var_renames for renamed params (only those that were put in var_renames)
         for (renamed_params.items) |entry| {
-            _ = self.var_renames.swapRemove(entry.original);
+            if (!entry.needs_mutable_copy) {
+                _ = self.var_renames.swapRemove(entry.original);
+            }
         }
         renamed_params.deinit(self.allocator);
     }
@@ -1166,8 +1225,12 @@ pub fn genInitMethodFromNew(
             if (shadows_class_method or shadows_module_level or shadows_outer_self or shadows_local_assign) {
                 // Rename parameter using NameGen for unique naming
                 const renamed = try self.name_gen.param(arg.name);
-                try self.var_renames.put(arg.name, renamed);
-                try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed });
+                // If param is reassigned in body, we'll create a mutable copy instead
+                // of putting in var_renames. This allows: var d = __m2_p_d; d = {};
+                if (!shadows_local_assign) {
+                    try self.var_renames.put(arg.name, renamed);
+                }
+                try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed, .needs_mutable_copy = shadows_local_assign });
                 try self.emit(renamed);
             } else {
                 try writeInitParamName(self, arg.name, class_body);
@@ -1218,6 +1281,24 @@ pub fn genInitMethodFromNew(
     // This ensures variables like `g = gcd(...)` that are used in field assignments
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
     try usage_analysis.analyzeFunctionLocalUses(self, new_method);
+
+    // Generate mutable local copies for params that are reassigned in the body
+    // e.g., def __new__(cls, d=None): if not d: d = {}
+    // Generates: var d: @TypeOf(__m2_p_d) = __m2_p_d;
+    for (renamed_params.items) |entry| {
+        if (entry.needs_mutable_copy) {
+            try self.emitIndent();
+            try self.emit("var ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.original);
+            try self.emit(": @TypeOf(");
+            try self.emit(entry.renamed);
+            try self.emit(") = ");
+            try self.emit(entry.renamed);
+            try self.emit(";\n");
+            // Mark as declared so assignment code doesn't try to redeclare
+            try self.declareVar(entry.original);
+        }
+    }
 
     // Find the variable name used to receive super().__new__() result
     // Common patterns: obj = super().__new__(cls, ...) or self = super().__new__(cls, ...)
