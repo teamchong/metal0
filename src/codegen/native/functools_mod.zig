@@ -65,10 +65,10 @@ pub fn genPartial(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitIndent();
         try self.emit("func: @TypeOf(_func),\n");
         try self.emitIndent();
-        try self.emit("pub fn call(self: @This(), extra_args: anytype) @TypeOf(_func(_captured ++ extra_args)) {\n");
+        try self.emit("pub fn call(__self: @This(), extra_args: anytype) @TypeOf(_func(_captured ++ extra_args)) {\n");
         self.indent();
         try self.emitIndent();
-        try self.emit("return @call(.auto, self.func, self.captured ++ extra_args);\n");
+        try self.emit("return @call(.auto, __self.func, __self.captured ++ extra_args);\n");
         self.dedent();
         try self.emitIndent();
         try self.emit("}\n");

@@ -1067,7 +1067,7 @@ pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
         const ItemsT = @TypeOf(value.items);
         if (@typeInfo(ItemsT) == .@"struct" and @hasField(ItemsT, "items")) {
             // This is NativeList or similar wrapper - items.items is the slice
-            return .{ .list = value.items.items };
+            return try PyValue.listFromSlice(allocator, value.items.items);
         }
     }
 
@@ -1079,7 +1079,7 @@ pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
             list[i] = try toPyValue(allocator, item);
             _ = ElemT; // Reference to avoid unused warning
         }
-        return .{ .list = list };
+        return try PyValue.listFromSlice(allocator, list);
     }
 
     // Fixed arrays
@@ -1088,7 +1088,7 @@ pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
         for (value, 0..) |item, i| {
             list[i] = try toPyValue(allocator, item);
         }
-        return .{ .list = list };
+        return try PyValue.listFromSlice(allocator, list);
     }
 
     // Slices of non-u8

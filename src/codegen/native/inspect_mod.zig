@@ -18,7 +18,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "getsource", h.c("\"\"") },
     .{ "getdoc", h.c("@as(?[]const u8, null)") },
     .{ "getcomments", h.c("@as(?[]const u8, null)") },
-    .{ "signature", h.c("struct { parameters: []const u8 = \"\", return_annotation: ?[]const u8 = null, pub fn bind(self: @This(), a: anytype) @This() { _ = a; return @This(){}; } }{}") },
+    .{ "signature", h.c("struct { parameters: []const u8 = \"\", return_annotation: ?[]const u8 = null, pub fn bind(__self: @This(), a: anytype) @This() { _ = &__self; _ = a; return @This(){}; } }{}") },
     .{ "Parameter", h.c("struct { name: []const u8, kind: i64 = 0, default: ?[]const u8 = null, annotation: ?[]const u8 = null, pub const POSITIONAL_ONLY: i64 = 0; pub const POSITIONAL_OR_KEYWORD: i64 = 1; pub const VAR_POSITIONAL: i64 = 2; pub const KEYWORD_ONLY: i64 = 3; pub const VAR_KEYWORD: i64 = 4; pub const empty: ?[]const u8 = null; }{ .name = \"\" }") },
     .{ "currentframe", h.c("@as(?*anyopaque, null)") },
     .{ "stack", h.c("&[_]struct { frame: ?*anyopaque, filename: []const u8, lineno: i64, function: []const u8 }{}") },

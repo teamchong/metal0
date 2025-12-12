@@ -1113,7 +1113,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.genExpr(for_stmt.iter.*);
         try self.emit(";\n");
         try self.emitIndent();
-        // Use comptime type dispatch - PyValue.list is []const PyValue, ArrayList has .items
+        // Use comptime type dispatch - PyValue.list is *ArrayListUnmanaged(PyValue), ArrayList has .items
         try self.output.writer(self.allocator).print(
             "const __pyval_items_{d} = blk: {{ " ++
                 "const T = @TypeOf(__pyval_{d}); " ++

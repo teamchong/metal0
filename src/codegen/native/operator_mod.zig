@@ -34,9 +34,9 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "getitem", h.wrap2("", "[", "]", "@as(i64, 0)") }, .{ "setitem", h.wrap3("blk: { ", "[", "] = ", "; break :blk null; }", "null") },
     .{ "delitem", h.c("null") }, .{ "length_hint", h.I64(0) },
     // Getters
-    .{ "attrgetter", h.c("struct { attr: []const u8 = \"\", pub fn __call__(self: @This(), obj: anytype) []const u8 { _ = obj; return \"\"; } }{}") },
+    .{ "attrgetter", h.c("struct { attr: []const u8 = \"\", pub fn __call__(__self: @This(), obj: anytype) []const u8 { _ = &__self; _ = obj; return \"\"; } }{}") },
     .{ "itemgetter", h.c("struct { item: i64 = 0, pub fn __call__(__self: @This(), obj: anytype) @TypeOf(obj[0]) { return obj[@intCast(__self.item)]; } }{}") },
-    .{ "methodcaller", h.c("struct { name: []const u8 = \"\", pub fn __call__(self: @This(), obj: anytype) void { _ = obj; } }{}") },
+    .{ "methodcaller", h.c("struct { name: []const u8 = \"\", pub fn __call__(__self: @This(), obj: anytype) void { _ = &__self; _ = obj; } }{}") },
     // Index
     .{ "index", h.pass("@as(i64, 0)") },
     // In-place (same as regular)

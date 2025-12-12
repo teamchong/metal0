@@ -48,7 +48,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         return error.UnsupportedSyntax;
     }
 
-    // Two-Flow: Check if list is uncertain (PyValue.list is a slice, not mutable ArrayList)
+    // Two-Flow: Check if list is uncertain (PyValue.list is *ArrayListUnmanaged - mutable)
     // For uncertain lists, we need runtime helpers that can handle type dynamically
     if (isListUncertain(self, obj)) {
         // Route to runtime helper that handles both ArrayList and PyValue.list

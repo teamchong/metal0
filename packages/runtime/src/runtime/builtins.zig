@@ -400,8 +400,13 @@ pub fn pyListInsert(allocator: std.mem.Allocator, list_ptr: anytype, index: anyt
     if (info == .@"struct" and @hasField(T, "items") and @hasDecl(T, "insert")) {
         const idx: usize = @intCast(index);
         list_ptr.insert(allocator, idx, item) catch {};
+    } else if (T == PyValue) {
+        // PyValue.list is *ArrayListUnmanaged(PyValue) - can mutate via pointer
+        if (list_ptr.* == .list) {
+            const idx: usize = @intCast(index);
+            list_ptr.list.insert(allocator, idx, PyValue.from(item)) catch {};
+        }
     }
-    // For PyValue.list (slice) - we can't mutate, no-op safety net
 }
 
 // =============================================================================

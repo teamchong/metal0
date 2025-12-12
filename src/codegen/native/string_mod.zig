@@ -21,6 +21,6 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "punctuation", genPunctuation }, .{ "whitespace", h.c("\" \\t\\n\\r\\x0b\\x0c\"") },
     .{ "printable", h.c("\"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~ \\t\\n\\r\\x0b\\x0c\"") },
     .{ "capwords", genCapwords },
-    .{ "Formatter", h.c("struct { format: []const u8 = \"\", pub fn vformat(self: @This(), s: []const u8, _: anytype, _: anytype) []const u8 { return s; } }{}") },
+    .{ "Formatter", h.c("struct { format: []const u8 = \"\", pub fn vformat(__self: @This(), s: []const u8, _: anytype, _: anytype) []const u8 { _ = &__self; return s; } }{}") },
     .{ "Template", h.wrap(tmpl ++ "{ .template = ", " }", tmpl ++ "{ .template = \"\" }") },
 });

@@ -1311,6 +1311,35 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         try self.emit(";\n");
     }
 
+    // For __deepcopy__ and __copy__ methods, emit suppression for memo parameter
+    // The codegen may optimize away the memo usage but Python source references it
+    // Only emit if the parameter is actually named in the signature (not made anonymous)
+    const is_deepcopy_method = std.mem.eql(u8, method.name, "__deepcopy__");
+    const is_copy_method = std.mem.eql(u8, method.name, "__copy__");
+    if (is_deepcopy_method and method.args.len > 1) {
+        // __deepcopy__(self, memo) - memo is the second parameter
+        const memo_param_name = method.args[1].name;
+        // Only emit discard if the param is used in Python (not made anonymous in signature)
+        if (param_analyzer.isNameUsedInBody(method.body, memo_param_name)) {
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emit(memo_param_name);
+            try self.emit(";\n");
+        }
+    }
+    if (is_copy_method and method.args.len > 1) {
+        // __copy__(self, ...) - any extra parameters may not be used
+        for (method.args[1..]) |arg| {
+            // Only emit discard if the param is used in Python (not made anonymous in signature)
+            if (param_analyzer.isNameUsedInBody(method.body, arg.name)) {
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try self.emit(arg.name);
+                try self.emit(";\n");
+            }
+        }
+    }
+
     // Emit hoisted variable declarations using shared hoisting module
     // This handles forward reference detection and fallback types
     // Pass method.body for pre-scan type inference (Solution 3 for forward refs)
