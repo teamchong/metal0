@@ -244,8 +244,18 @@ fn exprUsesFirstParamRaw(node: ast.Node, param_name: []const u8) bool {
             }
             break :blk false;
         },
-        .subscript => |sub| exprUsesFirstParamRaw(sub.value.*, param_name) or
-            (if (sub.slice == .index) exprUsesFirstParamRaw(sub.slice.index.*, param_name) else false),
+        .subscript => |sub| blk: {
+            if (exprUsesFirstParamRaw(sub.value.*, param_name)) break :blk true;
+            switch (sub.slice) {
+                .index => |idx| break :blk exprUsesFirstParamRaw(idx.*, param_name),
+                .slice => |range| {
+                    if (range.lower) |l| if (exprUsesFirstParamRaw(l.*, param_name)) break :blk true;
+                    if (range.upper) |u| if (exprUsesFirstParamRaw(u.*, param_name)) break :blk true;
+                    if (range.step) |s| if (exprUsesFirstParamRaw(s.*, param_name)) break :blk true;
+                    break :blk false;
+                },
+            }
+        },
         .unaryop => |unary| exprUsesFirstParamRaw(unary.operand.*, param_name),
         .if_expr => |if_expr| exprUsesFirstParamRaw(if_expr.condition.*, param_name) or
             exprUsesFirstParamRaw(if_expr.body.*, param_name) or exprUsesFirstParamRaw(if_expr.orelse_value.*, param_name),
@@ -279,6 +289,33 @@ fn exprUsesFirstParamRaw(node: ast.Node, param_name: []const u8) bool {
             }
             break :blk false;
         },
+        .genexp => |ge| blk: {
+            if (exprUsesFirstParamRaw(ge.elt.*, param_name)) break :blk true;
+            for (ge.generators) |gen| {
+                if (exprUsesFirstParamRaw(gen.iter.*, param_name)) break :blk true;
+                for (gen.ifs) |if_cond| {
+                    if (exprUsesFirstParamRaw(if_cond, param_name)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys) |k| if (exprUsesFirstParamRaw(k, param_name)) break :blk true;
+            for (d.values) |v| if (exprUsesFirstParamRaw(v, param_name)) break :blk true;
+            break :blk false;
+        },
+        .fstring => |fstr| blk: {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (exprUsesFirstParamRaw(e.node.*, param_name)) break :blk true,
+                    .format_expr => |fe| if (exprUsesFirstParamRaw(fe.expr.*, param_name)) break :blk true,
+                    .conv_expr => |ce| if (exprUsesFirstParamRaw(ce.expr.*, param_name)) break :blk true,
+                    .literal => {},
+                }
+            }
+            break :blk false;
+        },
+        .starred => |s| exprUsesFirstParamRaw(s.value.*, param_name),
         else => false,
     };
 }
@@ -338,6 +375,9 @@ fn exprUsesFirstParamWithContext(node: ast.Node, param_name: []const u8, has_par
             if (exprUsesFirstParamWithContext(call.func.*, param_name, has_parent)) return true;
             for (call.args) |arg| {
                 if (exprUsesFirstParamWithContext(arg, param_name, has_parent)) return true;
+            }
+            for (call.keyword_args) |kw| {
+                if (exprUsesFirstParamWithContext(kw.value, param_name, has_parent)) return true;
             }
             return false;
         },
@@ -428,6 +468,28 @@ fn exprUsesFirstParamWithContext(node: ast.Node, param_name: []const u8, has_par
             }
             return false;
         },
+        .genexp => |ge| {
+            if (exprUsesFirstParamWithContext(ge.elt.*, param_name, has_parent)) return true;
+            for (ge.generators) |gen| {
+                if (exprUsesFirstParamWithContext(gen.iter.*, param_name, has_parent)) return true;
+                for (gen.ifs) |if_cond| {
+                    if (exprUsesFirstParamWithContext(if_cond, param_name, has_parent)) return true;
+                }
+            }
+            return false;
+        },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (exprUsesFirstParamWithContext(e.node.*, param_name, has_parent)) return true,
+                    .format_expr => |fe| if (exprUsesFirstParamWithContext(fe.expr.*, param_name, has_parent)) return true,
+                    .conv_expr => |ce| if (exprUsesFirstParamWithContext(ce.expr.*, param_name, has_parent)) return true,
+                    .literal => {},
+                }
+            }
+            return false;
+        },
+        .starred => |s| exprUsesFirstParamWithContext(s.value.*, param_name, has_parent),
         else => false,
     };
 }
