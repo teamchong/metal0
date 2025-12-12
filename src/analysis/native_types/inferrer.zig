@@ -724,6 +724,9 @@ pub const TypeInferrer = struct {
                 for (call.args) |arg| {
                     try self.collectCallsFromExpr(arg, arena_alloc);
                 }
+                for (call.keyword_args) |kw| {
+                    try self.collectCallsFromExpr(kw.value, arena_alloc);
+                }
             },
             .binop => |b| {
                 try self.collectCallsFromExpr(b.left.*, arena_alloc);
@@ -732,17 +735,80 @@ pub const TypeInferrer = struct {
             .unaryop => |u| {
                 try self.collectCallsFromExpr(u.operand.*, arena_alloc);
             },
+            .boolop => |b| {
+                for (b.values) |v| {
+                    try self.collectCallsFromExpr(v, arena_alloc);
+                }
+            },
+            .compare => |c| {
+                try self.collectCallsFromExpr(c.left.*, arena_alloc);
+                for (c.comparators) |comp| {
+                    try self.collectCallsFromExpr(comp, arena_alloc);
+                }
+            },
             .if_expr => |ie| {
+                try self.collectCallsFromExpr(ie.condition.*, arena_alloc);
                 try self.collectCallsFromExpr(ie.body.*, arena_alloc);
                 try self.collectCallsFromExpr(ie.orelse_value.*, arena_alloc);
-                try self.collectCallsFromExpr(ie.condition.*, arena_alloc);
             },
             .subscript => |s| {
                 try self.collectCallsFromExpr(s.value.*, arena_alloc);
+                switch (s.slice) {
+                    .index => |idx| try self.collectCallsFromExpr(idx.*, arena_alloc),
+                    .slice => |sr| {
+                        if (sr.lower) |l| try self.collectCallsFromExpr(l.*, arena_alloc);
+                        if (sr.upper) |u| try self.collectCallsFromExpr(u.*, arena_alloc);
+                        if (sr.step) |st| try self.collectCallsFromExpr(st.*, arena_alloc);
+                    },
+                }
             },
             .attribute => |a| {
                 try self.collectCallsFromExpr(a.value.*, arena_alloc);
             },
+            .list => |lst| {
+                for (lst.elts) |e| try self.collectCallsFromExpr(e, arena_alloc);
+            },
+            .tuple => |tup| {
+                for (tup.elts) |e| try self.collectCallsFromExpr(e, arena_alloc);
+            },
+            .dict => |d| {
+                for (d.keys) |k| try self.collectCallsFromExpr(k, arena_alloc);
+                for (d.values) |v| try self.collectCallsFromExpr(v, arena_alloc);
+            },
+            .fstring => |fs| {
+                for (fs.parts) |part| {
+                    switch (part) {
+                        .expr => |e| try self.collectCallsFromExpr(e.node.*, arena_alloc),
+                        .format_expr => |fe| try self.collectCallsFromExpr(fe.expr.*, arena_alloc),
+                        .conv_expr => |ce| try self.collectCallsFromExpr(ce.expr.*, arena_alloc),
+                        .literal => {},
+                    }
+                }
+            },
+            .listcomp => |lc| {
+                try self.collectCallsFromExpr(lc.elt.*, arena_alloc);
+                for (lc.generators) |gen| {
+                    try self.collectCallsFromExpr(gen.iter.*, arena_alloc);
+                    for (gen.ifs) |cond| try self.collectCallsFromExpr(cond, arena_alloc);
+                }
+            },
+            .dictcomp => |dc| {
+                try self.collectCallsFromExpr(dc.key.*, arena_alloc);
+                try self.collectCallsFromExpr(dc.value.*, arena_alloc);
+                for (dc.generators) |gen| {
+                    try self.collectCallsFromExpr(gen.iter.*, arena_alloc);
+                    for (gen.ifs) |cond| try self.collectCallsFromExpr(cond, arena_alloc);
+                }
+            },
+            .genexp => |ge| {
+                try self.collectCallsFromExpr(ge.elt.*, arena_alloc);
+                for (ge.generators) |gen| {
+                    try self.collectCallsFromExpr(gen.iter.*, arena_alloc);
+                    for (gen.ifs) |cond| try self.collectCallsFromExpr(cond, arena_alloc);
+                }
+            },
+            .lambda => |lam| try self.collectCallsFromExpr(lam.body.*, arena_alloc),
+            .starred => |st| try self.collectCallsFromExpr(st.value.*, arena_alloc),
             else => {},
         }
     }
