@@ -18,6 +18,7 @@ const SimpleOpStrings = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Add", " + " }, .{ "Sub", " - " }, .{ "Mult", " * " },
     .{ "BitAnd", " & " }, .{ "BitOr", " | " }, .{ "BitXor", " ^ " },
     .{ "Div", " / " }, .{ "FloorDiv", " / " },
+    .{ "Mod", " % " }, .{ "LShift", " << " }, .{ "RShift", " >> " },
 });
 
 /// Compact binary operator strings (no spaces, for dict context)
@@ -82,7 +83,22 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     try self.emit(self_name);
                     try self.emit(".");
                     try self.emit(attr.attr);
-                    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse if (aug.op == .Mod) " % " else " ? ");
+                    // Handle Pow (**=) specially - needs std.math.pow
+                    if (aug.op == .Pow) {
+                        try self.emit(" = std.math.pow(@TypeOf(");
+                        try self.emit(self_name);
+                        try self.emit(".");
+                        try self.emit(attr.attr);
+                        try self.emit("), ");
+                        try self.emit(self_name);
+                        try self.emit(".");
+                        try self.emit(attr.attr);
+                        try self.emit(", ");
+                        try self.genExpr(aug.value.*);
+                        try self.emit(");\n");
+                        return;
+                    }
+                    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
                     try self.genExpr(aug.value.*);
                     try self.emit(";\n");
                     return;
@@ -93,7 +109,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     try self.output.writer(self.allocator).print(".__dict__.put(\"{s}\", .{{ .int = ", .{attr.attr});
                     try self.emit(self_name);
                     try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.int", .{attr.attr});
-                    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse if (aug.op == .Mod) " % " else " ? ");
+                    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
                     try self.genExpr(aug.value.*);
                     try self.emit(" });\n");
                     return;
@@ -317,11 +333,26 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 try self.emit(".items[@as(usize, @intCast(");
                 try self.genExpr(subscript.slice.index.*);
                 try self.emit("))] = ");
+                // Handle Pow (**=) specially - needs std.math.pow
+                if (aug.op == .Pow) {
+                    try self.emit("std.math.pow(@TypeOf(");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))]), ");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))], ");
+                    try self.genExpr(aug.value.*);
+                    try self.emit(");\n");
+                    return;
+                }
                 try self.genExpr(subscript.value.*);
                 try self.emit(".items[@as(usize, @intCast(");
                 try self.genExpr(subscript.slice.index.*);
                 try self.emit("))]");
-                try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse " ? ");
+                try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
                 try self.genExpr(aug.value.*);
                 try self.emit(";\n");
                 return;
@@ -884,8 +915,21 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         return;
     }
 
+    // Handle Pow (**=) specially - needs std.math.pow
+    if (aug.op == .Pow) {
+        try self.genExpr(aug.target.*);
+        try self.emit(" = std.math.pow(@TypeOf(");
+        try self.genExpr(aug.target.*);
+        try self.emit("), ");
+        try self.genExpr(aug.target.*);
+        try self.emit(", ");
+        try self.genExpr(aug.value.*);
+        try self.emit(");\n");
+        return;
+    }
+
     try self.genExpr(aug.target.*);
-    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse " ? ");
+    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
     try self.genExpr(aug.value.*);
     try self.emit(";\n");
 }

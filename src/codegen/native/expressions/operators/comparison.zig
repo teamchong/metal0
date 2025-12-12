@@ -1115,8 +1115,9 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try self.emit(")");
             } else {
                 // Complex numbers don't support <, >, <=, >= in Python
-                // Emit a compile error or fallback
-                try self.emit("@compileError(\"complex numbers do not support ordering comparisons\")");
+                // Use unreachable - this will panic at runtime with a clear error
+                // In Zig, unreachable in debug mode panics with "reached unreachable code"
+                try self.emit("unreachable // TypeError: ordering comparison not supported for complex numbers");
             }
         }
         // Handle unknown type comparisons (anytype parameters)

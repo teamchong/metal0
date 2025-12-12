@@ -321,6 +321,26 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
         try self.emit("(");
         try genExpr(self, ie.condition.*);
         try self.emit(").items.len != 0");
+    } else if (container_traits.isDict(cond_type)) {
+        // Dict type - Python truthiness: non-empty is true
+        try self.emit("(");
+        try genExpr(self, ie.condition.*);
+        try self.emit(").count() != 0");
+    } else if (container_traits.isSet(cond_type)) {
+        // Set type - Python truthiness: non-empty is true
+        try self.emit("(");
+        try genExpr(self, ie.condition.*);
+        try self.emit(").count() != 0");
+    } else if (container_traits.isTuple(cond_type)) {
+        // Tuple type - Python truthiness: non-empty is true
+        try self.emit("@typeInfo(@TypeOf(");
+        try genExpr(self, ie.condition.*);
+        try self.emit(")).@\"struct\".fields.len != 0");
+    } else if (string_traits.isBytes(cond_type)) {
+        // Bytes type - Python truthiness: non-empty is true
+        try self.emit("(");
+        try genExpr(self, ie.condition.*);
+        try self.emit(").len != 0");
     } else {
         // Boolean or other type - use directly
         try genExpr(self, ie.condition.*);
