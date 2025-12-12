@@ -615,9 +615,31 @@ pub const TypeInferrer = struct {
             },
             .while_stmt => |while_stmt| {
                 for (while_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    for (orelse_body) |s| try self.collectConstructorArgs(s, arena_alloc);
+                }
             },
             .for_stmt => |for_stmt| {
                 for (for_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    for (orelse_body) |s| try self.collectConstructorArgs(s, arena_alloc);
+                }
+            },
+            .try_stmt => |try_stmt| {
+                for (try_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
+                for (try_stmt.handlers) |handler| {
+                    for (handler.body) |s| try self.collectConstructorArgs(s, arena_alloc);
+                }
+                for (try_stmt.else_body) |s| try self.collectConstructorArgs(s, arena_alloc);
+                for (try_stmt.finalbody) |s| try self.collectConstructorArgs(s, arena_alloc);
+            },
+            .with_stmt => |with_stmt| {
+                for (with_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    for (case.body) |s| try self.collectConstructorArgs(s, arena_alloc);
+                }
             },
             .function_def => |func_def| {
                 for (func_def.body) |s| try self.collectConstructorArgs(s, arena_alloc);
@@ -921,9 +943,15 @@ pub const TypeInferrer = struct {
             }
             if (stmt == .while_stmt) {
                 if (try self.findReturnTypeInBody(stmt.while_stmt.body)) |t| return t;
+                if (stmt.while_stmt.orelse_body) |orelse_body| {
+                    if (try self.findReturnTypeInBody(orelse_body)) |t| return t;
+                }
             }
             if (stmt == .for_stmt) {
                 if (try self.findReturnTypeInBody(stmt.for_stmt.body)) |t| return t;
+                if (stmt.for_stmt.orelse_body) |orelse_body| {
+                    if (try self.findReturnTypeInBody(orelse_body)) |t| return t;
+                }
             }
             if (stmt == .match_stmt) {
                 for (stmt.match_stmt.cases) |case| {
@@ -935,6 +963,11 @@ pub const TypeInferrer = struct {
                 for (stmt.try_stmt.handlers) |handler| {
                     if (try self.findReturnTypeInBody(handler.body)) |t| return t;
                 }
+                if (try self.findReturnTypeInBody(stmt.try_stmt.else_body)) |t| return t;
+                if (try self.findReturnTypeInBody(stmt.try_stmt.finalbody)) |t| return t;
+            }
+            if (stmt == .with_stmt) {
+                if (try self.findReturnTypeInBody(stmt.with_stmt.body)) |t| return t;
             }
         }
         return null;

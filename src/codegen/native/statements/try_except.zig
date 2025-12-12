@@ -295,6 +295,9 @@ fn findLocallyDeclaredVars(stmts: []ast.Node, vars: *FnvVoidMap) !void {
                     }
                 }
                 try findLocallyDeclaredVars(for_stmt.body, vars);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    try findLocallyDeclaredVars(orelse_body, vars);
+                }
             },
             .if_stmt => |if_stmt| {
                 try findLocallyDeclaredVars(if_stmt.body, vars);
@@ -302,6 +305,25 @@ fn findLocallyDeclaredVars(stmts: []ast.Node, vars: *FnvVoidMap) !void {
             },
             .while_stmt => |while_stmt| {
                 try findLocallyDeclaredVars(while_stmt.body, vars);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    try findLocallyDeclaredVars(orelse_body, vars);
+                }
+            },
+            .try_stmt => |try_stmt| {
+                try findLocallyDeclaredVars(try_stmt.body, vars);
+                for (try_stmt.handlers) |handler| {
+                    try findLocallyDeclaredVars(handler.body, vars);
+                }
+                try findLocallyDeclaredVars(try_stmt.else_body, vars);
+                try findLocallyDeclaredVars(try_stmt.finalbody, vars);
+            },
+            .with_stmt => |with_stmt| {
+                try findLocallyDeclaredVars(with_stmt.body, vars);
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    try findLocallyDeclaredVars(case.body, vars);
+                }
             },
             // Import statements introduce new variables - they're locally declared
             // e.g., `import numpy` creates variable `numpy`
@@ -360,9 +382,23 @@ fn containsRaise(stmts: []ast.Node) bool {
             },
             .for_stmt => |for_stmt| {
                 if (containsRaise(for_stmt.body)) return true;
+                if (for_stmt.orelse_body) |orelse_body| {
+                    if (containsRaise(orelse_body)) return true;
+                }
             },
             .while_stmt => |while_stmt| {
                 if (containsRaise(while_stmt.body)) return true;
+                if (while_stmt.orelse_body) |orelse_body| {
+                    if (containsRaise(orelse_body)) return true;
+                }
+            },
+            .with_stmt => |with_stmt| {
+                if (containsRaise(with_stmt.body)) return true;
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    if (containsRaise(case.body)) return true;
+                }
             },
             // Don't recurse into nested try/functions - their raise is local
             else => {},
@@ -431,9 +467,31 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     },
                     .for_stmt => |for_stmt| {
                         try collect(for_stmt.body, list, codegen, addFn);
+                        if (for_stmt.orelse_body) |orelse_body| {
+                            try collect(orelse_body, list, codegen, addFn);
+                        }
                     },
                     .while_stmt => |while_stmt| {
                         try collect(while_stmt.body, list, codegen, addFn);
+                        if (while_stmt.orelse_body) |orelse_body| {
+                            try collect(orelse_body, list, codegen, addFn);
+                        }
+                    },
+                    .try_stmt => |try_stmt| {
+                        try collect(try_stmt.body, list, codegen, addFn);
+                        for (try_stmt.handlers) |handler| {
+                            try collect(handler.body, list, codegen, addFn);
+                        }
+                        try collect(try_stmt.else_body, list, codegen, addFn);
+                        try collect(try_stmt.finalbody, list, codegen, addFn);
+                    },
+                    .with_stmt => |with_stmt| {
+                        try collect(with_stmt.body, list, codegen, addFn);
+                    },
+                    .match_stmt => |match_stmt| {
+                        for (match_stmt.cases) |case| {
+                            try collect(case.body, list, codegen, addFn);
+                        }
                     },
                     else => {},
                 }

@@ -249,6 +249,21 @@ fn checkStmtForBigIntMethodCall(stmt: ast.Node, method_name: []const u8, param_i
             for (f.body) |s| {
                 if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
             }
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+                }
+            }
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| {
+                if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+            }
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+                }
+            }
         },
         .if_stmt => |i| {
             for (i.body) |s| {
@@ -262,10 +277,28 @@ fn checkStmtForBigIntMethodCall(stmt: ast.Node, method_name: []const u8, param_i
             for (t.body) |s| {
                 if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
             }
+            for (t.handlers) |handler| {
+                for (handler.body) |s| {
+                    if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+                }
+            }
+            for (t.else_body) |s| {
+                if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+            }
+            for (t.finalbody) |s| {
+                if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+            }
         },
         .with_stmt => |w| {
             for (w.body) |s| {
                 if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+            }
+        },
+        .match_stmt => |m| {
+            for (m.cases) |case| {
+                for (case.body) |s| {
+                    if (checkStmtForBigIntMethodCall(s, method_name, param_index)) return true;
+                }
             }
         },
         else => {},
@@ -417,14 +450,31 @@ pub fn returnsLambda(body: []ast.Node) bool {
         }
         if (stmt == .while_stmt) {
             if (returnsLambda(stmt.while_stmt.body)) return true;
+            if (stmt.while_stmt.orelse_body) |orelse_body| {
+                if (returnsLambda(orelse_body)) return true;
+            }
         }
         if (stmt == .for_stmt) {
             if (returnsLambda(stmt.for_stmt.body)) return true;
+            if (stmt.for_stmt.orelse_body) |orelse_body| {
+                if (returnsLambda(orelse_body)) return true;
+            }
         }
         if (stmt == .match_stmt) {
             for (stmt.match_stmt.cases) |case| {
                 if (returnsLambda(case.body)) return true;
             }
+        }
+        if (stmt == .try_stmt) {
+            if (returnsLambda(stmt.try_stmt.body)) return true;
+            for (stmt.try_stmt.handlers) |handler| {
+                if (returnsLambda(handler.body)) return true;
+            }
+            if (returnsLambda(stmt.try_stmt.else_body)) return true;
+            if (returnsLambda(stmt.try_stmt.finalbody)) return true;
+        }
+        if (stmt == .with_stmt) {
+            if (returnsLambda(stmt.with_stmt.body)) return true;
         }
     }
     return false;
@@ -468,14 +518,31 @@ pub fn getReturnedNestedFuncName(body: []ast.Node) ?[]const u8 {
         }
         if (stmt == .while_stmt) {
             if (getReturnedNestedFuncName(stmt.while_stmt.body)) |name| return name;
+            if (stmt.while_stmt.orelse_body) |orelse_body| {
+                if (getReturnedNestedFuncName(orelse_body)) |name| return name;
+            }
         }
         if (stmt == .for_stmt) {
             if (getReturnedNestedFuncName(stmt.for_stmt.body)) |name| return name;
+            if (stmt.for_stmt.orelse_body) |orelse_body| {
+                if (getReturnedNestedFuncName(orelse_body)) |name| return name;
+            }
         }
         if (stmt == .match_stmt) {
             for (stmt.match_stmt.cases) |case| {
                 if (getReturnedNestedFuncName(case.body)) |name| return name;
             }
+        }
+        if (stmt == .try_stmt) {
+            if (getReturnedNestedFuncName(stmt.try_stmt.body)) |name| return name;
+            for (stmt.try_stmt.handlers) |handler| {
+                if (getReturnedNestedFuncName(handler.body)) |name| return name;
+            }
+            if (getReturnedNestedFuncName(stmt.try_stmt.else_body)) |name| return name;
+            if (getReturnedNestedFuncName(stmt.try_stmt.finalbody)) |name| return name;
+        }
+        if (stmt == .with_stmt) {
+            if (getReturnedNestedFuncName(stmt.with_stmt.body)) |name| return name;
         }
     }
     return null;
@@ -538,14 +605,31 @@ pub fn hasReturnStatement(body: []ast.Node) bool {
         }
         if (stmt == .while_stmt) {
             if (hasReturnStatement(stmt.while_stmt.body)) return true;
+            if (stmt.while_stmt.orelse_body) |orelse_body| {
+                if (hasReturnStatement(orelse_body)) return true;
+            }
         }
         if (stmt == .for_stmt) {
             if (hasReturnStatement(stmt.for_stmt.body)) return true;
+            if (stmt.for_stmt.orelse_body) |orelse_body| {
+                if (hasReturnStatement(orelse_body)) return true;
+            }
         }
         if (stmt == .match_stmt) {
             for (stmt.match_stmt.cases) |case| {
                 if (hasReturnStatement(case.body)) return true;
             }
+        }
+        if (stmt == .try_stmt) {
+            if (hasReturnStatement(stmt.try_stmt.body)) return true;
+            for (stmt.try_stmt.handlers) |handler| {
+                if (hasReturnStatement(handler.body)) return true;
+            }
+            if (hasReturnStatement(stmt.try_stmt.else_body)) return true;
+            if (hasReturnStatement(stmt.try_stmt.finalbody)) return true;
+        }
+        if (stmt == .with_stmt) {
+            if (hasReturnStatement(stmt.with_stmt.body)) return true;
         }
     }
     return false;
@@ -567,9 +651,15 @@ pub fn hasReturnWithValue(body: []ast.Node) bool {
         }
         if (stmt == .while_stmt) {
             if (hasReturnWithValue(stmt.while_stmt.body)) return true;
+            if (stmt.while_stmt.orelse_body) |orelse_body| {
+                if (hasReturnWithValue(orelse_body)) return true;
+            }
         }
         if (stmt == .for_stmt) {
             if (hasReturnWithValue(stmt.for_stmt.body)) return true;
+            if (stmt.for_stmt.orelse_body) |orelse_body| {
+                if (hasReturnWithValue(orelse_body)) return true;
+            }
         }
         if (stmt == .match_stmt) {
             for (stmt.match_stmt.cases) |case| {
@@ -583,6 +673,9 @@ pub fn hasReturnWithValue(body: []ast.Node) bool {
             }
             if (hasReturnWithValue(stmt.try_stmt.else_body)) return true;
             if (hasReturnWithValue(stmt.try_stmt.finalbody)) return true;
+        }
+        if (stmt == .with_stmt) {
+            if (hasReturnWithValue(stmt.with_stmt.body)) return true;
         }
     }
     return false;
@@ -599,18 +692,31 @@ pub fn hasYieldStatement(body: []ast.Node) bool {
         }
         if (stmt == .while_stmt) {
             if (hasYieldStatement(stmt.while_stmt.body)) return true;
+            if (stmt.while_stmt.orelse_body) |orelse_body| {
+                if (hasYieldStatement(orelse_body)) return true;
+            }
         }
         if (stmt == .for_stmt) {
             if (hasYieldStatement(stmt.for_stmt.body)) return true;
+            if (stmt.for_stmt.orelse_body) |orelse_body| {
+                if (hasYieldStatement(orelse_body)) return true;
+            }
         }
         if (stmt == .try_stmt) {
             if (hasYieldStatement(stmt.try_stmt.body)) return true;
             for (stmt.try_stmt.handlers) |h| {
                 if (hasYieldStatement(h.body)) return true;
             }
+            if (hasYieldStatement(stmt.try_stmt.else_body)) return true;
+            if (hasYieldStatement(stmt.try_stmt.finalbody)) return true;
         }
         if (stmt == .with_stmt) {
             if (hasYieldStatement(stmt.with_stmt.body)) return true;
+        }
+        if (stmt == .match_stmt) {
+            for (stmt.match_stmt.cases) |case| {
+                if (hasYieldStatement(case.body)) return true;
+            }
         }
     }
     return false;
@@ -1677,9 +1783,15 @@ fn collectLocalClassDefinitions(body: []const ast.Node, names: *[32][]const u8, 
             },
             .for_stmt => |for_stmt| {
                 collectLocalClassDefinitions(for_stmt.body, names, count);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    collectLocalClassDefinitions(orelse_body, names, count);
+                }
             },
             .while_stmt => |while_stmt| {
                 collectLocalClassDefinitions(while_stmt.body, names, count);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    collectLocalClassDefinitions(orelse_body, names, count);
+                }
             },
             .try_stmt => |try_stmt| {
                 collectLocalClassDefinitions(try_stmt.body, names, count);
@@ -1688,6 +1800,14 @@ fn collectLocalClassDefinitions(body: []const ast.Node, names: *[32][]const u8, 
                 }
                 collectLocalClassDefinitions(try_stmt.else_body, names, count);
                 collectLocalClassDefinitions(try_stmt.finalbody, names, count);
+            },
+            .with_stmt => |with_stmt| {
+                collectLocalClassDefinitions(with_stmt.body, names, count);
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    collectLocalClassDefinitions(case.body, names, count);
+                }
             },
             else => {},
         }
