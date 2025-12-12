@@ -653,7 +653,15 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             const is_forward_declared = self.forward_declared_vars.contains(var_name) or
                 (if (renamed_var) |rv| self.forward_declared_vars.contains(rv) else false);
             const is_global = self.isGlobalVar(var_name);
-            const is_first_assignment = !self.isDeclared(var_name) and !is_hoisted and !is_forward_declared and !is_global;
+            // Check both original name AND renamed version for is_declared
+            // When a nested function def bar() declares __m13_c_bar and renames bar -> __m13_c_bar,
+            // the subsequent bar = decorator(bar) should see bar as "already declared" via the rename
+            const renamed_is_declared = if (renamed_var) |rv| self.isDeclared(rv) else false;
+            // Also check if this variable is a closure (nested function) - closures are always "declared"
+            // This handles: def bar(): ...; bar = decorator(bar)
+            // The function definition generates const __m13_c_bar and puts bar in closure_vars
+            const is_closure = self.closure_vars.contains(var_name);
+            const is_first_assignment = !self.isDeclared(var_name) and !renamed_is_declared and !is_closure and !is_hoisted and !is_forward_declared and !is_global;
 
             // When a forward-declared variable is assigned, remove it from forward_declared_vars
             // This allows closures defined AFTER this assignment to know the variable is now available
@@ -691,10 +699,20 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // e.g., global `var set2` at module level, local `var set2` in method -> rename local
             if (is_first_assignment and !is_global) {
                 // Check if this var name exists as a module-level var (pre-declared global)
+                // For constants like __name__, __file__ - skip the assignment entirely
+                // since const cannot be reassigned in Zig
                 if (self.module_level_vars.contains(var_name)) {
-                    const shadow_name = try self.name_gen.local(var_name);
-                    try self.var_renames.put(try self.allocator.dupe(u8, var_name), shadow_name);
-                    var_name = shadow_name;
+                    // Skip assignment to module-level constants
+                    // Emit comment and discard the value to suppress warnings
+                    try self.emitIndent();
+                    try self.emit("// Assignment to module-level constant '");
+                    try self.emit(var_name);
+                    try self.emit("' skipped (const cannot be reassigned)\n");
+                    try self.emitIndent();
+                    try self.emit("_ = ");
+                    try self.genExpr(assign.value.*);
+                    try self.emit(";\n");
+                    continue;
                 }
             }
 
@@ -1209,6 +1227,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             } else {
                 // Emit value normally
                 try self.genExpr(assign.value.*);
+                // TWO-FLOW TYPE SYSTEM: Close PyValue.from() wrapper if uncertain type
+                if (is_first_assignment and self.shouldUsePyValue(var_name)) {
+                    try self.emit(")");
+                }
                 try self.emit(";\n");
             }
 
@@ -1222,6 +1244,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 if (self.nested_class_instances.get(rename.old_name)) |class_name| {
                     try self.nested_class_instances.put(rename.new_name, class_name);
                 }
+                // Track the shadow variable for unused suppression
+                // Shadow variables might not be used after declaration (type-changing reassignment
+                // at end of function), so they need _ = &shadow_var; if unused
+                try self.pending_discards.put(try self.allocator.dupe(u8, rename.old_name), try self.allocator.dupe(u8, rename.new_name));
+                // Remove from func_local_vars so var_renames lookup is used in expressions.zig
+                // This is critical for type-changing reassignments: subsequent uses of the old name
+                // must resolve to the new shadow name (e.g., x -> x__15914 for dict operations)
+                _ = self.func_local_vars.swapRemove(rename.old_name);
             }
 
             // For iterators, add pointer discard to suppress "never mutated" warnings

@@ -4,6 +4,7 @@ const core = @import("core.zig");
 const hashmap_helper = @import("utils.hashmap_helper");
 const inferrer_mod = @import("inferrer.zig");
 const expressions = @import("expressions.zig");
+const calls = @import("calls.zig");
 const TypeInferrer = inferrer_mod.TypeInferrer;
 
 // Import trait modules
@@ -14,6 +15,7 @@ const string_traits = @import("../traits/string_traits.zig");
 pub const NativeType = core.NativeType;
 pub const InferError = core.InferError;
 pub const ClassInfo = core.ClassInfo;
+pub const TypeConfidence = core.TypeConfidence;
 
 const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
@@ -110,13 +112,28 @@ pub fn visitStmtScoped(
 
                     // Use scoped variable tracking if available
                     if (type_inferrer) |ti| {
+                        // TWO-FLOW TYPE SYSTEM: Track confidence for call expressions
+                        // User function calls without annotations are uncertain
+                        const confidence: TypeConfidence = if (assign.value.* == .call) blk: {
+                            const typed_result = try calls.inferCallTyped(
+                                allocator,
+                                var_types,
+                                class_fields,
+                                func_return_types,
+                                assign.value.call,
+                                ti,
+                            );
+                            break :blk typed_result.confidence;
+                        } else .certain; // Literals, known expressions are certain
+
                         // Check if variable exists in CURRENT scope
                         if (ti.getScopedVar(var_name)) |_| {
-                            // Widen type in current scope
+                            // Widen type in current scope (may degrade confidence)
                             try ti.widenScopedVar(var_name, value_type);
                         } else {
-                            // First assignment in this scope
+                            // First assignment in this scope - track confidence
                             try ti.putScopedVar(var_name, value_type);
+                            try ti.var_confidence.put(var_name, confidence);
                         }
                     } else {
                         // Legacy mode: use global var_types with dict-aware widening

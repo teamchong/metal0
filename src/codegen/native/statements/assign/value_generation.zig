@@ -407,6 +407,9 @@ pub fn emitVarDeclaration(
     is_listcomp: bool,
     is_iterator: bool,
 ) CodegenError!void {
+    // Note: Module-level constant assignments (__name__, __file__) are now handled in assign.zig
+    // They're skipped before reaching this function
+
     // Check if variable was forward-declared (captured by nested class before defined)
     // If so, just emit the variable name for assignment, not a new declaration
     if (self.forward_declared_vars.contains(var_name)) {
@@ -532,6 +535,13 @@ pub fn emitVarDeclaration(
     if (is_bigint) {
         try self.emit(": runtime.BigInt = ");
         return;
+    }
+
+    // TWO-FLOW TYPE SYSTEM: Check if variable has uncertain confidence
+    // If uncertain, emit PyValue type instead of raw Zig type (safer, prevents runtime panics)
+    if (self.shouldUsePyValue(var_name)) {
+        try self.emit(": runtime.PyValue = runtime.PyValue.from(");
+        return; // Caller will emit value and close paren
     }
 
     // For functions (lambdas) and callables, never emit type annotation
