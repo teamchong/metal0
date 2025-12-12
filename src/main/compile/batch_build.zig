@@ -168,6 +168,8 @@ pub fn build(b: *std.Build) void {
         if (bin_name.len == 0) continue;
 
         // Create executable with root_module
+        // NOTE: Must include all modules that runtime re-exports, since the generated
+        // test code may directly reference types from these modules (e.g., BigInt)
         const exe = b.addExecutable(.{
             .name = bin_name,
             .root_module = b.createModule(.{
@@ -178,6 +180,7 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "runtime", .module = runtime },
                     .{ .name = "utils.hashmap_helper", .module = hashmap_helper },
                     .{ .name = "utils.allocator_helper", .module = allocator_helper },
+                    .{ .name = "bigint", .module = bigint },
                 },
             }),
         });
