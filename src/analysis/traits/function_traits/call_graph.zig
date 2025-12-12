@@ -499,6 +499,11 @@ fn analyzeStmtForTraits(stmt: ast.Node, ctx: *AnalyzerContext) !void {
             ctx.enterBlockScope();
             for (while_stmt.body) |s| try analyzeStmtForTraits(s, ctx);
             ctx.exitBlockScope();
+            if (while_stmt.orelse_body) |orelse_body| {
+                ctx.enterBlockScope();
+                for (orelse_body) |s| try analyzeStmtForTraits(s, ctx);
+                ctx.exitBlockScope();
+            }
             ctx.op_count += 5;
         },
         .for_stmt => |for_stmt| {
@@ -510,7 +515,24 @@ fn analyzeStmtForTraits(stmt: ast.Node, ctx: *AnalyzerContext) !void {
             }
             for (for_stmt.body) |s| try analyzeStmtForTraits(s, ctx);
             ctx.exitBlockScope();
+            if (for_stmt.orelse_body) |orelse_body| {
+                ctx.enterBlockScope();
+                for (orelse_body) |s| try analyzeStmtForTraits(s, ctx);
+                ctx.exitBlockScope();
+            }
             ctx.op_count += 5;
+        },
+        .match_stmt => |match_stmt| {
+            try analyzeExprForTraits(match_stmt.subject.*, ctx);
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    try analyzeExprForTraits(guard.*, ctx);
+                }
+                ctx.enterBlockScope();
+                for (case.body) |s| try analyzeStmtForTraits(s, ctx);
+                ctx.exitBlockScope();
+            }
+            ctx.op_count += 3;
         },
         .try_stmt => |try_stmt| {
             ctx.can_error = true;
