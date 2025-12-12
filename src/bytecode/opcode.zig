@@ -452,10 +452,10 @@ pub const Program = struct {
 
 /// Serialize program to bytes (for WASM transfer)
 pub fn serialize(program: *const Program, allocator: std.mem.Allocator) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
-    errdefer buf.deinit();
+    var buf: std.ArrayList(u8) = .{};
+    errdefer buf.deinit(allocator);
 
-    const w = buf.writer();
+    const w = buf.writer(allocator);
 
     // Version header
     try w.writeInt(u32, VERSION, .little);

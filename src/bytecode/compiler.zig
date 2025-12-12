@@ -49,30 +49,30 @@ pub const Compiler = struct {
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return .{
             .allocator = allocator,
-            .instructions = std.ArrayList(Instruction).init(allocator),
-            .constants = std.ArrayList(Value).init(allocator),
-            .varnames = std.ArrayList([]const u8).init(allocator),
-            .names = std.ArrayList([]const u8).init(allocator),
-            .source_map = std.ArrayList(SourceLoc).init(allocator),
+            .instructions = .{},
+            .constants = .{},
+            .varnames = .{},
+            .names = .{},
+            .source_map = .{},
             .scope_depth = 0,
-            .loop_stack = std.ArrayList(LoopContext).init(allocator),
-            .try_stack = std.ArrayList(TryContext).init(allocator),
+            .loop_stack = .{},
+            .try_stack = .{},
         };
     }
 
     pub fn deinit(self: *Compiler) void {
-        self.instructions.deinit();
+        self.instructions.deinit(self.allocator);
         // Constants may have allocated strings - handled by Program.deinit
-        self.constants.deinit();
-        self.varnames.deinit();
-        self.names.deinit();
-        self.source_map.deinit();
+        self.constants.deinit(self.allocator);
+        self.varnames.deinit(self.allocator);
+        self.names.deinit(self.allocator);
+        self.source_map.deinit(self.allocator);
         for (self.loop_stack.items) |*loop| {
-            loop.break_jumps.deinit();
-            loop.continue_jumps.deinit();
+            loop.break_jumps.deinit(self.allocator);
+            loop.continue_jumps.deinit(self.allocator);
         }
-        self.loop_stack.deinit();
-        self.try_stack.deinit();
+        self.loop_stack.deinit(self.allocator);
+        self.try_stack.deinit(self.allocator);
     }
 
     /// Compile a list of statements (module body)
@@ -329,8 +329,8 @@ pub const Compiler = struct {
         // Push loop context
         var loop_ctx = LoopContext{
             .start = loop_start,
-            .break_jumps = std.ArrayList(u32).init(self.allocator),
-            .continue_jumps = std.ArrayList(u32).init(self.allocator),
+            .break_jumps = .{},
+            .continue_jumps = .{},
         };
         try self.loop_stack.append(self.allocator, loop_ctx);
 
@@ -361,8 +361,8 @@ pub const Compiler = struct {
         for (loop_ctx.continue_jumps.items) |addr| {
             self.instructions.items[addr].arg = loop_start;
         }
-        loop_ctx.break_jumps.deinit();
-        loop_ctx.continue_jumps.deinit();
+        loop_ctx.break_jumps.deinit(self.allocator);
+        loop_ctx.continue_jumps.deinit(self.allocator);
     }
 
     fn compileFor(self: *Compiler, for_stmt: ast.Node.For) !void {
@@ -375,8 +375,8 @@ pub const Compiler = struct {
         // Push loop context
         var loop_ctx = LoopContext{
             .start = loop_start,
-            .break_jumps = std.ArrayList(u32).init(self.allocator),
-            .continue_jumps = std.ArrayList(u32).init(self.allocator),
+            .break_jumps = .{},
+            .continue_jumps = .{},
         };
         try self.loop_stack.append(self.allocator, loop_ctx);
 
@@ -407,8 +407,8 @@ pub const Compiler = struct {
         for (loop_ctx.continue_jumps.items) |addr| {
             self.instructions.items[addr].arg = loop_start;
         }
-        loop_ctx.break_jumps.deinit();
-        loop_ctx.continue_jumps.deinit();
+        loop_ctx.break_jumps.deinit(self.allocator);
+        loop_ctx.continue_jumps.deinit(self.allocator);
     }
 
     fn compileBreak(self: *Compiler) !void {
