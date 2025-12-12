@@ -244,6 +244,46 @@ fn getCallableReturnKind(name: []const u8) ?core.CallableReturnKind {
     return CallableTypeNames.get(name);
 }
 
+/// Known types for from-imported names
+/// Maps (module, name) -> NativeType
+pub fn getFromImportType(module_name: []const u8, symbol_name: []const u8) ?NativeType {
+    // math module constants
+    if (std.mem.eql(u8, module_name, "math")) {
+        if (std.mem.eql(u8, symbol_name, "inf") or
+            std.mem.eql(u8, symbol_name, "nan") or
+            std.mem.eql(u8, symbol_name, "pi") or
+            std.mem.eql(u8, symbol_name, "e") or
+            std.mem.eql(u8, symbol_name, "tau"))
+        {
+            return .float;
+        }
+        // math functions that return float
+        if (std.mem.eql(u8, symbol_name, "sqrt") or
+            std.mem.eql(u8, symbol_name, "sin") or
+            std.mem.eql(u8, symbol_name, "cos") or
+            std.mem.eql(u8, symbol_name, "tan") or
+            std.mem.eql(u8, symbol_name, "log") or
+            std.mem.eql(u8, symbol_name, "log10") or
+            std.mem.eql(u8, symbol_name, "exp") or
+            std.mem.eql(u8, symbol_name, "floor") or
+            std.mem.eql(u8, symbol_name, "ceil") or
+            std.mem.eql(u8, symbol_name, "trunc") or
+            std.mem.eql(u8, symbol_name, "copysign") or
+            std.mem.eql(u8, symbol_name, "fabs"))
+        {
+            return .{ .callable = .fixed_float };
+        }
+        // math functions that return bool
+        if (std.mem.eql(u8, symbol_name, "isnan") or
+            std.mem.eql(u8, symbol_name, "isinf") or
+            std.mem.eql(u8, symbol_name, "isfinite"))
+        {
+            return .{ .callable = .fixed_bool };
+        }
+    }
+    return null;
+}
+
 /// Infer the native type of an expression node
 pub fn inferExpr(
     allocator: std.mem.Allocator,
@@ -281,6 +321,15 @@ pub fn inferExprWithInferrer(
             if (isExceptionTypeName(n.id)) break :blk .{ .int = .bounded };
             // Check if name is a type constructor or function used as callable (bytes, str, pow, etc.)
             if (getCallableReturnKind(n.id)) |return_kind| break :blk .{ .callable = return_kind };
+            // Check if name is from-imported and we can infer its type from the module
+            // e.g., from math import inf, nan -> inf is float
+            if (type_inferrer) |ti| {
+                if (ti.from_imports.get(n.id)) |module_name| {
+                    if (getFromImportType(module_name, n.id)) |imported_type| {
+                        break :blk imported_type;
+                    }
+                }
+            }
             break :blk .unknown;
         },
         .binop => |b| try inferBinOpWithInferrer(allocator, var_types, class_fields, func_return_types, b, type_inferrer),

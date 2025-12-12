@@ -1375,11 +1375,15 @@ pub const NativeCodegen = struct {
 
     /// Get the inferred type of a variable from type inference
     /// Checks local scope first (to avoid type shadowing from other methods),
-    /// then falls back to global type inference.
+    /// then scoped vars (for loop-local variables), then falls back to global type inference.
     pub fn getVarType(self: *NativeCodegen, var_name: []const u8) ?NativeType {
         // Check local scope first (function/method local variables)
         if (self.local_var_types.get(var_name)) |local_type| {
             return local_type;
+        }
+        // Check scoped vars (loop-local variables like for-loop targets and body vars)
+        if (self.type_inferrer.getScopedVar(var_name)) |scoped_type| {
+            return scoped_type;
         }
         // Fall back to global type inference
         return self.type_inferrer.var_types.get(var_name);

@@ -30,9 +30,18 @@ pub fn inferBuiltinCall(
 ) InferError!NativeType {
     // Check if the callee is a callable variable (from iterating over callable list)
     // Use the CallableReturnKind to determine return type
-    if (var_types.get(func_name)) |var_type| {
-        if (@as(std.meta.Tag(NativeType), var_type) == .callable) {
-            const return_kind = var_type.callable;
+    // Check scoped vars first (for loop variables like pow_op), then global var_types
+    const var_type: ?NativeType = blk: {
+        if (type_inferrer) |ti| {
+            if (ti.getScopedVar(func_name)) |scoped_type| {
+                break :blk scoped_type;
+            }
+        }
+        break :blk var_types.get(func_name);
+    };
+    if (var_type) |vt| {
+        if (@as(std.meta.Tag(NativeType), vt) == .callable) {
+            const return_kind = vt.callable;
             return switch (return_kind) {
                 .same_as_input => blk: {
                     // Return type matches first argument type

@@ -262,6 +262,7 @@ pub const TypeInferrer = struct {
 
         // First pass: Collect from-imports (for type inference of calls like datetime(...))
         // Maps imported symbol name -> module name (e.g., "datetime" -> "datetime")
+        // Also directly store types for known module constants/functions
         for (module.body) |stmt| {
             if (stmt == .import_from) {
                 const from_imp = stmt.import_from;
@@ -272,6 +273,12 @@ pub const TypeInferrer = struct {
                     else
                         name;
                     try self.from_imports.put(symbol_name, from_imp.module);
+
+                    // Also store type directly for known module constants/functions
+                    // This handles aliases like 'from math import inf as INF'
+                    if (expressions.getFromImportType(from_imp.module, name)) |imported_type| {
+                        try self.var_types.put(symbol_name, imported_type);
+                    }
                 }
             }
         }
