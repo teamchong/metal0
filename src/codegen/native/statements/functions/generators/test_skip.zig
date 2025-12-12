@@ -374,6 +374,35 @@ fn stmtCallsSelfMethodWithClassArg(stmt: ast.Node, class_names: []const []const 
             for (i.else_body) |s| if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
             break :blk false;
         },
+        .for_stmt => |f| blk: {
+            for (f.body) |s| if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            if (f.orelse_body) |ob| for (ob) |s| if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            for (w.body) |s| if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            if (w.orelse_body) |ob| for (ob) |s| if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            for (t.handlers) |h| {
+                for (h.body) |s| if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            }
+            for (t.else_body) |s| if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            for (t.finalbody) |s| if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            for (w.body) |s| if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            for (m.cases) |case| {
+                for (case.body) |s| if (stmtCallsSelfMethodWithClassArg(s, class_names)) break :blk true;
+            }
+            break :blk false;
+        },
         else => false,
     };
 }

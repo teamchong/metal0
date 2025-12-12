@@ -308,11 +308,21 @@ fn varIsReassignedInStmt(stmt: ast.Node, var_name: []const u8) bool {
             for (f.body) |s| {
                 if (varIsReassignedInStmt(s, var_name)) break :blk true;
             }
+            if (f.orelse_body) |ob| {
+                for (ob) |s| {
+                    if (varIsReassignedInStmt(s, var_name)) break :blk true;
+                }
+            }
             break :blk false;
         },
         .while_stmt => |w| blk: {
             for (w.body) |s| {
                 if (varIsReassignedInStmt(s, var_name)) break :blk true;
+            }
+            if (w.orelse_body) |ob| {
+                for (ob) |s| {
+                    if (varIsReassignedInStmt(s, var_name)) break :blk true;
+                }
             }
             break :blk false;
         },
@@ -336,6 +346,14 @@ fn varIsReassignedInStmt(stmt: ast.Node, var_name: []const u8) bool {
         .with_stmt => |w| blk: {
             for (w.body) |s| {
                 if (varIsReassignedInStmt(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            for (m.cases) |case| {
+                for (case.body) |s| {
+                    if (varIsReassignedInStmt(s, var_name)) break :blk true;
+                }
             }
             break :blk false;
         },
