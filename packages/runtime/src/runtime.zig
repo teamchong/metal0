@@ -700,6 +700,7 @@ pub const Lib = struct {
     pub const base64 = @import("Lib/base64.zig");
     pub const stringprep = @import("Lib/stringprep.zig");
     pub const contextlib = @import("Lib/contextlib.zig");
+    pub const copyreg = @import("Lib/copyreg.zig");
     pub const subprocess = if (is_freestanding) void else @import("Lib/subprocess.zig");
     pub const http = if (is_freestanding) void else @import("Lib/http.zig");
     pub const websocket = if (is_freestanding) void else @import("Lib/websocket.zig");
