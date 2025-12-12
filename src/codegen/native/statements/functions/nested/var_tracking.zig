@@ -864,10 +864,22 @@ fn collectReferencedVarsInNode(
             try collectReferencedVarsInNode(self, b.left.*, referenced);
             try collectReferencedVarsInNode(self, b.right.*, referenced);
         },
+        .unaryop => |u| {
+            try collectReferencedVarsInNode(self, u.operand.*, referenced);
+        },
         .call => |c| {
             try collectReferencedVarsInNode(self, c.func.*, referenced);
             for (c.args) |arg| {
-                try collectReferencedVarsInNode(self, arg, referenced);
+                if (arg == .starred) {
+                    try collectReferencedVarsInNode(self, arg.starred.value.*, referenced);
+                } else if (arg == .double_starred) {
+                    try collectReferencedVarsInNode(self, arg.double_starred.value.*, referenced);
+                } else {
+                    try collectReferencedVarsInNode(self, arg, referenced);
+                }
+            }
+            for (c.keyword_args) |kw| {
+                try collectReferencedVarsInNode(self, kw.value, referenced);
             }
         },
         .return_stmt => |ret| {
@@ -877,12 +889,146 @@ fn collectReferencedVarsInNode(
         },
         .assign => |assign| {
             try collectReferencedVarsInNode(self, assign.value.*, referenced);
+            // Also check targets for subscript/attribute assignments
+            for (assign.targets) |target| {
+                if (target == .subscript) {
+                    try collectReferencedVarsInNode(self, target.subscript.value.*, referenced);
+                } else if (target == .attribute) {
+                    try collectReferencedVarsInNode(self, target.attribute.value.*, referenced);
+                }
+            }
+        },
+        .aug_assign => |a| {
+            try collectReferencedVarsInNode(self, a.target.*, referenced);
+            try collectReferencedVarsInNode(self, a.value.*, referenced);
         },
         .compare => |cmp| {
             try collectReferencedVarsInNode(self, cmp.left.*, referenced);
             for (cmp.comparators) |comp| {
                 try collectReferencedVarsInNode(self, comp, referenced);
             }
+        },
+        .subscript => |sub| {
+            try collectReferencedVarsInNode(self, sub.value.*, referenced);
+            switch (sub.slice) {
+                .index => |idx| try collectReferencedVarsInNode(self, idx.*, referenced),
+                .slice => |range| {
+                    if (range.lower) |lower| try collectReferencedVarsInNode(self, lower.*, referenced);
+                    if (range.upper) |upper| try collectReferencedVarsInNode(self, upper.*, referenced);
+                    if (range.step) |step| try collectReferencedVarsInNode(self, step.*, referenced);
+                },
+            }
+        },
+        .attribute => |attr| {
+            try collectReferencedVarsInNode(self, attr.value.*, referenced);
+        },
+        .if_expr => |ie| {
+            try collectReferencedVarsInNode(self, ie.condition.*, referenced);
+            try collectReferencedVarsInNode(self, ie.body.*, referenced);
+            try collectReferencedVarsInNode(self, ie.orelse_value.*, referenced);
+        },
+        .list => |l| {
+            for (l.elts) |elt| {
+                try collectReferencedVarsInNode(self, elt, referenced);
+            }
+        },
+        .tuple => |t| {
+            for (t.elts) |elt| {
+                try collectReferencedVarsInNode(self, elt, referenced);
+            }
+        },
+        .dict => |d| {
+            for (d.keys) |key| {
+                try collectReferencedVarsInNode(self, key, referenced);
+            }
+            for (d.values) |val| {
+                try collectReferencedVarsInNode(self, val, referenced);
+            }
+        },
+        .boolop => |bo| {
+            for (bo.values) |v| {
+                try collectReferencedVarsInNode(self, v, referenced);
+            }
+        },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| try collectReferencedVarsInNode(self, e.node.*, referenced),
+                    .format_expr => |fe| try collectReferencedVarsInNode(self, fe.expr.*, referenced),
+                    .conv_expr => |ce| try collectReferencedVarsInNode(self, ce.expr.*, referenced),
+                    .literal => {},
+                }
+            }
+        },
+        .listcomp => |lc| {
+            try collectReferencedVarsInNode(self, lc.elt.*, referenced);
+            for (lc.generators) |gen| {
+                try collectReferencedVarsInNode(self, gen.iter.*, referenced);
+                for (gen.ifs) |cond| {
+                    try collectReferencedVarsInNode(self, cond, referenced);
+                }
+            }
+        },
+        .dictcomp => |dc| {
+            try collectReferencedVarsInNode(self, dc.key.*, referenced);
+            try collectReferencedVarsInNode(self, dc.value.*, referenced);
+            for (dc.generators) |gen| {
+                try collectReferencedVarsInNode(self, gen.iter.*, referenced);
+                for (gen.ifs) |cond| {
+                    try collectReferencedVarsInNode(self, cond, referenced);
+                }
+            }
+        },
+        .genexp => |ge| {
+            try collectReferencedVarsInNode(self, ge.elt.*, referenced);
+            for (ge.generators) |gen| {
+                try collectReferencedVarsInNode(self, gen.iter.*, referenced);
+                for (gen.ifs) |cond| {
+                    try collectReferencedVarsInNode(self, cond, referenced);
+                }
+            }
+        },
+        .lambda => |lam| {
+            try collectReferencedVarsInNode(self, lam.body.*, referenced);
+        },
+        .starred => |s| {
+            try collectReferencedVarsInNode(self, s.value.*, referenced);
+        },
+        // Statement-level nodes
+        .expr_stmt => |e| {
+            try collectReferencedVarsInNode(self, e.value.*, referenced);
+        },
+        .if_stmt => |i| {
+            try collectReferencedVarsInNode(self, i.condition.*, referenced);
+            try collectReferencedVars(self, i.body, referenced);
+            try collectReferencedVars(self, i.else_body, referenced);
+        },
+        .for_stmt => |f| {
+            try collectReferencedVarsInNode(self, f.iter.*, referenced);
+            try collectReferencedVars(self, f.body, referenced);
+            if (f.orelse_body) |ob| {
+                try collectReferencedVars(self, ob, referenced);
+            }
+        },
+        .while_stmt => |w| {
+            try collectReferencedVarsInNode(self, w.condition.*, referenced);
+            try collectReferencedVars(self, w.body, referenced);
+        },
+        .try_stmt => |t| {
+            try collectReferencedVars(self, t.body, referenced);
+            for (t.handlers) |h| {
+                try collectReferencedVars(self, h.body, referenced);
+            }
+            try collectReferencedVars(self, t.else_body, referenced);
+            try collectReferencedVars(self, t.finalbody, referenced);
+        },
+        .with_stmt => |w| {
+            try collectReferencedVarsInNode(self, w.context_expr.*, referenced);
+            try collectReferencedVars(self, w.body, referenced);
+        },
+        .raise_stmt => |r| {
+            if (r.exc) |exc| try collectReferencedVarsInNode(self, exc.*, referenced);
+            if (r.cause) |cause| try collectReferencedVarsInNode(self, cause.*, referenced);
         },
         else => {},
     }
@@ -1032,7 +1178,16 @@ fn collectUsedNamesFromNode(node: ast.Node, uses: *hashmap_helper.StringHashMap(
         .call => |c| {
             try collectUsedNamesFromNode(c.func.*, uses);
             for (c.args) |arg| {
-                try collectUsedNamesFromNode(arg, uses);
+                if (arg == .starred) {
+                    try collectUsedNamesFromNode(arg.starred.value.*, uses);
+                } else if (arg == .double_starred) {
+                    try collectUsedNamesFromNode(arg.double_starred.value.*, uses);
+                } else {
+                    try collectUsedNamesFromNode(arg, uses);
+                }
+            }
+            for (c.keyword_args) |kw| {
+                try collectUsedNamesFromNode(kw.value, uses);
             }
         },
         .attribute => |a| {
@@ -1112,6 +1267,66 @@ fn collectUsedNamesFromNode(node: ast.Node, uses: *hashmap_helper.StringHashMap(
         .function_def => |f| {
             // For nested functions, collect names used in the body
             try collectUsedNames(f.body, uses);
+        },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| try collectUsedNamesFromNode(e.node.*, uses),
+                    .format_expr => |fe| try collectUsedNamesFromNode(fe.expr.*, uses),
+                    .conv_expr => |ce| try collectUsedNamesFromNode(ce.expr.*, uses),
+                    .literal => {},
+                }
+            }
+        },
+        .listcomp => |lc| {
+            try collectUsedNamesFromNode(lc.elt.*, uses);
+            for (lc.generators) |gen| {
+                try collectUsedNamesFromNode(gen.iter.*, uses);
+                for (gen.ifs) |cond| {
+                    try collectUsedNamesFromNode(cond, uses);
+                }
+            }
+        },
+        .dictcomp => |dc| {
+            try collectUsedNamesFromNode(dc.key.*, uses);
+            try collectUsedNamesFromNode(dc.value.*, uses);
+            for (dc.generators) |gen| {
+                try collectUsedNamesFromNode(gen.iter.*, uses);
+                for (gen.ifs) |cond| {
+                    try collectUsedNamesFromNode(cond, uses);
+                }
+            }
+        },
+        .genexp => |ge| {
+            try collectUsedNamesFromNode(ge.elt.*, uses);
+            for (ge.generators) |gen| {
+                try collectUsedNamesFromNode(gen.iter.*, uses);
+                for (gen.ifs) |cond| {
+                    try collectUsedNamesFromNode(cond, uses);
+                }
+            }
+        },
+        .lambda => |lam| {
+            try collectUsedNamesFromNode(lam.body.*, uses);
+        },
+        .try_stmt => |t| {
+            try collectUsedNames(t.body, uses);
+            for (t.handlers) |h| {
+                try collectUsedNames(h.body, uses);
+            }
+            try collectUsedNames(t.else_body, uses);
+            try collectUsedNames(t.finalbody, uses);
+        },
+        .with_stmt => |w| {
+            try collectUsedNamesFromNode(w.context_expr.*, uses);
+            try collectUsedNames(w.body, uses);
+        },
+        .raise_stmt => |r| {
+            if (r.exc) |exc| try collectUsedNamesFromNode(exc.*, uses);
+            if (r.cause) |cause| try collectUsedNamesFromNode(cause.*, uses);
+        },
+        .starred => |s| {
+            try collectUsedNamesFromNode(s.value.*, uses);
         },
         else => {
             // Other node types don't contain name references we need to track
