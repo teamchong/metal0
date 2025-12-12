@@ -218,6 +218,10 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
     }
     const rounded = bankersRound(float_val * multiplier);
     const result = rounded / multiplier;
+    // Check for overflow - Python raises OverflowError
+    if (std.math.isInf(result)) {
+        return PythonError.OverflowError;
+    }
     // Preserve sign of input when result is zero (Python semantics)
     if (result == 0.0 and std.math.signbit(float_val)) {
         return -0.0;
