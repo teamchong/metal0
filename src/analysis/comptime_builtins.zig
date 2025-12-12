@@ -71,6 +71,7 @@ pub const BuiltinOps = struct {
             .bool => |b| ComptimeValue{ .string = if (b) "True" else "False" },
             .list, .owned_list => null, // Cannot convert list to string
             .owned_string => value, // Already owned, return as-is
+            .bytes, .owned_bytes => null, // Cannot convert bytes to string at comptime
         };
     }
 
@@ -97,6 +98,7 @@ pub const BuiltinOps = struct {
                 break :blk ComptimeValue{ .int = result };
             },
             .list, .owned_list => null, // Cannot convert list to int
+            .bytes, .owned_bytes => null, // Cannot convert bytes to int at comptime
         };
     }
 };

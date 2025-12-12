@@ -29,7 +29,7 @@ pub const ComptimeEvaluator = struct {
                 .float => |f| ComptimeValue{ .float = f },
                 .bool => |b| ComptimeValue{ .bool = b },
                 .string => |s| ComptimeValue{ .string = s },
-                .bytes => |s| ComptimeValue{ .string = s }, // Bytes treated as string for comptime
+                .bytes => |s| ComptimeValue{ .bytes = s }, // Preserve bytes identity
                 .none => null, // None cannot be compile-time evaluated
                 .complex => null, // Complex cannot be compile-time evaluated as simple value
             },
@@ -182,6 +182,10 @@ pub const ComptimeEvaluator = struct {
                 },
                 else => false,
             },
+            .bytes, .owned_bytes => |l| switch (right) {
+                .bytes, .owned_bytes => |r| std.mem.eql(u8, l, r),
+                else => false,
+            },
         };
         return ComptimeValue{ .bool = result };
     }
@@ -282,6 +286,7 @@ pub const ComptimeEvaluator = struct {
             .int => |i| i != 0,
             .float => |f| f != 0.0,
             .string, .owned_string => |s| s.len > 0,
+            .bytes, .owned_bytes => |s| s.len > 0,
             .list, .owned_list => |l| l.len > 0,
         };
     }

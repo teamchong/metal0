@@ -47,15 +47,18 @@ pub const ComptimeValue = union(enum) {
     float: f64,
     bool: bool,
     string: []const u8,
+    bytes: []const u8, // Python bytes literal (b'...')
     list: []const ComptimeValue,
     // Owned variants - these need to be freed
     owned_string: []const u8,
+    owned_bytes: []const u8,
     owned_list: []const ComptimeValue,
 
     /// Free any owned memory
     pub fn deinit(self: ComptimeValue, allocator: std.mem.Allocator) void {
         switch (self) {
             .owned_string => |s| allocator.free(s),
+            .owned_bytes => |s| allocator.free(s),
             .owned_list => |l| {
                 for (l) |item| item.deinit(allocator);
                 allocator.free(l);

@@ -39,6 +39,7 @@ pub fn emitComptimeAssignment(
             .float => try self.emit("f64"),
             .bool => try self.emit("bool"),
             .string, .owned_string => try self.emit("[]const u8"),
+            .bytes, .owned_bytes => try self.emit("runtime.builtins.PyBytes"),
             .list, .owned_list => |items| {
                 if (items.len == 0) {
                     try self.emit("[0]i64"); // Empty list default type
@@ -49,6 +50,7 @@ pub fn emitComptimeAssignment(
                         .float => "f64",
                         .bool => "bool",
                         .string, .owned_string => "[]const u8",
+                        .bytes, .owned_bytes => "runtime.builtins.PyBytes",
                         .list, .owned_list => "ComptimeValue", // Nested lists not fully supported
                     };
                     try self.output.writer(self.allocator).print("[{d}]{s}", .{ items.len, elem_type });
@@ -89,6 +91,28 @@ pub fn emitComptimeAssignment(
             }
             try self.emit("\"");
         },
+        .bytes, .owned_bytes => |v| {
+            // Use runtime.builtins.bytesLiteral for Python bytes type
+            try self.emit("runtime.builtins.bytesLiteral(\"");
+            for (v) |c| {
+                switch (c) {
+                    '\n' => try self.emit("\\n"),
+                    '\r' => try self.emit("\\r"),
+                    '\t' => try self.emit("\\t"),
+                    '\\' => try self.emit("\\\\"),
+                    '"' => try self.emit("\\\""),
+                    else => {
+                        // For bytes, emit hex for non-printable chars
+                        if (c < 0x20 or c >= 0x7f) {
+                            try self.output.writer(self.allocator).print("\\x{x:0>2}", .{c});
+                        } else {
+                            try self.output.append(self.allocator, c);
+                        }
+                    },
+                }
+            }
+            try self.emit("\")");
+        },
         .list, .owned_list => |items| {
             if (items.len == 0) {
                 try self.emit(".{}");
@@ -112,6 +136,7 @@ pub fn emitComptimeAssignment(
                             try self.emit(bool_str);
                         },
                         .string, .owned_string => |v| try self.output.writer(self.allocator).print("\"{s}\"", .{v}),
+                        .bytes, .owned_bytes => |v| try self.output.writer(self.allocator).print("runtime.builtins.bytesLiteral(\"{s}\")", .{v}),
                         .list, .owned_list => {
                             // Nested lists not fully supported yet
                             try self.emit(".{}");
@@ -130,6 +155,7 @@ pub fn emitComptimeAssignment(
 pub fn freeComptimeValue(allocator: std.mem.Allocator, value: ComptimeValue) void {
     switch (value) {
         .string, .owned_string => |s| allocator.free(s),
+        .bytes, .owned_bytes => |s| allocator.free(s),
         .list, .owned_list => |items| {
             for (items) |item| {
                 freeComptimeValue(allocator, item);
