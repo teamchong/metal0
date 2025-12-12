@@ -1228,7 +1228,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Emit value normally
                 try self.genExpr(assign.value.*);
                 // TWO-FLOW TYPE SYSTEM: Close PyValue.from() wrapper if uncertain type
-                if (is_first_assignment and self.shouldUsePyValue(var_name)) {
+                // WHITELIST: Only primitives (int, float, bool, string, none) get PyValue wrapper
+                const is_primitive = type_traits.isIntegral(value_type) or type_traits.isFloating(value_type) or
+                    type_traits.isBoolean(value_type) or string_traits.isString(value_type) or
+                    type_traits.isNone(value_type);
+                if (is_first_assignment and is_primitive and self.shouldUsePyValue(var_name)) {
                     try self.emit(")");
                 }
                 try self.emit(";\n");

@@ -539,7 +539,11 @@ pub fn emitVarDeclaration(
 
     // TWO-FLOW TYPE SYSTEM: Check if variable has uncertain confidence
     // If uncertain, emit PyValue type instead of raw Zig type (safer, prevents runtime panics)
-    if (self.shouldUsePyValue(var_name)) {
+    // WHITELIST: Only wrap primitive types that PyValue supports (int, float, bool, string, none)
+    const is_primitive = type_traits.isIntegral(value_type) or type_traits.isFloating(value_type) or
+        type_traits.isBoolean(value_type) or string_traits.isString(value_type) or
+        type_traits.isNone(value_type);
+    if (is_primitive and self.shouldUsePyValue(var_name)) {
         try self.emit(": runtime.PyValue = runtime.PyValue.from(");
         return; // Caller will emit value and close paren
     }
