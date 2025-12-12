@@ -148,6 +148,12 @@ fn collectMutations(
             for (w.body) |s| {
                 try collectMutations(s, mutations, allocator);
             }
+            // Check else body
+            if (w.orelse_body) |ob| {
+                for (ob) |s| {
+                    try collectMutations(s, mutations, allocator);
+                }
+            }
         },
         .for_stmt => |f| {
             // Check iterator
@@ -155,6 +161,12 @@ fn collectMutations(
             // Check body
             for (f.body) |s| {
                 try collectMutations(s, mutations, allocator);
+            }
+            // Check else body
+            if (f.orelse_body) |ob| {
+                for (ob) |s| {
+                    try collectMutations(s, mutations, allocator);
+                }
             }
         },
         .function_def => |func| {
@@ -198,6 +210,19 @@ fn collectMutations(
             // Check with body for mutations
             for (w.body) |s| {
                 try collectMutations(s, mutations, allocator);
+            }
+        },
+        .match_stmt => |m| {
+            // Check subject
+            try checkExprForMutation(m.subject.*, mutations, allocator);
+            // Check case bodies
+            for (m.cases) |case| {
+                if (case.guard) |guard| {
+                    try checkExprForMutation(guard.*, mutations, allocator);
+                }
+                for (case.body) |s| {
+                    try collectMutations(s, mutations, allocator);
+                }
             }
         },
         else => {},
@@ -487,9 +512,15 @@ fn collectClosureAppends(
         },
         .for_stmt => |f| {
             for (f.body) |s| try collectClosureAppends(s, result, allocator);
+            if (f.orelse_body) |ob| {
+                for (ob) |s| try collectClosureAppends(s, result, allocator);
+            }
         },
         .while_stmt => |w| {
             for (w.body) |s| try collectClosureAppends(s, result, allocator);
+            if (w.orelse_body) |ob| {
+                for (ob) |s| try collectClosureAppends(s, result, allocator);
+            }
         },
         .try_stmt => |t| {
             for (t.body) |s| try collectClosureAppends(s, result, allocator);
@@ -501,6 +532,11 @@ fn collectClosureAppends(
         },
         .with_stmt => |w| {
             for (w.body) |s| try collectClosureAppends(s, result, allocator);
+        },
+        .match_stmt => |m| {
+            for (m.cases) |case| {
+                for (case.body) |s| try collectClosureAppends(s, result, allocator);
+            }
         },
         else => {},
     }
@@ -544,9 +580,31 @@ fn findAppendToCapture(
         },
         .for_stmt => |f| {
             for (f.body) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+            if (f.orelse_body) |ob| {
+                for (ob) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+            }
         },
         .while_stmt => |w| {
             for (w.body) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+            if (w.orelse_body) |ob| {
+                for (ob) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+            }
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+            for (t.handlers) |h| {
+                for (h.body) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+            }
+            for (t.else_body) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+            for (t.finalbody) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+        },
+        .with_stmt => |w| {
+            for (w.body) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+        },
+        .match_stmt => |m| {
+            for (m.cases) |case| {
+                for (case.body) |s| try findAppendToCapture(s, func_name, param_names, result, allocator);
+            }
         },
         else => {},
     }
@@ -683,10 +741,16 @@ fn collectCallSites(
         .for_stmt => |f| {
             try collectCallSites(f.iter.*, result, allocator);
             for (f.body) |s| try collectCallSites(s, result, allocator);
+            if (f.orelse_body) |ob| {
+                for (ob) |s| try collectCallSites(s, result, allocator);
+            }
         },
         .while_stmt => |w| {
             try collectCallSites(w.condition.*, result, allocator);
             for (w.body) |s| try collectCallSites(s, result, allocator);
+            if (w.orelse_body) |ob| {
+                for (ob) |s| try collectCallSites(s, result, allocator);
+            }
         },
         .return_stmt => |r| {
             if (r.value) |v| try collectCallSites(v.*, result, allocator);
@@ -742,6 +806,13 @@ fn collectCallSites(
         },
         .with_stmt => |w| {
             for (w.body) |s| try collectCallSites(s, result, allocator);
+        },
+        .match_stmt => |m| {
+            try collectCallSites(m.subject.*, result, allocator);
+            for (m.cases) |case| {
+                if (case.guard) |guard| try collectCallSites(guard.*, result, allocator);
+                for (case.body) |s| try collectCallSites(s, result, allocator);
+            }
         },
         else => {},
     }
