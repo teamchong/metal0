@@ -63,6 +63,8 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
             // Types incompatible - use runtime helper for Python or/and semantics
             // Python's `x or y` returns x if truthy, else y (preserving actual value)
             // Use runtime.pyOr/pyAnd which returns PyValue
+            // Wrap with runtime.toBool so result can be used in boolean contexts (if, while, etc.)
+            try self.emit("runtime.toBool(");
             if (boolop.op == .Or) {
                 try self.emit("(try runtime.pyOr(__global_allocator, ");
             } else {
@@ -71,7 +73,7 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
             try genExpr(self, a);
             try self.emit(", ");
             try genExpr(self, b);
-            try self.emit("))");
+            try self.emit(")))");
             return;
         }
 
