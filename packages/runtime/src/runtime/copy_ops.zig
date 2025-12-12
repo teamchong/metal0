@@ -77,14 +77,14 @@ test "shallowCopy primitives" {
 test "shallowCopy ArrayList" {
     const allocator = std.testing.allocator;
 
-    var list = std.ArrayList(i64).init(allocator);
-    defer list.deinit();
-    try list.append(1);
-    try list.append(2);
-    try list.append(3);
+    var list: std.ArrayList(i64) = .{};
+    defer list.deinit(allocator);
+    try list.append(allocator, 1);
+    try list.append(allocator, 2);
+    try list.append(allocator, 3);
 
     var copy = try shallowCopy(std.ArrayList(i64), allocator, list);
-    defer copy.deinit();
+    defer copy.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 3), copy.items.len);
     try std.testing.expectEqual(@as(i64, 1), copy.items[0]);
@@ -92,7 +92,7 @@ test "shallowCopy ArrayList" {
     try std.testing.expectEqual(@as(i64, 3), copy.items[2]);
 
     // Verify it's a separate copy
-    try list.append(4);
+    try list.append(allocator, 4);
     try std.testing.expectEqual(@as(usize, 4), list.items.len);
     try std.testing.expectEqual(@as(usize, 3), copy.items.len);
 }
@@ -100,13 +100,13 @@ test "shallowCopy ArrayList" {
 test "deepCopy ArrayList" {
     const allocator = std.testing.allocator;
 
-    var list = std.ArrayList(i64).init(allocator);
-    defer list.deinit();
-    try list.append(10);
-    try list.append(20);
+    var list: std.ArrayList(i64) = .{};
+    defer list.deinit(allocator);
+    try list.append(allocator, 10);
+    try list.append(allocator, 20);
 
     var copy = try deepCopy(std.ArrayList(i64), allocator, list);
-    defer copy.deinit();
+    defer copy.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 2), copy.items.len);
     try std.testing.expectEqual(@as(i64, 10), copy.items[0]);

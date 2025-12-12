@@ -153,13 +153,13 @@ pub fn SetOps(comptime K: type) type {
         /// Update set in-place with intersection
         pub fn intersectionUpdate(allocator: std.mem.Allocator, set: anytype, other: anytype) SetOpsError!void {
             // Collect keys to remove (can't modify while iterating)
-            var to_remove = std.ArrayList(K).init(allocator);
-            defer to_remove.deinit();
+            var to_remove: std.ArrayList(K) = .{};
+            defer to_remove.deinit(allocator);
 
             var iter = set.iterator();
             while (iter.next()) |entry| {
                 if (!other.contains(entry.key_ptr.*)) {
-                    try to_remove.append(entry.key_ptr.*);
+                    try to_remove.append(allocator, entry.key_ptr.*);
                 }
             }
 
@@ -179,16 +179,16 @@ pub fn SetOps(comptime K: type) type {
         /// Update set in-place with symmetric difference
         pub fn symmetricDifferenceUpdate(allocator: std.mem.Allocator, set: anytype, other: anytype) SetOpsError!void {
             // Collect keys to remove (in both sets) and keys to add (in other but not set)
-            var to_remove = std.ArrayList(K).init(allocator);
-            defer to_remove.deinit();
-            var to_add = std.ArrayList(K).init(allocator);
-            defer to_add.deinit();
+            var to_remove: std.ArrayList(K) = .{};
+            defer to_remove.deinit(allocator);
+            var to_add: std.ArrayList(K) = .{};
+            defer to_add.deinit(allocator);
 
             // Find elements in set that are in other (to remove)
             var iter1 = set.iterator();
             while (iter1.next()) |entry| {
                 if (other.contains(entry.key_ptr.*)) {
-                    try to_remove.append(entry.key_ptr.*);
+                    try to_remove.append(allocator, entry.key_ptr.*);
                 }
             }
 
@@ -196,7 +196,7 @@ pub fn SetOps(comptime K: type) type {
             var iter2 = other.iterator();
             while (iter2.next()) |entry| {
                 if (!set.contains(entry.key_ptr.*)) {
-                    try to_add.append(entry.key_ptr.*);
+                    try to_add.append(allocator, entry.key_ptr.*);
                 }
             }
 

@@ -204,29 +204,29 @@ fn ExceptionClass(comptime exception_name: []const u8) type {
             } else if (self.args.len == 1) {
                 return try self.args[0].toString(allocator);
             } else {
-                var result = std.ArrayList(u8).init(allocator);
-                try result.appendSlice("(");
+                var result: std.ArrayList(u8) = .{};
+                try result.appendSlice(allocator, "(");
                 for (self.args, 0..) |arg, i| {
-                    if (i > 0) try result.appendSlice(", ");
+                    if (i > 0) try result.appendSlice(allocator, ", ");
                     const s = try arg.toRepr(allocator);
-                    try result.appendSlice(s);
+                    try result.appendSlice(allocator, s);
                 }
-                try result.appendSlice(")");
-                return result.toOwnedSlice();
+                try result.appendSlice(allocator, ")");
+                return result.toOwnedSlice(allocator);
             }
         }
 
         pub fn __repr__(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
-            var result = std.ArrayList(u8).init(allocator);
-            try result.appendSlice(name);
-            try result.appendSlice("(");
+            var result: std.ArrayList(u8) = .{};
+            try result.appendSlice(allocator, name);
+            try result.appendSlice(allocator, "(");
             for (self.args, 0..) |arg, i| {
-                if (i > 0) try result.appendSlice(", ");
+                if (i > 0) try result.appendSlice(allocator, ", ");
                 const s = try arg.toRepr(allocator);
-                try result.appendSlice(s);
+                try result.appendSlice(allocator, s);
             }
-            try result.appendSlice(")");
-            return result.toOwnedSlice();
+            try result.appendSlice(allocator, ")");
+            return result.toOwnedSlice(allocator);
         }
     };
 }
@@ -306,29 +306,29 @@ pub const BaseException = struct {
             return try self.args[0].toString(allocator);
         } else {
             // Format as tuple
-            var result = std.ArrayList(u8).init(allocator);
-            try result.appendSlice("(");
+            var result: std.ArrayList(u8) = .{};
+            try result.appendSlice(allocator, "(");
             for (self.args, 0..) |arg, i| {
-                if (i > 0) try result.appendSlice(", ");
+                if (i > 0) try result.appendSlice(allocator, ", ");
                 const s = try arg.toRepr(allocator);
-                try result.appendSlice(s);
+                try result.appendSlice(allocator, s);
             }
-            try result.appendSlice(")");
-            return result.toOwnedSlice();
+            try result.appendSlice(allocator, ")");
+            return result.toOwnedSlice(allocator);
         }
     }
 
     pub fn __repr__(self: *const BaseException, allocator: std.mem.Allocator) ![]const u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        try result.appendSlice(name);
-        try result.appendSlice("(");
+        var result: std.ArrayList(u8) = .{};
+        try result.appendSlice(allocator, name);
+        try result.appendSlice(allocator, "(");
         for (self.args, 0..) |arg, i| {
-            if (i > 0) try result.appendSlice(", ");
+            if (i > 0) try result.appendSlice(allocator, ", ");
             const s = try arg.toRepr(allocator);
-            try result.appendSlice(s);
+            try result.appendSlice(allocator, s);
         }
-        try result.appendSlice(")");
-        return result.toOwnedSlice();
+        try result.appendSlice(allocator, ")");
+        return result.toOwnedSlice(allocator);
     }
 };
 
@@ -378,29 +378,29 @@ pub const Exception = struct {
             return try self.args[0].toString(allocator);
         } else {
             // Format as tuple
-            var result = std.ArrayList(u8).init(allocator);
-            try result.appendSlice("(");
+            var result: std.ArrayList(u8) = .{};
+            try result.appendSlice(allocator, "(");
             for (self.args, 0..) |arg, i| {
-                if (i > 0) try result.appendSlice(", ");
+                if (i > 0) try result.appendSlice(allocator, ", ");
                 const s = try arg.toRepr(allocator);
-                try result.appendSlice(s);
+                try result.appendSlice(allocator, s);
             }
-            try result.appendSlice(")");
-            return result.toOwnedSlice();
+            try result.appendSlice(allocator, ")");
+            return result.toOwnedSlice(allocator);
         }
     }
 
     pub fn __repr__(self: *const Exception, allocator: std.mem.Allocator) ![]const u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        try result.appendSlice(name);
-        try result.appendSlice("(");
+        var result: std.ArrayList(u8) = .{};
+        try result.appendSlice(allocator, name);
+        try result.appendSlice(allocator, "(");
         for (self.args, 0..) |arg, i| {
-            if (i > 0) try result.appendSlice(", ");
+            if (i > 0) try result.appendSlice(allocator, ", ");
             const s = try arg.toRepr(allocator);
-            try result.appendSlice(s);
+            try result.appendSlice(allocator, s);
         }
-        try result.appendSlice(")");
-        return result.toOwnedSlice();
+        try result.appendSlice(allocator, ")");
+        return result.toOwnedSlice(allocator);
     }
 };
 pub const SyntaxError = struct {
