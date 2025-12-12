@@ -200,6 +200,8 @@ pub const intBuiltin = type_builtins.intBuiltin;
 pub const floatBuiltin = type_builtins.floatBuiltin;
 pub const floatBuiltinCall = @import("runtime/float_ops.zig").floatBuiltinCall;
 pub const parseFloatWithUnicode = @import("runtime/float_ops/parsing.zig").parseFloatWithUnicode;
+pub const parseFloatStr = @import("runtime/float_ops/parsing.zig").parseFloatStr;
+pub const floatIsInteger = @import("runtime/float_ops/conversion.zig").floatIsInteger;
 pub const strBuiltin = type_builtins.strBuiltin;
 pub const bytesBuiltin = type_builtins.bytesBuiltin;
 pub const listBuiltin = type_builtins.listBuiltin;
@@ -227,6 +229,16 @@ pub const isSubclass = @import("runtime/type_ops.zig").isSubclass;
 
 // Re-export float_ops for codegen
 pub const divideFloat = @import("runtime/float_ops.zig").divideFloat;
+pub const floatFloorBig = @import("runtime/float_ops/rounding.zig").floatFloorBig;
+pub const floatCeilBig = @import("runtime/float_ops/rounding.zig").floatCeilBig;
+pub const floatAsIntegerRatioBigInt = @import("runtime/float_ops/ratio.zig").floatAsIntegerRatioBigInt;
+pub const toFloat = @import("runtime/float_ops/conversion.zig").toFloat;
+
+// Re-export hash operations for codegen
+pub const pyHash = @import("runtime/hash_ops.zig").pyHash;
+
+// Re-export list operations for codegen
+pub const PyList = @import("Objects/listobject.zig").PyList;
 
 // Re-export whitespace for codegen
 pub const isStringAllWhitespace = @import("runtime/whitespace.zig").isStringAllWhitespace;
@@ -244,6 +256,7 @@ pub const int__new__ = @import("runtime/int_ops.zig").int__new__;
 
 // Re-export class operations for codegen
 const class_ops = @import("runtime/builtins/operators.zig");
+pub const pyEqual = class_ops.pyEqual;
 pub const classInstanceEq = class_ops.classInstanceEq;
 pub const classInstanceNe = class_ops.classInstanceNe;
 pub const classInstanceLt = class_ops.classInstanceLt;

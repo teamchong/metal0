@@ -1006,6 +1006,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Use comptime type dispatch for len() - works with Zig slices, arrays, ArrayLists, and PyObjects
         // Slices ([]T): pointer with .size == .slice -> .len
         // Pointers to arrays (*[N]T): pointer with array child -> child.len
+        // Arrays ([N]T): .array type -> .len
         // Structs with items field (ArrayList): .items.len
         // PyObject: runtime.pyLen()
         try self.output.writer(self.allocator).print(
@@ -1015,6 +1016,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 "const info = @typeInfo(T); " ++
                 "break :blk if (info == .pointer and info.pointer.size == .slice) __obj.len " ++
                 "else if (info == .pointer and @typeInfo(info.pointer.child) == .array) @typeInfo(info.pointer.child).array.len " ++
+                "else if (info == .array) info.array.len " ++
                 "else if (info == .@\"struct\" and @hasField(T, \"items\")) __obj.items.len " ++
                 "else runtime.pyLen(__obj); }};\n",
             .{ label_id, label_id },
@@ -1029,6 +1031,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
         // Get item using comptime type dispatch - works with Zig slices, arrays, ArrayLists, and PyObjects
         // Slices ([]T) and pointers to arrays (*[N]T): __obj[__idx]
+        // Arrays ([N]T): __obj[__idx]
         // Structs with items field (ArrayList): .items[__idx]
         // PyObject: runtime.PyList.getItem()
         try self.emitIndent();
@@ -1039,6 +1042,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             "const T = @TypeOf(__obj); " ++
             "const info = @typeInfo(T); " ++
             "break :blk if (info == .pointer and (info.pointer.size == .slice or @typeInfo(info.pointer.child) == .array)) __obj[__idx] " ++
+            "else if (info == .array) __obj[__idx] " ++
             "else if (info == .@\"struct\" and @hasField(T, \"items\")) __obj.items[__idx] " ++
             "else runtime.PyList.getItem(__obj, __idx) catch undefined; }}";
         if (!tuple_var_used) {
