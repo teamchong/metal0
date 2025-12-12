@@ -598,6 +598,9 @@ fn analyzeExprForTraits(expr: ast.Node, ctx: *AnalyzerContext) error{OutOfMemory
             for (call.args) |arg| {
                 try analyzeExprForTraits(arg, ctx);
             }
+            for (call.keyword_args) |kw| {
+                try analyzeExprForTraits(kw.value, ctx);
+            }
             ctx.op_count += 2;
         },
         .name => |n| {
@@ -686,6 +689,18 @@ fn analyzeExprForTraits(expr: ast.Node, ctx: *AnalyzerContext) error{OutOfMemory
         .lambda => |lam| {
             try analyzeExprForTraits(lam.body.*, ctx);
         },
+        .fstring => |fs| {
+            ctx.needs_allocator = true;
+            for (fs.parts) |part| {
+                switch (part) {
+                    .expr => |e| try analyzeExprForTraits(e.node.*, ctx),
+                    .format_expr => |fe| try analyzeExprForTraits(fe.expr.*, ctx),
+                    .conv_expr => |ce| try analyzeExprForTraits(ce.expr.*, ctx),
+                    .literal => {},
+                }
+            }
+        },
+        .starred => |st| try analyzeExprForTraits(st.value.*, ctx),
         else => {},
     }
 }
