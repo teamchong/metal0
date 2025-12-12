@@ -82,12 +82,20 @@ pub fn deinit(node: *const Node, allocator: std.mem.Allocator) void {
             allocator.destroy(f.iter);
             for (f.body) |*n| deinit(n, allocator);
             allocator.free(f.body);
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |*n| deinit(n, allocator);
+                allocator.free(orelse_body);
+            }
         },
         .while_stmt => |w| {
             deinit(w.condition, allocator);
             allocator.destroy(w.condition);
             for (w.body) |*n| deinit(n, allocator);
             allocator.free(w.body);
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |*n| deinit(n, allocator);
+                allocator.free(orelse_body);
+            }
         },
         .function_def => |f| {
             for (f.args) |arg| {
