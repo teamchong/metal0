@@ -116,10 +116,37 @@ fn inferReturnTypeFromBody(body: []const ast.Node) function_traits.TypeHint {
                 if (body_type != .object) break :blk body_type;
                 break :blk inferReturnTypeFromBody(i.else_body);
             },
-            .for_stmt => |f| inferReturnTypeFromBody(f.body),
-            .while_stmt => |w| inferReturnTypeFromBody(w.body),
-            .try_stmt => |t| inferReturnTypeFromBody(t.body),
+            .for_stmt => |f| blk: {
+                const body_type = inferReturnTypeFromBody(f.body);
+                if (body_type != .object) break :blk body_type;
+                if (f.orelse_body) |ob| break :blk inferReturnTypeFromBody(ob);
+                break :blk function_traits.TypeHint.object;
+            },
+            .while_stmt => |w| blk: {
+                const body_type = inferReturnTypeFromBody(w.body);
+                if (body_type != .object) break :blk body_type;
+                if (w.orelse_body) |ob| break :blk inferReturnTypeFromBody(ob);
+                break :blk function_traits.TypeHint.object;
+            },
+            .try_stmt => |t| blk: {
+                const body_type = inferReturnTypeFromBody(t.body);
+                if (body_type != .object) break :blk body_type;
+                for (t.handlers) |h| {
+                    const handler_type = inferReturnTypeFromBody(h.body);
+                    if (handler_type != .object) break :blk handler_type;
+                }
+                const else_type = inferReturnTypeFromBody(t.else_body);
+                if (else_type != .object) break :blk else_type;
+                break :blk inferReturnTypeFromBody(t.finalbody);
+            },
             .with_stmt => |w| inferReturnTypeFromBody(w.body),
+            .match_stmt => |m| blk: {
+                for (m.cases) |case| {
+                    const case_type = inferReturnTypeFromBody(case.body);
+                    if (case_type != .object) break :blk case_type;
+                }
+                break :blk function_traits.TypeHint.object;
+            },
             else => function_traits.TypeHint.object,
         };
         if (nested_type != .object) return nested_type;

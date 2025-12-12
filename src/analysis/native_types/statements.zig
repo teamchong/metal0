@@ -670,6 +670,10 @@ pub fn visitStmtScoped(
                 for (case.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
             }
         },
+        .with_stmt => |with_stmt| {
+            // Visit with body
+            for (with_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
+        },
         else => {},
     }
 }
