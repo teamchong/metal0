@@ -107,13 +107,24 @@ fn stmtHasNestedCall(stmt: ast.Node, nested: []const []const u8) bool {
     return switch (stmt) {
         .expr_stmt => |e| exprHasNestedCall(e.value.*, nested),
         .assign => |a| exprHasNestedCall(a.value.*, nested),
+        .aug_assign => |a| exprHasNestedCall(a.target.*, nested) or exprHasNestedCall(a.value.*, nested),
         .return_stmt => |r| if (r.value) |v| exprHasNestedCall(v.*, nested) else false,
         .if_stmt => |i| exprHasNestedCall(i.condition.*, nested) or hasNestedClassCalls(i.body, nested) or hasNestedClassCalls(i.else_body, nested),
-        .while_stmt => |w| exprHasNestedCall(w.condition.*, nested) or hasNestedClassCalls(w.body, nested),
-        .for_stmt => |f| exprHasNestedCall(f.iter.*, nested) or hasNestedClassCalls(f.body, nested),
+        .while_stmt => |w| blk: {
+            if (exprHasNestedCall(w.condition.*, nested) or hasNestedClassCalls(w.body, nested)) break :blk true;
+            if (w.orelse_body) |ob| if (hasNestedClassCalls(ob, nested)) break :blk true;
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            if (exprHasNestedCall(f.iter.*, nested) or hasNestedClassCalls(f.body, nested)) break :blk true;
+            if (f.orelse_body) |ob| if (hasNestedClassCalls(ob, nested)) break :blk true;
+            break :blk false;
+        },
         .try_stmt => |t| blk: {
             if (hasNestedClassCalls(t.body, nested)) break :blk true;
             for (t.handlers) |h| if (hasNestedClassCalls(h.body, nested)) break :blk true;
+            if (hasNestedClassCalls(t.else_body, nested)) break :blk true;
+            if (hasNestedClassCalls(t.finalbody, nested)) break :blk true;
             break :blk false;
         },
         .with_stmt => |w| exprHasNestedCall(w.context_expr.*, nested) or hasNestedClassCalls(w.body, nested),
@@ -126,15 +137,29 @@ fn exprHasNestedCall(expr: ast.Node, nested: []const []const u8) bool {
         .call => |c| blk: {
             if (c.func.* == .name) for (nested) |n| if (std.mem.eql(u8, c.func.name.id, n)) break :blk true;
             for (c.args) |a| if (exprHasNestedCall(a, nested)) break :blk true;
+            for (c.keyword_args) |kw| if (exprHasNestedCall(kw.value, nested)) break :blk true;
             break :blk exprHasNestedCall(c.func.*, nested);
         },
         .binop => |b| exprHasNestedCall(b.left.*, nested) or exprHasNestedCall(b.right.*, nested),
         .unaryop => |u| exprHasNestedCall(u.operand.*, nested),
-        .attribute => |a| exprHasNestedCall(a.value.*, nested),
-        .subscript => |s| exprHasNestedCall(s.value.*, nested) or switch (s.slice) {
-            .index => |i| exprHasNestedCall(i.*, nested),
-            .slice => |r| (if (r.lower) |l| exprHasNestedCall(l.*, nested) else false) or (if (r.upper) |u| exprHasNestedCall(u.*, nested) else false),
+        .boolop => |bo| blk: {
+            for (bo.values) |v| if (exprHasNestedCall(v, nested)) break :blk true;
+            break :blk false;
         },
+        .attribute => |a| exprHasNestedCall(a.value.*, nested),
+        .subscript => |s| blk: {
+            if (exprHasNestedCall(s.value.*, nested)) break :blk true;
+            switch (s.slice) {
+                .index => |i| break :blk exprHasNestedCall(i.*, nested),
+                .slice => |r| {
+                    if (r.lower) |l| if (exprHasNestedCall(l.*, nested)) break :blk true;
+                    if (r.upper) |up| if (exprHasNestedCall(up.*, nested)) break :blk true;
+                    if (r.step) |st| if (exprHasNestedCall(st.*, nested)) break :blk true;
+                    break :blk false;
+                },
+            }
+        },
+        .if_expr => |ie| exprHasNestedCall(ie.condition.*, nested) or exprHasNestedCall(ie.body.*, nested) or exprHasNestedCall(ie.orelse_value.*, nested),
         .tuple => |t| blk: {
             for (t.elts) |e| if (exprHasNestedCall(e, nested)) break :blk true;
             break :blk false;
@@ -143,11 +168,53 @@ fn exprHasNestedCall(expr: ast.Node, nested: []const []const u8) bool {
             for (l.elts) |e| if (exprHasNestedCall(e, nested)) break :blk true;
             break :blk false;
         },
+        .dict => |d| blk: {
+            for (d.keys) |k| if (exprHasNestedCall(k, nested)) break :blk true;
+            for (d.values) |v| if (exprHasNestedCall(v, nested)) break :blk true;
+            break :blk false;
+        },
         .compare => |co| blk: {
             if (exprHasNestedCall(co.left.*, nested)) break :blk true;
             for (co.comparators) |c| if (exprHasNestedCall(c, nested)) break :blk true;
             break :blk false;
         },
+        .fstring => |fstr| blk: {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (exprHasNestedCall(e.node.*, nested)) break :blk true,
+                    .format_expr => |fe| if (exprHasNestedCall(fe.expr.*, nested)) break :blk true,
+                    .conv_expr => |ce| if (exprHasNestedCall(ce.expr.*, nested)) break :blk true,
+                    .literal => {},
+                }
+            }
+            break :blk false;
+        },
+        .listcomp => |lc| blk: {
+            if (exprHasNestedCall(lc.elt.*, nested)) break :blk true;
+            for (lc.generators) |gen| {
+                if (exprHasNestedCall(gen.iter.*, nested)) break :blk true;
+                for (gen.ifs) |cond| if (exprHasNestedCall(cond, nested)) break :blk true;
+            }
+            break :blk false;
+        },
+        .dictcomp => |dc| blk: {
+            if (exprHasNestedCall(dc.key.*, nested) or exprHasNestedCall(dc.value.*, nested)) break :blk true;
+            for (dc.generators) |gen| {
+                if (exprHasNestedCall(gen.iter.*, nested)) break :blk true;
+                for (gen.ifs) |cond| if (exprHasNestedCall(cond, nested)) break :blk true;
+            }
+            break :blk false;
+        },
+        .genexp => |ge| blk: {
+            if (exprHasNestedCall(ge.elt.*, nested)) break :blk true;
+            for (ge.generators) |gen| {
+                if (exprHasNestedCall(gen.iter.*, nested)) break :blk true;
+                for (gen.ifs) |cond| if (exprHasNestedCall(cond, nested)) break :blk true;
+            }
+            break :blk false;
+        },
+        .lambda => |lam| exprHasNestedCall(lam.body.*, nested),
+        .starred => |st| exprHasNestedCall(st.value.*, nested),
         else => false,
     };
 }
