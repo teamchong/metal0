@@ -47,7 +47,7 @@ fn parseTypeAnnotation(annotation: []const u8) NativeType {
         return .{ .unknown = {} };
     }
     if (std.mem.startsWith(u8, annotation, "Callable[")) {
-        return .{ .callable = {} };
+        return .{ .callable = .unknown };
     }
 
     // Handle List, Dict, Set, Tuple (capitalized versions from typing)
@@ -192,27 +192,56 @@ fn typesEqual(a: NativeType, b: NativeType) bool {
     };
 }
 
-/// Type names that represent callable type constructors (bytes, str, etc.)
-/// When used as values (not called), these are PyCallable instances
-const CallableTypeNames = std.StaticStringMap(void).initComptime(.{
-    .{ "bytes", {} },
-    .{ "bytearray", {} },
-    .{ "str", {} },
-    .{ "memoryview", {} },
-    .{ "int", {} },
-    .{ "float", {} },
-    .{ "bool", {} },
-    .{ "list", {} },
-    .{ "dict", {} },
-    .{ "set", {} },
-    .{ "tuple", {} },
-    .{ "frozenset", {} },
-    .{ "type", {} },
-    .{ "object", {} },
+/// Type names that represent callable type constructors and functions
+/// When used as values (not called), these are PyCallable instances with known return types
+/// Maps name -> CallableReturnKind
+const CallableTypeNames = std.StaticStringMap(core.CallableReturnKind).initComptime(.{
+    // Type constructors with fixed return types
+    .{ "bytes", .fixed_string },
+    .{ "bytearray", .fixed_string },
+    .{ "str", .fixed_string },
+    .{ "memoryview", .fixed_string },
+    .{ "int", .fixed_int },
+    .{ "float", .fixed_float },
+    .{ "bool", .fixed_bool },
+    .{ "list", .unknown }, // Can't know element type
+    .{ "dict", .unknown },
+    .{ "set", .unknown },
+    .{ "tuple", .unknown },
+    .{ "frozenset", .unknown },
+    .{ "type", .unknown },
+    .{ "object", .unknown },
+    // Numeric functions that return same type as input
+    .{ "pow", .same_as_input },
+    .{ "abs", .same_as_input },
+    .{ "min", .same_as_input },
+    .{ "max", .same_as_input },
+    .{ "sum", .same_as_input },
+    .{ "round", .same_as_input },
+    // Comparison/bool functions
+    .{ "all", .fixed_bool },
+    .{ "any", .fixed_bool },
+    .{ "callable", .fixed_bool },
+    .{ "isinstance", .fixed_bool },
+    .{ "issubclass", .fixed_bool },
+    .{ "hasattr", .fixed_bool },
+    // String functions
+    .{ "repr", .fixed_string },
+    .{ "format", .fixed_string },
+    .{ "chr", .fixed_string },
+    .{ "ascii", .fixed_string },
+    .{ "bin", .fixed_string },
+    .{ "hex", .fixed_string },
+    .{ "oct", .fixed_string },
+    // Int functions
+    .{ "len", .fixed_int },
+    .{ "ord", .fixed_int },
+    .{ "hash", .fixed_int },
+    .{ "id", .fixed_int },
 });
 
-fn isCallableTypeName(name: []const u8) bool {
-    return CallableTypeNames.has(name);
+fn getCallableReturnKind(name: []const u8) ?core.CallableReturnKind {
+    return CallableTypeNames.get(name);
 }
 
 /// Infer the native type of an expression node
@@ -250,8 +279,8 @@ pub fn inferExprWithInferrer(
             if (var_types.get(n.id)) |vt| break :blk vt;
             // Check if name is a Python exception type - treat as int (ExceptionTypeId)
             if (isExceptionTypeName(n.id)) break :blk .{ .int = .bounded };
-            // Check if name is a type constructor used as a callable (bytes, str, etc.)
-            if (isCallableTypeName(n.id)) break :blk .callable;
+            // Check if name is a type constructor or function used as callable (bytes, str, pow, etc.)
+            if (getCallableReturnKind(n.id)) |return_kind| break :blk .{ .callable = return_kind };
             break :blk .unknown;
         },
         .binop => |b| try inferBinOpWithInferrer(allocator, var_types, class_fields, func_return_types, b, type_inferrer),
@@ -328,10 +357,21 @@ pub fn inferExprWithInferrer(
             if (a.value.* == .name) {
                 const name = a.value.name.id;
                 if (std.mem.eql(u8, name, "float")) {
-                    // float.fromhex and float.hex are callable functions
-                    if (std.mem.eql(u8, a.attr, "fromhex") or std.mem.eql(u8, a.attr, "hex")) {
-                        break :blk .callable;
+                    // float.fromhex returns float, float.hex returns string
+                    if (std.mem.eql(u8, a.attr, "fromhex")) {
+                        break :blk .{ .callable = .fixed_float };
                     }
+                    if (std.mem.eql(u8, a.attr, "hex")) {
+                        break :blk .{ .callable = .fixed_string };
+                    }
+                }
+                // operator module functions - most are same_as_input for numeric operations
+                if (std.mem.eql(u8, name, "operator")) {
+                    if (getCallableReturnKind(a.attr)) |return_kind| {
+                        break :blk .{ .callable = return_kind };
+                    }
+                    // Default operator functions to same_as_input (add, sub, mul, etc.)
+                    break :blk .{ .callable = .same_as_input };
                 }
             }
 

@@ -46,7 +46,28 @@ pub const PyCallable = struct {
 pub const pow_mod = @import("builtins/pow.zig");
 pub const PyPowResult = pow_mod.PyPowResult;
 pub const pyPow = pow_mod.pyPow;
-pub const pow = pow_mod.pyPow; // Alias for Python's pow() builtin
+
+/// Python pow() builtin as a callable struct (for `for pow_op in pow, operator.pow:`)
+/// This allows pow to be used identically to operator.pow with .call() syntax
+/// Returns error union for compatibility with codegen that emits `try`
+/// Note: static call function (no @This() param) for use as type, not instance
+pub const pow = struct {
+    pub fn call(base: anytype, exp: @TypeOf(base)) !@TypeOf(base) {
+        const T = @TypeOf(base);
+        if (@typeInfo(T) == .float) {
+            // Python raises ZeroDivisionError for 0.0 ** negative
+            if (base == 0.0 and exp < 0.0) {
+                return error.ZeroDivisionError;
+            }
+            return std.math.pow(T, base, exp);
+        }
+        // For integers, use std.math.pow with conversion
+        const base_f: f64 = @floatFromInt(base);
+        const exp_f: f64 = @floatFromInt(exp);
+        const result = std.math.pow(f64, base_f, exp_f);
+        return @intFromFloat(result);
+    }
+};
 
 /// String representation (repr, str)
 pub const repr_mod = @import("builtins/repr.zig");
@@ -141,25 +162,27 @@ pub const pyEqualSliceToTuple = ops_mod.pyEqualSliceToTuple;
 /// These allow passing operators as first-class functions: mod = operator.mod; mod(a, b)
 /// Called as: OperatorMod{}.call(a, b) - self is the struct instance
 pub const OperatorMod = struct {
+    const float_ops = @import("float_ops/arithmetic.zig");
+
     pub fn call(_: @This(), a: anytype, b: @TypeOf(a)) @TypeOf(a) {
         const T = @TypeOf(a);
         if (@typeInfo(T) == .float) {
-            // Python floored modulo semantics for floats
-            const result = @mod(a, b);
-            // Handle sign correction for Python semantics
-            if ((result > 0 and b < 0) or (result < 0 and b > 0)) {
-                return result + b;
-            }
-            return result;
+            // Use proper Python floored modulo semantics
+            return @floatCast(float_ops.pyFloatMod(a, b));
         }
         return @mod(a, b);
     }
 };
 
 pub const OperatorPow = struct {
-    pub fn call(_: @This(), base: anytype, exp: @TypeOf(base)) @TypeOf(base) {
+    /// Returns error union for compatibility with `pow` in tuple iteration
+    pub fn call(_: @This(), base: anytype, exp: @TypeOf(base)) !@TypeOf(base) {
         const T = @TypeOf(base);
         if (@typeInfo(T) == .float) {
+            // Python raises ZeroDivisionError for 0.0 ** negative
+            if (base == 0.0 and exp < 0.0) {
+                return error.ZeroDivisionError;
+            }
             return std.math.pow(T, base, exp);
         }
         // For integers, use std.math.pow with conversion
@@ -190,6 +213,18 @@ pub const OperatorFloordiv = struct {
             return @floor(a / b);
         }
         return @divFloor(a, b);
+    }
+};
+
+/// Format callable namespace for builtins.format(value, format_spec)
+/// Used when format() is passed as a first-class function
+/// Called as: runtime.builtins.format.call(allocator, value, format_spec)
+pub const format = struct {
+    const pyformat = @import("../runtime.zig").pyFormat;
+    const PythonError = @import("../runtime.zig").PythonError;
+
+    pub fn call(allocator: std.mem.Allocator, value: anytype, format_spec: []const u8) PythonError![]const u8 {
+        return pyformat(allocator, value, format_spec);
     }
 };
 

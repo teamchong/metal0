@@ -94,6 +94,53 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
+    // Check if the object is a class instance with __str__ or __repr__ magic method
+    // Python protocol: str(x) calls x.__str__() if defined, else x.__repr__()
+    const DunderInfo = struct { has_str: bool, has_repr: bool };
+    const dunder_info: DunderInfo = blk: {
+        if (args[0] == .name) {
+            const var_name = args[0].name.id;
+            if (self.getVarType(var_name)) |var_type| {
+                if (type_traits.isClassInstance(var_type)) {
+                    const class_name = var_type.class_instance;
+                    break :blk .{
+                        .has_str = self.classHasMethod(class_name, "__str__"),
+                        .has_repr = self.classHasMethod(class_name, "__repr__"),
+                    };
+                }
+            }
+        }
+        break :blk .{ .has_str = false, .has_repr = false };
+    };
+
+    // If class has __str__, generate direct method call
+    if (dunder_info.has_str and args[0] == .name) {
+        if (self.inside_try_body or self.in_assert_raises_context) {
+            try self.emit("(try ");
+            try self.genExpr(args[0]);
+            try self.emit(".__str__())");
+        } else {
+            try self.emit("(");
+            try self.genExpr(args[0]);
+            try self.emit(".__str__() catch \"\")");
+        }
+        return;
+    }
+
+    // If class has __repr__ but not __str__, use __repr__
+    if (dunder_info.has_repr and args[0] == .name) {
+        if (self.inside_try_body or self.in_assert_raises_context) {
+            try self.emit("(try ");
+            try self.genExpr(args[0]);
+            try self.emit(".__repr__())");
+        } else {
+            try self.emit("(");
+            try self.genExpr(args[0]);
+            try self.emit(".__repr__() catch \"\")");
+        }
+        return;
+    }
+
     // Check if this might be a PyObject (subscript on unknown type, function return, etc.)
     // If arg is subscript on unknown type, or the type is .unknown, use runtime.pyObjToStr
     const is_possible_pyobject = blk: {

@@ -411,6 +411,53 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
+    // Check if the object is a class instance with __int__ or __index__ magic method
+    // Python protocol: int(x) calls x.__int__() if defined, else x.__index__()
+    const DunderInfo = struct { has_int: bool, has_index: bool };
+    const dunder_info: DunderInfo = blk: {
+        if (args[0] == .name) {
+            const var_name = args[0].name.id;
+            if (self.getVarType(var_name)) |var_type| {
+                if (type_traits.isClassInstance(var_type)) {
+                    const class_name = var_type.class_instance;
+                    break :blk .{
+                        .has_int = self.classHasMethod(class_name, "__int__"),
+                        .has_index = self.classHasMethod(class_name, "__index__"),
+                    };
+                }
+            }
+        }
+        break :blk .{ .has_int = false, .has_index = false };
+    };
+
+    // If class has __int__, generate direct method call
+    if (dunder_info.has_int and args[0] == .name) {
+        if (self.inside_try_body or self.in_assert_raises_context) {
+            try self.emit("(try ");
+            try self.genExpr(args[0]);
+            try self.emit(".__int__())");
+        } else {
+            try self.emit("(");
+            try self.genExpr(args[0]);
+            try self.emit(".__int__() catch 0)");
+        }
+        return;
+    }
+
+    // If class has __index__ but not __int__, use __index__
+    if (dunder_info.has_index and args[0] == .name) {
+        if (self.inside_try_body or self.in_assert_raises_context) {
+            try self.emit("(try ");
+            try self.genExpr(args[0]);
+            try self.emit(".__index__())");
+        } else {
+            try self.emit("(");
+            try self.genExpr(args[0]);
+            try self.emit(".__index__() catch 0)");
+        }
+        return;
+    }
+
     // For unknown types, use runtime.toIntBig which handles strings, numbers, and overflow to BigInt
     // This handles cases where type inference couldn't determine the type
     // (e.g., variables captured by anytype in try/except helper structs, attribute access)
@@ -460,6 +507,11 @@ pub fn genBin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// NOTE: For simple types (int, float, string, list, array), use runtime.toBool
 /// which doesn't return an error. For complex types that might have __bool__,
 /// use boolBuiltinCall which returns PythonError!bool.
+///
+/// Python protocol for bool(x):
+/// 1. If x has __bool__, call it (must return bool)
+/// 2. Else if x has __len__, return len(x) != 0
+/// 3. Else return True (objects are truthy by default)
 pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // bool() with no args returns False
     if (args.len == 0) {
@@ -495,11 +547,60 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("runtime.toBool(");
         try self.genExpr(args[0]);
         try self.emit(")");
-    } else {
-        // Use boolBuiltinCall for complex types that might have __bool__
-        // Returns !bool to properly propagate TypeError
-        try self.emit("(try runtime.boolBuiltinCall(");
-        try self.genExpr(args[0]);
-        try self.emit(", .{}))");
+        return;
     }
+
+    // Check if the object is a class instance with __bool__ or __len__ magic method
+    const DunderInfo = struct { has_bool: bool, has_len: bool };
+    const dunder_info: DunderInfo = blk: {
+        if (args[0] == .name) {
+            const var_name = args[0].name.id;
+            // Check if this variable's type is a class instance
+            if (self.getVarType(var_name)) |var_type| {
+                if (type_traits.isClassInstance(var_type)) {
+                    const class_name = var_type.class_instance;
+                    break :blk .{
+                        .has_bool = self.classHasMethod(class_name, "__bool__"),
+                        .has_len = self.classHasMethod(class_name, "__len__"),
+                    };
+                }
+            }
+        }
+        break :blk .{ .has_bool = false, .has_len = false };
+    };
+
+    // If class has __bool__, generate direct method call
+    if (dunder_info.has_bool and args[0] == .name) {
+        // __bool__ must return bool, may raise TypeError
+        if (self.inside_try_body) {
+            try self.emit("(try ");
+            try self.genExpr(args[0]);
+            try self.emit(".__bool__())");
+        } else {
+            try self.emit("(");
+            try self.genExpr(args[0]);
+            try self.emit(".__bool__() catch false)");
+        }
+        return;
+    }
+
+    // If class has __len__ but not __bool__, use len != 0
+    if (dunder_info.has_len and args[0] == .name) {
+        if (self.inside_try_body) {
+            try self.emit("((try ");
+            try self.genExpr(args[0]);
+            try self.emit(".__len__()) != 0)");
+        } else {
+            try self.emit("((");
+            try self.genExpr(args[0]);
+            try self.emit(".__len__() catch 0) != 0)");
+        }
+        return;
+    }
+
+    // Fall back to boolBuiltinCall for unknown types (runtime dispatch)
+    // This handles PyValue and other dynamic types
+    try self.emit("(try runtime.boolBuiltinCall(");
+    try self.genExpr(args[0]);
+    try self.emit(", .{}))");
 }

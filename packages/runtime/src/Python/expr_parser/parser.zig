@@ -41,7 +41,7 @@ pub const ExprParser = struct {
 
         return .{
             .instructions = try self.compiler.instructions.toOwnedSlice(self.allocator),
-            .constants = try self.compiler.constants.toOwnedSlice(self.allocator),
+            .constants = try self.compiler.consts.toOwnedSlice(self.allocator),
             .allocator = self.allocator,
         };
     }
@@ -188,8 +188,8 @@ pub const ExprParser = struct {
                 if (is_float) {
                     // Parse as float
                     const fval = std.fmt.parseFloat(f64, clean) catch return ParseError.InvalidNumber;
-                    const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
-                    self.compiler.constants.append(self.allocator, .{ .float = fval }) catch return ParseError.OutOfMemory;
+                    const const_idx = @as(u32, @intCast(self.compiler.consts.items.len));
+                    self.compiler.consts.append(self.allocator, .{ .float = fval }) catch return ParseError.OutOfMemory;
                     self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                     try self.advance();
                     return;
@@ -204,7 +204,7 @@ pub const ExprParser = struct {
                             // For now, store the original and let VM handle base conversion
                             break :blk clean;
                         };
-                        const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
+                        const const_idx = @as(u32, @intCast(self.compiler.consts.items.len));
                         // Store as bigint with base info (base:value format for non-decimal)
                         if (base != 10) {
                             // For non-decimal bases, prefix with base info
@@ -213,9 +213,9 @@ pub const ExprParser = struct {
                             const formatted = std.fmt.bufPrint(&buf, "0{c}{s}", .{ prefix_char, bigint_str }) catch return ParseError.OutOfMemory;
                             // Allocate copy of formatted string
                             const str_copy = self.allocator.dupe(u8, formatted) catch return ParseError.OutOfMemory;
-                            self.compiler.constants.append(self.allocator, .{ .bigint = str_copy }) catch return ParseError.OutOfMemory;
+                            self.compiler.consts.append(self.allocator, .{ .bigint = str_copy }) catch return ParseError.OutOfMemory;
                         } else {
-                            self.compiler.constants.append(self.allocator, .{ .bigint = bigint_str }) catch return ParseError.OutOfMemory;
+                            self.compiler.consts.append(self.allocator, .{ .bigint = bigint_str }) catch return ParseError.OutOfMemory;
                         }
                         self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                         try self.advance();
@@ -223,8 +223,8 @@ pub const ExprParser = struct {
                     }
                     return ParseError.InvalidNumber;
                 };
-                const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
-                self.compiler.constants.append(self.allocator, .{ .int = value }) catch return ParseError.OutOfMemory;
+                const const_idx = @as(u32, @intCast(self.compiler.consts.items.len));
+                self.compiler.consts.append(self.allocator, .{ .int = value }) catch return ParseError.OutOfMemory;
                 self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                 try self.advance();
             },
@@ -239,8 +239,8 @@ pub const ExprParser = struct {
                 };
                 // Parse imaginary part as float
                 const imag = std.fmt.parseFloat(f64, clean) catch return ParseError.InvalidNumber;
-                const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
-                self.compiler.constants.append(self.allocator, .{ .complex = imag }) catch return ParseError.OutOfMemory;
+                const const_idx = @as(u32, @intCast(self.compiler.consts.items.len));
+                self.compiler.consts.append(self.allocator, .{ .complex = imag }) catch return ParseError.OutOfMemory;
                 self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                 try self.advance();
             },
@@ -248,20 +248,20 @@ pub const ExprParser = struct {
                 const text = self.getText(self.current);
                 // Strip quotes
                 const str = text[1 .. text.len - 1];
-                const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
-                self.compiler.constants.append(self.allocator, .{ .string = str }) catch return ParseError.OutOfMemory;
+                const const_idx = @as(u32, @intCast(self.compiler.consts.items.len));
+                self.compiler.consts.append(self.allocator, .{ .string = str }) catch return ParseError.OutOfMemory;
                 self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                 try self.advance();
             },
             .True => {
-                const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
-                self.compiler.constants.append(self.allocator, .{ .bool = true }) catch return ParseError.OutOfMemory;
+                const const_idx = @as(u32, @intCast(self.compiler.consts.items.len));
+                self.compiler.consts.append(self.allocator, .{ .bool = true }) catch return ParseError.OutOfMemory;
                 self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                 try self.advance();
             },
             .False => {
-                const const_idx = @as(u32, @intCast(self.compiler.constants.items.len));
-                self.compiler.constants.append(self.allocator, .{ .bool = false }) catch return ParseError.OutOfMemory;
+                const const_idx = @as(u32, @intCast(self.compiler.consts.items.len));
+                self.compiler.consts.append(self.allocator, .{ .bool = false }) catch return ParseError.OutOfMemory;
                 self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
                 try self.advance();
             },

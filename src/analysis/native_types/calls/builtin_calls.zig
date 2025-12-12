@@ -29,10 +29,25 @@ pub fn inferBuiltinCall(
     type_inferrer: ?*inferrer_mod.TypeInferrer,
 ) InferError!NativeType {
     // Check if the callee is a callable variable (from iterating over callable list)
-    // PyCallable.call() returns []const u8 (bytes)
+    // Use the CallableReturnKind to determine return type
     if (var_types.get(func_name)) |var_type| {
         if (@as(std.meta.Tag(NativeType), var_type) == .callable) {
-            return .{ .string = .runtime };
+            const return_kind = var_type.callable;
+            return switch (return_kind) {
+                .same_as_input => blk: {
+                    // Return type matches first argument type
+                    if (call.args.len > 0) {
+                        const arg_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
+                        break :blk arg_type;
+                    }
+                    break :blk .float; // Default to float if no args
+                },
+                .fixed_string => .{ .string = .runtime },
+                .fixed_int => .{ .int = .bounded },
+                .fixed_float => .float,
+                .fixed_bool => .bool,
+                .unknown => .unknown,
+            };
         }
     }
 
@@ -59,6 +74,34 @@ pub fn inferBuiltinCall(
     const ABS_HASH = comptime fnv_hash.hash("abs");
     if (fnv_hash.hash(func_name) == ABS_HASH and call.args.len > 0) {
         return try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
+    }
+
+    // Special case: pow(base, exp) returns float if any arg is float, int if both are int
+    // Note: pow(int, negative_int) returns float in Python, but we can't always know at compile time
+    // Default to float for safety since that's the more common case in float tests
+    const POW_HASH = comptime fnv_hash.hash("pow");
+    if (fnv_hash.hash(func_name) == POW_HASH and call.args.len >= 2) {
+        const base_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
+        const exp_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[1], type_inferrer);
+        // If either is float, result is float
+        if (@as(std.meta.Tag(NativeType), base_type) == .float or @as(std.meta.Tag(NativeType), exp_type) == .float) {
+            return .float;
+        }
+        // If both are int, check for negative exponent
+        if (type_traits.isIntegral(base_type) and type_traits.isIntegral(exp_type)) {
+            // Check if exponent is a negative literal
+            if (call.args[1] == .unaryop and call.args[1].unaryop.op == .USub) {
+                return .float; // pow(x, -y) returns float
+            }
+            if (call.args[1] == .constant and call.args[1].constant.value == .int) {
+                if (call.args[1].constant.value.int < 0) {
+                    return .float; // pow(x, -1) returns float
+                }
+            }
+            return .{ .int = .bounded }; // pow(int, positive_int) returns int
+        }
+        // Default to float for safety
+        return .float;
     }
 
     // Special case: int() - check argument source for boundedness

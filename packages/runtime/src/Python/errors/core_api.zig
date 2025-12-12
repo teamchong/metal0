@@ -9,7 +9,7 @@
 
 const std = @import("std");
 const allocator_helper = @import("utils.allocator_helper");
-const exceptions = @import("../runtime/exceptions.zig");
+const exceptions = @import("../../runtime/exceptions.zig");
 const thread_state_mod = @import("thread_state.zig");
 const ExceptionValue = @import("exception_value.zig").ExceptionValue;
 

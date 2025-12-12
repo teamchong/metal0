@@ -82,9 +82,10 @@ const genNextafter = h.wrap2("blk: { const x = @as(f64, ", "); const y = @as(f64
 const genUlp = h.wrap("blk: { const x = @abs(@as(f64, ", ")); const exp = @as(i32, @intFromFloat(@log2(x))); break :blk std.math.ldexp(@as(f64, 1.0), exp - 52); }", "std.math.floatMin(f64)");
 
 // Classification functions that handle PyPowResult union type via runtime.math.*
+// Note: std.math uses camelCase (isNan, isInf, isFinite)
 fn genIsNan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("runtime.math.isnan(");
+        try self.emit("runtime.math.isNan(");
         try self.genExpr(args[0]);
         try self.emit(")");
     } else {
@@ -94,7 +95,7 @@ fn genIsNan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIsInf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("runtime.math.isinf(");
+        try self.emit("runtime.math.isInf(");
         try self.genExpr(args[0]);
         try self.emit(")");
     } else {
@@ -104,7 +105,7 @@ fn genIsInf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIsFinite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("runtime.math.isfinite(");
+        try self.emit("runtime.math.isFinite(");
         try self.genExpr(args[0]);
         try self.emit(")");
     } else {

@@ -34,6 +34,40 @@ pub const StringKind = enum {
     }
 };
 
+/// Callable return type behavior - tracks how a callable's return type relates to inputs
+/// Used for type inference when calling variables of callable type (e.g., loop over pow, operator.pow)
+pub const CallableReturnKind = enum {
+    /// Returns the same type as the (first) input argument
+    /// Examples: pow, abs, min, max, operator.pow, operator.add, etc.
+    same_as_input,
+
+    /// Always returns string ([]const u8)
+    /// Examples: str, repr, format
+    fixed_string,
+
+    /// Always returns int (i64)
+    /// Examples: len, ord, hash, int
+    fixed_int,
+
+    /// Always returns float (f64)
+    /// Examples: float
+    fixed_float,
+
+    /// Always returns bool
+    /// Examples: bool, all, any, callable, isinstance
+    fixed_bool,
+
+    /// Unknown return type - fallback to PyObject
+    unknown,
+
+    /// Combine two return kinds for widening
+    /// If both are same, return that; otherwise return unknown
+    pub fn combine(self: CallableReturnKind, other: CallableReturnKind) CallableReturnKind {
+        if (self == other) return self;
+        return .unknown;
+    }
+};
+
 /// Integer boundedness for overflow safety
 /// Tracks whether an integer's range is known at compile time
 pub const IntKind = enum {
@@ -91,7 +125,7 @@ pub const NativeType = union(enum) {
         params: []const NativeType,
         return_type: *const NativeType,
     }, // Function pointer type: *const fn(T, U) R
-    callable: void, // Type-erased callable (PyCallable) - for heterogeneous callable lists
+    callable: CallableReturnKind, // Type-erased callable with return type hint
 
     // Class types
     class_instance: []const u8, // Instance of a custom class (stores class name)
@@ -341,7 +375,7 @@ pub const NativeType = union(enum) {
                 try buf.appendSlice(allocator, "*runtime.");
                 try buf.appendSlice(allocator, exc_name);
             },
-            .callable => try buf.appendSlice(allocator, "runtime.builtins.PyCallable"),
+            .callable => |_| try buf.appendSlice(allocator, "runtime.builtins.PyCallable"),
             .cdll => try buf.appendSlice(allocator, "runtime.ctypes.CDLL"),
             .c_func => try buf.appendSlice(allocator, "*const fn() callconv(.c) anyopaque"),
             .pyobject => try buf.appendSlice(allocator, "*runtime.PyObject"),
@@ -524,9 +558,16 @@ pub const NativeType = union(enum) {
 
         // Callable types: when mixing callables with functions/closures/unknown, widen to callable
         // This handles lists like [bytes, bytearray, lambda x: ...] -> all become PyCallable
-        if (self_tag == .callable or other_tag == .callable) return .callable;
-        if (self_tag == .function or other_tag == .function) return .callable;
-        if (self_tag == .closure or other_tag == .closure) return .callable;
+        // When both are callable, combine return kinds
+        if (self_tag == .callable and other_tag == .callable) {
+            return .{ .callable = self.callable.combine(other.callable) };
+        }
+        if (self_tag == .callable or other_tag == .callable) {
+            // One is callable, other is function/closure - return callable with unknown
+            return .{ .callable = .unknown };
+        }
+        if (self_tag == .function or other_tag == .function) return .{ .callable = .unknown };
+        if (self_tag == .closure or other_tag == .closure) return .{ .callable = .unknown };
 
         // Different incompatible types (e.g., array + dict) → use unknown to let Zig infer
         // The codegen handles shadowing when types are incompatible

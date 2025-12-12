@@ -521,6 +521,7 @@ pub fn emitVarDeclaration(
     const is_tuple = container_traits.isTuple(value_type);
     const is_closure = (value_type == .closure);
     const is_function = (value_type == .function); // Lambdas/closures - don't use *const fn type annotation
+    const is_callable = type_traits.isCallable(value_type); // operator.mod, pow, etc. - each has different struct type
     const is_dict_type = container_traits.isDict(value_type);
     const is_counter = (value_type == .counter);
     const is_deque = (value_type == .deque);
@@ -533,8 +534,10 @@ pub fn emitVarDeclaration(
         return;
     }
 
-    // For functions (lambdas), never emit *const fn type annotation - closures can't be coerced to function pointers
-    if (!type_traits.isUnknown(value_type) and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_function and !is_counter and !is_deque and !is_class_instance and !is_int) {
+    // For functions (lambdas) and callables, never emit type annotation
+    // - closures can't be coerced to function pointers
+    // - callables like operator.mod are different struct types (OperatorMod, OperatorPow, etc.), not PyCallable
+    if (!type_traits.isUnknown(value_type) and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_function and !is_callable and !is_counter and !is_deque and !is_class_instance and !is_int) {
         try self.emit(": ");
         try value_type.toZigType(self.allocator, &self.output);
     }

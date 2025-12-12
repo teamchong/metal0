@@ -969,6 +969,90 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 return;
             }
 
+            // Check for unexpected keyword arguments in builtin type subclasses
+            // If class inherits from float/int/str/etc. and has no custom __init__,
+            // keyword args should raise TypeError (like CPython)
+            // This check must happen BEFORE emitting the call prefix
+            if (is_user_class and call.keyword_args.len > 0) {
+                const inherits_builtin_for_kwarg_check = blk: {
+                    if (self.class_registry.getClass(raw_func_name)) |class_def| {
+                        if (class_def.bases.len > 0) {
+                            const base = class_def.bases[0];
+                            if (std.mem.eql(u8, base, "float") or std.mem.eql(u8, base, "int") or
+                                std.mem.eql(u8, base, "str") or std.mem.eql(u8, base, "tuple") or
+                                std.mem.eql(u8, base, "list"))
+                            {
+                                break :blk true;
+                            }
+                        }
+                    }
+                    if (self.nested_class_bases.get(raw_func_name)) |base_name| {
+                        if (std.mem.eql(u8, base_name, "float") or std.mem.eql(u8, base_name, "int") or
+                            std.mem.eql(u8, base_name, "str") or std.mem.eql(u8, base_name, "tuple") or
+                            std.mem.eql(u8, base_name, "list"))
+                        {
+                            break :blk true;
+                        }
+                    }
+                    break :blk false;
+                };
+
+                if (inherits_builtin_for_kwarg_check) {
+                    // Check if class has custom __init__ or __new__ that could accept kwargs
+                    // Check class_registry for top-level classes
+                    var has_custom_init = self.class_registry.findMethod(raw_func_name, "__init__") != null or
+                        self.class_registry.findMethod(raw_func_name, "__new__") != null;
+                    // Also check nested_class_defs for nested classes
+                    if (!has_custom_init) {
+                        if (self.nested_class_defs.get(raw_func_name)) |class_def| {
+                            for (class_def.body) |stmt| {
+                                if (stmt == .function_def) {
+                                    const fn_name = stmt.function_def.name;
+                                    if (std.mem.eql(u8, fn_name, "__init__") or std.mem.eql(u8, fn_name, "__new__")) {
+                                        has_custom_init = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (!has_custom_init) {
+                        // Generate error: different patterns for try/except vs assertRaises
+                        // NOTE: inside_try_body is also set in assertRaises context, so check
+                        // in_assert_raises_context first to use the correct pattern
+                        if (self.inside_try_body and !self.in_assert_raises_context) {
+                            // Inside try/except (NOT assertRaises): use return to propagate error to TryHelper
+                            // Plain block (no label) with return - noreturn type works with _ = assignment
+                            try self.emit("{\n");
+                            self.indent();
+                            try self.emitIndent();
+                            try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), raw_func_name);
+                            try self.emit("() does not take keyword arguments\", @src().line);\n");
+                            try self.emitIndent();
+                            try self.emit("return error.TypeError;\n");
+                            self.dedent();
+                            try self.emitIndent();
+                            try self.emit("}");
+                        } else {
+                            // assertRaises or normal context: use block expression
+                            try self.emit("(blk_kwarg_err: {\n");
+                            self.indent();
+                            try self.emitIndent();
+                            try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), raw_func_name);
+                            try self.emit("() does not take keyword arguments\", @src().line);\n");
+                            try self.emitIndent();
+                            try self.emit("break :blk_kwarg_err error.TypeError;\n");
+                            self.dedent();
+                            try self.emitIndent();
+                            try self.emit("})");
+                        }
+                        return;
+                    }
+                }
+            }
+
             if (is_user_class) {
                 // User-defined class: nested classes and error init classes need try
                 if (needs_try) {

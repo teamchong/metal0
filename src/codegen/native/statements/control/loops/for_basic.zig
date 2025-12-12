@@ -1349,8 +1349,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // Register loop variable as callable for .call() generation
             const owned_name = try self.allocator.dupe(u8, var_name);
             try self.callable_vars.put(owned_name, {});
-            // Register in var_types for type inference (callable call returns string/bytes)
-            try self.type_inferrer.var_types.put(var_name, .callable);
+            // Register in var_types for type inference
+            // Use .unknown since we can't know the return type of arbitrary callables in a list
+            try self.type_inferrer.var_types.put(var_name, .{ .callable = .unknown });
         }
     }
 

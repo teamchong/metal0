@@ -849,10 +849,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             const is_class_type = is_nested_class or is_toplevel_class;
             try self.output.writer(self.allocator).print("const __local_{s}_{d}: @TypeOf(p_{s}_{d}) = p_{s}_{d};\n", .{ var_name, helper_id, var_name, helper_id, var_name, helper_id });
 
-            // Emit discard using _ = &var to mark as used but prevent mutation errors
-            // Skip discard for class types - can't take address of const comptime value
-            if (!is_class_type) {
-                try self.emitIndent();
+            // Emit discard to mark as used
+            try self.emitIndent();
+            if (is_class_type) {
+                // For class types, use runtime.discard - can't take address of comptime type
+                try self.output.writer(self.allocator).print("runtime.discard(&__local_{s}_{d});\n", .{ var_name, helper_id });
+            } else {
+                // For regular values, use _ = &var to prevent mutation errors
                 try self.output.writer(self.allocator).print("_ = &__local_{s}_{d};\n", .{ var_name, helper_id });
             }
 
