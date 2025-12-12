@@ -153,48 +153,63 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
     else
         return PythonError.TypeError;
 
+    // Check if ndigits was provided (args has fields) vs round(x) with no ndigits
+    const has_ndigits = @typeInfo(ArgsType) == .@"struct" and @typeInfo(ArgsType).@"struct".fields.len > 0;
+
+    // For round(x) without ndigits, Python returns int and raises for inf/nan
+    // For round(x, ndigits), Python returns float and inf/nan pass through
+    if (!has_ndigits) {
+        if (std.math.isNan(float_val)) {
+            return PythonError.ValueError;
+        }
+        if (std.math.isInf(float_val)) {
+            return PythonError.OverflowError;
+        }
+        return bankersRound(float_val);
+    }
+
     // Get ndigits from args tuple
     const ndigits: i32 = blk: {
-        if (@typeInfo(ArgsType) == .@"struct" and @typeInfo(ArgsType).@"struct".fields.len > 0) {
-            const first = @field(args, @typeInfo(ArgsType).@"struct".fields[0].name);
-            const FirstT = @TypeOf(first);
-            if (@typeInfo(FirstT) == .int or @typeInfo(FirstT) == .comptime_int) {
-                break :blk @intCast(first);
-            }
-            // Handle PyValue or similar tagged union containing int or bigint
-            // Use duck-typing: check if it's a tagged union with int/bigint fields
-            const first_info = @typeInfo(FirstT);
-            if (first_info == .@"union" and first_info.@"union".tag_type != null) {
-                // Check for .int field - use switch for proper tagged union access
-                if (@hasField(FirstT, "int")) {
-                    switch (first) {
-                        .int => |v| break :blk @intCast(v),
-                        else => {},
-                    }
+        const first = @field(args, @typeInfo(ArgsType).@"struct".fields[0].name);
+        const FirstT = @TypeOf(first);
+        if (@typeInfo(FirstT) == .int or @typeInfo(FirstT) == .comptime_int) {
+            break :blk @intCast(first);
+        }
+        // Handle PyValue or similar tagged union containing int or bigint
+        // Use duck-typing: check if it's a tagged union with int/bigint fields
+        const first_info = @typeInfo(FirstT);
+        if (first_info == .@"union" and first_info.@"union".tag_type != null) {
+            // Check for .int field - use switch for proper tagged union access
+            if (@hasField(FirstT, "int")) {
+                switch (first) {
+                    .int => |v| break :blk @intCast(v),
+                    else => {},
                 }
-                // Check for .bigint field
-                if (@hasField(FirstT, "bigint")) {
-                    switch (first) {
-                        .bigint => |bi| {
-                            // For BigInt, try to convert to i32 if it fits
-                            if (bi.toInt(i32)) |val| {
-                                break :blk val;
-                            } else |_| {
-                                // BigInt is too large for ndigits, use extreme value
-                                // Check if negative (very small n) or positive (very large n)
-                                if (bi.isNegative()) {
-                                    break :blk -1000; // Will trigger early return for 0.0
-                                } else {
-                                    break :blk 1000; // Will trigger early return for original value
-                                }
+            }
+            // Check for .bigint field
+            if (@hasField(FirstT, "bigint")) {
+                switch (first) {
+                    .bigint => |bi| {
+                        // For BigInt, try to convert to i32 if it fits
+                        if (bi.toInt(i32)) |val| {
+                            break :blk val;
+                        } else |_| {
+                            // BigInt is too large for ndigits, use extreme value
+                            // Check if negative (very small n) or positive (very large n)
+                            if (bi.isNegative()) {
+                                break :blk -1000; // Will trigger early return for 0.0
+                            } else {
+                                break :blk 1000; // Will trigger early return for original value
                             }
-                        },
-                        else => {},
-                    }
+                        }
+                    },
+                    else => {},
                 }
             }
         }
-        break :blk 0;
+        // ndigits must be an integer type - if not, raise TypeError
+        // (e.g., round(x, 0.5) or round(x, "string"))
+        return PythonError.TypeError;
     };
 
     if (ndigits == 0) {
