@@ -426,7 +426,7 @@ test "Closing" {
         }
     };
 
-    var closable = TestClosable{};
+    const closable = TestClosable{};
     var ctx = Closing(TestClosable).init(closable);
 
     _ = ctx.enter();

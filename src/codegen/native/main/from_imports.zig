@@ -278,6 +278,80 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
+        // Handle contextlib module - expand "from contextlib import *"
+        if (std.mem.eql(u8, from_imp.module, "contextlib")) {
+            for (from_imp.names) |name| {
+                if (std.mem.eql(u8, name, "*")) {
+                    // Expand common contextlib exports (Python's __all__)
+                    const contextlib_exports = [_][]const u8{
+                        "contextmanager",
+                        "closing",
+                        "nullcontext",
+                        "suppress",
+                        "redirect_stdout",
+                        "redirect_stderr",
+                        "ExitStack",
+                        "AsyncExitStack",
+                        "aclosing",
+                        "asynccontextmanager",
+                        "AbstractContextManager",
+                        "AbstractAsyncContextManager",
+                        "chdir",
+                    };
+                    for (contextlib_exports) |exp_name| {
+                        if (generated_symbols.contains(exp_name)) continue;
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = contextlib.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
+                        try generated_symbols.put(exp_name, {});
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Handle itertools module - expand "from itertools import *"
+        if (std.mem.eql(u8, from_imp.module, "itertools")) {
+            for (from_imp.names) |name| {
+                if (std.mem.eql(u8, name, "*")) {
+                    // Expand common itertools functions (Python's __all__)
+                    const itertools_exports = [_][]const u8{
+                        "count",
+                        "cycle",
+                        "repeat",
+                        "accumulate",
+                        "chain",
+                        "compress",
+                        "dropwhile",
+                        "filterfalse",
+                        "groupby",
+                        "islice",
+                        "pairwise",
+                        "starmap",
+                        "takewhile",
+                        "tee",
+                        "zip_longest",
+                        "product",
+                        "permutations",
+                        "combinations",
+                        "combinations_with_replacement",
+                    };
+                    for (itertools_exports) |exp_name| {
+                        if (generated_symbols.contains(exp_name)) continue;
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = itertools.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
+                        try generated_symbols.put(exp_name, {});
+                    }
+                }
+            }
+            continue;
+        }
+
         // Handle inline-only modules (no zig_import, functions are generated inline)
         // These modules don't have a struct to reference - their functions are
         // directly generated at call sites via dispatch (e.g., from decimal import Decimal)
