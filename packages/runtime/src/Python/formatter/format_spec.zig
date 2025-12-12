@@ -177,36 +177,70 @@ pub fn applyZeroPaddingWithGrouping(allocator: std.mem.Allocator, content: []con
 
     const number_part = content[number_start..];
 
-    // Find decimal point
+    // Find decimal point and exponent
     var decimal_pos: ?usize = null;
+    var exp_pos: ?usize = null;
     for (number_part, 0..) |c, idx| {
-        if (c == '.') {
-            decimal_pos = idx;
+        if (c == '.') decimal_pos = idx;
+        if (c == 'e' or c == 'E') {
+            exp_pos = idx;
             break;
         }
     }
 
-    const integer_part = if (decimal_pos) |dp| number_part[0..dp] else number_part;
-    const fractional_part = if (decimal_pos) |dp| number_part[dp..] else "";
+    const integer_end = decimal_pos orelse (exp_pos orelse number_part.len);
+    const integer_part_with_groups = number_part[0..integer_end];
+    const rest = number_part[integer_end..];
 
-    // Calculate zeros needed
-    const content_width = sign_prefix.len + integer_part.len + fractional_part.len;
-    const group_count = if (integer_part.len > 3) (integer_part.len - 1) / 3 else 0;
-    const final_width = content_width + group_count;
-
-    if (final_width >= width) {
-        // Just add grouping
-        try result.appendSlice(allocator, sign_prefix);
-        try addThousandsGroupingToList(allocator, &result, integer_part, sep);
-        try result.appendSlice(allocator, fractional_part);
-    } else {
-        // Add zeros and grouping
-        const zeros_needed = width - final_width;
-        try result.appendSlice(allocator, sign_prefix);
-        try result.appendNTimes(allocator, '0', zeros_needed);
-        try addThousandsGroupingToList(allocator, &result, integer_part, sep);
-        try result.appendSlice(allocator, fractional_part);
+    // Strip existing grouping characters to get raw digits
+    var raw_digits: [64]u8 = undefined;
+    var raw_len: usize = 0;
+    for (integer_part_with_groups) |c| {
+        if (c != '_' and c != ',') {
+            raw_digits[raw_len] = c;
+            raw_len += 1;
+        }
     }
+
+    // Calculate how many digits we need for target width
+    // Target: sign + grouped_integer + rest = width
+    // grouped_integer = digits + separators
+    // For N digits: separators = (N-1)/3
+    // So: sign_len + digits + (digits-1)/3 + rest_len = width
+    // Solve for digits: digits + (digits-1)/3 = width - sign_len - rest_len
+    const target_content_len = width - sign_prefix.len - rest.len;
+
+    // We need to find how many total digits we need
+    // If we have D digits, we'll have (D-1)/3 separators
+    // Total = D + (D-1)/3
+    // We want D + (D-1)/3 >= target_content_len
+    var digits_needed: usize = raw_len;
+    while (digits_needed + (if (digits_needed > 3) (digits_needed - 1) / 3 else 0) < target_content_len) {
+        digits_needed += 1;
+    }
+
+    const zeros_to_add = if (digits_needed > raw_len) digits_needed - raw_len else 0;
+
+    // Build result: sign + zeros + raw_digits with grouping + rest
+    try result.appendSlice(allocator, sign_prefix);
+
+    // Create combined digits: zeros + raw_digits
+    var combined: [128]u8 = undefined;
+    var combined_len: usize = 0;
+    var i: usize = 0;
+    while (i < zeros_to_add) : (i += 1) {
+        combined[combined_len] = '0';
+        combined_len += 1;
+    }
+    i = 0;
+    while (i < raw_len) : (i += 1) {
+        combined[combined_len] = raw_digits[i];
+        combined_len += 1;
+    }
+
+    // Apply grouping to combined
+    try addThousandsGroupingToList(allocator, &result, combined[0..combined_len], sep);
+    try result.appendSlice(allocator, rest);
 
     return result.toOwnedSlice(allocator);
 }
@@ -313,16 +347,54 @@ pub fn formatSignificantFigures(allocator: std.mem.Allocator, value: f64, sig_fi
     const log_val = @log10(abs_val);
     const exp: i32 = @intFromFloat(@floor(log_val));
 
-    // Calculate decimal places needed
-    const decimal_places: i32 = @as(i32, @intCast(sig_figs)) - exp - 1;
-
     var result = std.ArrayListUnmanaged(u8){};
 
-    if (decimal_places >= 0) {
-        const prec: usize = @intCast(decimal_places);
-        try result.writer(allocator).print("{d:.[1]}", .{ value, prec });
+    // Python 'g' format: use exponential when exp < -4 or exp >= precision
+    // For empty format with precision, threshold is exp >= precision - 1
+    const use_exponential = exp < -4 or exp >= @as(i32, @intCast(sig_figs)) - 1;
+
+    if (use_exponential) {
+        // Exponential notation: X.XXXe+YY with (sig_figs - 1) decimal places in mantissa
+        var mantissa = abs_val;
+        const exp_val = exp;
+
+        // Normalize mantissa to 1.xxx
+        if (abs_val >= 10.0) {
+            const divisor = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(exp)));
+            mantissa = abs_val / divisor;
+        } else if (abs_val > 0 and abs_val < 1.0) {
+            const multiplier = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(-exp)));
+            mantissa = abs_val * multiplier;
+        }
+
+        // Round mantissa to sig_figs significant figures
+        const mantissa_prec = if (sig_figs > 1) sig_figs - 1 else 0;
+        if (value < 0) {
+            try result.writer(allocator).print("{d:.[1]}e", .{ -mantissa, mantissa_prec });
+        } else {
+            try result.writer(allocator).print("{d:.[1]}e", .{ mantissa, mantissa_prec });
+        }
+        // Format exponent: +XX or -XX with at least 2 digits
+        if (exp_val >= 0) {
+            try result.append(allocator, '+');
+            if (exp_val < 10) try result.append(allocator, '0');
+            try result.writer(allocator).print("{d}", .{@as(u32, @intCast(exp_val))});
+        } else {
+            try result.append(allocator, '-');
+            const abs_exp: u32 = @intCast(-exp_val);
+            if (abs_exp < 10) try result.append(allocator, '0');
+            try result.writer(allocator).print("{d}", .{abs_exp});
+        }
     } else {
-        try result.writer(allocator).print("{d:.0}", .{value});
+        // Fixed-point notation
+        const decimal_places: i32 = @as(i32, @intCast(sig_figs)) - exp - 1;
+
+        if (decimal_places >= 0) {
+            const prec: usize = @intCast(decimal_places);
+            try result.writer(allocator).print("{d:.[1]}", .{ value, prec });
+        } else {
+            try result.writer(allocator).print("{d:.0}", .{value});
+        }
     }
 
     return result.toOwnedSlice(allocator);

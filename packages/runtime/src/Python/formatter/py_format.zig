@@ -217,6 +217,33 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec_str: a
                 'f', 'F' => {
                     try buf.writer(allocator).print("{d:.[1]}", .{ abs_val, prec });
                 },
+                'g', 'G' => {
+                    // 'g' format: significant figures with trailing zeros stripped
+                    const sig_figs = spec.precision orelse 6;
+                    const formatted_str = try formatSignificantFigures(allocator, abs_val, sig_figs);
+                    defer allocator.free(formatted_str);
+                    // Strip trailing zeros and decimal point
+                    var end: usize = formatted_str.len;
+                    // Check if has 'e' notation - don't strip those
+                    var has_exp = false;
+                    for (formatted_str) |c| {
+                        if (c == 'e' or c == 'E') {
+                            has_exp = true;
+                            break;
+                        }
+                    }
+                    if (!has_exp) {
+                        // Strip trailing zeros
+                        while (end > 1 and formatted_str[end - 1] == '0') {
+                            end -= 1;
+                        }
+                        // Strip trailing decimal point
+                        if (end > 0 and formatted_str[end - 1] == '.') {
+                            end -= 1;
+                        }
+                    }
+                    try buf.appendSlice(allocator, formatted_str[0..end]);
+                },
                 else => {
                     if (spec.precision != null) {
                         const sig_figs = spec.precision.?;
