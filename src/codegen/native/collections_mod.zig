@@ -32,7 +32,26 @@ pub fn genDefaultdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
         try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
     }
 }
-pub const genOrderedDict = h.discard("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
+/// Generate code for OrderedDict(dict)
+/// Don't use h.discard() as it causes "pointless discard" when arg is variable used elsewhere
+pub fn genOrderedDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) {
+        const arg = args[0];
+        if (arg == .name) {
+            // Variable - just emit the dict init (variable will be used elsewhere)
+            try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
+        } else {
+            // Non-variable - wrap in discard block
+            const id = try h.emitUniqueBlockStart(self, "discard");
+            try self.emit("_ = ");
+            try self.genExpr(arg);
+            try h.emitBlockBreak(self, "discard", id);
+            try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator); }");
+        }
+    } else {
+        try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
+    }
+}
 
 // Counter method handlers for method dispatch
 const MethodHandler = *const fn (*NativeCodegen, ast.Node, []ast.Node) CodegenError!void;
@@ -99,10 +118,52 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "OrderedDict", genOrderedDict },
     .{ "namedtuple", genNamedtuple },
     .{ "ChainMap", genChainMap },
-    .{ "UserDict", h.discard("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)") },
-    .{ "UserList", h.discard("std.ArrayListUnmanaged(*runtime.PyObject){}") },
+    .{ "UserDict", genUserDict },
+    .{ "UserList", genUserList },
     .{ "UserString", h.pass("\"\"") },
 });
+
+/// Generate code for UserDict(dict)
+/// Don't use h.discard() as it causes "pointless discard" when arg is variable used elsewhere
+pub fn genUserDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) {
+        const arg = args[0];
+        if (arg == .name) {
+            // Variable - just emit the dict init (variable will be used elsewhere)
+            try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
+        } else {
+            // Non-variable - wrap in discard block
+            const id = try h.emitUniqueBlockStart(self, "discard");
+            try self.emit("_ = ");
+            try self.genExpr(arg);
+            try h.emitBlockBreak(self, "discard", id);
+            try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator); }");
+        }
+    } else {
+        try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
+    }
+}
+
+/// Generate code for UserList(list)
+/// Don't use h.discard() as it causes "pointless discard" when arg is variable used elsewhere
+pub fn genUserList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) {
+        const arg = args[0];
+        if (arg == .name) {
+            // Variable - just emit the list init (variable will be used elsewhere)
+            try self.emit("std.ArrayListUnmanaged(*runtime.PyObject){}");
+        } else {
+            // Non-variable - wrap in discard block
+            const id = try h.emitUniqueBlockStart(self, "discard");
+            try self.emit("_ = ");
+            try self.genExpr(arg);
+            try h.emitBlockBreak(self, "discard", id);
+            try self.emit("std.ArrayListUnmanaged(*runtime.PyObject){}; }");
+        }
+    } else {
+        try self.emit("std.ArrayListUnmanaged(*runtime.PyObject){}");
+    }
+}
 
 // Counter and Deque need comptime dispatch to handle ArrayList vs slice
 // Use runtime.iterSlice() to normalize ArrayList to slice first
