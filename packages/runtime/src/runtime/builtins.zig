@@ -46,6 +46,7 @@ pub const PyCallable = struct {
 pub const pow_mod = @import("builtins/pow.zig");
 pub const PyPowResult = pow_mod.PyPowResult;
 pub const pyPow = pow_mod.pyPow;
+pub const pow = pow_mod.pyPow; // Alias for Python's pow() builtin
 
 /// String representation (repr, str)
 pub const repr_mod = @import("builtins/repr.zig");
@@ -135,6 +136,62 @@ pub const classInstanceGe = ops_mod.classInstanceGe;
 pub const assertEqualGeneric = ops_mod.assertEqualGeneric;
 pub const pyEqual = ops_mod.pyEqual;
 pub const pyEqualSliceToTuple = ops_mod.pyEqualSliceToTuple;
+
+/// Operator callable structs for functional programming (operator.mod, operator.pow, etc.)
+/// These allow passing operators as first-class functions: mod = operator.mod; mod(a, b)
+/// Called as: OperatorMod{}.call(a, b) - self is the struct instance
+pub const OperatorMod = struct {
+    pub fn call(_: @This(), a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        const T = @TypeOf(a);
+        if (@typeInfo(T) == .float) {
+            // Python floored modulo semantics for floats
+            const result = @mod(a, b);
+            // Handle sign correction for Python semantics
+            if ((result > 0 and b < 0) or (result < 0 and b > 0)) {
+                return result + b;
+            }
+            return result;
+        }
+        return @mod(a, b);
+    }
+};
+
+pub const OperatorPow = struct {
+    pub fn call(_: @This(), base: anytype, exp: @TypeOf(base)) @TypeOf(base) {
+        const T = @TypeOf(base);
+        if (@typeInfo(T) == .float) {
+            return std.math.pow(T, base, exp);
+        }
+        // For integers, use std.math.pow with conversion
+        const base_f: f64 = @floatFromInt(base);
+        const exp_f: f64 = @floatFromInt(exp);
+        const result = std.math.pow(f64, base_f, exp_f);
+        return @intFromFloat(result);
+    }
+};
+
+pub const OperatorTruediv = struct {
+    pub fn call(_: @This(), a: anytype, b: @TypeOf(a)) f64 {
+        const T = @TypeOf(a);
+        if (@typeInfo(T) == .float) {
+            return a / b;
+        }
+        // Integer true division returns float
+        const a_f: f64 = @floatFromInt(a);
+        const b_f: f64 = @floatFromInt(b);
+        return a_f / b_f;
+    }
+};
+
+pub const OperatorFloordiv = struct {
+    pub fn call(_: @This(), a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        const T = @TypeOf(a);
+        if (@typeInfo(T) == .float) {
+            return @floor(a / b);
+        }
+        return @divFloor(a, b);
+    }
+};
 
 /// Type functions (str, bytes, bytearray, memoryview, bigint)
 pub const types_mod = @import("builtins/types.zig");

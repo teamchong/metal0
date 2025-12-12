@@ -232,7 +232,9 @@ pub const divideFloat = @import("runtime/float_ops.zig").divideFloat;
 pub const floatFloorBig = @import("runtime/float_ops/rounding.zig").floatFloorBig;
 pub const floatCeilBig = @import("runtime/float_ops/rounding.zig").floatCeilBig;
 pub const floatAsIntegerRatioBigInt = @import("runtime/float_ops/ratio.zig").floatAsIntegerRatioBigInt;
+pub const floatAsIntegerRatio = @import("runtime/float_ops/ratio.zig").floatAsIntegerRatio;
 pub const toFloat = @import("runtime/float_ops/conversion.zig").toFloat;
+pub const toIntBig = @import("runtime/int_ops.zig").toIntBig;
 
 // Re-export hash operations for codegen
 pub const pyHash = @import("runtime/hash_ops.zig").pyHash;
