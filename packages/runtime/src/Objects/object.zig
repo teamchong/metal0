@@ -397,6 +397,168 @@ pub const PyValue = union(enum) {
         };
     }
 
+    // ============================================================================
+    // Arithmetic Operations (for uncertain type safety)
+    // ============================================================================
+
+    /// Add two PyValues (returns PyValue to handle mixed types safely)
+    pub fn add(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| .{ .int = a +% b }, // Wrapping add for safety
+                .float => |b| .{ .float = @as(f64, @floatFromInt(a)) + b },
+                else => .{ .none = {} },
+            },
+            .float => |a| switch (other) {
+                .int => |b| .{ .float = a + @as(f64, @floatFromInt(b)) },
+                .float => |b| .{ .float = a + b },
+                else => .{ .none = {} },
+            },
+            .string => |a| switch (other) {
+                .string => |b| blk: {
+                    // String concat - needs allocator, return none for now
+                    // Callers should use addAlloc for strings
+                    _ = a;
+                    _ = b;
+                    break :blk .{ .none = {} };
+                },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Subtract two PyValues
+    pub fn sub(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| .{ .int = a -% b },
+                .float => |b| .{ .float = @as(f64, @floatFromInt(a)) - b },
+                else => .{ .none = {} },
+            },
+            .float => |a| switch (other) {
+                .int => |b| .{ .float = a - @as(f64, @floatFromInt(b)) },
+                .float => |b| .{ .float = a - b },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Multiply two PyValues
+    pub fn mul(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| .{ .int = a *% b },
+                .float => |b| .{ .float = @as(f64, @floatFromInt(a)) * b },
+                else => .{ .none = {} },
+            },
+            .float => |a| switch (other) {
+                .int => |b| .{ .float = a * @as(f64, @floatFromInt(b)) },
+                .float => |b| .{ .float = a * b },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Divide two PyValues (Python 3 true division - always returns float)
+    pub fn div(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| if (b != 0) .{ .float = @as(f64, @floatFromInt(a)) / @as(f64, @floatFromInt(b)) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = @as(f64, @floatFromInt(a)) / b } else .{ .none = {} },
+                else => .{ .none = {} },
+            },
+            .float => |a| switch (other) {
+                .int => |b| if (b != 0) .{ .float = a / @as(f64, @floatFromInt(b)) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = a / b } else .{ .none = {} },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Floor divide two PyValues (Python //)
+    pub fn floordiv(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| if (b != 0) .{ .int = @divFloor(a, b) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = @floor(@as(f64, @floatFromInt(a)) / b) } else .{ .none = {} },
+                else => .{ .none = {} },
+            },
+            .float => |a| switch (other) {
+                .int => |b| if (b != 0) .{ .float = @floor(a / @as(f64, @floatFromInt(b))) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = @floor(a / b) } else .{ .none = {} },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Modulo two PyValues (Python %)
+    pub fn mod(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| if (b != 0) .{ .int = @mod(a, b) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = @mod(@as(f64, @floatFromInt(a)), b) } else .{ .none = {} },
+                else => .{ .none = {} },
+            },
+            .float => |a| switch (other) {
+                .int => |b| if (b != 0) .{ .float = @mod(a, @as(f64, @floatFromInt(b))) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = @mod(a, b) } else .{ .none = {} },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Negate a PyValue
+    pub fn neg(self: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| .{ .int = -%a },
+            .float => |a| .{ .float = -a },
+            .bool => |a| .{ .int = if (a) -1 else 0 },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Compare two PyValues (less than)
+    pub fn lt(self: PyValue, other: PyValue) bool {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| a < b,
+                .float => |b| @as(f64, @floatFromInt(a)) < b,
+                else => false,
+            },
+            .float => |a| switch (other) {
+                .int => |b| a < @as(f64, @floatFromInt(b)),
+                .float => |b| a < b,
+                else => false,
+            },
+            .string => |a| switch (other) {
+                .string => |b| std.mem.order(u8, a, b) == .lt,
+                else => false,
+            },
+            else => false,
+        };
+    }
+
+    /// Compare two PyValues (less than or equal)
+    pub fn le(self: PyValue, other: PyValue) bool {
+        return self.lt(other) or self.eql(other);
+    }
+
+    /// Compare two PyValues (greater than)
+    pub fn gt(self: PyValue, other: PyValue) bool {
+        return other.lt(self);
+    }
+
+    /// Compare two PyValues (greater than or equal)
+    pub fn ge(self: PyValue, other: PyValue) bool {
+        return other.lt(self) or self.eql(other);
+    }
+
     /// Check equality with another PyValue (single concrete function - no anytype)
     /// Implements Python's rich comparison semantics:
     /// - bool is subtype of int (True=1, False=0)
