@@ -189,14 +189,17 @@ pub const eval = @import("Python/ceval.zig").eval;
 pub const BytecodeProgram = @import("Python/compile.zig").BytecodeProgram;
 pub const BytecodeVM = @import("Python/compile.zig").VM;
 
-// Re-export test_support for unittest codegen
+// Re-export test_support and unittest for unittest codegen
 pub const test_support = @import("Lib/test/support.zig");
+pub const unittest = @import("Lib/unittest.zig");
 
 // Re-export all type builtins for codegen (via existing type_builtins import at line 100)
 pub const boolBuiltinCall = type_builtins.boolBuiltinCall;
 pub const boolBuiltin = type_builtins.boolBuiltin;
 pub const intBuiltin = type_builtins.intBuiltin;
 pub const floatBuiltin = type_builtins.floatBuiltin;
+pub const floatBuiltinCall = @import("runtime/float_ops.zig").floatBuiltinCall;
+pub const parseFloatWithUnicode = @import("runtime/float_ops/parsing.zig").parseFloatWithUnicode;
 pub const strBuiltin = type_builtins.strBuiltin;
 pub const bytesBuiltin = type_builtins.bytesBuiltin;
 pub const listBuiltin = type_builtins.listBuiltin;
