@@ -538,6 +538,11 @@ pub fn countAssignmentsWithScope(
             for (while_stmt.body) |body_stmt| {
                 try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, new_scope_id, allocator);
             }
+            if (while_stmt.orelse_body) |ob| {
+                for (ob) |body_stmt| {
+                    try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, scope_id, allocator);
+                }
+            }
         },
         .for_stmt => |for_stmt| {
             // Loop variable itself is mutated (assigned each iteration in outer scope)
@@ -548,6 +553,11 @@ pub fn countAssignmentsWithScope(
             const new_scope_id = @intFromPtr(for_stmt.body.ptr);
             for (for_stmt.body) |body_stmt| {
                 try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, new_scope_id, allocator);
+            }
+            if (for_stmt.orelse_body) |ob| {
+                for (ob) |body_stmt| {
+                    try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, scope_id, allocator);
+                }
             }
         },
         .try_stmt => |try_stmt| {
@@ -569,6 +579,13 @@ pub fn countAssignmentsWithScope(
         .with_stmt => |with_stmt| {
             for (with_stmt.body) |body_stmt| {
                 try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, scope_id, allocator);
+            }
+        },
+        .match_stmt => |match_stmt| {
+            for (match_stmt.cases) |case| {
+                for (case.body) |body_stmt| {
+                    try countAssignmentsWithScope(aug_vars, scoped_counts, body_stmt, scope_id, allocator);
+                }
             }
         },
         else => {},

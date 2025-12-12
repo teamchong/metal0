@@ -419,6 +419,9 @@ pub fn visitStmtScoped(
         },
         .while_stmt => |while_stmt| {
             for (while_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
+            if (while_stmt.orelse_body) |ob| {
+                for (ob) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
+            }
         },
         .for_stmt => |for_stmt| {
             // Register loop variables before visiting body
@@ -603,6 +606,9 @@ pub fn visitStmtScoped(
             }
 
             for (for_stmt.body) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
+            if (for_stmt.orelse_body) |ob| {
+                for (ob) |s| try visitStmtScoped(allocator, var_types, class_fields, func_return_types, class_constructor_args, {},s, type_inferrer);
+            }
         },
         .function_def => |func_def| {
             // Enter named scope for this function
