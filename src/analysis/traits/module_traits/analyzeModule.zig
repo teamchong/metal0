@@ -271,19 +271,42 @@ fn stmtContainsAwait(stmt: ast.Node) bool {
     return switch (stmt) {
         .await_expr => true,
         .expr_stmt => |e| exprContainsAwait(e.value.*),
-        .assign => |a| exprContainsAwait(a.value.*),
-        .if_stmt => |i| {
-            for (i.body) |s| if (stmtContainsAwait(s)) return true;
-            for (i.else_body) |s| if (stmtContainsAwait(s)) return true;
-            return false;
+        .assign => |a| blk: {
+            if (exprContainsAwait(a.value.*)) break :blk true;
+            for (a.targets) |t| if (exprContainsAwait(t)) break :blk true;
+            break :blk false;
         },
-        .for_stmt => |f| {
-            for (f.body) |s| if (stmtContainsAwait(s)) return true;
-            return false;
+        .aug_assign => |a| exprContainsAwait(a.target.*) or exprContainsAwait(a.value.*),
+        .return_stmt => |r| if (r.value) |v| exprContainsAwait(v.*) else false,
+        .if_stmt => |i| blk: {
+            if (exprContainsAwait(i.condition.*)) break :blk true;
+            for (i.body) |s| if (stmtContainsAwait(s)) break :blk true;
+            for (i.else_body) |s| if (stmtContainsAwait(s)) break :blk true;
+            break :blk false;
         },
-        .while_stmt => |w| {
-            for (w.body) |s| if (stmtContainsAwait(s)) return true;
-            return false;
+        .for_stmt => |f| blk: {
+            if (exprContainsAwait(f.iter.*)) break :blk true;
+            for (f.body) |s| if (stmtContainsAwait(s)) break :blk true;
+            if (f.orelse_body) |ob| for (ob) |s| if (stmtContainsAwait(s)) break :blk true;
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            if (exprContainsAwait(w.condition.*)) break :blk true;
+            for (w.body) |s| if (stmtContainsAwait(s)) break :blk true;
+            if (w.orelse_body) |ob| for (ob) |s| if (stmtContainsAwait(s)) break :blk true;
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| if (stmtContainsAwait(s)) break :blk true;
+            for (t.handlers) |h| for (h.body) |s| if (stmtContainsAwait(s)) break :blk true;
+            for (t.else_body) |s| if (stmtContainsAwait(s)) break :blk true;
+            for (t.finalbody) |s| if (stmtContainsAwait(s)) break :blk true;
+            break :blk false;
+        },
+        .with_stmt => |wth| blk: {
+            if (exprContainsAwait(wth.context_expr.*)) break :blk true;
+            for (wth.body) |s| if (stmtContainsAwait(s)) break :blk true;
+            break :blk false;
         },
         else => false,
     };
@@ -292,11 +315,87 @@ fn stmtContainsAwait(stmt: ast.Node) bool {
 fn exprContainsAwait(expr: ast.Node) bool {
     return switch (expr) {
         .await_expr => true,
-        .call => |c| {
-            for (c.args) |arg| if (exprContainsAwait(arg)) return true;
-            return false;
+        .call => |c| blk: {
+            if (exprContainsAwait(c.func.*)) break :blk true;
+            for (c.args) |arg| if (exprContainsAwait(arg)) break :blk true;
+            for (c.keyword_args) |kw| if (exprContainsAwait(kw.value)) break :blk true;
+            break :blk false;
         },
         .binop => |b| exprContainsAwait(b.left.*) or exprContainsAwait(b.right.*),
+        .unaryop => |u| exprContainsAwait(u.operand.*),
+        .boolop => |bo| blk: {
+            for (bo.values) |v| if (exprContainsAwait(v)) break :blk true;
+            break :blk false;
+        },
+        .compare => |cmp| blk: {
+            if (exprContainsAwait(cmp.left.*)) break :blk true;
+            for (cmp.comparators) |c| if (exprContainsAwait(c)) break :blk true;
+            break :blk false;
+        },
+        .subscript => |s| blk: {
+            if (exprContainsAwait(s.value.*)) break :blk true;
+            switch (s.slice) {
+                .index => |idx| break :blk exprContainsAwait(idx.*),
+                .slice => |range| {
+                    if (range.lower) |l| if (exprContainsAwait(l.*)) break :blk true;
+                    if (range.upper) |u| if (exprContainsAwait(u.*)) break :blk true;
+                    if (range.step) |st| if (exprContainsAwait(st.*)) break :blk true;
+                    break :blk false;
+                },
+            }
+        },
+        .attribute => |a| exprContainsAwait(a.value.*),
+        .if_expr => |ie| exprContainsAwait(ie.condition.*) or exprContainsAwait(ie.body.*) or exprContainsAwait(ie.orelse_value.*),
+        .list => |l| blk: {
+            for (l.elts) |e| if (exprContainsAwait(e)) break :blk true;
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |e| if (exprContainsAwait(e)) break :blk true;
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys) |k| if (exprContainsAwait(k)) break :blk true;
+            for (d.values) |v| if (exprContainsAwait(v)) break :blk true;
+            break :blk false;
+        },
+        .fstring => |fstr| blk: {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (exprContainsAwait(e.node.*)) break :blk true,
+                    .format_expr => |fe| if (exprContainsAwait(fe.expr.*)) break :blk true,
+                    .conv_expr => |ce| if (exprContainsAwait(ce.expr.*)) break :blk true,
+                    .literal => {},
+                }
+            }
+            break :blk false;
+        },
+        .listcomp => |lc| blk: {
+            if (exprContainsAwait(lc.elt.*)) break :blk true;
+            for (lc.generators) |gen| {
+                if (exprContainsAwait(gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| if (exprContainsAwait(cond)) break :blk true;
+            }
+            break :blk false;
+        },
+        .dictcomp => |dc| blk: {
+            if (exprContainsAwait(dc.key.*) or exprContainsAwait(dc.value.*)) break :blk true;
+            for (dc.generators) |gen| {
+                if (exprContainsAwait(gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| if (exprContainsAwait(cond)) break :blk true;
+            }
+            break :blk false;
+        },
+        .genexp => |ge| blk: {
+            if (exprContainsAwait(ge.elt.*)) break :blk true;
+            for (ge.generators) |gen| {
+                if (exprContainsAwait(gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| if (exprContainsAwait(cond)) break :blk true;
+            }
+            break :blk false;
+        },
+        .lambda => |lam| exprContainsAwait(lam.body.*),
+        .starred => |st| exprContainsAwait(st.value.*),
         else => false,
     };
 }
@@ -313,18 +412,31 @@ fn stmtContainsYield(stmt: ast.Node) bool {
     return switch (stmt) {
         .yield_stmt, .yield_from_stmt => true,
         .expr_stmt => |e| e.value.* == .yield_stmt or e.value.* == .yield_from_stmt,
-        .if_stmt => |i| {
-            for (i.body) |s| if (stmtContainsYield(s)) return true;
-            for (i.else_body) |s| if (stmtContainsYield(s)) return true;
-            return false;
+        .if_stmt => |i| blk: {
+            for (i.body) |s| if (stmtContainsYield(s)) break :blk true;
+            for (i.else_body) |s| if (stmtContainsYield(s)) break :blk true;
+            break :blk false;
         },
-        .for_stmt => |f| {
-            for (f.body) |s| if (stmtContainsYield(s)) return true;
-            return false;
+        .for_stmt => |f| blk: {
+            for (f.body) |s| if (stmtContainsYield(s)) break :blk true;
+            if (f.orelse_body) |ob| for (ob) |s| if (stmtContainsYield(s)) break :blk true;
+            break :blk false;
         },
-        .while_stmt => |w| {
-            for (w.body) |s| if (stmtContainsYield(s)) return true;
-            return false;
+        .while_stmt => |w| blk: {
+            for (w.body) |s| if (stmtContainsYield(s)) break :blk true;
+            if (w.orelse_body) |ob| for (ob) |s| if (stmtContainsYield(s)) break :blk true;
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| if (stmtContainsYield(s)) break :blk true;
+            for (t.handlers) |h| for (h.body) |s| if (stmtContainsYield(s)) break :blk true;
+            for (t.else_body) |s| if (stmtContainsYield(s)) break :blk true;
+            for (t.finalbody) |s| if (stmtContainsYield(s)) break :blk true;
+            break :blk false;
+        },
+        .with_stmt => |wth| blk: {
+            for (wth.body) |s| if (stmtContainsYield(s)) break :blk true;
+            break :blk false;
         },
         else => false,
     };
