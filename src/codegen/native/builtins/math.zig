@@ -16,12 +16,39 @@ fn isNoneArg(arg: ast.Node) bool {
     return false;
 }
 
+/// Check if an expression is uncertain (needs PyValue)
+/// Two-Flow: routes uncertain types to PyValue methods
+fn isExprUncertain(self: *NativeCodegen, expr: ast.Node) bool {
+    if (expr == .name) {
+        const name = expr.name.id;
+        // Check if variable type is PyValue or unknown
+        if (self.type_inferrer.var_types.get(name)) |var_type| {
+            switch (var_type) {
+                .pyvalue, .unknown => return true,
+                else => {},
+            }
+        }
+        // Fall back to confidence check
+        return self.isVarUncertain(name);
+    }
+    return false;
+}
+
 /// Generate code for abs(n)
 /// Returns absolute value
+/// Two-Flow: routes uncertain operands to PyValue.pyAbs()
 pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // abs() requires exactly one argument - generate an error union for assertRaises
         try self.emit("(error.TypeError)");
+        return;
+    }
+
+    // Two-Flow: Check if argument is uncertain
+    if (isExprUncertain(self, args[0])) {
+        // Route to PyValue.pyAbs() for runtime type safety
+        try self.genExpr(args[0]);
+        try self.emit(".pyAbs()");
         return;
     }
 
@@ -44,6 +71,7 @@ pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for min(a, b, ...)
 /// Returns minimum value
+/// Two-Flow: routes uncertain operands to PyValue.pyMin()
 pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         try self.emit("(error.TypeError)");
@@ -56,6 +84,27 @@ pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("runtime.builtins.minIterable(");
         try self.genExpr(args[0]);
         try self.emit(")");
+        return;
+    }
+
+    // Two-Flow: Check if any argument is uncertain
+    var any_uncertain = false;
+    for (args) |arg| {
+        if (isExprUncertain(self, arg)) {
+            any_uncertain = true;
+            break;
+        }
+    }
+
+    if (any_uncertain) {
+        // Route to PyValue.pyMin() chained for runtime type safety
+        // min(a, b, c) => a.pyMin(b).pyMin(c)
+        try self.genExpr(args[0]);
+        for (args[1..]) |arg| {
+            try self.emit(".pyMin(");
+            try self.genExpr(arg);
+            try self.emit(")");
+        }
         return;
     }
 
@@ -72,6 +121,7 @@ pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for max(a, b, ...)
 /// Returns maximum value
+/// Two-Flow: routes uncertain operands to PyValue.pyMax()
 pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         try self.emit("(error.TypeError)");
@@ -84,6 +134,27 @@ pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("runtime.builtins.maxIterable(");
         try self.genExpr(args[0]);
         try self.emit(")");
+        return;
+    }
+
+    // Two-Flow: Check if any argument is uncertain
+    var any_uncertain = false;
+    for (args) |arg| {
+        if (isExprUncertain(self, arg)) {
+            any_uncertain = true;
+            break;
+        }
+    }
+
+    if (any_uncertain) {
+        // Route to PyValue.pyMax() chained for runtime type safety
+        // max(a, b, c) => a.pyMax(b).pyMax(c)
+        try self.genExpr(args[0]);
+        for (args[1..]) |arg| {
+            try self.emit(".pyMax(");
+            try self.genExpr(arg);
+            try self.emit(")");
+        }
         return;
     }
 
@@ -228,9 +299,18 @@ pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for hash(obj)
 /// Returns integer hash of object
+/// Two-Flow: routes uncertain operands to PyValue.pyHash()
 pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         try self.emit("(error.TypeError)");
+        return;
+    }
+
+    // Two-Flow: Check if argument is uncertain
+    if (isExprUncertain(self, args[0])) {
+        // Route to PyValue.pyHash() for runtime type safety
+        try self.genExpr(args[0]);
+        try self.emit(".pyHash()");
         return;
     }
 

@@ -194,11 +194,38 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("}");
 }
 
+/// Check if an iterable expression is uncertain (needs PyValue)
+/// Two-Flow: routes uncertain types to PyValue methods
+fn isIterableUncertain(self: *NativeCodegen, expr: ast.Node) bool {
+    if (expr == .name) {
+        const name = expr.name.id;
+        // Check if variable type is PyValue or unknown
+        if (self.type_inferrer.var_types.get(name)) |var_type| {
+            switch (var_type) {
+                .pyvalue, .unknown => return true,
+                else => {},
+            }
+        }
+        // Fall back to confidence check
+        return self.isVarUncertain(name);
+    }
+    return false;
+}
+
 /// Generate code for sum(iterable)
 /// Returns sum of all elements
+/// Two-Flow: routes uncertain iterables to PyValue.pySum()
 pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         try self.emit("return error.TypeError");
+        return;
+    }
+
+    // Two-Flow: Check if iterable is uncertain
+    if (isIterableUncertain(self, args[0])) {
+        // Route to PyValue.pySum() for runtime type safety
+        try self.genExpr(args[0]);
+        try self.emit(".pySum()");
         return;
     }
 
@@ -244,9 +271,18 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for all(iterable)
 /// Returns true if all elements are truthy
+/// Two-Flow: routes uncertain iterables to PyValue.pyAll()
 pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         try self.emit("return error.TypeError");
+        return;
+    }
+
+    // Two-Flow: Check if iterable is uncertain
+    if (isIterableUncertain(self, args[0])) {
+        // Route to PyValue.pyAll() for runtime type safety
+        try self.genExpr(args[0]);
+        try self.emit(".pyAll()");
         return;
     }
 
@@ -282,9 +318,18 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for any(iterable)
 /// Returns true if any element is truthy
+/// Two-Flow: routes uncertain iterables to PyValue.pyAny()
 pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         try self.emit("return error.TypeError");
+        return;
+    }
+
+    // Two-Flow: Check if iterable is uncertain
+    if (isIterableUncertain(self, args[0])) {
+        // Route to PyValue.pyAny() for runtime type safety
+        try self.genExpr(args[0]);
+        try self.emit(".pyAny()");
         return;
     }
 

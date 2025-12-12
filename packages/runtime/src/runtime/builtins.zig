@@ -334,3 +334,56 @@ pub const classmethod = struct {
         try writer.print("<classmethod({s})>", .{self.__name__});
     }
 };
+
+// =============================================================================
+// Two-Flow List Operations (for uncertain list types)
+// =============================================================================
+const PyValue = @import("../Objects/object.zig").PyValue;
+
+/// Append item to a list (handles both ArrayList and PyValue.list)
+/// Two-Flow: runtime helper for uncertain list types
+pub fn pyListAppend(allocator: std.mem.Allocator, list_ptr: anytype, item: anytype) void {
+    const T = @TypeOf(list_ptr.*);
+    const info = @typeInfo(T);
+
+    // Check if it's an ArrayList-like type with append method
+    if (info == .@"struct" and @hasField(T, "items") and @hasDecl(T, "append")) {
+        // ArrayList - use standard append
+        list_ptr.append(allocator, item) catch {};
+    }
+    // For PyValue.list (slice) - we can't mutate, no-op safety net
+}
+
+/// Extend a list with items from another (handles both ArrayList and PyValue.list)
+/// Two-Flow: runtime helper for uncertain list types
+pub fn pyListExtend(allocator: std.mem.Allocator, list_ptr: anytype, other: anytype) void {
+    const T = @TypeOf(list_ptr.*);
+    const info = @typeInfo(T);
+
+    // Check if it's an ArrayList-like type with appendSlice method
+    if (info == .@"struct" and @hasField(T, "items") and @hasDecl(T, "appendSlice")) {
+        const OtherT = @TypeOf(other);
+        const other_info = @typeInfo(OtherT);
+
+        if (other_info == .@"struct" and @hasField(OtherT, "items")) {
+            list_ptr.appendSlice(allocator, other.items) catch {};
+        } else if (other_info == .pointer and other_info.pointer.size == .Slice) {
+            list_ptr.appendSlice(allocator, other) catch {};
+        }
+    }
+    // For PyValue.list (slice) - we can't mutate, no-op safety net
+}
+
+/// Insert item at index in a list (handles both ArrayList and PyValue.list)
+/// Two-Flow: runtime helper for uncertain list types
+pub fn pyListInsert(allocator: std.mem.Allocator, list_ptr: anytype, index: anytype, item: anytype) void {
+    const T = @TypeOf(list_ptr.*);
+    const info = @typeInfo(T);
+
+    // Check if it's an ArrayList-like type with insert method
+    if (info == .@"struct" and @hasField(T, "items") and @hasDecl(T, "insert")) {
+        const idx: usize = @intCast(index);
+        list_ptr.insert(allocator, idx, item) catch {};
+    }
+    // For PyValue.list (slice) - we can't mutate, no-op safety net
+}

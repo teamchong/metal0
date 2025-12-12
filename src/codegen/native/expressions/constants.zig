@@ -38,7 +38,16 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
         .bool => try self.emit(if (constant.value.bool) "true" else "false"),
         .none => try self.emit("null"),
         .complex => |imag| {
-            try self.output.writer(self.allocator).print("runtime.PyComplex.create(0.0, {d})", .{imag});
+            // Handle inf/nan in imaginary part like we do for floats
+            try self.emit("runtime.PyComplex.create(0.0, ");
+            if (std.math.isInf(imag)) {
+                try self.emit(if (imag < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
+            } else if (std.math.isNan(imag)) {
+                try self.emit("std.math.nan(f64)");
+            } else {
+                try self.output.writer(self.allocator).print("{d}", .{imag});
+            }
+            try self.emit(")");
         },
         .string => |s| {
             // String content already has quotes stripped by parser

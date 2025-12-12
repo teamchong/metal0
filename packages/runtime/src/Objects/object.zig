@@ -638,6 +638,134 @@ pub const PyValue = union(enum) {
         // Non-numeric different types are not equal
         return false;
     }
+
+    // ============================================================================
+    // Aggregate Operations (for Two-Flow uncertain iterables)
+    // ============================================================================
+
+    /// Sum all values in a PyValue list
+    /// For Two-Flow: handles uncertain iterables at runtime
+    pub fn pySum(self: PyValue) PyValue {
+        return switch (self) {
+            .list => |items| {
+                var total: PyValue = .{ .int = 0 };
+                for (items) |item| {
+                    total = total.add(item);
+                }
+                return total;
+            },
+            .tuple => |items| {
+                var total: PyValue = .{ .int = 0 };
+                for (items) |item| {
+                    total = total.add(item);
+                }
+                return total;
+            },
+            // Single numeric value - return as is
+            .int, .float => self,
+            else => .{ .int = 0 },
+        };
+    }
+
+    /// Check if all values in a PyValue list are truthy
+    /// For Two-Flow: handles uncertain iterables at runtime
+    pub fn pyAll(self: PyValue) bool {
+        return switch (self) {
+            .list => |items| {
+                for (items) |item| {
+                    if (!item.isTruthy()) return false;
+                }
+                return true;
+            },
+            .tuple => |items| {
+                for (items) |item| {
+                    if (!item.isTruthy()) return false;
+                }
+                return true;
+            },
+            // Single value - return its truthiness
+            else => self.isTruthy(),
+        };
+    }
+
+    /// Check if any value in a PyValue list is truthy
+    /// For Two-Flow: handles uncertain iterables at runtime
+    pub fn pyAny(self: PyValue) bool {
+        return switch (self) {
+            .list => |items| {
+                for (items) |item| {
+                    if (item.isTruthy()) return true;
+                }
+                return false;
+            },
+            .tuple => |items| {
+                for (items) |item| {
+                    if (item.isTruthy()) return true;
+                }
+                return false;
+            },
+            // Single value - return its truthiness
+            else => self.isTruthy(),
+        };
+    }
+
+    // ============================================================================
+    // Math Operations (for Two-Flow uncertain operands)
+    // ============================================================================
+
+    /// Absolute value of a PyValue
+    /// For Two-Flow: handles uncertain numeric types at runtime
+    pub fn pyAbs(self: PyValue) PyValue {
+        return switch (self) {
+            .int => |v| .{ .int = if (v < 0) -v else v },
+            .float => |v| .{ .float = @abs(v) },
+            .bool => |v| .{ .int = if (v) 1 else 0 },
+            else => .{ .int = 0 },
+        };
+    }
+
+    /// Minimum of two PyValues
+    /// For Two-Flow: handles uncertain operands at runtime
+    pub fn pyMin(self: PyValue, other: PyValue) PyValue {
+        // Use lt() for comparison
+        if (self.lt(other)) {
+            return self;
+        } else {
+            return other;
+        }
+    }
+
+    /// Maximum of two PyValues
+    /// For Two-Flow: handles uncertain operands at runtime
+    pub fn pyMax(self: PyValue, other: PyValue) PyValue {
+        // Use gt() for comparison
+        if (self.gt(other)) {
+            return self;
+        } else {
+            return other;
+        }
+    }
+
+    /// Hash value of a PyValue
+    /// For Two-Flow: handles uncertain types at runtime
+    pub fn pyHash(self: PyValue) i64 {
+        return switch (self) {
+            .int => |v| v,
+            .float => |v| blk: {
+                // Python's float hash - if it's a whole number, use the int hash
+                const int_val = @as(i64, @intFromFloat(v));
+                if (@as(f64, @floatFromInt(int_val)) == v) {
+                    break :blk int_val;
+                }
+                // Otherwise use bit cast
+                break :blk @as(i64, @bitCast(v));
+            },
+            .bool => |v| if (v) 1 else 0,
+            .string => |v| @as(i64, @bitCast(std.hash.Wyhash.hash(0, v))),
+            .none => 0,
+            else => 0,
+        };
+    }
 };
 
 /// Convert any value to PyValue (single-anytype function, O(n) instantiations)

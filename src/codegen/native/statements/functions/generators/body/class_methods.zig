@@ -1136,8 +1136,8 @@ pub fn genInitMethodFromNew(
     // init signature should be: init(allocator, arg, newarg)
     var is_first_non_cls = true;
     for (new_method.args) |arg| {
-        // Skip 'cls' (first param of __new__)
-        if (std.mem.eql(u8, arg.name, "cls")) continue;
+        // Skip 'cls' or 'self' (first param of __new__ represents the class, not an instance value)
+        if (std.mem.eql(u8, arg.name, "cls") or std.mem.eql(u8, arg.name, "self")) continue;
 
         try self.emit(", ");
 
@@ -1156,8 +1156,10 @@ pub fn genInitMethodFromNew(
             const shadows_module_level = self.module_level_funcs.contains(arg.name) or
                 self.module_level_vars.contains(arg.name) or
                 self.imported_modules.contains(arg.name);
+            // Check if param is 'self' in nested class (would shadow outer method's self)
+            const shadows_outer_self = is_nested and std.mem.eql(u8, arg.name, "self");
 
-            if (shadows_class_method or shadows_module_level) {
+            if (shadows_class_method or shadows_module_level or shadows_outer_self) {
                 // Rename parameter using NameGen for unique naming
                 const renamed = try self.name_gen.param(arg.name);
                 try self.var_renames.put(arg.name, renamed);

@@ -8,6 +8,24 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const validation = @import("string/validation.zig");
 const formatting = @import("string/formatting.zig");
 
+/// Check if a string expression is uncertain (needs PyValue extraction)
+/// Two-Flow: routes uncertain strings to handle PyValue.string
+fn isStringUncertain(self: *NativeCodegen, obj: ast.Node) bool {
+    if (obj == .name) {
+        const name = obj.name.id;
+        // Check if variable type is PyValue or unknown
+        if (self.type_inferrer.var_types.get(name)) |var_type| {
+            switch (var_type) {
+                .pyvalue, .unknown => return true,
+                else => {},
+            }
+        }
+        // Fall back to confidence check
+        return self.isVarUncertain(name);
+    }
+    return false;
+}
+
 // Re-export validation methods
 pub const genIsdigit = validation.genIsdigit;
 pub const genIsalpha = validation.genIsalpha;
@@ -39,11 +57,24 @@ pub const genZfill = formatting.genZfill;
 /// Example: "a b c".split(" ") -> ArrayList([]const u8)
 /// Example: "a  b c".split() -> splits on any whitespace, removes empty strings
 /// Example: "a b c d".split(" ", 2) -> ["a", "b", "c d"]
+/// Two-Flow: routes uncertain strings to PyValue-aware runtime helpers
 pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    // Two-Flow: Check if string is uncertain (PyValue)
+    // For uncertain strings, extract .string field from PyValue
+    const emit_obj = if (isStringUncertain(self, obj)) blk: {
+        // Generate inline extraction: obj.string
+        break :blk true;
+    } else false;
+
     if (args.len == 0) {
         // split() with no args - split on whitespace using runtime function
         try self.emit("try runtime.stringSplitWhitespace(");
-        try self.genExpr(obj);
+        if (emit_obj) {
+            try self.genExpr(obj);
+            try self.emit(".string");
+        } else {
+            try self.genExpr(obj);
+        }
         try self.emit(", __global_allocator)");
         return;
     }

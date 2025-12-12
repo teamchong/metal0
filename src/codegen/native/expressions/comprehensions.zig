@@ -310,6 +310,22 @@ fn genExprWithSubs(
                 try self.emit("@abs(");
                 try genExprWithSubs(self, c.args[0], subs);
                 try self.emit(")");
+            } else if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "float") and c.args.len == 1) {
+                // float(x) in comprehension - use runtime.floatBuiltinCall with substitution
+                try self.emit("(runtime.floatBuiltinCall(");
+                try genExprWithSubs(self, c.args[0], subs);
+                try self.emit(", .{}) catch 0.0)");
+            } else if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "complex") and c.args.len >= 1) {
+                // complex(x) or complex(x, y) in comprehension - use runtime.PyComplex.create
+                try self.emit("runtime.PyComplex.create(");
+                try genExprWithSubs(self, c.args[0], subs);
+                try self.emit(", ");
+                if (c.args.len >= 2) {
+                    try genExprWithSubs(self, c.args[1], subs);
+                } else {
+                    try self.emit("0.0");
+                }
+                try self.emit(")");
             } else if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "bytes") and c.args.len > 0) {
                 // Special case: bytes([x]) in comprehension needs substitution for list elements
                 // bytes([x]) creates a single-byte bytes object from integer x
@@ -373,10 +389,34 @@ fn genExprWithSubs(
                 try self.emitIndent();
                 try self.emit("}");
             } else {
-                // Complex call - fall through to regular handler
-                // Note: this loses substitutions for args, but builtins handle their own args
-                const parent = @import("../expressions.zig");
-                try parent.genExpr(self, expr);
+                // Generic builtin/call handling with substitutions
+                // Generate the call using dispatch but with substituted arguments
+                if (c.func.* == .name) {
+                    const func_name = c.func.name.id;
+                    // Use builtin dispatch for the function, but substitute arguments
+                    const builtins = @import("../dispatch/builtins.zig");
+                    if (builtins.BuiltinMap.get(func_name)) |handler| {
+                        // For builtins, we need to generate with proper patterns
+                        // Create substituted argument expressions by generating to temp then referencing
+                        // For now, use genExpr but recursively handle argument substitutions
+                        // This is a fallback - specific builtins should be added above for proper handling
+                        _ = handler;
+                    }
+                    // Fallback: generate call with substituted args
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
+                    try self.emit("(");
+                    var first_arg = true;
+                    for (c.args) |arg| {
+                        if (!first_arg) try self.emit(", ");
+                        first_arg = false;
+                        try genExprWithSubs(self, arg, subs);
+                    }
+                    try self.emit(")");
+                } else {
+                    // Non-name func (lambda, etc.) - fall back to genExpr
+                    const parent = @import("../expressions.zig");
+                    try parent.genExpr(self, expr);
+                }
             }
         },
         .list => |l| {
@@ -768,6 +808,10 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     var subs = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
     defer subs.deinit();
 
+    // Track variables added to var_renames for cleanup at the end
+    var renamed_vars: std.ArrayListUnmanaged([]const u8) = .{};
+    defer renamed_vars.deinit(self.allocator);
+
     // Check if any generator iterates over PyValue - if so, skip the entire comprehension
     for (listcomp.generators) |gen| {
         const is_range = gen.iter.* == .call and gen.iter.call.func.* == .name and
@@ -974,6 +1018,8 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
             try subs.put(orig_var_name, mangled_name);
             // Also add to var_renames so lambdas and other nested expressions can see it
             try self.var_renames.put(orig_var_name, mangled_name);
+            // Track for cleanup at end of comprehension
+            try renamed_vars.append(self.allocator, orig_var_name);
 
             // Parse range arguments - handle both constants and variable expressions
             const start_expr: ?ast.Node = if (args.len >= 2) args[0] else null;
@@ -1070,6 +1116,8 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                                 const renamed = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ var_name, label_id });
                                 // Register rename so references within comprehension use the new name
                                 try self.var_renames.put(var_name, renamed);
+                                // Track for cleanup at end of comprehension
+                                try renamed_vars.append(self.allocator, var_name);
                                 try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ renamed, label_id, gen_idx, idx });
                             } else {
                                 try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
@@ -1169,6 +1217,11 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     self.dedent();
     try self.emitIndent();
     try self.emit("})");
+
+    // Clean up var_renames so outer scope sees original variable names
+    for (renamed_vars.items) |var_name| {
+        _ = self.var_renames.swapRemove(var_name);
+    }
 }
 
 pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenError!void {

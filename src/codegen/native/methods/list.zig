@@ -17,12 +17,44 @@ fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     }
 }
 
+/// Check if a list expression is uncertain (needs PyValue operations)
+/// Two-Flow: routes uncertain lists to runtime helpers
+fn isListUncertain(self: *NativeCodegen, obj: ast.Node) bool {
+    if (obj == .name) {
+        const name = obj.name.id;
+        // Check if variable type is PyValue or unknown
+        if (self.type_inferrer.var_types.get(name)) |var_type| {
+            switch (var_type) {
+                .pyvalue, .unknown => return true,
+                else => {},
+            }
+        }
+        // Fall back to confidence check
+        return self.isVarUncertain(name);
+    }
+    return false;
+}
+
 /// Generate code for list.append(item)
 /// NOTE: Zig arrays are fixed size, need ArrayList for dynamic appending
+/// Two-Flow: Certain lists use ArrayList.append, uncertain lists use runtime helpers
 pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // list.append() requires exactly 1 argument
     if (args.len != 1) {
         return error.UnsupportedSyntax;
+    }
+
+    // Two-Flow: Check if list is uncertain (PyValue.list is a slice, not mutable ArrayList)
+    // For uncertain lists, we need runtime helpers that can handle type dynamically
+    if (isListUncertain(self, obj)) {
+        // Route to runtime helper that handles both ArrayList and PyValue.list
+        // For now, use runtime.pyListAppend (allocator-aware mutation)
+        try self.emit("runtime.pyListAppend(__global_allocator, &");
+        try emitObjExpr(self, obj);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
     }
 
     // Check if list expects PyValue or PyObject elements
@@ -99,9 +131,21 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 
 /// Generate code for list.extend(other)
 /// Appends all items from other list
+/// Two-Flow: Certain lists use ArrayList.appendSlice, uncertain lists use runtime helpers
 pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // list.extend() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
+
+    // Two-Flow: Check if list is uncertain
+    if (isListUncertain(self, obj)) {
+        // Route to runtime helper that handles both ArrayList and PyValue.list
+        try self.emit("runtime.pyListExtend(__global_allocator, &");
+        try emitObjExpr(self, obj);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
 
     const arg = args[0];
 
@@ -135,9 +179,23 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
 /// Generate code for list.insert(index, item)
 /// Inserts item at index
+/// Two-Flow: Certain lists use ArrayList.insert, uncertain lists use runtime helpers
 pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // list.insert() requires exactly 2 arguments
     if (args.len != 2) return error.UnsupportedSyntax;
+
+    // Two-Flow: Check if list is uncertain
+    if (isListUncertain(self, obj)) {
+        // Route to runtime helper that handles both ArrayList and PyValue.list
+        try self.emit("runtime.pyListInsert(__global_allocator, &");
+        try emitObjExpr(self, obj);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit(")");
+        return;
+    }
 
     // Generate: try list.insert(__global_allocator, @intCast(index), item)
     // Need @intCast because index may be i64 from floor division, but insert needs usize
