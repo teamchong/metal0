@@ -831,6 +831,14 @@ pub const TypeInferrer = struct {
             },
             .lambda => |lam| try self.collectCallsFromExpr(lam.body.*, arena_alloc),
             .starred => |st| try self.collectCallsFromExpr(st.value.*, arena_alloc),
+            .set => |set_expr| {
+                for (set_expr.elts) |e| try self.collectCallsFromExpr(e, arena_alloc);
+            },
+            .await_expr => |await| try self.collectCallsFromExpr(await.value.*, arena_alloc),
+            .named_expr => |named| {
+                try self.collectCallsFromExpr(named.target.*, arena_alloc);
+                try self.collectCallsFromExpr(named.value.*, arena_alloc);
+            },
             else => {},
         }
     }

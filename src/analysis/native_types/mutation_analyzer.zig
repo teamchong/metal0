@@ -324,6 +324,55 @@ fn checkExprForMutation(
                 try checkExprForMutation(elt, mutations, allocator);
             }
         },
+        .set => |s| {
+            for (s.elts) |elt| {
+                try checkExprForMutation(elt, mutations, allocator);
+            }
+        },
+        .if_expr => |ie| {
+            try checkExprForMutation(ie.condition.*, mutations, allocator);
+            try checkExprForMutation(ie.body.*, mutations, allocator);
+            try checkExprForMutation(ie.orelse_value.*, mutations, allocator);
+        },
+        .fstring => |fs| {
+            for (fs.parts) |part| {
+                switch (part) {
+                    .expr => |e| try checkExprForMutation(e.node.*, mutations, allocator),
+                    .format_expr => |fe| try checkExprForMutation(fe.expr.*, mutations, allocator),
+                    .conv_expr => |ce| try checkExprForMutation(ce.expr.*, mutations, allocator),
+                    .literal => {},
+                }
+            }
+        },
+        .listcomp => |lc| {
+            try checkExprForMutation(lc.elt.*, mutations, allocator);
+            for (lc.generators) |gen| {
+                try checkExprForMutation(gen.iter.*, mutations, allocator);
+                for (gen.ifs) |cond| try checkExprForMutation(cond, mutations, allocator);
+            }
+        },
+        .dictcomp => |dc| {
+            try checkExprForMutation(dc.key.*, mutations, allocator);
+            try checkExprForMutation(dc.value.*, mutations, allocator);
+            for (dc.generators) |gen| {
+                try checkExprForMutation(gen.iter.*, mutations, allocator);
+                for (gen.ifs) |cond| try checkExprForMutation(cond, mutations, allocator);
+            }
+        },
+        .genexp => |ge| {
+            try checkExprForMutation(ge.elt.*, mutations, allocator);
+            for (ge.generators) |gen| {
+                try checkExprForMutation(gen.iter.*, mutations, allocator);
+                for (gen.ifs) |cond| try checkExprForMutation(cond, mutations, allocator);
+            }
+        },
+        .lambda => |lam| try checkExprForMutation(lam.body.*, mutations, allocator),
+        .starred => |st| try checkExprForMutation(st.value.*, mutations, allocator),
+        .await_expr => |await| try checkExprForMutation(await.value.*, mutations, allocator),
+        .named_expr => |named| {
+            try checkExprForMutation(named.target.*, mutations, allocator);
+            try checkExprForMutation(named.value.*, mutations, allocator);
+        },
         else => {},
     }
 }
