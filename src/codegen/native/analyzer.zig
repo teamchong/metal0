@@ -247,6 +247,12 @@ fn analyzeStmt(node: ast.Node) !ModuleAnalysis {
                 const stmt_analysis = try analyzeStmt(stmt);
                 analysis.merge(stmt_analysis);
             }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    const stmt_analysis = try analyzeStmt(stmt);
+                    analysis.merge(stmt_analysis);
+                }
+            }
         },
         .while_stmt => |while_stmt| {
             const cond_analysis = try analyzeExpr(while_stmt.condition.*);
@@ -255,6 +261,12 @@ fn analyzeStmt(node: ast.Node) !ModuleAnalysis {
             for (while_stmt.body) |stmt| {
                 const stmt_analysis = try analyzeStmt(stmt);
                 analysis.merge(stmt_analysis);
+            }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    const stmt_analysis = try analyzeStmt(stmt);
+                    analysis.merge(stmt_analysis);
+                }
             }
         },
         .function_def => |func| {
@@ -291,10 +303,40 @@ fn analyzeStmt(node: ast.Node) !ModuleAnalysis {
                 }
             }
 
+            // Analyze else body
+            for (try_node.else_body) |stmt| {
+                const stmt_analysis = try analyzeStmt(stmt);
+                analysis.merge(stmt_analysis);
+            }
+
             // Analyze finally body
             for (try_node.finalbody) |stmt| {
                 const stmt_analysis = try analyzeStmt(stmt);
                 analysis.merge(stmt_analysis);
+            }
+        },
+        .with_stmt => |with_stmt| {
+            const ctx_analysis = try analyzeExpr(with_stmt.context_expr.*);
+            analysis.merge(ctx_analysis);
+
+            for (with_stmt.body) |stmt| {
+                const stmt_analysis = try analyzeStmt(stmt);
+                analysis.merge(stmt_analysis);
+            }
+        },
+        .match_stmt => |match_stmt| {
+            const subject_analysis = try analyzeExpr(match_stmt.subject.*);
+            analysis.merge(subject_analysis);
+
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    const guard_analysis = try analyzeExpr(guard.*);
+                    analysis.merge(guard_analysis);
+                }
+                for (case.body) |stmt| {
+                    const stmt_analysis = try analyzeStmt(stmt);
+                    analysis.merge(stmt_analysis);
+                }
             }
         },
         .class_def => |class| {

@@ -232,9 +232,15 @@ fn findWrittenVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap) !void {
             },
             .while_stmt => |while_stmt| {
                 try findWrittenVarsInStmts(while_stmt.body, vars);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    try findWrittenVarsInStmts(orelse_body, vars);
+                }
             },
             .for_stmt => |for_stmt| {
                 try findWrittenVarsInStmts(for_stmt.body, vars);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    try findWrittenVarsInStmts(orelse_body, vars);
+                }
             },
             .try_stmt => |try_stmt| {
                 try findWrittenVarsInStmts(try_stmt.body, vars);
@@ -248,6 +254,14 @@ fn findWrittenVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap) !void {
                     try findWrittenVarsInStmts(handler.body, vars);
                 }
                 try findWrittenVarsInStmts(try_stmt.finalbody, vars);
+            },
+            .with_stmt => |with_stmt| {
+                try findWrittenVarsInStmts(with_stmt.body, vars);
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    try findWrittenVarsInStmts(case.body, vars);
+                }
             },
             else => {},
         }

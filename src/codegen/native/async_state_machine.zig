@@ -1412,6 +1412,11 @@ fn findMutatedInNode(allocator: std.mem.Allocator, node: ast.Node, mutated: *std
             for (for_stmt.body) |stmt| {
                 try findMutatedInNode(allocator, stmt, mutated);
             }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try findMutatedInNode(allocator, stmt, mutated);
+                }
+            }
         },
         .if_stmt => |if_stmt| {
             for (if_stmt.body) |stmt| {
@@ -1424,6 +1429,39 @@ fn findMutatedInNode(allocator: std.mem.Allocator, node: ast.Node, mutated: *std
         .while_stmt => |while_stmt| {
             for (while_stmt.body) |stmt| {
                 try findMutatedInNode(allocator, stmt, mutated);
+            }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try findMutatedInNode(allocator, stmt, mutated);
+                }
+            }
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |stmt| {
+                try findMutatedInNode(allocator, stmt, mutated);
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |stmt| {
+                    try findMutatedInNode(allocator, stmt, mutated);
+                }
+            }
+            for (try_stmt.else_body) |stmt| {
+                try findMutatedInNode(allocator, stmt, mutated);
+            }
+            for (try_stmt.finalbody) |stmt| {
+                try findMutatedInNode(allocator, stmt, mutated);
+            }
+        },
+        .with_stmt => |with_stmt| {
+            for (with_stmt.body) |stmt| {
+                try findMutatedInNode(allocator, stmt, mutated);
+            }
+        },
+        .match_stmt => |match_stmt| {
+            for (match_stmt.cases) |case| {
+                for (case.body) |stmt| {
+                    try findMutatedInNode(allocator, stmt, mutated);
+                }
             }
         },
         else => {},
