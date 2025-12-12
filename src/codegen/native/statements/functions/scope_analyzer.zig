@@ -186,6 +186,11 @@ fn detectCrossBlockEscapes(
                 for (while_s.body) |s| {
                     try collectAllDeclsInStmt(&vars, s, allocator);
                 }
+                if (while_s.orelse_body) |orelse_body| {
+                    for (orelse_body) |s| {
+                        try collectAllDeclsInStmt(&vars, s, allocator);
+                    }
+                }
             },
             .try_stmt => |try_s| {
                 for (try_s.body) |s| {
@@ -196,6 +201,24 @@ fn detectCrossBlockEscapes(
                         try vars.put(name, {});
                     }
                     for (h.body) |s| {
+                        try collectAllDeclsInStmt(&vars, s, allocator);
+                    }
+                }
+                for (try_s.else_body) |s| {
+                    try collectAllDeclsInStmt(&vars, s, allocator);
+                }
+                for (try_s.finalbody) |s| {
+                    try collectAllDeclsInStmt(&vars, s, allocator);
+                }
+            },
+            .with_stmt => |with_s| {
+                for (with_s.body) |s| {
+                    try collectAllDeclsInStmt(&vars, s, allocator);
+                }
+            },
+            .match_stmt => |match_s| {
+                for (match_s.cases) |case| {
+                    for (case.body) |s| {
                         try collectAllDeclsInStmt(&vars, s, allocator);
                     }
                 }
@@ -217,7 +240,7 @@ fn detectCrossBlockEscapes(
             // Check if used in ANY block after this one
             for (body[decl_block.idx + 1 ..]) |stmt| {
                 const is_block = switch (stmt) {
-                    .if_stmt, .for_stmt, .while_stmt, .try_stmt => true,
+                    .if_stmt, .for_stmt, .while_stmt, .try_stmt, .with_stmt, .match_stmt => true,
                     else => false,
                 };
                 if (!is_block) continue;
@@ -946,7 +969,7 @@ fn collectOuterUses(
 ) !void {
     switch (node) {
         // Skip into inner scopes - we only want outer-level uses
-        .with_stmt, .try_stmt, .if_stmt, .for_stmt, .while_stmt => {
+        .with_stmt, .try_stmt, .if_stmt, .for_stmt, .while_stmt, .match_stmt => {
             // Don't recurse - uses inside these don't count as "outer"
         },
         // For assignments and expressions at outer level, collect uses
