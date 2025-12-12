@@ -94,11 +94,32 @@ fn isNameUsedInStmtWithConfig(stmt: ast.Node, name: []const u8, config: Analysis
         .while_stmt => |while_stmt| {
             if (isNameUsedInExpr(while_stmt.condition.*, name)) return true;
             if (isNameUsedInBodyWithConfig(while_stmt.body, name, config)) return true;
+            if (while_stmt.orelse_body) |orelse_body| {
+                if (isNameUsedInBodyWithConfig(orelse_body, name, config)) return true;
+            }
             return false;
         },
         .for_stmt => |for_stmt| {
             if (isNameUsedInExpr(for_stmt.iter.*, name)) return true;
             if (isNameUsedInBodyWithConfig(for_stmt.body, name, config)) return true;
+            if (for_stmt.orelse_body) |orelse_body| {
+                if (isNameUsedInBodyWithConfig(orelse_body, name, config)) return true;
+            }
+            return false;
+        },
+        .ann_assign => |ann| {
+            if (isNameUsedInExpr(ann.target.*, name)) return true;
+            if (ann.value) |v| if (isNameUsedInExpr(v.*, name)) return true;
+            return false;
+        },
+        .assert_stmt => |assert_stmt| {
+            if (isNameUsedInExpr(assert_stmt.condition.*, name)) return true;
+            if (assert_stmt.msg) |m| if (isNameUsedInExpr(m.*, name)) return true;
+            return false;
+        },
+        .raise_stmt => |raise_stmt| {
+            if (raise_stmt.exc) |e| if (isNameUsedInExpr(e.*, name)) return true;
+            if (raise_stmt.cause) |c| if (isNameUsedInExpr(c.*, name)) return true;
             return false;
         },
         .function_def => |func_def| isNameUsedInBodyWithConfig(func_def.body, name, config),
@@ -300,10 +321,45 @@ fn collectReferencedVarsInStmt(stmt: ast.Node, vars: *StringSet, allocator: std.
         .while_stmt => |while_stmt| {
             try collectReferencedVarsInExpr(while_stmt.condition.*, vars, allocator);
             try collectReferencedVars(while_stmt.body, vars, allocator);
+            if (while_stmt.orelse_body) |orelse_body| {
+                try collectReferencedVars(orelse_body, vars, allocator);
+            }
         },
         .for_stmt => |for_stmt| {
             try collectReferencedVarsInExpr(for_stmt.iter.*, vars, allocator);
             try collectReferencedVars(for_stmt.body, vars, allocator);
+            if (for_stmt.orelse_body) |orelse_body| {
+                try collectReferencedVars(orelse_body, vars, allocator);
+            }
+        },
+        .with_stmt => |with_stmt| {
+            try collectReferencedVarsInExpr(with_stmt.context_expr.*, vars, allocator);
+            try collectReferencedVars(with_stmt.body, vars, allocator);
+        },
+        .match_stmt => |match_stmt| {
+            try collectReferencedVarsInExpr(match_stmt.subject.*, vars, allocator);
+            for (match_stmt.cases) |case| {
+                if (case.guard) |g| try collectReferencedVarsInExpr(g.*, vars, allocator);
+                try collectReferencedVars(case.body, vars, allocator);
+            }
+        },
+        .ann_assign => |ann| {
+            try collectReferencedVarsInExpr(ann.target.*, vars, allocator);
+            if (ann.value) |v| try collectReferencedVarsInExpr(v.*, vars, allocator);
+        },
+        .assert_stmt => |assert_stmt| {
+            try collectReferencedVarsInExpr(assert_stmt.condition.*, vars, allocator);
+            if (assert_stmt.msg) |m| try collectReferencedVarsInExpr(m.*, vars, allocator);
+        },
+        .raise_stmt => |raise_stmt| {
+            if (raise_stmt.exc) |e| try collectReferencedVarsInExpr(e.*, vars, allocator);
+            if (raise_stmt.cause) |c| try collectReferencedVarsInExpr(c.*, vars, allocator);
+        },
+        .yield_stmt => |y| {
+            if (y.value) |v| try collectReferencedVarsInExpr(v.*, vars, allocator);
+        },
+        .yield_from_stmt => |y| {
+            try collectReferencedVarsInExpr(y.value.*, vars, allocator);
         },
         .try_stmt => |try_stmt| {
             try collectReferencedVars(try_stmt.body, vars, allocator);
@@ -532,15 +588,40 @@ pub fn isParameterUsedInNestedFunction(body: []const ast.Node, param_name: []con
             .function_def => |func_def| {
                 if (isNameUsedInBody(func_def.body, param_name)) return true;
             },
+            .class_def => |class_def| {
+                if (isParameterUsedInNestedFunction(class_def.body, param_name)) return true;
+            },
             .if_stmt => |if_stmt| {
                 if (isParameterUsedInNestedFunction(if_stmt.body, param_name)) return true;
                 if (isParameterUsedInNestedFunction(if_stmt.else_body, param_name)) return true;
             },
             .while_stmt => |while_stmt| {
                 if (isParameterUsedInNestedFunction(while_stmt.body, param_name)) return true;
+                if (while_stmt.orelse_body) |orelse_body| {
+                    if (isParameterUsedInNestedFunction(orelse_body, param_name)) return true;
+                }
             },
             .for_stmt => |for_stmt| {
                 if (isParameterUsedInNestedFunction(for_stmt.body, param_name)) return true;
+                if (for_stmt.orelse_body) |orelse_body| {
+                    if (isParameterUsedInNestedFunction(orelse_body, param_name)) return true;
+                }
+            },
+            .try_stmt => |try_stmt| {
+                if (isParameterUsedInNestedFunction(try_stmt.body, param_name)) return true;
+                for (try_stmt.handlers) |handler| {
+                    if (isParameterUsedInNestedFunction(handler.body, param_name)) return true;
+                }
+                if (isParameterUsedInNestedFunction(try_stmt.else_body, param_name)) return true;
+                if (isParameterUsedInNestedFunction(try_stmt.finalbody, param_name)) return true;
+            },
+            .with_stmt => |with_stmt| {
+                if (isParameterUsedInNestedFunction(with_stmt.body, param_name)) return true;
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    if (isParameterUsedInNestedFunction(case.body, param_name)) return true;
+                }
             },
             else => {},
         }

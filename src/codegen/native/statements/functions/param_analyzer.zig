@@ -67,6 +67,8 @@ fn isParameterCalledInStmt(stmt: ast.Node, param_name: []const u8) bool {
     return switch (stmt) {
         .expr_stmt => |expr| isParameterCalledInExpr(expr.value.*, param_name),
         .assign => |assign| isParameterCalledInExpr(assign.value.*, param_name),
+        .aug_assign => |aug| isParameterCalledInExpr(aug.value.*, param_name),
+        .ann_assign => |ann| if (ann.value) |v| isParameterCalledInExpr(v.*, param_name) else false,
         .return_stmt => |ret| if (ret.value) |val| isParameterCalledInExpr(val.*, param_name) else false,
         .if_stmt => |if_stmt| {
             if (isParameterCalledInExpr(if_stmt.condition.*, param_name)) return true;
@@ -77,10 +79,57 @@ fn isParameterCalledInStmt(stmt: ast.Node, param_name: []const u8) bool {
         .while_stmt => |while_stmt| {
             if (isParameterCalledInExpr(while_stmt.condition.*, param_name)) return true;
             for (while_stmt.body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            }
             return false;
         },
         .for_stmt => |for_stmt| {
+            if (isParameterCalledInExpr(for_stmt.iter.*, param_name)) return true;
             for (for_stmt.body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            }
+            return false;
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            }
+            for (try_stmt.else_body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            for (try_stmt.finalbody) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            return false;
+        },
+        .with_stmt => |with_stmt| {
+            if (isParameterCalledInExpr(with_stmt.context_expr.*, param_name)) return true;
+            for (with_stmt.body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            return false;
+        },
+        .match_stmt => |match_stmt| {
+            if (isParameterCalledInExpr(match_stmt.subject.*, param_name)) return true;
+            for (match_stmt.cases) |case| {
+                if (case.guard) |g| if (isParameterCalledInExpr(g.*, param_name)) return true;
+                for (case.body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            }
+            return false;
+        },
+        .function_def => |func_def| {
+            for (func_def.body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            return false;
+        },
+        .class_def => |class_def| {
+            for (class_def.body) |s| if (isParameterCalledInStmt(s, param_name)) return true;
+            return false;
+        },
+        .assert_stmt => |assert_stmt| {
+            if (isParameterCalledInExpr(assert_stmt.condition.*, param_name)) return true;
+            if (assert_stmt.msg) |m| if (isParameterCalledInExpr(m.*, param_name)) return true;
+            return false;
+        },
+        .raise_stmt => |raise_stmt| {
+            if (raise_stmt.exc) |e| if (isParameterCalledInExpr(e.*, param_name)) return true;
+            if (raise_stmt.cause) |c| if (isParameterCalledInExpr(c.*, param_name)) return true;
             return false;
         },
         else => false,
@@ -211,6 +260,9 @@ pub fn isParameterUsedAsIterator(body: []const ast.Node, param_name: []const u8)
                     return true;
                 }
                 if (isParameterUsedAsIterator(for_stmt.body, param_name)) return true;
+                if (for_stmt.orelse_body) |orelse_body| {
+                    if (isParameterUsedAsIterator(orelse_body, param_name)) return true;
+                }
             },
             .if_stmt => |if_stmt| {
                 if (isParameterUsedAsIterator(if_stmt.body, param_name)) return true;
@@ -218,9 +270,15 @@ pub fn isParameterUsedAsIterator(body: []const ast.Node, param_name: []const u8)
             },
             .while_stmt => |while_stmt| {
                 if (isParameterUsedAsIterator(while_stmt.body, param_name)) return true;
+                if (while_stmt.orelse_body) |orelse_body| {
+                    if (isParameterUsedAsIterator(orelse_body, param_name)) return true;
+                }
             },
             .function_def => |func_def| {
                 if (isParameterUsedAsIterator(func_def.body, param_name)) return true;
+            },
+            .class_def => |class_def| {
+                if (isParameterUsedAsIterator(class_def.body, param_name)) return true;
             },
             .return_stmt => |ret| {
                 if (ret.value) |val| {
@@ -232,6 +290,22 @@ pub fn isParameterUsedAsIterator(body: []const ast.Node, param_name: []const u8)
             },
             .expr_stmt => |expr| {
                 if (isParamIteratorInExpr(expr.value.*, param_name)) return true;
+            },
+            .try_stmt => |try_stmt| {
+                if (isParameterUsedAsIterator(try_stmt.body, param_name)) return true;
+                for (try_stmt.handlers) |handler| {
+                    if (isParameterUsedAsIterator(handler.body, param_name)) return true;
+                }
+                if (isParameterUsedAsIterator(try_stmt.else_body, param_name)) return true;
+                if (isParameterUsedAsIterator(try_stmt.finalbody, param_name)) return true;
+            },
+            .with_stmt => |with_stmt| {
+                if (isParameterUsedAsIterator(with_stmt.body, param_name)) return true;
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    if (isParameterUsedAsIterator(case.body, param_name)) return true;
+                }
             },
             else => {},
         }
@@ -286,6 +360,15 @@ fn isFirstParamUsedNonUnittestInStmt(stmt: ast.Node, name: []const u8) bool {
             }
             return isFirstParamUsedNonUnittestInExpr(assign.value.*, name);
         },
+        .aug_assign => |aug| {
+            if (isFirstParamUsedNonUnittestInExpr(aug.target.*, name)) return true;
+            return isFirstParamUsedNonUnittestInExpr(aug.value.*, name);
+        },
+        .ann_assign => |ann| {
+            if (isFirstParamUsedNonUnittestInExpr(ann.target.*, name)) return true;
+            if (ann.value) |v| if (isFirstParamUsedNonUnittestInExpr(v.*, name)) return true;
+            return false;
+        },
         .return_stmt => |ret| if (ret.value) |val| isFirstParamUsedNonUnittestInExpr(val.*, name) else false,
         .if_stmt => |if_stmt| {
             if (isFirstParamUsedNonUnittestInExpr(if_stmt.condition.*, name)) return true;
@@ -296,11 +379,17 @@ fn isFirstParamUsedNonUnittestInStmt(stmt: ast.Node, name: []const u8) bool {
         .while_stmt => |while_stmt| {
             if (isFirstParamUsedNonUnittestInExpr(while_stmt.condition.*, name)) return true;
             if (isFirstParamUsedNonUnittest(while_stmt.body, name)) return true;
+            if (while_stmt.orelse_body) |orelse_body| {
+                if (isFirstParamUsedNonUnittest(orelse_body, name)) return true;
+            }
             return false;
         },
         .for_stmt => |for_stmt| {
             if (isFirstParamUsedNonUnittestInExpr(for_stmt.iter.*, name)) return true;
             if (isFirstParamUsedNonUnittest(for_stmt.body, name)) return true;
+            if (for_stmt.orelse_body) |orelse_body| {
+                if (isFirstParamUsedNonUnittest(orelse_body, name)) return true;
+            }
             return false;
         },
         .function_def => |func_def| isFirstParamUsedNonUnittest(func_def.body, name),
@@ -317,6 +406,24 @@ fn isFirstParamUsedNonUnittestInStmt(stmt: ast.Node, name: []const u8) bool {
             }
             if (isFirstParamUsedNonUnittest(try_stmt.else_body, name)) return true;
             if (isFirstParamUsedNonUnittest(try_stmt.finalbody, name)) return true;
+            return false;
+        },
+        .match_stmt => |match_stmt| {
+            if (isFirstParamUsedNonUnittestInExpr(match_stmt.subject.*, name)) return true;
+            for (match_stmt.cases) |case| {
+                if (case.guard) |g| if (isFirstParamUsedNonUnittestInExpr(g.*, name)) return true;
+                if (isFirstParamUsedNonUnittest(case.body, name)) return true;
+            }
+            return false;
+        },
+        .assert_stmt => |assert_stmt| {
+            if (isFirstParamUsedNonUnittestInExpr(assert_stmt.condition.*, name)) return true;
+            if (assert_stmt.msg) |m| if (isFirstParamUsedNonUnittestInExpr(m.*, name)) return true;
+            return false;
+        },
+        .raise_stmt => |raise_stmt| {
+            if (raise_stmt.exc) |e| if (isFirstParamUsedNonUnittestInExpr(e.*, name)) return true;
+            if (raise_stmt.cause) |c| if (isFirstParamUsedNonUnittestInExpr(c.*, name)) return true;
             return false;
         },
         else => false,
@@ -477,10 +584,16 @@ fn isParamComparedToStringInStmt(stmt: ast.Node, param_name: []const u8) bool {
         .while_stmt => |while_stmt| {
             if (isParamComparedToStringInExpr(while_stmt.condition.*, param_name)) return true;
             if (isParameterComparedToString(while_stmt.body, param_name)) return true;
+            if (while_stmt.orelse_body) |orelse_body| {
+                if (isParameterComparedToString(orelse_body, param_name)) return true;
+            }
             return false;
         },
         .for_stmt => |for_stmt| {
             if (isParameterComparedToString(for_stmt.body, param_name)) return true;
+            if (for_stmt.orelse_body) |orelse_body| {
+                if (isParameterComparedToString(orelse_body, param_name)) return true;
+            }
             return false;
         },
         .return_stmt => |ret| {
@@ -488,8 +601,38 @@ fn isParamComparedToStringInStmt(stmt: ast.Node, param_name: []const u8) bool {
             return false;
         },
         .assign => |assign| isParamComparedToStringInExpr(assign.value.*, param_name),
+        .aug_assign => |aug| isParamComparedToStringInExpr(aug.value.*, param_name),
+        .ann_assign => |ann| if (ann.value) |v| isParamComparedToStringInExpr(v.*, param_name) else false,
         .expr_stmt => |expr| isParamComparedToStringInExpr(expr.value.*, param_name),
         .function_def => |func_def| isParameterComparedToString(func_def.body, param_name),
+        .class_def => |class_def| isParameterComparedToString(class_def.body, param_name),
+        .try_stmt => |try_stmt| {
+            if (isParameterComparedToString(try_stmt.body, param_name)) return true;
+            for (try_stmt.handlers) |handler| {
+                if (isParameterComparedToString(handler.body, param_name)) return true;
+            }
+            if (isParameterComparedToString(try_stmt.else_body, param_name)) return true;
+            if (isParameterComparedToString(try_stmt.finalbody, param_name)) return true;
+            return false;
+        },
+        .with_stmt => |with_stmt| {
+            if (isParamComparedToStringInExpr(with_stmt.context_expr.*, param_name)) return true;
+            if (isParameterComparedToString(with_stmt.body, param_name)) return true;
+            return false;
+        },
+        .match_stmt => |match_stmt| {
+            if (isParamComparedToStringInExpr(match_stmt.subject.*, param_name)) return true;
+            for (match_stmt.cases) |case| {
+                if (case.guard) |g| if (isParamComparedToStringInExpr(g.*, param_name)) return true;
+                if (isParameterComparedToString(case.body, param_name)) return true;
+            }
+            return false;
+        },
+        .assert_stmt => |assert_stmt| {
+            if (isParamComparedToStringInExpr(assert_stmt.condition.*, param_name)) return true;
+            if (assert_stmt.msg) |m| if (isParamComparedToStringInExpr(m.*, param_name)) return true;
+            return false;
+        },
         else => false,
     };
 }
@@ -631,11 +774,49 @@ pub fn isParameterUsedInTypeCheck(body: []const ast.Node, param_name: []const u8
                         if (isTypeCheckCall(body_stmt.if_stmt.condition.*, param_name)) return true;
                     }
                 }
+                if (for_s.orelse_body) |orelse_body| {
+                    if (isParameterUsedInTypeCheck(orelse_body, param_name)) return true;
+                }
             },
             .if_stmt => |if_s| {
                 if (isTypeCheckCall(if_s.condition.*, param_name)) return true;
                 if (isParameterUsedInTypeCheck(if_s.body, param_name)) return true;
                 if (isParameterUsedInTypeCheck(if_s.else_body, param_name)) return true;
+            },
+            .while_stmt => |while_s| {
+                if (isTypeCheckCall(while_s.condition.*, param_name)) return true;
+                if (isParameterUsedInTypeCheck(while_s.body, param_name)) return true;
+                if (while_s.orelse_body) |orelse_body| {
+                    if (isParameterUsedInTypeCheck(orelse_body, param_name)) return true;
+                }
+            },
+            .try_stmt => |try_stmt| {
+                if (isParameterUsedInTypeCheck(try_stmt.body, param_name)) return true;
+                for (try_stmt.handlers) |handler| {
+                    if (isParameterUsedInTypeCheck(handler.body, param_name)) return true;
+                }
+                if (isParameterUsedInTypeCheck(try_stmt.else_body, param_name)) return true;
+                if (isParameterUsedInTypeCheck(try_stmt.finalbody, param_name)) return true;
+            },
+            .with_stmt => |with_stmt| {
+                if (isParameterUsedInTypeCheck(with_stmt.body, param_name)) return true;
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    if (isParameterUsedInTypeCheck(case.body, param_name)) return true;
+                }
+            },
+            .function_def => |func_def| {
+                if (isParameterUsedInTypeCheck(func_def.body, param_name)) return true;
+            },
+            .class_def => |class_def| {
+                if (isParameterUsedInTypeCheck(class_def.body, param_name)) return true;
+            },
+            .expr_stmt => |expr| {
+                if (isTypeCheckCall(expr.value.*, param_name)) return true;
+            },
+            .assign => |assign| {
+                if (isTypeCheckCall(assign.value.*, param_name)) return true;
             },
             else => {},
         }
@@ -691,18 +872,64 @@ fn isParamPassedToCallableInStmt(stmt: ast.Node, param_name: []const u8, callabl
     return switch (stmt) {
         .expr_stmt => |expr| isParamPassedToCallableInExpr(expr.value.*, param_name, callable_params),
         .assign => |assign| isParamPassedToCallableInExpr(assign.value.*, param_name, callable_params),
+        .aug_assign => |aug| isParamPassedToCallableInExpr(aug.value.*, param_name, callable_params),
+        .ann_assign => |ann| if (ann.value) |v| isParamPassedToCallableInExpr(v.*, param_name, callable_params) else false,
         .return_stmt => |ret| if (ret.value) |val| isParamPassedToCallableInExpr(val.*, param_name, callable_params) else false,
         .if_stmt => |if_stmt| {
+            if (isParamPassedToCallableInExpr(if_stmt.condition.*, param_name, callable_params)) return true;
             for (if_stmt.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
             for (if_stmt.else_body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
             return false;
         },
         .while_stmt => |while_stmt| {
+            if (isParamPassedToCallableInExpr(while_stmt.condition.*, param_name, callable_params)) return true;
             for (while_stmt.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            }
             return false;
         },
         .for_stmt => |for_stmt| {
+            if (isParamPassedToCallableInExpr(for_stmt.iter.*, param_name, callable_params)) return true;
             for (for_stmt.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            }
+            return false;
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            }
+            for (try_stmt.else_body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            for (try_stmt.finalbody) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            return false;
+        },
+        .with_stmt => |with_stmt| {
+            if (isParamPassedToCallableInExpr(with_stmt.context_expr.*, param_name, callable_params)) return true;
+            for (with_stmt.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            return false;
+        },
+        .match_stmt => |match_stmt| {
+            if (isParamPassedToCallableInExpr(match_stmt.subject.*, param_name, callable_params)) return true;
+            for (match_stmt.cases) |case| {
+                if (case.guard) |g| if (isParamPassedToCallableInExpr(g.*, param_name, callable_params)) return true;
+                for (case.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            }
+            return false;
+        },
+        .function_def => |func_def| {
+            for (func_def.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            return false;
+        },
+        .class_def => |class_def| {
+            for (class_def.body) |s| if (isParamPassedToCallableInStmt(s, param_name, callable_params)) return true;
+            return false;
+        },
+        .assert_stmt => |assert_stmt| {
+            if (isParamPassedToCallableInExpr(assert_stmt.condition.*, param_name, callable_params)) return true;
+            if (assert_stmt.msg) |m| if (isParamPassedToCallableInExpr(m.*, param_name, callable_params)) return true;
             return false;
         },
         else => false,

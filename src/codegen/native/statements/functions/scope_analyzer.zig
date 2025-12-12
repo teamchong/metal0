@@ -263,9 +263,24 @@ fn collectAllDeclsInStmt(
                 }
             }
         },
+        .aug_assign => |aug| {
+            if (aug.target.* == .name) {
+                try vars.put(aug.target.name.id, {});
+            }
+        },
+        .ann_assign => |ann| {
+            if (ann.target.* == .name) {
+                try vars.put(ann.target.name.id, {});
+            }
+        },
         .for_stmt => |for_s| {
             // Collect for-loop target variable(s)
             try collectForLoopDecls(vars, for_s, allocator);
+            if (for_s.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try collectAllDeclsInStmt(vars, stmt, allocator);
+                }
+            }
         },
         .if_stmt => |if_s| {
             for (if_s.body) |stmt| {
@@ -279,6 +294,11 @@ fn collectAllDeclsInStmt(
             for (while_s.body) |stmt| {
                 try collectAllDeclsInStmt(vars, stmt, allocator);
             }
+            if (while_s.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try collectAllDeclsInStmt(vars, stmt, allocator);
+                }
+            }
         },
         .try_stmt => |try_s| {
             for (try_s.body) |stmt| {
@@ -289,6 +309,24 @@ fn collectAllDeclsInStmt(
                     try vars.put(name, {});
                 }
                 for (h.body) |stmt| {
+                    try collectAllDeclsInStmt(vars, stmt, allocator);
+                }
+            }
+            for (try_s.else_body) |stmt| {
+                try collectAllDeclsInStmt(vars, stmt, allocator);
+            }
+            for (try_s.finalbody) |stmt| {
+                try collectAllDeclsInStmt(vars, stmt, allocator);
+            }
+        },
+        .with_stmt => |with_s| {
+            for (with_s.body) |stmt| {
+                try collectAllDeclsInStmt(vars, stmt, allocator);
+            }
+        },
+        .match_stmt => |match_s| {
+            for (match_s.cases) |case| {
+                for (case.body) |stmt| {
                     try collectAllDeclsInStmt(vars, stmt, allocator);
                 }
             }
@@ -333,8 +371,23 @@ fn collectAssignmentsInStmt(
                 }
             }
         },
+        .aug_assign => |aug| {
+            if (aug.target.* == .name) {
+                try vars.put(aug.target.name.id, {});
+            }
+        },
+        .ann_assign => |ann| {
+            if (ann.target.* == .name) {
+                try vars.put(ann.target.name.id, {});
+            }
+        },
         .for_stmt => |for_s| {
             try collectForLoopDecls(vars, for_s, allocator);
+            if (for_s.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try collectAssignmentsInStmt(vars, stmt, allocator);
+                }
+            }
         },
         .if_stmt => |if_s| {
             for (if_s.body) |stmt| {
@@ -342,6 +395,44 @@ fn collectAssignmentsInStmt(
             }
             for (if_s.else_body) |stmt| {
                 try collectAssignmentsInStmt(vars, stmt, allocator);
+            }
+        },
+        .while_stmt => |while_s| {
+            for (while_s.body) |stmt| {
+                try collectAssignmentsInStmt(vars, stmt, allocator);
+            }
+            if (while_s.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try collectAssignmentsInStmt(vars, stmt, allocator);
+                }
+            }
+        },
+        .try_stmt => |try_s| {
+            for (try_s.body) |stmt| {
+                try collectAssignmentsInStmt(vars, stmt, allocator);
+            }
+            for (try_s.handlers) |h| {
+                for (h.body) |stmt| {
+                    try collectAssignmentsInStmt(vars, stmt, allocator);
+                }
+            }
+            for (try_s.else_body) |stmt| {
+                try collectAssignmentsInStmt(vars, stmt, allocator);
+            }
+            for (try_s.finalbody) |stmt| {
+                try collectAssignmentsInStmt(vars, stmt, allocator);
+            }
+        },
+        .with_stmt => |with_s| {
+            for (with_s.body) |stmt| {
+                try collectAssignmentsInStmt(vars, stmt, allocator);
+            }
+        },
+        .match_stmt => |match_s| {
+            for (match_s.cases) |case| {
+                for (case.body) |stmt| {
+                    try collectAssignmentsInStmt(vars, stmt, allocator);
+                }
             }
         },
         else => {},
@@ -401,6 +492,9 @@ fn collectNestedForLoopTargets(
                 }
                 // Recurse into body for deeper nested for-loops
                 try collectNestedForLoopTargets(decls, for_s.body, allocator);
+                if (for_s.orelse_body) |orelse_body| {
+                    try collectNestedForLoopTargets(decls, orelse_body, allocator);
+                }
             },
             .if_stmt => |if_s| {
                 try collectNestedForLoopTargets(decls, if_s.body, allocator);
@@ -408,6 +502,25 @@ fn collectNestedForLoopTargets(
             },
             .while_stmt => |while_s| {
                 try collectNestedForLoopTargets(decls, while_s.body, allocator);
+                if (while_s.orelse_body) |orelse_body| {
+                    try collectNestedForLoopTargets(decls, orelse_body, allocator);
+                }
+            },
+            .try_stmt => |try_s| {
+                try collectNestedForLoopTargets(decls, try_s.body, allocator);
+                for (try_s.handlers) |h| {
+                    try collectNestedForLoopTargets(decls, h.body, allocator);
+                }
+                try collectNestedForLoopTargets(decls, try_s.else_body, allocator);
+                try collectNestedForLoopTargets(decls, try_s.finalbody, allocator);
+            },
+            .with_stmt => |with_s| {
+                try collectNestedForLoopTargets(decls, with_s.body, allocator);
+            },
+            .match_stmt => |match_s| {
+                for (match_s.cases) |case| {
+                    try collectNestedForLoopTargets(decls, case.body, allocator);
+                }
             },
             else => {},
         }
@@ -425,6 +538,13 @@ fn collectAllVarRefsInStmtExcluding(
         .assign => |assign| {
             try collectVarRefsExcluding(uses, assign.value.*, exclude, allocator);
         },
+        .aug_assign => |aug| {
+            try collectVarRefsExcluding(uses, aug.target.*, exclude, allocator);
+            try collectVarRefsExcluding(uses, aug.value.*, exclude, allocator);
+        },
+        .ann_assign => |ann| {
+            if (ann.value) |v| try collectVarRefsExcluding(uses, v.*, exclude, allocator);
+        },
         .expr_stmt => |expr| {
             try collectVarRefsExcluding(uses, expr.value.*, exclude, allocator);
         },
@@ -433,6 +553,11 @@ fn collectAllVarRefsInStmtExcluding(
             try collectVarRefsExcluding(uses, for_s.iter.*, exclude, allocator);
             for (for_s.body) |stmt| {
                 try collectAllVarRefsInStmtExcluding(uses, stmt, exclude, allocator);
+            }
+            if (for_s.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try collectAllVarRefsInStmtExcluding(uses, stmt, exclude, allocator);
+                }
             }
         },
         .if_stmt => |if_s| {
@@ -444,10 +569,60 @@ fn collectAllVarRefsInStmtExcluding(
                 try collectAllVarRefsInStmtExcluding(uses, stmt, exclude, allocator);
             }
         },
+        .while_stmt => |while_s| {
+            try collectVarRefsExcluding(uses, while_s.condition.*, exclude, allocator);
+            for (while_s.body) |stmt| {
+                try collectAllVarRefsInStmtExcluding(uses, stmt, exclude, allocator);
+            }
+            if (while_s.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try collectAllVarRefsInStmtExcluding(uses, stmt, exclude, allocator);
+                }
+            }
+        },
+        .try_stmt => |try_s| {
+            for (try_s.body) |stmt| {
+                try collectAllVarRefsInStmtExcluding(uses, stmt, exclude, allocator);
+            }
+            for (try_s.handlers) |h| {
+                for (h.body) |stmt| {
+                    try collectAllVarRefsInStmtExcluding(uses, stmt, exclude, allocator);
+                }
+            }
+            for (try_s.else_body) |stmt| {
+                try collectAllVarRefsInStmtExcluding(uses, stmt, exclude, allocator);
+            }
+            for (try_s.finalbody) |stmt| {
+                try collectAllVarRefsInStmtExcluding(uses, stmt, exclude, allocator);
+            }
+        },
+        .with_stmt => |with_s| {
+            try collectVarRefsExcluding(uses, with_s.context_expr.*, exclude, allocator);
+            for (with_s.body) |stmt| {
+                try collectAllVarRefsInStmtExcluding(uses, stmt, exclude, allocator);
+            }
+        },
+        .match_stmt => |match_s| {
+            try collectVarRefsExcluding(uses, match_s.subject.*, exclude, allocator);
+            for (match_s.cases) |case| {
+                if (case.guard) |g| try collectVarRefsExcluding(uses, g.*, exclude, allocator);
+                for (case.body) |stmt| {
+                    try collectAllVarRefsInStmtExcluding(uses, stmt, exclude, allocator);
+                }
+            }
+        },
         .return_stmt => |ret| {
             if (ret.value) |val| {
                 try collectVarRefsExcluding(uses, val.*, exclude, allocator);
             }
+        },
+        .assert_stmt => |a| {
+            try collectVarRefsExcluding(uses, a.condition.*, exclude, allocator);
+            if (a.msg) |m| try collectVarRefsExcluding(uses, m.*, exclude, allocator);
+        },
+        .raise_stmt => |r| {
+            if (r.exc) |e| try collectVarRefsExcluding(uses, e.*, exclude, allocator);
+            if (r.cause) |c| try collectVarRefsExcluding(uses, c.*, exclude, allocator);
         },
         else => {},
     }

@@ -977,6 +977,28 @@ fn containsAwait(node: ast.Node) bool {
         .while_stmt => |w| blk: {
             if (containsAwait(w.condition.*)) break :blk true;
             for (w.body) |s| if (containsAwait(s)) break :blk true;
+            if (w.orelse_body) |ob| for (ob) |s| if (containsAwait(s)) break :blk true;
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            if (containsAwait(m.subject.*)) break :blk true;
+            for (m.cases) |case| {
+                if (case.guard) |g| if (containsAwait(g.*)) break :blk true;
+                for (case.body) |s| if (containsAwait(s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .ann_assign => |a| if (a.value) |v| containsAwait(v.*) else false,
+        .assert_stmt => |a| containsAwait(a.condition.*) or (if (a.msg) |m| containsAwait(m.*) else false),
+        .raise_stmt => |r| (if (r.exc) |e| containsAwait(e.*) else false) or (if (r.cause) |c| containsAwait(c.*) else false),
+        .yield_stmt => |y| if (y.value) |v| containsAwait(v.*) else false,
+        .yield_from_stmt => |y| containsAwait(y.value.*),
+        .function_def => |f| blk: {
+            for (f.body) |s| if (containsAwait(s)) break :blk true;
+            break :blk false;
+        },
+        .class_def => |c| blk: {
+            for (c.body) |s| if (containsAwait(s)) break :blk true;
             break :blk false;
         },
         .try_stmt => |t| blk: {
