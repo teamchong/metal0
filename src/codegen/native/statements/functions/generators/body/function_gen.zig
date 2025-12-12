@@ -1428,10 +1428,14 @@ fn genMethodBodyWithAllocatorInfoAndContext(
                 continue;
             }
 
-            // Create a mutable copy of the parameter
+            // Get the actual parameter name in generated code (may have been renamed by signature.zig)
+            const actual_param_name = self.var_renames.get(arg.name) orelse arg.name;
+
+            // Create a mutable copy of the parameter using NameGen for unique naming
+            const mut_name = try self.name_gen.mutable(arg.name);
             try self.emitIndent();
             try self.emit("var ");
-            try self.emit(arg.name);
+            try self.emit(mut_name);
             // For parameters with defaults, check if default is None (null)
             // If so, we can't use @TypeOf(null) - use runtime.PyValue as a safe fallback
             if (arg.default) |default| {
@@ -1439,24 +1443,26 @@ fn genMethodBodyWithAllocatorInfoAndContext(
                     default.constant.value == .none;
                 if (is_none_default) {
                     // None default: use runtime.PyValue which can hold null
-                    try self.emit("__mut: runtime.PyValue = runtime.PyValue.from(");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                    try self.emit(": runtime.PyValue = runtime.PyValue.from(");
+                    try self.emit(actual_param_name);
                     try self.emit(");\n");
                 } else {
                     // Non-None default: use @TypeOf(default)
-                    try self.emit("__mut: @TypeOf(");
+                    try self.emit(": @TypeOf(");
                     try self.genExpr(default.*);
                     try self.emit(") = ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                    try self.emit(actual_param_name);
                     try self.emit(";\n");
                 }
             } else {
-                try self.emit("__mut = ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                try self.emit(" = ");
+                try self.emit(actual_param_name);
                 try self.emit(";\n");
             }
-            // Rename all references to use the mutable copy (using NameGen for consistency)
-            try self.var_renames.put(arg.name, try self.name_gen.mutable(arg.name));
+            // Rename all references to use the mutable copy
+            try self.var_renames.put(arg.name, mut_name);
+            // Remove from func_local_vars so expressions.zig uses var_renames lookup
+            _ = self.func_local_vars.swapRemove(arg.name);
             try renamed_params.append(self.allocator, arg.name);
         }
     }
