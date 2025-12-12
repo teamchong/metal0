@@ -1034,7 +1034,8 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     if (ExceptionTypes.has(var_name)) continue;
                     if (!varUsedInStatements(with_node.body, var_name)) {
                         try self.emitIndent();
-                        try self.emit("_ = ");
+                        // Use _ = &var to avoid "pointless discard of local constant" error
+                        try self.emit("_ = &");
                         try self.genExpr(arg);
                         try self.emit(";\n");
                     }
@@ -1046,7 +1047,8 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     const var_name = kw.value.name.id;
                     if (!varUsedInStatements(with_node.body, var_name)) {
                         try self.emitIndent();
-                        try self.emit("_ = ");
+                        // Use _ = &var to avoid "pointless discard of local constant" error
+                        try self.emit("_ = &");
                         try self.genExpr(kw.value);
                         try self.emit(";\n");
                     }

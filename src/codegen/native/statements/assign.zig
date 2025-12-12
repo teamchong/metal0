@@ -758,11 +758,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     }
 
                     // If variable is used in eval string but nowhere else in actual code,
-                    // emit _ = varname; to suppress Zig "unused" warning
+                    // emit _ = &varname; to suppress Zig "unused" warning
                     // Use original_var_name for check, but emit renamed var_name
+                    // Use &var to avoid "pointless discard of local constant" error
                     if (self.isEvalStringVar(original_var_name)) {
                         try self.emitIndent();
-                        try self.emit("_ = ");
+                        try self.emit("_ = &");
                         try self.emit(var_name);
                         try self.emit(";\n");
                     }

@@ -1350,11 +1350,11 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         try renamed_params.append(self.allocator, first_param_name.?);
     }
 
-    // For implicit classmethods (__init_subclass__, __class_getitem__), the first param `cls`
-    // is skipped in signature generation but body code may still reference it.
+    // For classmethods (both explicit @classmethod and implicit __init_subclass__/__class_getitem__),
+    // the first param (typically `cls`) is skipped in signature generation but body code may still reference it.
     // Add a var_rename so `cls` → `@This()` (the type itself).
     // Note: This won't support runtime class modification (cls.attr = value) but allows compilation.
-    if (is_implicit_classmethod and first_param_name != null) {
+    if (is_classmethod and first_param_name != null) {
         try self.var_renames.put(first_param_name.?, "@This()");
         try renamed_params.append(self.allocator, first_param_name.?);
         // Remove from func_local_vars so var_renames lookup is used in expressions.zig

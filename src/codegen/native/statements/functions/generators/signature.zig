@@ -25,10 +25,23 @@ pub fn hasStaticmethodDecorator(decorators: []const ast.Node) bool {
 }
 
 /// Check if method has @classmethod decorator
+/// Also handles @abc.abstractclassmethod and @classmethod + @abc.abstractmethod combinations
 pub fn hasClassmethodDecorator(decorators: []const ast.Node) bool {
     for (decorators) |decorator| {
+        // Simple @classmethod
         if (decorator == .name and std.mem.eql(u8, decorator.name.id, "classmethod")) {
             return true;
+        }
+        // @abc.abstractclassmethod or @abc.classmethod
+        if (decorator == .attribute) {
+            const attr = decorator.attribute;
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "abc")) {
+                if (std.mem.eql(u8, attr.attr, "abstractclassmethod") or
+                    std.mem.eql(u8, attr.attr, "classmethod"))
+                {
+                    return true;
+                }
+            }
         }
     }
     return false;
