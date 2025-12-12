@@ -87,13 +87,24 @@ fn collectNestedClasses(stmts: []ast.Node, names: *[32][]const u8, count: *usize
             collectNestedClasses(i.body, names, count);
             collectNestedClasses(i.else_body, names, count);
         },
-        .for_stmt => |f| collectNestedClasses(f.body, names, count),
-        .while_stmt => |w| collectNestedClasses(w.body, names, count),
+        .for_stmt => |f| {
+            collectNestedClasses(f.body, names, count);
+            if (f.orelse_body) |ob| collectNestedClasses(ob, names, count);
+        },
+        .while_stmt => |w| {
+            collectNestedClasses(w.body, names, count);
+            if (w.orelse_body) |ob| collectNestedClasses(ob, names, count);
+        },
         .try_stmt => |t| {
             collectNestedClasses(t.body, names, count);
             for (t.handlers) |h| collectNestedClasses(h.body, names, count);
+            collectNestedClasses(t.else_body, names, count);
+            collectNestedClasses(t.finalbody, names, count);
         },
         .with_stmt => |w| collectNestedClasses(w.body, names, count),
+        .match_stmt => |m| {
+            for (m.cases) |case| collectNestedClasses(case.body, names, count);
+        },
         else => {},
     };
 }

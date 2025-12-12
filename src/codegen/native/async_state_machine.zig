@@ -126,10 +126,48 @@ fn findAwaitPointsInNode(
             for (for_stmt.body) |stmt| {
                 try findAwaitPointsInNode(allocator, stmt, points, index);
             }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try findAwaitPointsInNode(allocator, stmt, points, index);
+                }
+            }
         },
         .while_stmt => |while_stmt| {
             for (while_stmt.body) |stmt| {
                 try findAwaitPointsInNode(allocator, stmt, points, index);
+            }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try findAwaitPointsInNode(allocator, stmt, points, index);
+                }
+            }
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |stmt| {
+                try findAwaitPointsInNode(allocator, stmt, points, index);
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |stmt| {
+                    try findAwaitPointsInNode(allocator, stmt, points, index);
+                }
+            }
+            for (try_stmt.else_body) |stmt| {
+                try findAwaitPointsInNode(allocator, stmt, points, index);
+            }
+            for (try_stmt.finalbody) |stmt| {
+                try findAwaitPointsInNode(allocator, stmt, points, index);
+            }
+        },
+        .with_stmt => |with_stmt| {
+            for (with_stmt.body) |stmt| {
+                try findAwaitPointsInNode(allocator, stmt, points, index);
+            }
+        },
+        .match_stmt => |match_stmt| {
+            for (match_stmt.cases) |case| {
+                for (case.body) |stmt| {
+                    try findAwaitPointsInNode(allocator, stmt, points, index);
+                }
             }
         },
         else => {},
@@ -218,10 +256,48 @@ fn findVarsInNode(allocator: std.mem.Allocator, node: ast.Node, vars: *std.Array
             for (for_stmt.body) |stmt| {
                 try findVarsInNode(allocator, stmt, vars);
             }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try findVarsInNode(allocator, stmt, vars);
+                }
+            }
         },
         .while_stmt => |while_stmt| {
             for (while_stmt.body) |stmt| {
                 try findVarsInNode(allocator, stmt, vars);
+            }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try findVarsInNode(allocator, stmt, vars);
+                }
+            }
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |stmt| {
+                try findVarsInNode(allocator, stmt, vars);
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |stmt| {
+                    try findVarsInNode(allocator, stmt, vars);
+                }
+            }
+            for (try_stmt.else_body) |stmt| {
+                try findVarsInNode(allocator, stmt, vars);
+            }
+            for (try_stmt.finalbody) |stmt| {
+                try findVarsInNode(allocator, stmt, vars);
+            }
+        },
+        .with_stmt => |with_stmt| {
+            for (with_stmt.body) |stmt| {
+                try findVarsInNode(allocator, stmt, vars);
+            }
+        },
+        .match_stmt => |match_stmt| {
+            for (match_stmt.cases) |case| {
+                for (case.body) |stmt| {
+                    try findVarsInNode(allocator, stmt, vars);
+                }
             }
         },
         else => {},
