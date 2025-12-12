@@ -399,11 +399,21 @@ fn isParamReassignedInNode(param_name: []const u8, node: ast.Node) bool {
             for (f.body) |s| {
                 if (isParamReassignedInNode(param_name, s)) break :blk true;
             }
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (isParamReassignedInNode(param_name, s)) break :blk true;
+                }
+            }
             break :blk false;
         },
         .while_stmt => |w| blk: {
             for (w.body) |s| {
                 if (isParamReassignedInNode(param_name, s)) break :blk true;
+            }
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (isParamReassignedInNode(param_name, s)) break :blk true;
+                }
             }
             break :blk false;
         },
@@ -647,17 +657,59 @@ fn isRecursiveCall(func_name: []const u8, node: ast.Node) bool {
             for (f.body) |s| {
                 if (isRecursiveCall(func_name, s)) break :blk true;
             }
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (isRecursiveCall(func_name, s)) break :blk true;
+                }
+            }
             break :blk false;
         },
         .while_stmt => |w| blk: {
             for (w.body) |s| {
                 if (isRecursiveCall(func_name, s)) break :blk true;
             }
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (isRecursiveCall(func_name, s)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| {
+                if (isRecursiveCall(func_name, s)) break :blk true;
+            }
+            for (t.handlers) |h| {
+                for (h.body) |s| {
+                    if (isRecursiveCall(func_name, s)) break :blk true;
+                }
+            }
+            for (t.else_body) |s| {
+                if (isRecursiveCall(func_name, s)) break :blk true;
+            }
+            for (t.finalbody) |s| {
+                if (isRecursiveCall(func_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (isRecursiveCall(func_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            for (m.cases) |case| {
+                for (case.body) |s| {
+                    if (isRecursiveCall(func_name, s)) break :blk true;
+                }
+            }
             break :blk false;
         },
         .expr_stmt => |e| isRecursiveCall(func_name, e.value.*),
         .return_stmt => |r| if (r.value) |v| isRecursiveCall(func_name, v.*) else false,
         .assign => |a| isRecursiveCall(func_name, a.value.*),
+        .aug_assign => |a| isRecursiveCall(func_name, a.value.*),
         .binop => |b| isRecursiveCall(func_name, b.left.*) or isRecursiveCall(func_name, b.right.*),
         .unaryop => |u| isRecursiveCall(func_name, u.operand.*),
         .if_expr => |ie| isRecursiveCall(func_name, ie.condition.*) or
@@ -761,6 +813,9 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
         .while_stmt => |w| blk: {
             if (isParamUsedInNode(param_name, w.condition.*)) break :blk true;
             if (isParamUsedInStmts(param_name, w.body)) break :blk true;
+            if (w.orelse_body) |ob| {
+                if (isParamUsedInStmts(param_name, ob)) break :blk true;
+            }
             break :blk false;
         },
         .expr_stmt => |e| isParamUsedInNode(param_name, e.value.*),
@@ -871,6 +926,16 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
             }
             if (r.cause) |cause| {
                 if (isParamUsedInNode(param_name, cause.*)) break :blk true;
+            }
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            if (isParamUsedInNode(param_name, m.subject.*)) break :blk true;
+            for (m.cases) |case| {
+                if (case.guard) |guard| {
+                    if (isParamUsedInNode(param_name, guard.*)) break :blk true;
+                }
+                if (isParamUsedInStmts(param_name, case.body)) break :blk true;
             }
             break :blk false;
         },
@@ -1041,6 +1106,9 @@ fn collectReferencedVarsInNode(
         .while_stmt => |w| {
             try collectReferencedVarsInNode(self, w.condition.*, referenced);
             try collectReferencedVars(self, w.body, referenced);
+            if (w.orelse_body) |ob| {
+                try collectReferencedVars(self, ob, referenced);
+            }
         },
         .try_stmt => |t| {
             try collectReferencedVars(self, t.body, referenced);
@@ -1057,6 +1125,15 @@ fn collectReferencedVarsInNode(
         .raise_stmt => |r| {
             if (r.exc) |exc| try collectReferencedVarsInNode(self, exc.*, referenced);
             if (r.cause) |cause| try collectReferencedVarsInNode(self, cause.*, referenced);
+        },
+        .match_stmt => |m| {
+            try collectReferencedVarsInNode(self, m.subject.*, referenced);
+            for (m.cases) |case| {
+                if (case.guard) |guard| {
+                    try collectReferencedVarsInNode(self, guard.*, referenced);
+                }
+                try collectReferencedVars(self, case.body, referenced);
+            }
         },
         else => {},
     }
@@ -1107,6 +1184,7 @@ fn canProduceErrorsInNode(node: ast.Node) bool {
         },
         .while_stmt => |w| blk: {
             if (canProduceErrors(w.body)) break :blk true;
+            if (w.orelse_body) |ob| if (canProduceErrors(ob)) break :blk true;
             break :blk canProduceErrorsInNode(w.condition.*);
         },
         .try_stmt => true, // try/except can error
@@ -1138,6 +1216,16 @@ fn canProduceErrorsInNode(node: ast.Node) bool {
         .dict => |d| blk: {
             for (d.keys) |k| if (canProduceErrorsInNode(k)) break :blk true;
             for (d.values) |v| if (canProduceErrorsInNode(v)) break :blk true;
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            if (canProduceErrorsInNode(m.subject.*)) break :blk true;
+            for (m.cases) |case| {
+                if (case.guard) |guard| {
+                    if (canProduceErrorsInNode(guard.*)) break :blk true;
+                }
+                if (canProduceErrors(case.body)) break :blk true;
+            }
             break :blk false;
         },
         else => false,
@@ -1176,6 +1264,12 @@ fn hasReturnWithValueInNode(node: ast.Node) bool {
             break :blk false;
         },
         .with_stmt => |w| hasReturnWithValue(w.body),
+        .match_stmt => |m| blk: {
+            for (m.cases) |case| {
+                if (hasReturnWithValue(case.body)) break :blk true;
+            }
+            break :blk false;
+        },
         else => false,
     };
 }
@@ -1355,6 +1449,15 @@ fn collectUsedNamesFromNode(node: ast.Node, uses: *hashmap_helper.StringHashMap(
         },
         .starred => |s| {
             try collectUsedNamesFromNode(s.value.*, uses);
+        },
+        .match_stmt => |m| {
+            try collectUsedNamesFromNode(m.subject.*, uses);
+            for (m.cases) |case| {
+                if (case.guard) |guard| {
+                    try collectUsedNamesFromNode(guard.*, uses);
+                }
+                try collectUsedNames(case.body, uses);
+            }
         },
         else => {
             // Other node types don't contain name references we need to track
