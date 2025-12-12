@@ -96,6 +96,10 @@ fn isParameterCalledInExpr(expr: ast.Node, param_name: []const u8) bool {
             for (call.args) |arg| {
                 if (isParameterCalledInExpr(arg, param_name)) return true;
             }
+            // Check keyword arguments
+            for (call.keyword_args) |kw| {
+                if (isParameterCalledInExpr(kw.value, param_name)) return true;
+            }
             return false;
         },
         .lambda => |lam| isParameterCalledInExpr(lam.body.*, param_name),
@@ -110,6 +114,90 @@ fn isParameterCalledInExpr(expr: ast.Node, param_name: []const u8) bool {
             }
             return false;
         },
+        .unaryop => |u| isParameterCalledInExpr(u.operand.*, param_name),
+        .boolop => |b| {
+            for (b.values) |v| {
+                if (isParameterCalledInExpr(v, param_name)) return true;
+            }
+            return false;
+        },
+        .if_expr => |ie| {
+            if (isParameterCalledInExpr(ie.condition.*, param_name)) return true;
+            if (isParameterCalledInExpr(ie.body.*, param_name)) return true;
+            if (isParameterCalledInExpr(ie.orelse_value.*, param_name)) return true;
+            return false;
+        },
+        .subscript => |sub| {
+            if (isParameterCalledInExpr(sub.value.*, param_name)) return true;
+            return switch (sub.slice) {
+                .index => |idx| isParameterCalledInExpr(idx.*, param_name),
+                .slice => |sr| {
+                    if (sr.lower) |l| if (isParameterCalledInExpr(l.*, param_name)) return true;
+                    if (sr.upper) |u| if (isParameterCalledInExpr(u.*, param_name)) return true;
+                    if (sr.step) |s| if (isParameterCalledInExpr(s.*, param_name)) return true;
+                    return false;
+                },
+            };
+        },
+        .list => |lst| {
+            for (lst.elts) |e| {
+                if (isParameterCalledInExpr(e, param_name)) return true;
+            }
+            return false;
+        },
+        .tuple => |tup| {
+            for (tup.elts) |e| {
+                if (isParameterCalledInExpr(e, param_name)) return true;
+            }
+            return false;
+        },
+        .dict => |d| {
+            for (d.keys) |k| {
+                if (isParameterCalledInExpr(k, param_name)) return true;
+            }
+            for (d.values) |v| {
+                if (isParameterCalledInExpr(v, param_name)) return true;
+            }
+            return false;
+        },
+        .fstring => |fs| {
+            for (fs.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (isParameterCalledInExpr(e.node.*, param_name)) return true,
+                    .format_expr => |fe| if (isParameterCalledInExpr(fe.expr.*, param_name)) return true,
+                    .conv_expr => |ce| if (isParameterCalledInExpr(ce.expr.*, param_name)) return true,
+                    .literal => {},
+                }
+            }
+            return false;
+        },
+        .listcomp => |lc| {
+            if (isParameterCalledInExpr(lc.elt.*, param_name)) return true;
+            for (lc.generators) |gen| {
+                if (isParameterCalledInExpr(gen.iter.*, param_name)) return true;
+                for (gen.ifs) |cond| if (isParameterCalledInExpr(cond, param_name)) return true;
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (isParameterCalledInExpr(dc.key.*, param_name)) return true;
+            if (isParameterCalledInExpr(dc.value.*, param_name)) return true;
+            for (dc.generators) |gen| {
+                if (isParameterCalledInExpr(gen.iter.*, param_name)) return true;
+                for (gen.ifs) |cond| if (isParameterCalledInExpr(cond, param_name)) return true;
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            if (isParameterCalledInExpr(ge.elt.*, param_name)) return true;
+            for (ge.generators) |gen| {
+                if (isParameterCalledInExpr(gen.iter.*, param_name)) return true;
+                for (gen.ifs) |cond| if (isParameterCalledInExpr(cond, param_name)) return true;
+            }
+            return false;
+        },
+        .starred => |st| isParameterCalledInExpr(st.value.*, param_name),
+        .attribute => |attr| isParameterCalledInExpr(attr.value.*, param_name),
         else => false,
     };
 }
@@ -436,6 +524,93 @@ fn isParamComparedToStringInExpr(expr: ast.Node, param_name: []const u8) bool {
             if (isParamComparedToStringInExpr(tern.orelse_value.*, param_name)) return true;
             return false;
         },
+        .call => |call| {
+            for (call.args) |arg| {
+                if (isParamComparedToStringInExpr(arg, param_name)) return true;
+            }
+            for (call.keyword_args) |kw| {
+                if (isParamComparedToStringInExpr(kw.value, param_name)) return true;
+            }
+            return false;
+        },
+        .binop => |b| {
+            if (isParamComparedToStringInExpr(b.left.*, param_name)) return true;
+            if (isParamComparedToStringInExpr(b.right.*, param_name)) return true;
+            return false;
+        },
+        .unaryop => |u| isParamComparedToStringInExpr(u.operand.*, param_name),
+        .subscript => |sub| {
+            if (isParamComparedToStringInExpr(sub.value.*, param_name)) return true;
+            return switch (sub.slice) {
+                .index => |idx| isParamComparedToStringInExpr(idx.*, param_name),
+                .slice => |sr| {
+                    if (sr.lower) |l| if (isParamComparedToStringInExpr(l.*, param_name)) return true;
+                    if (sr.upper) |up| if (isParamComparedToStringInExpr(up.*, param_name)) return true;
+                    if (sr.step) |s| if (isParamComparedToStringInExpr(s.*, param_name)) return true;
+                    return false;
+                },
+            };
+        },
+        .list => |lst| {
+            for (lst.elts) |e| {
+                if (isParamComparedToStringInExpr(e, param_name)) return true;
+            }
+            return false;
+        },
+        .tuple => |tup| {
+            for (tup.elts) |e| {
+                if (isParamComparedToStringInExpr(e, param_name)) return true;
+            }
+            return false;
+        },
+        .dict => |d| {
+            for (d.keys) |k| {
+                if (isParamComparedToStringInExpr(k, param_name)) return true;
+            }
+            for (d.values) |v| {
+                if (isParamComparedToStringInExpr(v, param_name)) return true;
+            }
+            return false;
+        },
+        .fstring => |fs| {
+            for (fs.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (isParamComparedToStringInExpr(e.node.*, param_name)) return true,
+                    .format_expr => |fe| if (isParamComparedToStringInExpr(fe.expr.*, param_name)) return true,
+                    .conv_expr => |ce| if (isParamComparedToStringInExpr(ce.expr.*, param_name)) return true,
+                    .literal => {},
+                }
+            }
+            return false;
+        },
+        .lambda => |lam| isParamComparedToStringInExpr(lam.body.*, param_name),
+        .listcomp => |lc| {
+            if (isParamComparedToStringInExpr(lc.elt.*, param_name)) return true;
+            for (lc.generators) |gen| {
+                if (isParamComparedToStringInExpr(gen.iter.*, param_name)) return true;
+                for (gen.ifs) |cond| if (isParamComparedToStringInExpr(cond, param_name)) return true;
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (isParamComparedToStringInExpr(dc.key.*, param_name)) return true;
+            if (isParamComparedToStringInExpr(dc.value.*, param_name)) return true;
+            for (dc.generators) |gen| {
+                if (isParamComparedToStringInExpr(gen.iter.*, param_name)) return true;
+                for (gen.ifs) |cond| if (isParamComparedToStringInExpr(cond, param_name)) return true;
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            if (isParamComparedToStringInExpr(ge.elt.*, param_name)) return true;
+            for (ge.generators) |gen| {
+                if (isParamComparedToStringInExpr(gen.iter.*, param_name)) return true;
+                for (gen.ifs) |cond| if (isParamComparedToStringInExpr(cond, param_name)) return true;
+            }
+            return false;
+        },
+        .starred => |st| isParamComparedToStringInExpr(st.value.*, param_name),
+        .attribute => |attr| isParamComparedToStringInExpr(attr.value.*, param_name),
         else => false,
     };
 }
@@ -551,6 +726,10 @@ fn isParamPassedToCallableInExpr(expr: ast.Node, param_name: []const u8, callabl
             for (call.args) |arg| {
                 if (isParamPassedToCallableInExpr(arg, param_name, callable_params)) return true;
             }
+            // Check keyword arguments
+            for (call.keyword_args) |kw| {
+                if (isParamPassedToCallableInExpr(kw.value, param_name, callable_params)) return true;
+            }
             return false;
         },
         .binop => |binop| {
@@ -564,6 +743,92 @@ fn isParamPassedToCallableInExpr(expr: ast.Node, param_name: []const u8, callabl
             }
             return false;
         },
+        .unaryop => |u| isParamPassedToCallableInExpr(u.operand.*, param_name, callable_params),
+        .boolop => |b| {
+            for (b.values) |v| {
+                if (isParamPassedToCallableInExpr(v, param_name, callable_params)) return true;
+            }
+            return false;
+        },
+        .compare => |comp| {
+            if (isParamPassedToCallableInExpr(comp.left.*, param_name, callable_params)) return true;
+            for (comp.comparators) |c| {
+                if (isParamPassedToCallableInExpr(c, param_name, callable_params)) return true;
+            }
+            return false;
+        },
+        .if_expr => |ie| {
+            if (isParamPassedToCallableInExpr(ie.condition.*, param_name, callable_params)) return true;
+            if (isParamPassedToCallableInExpr(ie.body.*, param_name, callable_params)) return true;
+            if (isParamPassedToCallableInExpr(ie.orelse_value.*, param_name, callable_params)) return true;
+            return false;
+        },
+        .subscript => |sub| {
+            if (isParamPassedToCallableInExpr(sub.value.*, param_name, callable_params)) return true;
+            return switch (sub.slice) {
+                .index => |idx| isParamPassedToCallableInExpr(idx.*, param_name, callable_params),
+                .slice => |sr| {
+                    if (sr.lower) |l| if (isParamPassedToCallableInExpr(l.*, param_name, callable_params)) return true;
+                    if (sr.upper) |up| if (isParamPassedToCallableInExpr(up.*, param_name, callable_params)) return true;
+                    if (sr.step) |s| if (isParamPassedToCallableInExpr(s.*, param_name, callable_params)) return true;
+                    return false;
+                },
+            };
+        },
+        .list => |lst| {
+            for (lst.elts) |e| {
+                if (isParamPassedToCallableInExpr(e, param_name, callable_params)) return true;
+            }
+            return false;
+        },
+        .dict => |d| {
+            for (d.keys) |k| {
+                if (isParamPassedToCallableInExpr(k, param_name, callable_params)) return true;
+            }
+            for (d.values) |v| {
+                if (isParamPassedToCallableInExpr(v, param_name, callable_params)) return true;
+            }
+            return false;
+        },
+        .fstring => |fs| {
+            for (fs.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (isParamPassedToCallableInExpr(e.node.*, param_name, callable_params)) return true,
+                    .format_expr => |fe| if (isParamPassedToCallableInExpr(fe.expr.*, param_name, callable_params)) return true,
+                    .conv_expr => |ce| if (isParamPassedToCallableInExpr(ce.expr.*, param_name, callable_params)) return true,
+                    .literal => {},
+                }
+            }
+            return false;
+        },
+        .lambda => |lam| isParamPassedToCallableInExpr(lam.body.*, param_name, callable_params),
+        .listcomp => |lc| {
+            if (isParamPassedToCallableInExpr(lc.elt.*, param_name, callable_params)) return true;
+            for (lc.generators) |gen| {
+                if (isParamPassedToCallableInExpr(gen.iter.*, param_name, callable_params)) return true;
+                for (gen.ifs) |cond| if (isParamPassedToCallableInExpr(cond, param_name, callable_params)) return true;
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (isParamPassedToCallableInExpr(dc.key.*, param_name, callable_params)) return true;
+            if (isParamPassedToCallableInExpr(dc.value.*, param_name, callable_params)) return true;
+            for (dc.generators) |gen| {
+                if (isParamPassedToCallableInExpr(gen.iter.*, param_name, callable_params)) return true;
+                for (gen.ifs) |cond| if (isParamPassedToCallableInExpr(cond, param_name, callable_params)) return true;
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            if (isParamPassedToCallableInExpr(ge.elt.*, param_name, callable_params)) return true;
+            for (ge.generators) |gen| {
+                if (isParamPassedToCallableInExpr(gen.iter.*, param_name, callable_params)) return true;
+                for (gen.ifs) |cond| if (isParamPassedToCallableInExpr(cond, param_name, callable_params)) return true;
+            }
+            return false;
+        },
+        .starred => |st| isParamPassedToCallableInExpr(st.value.*, param_name, callable_params),
+        .attribute => |attr| isParamPassedToCallableInExpr(attr.value.*, param_name, callable_params),
         else => false,
     };
 }
