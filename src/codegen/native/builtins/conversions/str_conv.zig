@@ -210,13 +210,11 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Two-Flow: For unknown/PyValue types, use runtime bytes conversion
+    // bytes() doesn't need allocator - just converts value to bytes representation
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
-        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-        try self.emit("(try runtime.builtins.bytes(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
+        try self.emit("runtime.builtins.bytes(");
         try self.genExpr(args[0]);
-        try self.emit("))");
+        try self.emit(")");
         return;
     }
 

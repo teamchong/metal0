@@ -215,6 +215,28 @@ pub fn inferBuiltinCall(
         return .bytes;
     }
 
+    // reversed() builtin - returns same type as input
+    // reversed(list) -> list, reversed(bytes) -> bytes, reversed(str) -> str
+    const REVERSED_HASH = comptime fnv_hash.hash("reversed");
+    if (fnv_hash.hash(func_name) == REVERSED_HASH and call.args.len > 0) {
+        const arg_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
+        return arg_type;
+    }
+
+    // sorted() builtin - returns list of same element type
+    const SORTED_HASH = comptime fnv_hash.hash("sorted");
+    if (fnv_hash.hash(func_name) == SORTED_HASH and call.args.len > 0) {
+        const arg_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
+        // For bytes/strings, sorted returns a list of characters (strings)
+        if (string_traits.isString(arg_type) or string_traits.isBytes(arg_type)) {
+            const elem_type = try allocator.create(NativeType);
+            elem_type.* = .{ .string = .runtime };
+            return .{ .list = elem_type };
+        }
+        // For other iterables, preserve the container type
+        return arg_type;
+    }
+
     // dict() builtin - returns dict type
     const DICT_BUILTIN_HASH = comptime fnv_hash.hash("dict");
     if (fnv_hash.hash(func_name) == DICT_BUILTIN_HASH) {

@@ -26,6 +26,15 @@ pub const hasSkipIfModuleIsNone = test_skip.hasSkipIfModuleIsNone;
 
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
+    // Check if this function was hoisted as a DynamicClosure (from if/else block)
+    // In this case, we need to generate a closure and assign to the hoisted variable,
+    // NOT generate a standalone fn (Zig doesn't allow fn inside if blocks)
+    if (self.hoisted_dynamic_closures.contains(func.name)) {
+        // Route to zero-capture closure generation which handles assignment to hoisted var
+        const zero_capture = @import("nested/zero_capture.zig");
+        return zero_capture.genZeroCaptureClosure(self, func);
+    }
+
     // Use function_traits for allocator decision (unified analysis)
     const needs_allocator_from_traits = self.funcNeedsAllocator(func.name);
     const needs_allocator_for_errors = if (needs_allocator_from_traits) true else function_traits.analyzeNeedsAllocator(func, null);
