@@ -1194,9 +1194,9 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
     const needs_error = needs_allocator or self.funcNeedsErrorUnion(func.name);
 
     // For generator functions, return []runtime.PyValue (eager evaluation)
+    // Generator functions ALWAYS need error union because they allocate ArrayList
     if (self.in_generator_function) {
-        if (needs_error) try self.emit("!");
-        try self.emit("[]runtime.PyValue {\n");
+        try self.emit("![]runtime.PyValue {\n");
         return;
     }
 
@@ -1765,9 +1765,9 @@ pub fn genMethodSignatureWithSkip(
         }
     } else {
         // Methods without return statements - check if it's a generator method
-        // Generator methods (with yield) return []runtime.PyValue
+        // Generator methods (with yield) ALWAYS need error union because they allocate ArrayList
         if (hasYieldStatement(method.body)) {
-            try self.emit("[]runtime.PyValue");
+            try self.emit("![]runtime.PyValue");
         } else {
             // Non-generator methods - check if body needs error union
             const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);

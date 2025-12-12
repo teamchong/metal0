@@ -4,8 +4,40 @@ const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 
+/// Check if a string expression is uncertain (needs PyValue operations)
+/// Two-Flow: routes uncertain strings to PyValue extraction via .asString()
+fn isStringUncertain(self: *NativeCodegen, obj: ast.Node) bool {
+    if (obj == .name) {
+        const name = obj.name.id;
+        // Check scoped vars first (for loop variables, function params)
+        // then fall back to global var_types
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            switch (vt) {
+                .pyvalue, .unknown => return true,
+                else => {},
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+/// Helper to emit string expression, extracting from PyValue if uncertain
+fn emitStringExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    if (isStringUncertain(self, obj)) {
+        // Extract string from PyValue using .asString()
+        try self.genExpr(obj);
+        try self.emit(".asString()");
+    } else {
+        try self.genExpr(obj);
+    }
+}
+
 /// Generate code for text.lstrip()
 /// Removes leading whitespace
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genLstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
@@ -13,7 +45,7 @@ pub fn genLstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     const label_id = @as(u64, @intCast(std.time.milliTimestamp()));
     try self.emitFmt("lstrip_{d}: {{\n", .{label_id});
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    const _trimmed = std.mem.trimLeft(u8, _text, \" \\t\\n\\r\");\n");
     try self.emit("    const _result = try __global_allocator.alloc(u8, _trimmed.len);\n");
@@ -24,6 +56,7 @@ pub fn genLstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
 /// Generate code for text.rstrip()
 /// Removes trailing whitespace
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genRstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
@@ -31,7 +64,7 @@ pub fn genRstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     const label_id = @as(u64, @intCast(std.time.milliTimestamp()));
     try self.emitFmt("rstrip_{d}: {{\n", .{label_id});
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    const _trimmed = std.mem.trimRight(u8, _text, \" \\t\\n\\r\");\n");
     try self.emit("    const _result = try __global_allocator.alloc(u8, _trimmed.len);\n");
@@ -42,12 +75,13 @@ pub fn genRstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
 /// Generate code for text.capitalize()
 /// First char upper, rest lower
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genCapitalize(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk _text;\n");
     try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
@@ -61,12 +95,13 @@ pub fn genCapitalize(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 
 /// Generate code for text.title()
 /// Titlecase each word
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genTitle(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk _text;\n");
     try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
@@ -85,12 +120,13 @@ pub fn genTitle(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
 /// Generate code for text.swapcase()
 /// Swap upper/lower
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genSwapcase(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
     try self.emit("    for (_text, 0..) |_c, _idx| {\n");
@@ -108,20 +144,21 @@ pub fn genSwapcase(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
 
 /// Generate code for text.index(sub[, start[, end]])
 /// Like find() but raises ValueError if not found (we return -1 for now)
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // str.index() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
 
     if (args.len == 1) {
         try self.emit("if (std.mem.indexOf(u8, ");
-        try self.genExpr(obj);
+        try emitStringExpr(self, obj);
         try self.emit(", ");
         try self.genExpr(args[0]);
         try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1");
     } else {
         try self.emit("blk: {\n");
         try self.emit("    const __idx_text = ");
-        try self.genExpr(obj);
+        try emitStringExpr(self, obj);
         try self.emit(";\n");
         try self.emit("    const __idx_sub = ");
         try self.genExpr(args[0]);
@@ -145,20 +182,21 @@ pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
 /// Generate code for text.rfind(sub[, start[, end]])
 /// Find from right
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genRfind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // str.rfind() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
 
     if (args.len == 1) {
         try self.emit("if (std.mem.lastIndexOf(u8, ");
-        try self.genExpr(obj);
+        try emitStringExpr(self, obj);
         try self.emit(", ");
         try self.genExpr(args[0]);
         try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1");
     } else {
         try self.emit("blk: {\n");
         try self.emit("    const __rfind_text = ");
-        try self.genExpr(obj);
+        try emitStringExpr(self, obj);
         try self.emit(";\n");
         try self.emit("    const __rfind_sub = ");
         try self.genExpr(args[0]);
@@ -182,20 +220,21 @@ pub fn genRfind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
 /// Generate code for text.rindex(sub[, start[, end]])
 /// Like rfind() but raises ValueError if not found (we return -1 for now)
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genRindex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // str.rindex() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
 
     if (args.len == 1) {
         try self.emit("if (std.mem.lastIndexOf(u8, ");
-        try self.genExpr(obj);
+        try emitStringExpr(self, obj);
         try self.emit(", ");
         try self.genExpr(args[0]);
         try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1");
     } else {
         try self.emit("blk: {\n");
         try self.emit("    const __ridx_text = ");
-        try self.genExpr(obj);
+        try emitStringExpr(self, obj);
         try self.emit(";\n");
         try self.emit("    const __ridx_sub = ");
         try self.genExpr(args[0]);
@@ -219,13 +258,14 @@ pub fn genRindex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
 /// Generate code for text.ljust(width[, fillchar])
 /// Left justify with spaces or fillchar
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genLjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // str.ljust() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    const _width = @as(usize, @intCast(");
     try self.genExpr(args[0]);
@@ -249,13 +289,14 @@ pub fn genLjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
 /// Generate code for text.rjust(width[, fillchar])
 /// Right justify with spaces or fillchar
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genRjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // str.rjust() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    const _width = @as(usize, @intCast(");
     try self.genExpr(args[0]);
@@ -280,13 +321,14 @@ pub fn genRjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
 /// Generate code for text.center(width[, fillchar])
 /// Center with spaces or fillchar
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genCenter(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // str.center() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    const _width = @as(usize, @intCast(");
     try self.genExpr(args[0]);
@@ -313,13 +355,14 @@ pub fn genCenter(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
 /// Generate code for text.zfill(width)
 /// Pad with zeros on left
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genZfill(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // str.zfill() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    const _width = ");
     try self.genExpr(args[0]);

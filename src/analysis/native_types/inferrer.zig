@@ -756,6 +756,8 @@ pub const TypeInferrer = struct {
                 }
             },
             .for_stmt => |for_stmt| {
+                // Check the iterator expression for function calls (e.g., for x in frange(0.0, 1.0, 0.2):)
+                try self.collectCallsFromExpr(for_stmt.iter.*, arena_alloc);
                 for (for_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
                 if (for_stmt.orelse_body) |orelse_body| {
                     for (orelse_body) |s| try self.collectConstructorArgs(s, arena_alloc);

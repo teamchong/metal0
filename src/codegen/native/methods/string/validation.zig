@@ -4,15 +4,47 @@ const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 
+/// Check if a string expression is uncertain (needs PyValue operations)
+/// Two-Flow: routes uncertain strings to PyValue extraction via .asString()
+fn isStringUncertain(self: *NativeCodegen, obj: ast.Node) bool {
+    if (obj == .name) {
+        const name = obj.name.id;
+        // Check scoped vars first (for loop variables, function params)
+        // then fall back to global var_types
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            switch (vt) {
+                .pyvalue, .unknown => return true,
+                else => {},
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+/// Helper to emit string expression, extracting from PyValue if uncertain
+fn emitStringExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    if (isStringUncertain(self, obj)) {
+        // Extract string from PyValue using .asString()
+        try self.genExpr(obj);
+        try self.emit(".asString()");
+    } else {
+        try self.genExpr(obj);
+    }
+}
+
 /// Generate code for text.isdigit()
 /// Returns true if all characters are digits (0-9)
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIsdigit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     // SIMD-optimized digit validation using @Vector
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk false;\n");
     try self.emit("    const vec_size = 16;\n");
@@ -35,12 +67,13 @@ pub fn genIsdigit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 
 /// Generate code for text.isalpha()
 /// Returns true if all characters are alphabetic
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIsalpha(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk false;\n");
     try self.emit("    for (_text) |c| {\n");
@@ -52,12 +85,13 @@ pub fn genIsalpha(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 
 /// Generate code for text.isalnum()
 /// Returns true if all characters are alphanumeric
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIsalnum(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk false;\n");
     try self.emit("    for (_text) |c| {\n");
@@ -69,23 +103,25 @@ pub fn genIsalnum(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 
 /// Generate code for text.isspace()
 /// Returns true if all characters are whitespace (including Unicode whitespace)
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIsspace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     // Use runtime function that handles Unicode properly
     try self.emit("runtime.isStringAllWhitespace(");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(")");
 }
 
 /// Generate code for text.islower()
 /// Returns true if all cased characters are lowercase
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIslower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk false;\n");
     try self.emit("    var has_cased = false;\n");
@@ -99,12 +135,13 @@ pub fn genIslower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 
 /// Generate code for text.isupper()
 /// Returns true if all cased characters are uppercase
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIsupper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk false;\n");
     try self.emit("    var has_cased = false;\n");
@@ -118,12 +155,13 @@ pub fn genIsupper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 
 /// Generate code for text.isascii()
 /// Returns true if all characters are ASCII
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIsascii(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk true;\n");
     try self.emit("    for (_text) |c| {\n");
@@ -135,12 +173,13 @@ pub fn genIsascii(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 
 /// Generate code for text.istitle()
 /// Returns true if string is titlecased
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIstitle(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk false;\n");
     try self.emit("    var in_word = false;\n");
@@ -164,12 +203,13 @@ pub fn genIstitle(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 
 /// Generate code for text.isprintable()
 /// Returns true if all characters are printable
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIsprintable(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk true;\n");
     try self.emit("    for (_text) |c| {\n");
@@ -182,12 +222,13 @@ pub fn genIsprintable(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
 /// Generate code for text.isdecimal()
 /// Returns true if all characters are decimal characters (0-9)
 /// In Python, isdecimal is more restrictive than isdigit - only matches 0-9
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIsdecimal(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk false;\n");
     try self.emit("    for (_text) |c| {\n");
@@ -200,12 +241,13 @@ pub fn genIsdecimal(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 /// Generate code for text.isnumeric()
 /// Returns true if all characters are numeric
 /// For ASCII-only, this is same as isdigit (0-9)
+/// Two-Flow: Extracts string from PyValue if uncertain
 pub fn genIsnumeric(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
     try self.emit("blk: {\n");
     try self.emit("    const _text = ");
-    try self.genExpr(obj);
+    try emitStringExpr(self, obj);
     try self.emit(";\n");
     try self.emit("    if (_text.len == 0) break :blk false;\n");
     try self.emit("    for (_text) |c| {\n");
