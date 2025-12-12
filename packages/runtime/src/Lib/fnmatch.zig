@@ -23,68 +23,68 @@ pub fn fnmatchcase(name: []const u8, pattern: []const u8) bool {
 
 /// Filter names by pattern, returning matching names
 pub fn filter(allocator: std.mem.Allocator, names: []const []const u8, pattern: []const u8) ![][]const u8 {
-    var result = std.ArrayList([]const u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList([]const u8) = .{};
+    errdefer result.deinit(allocator);
 
     for (names) |name| {
         if (fnmatch(name, pattern)) {
-            try result.append(name);
+            try result.append(allocator, name);
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Translate a shell pattern to a regular expression
 /// Returns a string that can be used with regex matching
 pub fn translate(allocator: std.mem.Allocator, pattern: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
-    try result.append('^');
+    try result.append(allocator, '^');
 
     var i: usize = 0;
     while (i < pattern.len) {
         const c = pattern[i];
         switch (c) {
-            '*' => try result.appendSlice(".*"),
-            '?' => try result.append('.'),
+            '*' => try result.appendSlice(allocator, ".*"),
+            '?' => try result.append(allocator, '.'),
             '[' => {
                 // Character class
-                try result.append('[');
+                try result.append(allocator, '[');
                 i += 1;
                 if (i < pattern.len and pattern[i] == '!') {
-                    try result.append('^');
+                    try result.append(allocator, '^');
                     i += 1;
                 } else if (i < pattern.len and pattern[i] == '^') {
-                    try result.append('\\');
-                    try result.append('^');
+                    try result.append(allocator, '\\');
+                    try result.append(allocator, '^');
                     i += 1;
                 }
                 // Copy until ]
                 while (i < pattern.len and pattern[i] != ']') {
                     if (pattern[i] == '\\') {
-                        try result.append('\\');
-                        try result.append('\\');
+                        try result.append(allocator, '\\');
+                        try result.append(allocator, '\\');
                     } else {
-                        try result.append(pattern[i]);
+                        try result.append(allocator, pattern[i]);
                     }
                     i += 1;
                 }
-                try result.append(']');
+                try result.append(allocator, ']');
             },
             '\\', '.', '+', '^', '$', '|', '{', '}', '(', ')' => {
                 // Escape regex special chars
-                try result.append('\\');
-                try result.append(c);
+                try result.append(allocator, '\\');
+                try result.append(allocator, c);
             },
-            else => try result.append(c),
+            else => try result.append(allocator, c),
         }
         i += 1;
     }
 
-    try result.append('$');
-    return result.toOwnedSlice();
+    try result.append(allocator, '$');
+    return result.toOwnedSlice(allocator);
 }
 
 // Internal pattern matching

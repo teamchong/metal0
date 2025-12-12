@@ -110,12 +110,12 @@ pub const ZipFile = struct {
         return .{
             .allocator = allocator,
             .mode = mode,
-            .filelist = std.ArrayList(ZipInfo).init(allocator),
+            .filelist = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.filelist.deinit();
+        self.filelist.deinit(self.allocator);
         if (self.file) |*f| {
             f.close();
         }
@@ -202,7 +202,7 @@ pub const ZipFile = struct {
             info.file_size = std.mem.readInt(u32, header[24..28], .little);
             info.header_offset = std.mem.readInt(u32, header[42..46], .little);
 
-            try self.filelist.append(info);
+            try self.filelist.append(self.allocator, info);
         }
     }
 
@@ -286,13 +286,13 @@ pub const ZipFile = struct {
         info.compress_type = self.compression;
 
         // Compress data
-        var compressed = std.ArrayList(u8).init(self.allocator);
-        defer compressed.deinit();
+        var compressed: std.ArrayList(u8) = .{};
+        defer compressed.deinit(self.allocator);
 
         if (self.compression == ZIP_STORED) {
-            try compressed.appendSlice(data);
+            try compressed.appendSlice(self.allocator, data);
         } else if (self.compression == ZIP_DEFLATED) {
-            var comp = try std.compress.zlib.compressor(compressed.writer(), .{});
+            var comp = try std.compress.zlib.compressor(compressed.writer(self.allocator), .{});
             try comp.writer().writeAll(data);
             try comp.finish();
         } else {
@@ -321,7 +321,7 @@ pub const ZipFile = struct {
         try self.file.?.writeAll(name);
         try self.file.?.writeAll(compressed.items);
 
-        try self.filelist.append(info);
+        try self.filelist.append(self.allocator, info);
     }
 
     /// Close the archive
