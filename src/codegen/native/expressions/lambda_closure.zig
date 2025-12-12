@@ -249,7 +249,8 @@ pub fn markAsClosureFactory(self: *NativeCodegen, var_name: []const u8) !void {
     try self.closure_factories.put(owned_name, {});
 }
 
-/// Check if lambda body returns void (e.g., calls self.assertRaises)
+/// Check if lambda body returns void (true void, NOT !void)
+/// Note: assertRaises returns !void (error union), so it's NOT a void closure
 pub fn lambdaReturnsVoid(lambda: ast.Node.Lambda) bool {
     // Check if body is a call on self.unittest_method
     if (lambda.body.* == .call) {
@@ -257,6 +258,10 @@ pub fn lambdaReturnsVoid(lambda: ast.Node.Lambda) bool {
         if (call.func.* == .attribute) {
             const attr = call.func.attribute;
             if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                // assertRaises/assertRaisesRegex return !void (error union), not void
+                if (std.mem.startsWith(u8, attr.attr, "assertRaises")) {
+                    return false;
+                }
                 return isUnittestMethod(attr.attr);
             }
         }
@@ -322,8 +327,8 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     // Infer return type
     const return_type = try inferReturnType(self, lambda.body.*);
     try writer.print(") {s} {{\n", .{return_type});
-    // Don't use return for void functions
-    if (std.mem.eql(u8, return_type, "void")) {
+    // Don't use return for void or !void functions (assertRaises generates its own return)
+    if (std.mem.eql(u8, return_type, "void") or std.mem.eql(u8, return_type, "!void")) {
         try writer.writeAll("        ");
     } else {
         try writer.writeAll("        return ");
@@ -419,8 +424,8 @@ fn genInlineSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, c
     const return_type = try inferReturnType(self, lambda.body.*);
     try self.output.writer(self.allocator).print(") {s} {{\n", .{return_type});
 
-    // Body - don't use return for void functions
-    if (std.mem.eql(u8, return_type, "void")) {
+    // Body - don't use return for void or !void functions (assertRaises generates its own return)
+    if (std.mem.eql(u8, return_type, "void") or std.mem.eql(u8, return_type, "!void")) {
         try self.emit("        ");
     } else {
         try self.emit("        return ");
@@ -666,13 +671,17 @@ fn isUnittestMethod(method_name: []const u8) bool {
 
 /// Infer return type from lambda body expression
 fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8 {
-    // Check for unittest assertion calls which return void
+    // Check for unittest assertion calls
     if (body == .call) {
         const call = body.call;
         if (call.func.* == .attribute) {
             const attr = call.func.attribute;
             if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
-                // Check if it's a unittest assertion method
+                // assertRaises/assertRaisesRegex return error.ExpectedExceptionNotRaised
+                if (std.mem.startsWith(u8, attr.attr, "assertRaises")) {
+                    return "!void";
+                }
+                // Other unittest methods return void
                 if (isUnittestMethod(attr.attr)) {
                     return "void";
                 }
