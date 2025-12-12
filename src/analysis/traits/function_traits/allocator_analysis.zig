@@ -139,6 +139,16 @@ fn stmtHasNestedCall(stmt: ast.Node, nested: []const []const u8) bool {
             break :blk false;
         },
         .with_stmt => |w| exprHasNestedCall(w.context_expr.*, nested) or hasNestedClassCalls(w.body, nested),
+        .match_stmt => |m| blk: {
+            if (exprHasNestedCall(m.subject.*, nested)) break :blk true;
+            for (m.cases) |case| {
+                if (case.guard) |guard| {
+                    if (exprHasNestedCall(guard.*, nested)) break :blk true;
+                }
+                if (hasNestedClassCalls(case.body, nested)) break :blk true;
+            }
+            break :blk false;
+        },
         else => false,
     };
 }
