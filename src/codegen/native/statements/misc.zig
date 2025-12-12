@@ -1115,7 +1115,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 // If body completed normally without raising, test fails
                 if (!self.control_flow_terminated) {
                     try self.emitIndent();
-                    try self.emit("@panic(\"assertRaises: expected exception\");\n");
+                    try self.emit("return error.ExpectedExceptionNotRaised;\n");
                 }
                 self.dedent();
                 try self.emitIndent();

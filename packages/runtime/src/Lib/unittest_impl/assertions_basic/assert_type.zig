@@ -4,7 +4,7 @@ const runner = @import("../../unittest/runner.zig");
 const runtime = @import("../../../runtime.zig");
 
 /// Assertion: assertIs(a, b) - pointer identity check (a is b)
-pub fn assertIs(a: anytype, b: anytype) void {
+pub fn assertIs(a: anytype, b: anytype) !void {
     _ = runtime;
     const A = @TypeOf(a);
     const B = @TypeOf(b);
@@ -58,7 +58,7 @@ pub fn assertIs(a: anytype, b: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertIs failed") catch {};
         }
-        @panic("assertIs failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -67,7 +67,7 @@ pub fn assertIs(a: anytype, b: anytype) void {
 }
 
 /// Assertion: assertTypeIs(actual_type, expected_type) - compile-time type comparison
-pub fn assertTypeIs(comptime actual_type: type, comptime expected_type: type) void {
+pub fn assertTypeIs(comptime actual_type: type, comptime expected_type: type) !void {
     const matches = comptime blk: {
         if (actual_type == expected_type) break :blk true;
         if (expected_type == i64 and actual_type == comptime_int) break :blk true;
@@ -86,12 +86,12 @@ pub fn assertTypeIs(comptime actual_type: type, comptime expected_type: type) vo
         if (runner.global_result) |result| {
             result.addFail("assertTypeIs failed") catch {};
         }
-        @panic("assertTypeIs failed");
+        return error.AssertionFailed;
     }
 }
 
 /// Assertion: assertTypeIsStr(value, type_name_str) - runtime type check using string
-pub fn assertTypeIsStr(value: anytype, comptime expected_type_str: []const u8) void {
+pub fn assertTypeIsStr(value: anytype, comptime expected_type_str: []const u8) !void {
     const T = @TypeOf(value);
     const type_name = @typeName(T);
 
@@ -129,7 +129,7 @@ pub fn assertTypeIsStr(value: anytype, comptime expected_type_str: []const u8) v
         if (runner.global_result) |result| {
             result.addFail("assertTypeIsStr failed") catch {};
         }
-        @panic("assertTypeIsStr failed");
+        return error.AssertionFailed;
     }
 }
 
@@ -153,7 +153,7 @@ fn extractClassName(comptime type_name: []const u8) []const u8 {
 }
 
 /// Assertion: assertIsNot(a, b) - pointer identity check (a is not b)
-pub fn assertIsNot(a: anytype, b: anytype) void {
+pub fn assertIsNot(a: anytype, b: anytype) !void {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
     const same = blk: {
@@ -180,7 +180,7 @@ pub fn assertIsNot(a: anytype, b: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertIsNot failed") catch {};
         }
-        @panic("assertIsNot failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -189,7 +189,7 @@ pub fn assertIsNot(a: anytype, b: anytype) void {
 }
 
 /// Assertion: assertIsNotNone(x) - value must not be None/null
-pub fn assertIsNotNone(value: anytype) void {
+pub fn assertIsNotNone(value: anytype) !void {
     const T = @TypeOf(value);
     const is_none = switch (@typeInfo(T)) {
         .null => true,
@@ -211,7 +211,7 @@ pub fn assertIsNotNone(value: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertIsNotNone failed") catch {};
         }
-        @panic("assertIsNotNone failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();

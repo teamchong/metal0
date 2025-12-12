@@ -5,13 +5,13 @@ const runtime = @import("../../../runtime.zig");
 const PyValue = runtime.PyValue;
 
 /// Assertion: assertStartsWith(text, prefix) - string must start with prefix
-pub fn assertStartsWith(text: []const u8, prefix: []const u8) void {
+pub fn assertStartsWith(text: []const u8, prefix: []const u8) !void {
     if (!std.mem.startsWith(u8, text, prefix)) {
         std.debug.print("AssertionError: '{s}' does not start with '{s}'\n", .{ text, prefix });
         if (runner.global_result) |result| {
             result.addFail("assertStartsWith failed") catch {};
         }
-        @panic("assertStartsWith failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -20,13 +20,13 @@ pub fn assertStartsWith(text: []const u8, prefix: []const u8) void {
 }
 
 /// Assertion: assertNotStartsWith(text, prefix) - string must not start with prefix
-pub fn assertNotStartsWith(text: []const u8, prefix: []const u8) void {
+pub fn assertNotStartsWith(text: []const u8, prefix: []const u8) !void {
     if (std.mem.startsWith(u8, text, prefix)) {
         std.debug.print("AssertionError: '{s}' starts with '{s}'\n", .{ text, prefix });
         if (runner.global_result) |result| {
             result.addFail("assertNotStartsWith failed") catch {};
         }
-        @panic("assertNotStartsWith failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -35,13 +35,13 @@ pub fn assertNotStartsWith(text: []const u8, prefix: []const u8) void {
 }
 
 /// Assertion: assertEndsWith(text, suffix) - string must end with suffix
-pub fn assertEndsWith(text: []const u8, suffix: []const u8) void {
+pub fn assertEndsWith(text: []const u8, suffix: []const u8) !void {
     if (!std.mem.endsWith(u8, text, suffix)) {
         std.debug.print("AssertionError: '{s}' does not end with '{s}'\n", .{ text, suffix });
         if (runner.global_result) |result| {
             result.addFail("assertEndsWith failed") catch {};
         }
-        @panic("assertEndsWith failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -50,7 +50,7 @@ pub fn assertEndsWith(text: []const u8, suffix: []const u8) void {
 }
 
 /// Assertion: assertAlmostEqual(a, b) - floats must be equal within 7 decimal places
-pub fn assertAlmostEqual(a: anytype, b: anytype) void {
+pub fn assertAlmostEqual(a: anytype, b: anytype) !void {
     const diff = @abs(a - b);
     const tolerance: f64 = 0.0000001;
 
@@ -59,7 +59,7 @@ pub fn assertAlmostEqual(a: anytype, b: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertAlmostEqual failed") catch {};
         }
-        @panic("assertAlmostEqual failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -68,7 +68,7 @@ pub fn assertAlmostEqual(a: anytype, b: anytype) void {
 }
 
 /// Assertion: assertNotAlmostEqual(a, b) - floats must NOT be equal within 7 decimal places
-pub fn assertNotAlmostEqual(a: anytype, b: anytype) void {
+pub fn assertNotAlmostEqual(a: anytype, b: anytype) !void {
     const diff = @abs(a - b);
     const tolerance: f64 = 0.0000001;
 
@@ -77,7 +77,7 @@ pub fn assertNotAlmostEqual(a: anytype, b: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertNotAlmostEqual failed") catch {};
         }
-        @panic("assertNotAlmostEqual failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -86,7 +86,7 @@ pub fn assertNotAlmostEqual(a: anytype, b: anytype) void {
 }
 
 /// Assertion: assertFloatsAreIdentical(a, b) - floats must be identical (same value and same sign for zeros)
-pub fn assertFloatsAreIdentical(a: f64, b: f64) void {
+pub fn assertFloatsAreIdentical(a: f64, b: f64) !void {
     const a_bits = @as(u64, @bitCast(a));
     const b_bits = @as(u64, @bitCast(b));
 
@@ -95,7 +95,7 @@ pub fn assertFloatsAreIdentical(a: f64, b: f64) void {
         if (runner.global_result) |result| {
             result.addFail("assertFloatsAreIdentical failed") catch {};
         }
-        @panic("assertFloatsAreIdentical failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -152,7 +152,7 @@ pub fn pyValueEql(a: PyValue, b: PyValue) bool {
 }
 
 /// assertEqual using PyValue - converts both args to PyValue then compares
-pub fn assertEqualPyValue(a: PyValue, b: PyValue) void {
+pub fn assertEqualPyValue(a: PyValue, b: PyValue) !void {
     if (pyValueEql(a, b)) {
         if (runner.global_result) |result| {
             result.addPass();
@@ -162,7 +162,7 @@ pub fn assertEqualPyValue(a: PyValue, b: PyValue) void {
         if (runner.global_result) |result| {
             result.addFail("assertEqual failed") catch {};
         }
-        @panic("assertEqual failed");
+        return error.AssertionFailed;
     }
 }
 

@@ -20,7 +20,7 @@ inline fn isStringLikeInline(comptime T: type) bool {
 }
 
 /// Assertion: assertIn(item, container) - item must be in container
-pub fn assertIn(item: anytype, container: anytype) void {
+pub fn assertIn(item: anytype, container: anytype) !void {
     const ItemType = @TypeOf(item);
     const ContainerType = @TypeOf(container);
 
@@ -82,7 +82,7 @@ pub fn assertIn(item: anytype, container: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertIn failed") catch {};
         }
-        @panic("assertIn failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -91,7 +91,7 @@ pub fn assertIn(item: anytype, container: anytype) void {
 }
 
 /// Assertion: assertNotIn(item, container) - item must not be in container
-pub fn assertNotIn(item: anytype, container: anytype) void {
+pub fn assertNotIn(item: anytype, container: anytype) !void {
     const ItemType = @TypeOf(item);
     const ContainerType = @TypeOf(container);
 
@@ -153,7 +153,7 @@ pub fn assertNotIn(item: anytype, container: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertNotIn failed") catch {};
         }
-        @panic("assertNotIn failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -162,7 +162,7 @@ pub fn assertNotIn(item: anytype, container: anytype) void {
 }
 
 /// Assertion: assertHasAttr(obj, attr_name) - check if object has attribute
-pub fn assertHasAttr(obj: anytype, attr_name: []const u8) void {
+pub fn assertHasAttr(obj: anytype, attr_name: []const u8) !void {
     const T = @TypeOf(obj);
     const type_info = @typeInfo(T);
 
@@ -196,7 +196,7 @@ pub fn assertHasAttr(obj: anytype, attr_name: []const u8) void {
         if (runner.global_result) |result| {
             result.addFail("assertHasAttr failed") catch {};
         }
-        @panic("assertHasAttr failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -205,7 +205,7 @@ pub fn assertHasAttr(obj: anytype, attr_name: []const u8) void {
 }
 
 /// Assertion: assertNotHasAttr(obj, attr_name) - check if object does NOT have attribute
-pub fn assertNotHasAttr(obj: anytype, attr_name: []const u8) void {
+pub fn assertNotHasAttr(obj: anytype, attr_name: []const u8) !void {
     const T = @TypeOf(obj);
     const type_info = @typeInfo(T);
 
@@ -239,7 +239,7 @@ pub fn assertNotHasAttr(obj: anytype, attr_name: []const u8) void {
         if (runner.global_result) |result| {
             result.addFail("assertNotHasAttr failed") catch {};
         }
-        @panic("assertNotHasAttr failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();

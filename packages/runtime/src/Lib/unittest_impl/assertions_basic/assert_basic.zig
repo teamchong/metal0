@@ -8,7 +8,7 @@ const equalArrayList = helpers.equalArrayList;
 const equalHashMap = helpers.equalHashMap;
 
 /// Assertion: assertTrue(x) - value must be truthy
-pub fn assertTrue(value: anytype) void {
+pub fn assertTrue(value: anytype) !void {
     const is_truthy = runtime.toBool(value);
 
     if (!is_truthy) {
@@ -16,7 +16,7 @@ pub fn assertTrue(value: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertTrue failed") catch {};
         }
-        @panic("assertTrue failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -25,7 +25,7 @@ pub fn assertTrue(value: anytype) void {
 }
 
 /// Assertion: assertFalse(x) - value must be falsy
-pub fn assertFalse(value: anytype) void {
+pub fn assertFalse(value: anytype) !void {
     const is_truthy = runtime.toBool(value);
 
     if (is_truthy) {
@@ -33,7 +33,7 @@ pub fn assertFalse(value: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertFalse failed") catch {};
         }
-        @panic("assertFalse failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -42,7 +42,7 @@ pub fn assertFalse(value: anytype) void {
 }
 
 /// Assertion: assertIsNone(x) - value must be None/null
-pub fn assertIsNone(value: anytype) void {
+pub fn assertIsNone(value: anytype) !void {
     _ = runtime; // Mark as used
     const T = @TypeOf(value);
     const is_none = switch (@typeInfo(T)) {
@@ -68,7 +68,7 @@ pub fn assertIsNone(value: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertIsNone failed") catch {};
         }
-        @panic("assertIsNone failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -77,13 +77,13 @@ pub fn assertIsNone(value: anytype) void {
 }
 
 /// Assertion: assertGreater(a, b) - a > b
-pub fn assertGreater(a: anytype, b: anytype) void {
+pub fn assertGreater(a: anytype, b: anytype) !void {
     if (!(a > b)) {
         std.debug.print("AssertionError: {any} is not greater than {any}\n", .{ a, b });
         if (runner.global_result) |result| {
             result.addFail("assertGreater failed") catch {};
         }
-        @panic("assertGreater failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -92,7 +92,7 @@ pub fn assertGreater(a: anytype, b: anytype) void {
 }
 
 /// Assertion: assertLess(a, b) - a < b
-pub fn assertLess(a: anytype, b: anytype) void {
+pub fn assertLess(a: anytype, b: anytype) !void {
     const AType = @TypeOf(a);
     const BType = @TypeOf(b);
     const a_info = @typeInfo(AType);
@@ -114,7 +114,7 @@ pub fn assertLess(a: anytype, b: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertLess failed") catch {};
         }
-        @panic("assertLess failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -123,13 +123,13 @@ pub fn assertLess(a: anytype, b: anytype) void {
 }
 
 /// Assertion: assertGreaterEqual(a, b) - a >= b
-pub fn assertGreaterEqual(a: anytype, b: anytype) void {
+pub fn assertGreaterEqual(a: anytype, b: anytype) !void {
     if (!(a >= b)) {
         std.debug.print("AssertionError: {any} is not >= {any}\n", .{ a, b });
         if (runner.global_result) |result| {
             result.addFail("assertGreaterEqual failed") catch {};
         }
-        @panic("assertGreaterEqual failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -138,13 +138,13 @@ pub fn assertGreaterEqual(a: anytype, b: anytype) void {
 }
 
 /// Assertion: assertLessEqual(a, b) - a <= b
-pub fn assertLessEqual(a: anytype, b: anytype) void {
+pub fn assertLessEqual(a: anytype, b: anytype) !void {
     if (!(a <= b)) {
         std.debug.print("AssertionError: {any} is not <= {any}\n", .{ a, b });
         if (runner.global_result) |result| {
             result.addFail("assertLessEqual failed") catch {};
         }
-        @panic("assertLessEqual failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -153,7 +153,7 @@ pub fn assertLessEqual(a: anytype, b: anytype) void {
 }
 
 /// Assertion: assertNotEqual(a, b) - values must NOT be equal
-pub fn assertNotEqual(a: anytype, b: anytype) void {
+pub fn assertNotEqual(a: anytype, b: anytype) !void {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
 
@@ -198,7 +198,7 @@ pub fn assertNotEqual(a: anytype, b: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertNotEqual failed") catch {};
         }
-        @panic("assertNotEqual failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();

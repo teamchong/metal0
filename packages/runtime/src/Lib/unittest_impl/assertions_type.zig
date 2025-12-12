@@ -4,13 +4,13 @@ const runner = @import("../unittest/runner.zig");
 const basic = @import("assertions_basic/assertions_basic.zig");
 
 /// Assertion: assertCountEqual(a, b) - sequences have same elements (order independent)
-pub fn assertCountEqual(a: anytype, b: anytype) void {
+pub fn assertCountEqual(a: anytype, b: anytype) !void {
     if (a.len != b.len) {
         std.debug.print("AssertionError: sequences have different lengths ({d} vs {d})\n", .{ a.len, b.len });
         if (runner.global_result) |result| {
             result.addFail("assertCountEqual failed: different lengths") catch {};
         }
-        @panic("assertCountEqual failed");
+        return error.AssertionFailed;
     }
 
     for (a) |item_a| {
@@ -26,7 +26,7 @@ pub fn assertCountEqual(a: anytype, b: anytype) void {
             if (runner.global_result) |result| {
                 result.addFail("assertCountEqual failed: element not found") catch {};
             }
-            @panic("assertCountEqual failed");
+            return error.AssertionFailed;
         }
     }
 
@@ -43,7 +43,7 @@ pub fn assertCountEqual(a: anytype, b: anytype) void {
             if (runner.global_result) |result| {
                 result.addFail("assertCountEqual failed: element not found") catch {};
             }
-            @panic("assertCountEqual failed");
+            return error.AssertionFailed;
         }
     }
 
@@ -53,13 +53,13 @@ pub fn assertCountEqual(a: anytype, b: anytype) void {
 }
 
 /// Assertion: assertRegex(text, pattern) - text must contain pattern (substring match)
-pub fn assertRegex(text: []const u8, pattern: []const u8) void {
+pub fn assertRegex(text: []const u8, pattern: []const u8) !void {
     if (std.mem.indexOf(u8, text, pattern) == null) {
         std.debug.print("AssertionError: pattern '{s}' not found in '{s}'\n", .{ pattern, text });
         if (runner.global_result) |result| {
             result.addFail("assertRegex failed") catch {};
         }
-        @panic("assertRegex failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -68,13 +68,13 @@ pub fn assertRegex(text: []const u8, pattern: []const u8) void {
 }
 
 /// Assertion: assertNotRegex(text, pattern) - text must NOT contain pattern
-pub fn assertNotRegex(text: []const u8, pattern: []const u8) void {
+pub fn assertNotRegex(text: []const u8, pattern: []const u8) !void {
     if (std.mem.indexOf(u8, text, pattern)) |_| {
         std.debug.print("AssertionError: pattern '{s}' unexpectedly found in '{s}'\n", .{ pattern, text });
         if (runner.global_result) |result| {
             result.addFail("assertNotRegex failed") catch {};
         }
-        @panic("assertNotRegex failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -83,7 +83,7 @@ pub fn assertNotRegex(text: []const u8, pattern: []const u8) void {
 }
 
 /// Assertion: assertIsInstance(obj, type_name) - check if obj is of expected type
-pub fn assertIsInstance(obj: anytype, expected_type_name: []const u8) void {
+pub fn assertIsInstance(obj: anytype, expected_type_name: []const u8) !void {
     const T = @TypeOf(obj);
     const actual_type_name = @typeName(T);
 
@@ -153,7 +153,7 @@ pub fn assertIsInstance(obj: anytype, expected_type_name: []const u8) void {
         if (runner.global_result) |result| {
             result.addFail("assertIsInstance failed") catch {};
         }
-        @panic("assertIsInstance failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -162,7 +162,7 @@ pub fn assertIsInstance(obj: anytype, expected_type_name: []const u8) void {
 }
 
 /// Assertion: assertNotIsInstance(obj, type_name) - check if obj is NOT of expected type
-pub fn assertNotIsInstance(obj: anytype, expected_type_name: []const u8) void {
+pub fn assertNotIsInstance(obj: anytype, expected_type_name: []const u8) !void {
     const actual_type_name = @typeName(@TypeOf(obj));
 
     const matches = blk: {
@@ -196,7 +196,7 @@ pub fn assertNotIsInstance(obj: anytype, expected_type_name: []const u8) void {
         if (runner.global_result) |result| {
             result.addFail("assertNotIsInstance failed") catch {};
         }
-        @panic("assertNotIsInstance failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();
@@ -227,7 +227,7 @@ pub fn assertNotIsSubclass(cls: anytype, parent: anytype) void {
 }
 
 /// Assertion: assertRaises(callable) - callable must return an error
-pub fn assertRaises(callable: anytype, args: anytype) void {
+pub fn assertRaises(callable: anytype, args: anytype) !void {
     const result = @call(.auto, callable, args);
 
     _ = result catch {
@@ -241,11 +241,11 @@ pub fn assertRaises(callable: anytype, args: anytype) void {
     if (runner.global_result) |res| {
         res.addFail("assertRaises failed: expected error") catch {};
     }
-    @panic("assertRaises failed");
+    return error.AssertionFailed;
 }
 
 /// Assertion: assertDictEqual(a, b) - assertEqual for dicts with type checking
-pub fn assertDictEqual(a: anytype, b: anytype) void {
+pub fn assertDictEqual(a: anytype, b: anytype) !void {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
@@ -260,14 +260,14 @@ pub fn assertDictEqual(a: anytype, b: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertDictEqual failed: not dict types") catch {};
         }
-        @panic("assertDictEqual failed: not dict types");
+        return error.AssertionFailed;
     }
 
-    basic.assertEqual(a, b);
+    try basic.assertEqual(a, b);
 }
 
 /// Assertion: assertListEqual(a, b) - assertEqual for lists with type checking
-pub fn assertListEqual(a: anytype, b: anytype) void {
+pub fn assertListEqual(a: anytype, b: anytype) !void {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
@@ -284,14 +284,14 @@ pub fn assertListEqual(a: anytype, b: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertListEqual failed: not list types") catch {};
         }
-        @panic("assertListEqual failed: not list types");
+        return error.AssertionFailed;
     }
 
-    basic.assertEqual(a, b);
+    try basic.assertEqual(a, b);
 }
 
 /// Assertion: assertSetEqual(a, b) - assertEqual for sets with type checking
-pub fn assertSetEqual(a: anytype, b: anytype) void {
+pub fn assertSetEqual(a: anytype, b: anytype) !void {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
@@ -306,14 +306,14 @@ pub fn assertSetEqual(a: anytype, b: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertSetEqual failed: not set types") catch {};
         }
-        @panic("assertSetEqual failed: not set types");
+        return error.AssertionFailed;
     }
 
-    basic.assertEqual(a, b);
+    try basic.assertEqual(a, b);
 }
 
 /// Assertion: assertTupleEqual(a, b) - assertEqual for tuples with type checking
-pub fn assertTupleEqual(a: anytype, b: anytype) void {
+pub fn assertTupleEqual(a: anytype, b: anytype) !void {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
@@ -328,20 +328,20 @@ pub fn assertTupleEqual(a: anytype, b: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertTupleEqual failed: not tuple types") catch {};
         }
-        @panic("assertTupleEqual failed: not tuple types");
+        return error.AssertionFailed;
     }
 
-    basic.assertEqual(a, b);
+    try basic.assertEqual(a, b);
 }
 
 /// Assertion: assertSequenceEqual(a, b) - compare sequences element by element
-pub fn assertSequenceEqual(a: anytype, b: anytype) void {
+pub fn assertSequenceEqual(a: anytype, b: anytype) !void {
     if (a.len != b.len) {
         std.debug.print("AssertionError: sequences have different lengths ({d} vs {d})\n", .{ a.len, b.len });
         if (runner.global_result) |result| {
             result.addFail("assertSequenceEqual failed: different lengths") catch {};
         }
-        @panic("assertSequenceEqual failed: different lengths");
+        return error.AssertionFailed;
     }
 
     for (a, 0..) |elem_a, i| {
@@ -364,7 +364,7 @@ pub fn assertSequenceEqual(a: anytype, b: anytype) void {
             if (runner.global_result) |result| {
                 result.addFail("assertSequenceEqual failed: element mismatch") catch {};
             }
-            @panic("assertSequenceEqual failed: element mismatch");
+            return error.AssertionFailed;
         }
     }
 
@@ -374,7 +374,7 @@ pub fn assertSequenceEqual(a: anytype, b: anytype) void {
 }
 
 /// Assertion: assertMultiLineEqual(a, b) - compare multiline strings with better diff output
-pub fn assertMultiLineEqual(a: []const u8, b: []const u8) void {
+pub fn assertMultiLineEqual(a: []const u8, b: []const u8) !void {
     if (std.mem.eql(u8, a, b)) {
         if (runner.global_result) |result| {
             result.addPass();
@@ -416,11 +416,11 @@ pub fn assertMultiLineEqual(a: []const u8, b: []const u8) void {
     if (runner.global_result) |result| {
         result.addFail("assertMultiLineEqual failed") catch {};
     }
-    @panic("assertMultiLineEqual failed");
+    return error.AssertionFailed;
 }
 
 /// Assertion: assertRaisesRegex(callable, args, pattern) - callable must error with message matching pattern
-pub fn assertRaisesRegex(callable: anytype, args: anytype, pattern: []const u8) void {
+pub fn assertRaisesRegex(callable: anytype, args: anytype, pattern: []const u8) !void {
     const result = @call(.auto, callable, args);
 
     _ = result catch |err| {
@@ -436,14 +436,14 @@ pub fn assertRaisesRegex(callable: anytype, args: anytype, pattern: []const u8) 
         if (runner.global_result) |res| {
             res.addFail("assertRaisesRegex failed: pattern not matched") catch {};
         }
-        @panic("assertRaisesRegex failed: pattern not matched");
+        return error.AssertionFailed;
     };
 
     std.debug.print("AssertionError: expected error matching '{s}' but call succeeded\n", .{pattern});
     if (runner.global_result) |res| {
         res.addFail("assertRaisesRegex failed: expected error") catch {};
     }
-    @panic("assertRaisesRegex failed: expected error");
+    return error.AssertionFailed;
 }
 
 /// Assertion: assertWarns(callable, args) - callable must emit a warning

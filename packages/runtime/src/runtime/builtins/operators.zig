@@ -407,8 +407,16 @@ fn toBoolFromResult(result: anytype) bool {
     return false;
 }
 
-/// Generic assertEqual helper
+/// Generic assertEqual helper - delegates to centralized equality module
 pub fn assertEqualGeneric(a: anytype, b: anytype, allocator: std.mem.Allocator) !bool {
+    // Use the centralized pyAnyEql from equality.zig for most cases
+    const equality = @import("../equality.zig");
+
+    // Try the non-allocator equality first (handles structs, tuples, numerics, etc.)
+    if (equality.pyAnyEql(a, b)) return true;
+
+    // Fall back to allocator-dependent pyEqual only for special cases
+    // (PyValue conversion, BigInt, etc.)
     return pyEqual(allocator, a, b);
 }
 
@@ -439,6 +447,45 @@ pub fn pyEqual(allocator: std.mem.Allocator, a: anytype, b: anytype) !bool {
                 return a.eql(&b);
             }
         }
+    }
+
+    // Cross-type integer comparison (e.g., i64 vs comptime_int)
+    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
+        return a == b;
+    }
+
+    // Cross-type BigInt comparison (BigInt vs int)
+    // BigInt is identified by having a 'managed' field
+    const a_is_bigint = info_a == .@"struct" and @hasField(TypeA, "managed");
+    const b_is_bigint = info_b == .@"struct" and @hasField(TypeB, "managed");
+    const a_is_int = info_a == .int or info_a == .comptime_int;
+    const b_is_int = info_b == .int or info_b == .comptime_int;
+
+    if (a_is_bigint and b_is_int) {
+        // Compare BigInt a with int b using eqlInt method
+        if (@hasDecl(TypeA, "eqlInt")) {
+            return a.eqlInt(@as(i64, @intCast(b)));
+        }
+        // Fallback: try toInt64 comparison
+        if (@hasDecl(TypeA, "toInt64")) {
+            if (a.toInt64()) |a_i64| {
+                return a_i64 == b;
+            }
+        }
+        return false;
+    }
+    if (b_is_bigint and a_is_int) {
+        // Compare int a with BigInt b using eqlInt method
+        if (@hasDecl(TypeB, "eqlInt")) {
+            return b.eqlInt(@as(i64, @intCast(a)));
+        }
+        // Fallback: try toInt64 comparison
+        if (@hasDecl(TypeB, "toInt64")) {
+            if (b.toInt64()) |b_i64| {
+                return a == b_i64;
+            }
+        }
+        return false;
     }
 
     // Tagged union handling

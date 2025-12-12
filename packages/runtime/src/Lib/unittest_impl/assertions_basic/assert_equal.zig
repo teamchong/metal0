@@ -14,7 +14,7 @@ const elemEql = helpers.elemEql;
 const isStringType = helpers.isStringType;
 
 /// Assertion: assertEqual(a, b) - values must be equal
-pub fn assertEqual(a: anytype, b: anytype) void {
+pub fn assertEqual(a: anytype, b: anytype) !void {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
     const a_info = @typeInfo(A);
@@ -37,10 +37,10 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed") catch {};
             }
-            @panic("assertEqual failed");
+            return error.AssertionFailed;
         } else {
             // Both non-null - compare unwrapped values
-            return assertEqual(a.?, b.?);
+            return try assertEqual(a.?, b.?);
         }
     }
     // Case 2: Optional compared with null literal type (assertEqual(d.get(x), None))
@@ -57,7 +57,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed") catch {};
             }
-            @panic("assertEqual failed");
+            return error.AssertionFailed;
         }
     }
     if (a_info == .null and b_info == .optional) {
@@ -73,7 +73,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed") catch {};
             }
-            @panic("assertEqual failed");
+            return error.AssertionFailed;
         }
     }
     // Both are null literal type
@@ -87,27 +87,27 @@ pub fn assertEqual(a: anytype, b: anytype) void {
     // Case 3: Only 'a' is optional - unwrap and compare
     if (a_info == .optional and b_info != .optional) {
         if (a) |unwrapped| {
-            return assertEqual(unwrapped, b);
+            return try assertEqual(unwrapped, b);
         } else {
             // a is null, b is not optional - they can't be equal unless b is null-like
             std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed") catch {};
             }
-            @panic("assertEqual failed");
+            return error.AssertionFailed;
         }
     }
     // Case 4: Only 'b' is optional - unwrap and compare
     if (b_info == .optional and a_info != .optional) {
         if (b) |unwrapped| {
-            return assertEqual(a, unwrapped);
+            return try assertEqual(a, unwrapped);
         } else {
             // b is null, a is not optional - they can't be equal unless a is null-like
             std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed") catch {};
             }
-            @panic("assertEqual failed");
+            return error.AssertionFailed;
         }
     }
 
@@ -118,9 +118,9 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed - error value") catch {};
             }
-            @panic("assertEqual failed");
+            return error.AssertionFailed;
         };
-        return assertEqual(unwrapped, b);
+        return try assertEqual(unwrapped, b);
     }
     if (b_info == .error_union) {
         const unwrapped = b catch {
@@ -128,37 +128,37 @@ pub fn assertEqual(a: anytype, b: anytype) void {
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed - error value") catch {};
             }
-            @panic("assertEqual failed");
+            return error.AssertionFailed;
         };
-        return assertEqual(a, unwrapped);
+        return try assertEqual(a, unwrapped);
     }
 
     // Unwrap PyObject pointers before comparison
     if (A == *runtime.PyObject) {
         const py_val = runtime.pyObjectToValue(a);
-        return assertEqual(py_val, b);
+        return try assertEqual(py_val, b);
     }
     if (B == *runtime.PyObject) {
         const py_val = runtime.pyObjectToValue(b);
-        return assertEqual(a, py_val);
+        return try assertEqual(a, py_val);
     }
 
     // Unwrap PyBytes wrapper - compare data field with []const u8
     if (A == runtime.builtins.PyBytes) {
-        return assertEqual(a.data, b);
+        return try assertEqual(a.data, b);
     }
     if (B == runtime.builtins.PyBytes) {
-        return assertEqual(a, b.data);
+        return try assertEqual(a, b.data);
     }
 
     // Unwrap PyPowResult unions - extract float_val for comparison
     if (A == runtime.PyPowResult) {
         switch (a) {
-            .float_val => |fv| return assertEqual(fv, b),
+            .float_val => |fv| return try assertEqual(fv, b),
             .complex_val => |cv| {
                 // For complex, only equal to another complex or a real number if imag is 0
                 if (cv.imag == 0.0) {
-                    return assertEqual(cv.real, b);
+                    return try assertEqual(cv.real, b);
                 }
                 // Complex with non-zero imag part - compare as struct
             },
@@ -166,10 +166,10 @@ pub fn assertEqual(a: anytype, b: anytype) void {
     }
     if (B == runtime.PyPowResult) {
         switch (b) {
-            .float_val => |fv| return assertEqual(a, fv),
+            .float_val => |fv| return try assertEqual(a, fv),
             .complex_val => |cv| {
                 if (cv.imag == 0.0) {
-                    return assertEqual(a, cv.real);
+                    return try assertEqual(a, cv.real);
                 }
             },
         }
@@ -178,14 +178,14 @@ pub fn assertEqual(a: anytype, b: anytype) void {
     // Unwrap FloorCeilResult unions - extract int or float value for comparison
     if (A == runtime.FloorCeilResult) {
         switch (a) {
-            .int => |iv| return assertEqual(iv, b),
-            .float => |fv| return assertEqual(fv, b),
+            .int => |iv| return try assertEqual(iv, b),
+            .float => |fv| return try assertEqual(fv, b),
         }
     }
     if (B == runtime.FloorCeilResult) {
         switch (b) {
-            .int => |iv| return assertEqual(a, iv),
-            .float => |fv| return assertEqual(a, fv),
+            .int => |iv| return try assertEqual(a, iv),
+            .float => |fv| return try assertEqual(a, fv),
         }
     }
 
@@ -203,7 +203,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                 if (runner.global_result) |result| {
                     result.addFail("assertEqual failed") catch {};
                 }
-                @panic("assertEqual failed");
+                return error.AssertionFailed;
             }
         }
         if (b_info == .int or b_info == .comptime_int) {
@@ -218,7 +218,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                 if (runner.global_result) |result| {
                     result.addFail("assertEqual failed") catch {};
                 }
-                @panic("assertEqual failed");
+                return error.AssertionFailed;
             }
         }
     }
@@ -235,7 +235,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                 if (runner.global_result) |result| {
                     result.addFail("assertEqual failed") catch {};
                 }
-                @panic("assertEqual failed");
+                return error.AssertionFailed;
             }
         }
         if (a_info == .int or a_info == .comptime_int) {
@@ -250,7 +250,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                 if (runner.global_result) |result| {
                     result.addFail("assertEqual failed") catch {};
                 }
-                @panic("assertEqual failed");
+                return error.AssertionFailed;
             }
         }
     }
@@ -267,7 +267,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                 if (runner.global_result) |result| {
                     result.addFail("assertEqual failed") catch {};
                 }
-                @panic("assertEqual failed");
+                return error.AssertionFailed;
             }
             const a_count = a.count();
             const b_count = b.count();
@@ -276,7 +276,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                 if (runner.global_result) |result| {
                     result.addFail("assertEqual failed") catch {};
                 }
-                @panic("assertEqual failed");
+                return error.AssertionFailed;
             }
             var all_match = true;
             if (@hasDecl(@TypeOf(a), "keyIterator")) {
@@ -300,7 +300,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
                 if (runner.global_result) |result| {
                     result.addFail("assertEqual failed") catch {};
                 }
-                @panic("assertEqual failed");
+                return error.AssertionFailed;
             }
             return;
         }
@@ -719,7 +719,7 @@ pub fn assertEqual(a: anytype, b: anytype) void {
         if (runner.global_result) |result| {
             result.addFail("assertEqual failed") catch {};
         }
-        @panic("assertEqual failed");
+        return error.AssertionFailed;
     } else {
         if (runner.global_result) |result| {
             result.addPass();

@@ -95,20 +95,26 @@ pub fn parseFormatSpec(spec: []const u8) FormatSpec {
         i += 1;
     }
 
-    // Precision
+    // Precision and/or decimal grouping (Python 3.13+: ._f, .10_f, .,f)
     if (i < spec.len and spec[i] == '.') {
         i += 1;
-        const prec_start = i;
-        while (i < spec.len and spec[i] >= '0' and spec[i] <= '9') : (i += 1) {}
-        if (i > prec_start) {
-            result.precision = std.fmt.parseInt(usize, spec[prec_start..i], 10) catch null;
+        // Check if decimal grouping char immediately follows '.' (no precision)
+        if (i < spec.len and (spec[i] == ',' or spec[i] == '_')) {
+            result.decimal_grouping_char = spec[i];
+            i += 1;
+        } else {
+            // Parse precision digits
+            const prec_start = i;
+            while (i < spec.len and spec[i] >= '0' and spec[i] <= '9') : (i += 1) {}
+            if (i > prec_start) {
+                result.precision = std.fmt.parseInt(usize, spec[prec_start..i], 10) catch null;
+            }
+            // Decimal grouping after precision (e.g., .10_f)
+            if (i < spec.len and (spec[i] == ',' or spec[i] == '_')) {
+                result.decimal_grouping_char = spec[i];
+                i += 1;
+            }
         }
-    }
-
-    // Decimal grouping
-    if (i < spec.len and (spec[i] == ',' or spec[i] == '_')) {
-        result.decimal_grouping_char = spec[i];
-        i += 1;
     }
 
     // Type
@@ -229,8 +235,10 @@ fn addThousandsGroupingToList(allocator: std.mem.Allocator, result: *std.ArrayLi
 }
 
 pub fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, int_sep: ?u8, dec_sep: ?u8) ![]const u8 {
-    _ = dec_sep;
-    const sep = int_sep orelse return allocator.dupe(u8, num_str);
+    // If neither separator is set, return as-is
+    if (int_sep == null and dec_sep == null) {
+        return allocator.dupe(u8, num_str);
+    }
 
     var result = std.ArrayListUnmanaged(u8){};
 
@@ -244,10 +252,47 @@ pub fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, i
     }
 
     const integer_part = if (decimal_pos) |dp| num_str[0..dp] else num_str;
-    const fractional_part = if (decimal_pos) |dp| num_str[dp..] else "";
+    const fractional_digits = if (decimal_pos) |dp| num_str[dp + 1 ..] else ""; // Skip the '.'
 
-    try addThousandsGroupingToList(allocator, &result, integer_part, sep);
-    try result.appendSlice(allocator, fractional_part);
+    // Add integer part with grouping if int_sep is set
+    if (int_sep) |sep| {
+        try addThousandsGroupingToList(allocator, &result, integer_part, sep);
+    } else {
+        try result.appendSlice(allocator, integer_part);
+    }
+
+    // Add decimal point and fractional part
+    if (decimal_pos != null) {
+        try result.append(allocator, '.');
+        if (dec_sep) |sep| {
+            // Find exponent part (e or E) - don't group exponent
+            var exp_pos: ?usize = null;
+            for (fractional_digits, 0..) |c, idx| {
+                if (c == 'e' or c == 'E') {
+                    exp_pos = idx;
+                    break;
+                }
+            }
+
+            const mantissa_frac = if (exp_pos) |ep| fractional_digits[0..ep] else fractional_digits;
+            const exponent_part = if (exp_pos) |ep| fractional_digits[ep..] else "";
+
+            // Add mantissa fractional digits with grouping (groups of 3 from left)
+            var count: usize = 0;
+            for (mantissa_frac) |c| {
+                if (count > 0 and count % 3 == 0) {
+                    try result.append(allocator, sep);
+                }
+                try result.append(allocator, c);
+                count += 1;
+            }
+
+            // Append exponent unchanged
+            try result.appendSlice(allocator, exponent_part);
+        } else {
+            try result.appendSlice(allocator, fractional_digits);
+        }
+    }
 
     return result.toOwnedSlice(allocator);
 }
