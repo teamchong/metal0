@@ -647,6 +647,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Check if value is an iter() call - iterators need to be mutable for next() to work
             const is_iterator = typeHandling.isIteratorCall(assign.value.*);
 
+            // Check if value is a deque() call - deques are mutable ArrayListUnmanaged
+            const is_deque = typeHandling.isDequeCall(assign.value.*);
+
             // Check if this is first assignment or reassignment
             // Hoisted variables should skip declaration (already declared before try block)
             // Forward-declared variables (captured by nested classes before assignment) also skip
@@ -1300,6 +1303,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // For iterators, add pointer discard to suppress "never mutated" warnings
             // Some iterator uses pass by value (json.dumps) vs by pointer (next())
             if (is_iterator and is_first_assignment) {
+                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+                try self.emit(";\n");
+            }
+
+            // For deques, add pointer discard to suppress "never mutated" warnings
+            // Deques use `var` for .deinit() but may not be mutated at the variable level
+            if (is_deque and is_first_assignment) {
                 const actual_name = self.var_renames.get(var_name) orelse var_name;
                 try self.emitIndent();
                 try self.emit("_ = &");

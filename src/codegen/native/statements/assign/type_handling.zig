@@ -163,6 +163,28 @@ pub fn isIteratorCall(value: ast.Node) bool {
     return std.mem.eql(u8, func_name, "iter");
 }
 
+/// Check if value is a deque() call - deques are mutable ArrayListUnmanaged
+/// Needs `var` for .deinit() and mutating methods (append, appendleft, etc.)
+pub fn isDequeCall(value: ast.Node) bool {
+    if (value != .call) return false;
+    const func = value.call.func.*;
+
+    // Simple name call: deque()
+    if (func == .name) {
+        return std.mem.eql(u8, func.name.id, "deque");
+    }
+
+    // Attribute call: collections.deque()
+    if (func == .attribute) {
+        const attr = func.attribute;
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "collections")) {
+            return std.mem.eql(u8, attr.attr, "deque");
+        }
+    }
+
+    return false;
+}
+
 /// Check if value is a list() builtin call - converts iterable to ArrayList
 pub fn isListBuiltinCall(value: ast.Node) bool {
     if (value != .call) return false;
