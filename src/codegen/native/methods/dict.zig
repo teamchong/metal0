@@ -265,7 +265,8 @@ fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
 /// Removes key and returns value, or returns default if key not present
 /// Raises KeyError if key not present and no default given
 pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // dict.pop() requires at least 1 argument (key), second (default) is optional
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     const default_val = if (args.len >= 2) args[1] else null;
 
@@ -300,7 +301,8 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 /// Generate code for dict.update(other)
 /// Updates dict with key/value pairs from other dict or iterable of pairs
 pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // dict.update() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
@@ -400,7 +402,8 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 /// Generate code for dict.setdefault(key, default?)
 /// Returns value for key if present, otherwise sets key to default and returns it
 pub fn genSetdefault(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // dict.setdefault() requires at least 1 argument (key)
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
