@@ -574,11 +574,49 @@ pub fn emitVarDeclaration(
 pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.Node.List) CodegenError!void {
     const native_types = @import("../../../../analysis/native_types.zig");
     const NativeType = native_types.NativeType;
+    const genExpr = @import("../../expressions.zig").genExpr;
 
     // Check if variable was declared BEFORE this current assignment (e.g., global variable with type annotation)
     // Note: isDeclared returns true even if we just declared in the same statement, so we need
     // to check isGlobalVar which indicates pre-existing type annotation
     const has_predeclared_type = self.isGlobalVar(var_name);
+
+    // Check if pre-declared type is an array (not ArrayList)
+    // This happens when type inference returns .array for constant homogeneous lists
+    const predeclared_is_array = if (has_predeclared_type) blk: {
+        const var_type = self.type_inferrer.var_types.get(var_name);
+        if (var_type) |vt| {
+            break :blk type_traits.isArray(vt);
+        }
+        break :blk false;
+    } else false;
+
+    // If pre-declared as array, use array literal syntax instead of ArrayList pattern
+    if (has_predeclared_type and predeclared_is_array) {
+        // Generate: [_]T{elem1, elem2, ...}
+        // Get element type from the pre-declared array type
+        const var_type = self.type_inferrer.var_types.get(var_name);
+        const elem_type_str = if (var_type) |vt| blk: {
+            if (vt == .array) {
+                var type_buf = std.ArrayListUnmanaged(u8){};
+                defer type_buf.deinit(self.allocator);
+                try vt.array.element_type.toZigType(self.allocator, &type_buf);
+                break :blk try self.allocator.dupe(u8, type_buf.items);
+            }
+            break :blk "i64";
+        } else "i64";
+        defer if (var_type != null and var_type.? == .array) self.allocator.free(elem_type_str);
+
+        try self.emit("[_]");
+        try self.emit(elem_type_str);
+        try self.emit("{");
+        for (list.elts, 0..) |elem, i| {
+            if (i > 0) try self.emit(", ");
+            try genExpr(self, elem);
+        }
+        try self.emit("};\n");
+        return;
+    }
 
     // Infer element type with widening across ALL elements
     var elem_type: NativeType = if (list.elts.len > 0)

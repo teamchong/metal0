@@ -785,19 +785,21 @@ pub fn genFunctionBody(
         };
 
         for (func.args) |arg| {
-            // IMPORTANT: Skip params that were made anonymous ("_:") during signature generation.
-            // These params are named "_" in Zig, so referencing the original Python name would
-            // cause "undeclared identifier" errors. Check if param was used in Python body.
-            const was_param_used_in_python = param_analyzer.isNameUsedInBody(func.body, arg.name);
+            // Skip if param was made anonymous in the signature.
+            // Check matches signature generation: for classes without known parent, params
+            // only used in super() calls are made anonymous (super calls are stripped).
+            // Note: Don't check anytype_params - a param can be both anonymous and anytype.
+            const has_known_parent = if (self.current_class_name) |ccn| self.getParentClassName(ccn) != null else true;
+            const was_param_used_in_python = if (!has_known_parent)
+                param_analyzer.isNameUsedInBodyExcludingSuperCalls(func.body, arg.name)
+            else
+                param_analyzer.isNameUsedInBody(func.body, arg.name);
             if (!was_param_used_in_python) {
-                // Param was made anonymous in signature - no discard needed
+                // Param was made anonymous ("_:") in signature - no discard needed
                 continue;
             }
 
-            // Check all params - anytype params don't get _ prefix in signature,
-            // but regular params might be unused if body was partially skipped
             // Check if this param appears as a complete identifier in the generated body
-            // (not just as a substring - e.g., "t" shouldn't match in "const")
             const param_is_used = blk: {
                 var pos: usize = 0;
                 while (std.mem.indexOfPos(u8, body_output, pos, arg.name)) |idx| {
@@ -1554,19 +1556,17 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // Start from 1 to skip self parameter (already handled above)
         const start_param = if (method.args.len > 0) @as(usize, 1) else @as(usize, 0);
         for (method.args[start_param..]) |arg| {
-            // IMPORTANT: Skip params that were made anonymous ("_:") during signature generation.
-            // These params are named "_" in Zig, so referencing the original Python name would
-            // cause "undeclared identifier" errors. We check if the param was used in Python
-            // body analysis - if not, signature gen already handled it.
-            // NOTE: For class methods without known parents, super() calls are stripped during codegen,
-            // so use isNameUsedInBodyExcludingSuperCalls to match signature generation logic.
+            // Skip if param was made anonymous in the signature.
+            // Check matches signature generation: for classes without known parent, params
+            // only used in super() calls are made anonymous (super calls are stripped).
+            // Note: Don't check anytype_params - a param can be both anonymous and anytype.
             const has_known_parent = if (self.current_class_name) |ccn| self.getParentClassName(ccn) != null else true;
             const was_param_used_in_python = if (!has_known_parent)
                 param_analyzer.isNameUsedInBodyExcludingSuperCalls(method.body, arg.name)
             else
                 param_analyzer.isNameUsedInBody(method.body, arg.name);
             if (!was_param_used_in_python) {
-                // Param was made anonymous in signature - no discard needed
+                // Param was made anonymous ("_:") in signature - no discard needed
                 continue;
             }
 

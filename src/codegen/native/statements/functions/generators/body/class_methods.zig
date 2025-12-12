@@ -403,7 +403,13 @@ pub fn genInitMethod(
     // Track renamed parameters: original name -> renamed name
     const RenamedParam = struct { original: []const u8, renamed: []const u8 };
     var renamed_params: std.ArrayList(RenamedParam) = .{};
-    defer renamed_params.deinit(self.allocator);
+    defer {
+        // Clean up var_renames for renamed params (must happen after function body generated)
+        for (renamed_params.items) |entry| {
+            _ = self.var_renames.swapRemove(entry.original);
+        }
+        renamed_params.deinit(self.allocator);
+    }
 
     // Parameters (skip 'self')
     for (init_def.args) |arg| {
@@ -411,28 +417,22 @@ pub fn genInitMethod(
 
         try self.emit(", ");
 
-        // Check if parameter name shadows a class-level attribute (lazy method or field)
-        // e.g., num = property(...) creates a lazy method `num`, which conflicts with param `num`
-        const shadows_class_member = if (self.current_class_body) |class_body| blk: {
-            for (class_body) |stmt| {
-                // Check class-level assignments (become lazy attrs or fields)
-                if (stmt == .assign) {
-                    for (stmt.assign.targets) |target| {
-                        if (target == .name) {
-                            if (std.mem.eql(u8, target.name.id, arg.name)) {
-                                break :blk true;
-                            }
-                        }
-                    }
-                }
-            }
-            break :blk false;
-        } else false;
+        // Check if parameter name shadows a class method or class-level attribute
+        // e.g., `def real(self)` method or `num = property(...)` class attr conflicts with param of same name
+        // Uses the same helper as genInitMethodWithBuiltinBase() for consistency
+        const shadows_class_member = if (self.current_class_body) |class_body|
+            wouldShadowMethodInClass(arg.name, class_body)
+        else
+            false;
 
         // Check if parameter shadows module-level declaration (var, function, import)
         const shadows_module_level = self.module_level_funcs.contains(arg.name) or
             self.module_level_vars.contains(arg.name) or
             self.imported_modules.contains(arg.name);
+
+        // Check if parameter name is assigned in the init body (local var shadows param)
+        // e.g., `def __init__(self, d): if not d: d = {}` - the `d = {}` would shadow param
+        const shadows_local_assign = param_analyzer.isNameAssignedInInitBody(init_def.body, arg.name);
 
         // Check if parameter is used in init body (excluding parent __init__ calls)
         // Parent calls are skipped in codegen, so params only used there are unused
@@ -440,7 +440,7 @@ pub fn genInitMethod(
         if (!is_used) {
             // Zig requires unused params to be named just "_", not "_name"
             try self.emit("_: ");
-        } else if (shadows_class_member or shadows_module_level) {
+        } else if (shadows_class_member or shadows_module_level or shadows_local_assign) {
             // Rename parameter to avoid shadowing using NameGen
             const renamed = try self.name_gen.param(arg.name);
             try self.emit(renamed);
@@ -723,8 +723,10 @@ pub fn genInitMethodWithBuiltinBase(
                 const shadows_module_level = self.module_level_funcs.contains(arg.name) or
                     self.module_level_vars.contains(arg.name) or
                     self.imported_modules.contains(arg.name);
+                // Check if param would shadow a local variable assignment in init body
+                const shadows_local_assign = param_analyzer.isNameAssignedInInitBody(init.body, arg.name);
 
-                if (shadows_class_method or shadows_module_level) {
+                if (shadows_class_method or shadows_module_level or shadows_local_assign) {
                     // Rename parameter using NameGen for unique naming
                     const renamed = try self.name_gen.param(arg.name);
                     try self.var_renames.put(arg.name, renamed);
@@ -1158,8 +1160,10 @@ pub fn genInitMethodFromNew(
                 self.imported_modules.contains(arg.name);
             // Check if param is 'self' in nested class (would shadow outer method's self)
             const shadows_outer_self = is_nested and std.mem.eql(u8, arg.name, "self");
+            // Check if param would shadow a local variable assignment in __new__ body
+            const shadows_local_assign = param_analyzer.isNameAssignedInInitBody(new_method.body, arg.name);
 
-            if (shadows_class_method or shadows_module_level or shadows_outer_self) {
+            if (shadows_class_method or shadows_module_level or shadows_outer_self or shadows_local_assign) {
                 // Rename parameter using NameGen for unique naming
                 const renamed = try self.name_gen.param(arg.name);
                 try self.var_renames.put(arg.name, renamed);

@@ -488,6 +488,13 @@ pub fn genStandardClosure(
     try self.emitIndent();
     try self.emit("};\n");
 
+    // Add discard statements to prevent "unused local constant" errors
+    // The closure impl/capture types might not be used if the closure itself isn't called
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("_ = &{s};\n", .{closure_impl_name});
+    try self.emitIndent();
+    try self.output.writer(self.allocator).print("_ = &{s};\n", .{capture_type_name});
+
     // Check for forward-referenced captures (variables not yet declared)
     // These need deferred instantiation - will be instantiated when the variable is assigned
     var forward_ref_vars = std.ArrayList([]const u8){};

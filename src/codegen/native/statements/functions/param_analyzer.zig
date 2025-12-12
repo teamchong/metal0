@@ -24,6 +24,87 @@ pub const isSuperMethodCall = variable_usage.isSuperMethodCall;
 // Init body analysis functions
 // ============================================================================
 
+/// Check if a variable name is assigned (not just used) in the body
+/// This is used to detect when a parameter name would conflict with a local variable
+/// e.g., `def __init__(self, d): if not d: d = {}`
+/// In this case, parameter `d` should be renamed to avoid shadowing local `d`
+pub fn isNameAssignedInInitBody(body: []const ast.Node, name: []const u8) bool {
+    for (body) |stmt| {
+        if (isNameAssignedInStmt(stmt, name)) return true;
+    }
+    return false;
+}
+
+fn isNameAssignedInStmt(stmt: ast.Node, name: []const u8) bool {
+    return switch (stmt) {
+        .assign => |assign| {
+            for (assign.targets) |target| {
+                if (target == .name and std.mem.eql(u8, target.name.id, name)) return true;
+            }
+            return false;
+        },
+        .aug_assign => |aug| {
+            if (aug.target.* == .name and std.mem.eql(u8, aug.target.name.id, name)) return true;
+            return false;
+        },
+        .ann_assign => |ann| {
+            if (ann.target.* == .name and std.mem.eql(u8, ann.target.name.id, name)) return true;
+            return false;
+        },
+        .if_stmt => |if_stmt| {
+            for (if_stmt.body) |s| if (isNameAssignedInStmt(s, name)) return true;
+            for (if_stmt.else_body) |s| if (isNameAssignedInStmt(s, name)) return true;
+            return false;
+        },
+        .while_stmt => |while_stmt| {
+            for (while_stmt.body) |s| if (isNameAssignedInStmt(s, name)) return true;
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| if (isNameAssignedInStmt(s, name)) return true;
+            }
+            return false;
+        },
+        .for_stmt => |for_stmt| {
+            // Check if for loop variable is the name
+            if (for_stmt.target.* == .name and std.mem.eql(u8, for_stmt.target.name.id, name)) return true;
+            for (for_stmt.body) |s| if (isNameAssignedInStmt(s, name)) return true;
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| if (isNameAssignedInStmt(s, name)) return true;
+            }
+            return false;
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |s| if (isNameAssignedInStmt(s, name)) return true;
+            for (try_stmt.handlers) |handler| {
+                // Check exception variable binding
+                if (handler.name) |exc_name| {
+                    if (std.mem.eql(u8, exc_name, name)) return true;
+                }
+                for (handler.body) |s| if (isNameAssignedInStmt(s, name)) return true;
+            }
+            for (try_stmt.else_body) |s| if (isNameAssignedInStmt(s, name)) return true;
+            for (try_stmt.finalbody) |s| if (isNameAssignedInStmt(s, name)) return true;
+            return false;
+        },
+        .with_stmt => |with_stmt| {
+            // Check 'as' binding
+            if (with_stmt.optional_vars) |opt_vars| {
+                if (opt_vars.* == .name and std.mem.eql(u8, opt_vars.name.id, name)) return true;
+            }
+            for (with_stmt.body) |s| if (isNameAssignedInStmt(s, name)) return true;
+            return false;
+        },
+        .match_stmt => |match_stmt| {
+            for (match_stmt.cases) |case| {
+                for (case.body) |s| if (isNameAssignedInStmt(s, name)) return true;
+            }
+            return false;
+        },
+        // Note: we don't recurse into nested function_def/class_def since those
+        // have their own scope and won't cause shadowing at our level
+        else => false,
+    };
+}
+
 /// Check if __init__ body only raises an exception (no actual initialization)
 /// Returns true if the body consists only of: raise, pass, docstring, or parent init calls
 pub fn isInitBodyOnlyRaises(body: []const ast.Node) bool {
