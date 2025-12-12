@@ -255,6 +255,9 @@ pub const PyValue = union(enum) {
             return .{ .bigint = value };
         } else if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize) {
             return .{ .int = @intCast(value) };
+        } else if (@typeInfo(T) == .comptime_int) {
+            // Handle comptime_int values
+            return .{ .int = @as(i64, value) };
         } else if (T == f64 or T == f32) {
             return .{ .float = @floatCast(value) };
         } else if (T == bool) {

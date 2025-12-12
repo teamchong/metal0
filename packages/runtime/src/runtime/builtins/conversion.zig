@@ -1,6 +1,8 @@
 /// Conversion builtins (hex, oct, bin, intWithBase, round)
 const std = @import("std");
-const PythonError = @import("../../runtime.zig").PythonError;
+const runtime = @import("../../runtime.zig");
+const PythonError = runtime.PythonError;
+const PyValue = runtime.PyValue;
 
 /// hex(x) - convert integer to hexadecimal string with "0x" prefix
 pub fn hex(allocator: std.mem.Allocator, value: anytype) []const u8 {
@@ -159,6 +161,38 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
             if (@typeInfo(FirstT) == .int or @typeInfo(FirstT) == .comptime_int) {
                 break :blk @intCast(first);
             }
+            // Handle PyValue or similar tagged union containing int or bigint
+            // Use duck-typing: check if it's a tagged union with int/bigint fields
+            const first_info = @typeInfo(FirstT);
+            if (first_info == .@"union" and first_info.@"union".tag_type != null) {
+                // Check for .int field - use switch for proper tagged union access
+                if (@hasField(FirstT, "int")) {
+                    switch (first) {
+                        .int => |v| break :blk @intCast(v),
+                        else => {},
+                    }
+                }
+                // Check for .bigint field
+                if (@hasField(FirstT, "bigint")) {
+                    switch (first) {
+                        .bigint => |bi| {
+                            // For BigInt, try to convert to i32 if it fits
+                            if (bi.toInt(i32)) |val| {
+                                break :blk val;
+                            } else |_| {
+                                // BigInt is too large for ndigits, use extreme value
+                                // Check if negative (very small n) or positive (very large n)
+                                if (bi.isNegative()) {
+                                    break :blk -1000; // Will trigger early return for 0.0
+                                } else {
+                                    break :blk 1000; // Will trigger early return for original value
+                                }
+                            }
+                        },
+                        else => {},
+                    }
+                }
+            }
         }
         break :blk 0;
     };
@@ -167,8 +201,28 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
         return bankersRound(float_val);
     }
 
+    // Handle extreme ndigits that would cause underflow/overflow
+    // For very negative ndigits, the result is 0.0 (or -0.0 for negative input)
+    // For very positive ndigits, the result is the original value
+    if (ndigits < -308) {
+        return if (float_val < 0) -0.0 else 0.0;
+    }
+    if (ndigits > 308) {
+        return float_val;
+    }
+
     const multiplier = std.math.pow(f64, 10.0, @floatFromInt(ndigits));
-    return bankersRound(float_val * multiplier) / multiplier;
+    // Guard against multiplier underflow to 0
+    if (multiplier == 0.0) {
+        return if (float_val < 0) -0.0 else 0.0;
+    }
+    const rounded = bankersRound(float_val * multiplier);
+    const result = rounded / multiplier;
+    // Preserve sign of input when result is zero (Python semantics)
+    if (result == 0.0 and std.math.signbit(float_val)) {
+        return -0.0;
+    }
+    return result;
 }
 
 /// Banker's rounding (round half to even)
