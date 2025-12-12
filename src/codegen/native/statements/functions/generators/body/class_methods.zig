@@ -34,12 +34,23 @@ fn bodyCanRaise(stmts: []const ast.Node) bool {
             },
             .for_stmt => |for_stmt| {
                 if (bodyCanRaise(for_stmt.body)) return true;
+                if (for_stmt.orelse_body) |orelse_body| {
+                    if (bodyCanRaise(orelse_body)) return true;
+                }
             },
             .while_stmt => |while_stmt| {
                 if (bodyCanRaise(while_stmt.body)) return true;
+                if (while_stmt.orelse_body) |orelse_body| {
+                    if (bodyCanRaise(orelse_body)) return true;
+                }
             },
             .with_stmt => |with_stmt| {
                 if (bodyCanRaise(with_stmt.body)) return true;
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    if (bodyCanRaise(case.body)) return true;
+                }
             },
             // Don't recurse into nested try blocks - their raise is handled locally
             // Don't recurse into nested functions - their raise is local to them
