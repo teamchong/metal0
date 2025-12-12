@@ -303,8 +303,8 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
     if (cond_is_boolop or cond_is_compare) {
         // Boolean operations and comparisons generate bool directly, use as-is
         try genExpr(self, ie.condition.*);
-    } else if (type_traits.isUnknown(cond_type)) {
-        // Unknown type (PyObject) - use runtime truthiness check
+    } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
+        // Two-Flow: Unknown/PyValue type - use runtime truthiness check
         try self.emit("runtime.pyTruthy(");
         try genExpr(self, ie.condition.*);
         try self.emit(")");

@@ -1141,8 +1141,10 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try self.emit("unreachable // TypeError: ordering comparison not supported for complex numbers");
             }
         }
-        // Handle unknown type comparisons (anytype parameters)
-        else if (type_traits.isUnknown(current_left_type) or type_traits.isUnknown(right_type)) {
+        // Handle unknown type comparisons (anytype parameters) and PyValue (Two-Flow uncertain types)
+        else if (type_traits.isUnknown(current_left_type) or type_traits.isUnknown(right_type) or
+            current_left_type == .pyvalue or right_type == .pyvalue)
+        {
             // Special case: anytype compared to None
             // For anytype params with default=None, use comptime type check instead of null comparison
             const left_is_none = type_traits.isNone(current_left_type) or

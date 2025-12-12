@@ -66,8 +66,8 @@ fn genComprehensionCondition(
     if (is_already_bool) {
         // Boolean expression - use directly
         try genExprWithSubs(self, if_cond, subs);
-    } else if (type_traits.isUnknown(cond_type)) {
-        // Unknown type (PyObject) - use runtime truthiness check
+    } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
+        // Two-Flow: Unknown/PyValue type - use runtime truthiness check
         try self.emit("runtime.pyTruthy(");
         try genExprWithSubs(self, if_cond, subs);
         try self.emit(")");
@@ -141,8 +141,8 @@ fn genComprehensionConditionNoSubs(
     if (is_already_bool) {
         // Boolean expression - use directly
         try genExpr(self, if_cond);
-    } else if (type_traits.isUnknown(cond_type)) {
-        // Unknown type (PyObject) - use runtime truthiness check
+    } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
+        // Two-Flow: Unknown/PyValue type - use runtime truthiness check
         try self.emit("runtime.pyTruthy(");
         try genExpr(self, if_cond);
         try self.emit(")");
@@ -524,8 +524,8 @@ fn genExprWithSubs(
                 // Integer/float condition - check != 0
                 try genExprWithSubs(self, ie.condition.*, subs);
                 try self.emit(" != 0");
-            } else if (type_traits.isUnknown(cond_type)) {
-                // Unknown type (PyObject) - use runtime truthiness check
+            } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
+                // Two-Flow: Unknown/PyValue type - use runtime truthiness check
                 try self.emit("runtime.pyTruthy(");
                 try genExprWithSubs(self, ie.condition.*, subs);
                 try self.emit(")");
@@ -540,9 +540,13 @@ fn genExprWithSubs(
             try self.emit(")");
         },
         .compare => |cmp| {
-            // For complex comparisons (in, not in, is, is not), delegate to main genExpr
-            // which handles container membership, identity checks, etc. properly
-            const has_complex_op = blk: {
+            // For complex comparisons (in, not in, is, is not) OR chained comparisons (a < b < c),
+            // delegate to main genExpr which handles these properly.
+            // Zig doesn't support chained comparisons, so 0 < x < 3 must become ((0 < x) and (x < 3))
+            const needs_delegation = blk: {
+                // Chained comparisons need special handling
+                if (cmp.ops.len > 1) break :blk true;
+                // Complex operators need special handling
                 for (cmp.ops) |op| {
                     if (op == .In or op == .NotIn or op == .Is or op == .IsNot) {
                         break :blk true;
@@ -551,13 +555,13 @@ fn genExprWithSubs(
                 break :blk false;
             };
 
-            if (has_complex_op) {
+            if (needs_delegation) {
                 // Apply substitutions first by setting up temp vars, then delegate
                 // For now, just delegate directly - the loop var will be found
                 const parent = @import("../expressions.zig");
                 try parent.genExpr(self, expr);
             } else {
-                // Simple comparisons can be handled inline with substitution
+                // Simple single-operator comparisons can be handled inline with substitution
                 try self.emit("(");
                 try genExprWithSubs(self, cmp.left.*, subs);
                 for (cmp.ops, 0..) |op, idx| {
