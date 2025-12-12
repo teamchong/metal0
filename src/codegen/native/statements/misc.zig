@@ -564,6 +564,36 @@ fn exprUsesVar(expr: ast.Node, var_name: []const u8) bool {
             }
             break :blk false;
         },
+        .listcomp => |l| blk: {
+            if (exprUsesVar(l.elt.*, var_name)) break :blk true;
+            for (l.generators) |gen| {
+                if (exprUsesVar(gen.iter.*, var_name)) break :blk true;
+                for (gen.ifs) |cond| {
+                    if (exprUsesVar(cond, var_name)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .dictcomp => |d| blk: {
+            if (exprUsesVar(d.key.*, var_name) or exprUsesVar(d.value.*, var_name)) break :blk true;
+            for (d.generators) |gen| {
+                if (exprUsesVar(gen.iter.*, var_name)) break :blk true;
+                for (gen.ifs) |cond| {
+                    if (exprUsesVar(cond, var_name)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .genexp => |g| blk: {
+            if (exprUsesVar(g.elt.*, var_name)) break :blk true;
+            for (g.generators) |gen| {
+                if (exprUsesVar(gen.iter.*, var_name)) break :blk true;
+                for (gen.ifs) |cond| {
+                    if (exprUsesVar(cond, var_name)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
         .lambda => |l| exprUsesVar(l.body.*, var_name),
         .starred => |s| exprUsesVar(s.value.*, var_name),
         .double_starred => |ds| exprUsesVar(ds.value.*, var_name),
