@@ -47,8 +47,8 @@ pub const IoUringReader = struct {
         var self = IoUringReader{
             .allocator = allocator,
             .ring = undefined,
-            .pending = std.ArrayList(PendingRead).init(allocator),
-            .results = std.ArrayList(ReadResult).init(allocator),
+            .pending = .{},
+            .results = .{},
         };
 
         if (builtin.os.tag == .linux) {

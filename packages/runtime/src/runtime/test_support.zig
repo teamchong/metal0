@@ -221,13 +221,13 @@ pub const captured_stdout = struct {
 
     pub fn init(allocator: std.mem.Allocator) captured_stdout {
         return .{
-            .output = std.ArrayList(u8).init(allocator),
+            .output = .{},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *captured_stdout) void {
-        self.output.deinit();
+        self.output.deinit(self.allocator);
     }
 
     pub fn getvalue(self: *captured_stdout) []const u8 {
@@ -242,13 +242,13 @@ pub const captured_stderr = struct {
 
     pub fn init(allocator: std.mem.Allocator) captured_stderr {
         return .{
-            .output = std.ArrayList(u8).init(allocator),
+            .output = .{},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *captured_stderr) void {
-        self.output.deinit();
+        self.output.deinit(self.allocator);
     }
 
     pub fn getvalue(self: *captured_stderr) []const u8 {

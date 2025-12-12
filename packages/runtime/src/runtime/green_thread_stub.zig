@@ -31,9 +31,9 @@ pub const Scheduler = struct {
         return Scheduler{
             .allocator = allocator,
             .next_id = std.atomic.Value(u64).init(1),
-            .threads = std.ArrayList(*GreenThread).init(allocator),
+            .threads = .{},
             .mutex = .{},
-            .worker_threads = std.ArrayList(std.Thread).init(allocator),
+            .worker_threads = .{},
         };
     }
 
