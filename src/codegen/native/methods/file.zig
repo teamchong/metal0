@@ -55,7 +55,7 @@ pub fn genFileReadlines(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) C
 
 /// Generate code for file.writelines(lines)
 pub fn genFileWritelines(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) return;
+    if (args.len < 1) return error.UnsupportedSyntax;
     try self.emit("writelines_blk: { const _f = "); try self.genExpr(obj);
     try self.emit("; const _lines = "); try self.genExpr(args[0]);
     try self.emit("; for (_lines) |_line| { _ = _f.file.write(_line) catch continue; } break :writelines_blk {}; }");
@@ -63,7 +63,7 @@ pub fn genFileWritelines(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) 
 
 /// Generate code for file.seek(offset, whence=0)
 pub fn genFileSeek(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) return;
+    if (args.len < 1) return error.UnsupportedSyntax;
     try self.emit("seek_blk: { const _f = "); try self.genExpr(obj);
     try self.emit("; const _offset: i64 = @intCast("); try self.genExpr(args[0]); try self.emit("); ");
     if (args.len > 1) {

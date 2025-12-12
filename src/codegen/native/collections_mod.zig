@@ -73,7 +73,7 @@ pub fn genCounterElements(self: *NativeCodegen, obj: ast.Node, args: []ast.Node)
 /// Generate code for Counter.subtract(iterable_or_mapping)
 /// Subtracts counts (can go negative)
 pub fn genCounterSubtract(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     // Generate: { for (other.keys()) |k| { counter.getPtr(k).?.* -= other.get(k).?; } }
     try self.emit("{ const __other = ");
     try self.genExpr(args[0]);

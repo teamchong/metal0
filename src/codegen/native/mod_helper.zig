@@ -173,7 +173,7 @@ pub fn wrapN(comptime n: usize, comptime pre: []const u8, comptime suf: []const 
 /// Generates log: blk: { const _m = arg; std.debug.print("LEVEL: {s}\n", .{_m}); break :blk; }
 pub fn logLevel(comptime level: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) return;
+        if (args.len == 0) return error.UnsupportedSyntax;
         try self.emit("blk: { const _m = "); try self.genExpr(args[0]);
         try self.emit("; std.debug.print(\"" ++ level ++ ": {s}\\n\", .{_m}); break :blk; }");
     } }.f;
@@ -222,7 +222,7 @@ pub fn complexStdMath(comptime fn_name: []const u8, comptime d: []const u8) H {
 /// Base64 encode using specified encoder
 pub fn b64enc(comptime encoder: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) return;
+        if (args.len == 0) return error.UnsupportedSyntax;
         try self.emit("blk: { const d = "); try self.genExpr(args[0]);
         try self.emit("; const len = std.base64." ++ encoder ++ ".Encoder.calcSize(d.len); const buf = __global_allocator.alloc(u8, len) catch break :blk \"\"; break :blk std.base64." ++ encoder ++ ".Encoder.encode(buf, d); }");
     } }.f;
@@ -231,7 +231,7 @@ pub fn b64enc(comptime encoder: []const u8) H {
 /// Base64 decode using specified decoder
 pub fn b64dec(comptime decoder: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) return;
+        if (args.len == 0) return error.UnsupportedSyntax;
         try self.emit("blk: { const d = "); try self.genExpr(args[0]);
         try self.emit("; const len = std.base64." ++ decoder ++ ".Decoder.calcSizeForSlice(d) catch break :blk \"\"; const buf = __global_allocator.alloc(u8, len) catch break :blk \"\"; std.base64." ++ decoder ++ ".Decoder.decode(buf, d) catch break :blk \"\"; break :blk buf; }");
     } }.f;
@@ -240,7 +240,7 @@ pub fn b64dec(comptime decoder: []const u8) H {
 /// Stub that discards arg and returns result
 pub fn stub(comptime result: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) return;
+        if (args.len == 0) return error.UnsupportedSyntax;
         try self.emit("blk: { _ = "); try self.genExpr(args[0]); try self.emit("; break :blk " ++ result ++ "; }");
     } }.f;
 }
@@ -257,7 +257,7 @@ pub fn hashNew(comptime name: []const u8) H {
 /// Constant-time compare digest: returns true if both slices are equal
 pub fn compareDigest() H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len < 2) return;
+        if (args.len < 2) return error.UnsupportedSyntax;
         try self.emit("blk: { const _a = "); try self.genExpr(args[0]); try self.emit("; const _b = "); try self.genExpr(args[1]);
         try self.emit("; if (_a.len != _b.len) break :blk false; var _diff: u8 = 0; for (_a, _b) |a_byte, b_byte| { _diff |= a_byte ^ b_byte; } break :blk _diff == 0; }");
     } }.f;

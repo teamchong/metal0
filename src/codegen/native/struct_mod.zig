@@ -56,7 +56,7 @@ pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 pub fn genUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len < 2) return error.UnsupportedSyntax;
     const fmt_str = getFormatStr(args[0]);
     try self.emit("struct_unpack_blk: { const _fmt = "); try self.genExpr(args[0]);
     try self.emit("; const _raw_data = "); try self.genExpr(args[1]);
@@ -102,7 +102,7 @@ fn genPackInto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genUnpackFrom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("struct_unpack_from_blk: { const _fmt = "); try self.genExpr(args[0]);
     try self.emit("; const _data = "); try self.genExpr(args[1]); try self.emit("; const _offset: usize = ");
     if (args.len > 2) { try self.emit("@intCast("); try self.genExpr(args[2]); try self.emit(")"); } else try self.emit("0");

@@ -46,7 +46,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 pub fn genRandrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     // Use unique label and variable names to avoid shadowing outer scope variables
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
@@ -97,7 +97,7 @@ pub fn genRandrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genChoices(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("__choices_blk: { const __choices_seq = "); try self.genExpr(args[0]); try self.emit("; const k: usize = ");
     if (args.len > 1) { try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit(")"); } else try self.emit("1");
     try self.emit("; " ++ prng ++ "var res: std.ArrayListUnmanaged(@TypeOf(__choices_seq[0])) = .{}; var i: usize = 0; while (i < k) : (i += 1) res.append(__global_allocator, __choices_seq[_prng.random().int(usize) % __choices_seq.len]) catch continue; break :__choices_blk res.items; }");

@@ -89,7 +89,7 @@ pub fn genPartial(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for functools.cached_property decorator
 /// A property that caches its computed value
 pub fn genCachedProperty(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     // Just return the function - caching would require runtime state per instance
     try self.genExpr(args[0]);
 }

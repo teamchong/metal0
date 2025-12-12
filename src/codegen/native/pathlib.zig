@@ -32,7 +32,7 @@ fn boolCheck(comptime label: []const u8, comptime check: []const u8, comptime fa
 fn methodWithArg(comptime label: []const u8, comptime body: []const u8) MH {
     return struct {
         fn f(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-            if (args.len < 1) return;
+            if (args.len < 1) return error.UnsupportedSyntax;
             try self.emit(label ++ "_blk: { const _p = ");
             try self.genExpr(obj);
             try self.emit("; const _arg = ");
@@ -122,7 +122,7 @@ pub const PathMethods = std.StaticStringMap(MH).initComptime(.{
 // === Complex handlers ===
 
 fn genPathWrite(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) return;
+    if (args.len < 1) return error.UnsupportedSyntax;
     try self.emit("path_write_blk: { const _p = ");
     try self.genExpr(obj);
     try self.emit("; const _data = ");
@@ -131,7 +131,7 @@ fn genPathWrite(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 }
 
 fn genPathRename(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) return;
+    if (args.len < 1) return error.UnsupportedSyntax;
     try self.emit("path_rename_blk: { const _old = ");
     try self.genExpr(obj);
     try self.emit("; const _new = ");
@@ -140,7 +140,7 @@ fn genPathRename(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 }
 
 fn genPathReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) return;
+    if (args.len < 1) return error.UnsupportedSyntax;
     try self.emit("path_replace_blk: { const _old = ");
     try self.genExpr(obj);
     try self.emit("; const _new = ");
@@ -149,7 +149,7 @@ fn genPathReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 }
 
 fn genPathChmod(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) return;
+    if (args.len < 1) return error.UnsupportedSyntax;
     try self.emit("path_chmod_blk: { const _p = ");
     try self.genExpr(obj);
     try self.emit("; const _m: std.fs.File.Mode = @intCast(");

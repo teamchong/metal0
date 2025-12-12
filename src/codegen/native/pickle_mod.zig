@@ -14,7 +14,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
 
     // Get protocol if specified (2nd arg)
     var protocol: u8 = 4; // default
@@ -41,7 +41,7 @@ fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("pickle_dump_blk: { const _pickle_data = try runtime.pickle.dumps(");
     try self.genExpr(args[0]);
     try self.emit(", __global_allocator); const _file = ");

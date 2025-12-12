@@ -15,7 +15,8 @@ const H = m.H;
 fn pathBlock(comptime name: []const u8, comptime body: []const u8, comptime result: []const u8) H {
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-            if (args.len == 0) return;
+            // os.path operations require at least 1 argument
+            if (args.len == 0) return error.UnsupportedSyntax;
             try self.emit("os_" ++ name ++ "_blk: { const _path = ");
             try self.genExpr(args[0]);
             try self.emit("; " ++ body ++ "break :os_" ++ name ++ "_blk " ++ result ++ "; }");
@@ -153,7 +154,8 @@ fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // os.getenv() requires at least 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_getenv_blk: { const _key = ");
     try self.genExpr(args[0]);
     try self.emit("; break :os_getenv_blk std.posix.getenv(_key) orelse ");
@@ -166,7 +168,8 @@ fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    // os.rename() requires 2 arguments
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("os_rename_blk: { const _old = ");
     try self.genExpr(args[0]);
     try self.emit("; const _new = ");
@@ -175,14 +178,16 @@ fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genStat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    // os.stat() requires 1 argument
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_stat_blk: { const _path = ");
     try self.genExpr(args[0]);
     try self.emit("; const _stat = std.fs.cwd().statFile(_path) catch break :os_stat_blk struct { st_size: i64 = 0, st_mode: u32 = 0, st_ino: u64 = 0, st_mtime: i64 = 0, st_atime: i64 = 0, st_ctime: i64 = 0 }{}; break :os_stat_blk .{ .st_size = @intCast(_stat.size), .st_mode = @intCast(_stat.mode), .st_ino = _stat.inode, .st_mtime = @intCast(@divFloor(_stat.mtime, 1_000_000_000)), .st_atime = @intCast(@divFloor(_stat.atime, 1_000_000_000)), .st_ctime = @intCast(@divFloor(_stat.ctime, 1_000_000_000)) }; }");
 }
 
 fn genChmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    // os.chmod() requires 2 arguments
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("os_chmod_blk: { const _path = ");
     try self.genExpr(args[0]);
     try self.emit("; const _mode: std.fs.File.Mode = @intCast(");
@@ -191,7 +196,8 @@ fn genChmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genAccess(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    // os.access() requires 2 arguments
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("os_access_blk: { const _p = ");
     try self.genExpr(args[0]);
     try self.emit("; _ = ");
@@ -200,7 +206,7 @@ fn genAccess(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genTruncate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("os_truncate_blk: { const _p = ");
     try self.genExpr(args[0]);
     try self.emit("; const _len = @as(u64, @intCast(");
@@ -209,7 +215,7 @@ fn genTruncate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genKill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("os_kill_blk: { const _pid: std.posix.pid_t = @intCast(");
     try self.genExpr(args[0]);
     try self.emit("); const _sig: u6 = @intCast(");
@@ -218,14 +224,14 @@ fn genKill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genSystem(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_system_blk: { const _cmd = ");
     try self.genExpr(args[0]);
     try self.emit("; const _argv = [_][]const u8{ \"/bin/sh\", \"-c\", _cmd }; var _child = std.process.Child.init(.{ .argv = &_argv, .allocator = __global_allocator }); _ = _child.spawn() catch break :os_system_blk @as(i64, -1); const _r = _child.wait() catch break :os_system_blk @as(i64, -1); break :os_system_blk @as(i64, @intCast(_r.Exited)); }");
 }
 
 fn genDup2(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("@as(i64, @intCast(std.posix.dup2(@intCast(");
     try self.genExpr(args[0]);
     try self.emit("), @intCast(");
@@ -234,7 +240,7 @@ fn genDup2(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genRead(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("os_read_blk: { const _fd = @as(std.posix.fd_t, @intCast(");
     try self.genExpr(args[0]);
     try self.emit(")); const _n = @as(usize, @intCast(");
@@ -243,7 +249,7 @@ fn genRead(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genWrite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("@as(i64, @intCast(std.posix.write(@intCast(");
     try self.genExpr(args[0]);
     try self.emit("), ");
@@ -252,7 +258,7 @@ fn genWrite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("os_open_blk: { const _p = ");
     try self.genExpr(args[0]);
     try self.emit("; const _flags = @as(u32, @intCast(");
@@ -261,14 +267,14 @@ fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genUrandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_urandom_blk: { const _n = @as(usize, @intCast(");
     try self.genExpr(args[0]);
     try self.emit(")); var _buf = try __global_allocator.alloc(u8, _n); std.crypto.random.bytes(_buf); break :os_urandom_blk _buf; }");
 }
 
 fn genWalk(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_walk_blk: { const _root = ");
     try self.genExpr(args[0]);
     try self.emit("; var _results: std.ArrayListUnmanaged(struct { []const u8, std.ArrayListUnmanaged([]const u8), std.ArrayListUnmanaged([]const u8) }) = .{}; var _dirs: std.ArrayListUnmanaged([]const u8) = .{}; _dirs.append(__global_allocator, _root) catch {}; while (_dirs.items.len > 0) { const _cur = _dirs.pop(); var _subdirs: std.ArrayListUnmanaged([]const u8) = .{}; var _files: std.ArrayListUnmanaged([]const u8) = .{}; var _dir = std.fs.cwd().openDir(_cur, .{ .iterate = true }) catch continue; defer _dir.close(); var _it = _dir.iterate(); while (_it.next() catch null) |_e| { const _name = __global_allocator.dupe(u8, _e.name) catch continue; if (_e.kind == .directory) { _subdirs.append(__global_allocator, _name) catch continue; const _full = std.fs.path.join(__global_allocator, &.{_cur, _name}) catch continue; _dirs.append(__global_allocator, _full) catch continue; } else { _files.append(__global_allocator, _name) catch continue; } } _results.append(__global_allocator, .{ _cur, _subdirs, _files }) catch continue; } break :os_walk_blk _results; }");
@@ -287,7 +293,7 @@ fn genScandir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genSymlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) return;
+    if (args.len < 2) return error.UnsupportedSyntax;
     try self.emit("os_symlink_blk: { const _src = ");
     try self.genExpr(args[0]);
     try self.emit("; const _dst = ");
@@ -296,14 +302,14 @@ fn genSymlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genReadlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_readlink_blk: { const _p = ");
     try self.genExpr(args[0]);
     try self.emit("; var _buf: [4096]u8 = undefined; break :os_readlink_blk std.fs.cwd().readLink(_p, &_buf) catch \"\"; }");
 }
 
 fn genIslink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_islink_blk: { const _p = ");
     try self.genExpr(args[0]);
     try self.emit("; const _s = std.fs.cwd().statFile(_p) catch break :os_islink_blk false; break :os_islink_blk _s.kind == .sym_link; }");
@@ -312,28 +318,28 @@ fn genIslink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 // === os.path handlers ===
 
 fn genPathExists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_path_exists_blk: { const _path = ");
     try self.genExpr(args[0]);
     try self.emit("; _ = std.fs.cwd().statFile(_path) catch { _ = std.fs.cwd().openDir(_path, .{}) catch break :os_path_exists_blk false; break :os_path_exists_blk true; }; break :os_path_exists_blk true; }");
 }
 
 fn genPathIsdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_path_isdir_blk: { const _path = ");
     try self.genExpr(args[0]);
     try self.emit("; var _dir = std.fs.cwd().openDir(_path, .{}) catch break :os_path_isdir_blk false; _dir.close(); break :os_path_isdir_blk true; }");
 }
 
 fn genPathIsfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_path_isfile_blk: { const _path = ");
     try self.genExpr(args[0]);
     try self.emit("; const _stat = std.fs.cwd().statFile(_path) catch break :os_path_isfile_blk false; _ = _stat; break :os_path_isfile_blk true; }");
 }
 
 fn genPathAbspath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_path_abspath_blk: { const _path = ");
     try self.genExpr(args[0]);
     try self.emit("; const _cwd = std.process.getCwdAlloc(__global_allocator) catch break :os_path_abspath_blk _path; break :os_path_abspath_blk std.fs.path.join(__global_allocator, &[_][]const u8{_cwd, _path}) catch _path; }");
@@ -357,21 +363,21 @@ fn genPathJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genPathSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_path_split_blk: { const _path = ");
     try self.genExpr(args[0]);
     try self.emit("; const _dirname = std.fs.path.dirname(_path) orelse \"\"; const _basename = std.fs.path.basename(_path); break :os_path_split_blk .{ .@\"0\" = _dirname, .@\"1\" = _basename }; }");
 }
 
 fn genPathSplitext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_path_splitext_blk: { const _path = ");
     try self.genExpr(args[0]);
     try self.emit("; const _ext = std.fs.path.extension(_path); const _root = if (_ext.len > 0) _path[0.._path.len - _ext.len] else _path; break :os_path_splitext_blk .{ .@\"0\" = _root, .@\"1\" = _ext }; }");
 }
 
 fn genPathGetsize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_path_getsize_blk: { const _path = ");
     try self.genExpr(args[0]);
     try self.emit("; const _stat = std.fs.cwd().statFile(_path) catch break :os_path_getsize_blk @as(i64, 0); break :os_path_getsize_blk @as(i64, @intCast(_stat.size)); }");

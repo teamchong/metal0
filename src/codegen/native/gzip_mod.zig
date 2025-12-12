@@ -12,7 +12,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("gzip_open_blk: { const _path = ");
     try self.genExpr(args[0]);
     try self.emit("; const _mode: []const u8 = ");

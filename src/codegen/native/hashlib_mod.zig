@@ -12,7 +12,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     if (args.len > 1) {
         try self.emit("blk: { var _h = try hashlib.new(");
         try self.genExpr(args[0]);

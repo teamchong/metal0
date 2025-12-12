@@ -24,7 +24,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return;
+    if (args.len == 0) return error.UnsupportedSyntax;
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
     const is_class_instance = type_traits.isClassInstance(arg_type) or (args[0] == .call and args[0].call.func.* == .name and std.ascii.isUpper(args[0].call.func.name.id[0]));
     if (is_class_instance) {
