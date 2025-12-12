@@ -4,8 +4,37 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
+/// Check if an expression is uncertain (needs PyValue operations)
+/// Two-Flow: routes uncertain values to PyValue extraction
+fn isExprUncertain(self: *NativeCodegen, expr: ast.Node) bool {
+    if (expr == .name) {
+        const name = expr.name.id;
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            switch (vt) {
+                .pyvalue, .unknown => return true,
+                else => {},
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+/// Helper to emit expression, extracting string from PyValue if uncertain
+fn emitStringExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    if (isExprUncertain(self, expr)) {
+        try self.genExpr(expr);
+        try self.emit(".asString()");
+    } else {
+        try self.genExpr(expr);
+    }
+}
+
 /// Generate code for open(filename, mode)
 /// Returns a file handle that supports .read(), .write(), .close()
+/// Two-Flow: Extracts filename string from PyValue if uncertain
 pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
         try self.emit("@compileError(\"open() requires at least 1 argument\")");
@@ -33,7 +62,8 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("blk: {\n");
     try self.emitIndent();
     try self.emit("    const __filename = ");
-    try self.genExpr(filename);
+    // Two-Flow: Extract string from PyValue if filename is uncertain
+    try emitStringExpr(self, filename);
     try self.emit(";\n");
     try self.emitIndent();
 
@@ -50,7 +80,8 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("    break :blk try runtime.PyFile.create(__global_allocator, __file, ");
     if (mode) |m| {
-        try self.genExpr(m);
+        // Two-Flow: Extract string from PyValue if mode is uncertain
+        try emitStringExpr(self, m);
     } else {
         try self.emit("\"r\"");
     }
@@ -60,6 +91,7 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate code for input([prompt]) - read line from stdin
+/// Two-Flow: Extracts prompt string from PyValue if uncertain
 pub fn genInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 1) {
         try self.emit("@compileError(\"input() takes at most 1 argument\")");
@@ -67,7 +99,8 @@ pub fn genInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit("runtime.builtins.input(__global_allocator, ");
     if (args.len == 1) {
-        try self.genExpr(args[0]);
+        // Two-Flow: Extract string from PyValue if prompt is uncertain
+        try emitStringExpr(self, args[0]);
     } else {
         try self.emit("\"\"");
     }

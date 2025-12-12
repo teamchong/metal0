@@ -133,6 +133,7 @@ pub const builtinLen = bltinmodule_sequences.len_builtin;
 
 /// Type name and string conversion utilities
 pub const type_name = @import("runtime/type_name.zig");
+pub const pyTypeName = type_name.pyTypeName;
 
 /// List concatenation and repetition
 pub const concat_repeat = @import("runtime/concat_repeat.zig");
