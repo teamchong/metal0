@@ -135,8 +135,8 @@ pub const WasmBindings = struct {
 
     pub fn init(allocator: std.mem.Allocator) WasmBindings {
         return .{
-            .imports = std.ArrayList(WasmImport).init(allocator),
-            .exports = std.ArrayList(WasmExport).init(allocator),
+            .imports = .{},
+            .exports = .{},
             .allocator = allocator,
         };
     }
@@ -145,11 +145,11 @@ pub const WasmBindings = struct {
         for (self.imports.items) |imp| {
             self.allocator.free(imp.params);
         }
-        self.imports.deinit();
+        self.imports.deinit(self.allocator);
         for (self.exports.items) |exp| {
             self.allocator.free(exp.params);
         }
-        self.exports.deinit();
+        self.exports.deinit(self.allocator);
     }
 
     /// Check if any WASM bindings are declared
@@ -224,20 +224,20 @@ fn extractNamespace(call: ast.Node.Call) ?[]const u8 {
 
 /// Add a WASM import binding
 fn addImport(allocator: std.mem.Allocator, bindings: *WasmBindings, func: ast.Node.FunctionDef, namespace: []const u8) !void {
-    var params = std.ArrayList(ParamType).init(allocator);
-    errdefer params.deinit();
+    var params: std.ArrayList(ParamType) = .{};
+    errdefer params.deinit(allocator);
 
     for (func.args) |arg| {
-        try params.append(.{
+        try params.append(allocator, .{
             .name = arg.name,
             .wasm_type = WasmType.fromPythonType(arg.type_annotation),
         });
     }
 
-    try bindings.imports.append(.{
+    try bindings.imports.append(allocator, .{
         .name = func.name,
         .namespace = namespace,
-        .params = try params.toOwnedSlice(),
+        .params = try params.toOwnedSlice(allocator),
         .return_type = WasmType.fromPythonType(func.return_type),
         .line = func.loc.line,
     });
@@ -245,20 +245,20 @@ fn addImport(allocator: std.mem.Allocator, bindings: *WasmBindings, func: ast.No
 
 /// Add a WASM export binding
 fn addExport(allocator: std.mem.Allocator, bindings: *WasmBindings, func: ast.Node.FunctionDef, export_name: ?[]const u8) !void {
-    var params = std.ArrayList(ParamType).init(allocator);
-    errdefer params.deinit();
+    var params: std.ArrayList(ParamType) = .{};
+    errdefer params.deinit(allocator);
 
     for (func.args) |arg| {
-        try params.append(.{
+        try params.append(allocator, .{
             .name = arg.name,
             .wasm_type = WasmType.fromPythonType(arg.type_annotation),
         });
     }
 
-    try bindings.exports.append(.{
+    try bindings.exports.append(allocator, .{
         .name = func.name,
         .export_name = export_name,
-        .params = try params.toOwnedSlice(),
+        .params = try params.toOwnedSlice(allocator),
         .return_type = WasmType.fromPythonType(func.return_type),
         .line = func.loc.line,
     });
@@ -270,9 +270,9 @@ fn addExport(allocator: std.mem.Allocator, bindings: *WasmBindings, func: ast.No
 
 /// Generate Zig extern declarations for all imports
 pub fn generateZigExterns(allocator: std.mem.Allocator, bindings: *const WasmBindings) ![]const u8 {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
-    const w = output.writer();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
+    const w = output.writer(allocator);
 
     try w.writeAll(
         \\// Auto-generated WASM imports by metal0
@@ -294,14 +294,14 @@ pub fn generateZigExterns(allocator: std.mem.Allocator, bindings: *const WasmBin
     defer {
         var it = namespaces.valueIterator();
         while (it.next()) |list| {
-            list.deinit();
+            list.deinit(allocator);
         }
         namespaces.deinit();
     }
 
     for (bindings.imports.items) |imp| {
-        var list = namespaces.get(imp.namespace) orelse std.ArrayList(WasmImport).init(allocator);
-        try list.append(imp);
+        var list = namespaces.get(imp.namespace) orelse std.ArrayList(WasmImport){};
+        try list.append(allocator, imp);
         try namespaces.put(imp.namespace, list);
     }
 
@@ -340,7 +340,7 @@ pub fn generateZigExterns(allocator: std.mem.Allocator, bindings: *const WasmBin
         try generateZigWrapper(w, imp);
     }
 
-    return output.toOwnedSlice();
+    return output.toOwnedSlice(allocator);
 }
 
 /// Generate a Zig wrapper function for an import
@@ -395,9 +395,9 @@ fn generateZigWrapper(w: anytype, imp: WasmImport) !void {
 
 /// Generate minimal JS loader with only declared imports
 pub fn generateJsLoader(allocator: std.mem.Allocator, bindings: *const WasmBindings, module_name: []const u8) ![]const u8 {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
-    const w = output.writer();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
+    const w = output.writer(allocator);
 
     try w.print(
         \\// Auto-generated WASM loader for {s}
@@ -479,7 +479,7 @@ pub fn generateJsLoader(allocator: std.mem.Allocator, bindings: *const WasmBindi
 
     try w.writeAll(" */\n");
 
-    return output.toOwnedSlice();
+    return output.toOwnedSlice(allocator);
 }
 
 /// Generate a JS handler for an import
@@ -548,9 +548,9 @@ fn generateJsHandler(w: anytype, imp: WasmImport) !void {
 
 /// Generate TypeScript definitions
 pub fn generateTypeDefs(allocator: std.mem.Allocator, bindings: *const WasmBindings, module_name: []const u8) ![]const u8 {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
-    const w = output.writer();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
+    const w = output.writer(allocator);
 
     try w.print(
         \\// Auto-generated TypeScript definitions for {s}
@@ -578,7 +578,7 @@ pub fn generateTypeDefs(allocator: std.mem.Allocator, bindings: *const WasmBindi
     );
     try w.print("{s}Exports>;\n", .{toPascalCase(module_name)});
 
-    return output.toOwnedSlice();
+    return output.toOwnedSlice(allocator);
 }
 
 fn toPascalCase(name: []const u8) []const u8 {
