@@ -431,6 +431,14 @@ pub fn pyEqual(allocator: std.mem.Allocator, a: anytype, b: anytype) !bool {
                 return std.mem.eql(u8, a, b);
             }
         }
+        // Check for BigInt (struct with managed field containing std.math.big.int.Managed)
+        // This is more specific than checking for eql method since other types may have eql
+        if (info_a == .@"struct" and @hasField(TypeA, "managed")) {
+            // BigInt has a managed field and eql method
+            if (@hasDecl(TypeA, "eql")) {
+                return a.eql(&b);
+            }
+        }
     }
 
     // Tagged union handling
