@@ -429,6 +429,19 @@ pub fn findOuterRefsInNode(
             try findOuterRefsInStmts(self, try_stmt.else_body, method_params, captured);
             try findOuterRefsInStmts(self, try_stmt.finalbody, method_params, captured);
         },
+        .with_stmt => |with_stmt| {
+            try findOuterRefsInNode(self, with_stmt.context_expr.*, method_params, captured);
+            try findOuterRefsInStmts(self, with_stmt.body, method_params, captured);
+        },
+        .match_stmt => |match_stmt| {
+            try findOuterRefsInNode(self, match_stmt.subject.*, method_params, captured);
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    try findOuterRefsInNode(self, guard.*, method_params, captured);
+                }
+                try findOuterRefsInStmts(self, case.body, method_params, captured);
+            }
+        },
         else => {},
     }
 }

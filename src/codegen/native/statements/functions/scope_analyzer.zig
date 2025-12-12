@@ -718,6 +718,50 @@ fn collectAllVarRefsInStmt(
                 try collectAllVarRefsInStmt(uses, stmt, allocator);
             }
         },
+        .while_stmt => |while_s| {
+            try collectVarRefs(uses, while_s.condition.*, allocator);
+            for (while_s.body) |stmt| {
+                try collectAllVarRefsInStmt(uses, stmt, allocator);
+            }
+            if (while_s.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try collectAllVarRefsInStmt(uses, stmt, allocator);
+                }
+            }
+        },
+        .try_stmt => |try_s| {
+            for (try_s.body) |stmt| {
+                try collectAllVarRefsInStmt(uses, stmt, allocator);
+            }
+            for (try_s.handlers) |handler| {
+                for (handler.body) |stmt| {
+                    try collectAllVarRefsInStmt(uses, stmt, allocator);
+                }
+            }
+            for (try_s.else_body) |stmt| {
+                try collectAllVarRefsInStmt(uses, stmt, allocator);
+            }
+            for (try_s.finalbody) |stmt| {
+                try collectAllVarRefsInStmt(uses, stmt, allocator);
+            }
+        },
+        .with_stmt => |with_s| {
+            try collectVarRefs(uses, with_s.context_expr.*, allocator);
+            for (with_s.body) |stmt| {
+                try collectAllVarRefsInStmt(uses, stmt, allocator);
+            }
+        },
+        .match_stmt => |match_s| {
+            try collectVarRefs(uses, match_s.subject.*, allocator);
+            for (match_s.cases) |case| {
+                if (case.guard) |guard| {
+                    try collectVarRefs(uses, guard.*, allocator);
+                }
+                for (case.body) |stmt| {
+                    try collectAllVarRefsInStmt(uses, stmt, allocator);
+                }
+            }
+        },
         .return_stmt => |ret| {
             if (ret.value) |val| {
                 try collectVarRefs(uses, val.*, allocator);
@@ -772,6 +816,14 @@ fn collectInnerScopeDecls(
                     try collectInnerScopeDecls(decls, stmt, allocator);
                 }
             }
+            for (try_s.else_body) |stmt| {
+                try collectAssignments(decls, stmt, .try_except, allocator);
+                try collectInnerScopeDecls(decls, stmt, allocator);
+            }
+            for (try_s.finalbody) |stmt| {
+                try collectAssignments(decls, stmt, .try_except, allocator);
+                try collectInnerScopeDecls(decls, stmt, allocator);
+            }
         },
         .if_stmt => |if_s| {
             for (if_s.body) |stmt| {
@@ -825,11 +877,31 @@ fn collectInnerScopeDecls(
                 try collectAssignments(decls, stmt, .for_loop, allocator);
                 try collectInnerScopeDecls(decls, stmt, allocator);
             }
+            if (for_s.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try collectAssignments(decls, stmt, .for_loop, allocator);
+                    try collectInnerScopeDecls(decls, stmt, allocator);
+                }
+            }
         },
         .while_stmt => |while_s| {
             for (while_s.body) |stmt| {
                 try collectAssignments(decls, stmt, .if_stmt, allocator);
                 try collectInnerScopeDecls(decls, stmt, allocator);
+            }
+            if (while_s.orelse_body) |orelse_body| {
+                for (orelse_body) |stmt| {
+                    try collectAssignments(decls, stmt, .if_stmt, allocator);
+                    try collectInnerScopeDecls(decls, stmt, allocator);
+                }
+            }
+        },
+        .match_stmt => |match_s| {
+            for (match_s.cases) |case| {
+                for (case.body) |stmt| {
+                    try collectAssignments(decls, stmt, .if_stmt, allocator);
+                    try collectInnerScopeDecls(decls, stmt, allocator);
+                }
             }
         },
         else => {},
