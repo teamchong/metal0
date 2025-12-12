@@ -387,3 +387,339 @@ pub fn pyListInsert(allocator: std.mem.Allocator, list_ptr: anytype, index: anyt
     }
     // For PyValue.list (slice) - we can't mutate, no-op safety net
 }
+
+// =============================================================================
+// Dict Two-Flow Runtime Helpers
+// =============================================================================
+
+/// Get list of keys from a dict (handles both HashMap and PyValue.dict)
+/// Two-Flow: runtime helper for uncertain dict types
+pub fn pyDictKeys(allocator: std.mem.Allocator, dict: anytype) std.ArrayListUnmanaged([]const u8) {
+    var keys: std.ArrayListUnmanaged([]const u8) = .{};
+    const T = @TypeOf(dict);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "keys")) {
+        // HashMap-like with keys() method
+        for (dict.keys()) |key| {
+            keys.append(allocator, key) catch {};
+        }
+    } else if (info == .@"struct" and @hasDecl(T, "iterator")) {
+        // ArrayHashMap-like with iterator
+        var dict_iter = dict.iterator();
+        while (dict_iter.next()) |entry| {
+            keys.append(allocator, entry.key_ptr.*) catch {};
+        }
+    } else if (T == PyValue) {
+        // PyValue.dict - extract from ptr
+        if (dict == .ptr) {
+            const hashmap_helper = @import("utils.hashmap_helper");
+            const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(dict.ptr));
+            for (map_ptr.keys()) |key| {
+                keys.append(allocator, key) catch {};
+            }
+        }
+    }
+    return keys;
+}
+
+/// Get list of values from a dict (handles both HashMap and PyValue.dict)
+/// Two-Flow: runtime helper for uncertain dict types
+pub fn pyDictValues(allocator: std.mem.Allocator, dict: anytype) std.ArrayListUnmanaged(PyValue) {
+    var values: std.ArrayListUnmanaged(PyValue) = .{};
+    const T = @TypeOf(dict);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "values")) {
+        // HashMap-like with values() method
+        for (dict.values()) |val| {
+            values.append(allocator, PyValue.from(val)) catch {};
+        }
+    } else if (info == .@"struct" and @hasDecl(T, "iterator")) {
+        // ArrayHashMap-like with iterator
+        var dict_iter = dict.iterator();
+        while (dict_iter.next()) |entry| {
+            values.append(allocator, PyValue.from(entry.value_ptr.*)) catch {};
+        }
+    } else if (T == PyValue) {
+        // PyValue.dict - extract from ptr
+        if (dict == .ptr) {
+            const hashmap_helper = @import("utils.hashmap_helper");
+            const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(dict.ptr));
+            for (map_ptr.values()) |val| {
+                values.append(allocator, val) catch {};
+            }
+        }
+    }
+    return values;
+}
+
+/// Get list of (key, value) tuples from a dict (handles both HashMap and PyValue.dict)
+/// Two-Flow: runtime helper for uncertain dict types
+pub fn pyDictItems(allocator: std.mem.Allocator, dict: anytype) std.ArrayListUnmanaged(std.meta.Tuple(&[_]type{ []const u8, PyValue })) {
+    var items: std.ArrayListUnmanaged(std.meta.Tuple(&[_]type{ []const u8, PyValue })) = .{};
+    const T = @TypeOf(dict);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "iterator")) {
+        // HashMap-like with iterator
+        var dict_iter = dict.iterator();
+        while (dict_iter.next()) |entry| {
+            items.append(allocator, .{ entry.key_ptr.*, PyValue.from(entry.value_ptr.*) }) catch {};
+        }
+    } else if (T == PyValue) {
+        // PyValue.dict - extract from ptr
+        if (dict == .ptr) {
+            const hashmap_helper = @import("utils.hashmap_helper");
+            const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(dict.ptr));
+            var map_iter = map_ptr.iterator();
+            while (map_iter.next()) |entry| {
+                items.append(allocator, .{ entry.key_ptr.*, entry.value_ptr.* }) catch {};
+            }
+        }
+    }
+    return items;
+}
+
+/// Pop a key from dict and return its value (handles both HashMap and PyValue.dict)
+/// Two-Flow: runtime helper for uncertain dict types
+pub fn pyDictPop(allocator: std.mem.Allocator, dict_ptr: anytype, key: []const u8) ?PyValue {
+    _ = allocator;
+    const T = @TypeOf(dict_ptr.*);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "fetchSwapRemove")) {
+        // ArrayHashMap-like with fetchSwapRemove
+        if (dict_ptr.fetchSwapRemove(key)) |kv| {
+            return PyValue.from(kv.value);
+        }
+    } else if (T == PyValue) {
+        // PyValue.dict - extract from ptr
+        if (dict_ptr.* == .ptr) {
+            const hashmap_helper = @import("utils.hashmap_helper");
+            const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(dict_ptr.ptr));
+            if (map_ptr.fetchSwapRemove(key)) |kv| {
+                return kv.value;
+            }
+        }
+    }
+    return null;
+}
+
+/// Update dict with entries from another dict (handles both HashMap and PyValue.dict)
+/// Two-Flow: runtime helper for uncertain dict types
+pub fn pyDictUpdate(allocator: std.mem.Allocator, dict_ptr: anytype, other: anytype) void {
+    _ = allocator;
+    const T = @TypeOf(dict_ptr.*);
+    const OtherT = @TypeOf(other);
+    const info = @typeInfo(T);
+    const other_info = @typeInfo(OtherT);
+
+    if (info == .@"struct" and @hasDecl(T, "put")) {
+        if (other_info == .@"struct" and @hasDecl(OtherT, "iterator")) {
+            var other_iter = other.iterator();
+            while (other_iter.next()) |entry| {
+                dict_ptr.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+            }
+        }
+    }
+}
+
+/// Clear all entries from dict (handles both HashMap and PyValue.dict)
+/// Two-Flow: runtime helper for uncertain dict types
+pub fn pyDictClear(dict_ptr: anytype) void {
+    const T = @TypeOf(dict_ptr.*);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "clearRetainingCapacity")) {
+        dict_ptr.clearRetainingCapacity();
+    } else if (T == PyValue) {
+        if (dict_ptr.* == .ptr) {
+            const hashmap_helper = @import("utils.hashmap_helper");
+            const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(dict_ptr.ptr));
+            map_ptr.clearRetainingCapacity();
+        }
+    }
+}
+
+/// Create shallow copy of dict (handles both HashMap and PyValue.dict)
+/// Two-Flow: runtime helper for uncertain dict types
+pub fn pyDictCopy(allocator: std.mem.Allocator, dict: anytype) @TypeOf(dict) {
+    const T = @TypeOf(dict);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "init") and @hasDecl(T, "put") and @hasDecl(T, "iterator")) {
+        var copy = T.init(allocator);
+        var dict_iter = dict.iterator();
+        while (dict_iter.next()) |entry| {
+            copy.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+        }
+        return copy;
+    }
+    // Fallback: return original (can't copy unknown type)
+    return dict;
+}
+
+/// Set default value for key if not present, return current value
+/// Two-Flow: runtime helper for uncertain dict types
+pub fn pyDictSetdefault(allocator: std.mem.Allocator, dict_ptr: anytype, key: []const u8, default: anytype) PyValue {
+    _ = allocator;
+    const T = @TypeOf(dict_ptr.*);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "get") and @hasDecl(T, "put")) {
+        if (dict_ptr.get(key)) |v| {
+            return PyValue.from(v);
+        }
+        const def_val = PyValue.from(default);
+        dict_ptr.put(key, def_val) catch {};
+        return def_val;
+    }
+    return PyValue.from(default);
+}
+
+/// Pop arbitrary item from dict and return (key, value) tuple
+/// Two-Flow: runtime helper for uncertain dict types
+pub fn pyDictPopitem(allocator: std.mem.Allocator, dict_ptr: anytype) !std.meta.Tuple(&[_]type{ []const u8, PyValue }) {
+    _ = allocator;
+    const T = @TypeOf(dict_ptr.*);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "iterator") and @hasDecl(T, "fetchSwapRemove")) {
+        var dict_iter = dict_ptr.iterator();
+        if (dict_iter.next()) |entry| {
+            const pop_key = entry.key_ptr.*;
+            const pop_val = PyValue.from(entry.value_ptr.*);
+            _ = dict_ptr.fetchSwapRemove(pop_key);
+            return .{ pop_key, pop_val };
+        }
+    }
+    return error.KeyError;
+}
+
+// =============================================================================
+// Set Two-Flow Runtime Helpers
+// =============================================================================
+
+/// Add element to a set (handles both HashMap and PyValue.set)
+/// Two-Flow: runtime helper for uncertain set types
+pub fn pySetAdd(allocator: std.mem.Allocator, set_ptr: anytype, elem: anytype) void {
+    const T = @TypeOf(set_ptr.*);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "put")) {
+        // HashMap-like with put() method
+        set_ptr.put(elem, {}) catch {};
+    } else if (T == PyValue) {
+        // PyValue.set - extract from ptr
+        if (set_ptr.* == .ptr) {
+            const hashmap_helper = @import("utils.hashmap_helper");
+            const map_ptr: *hashmap_helper.StringHashMap(void) = @ptrCast(@alignCast(set_ptr.ptr));
+            map_ptr.put(elem, {}) catch {};
+        }
+    }
+    _ = allocator;
+}
+
+/// Remove element from set, raises KeyError if not present
+/// Two-Flow: runtime helper for uncertain set types
+pub fn pySetRemove(allocator: std.mem.Allocator, set_ptr: anytype, elem: anytype) !void {
+    _ = allocator;
+    const T = @TypeOf(set_ptr.*);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "swapRemove")) {
+        // ArrayHashMap-like with swapRemove
+        if (!set_ptr.swapRemove(elem)) {
+            return error.KeyError;
+        }
+    } else if (info == .@"struct" and @hasDecl(T, "remove")) {
+        // AutoHashMap-like with remove
+        if (!set_ptr.remove(elem)) {
+            return error.KeyError;
+        }
+    } else if (T == PyValue) {
+        if (set_ptr.* == .ptr) {
+            const hashmap_helper = @import("utils.hashmap_helper");
+            const map_ptr: *hashmap_helper.StringHashMap(void) = @ptrCast(@alignCast(set_ptr.ptr));
+            if (!map_ptr.swapRemove(elem)) {
+                return error.KeyError;
+            }
+        }
+    }
+}
+
+/// Remove element from set if present (no error if missing)
+/// Two-Flow: runtime helper for uncertain set types
+pub fn pySetDiscard(allocator: std.mem.Allocator, set_ptr: anytype, elem: anytype) void {
+    _ = allocator;
+    const T = @TypeOf(set_ptr.*);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "swapRemove")) {
+        // ArrayHashMap-like with swapRemove
+        _ = set_ptr.swapRemove(elem);
+    } else if (info == .@"struct" and @hasDecl(T, "remove")) {
+        // AutoHashMap-like with remove
+        _ = set_ptr.remove(elem);
+    } else if (T == PyValue) {
+        if (set_ptr.* == .ptr) {
+            const hashmap_helper = @import("utils.hashmap_helper");
+            const map_ptr: *hashmap_helper.StringHashMap(void) = @ptrCast(@alignCast(set_ptr.ptr));
+            _ = map_ptr.swapRemove(elem);
+        }
+    }
+}
+
+/// Clear all elements from set
+/// Two-Flow: runtime helper for uncertain set types
+pub fn pySetClear(set_ptr: anytype) void {
+    const T = @TypeOf(set_ptr.*);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "clearRetainingCapacity")) {
+        set_ptr.clearRetainingCapacity();
+    } else if (T == PyValue) {
+        if (set_ptr.* == .ptr) {
+            const hashmap_helper = @import("utils.hashmap_helper");
+            const map_ptr: *hashmap_helper.StringHashMap(void) = @ptrCast(@alignCast(set_ptr.ptr));
+            map_ptr.clearRetainingCapacity();
+        }
+    }
+}
+
+/// Pop arbitrary element from set, raises KeyError if empty
+/// Two-Flow: runtime helper for uncertain set types
+pub fn pySetPop(allocator: std.mem.Allocator, set_ptr: anytype) !PyValue {
+    _ = allocator;
+    const T = @TypeOf(set_ptr.*);
+    const info = @typeInfo(T);
+
+    if (info == .@"struct" and @hasDecl(T, "iterator") and @hasDecl(T, "swapRemove")) {
+        var set_iter = set_ptr.iterator();
+        if (set_iter.next()) |entry| {
+            const elem = entry.key_ptr.*;
+            _ = set_ptr.swapRemove(elem);
+            return PyValue.from(elem);
+        }
+    } else if (info == .@"struct" and @hasDecl(T, "iterator") and @hasDecl(T, "remove")) {
+        var set_iter = set_ptr.iterator();
+        if (set_iter.next()) |entry| {
+            const elem = entry.key_ptr.*;
+            _ = set_ptr.remove(elem);
+            return PyValue.from(elem);
+        }
+    } else if (T == PyValue) {
+        if (set_ptr.* == .ptr) {
+            const hashmap_helper = @import("utils.hashmap_helper");
+            const map_ptr: *hashmap_helper.StringHashMap(void) = @ptrCast(@alignCast(set_ptr.ptr));
+            var map_iter = map_ptr.iterator();
+            if (map_iter.next()) |entry| {
+                const elem = entry.key_ptr.*;
+                _ = map_ptr.swapRemove(elem);
+                return .{ .string = elem };
+            }
+        }
+    }
+    return error.KeyError;
+}

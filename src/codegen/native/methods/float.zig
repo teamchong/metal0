@@ -4,18 +4,51 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
+/// Check if a float expression is uncertain (needs PyValue operations)
+/// Two-Flow: routes uncertain floats to PyValue extraction
+fn isFloatUncertain(self: *NativeCodegen, obj: ast.Node) bool {
+    if (obj == .name) {
+        const name = obj.name.id;
+        // Check scoped vars first (for loop variables, function params)
+        // then fall back to global var_types
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            switch (vt) {
+                .pyvalue, .unknown => return true,
+                else => {},
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+/// Helper to emit float expression, extracting from PyValue if uncertain
+fn emitFloatExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    if (isFloatUncertain(self, obj)) {
+        // Extract float from PyValue using .asFloat()
+        try self.genExpr(obj);
+        try self.emit(".asFloat()");
+    } else {
+        try self.genExpr(obj);
+    }
+}
+
 /// Generate float.is_integer() - returns true if float has integral value
 /// Python: (1.0).is_integer() -> True, (1.1).is_integer() -> False
+/// Two-Flow: Extracts float from PyValue if uncertain
 /// Zig: runtime.floatIsInteger(f)
 pub fn genIsInteger(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // is_integer takes no arguments
     try self.emit("runtime.floatIsInteger(");
-    try self.genExpr(obj);
+    try emitFloatExpr(self, obj);
     try self.emit(")");
 }
 
 /// Generate float.as_integer_ratio() - returns (numerator, denominator) tuple as BigInt
 /// Python: (0.5).as_integer_ratio() -> (1, 2)
+/// Two-Flow: Extracts float from PyValue if uncertain
 /// Zig: try runtime.floatAsIntegerRatioBigInt(allocator, f)
 /// Returns IntegerRatioResult with .numerator and .denominator BigInt fields
 /// For tuple unpacking n, d = f.as_integer_ratio(), codegen converts to .{n, d} tuple
@@ -28,12 +61,13 @@ pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) 
     try self.emit("blk: { const __ratio = try runtime.floatAsIntegerRatioBigInt(");
     try self.emit(alloc_name);
     try self.emit(", ");
-    try self.genExpr(obj);
+    try emitFloatExpr(self, obj);
     try self.emit("); break :blk .{ __ratio.numerator, __ratio.denominator }; }");
 }
 
 /// Generate float.hex() - returns hexadecimal string representation
 /// Python: (255.0).hex() -> '0x1.fe00000000000p+7'
+/// Two-Flow: Extracts float from PyValue if uncertain
 /// Zig: try runtime.floatHex(allocator, f)
 pub fn genHex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
@@ -41,20 +75,22 @@ pub fn genHex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     try self.emit("try runtime.floatHex(");
     try self.emit(alloc_name);
     try self.emit(", ");
-    try self.genExpr(obj);
+    try emitFloatExpr(self, obj);
     try self.emit(")");
 }
 
 /// Generate float.conjugate() - returns the float itself (for complex number compat)
 /// Python: (1.5).conjugate() -> 1.5
+/// Two-Flow: Extracts float from PyValue if uncertain
 pub fn genConjugate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     // For floats, conjugate() just returns the value itself
-    try self.genExpr(obj);
+    try emitFloatExpr(self, obj);
 }
 
 /// Generate float.__floor__() - returns largest int <= value
 /// Python: (1.7).__floor__() -> 1, (1e200).__floor__() -> BigInt
+/// Two-Flow: Extracts float from PyValue if uncertain
 /// Returns IntResult which handles both small (i64) and large (BigInt) values
 /// assertEqual and comparison codegen handle IntResult appropriately
 /// In assertRaises context (inside_try_body), propagates errors for expectError to catch
@@ -67,19 +103,20 @@ pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try self.emit("(runtime.floatFloorBig(");
         try self.emit(alloc_name);
         try self.emit(", ");
-        try self.genExpr(obj);
+        try emitFloatExpr(self, obj);
         try self.emit("))");
     } else {
         try self.emit("(runtime.floatFloorBig(");
         try self.emit(alloc_name);
         try self.emit(", ");
-        try self.genExpr(obj);
+        try emitFloatExpr(self, obj);
         try self.emit(") catch unreachable)");
     }
 }
 
 /// Generate float.__ceil__() - returns smallest int >= value
 /// Python: (1.3).__ceil__() -> 2, (1e200).__ceil__() -> BigInt
+/// Two-Flow: Extracts float from PyValue if uncertain
 /// Returns IntResult which handles both small (i64) and large (BigInt) values
 /// assertEqual and comparison codegen handle IntResult appropriately
 /// In assertRaises context (inside_try_body), propagates errors for expectError to catch
@@ -92,13 +129,13 @@ pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
         try self.emit("(runtime.floatCeilBig(");
         try self.emit(alloc_name);
         try self.emit(", ");
-        try self.genExpr(obj);
+        try emitFloatExpr(self, obj);
         try self.emit("))");
     } else {
         try self.emit("(runtime.floatCeilBig(");
         try self.emit(alloc_name);
         try self.emit(", ");
-        try self.genExpr(obj);
+        try emitFloatExpr(self, obj);
         try self.emit(") catch unreachable)");
     }
 }

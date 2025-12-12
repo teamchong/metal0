@@ -22,15 +22,19 @@ fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
 fn isListUncertain(self: *NativeCodegen, obj: ast.Node) bool {
     if (obj == .name) {
         const name = obj.name.id;
-        // Check if variable type is PyValue or unknown
-        if (self.type_inferrer.var_types.get(name)) |var_type| {
-            switch (var_type) {
+        // Check scoped vars first (for loop variables, function params)
+        // then fall back to global var_types
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            switch (vt) {
                 .pyvalue, .unknown => return true,
                 else => {},
             }
         }
-        // Fall back to confidence check
-        return self.isVarUncertain(name);
+        // Variable not in type map - it's likely a local with inferred type
+        // Don't assume uncertain - let Zig compiler catch type mismatches
+        return false;
     }
     return false;
 }

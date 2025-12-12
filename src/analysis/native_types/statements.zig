@@ -176,19 +176,22 @@ pub fn visitStmtScoped(
 
                     // Use scoped variable tracking if available
                     if (type_inferrer) |ti| {
-                        // TWO-FLOW TYPE SYSTEM: Track confidence for call expressions
-                        // User function calls without annotations are uncertain
-                        const confidence: TypeConfidence = if (assign.value.* == .call) blk: {
-                            const typed_result = try calls.inferCallTyped(
-                                allocator,
-                                var_types,
-                                class_fields,
-                                func_return_types,
-                                assign.value.call,
-                                ti,
-                            );
-                            break :blk typed_result.confidence;
-                        } else .certain; // Literals, known expressions are certain
+                        // TWO-FLOW TYPE SYSTEM: Track confidence for ALL expressions
+                        // Uses inferExprTyped which handles:
+                        // - Literals → .certain
+                        // - Known builtins → .certain
+                        // - User function calls → .uncertain (unless annotated)
+                        // - Subscripts (dict[key], list[i]) → .uncertain
+                        // - Attribute access → .uncertain
+                        const typed_result = try expressions.inferExprTyped(
+                            allocator,
+                            var_types,
+                            class_fields,
+                            func_return_types,
+                            assign.value.*,
+                            ti,
+                        );
+                        const confidence = typed_result.confidence;
 
                         // Check if variable exists in CURRENT scope
                         if (ti.getScopedVar(var_name)) |_| {
@@ -274,9 +277,15 @@ pub fn visitStmtScoped(
                 var_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, ann_assign.value.?.*, type_inferrer);
             }
 
-            // 3. Store type
+            // 3. Store type with confidence
             if (ann_assign.target.* == .name) {
-                try var_types.put(ann_assign.target.name.id, var_type);
+                const var_name = ann_assign.target.name.id;
+                try var_types.put(var_name, var_type);
+
+                // TWO-FLOW: Type annotations are CERTAIN - programmer explicitly declared type
+                if (type_inferrer) |ti| {
+                    try ti.var_confidence.put(var_name, .certain);
+                }
             }
         },
         .class_def => |class_def| {
@@ -475,13 +484,18 @@ pub fn visitStmtScoped(
                         if (std.mem.eql(u8, arg.name, "self")) {
                             if (type_inferrer) |ti| {
                                 try ti.putScopedVar("self", .{ .class_instance = class_def.name });
+                                // TWO-FLOW: 'self' is always CERTAIN
+                                try ti.var_confidence.put("self", .certain);
                             } else {
                                 try var_types.put("self", .{ .class_instance = class_def.name });
                             }
                         } else {
                             const param_type = try core.pythonTypeHintToNative(arg.type_annotation, allocator);
+                            // TWO-FLOW: Annotated params are CERTAIN, unannotated are UNCERTAIN
+                            const confidence: TypeConfidence = if (arg.type_annotation != null) .certain else .uncertain;
                             if (type_inferrer) |ti| {
                                 try ti.putScopedVar(arg.name, param_type);
+                                try ti.var_confidence.put(arg.name, confidence);
                             } else {
                                 try var_types.put(arg.name, param_type);
                             }
@@ -537,13 +551,24 @@ pub fn visitStmtScoped(
                 const targets = for_stmt.target.list.elts;
 
                 // Check for enumerate() pattern
+                // Helper to store loop var with confidence
+                const putLoopVar = struct {
+                    fn put(vt: *FnvHashMap, ti: ?*TypeInferrer, name: []const u8, var_type: NativeType) !void {
+                        try vt.put(name, var_type);
+                        // TWO-FLOW: Loop variables from known patterns are CERTAIN
+                        if (ti) |inferrer| {
+                            try inferrer.var_confidence.put(name, .certain);
+                        }
+                    }
+                }.put;
+
                 if (for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .name) {
                     const func_name = for_stmt.iter.call.func.name.id;
 
                     if (std.mem.eql(u8, func_name, "enumerate") and targets.len >= 2) {
                         // First var is always usize (index for array access)
                         if (targets[0] == .name) {
-                            try var_types.put(targets[0].name.id, .usize);
+                            try putLoopVar(var_types, type_inferrer, targets[0].name.id, .usize);
                         }
                         // Second var type comes from the list being enumerated
                         if (targets[1] == .name and for_stmt.iter.call.args.len > 0) {
@@ -557,7 +582,7 @@ pub fn visitStmtScoped(
                                     .array => |a| a.element_type.*,
                                     else => .unknown,
                                 };
-                                try var_types.put(targets[1].name.id, elem_type);
+                                try putLoopVar(var_types, type_inferrer, targets[1].name.id, elem_type);
                             } else if (arg == .list and arg.list.elts.len > 0) {
                                 // Infer from first list element
                                 const first_elem = arg.list.elts[0];
@@ -565,7 +590,7 @@ pub fn visitStmtScoped(
                                     inferConstant(first_elem.constant.value) catch .unknown
                                 else
                                     .unknown;
-                                try var_types.put(targets[1].name.id, elem_type);
+                                try putLoopVar(var_types, type_inferrer, targets[1].name.id, elem_type);
                             }
                         }
                     } else if (std.mem.eql(u8, func_name, "zip")) {
@@ -583,7 +608,7 @@ pub fn visitStmtScoped(
                                     .bytes => .{ .int = .bounded },
                                     else => .unknown,
                                 };
-                                try var_types.put(targets[i].name.id, elem_type);
+                                try putLoopVar(var_types, type_inferrer, targets[i].name.id, elem_type);
                             }
                         }
                     }
@@ -600,7 +625,7 @@ pub fn visitStmtScoped(
                             const tuple_types = elem_type.tuple;
                             for (targets, 0..) |target, i| {
                                 if (target == .name and i < tuple_types.len) {
-                                    try var_types.put(target.name.id, tuple_types[i]);
+                                    try putLoopVar(var_types, type_inferrer, target.name.id, tuple_types[i]);
                                 }
                             }
                         }
@@ -614,7 +639,7 @@ pub fn visitStmtScoped(
                         for (targets, 0..) |target, i| {
                             if (target == .name) {
                                 const elem_type = expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, first_elem.tuple.elts[i], type_inferrer) catch .unknown;
-                                try var_types.put(target.name.id, elem_type);
+                                try putLoopVar(var_types, type_inferrer, target.name.id, elem_type);
                             }
                         }
                     }
@@ -624,10 +649,13 @@ pub fn visitStmtScoped(
                 const target_name = for_stmt.target.name.id;
 
                 // Helper to store var type - uses scoped storage if inside function, else global
+                // TWO-FLOW: Loop variables are CERTAIN - derived from known container types
                 const putForVarType = struct {
                     fn put(vt: *FnvHashMap, ti: ?*TypeInferrer, name: []const u8, var_type: NativeType) !void {
                         if (ti) |inferrer| {
                             try inferrer.putScopedVar(name, var_type);
+                            // Loop variables are certain (range, dict.keys(), etc. have known types)
+                            try inferrer.var_confidence.put(name, .certain);
                         } else {
                             try vt.put(name, var_type);
                         }
@@ -733,6 +761,8 @@ pub fn visitStmtScoped(
                 if (type_traits.isUnknown(param_type)) continue; // Don't overwrite existing types with unknown
                 if (type_inferrer) |ti| {
                     try ti.putScopedVar(arg.name, param_type);
+                    // TWO-FLOW: Annotated params are CERTAIN (we only get here if annotation exists)
+                    try ti.var_confidence.put(arg.name, .certain);
                 } else {
                     try var_types.put(arg.name, param_type);
                 }

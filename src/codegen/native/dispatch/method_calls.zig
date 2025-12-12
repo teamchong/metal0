@@ -263,11 +263,27 @@ pub const UnittestMethods = std.StaticStringMap(MethodHandler).initComptime(.{
 
 /// Try to dispatch method call (obj.method())
 /// Returns true if dispatched successfully
+/// Two-Flow: Uncertain objects (PyValue typed) use their own method handlers with safety checks
 pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
     if (call.func.* != .attribute) return false;
 
     const method_name = call.func.attribute.attr;
     const obj = call.func.attribute.value.*;
+
+    // Two-Flow: Check if object variable is uncertain (PyValue or unknown confidence)
+    // Individual method handlers now have Two-Flow checks built in, but we can
+    // add a safety net here for PyValue method dispatch if needed
+    if (obj == .name) {
+        const var_name = obj.name.id;
+        // Check if variable is explicitly PyValue typed
+        if (self.type_inferrer.var_types.get(var_name)) |var_type| {
+            if (var_type == .pyvalue) {
+                // For PyValue objects, let the individual handlers deal with extraction
+                // The handlers (genSplit, genStrip, genJoin, etc.) now check for .pyvalue
+                // and extract .string, .list, etc. as needed
+            }
+        }
+    }
 
     // Handle super().method() calls for inheritance
     if (try handleSuperCall(self, call, method_name, obj)) {

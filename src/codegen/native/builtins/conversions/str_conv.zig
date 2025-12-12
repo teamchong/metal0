@@ -141,14 +141,16 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Check if this might be a PyObject (subscript on unknown type, function return, etc.)
-    // If arg is subscript on unknown type, or the type is .unknown, use runtime.pyObjToStr
+    // Check if this might be a PyObject/PyValue (subscript on unknown type, function return, etc.)
+    // TWO-FLOW: Both .unknown and .pyvalue types need runtime handling
     const is_possible_pyobject = blk: {
-        if (type_traits.isUnknown(arg_type)) {
+        if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
             // Subscript on unknown type is likely a PyList/PyDict access
             if (args[0] == .subscript) break :blk true;
             // Call returning unknown might be a PyObject
             if (args[0] == .call) break :blk true;
+            // PyValue type always needs runtime handling
+            if (arg_type == .pyvalue) break :blk true;
         }
         break :blk false;
     };

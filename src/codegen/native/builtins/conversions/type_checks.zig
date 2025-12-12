@@ -52,10 +52,10 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Get the inferred type of the first argument
     const obj_type = self.inferExprScoped(args[0]) catch .unknown;
 
-    // Check if argument has unknown type at inference time
+    // Check if argument has unknown/pyvalue type at inference time
     // This happens for anytype parameters or other dynamic types
-    // In this case, generate a runtime type check using @TypeOf
-    const is_unknown_type = type_traits.isUnknown(obj_type) and args[0] == .name;
+    // TWO-FLOW: Both .unknown and .pyvalue need runtime type checking
+    const is_unknown_type = (type_traits.isUnknown(obj_type) or obj_type == .pyvalue) and args[0] == .name;
 
     // Perform type check based on type name
     if (type_name) |tname| {

@@ -5,6 +5,28 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 
+/// Check if a set expression is uncertain (needs PyValue operations)
+/// Two-Flow: routes uncertain sets to runtime helpers
+fn isSetUncertain(self: *NativeCodegen, obj: ast.Node) bool {
+    if (obj == .name) {
+        const name = obj.name.id;
+        // Check scoped vars first (for loop variables, function params)
+        // then fall back to global var_types
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            switch (vt) {
+                .pyvalue, .unknown => return true,
+                else => {},
+            }
+        }
+        // Variable not in type map - it's likely a local with inferred type
+        // Don't assume uncertain - let Zig compiler catch type mismatches
+        return false;
+    }
+    return false;
+}
+
 /// Helper to emit object expression, wrapping in parens if it's a block expression
 fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     if (producesBlockExpression(obj)) {
@@ -18,9 +40,21 @@ fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
 
 /// Generate code for set.add(elem)
 /// Adds element to set (no-op if already present)
+/// Two-Flow: Certain sets use HashMap.put, uncertain use runtime.pySetAdd
 pub fn genAdd(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // set.add() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
+
+    // Two-Flow: Check if set is uncertain (PyValue or unknown type)
+    if (isSetUncertain(self, obj)) {
+        // Route to runtime helper for PyValue sets
+        try self.emit("runtime.pySetAdd(__global_allocator, &");
+        try self.genExpr(obj);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
 
     // Generate: try set.put(elem, {})
     // Zig HashMap uses put(key, value) - for sets, value is void ({})
@@ -33,9 +67,21 @@ pub fn genAdd(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 
 /// Generate code for set.remove(elem)
 /// Removes element, raises KeyError if not present
+/// Two-Flow: Certain sets use runtime.set_ops, uncertain use runtime.pySetRemove
 pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // set.remove() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
+
+    // Two-Flow: Check if set is uncertain (PyValue or unknown type)
+    if (isSetUncertain(self, obj)) {
+        // Route to runtime helper for PyValue sets
+        try self.emit("try runtime.pySetRemove(__global_allocator, &");
+        try self.genExpr(obj);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
 
     // Use runtime helper to avoid comptime explosion from @hasDecl/@TypeOf inline checks
     // runtime.set_ops.SetOps(KeyType).remove(&set, key) handles AutoHashMap vs ArrayHashMap
@@ -50,9 +96,21 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
 /// Generate code for set.discard(elem)
 /// Removes element if present (no error if missing)
+/// Two-Flow: Certain sets use runtime.set_ops, uncertain use runtime.pySetDiscard
 pub fn genDiscard(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // set.discard() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
+
+    // Two-Flow: Check if set is uncertain (PyValue or unknown type)
+    if (isSetUncertain(self, obj)) {
+        // Route to runtime helper for PyValue sets
+        try self.emit("runtime.pySetDiscard(__global_allocator, &");
+        try self.genExpr(obj);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
 
     // Use runtime helper to avoid comptime explosion from @hasDecl/@TypeOf inline checks
     try self.emit("runtime.set_ops.SetOps(@TypeOf(");
@@ -65,8 +123,19 @@ pub fn genDiscard(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 }
 
 /// Generate code for set.clear()
+/// Two-Flow: Certain sets use clearRetainingCapacity, uncertain use runtime.pySetClear
 pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
+
+    // Two-Flow: Check if set is uncertain (PyValue or unknown type)
+    if (isSetUncertain(self, obj)) {
+        // Route to runtime helper for PyValue sets
+        try self.emit("runtime.pySetClear(&");
+        try self.genExpr(obj);
+        try self.emit(")");
+        return;
+    }
+
     try emitObjExpr(self, obj);
     // std.AutoHashMap uses clearRetainingCapacity() or clearAndFree()
     try self.emit(".clearRetainingCapacity()");
@@ -74,8 +143,19 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
 /// Generate code for set.pop()
 /// Remove and return arbitrary element, raises KeyError if empty
+/// Two-Flow: Certain sets use runtime.set_ops.pop, uncertain use runtime.pySetPop
 pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
+
+    // Two-Flow: Check if set is uncertain (PyValue or unknown type)
+    if (isSetUncertain(self, obj)) {
+        // Route to runtime helper for PyValue sets
+        try self.emit("try runtime.pySetPop(__global_allocator, &");
+        try self.genExpr(obj);
+        try self.emit(")");
+        return;
+    }
+
     // Use runtime helper to avoid comptime explosion
     // Get key type from set's KV struct
     try self.emit("try runtime.set_ops.SetOps(std.meta.fieldInfo(@TypeOf(");

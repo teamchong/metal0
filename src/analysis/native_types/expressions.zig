@@ -70,19 +70,50 @@ fn parseTypeAnnotation(annotation: []const u8) NativeType {
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 
 // ComptimeStringMaps for module attribute lookups (DCE-friendly)
-const SysAttrType = enum { platform, version_info, argv, version, maxsize };
+const SysAttrType = enum { platform, version_info, argv, version, maxsize, float_info, hash_info };
 const SysAttrMap = std.StaticStringMap(SysAttrType).initComptime(.{
     .{ "platform", .platform },
     .{ "version_info", .version_info },
     .{ "argv", .argv },
     .{ "version", .version },
     .{ "maxsize", .maxsize },
+    .{ "float_info", .float_info },
+    .{ "hash_info", .hash_info },
 });
 
 const VersionInfoAttrMap = std.StaticStringMap(void).initComptime(.{
     .{ "major", {} },
     .{ "minor", {} },
     .{ "micro", {} },
+});
+
+// sys.float_info attributes - floats vs ints
+const FloatInfoFloatAttrs = std.StaticStringMap(void).initComptime(.{
+    .{ "max", {} },
+    .{ "min", {} },
+    .{ "epsilon", {} },
+});
+const FloatInfoIntAttrs = std.StaticStringMap(void).initComptime(.{
+    .{ "max_exp", {} },
+    .{ "min_exp", {} },
+    .{ "max_10_exp", {} },
+    .{ "min_10_exp", {} },
+    .{ "dig", {} },
+    .{ "mant_dig", {} },
+    .{ "radix", {} },
+    .{ "rounds", {} },
+});
+
+// sys.hash_info attributes - all ints except algorithm (string)
+const HashInfoIntAttrs = std.StaticStringMap(void).initComptime(.{
+    .{ "width", {} },
+    .{ "modulus", {} },
+    .{ "inf", {} },
+    .{ "nan", {} },
+    .{ "imag", {} },
+    .{ "hash_bits", {} },
+    .{ "seed_bits", {} },
+    .{ "cutoff", {} },
 });
 
 const MathConstMap = std.StaticStringMap(void).initComptime(.{
@@ -397,6 +428,107 @@ pub fn inferExpr(
     return inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, node, null);
 }
 
+/// Infer expression with confidence (Two-Flow Type System)
+/// Returns TypedValue containing both the native type and confidence level
+/// Confidence Rules:
+/// - Literals → .certain
+/// - Known builtins (len, range) → .certain
+/// - Arithmetic on certain operands → .certain
+/// - Dict/list subscript → .uncertain
+/// - Attribute access → .uncertain (unless class is known)
+/// - User function calls without annotation → .uncertain
+pub fn inferExprTyped(
+    allocator: std.mem.Allocator,
+    var_types: *FnvHashMap,
+    class_fields: *FnvClassMap,
+    func_return_types: *FnvHashMap,
+    node: ast.Node,
+    type_inferrer: ?*inferrer_mod.TypeInferrer,
+) InferError!core.TypedValue {
+    const native_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, node, type_inferrer);
+
+    // Determine confidence based on expression type
+    const confidence: core.TypeConfidence = switch (node) {
+        // Literals are always certain
+        .constant => .certain,
+        .fstring => .certain, // f-strings always produce strings
+
+        // Variable names - check confidence in inferrer
+        .name => |n| blk: {
+            if (type_inferrer) |ti| {
+                break :blk ti.getConfidence(n.id);
+            }
+            // Without inferrer, variables are uncertain
+            break :blk .uncertain;
+        },
+
+        // Dict/list subscript is uncertain (element type may vary)
+        .subscript => .uncertain,
+
+        // Attribute access is uncertain unless we know the class
+        .attribute => |attr| blk: {
+            // Module constants are certain (e.g., math.pi)
+            if (attr.value.* == .name) {
+                const obj_name = attr.value.name.id;
+                if (std.mem.eql(u8, obj_name, "math") or
+                    std.mem.eql(u8, obj_name, "string") or
+                    std.mem.eql(u8, obj_name, "sys"))
+                {
+                    break :blk .certain;
+                }
+            }
+            break :blk .uncertain;
+        },
+
+        // Binary operations inherit confidence from operands
+        .binop => |b| blk: {
+            const left_typed = inferExprTyped(allocator, var_types, class_fields, func_return_types, b.left.*, type_inferrer) catch
+                return core.TypedValue.uncertain(native_type, .inferred);
+            const right_typed = inferExprTyped(allocator, var_types, class_fields, func_return_types, b.right.*, type_inferrer) catch
+                return core.TypedValue.uncertain(native_type, .inferred);
+            break :blk left_typed.confidence.combine(right_typed.confidence);
+        },
+
+        // Unary operations inherit confidence from operand
+        .unaryop => |u| blk: {
+            const operand_typed = inferExprTyped(allocator, var_types, class_fields, func_return_types, u.operand.*, type_inferrer) catch
+                return core.TypedValue.uncertain(native_type, .inferred);
+            break :blk operand_typed.confidence;
+        },
+
+        // Function calls - use inferCallTyped if available
+        .call => blk: {
+            if (type_inferrer) |ti| {
+                const call_typed = calls.inferCallTyped(allocator, var_types, class_fields, func_return_types, node.call, ti) catch
+                    return core.TypedValue.uncertain(native_type, .inferred);
+                break :blk call_typed.confidence;
+            }
+            break :blk .uncertain;
+        },
+
+        // List/tuple literals are certain
+        .list, .tuple => .certain,
+
+        // Dict literals are certain
+        .dict => .certain,
+
+        // Comparisons are certain (always produce bool)
+        .compare => .certain,
+
+        // Lambda and comprehensions are certain
+        .lambda, .listcomp, .dictcomp => .certain,
+
+        // Everything else is uncertain
+        else => .uncertain,
+    };
+
+    return .{
+        .native_type = native_type,
+        .confidence = confidence,
+        .source = .inferred,
+    };
+}
+
 /// Infer the native type of an expression node with optional TypeInferrer for ctypes tracking
 pub fn inferExprWithInferrer(
     allocator: std.mem.Allocator,
@@ -543,6 +675,9 @@ pub fn inferExprWithInferrer(
                                         str_type.* = .{ .string = .slice };
                                         break :blk .{ .array = .{ .element_type = str_type, .length = 0 } };
                                     },
+                                    // sys.float_info and sys.hash_info are struct-like objects
+                                    // Their individual attributes (.max, .inf) are handled in chained access below
+                                    .float_info, .hash_info => break :blk .unknown,
                                 }
                             }
                         },
@@ -589,17 +724,36 @@ pub fn inferExprWithInferrer(
                 }
             }
 
-            // Handle chained attribute access: sys.version_info.major
+            // Handle chained attribute access: sys.version_info.major, sys.float_info.max, etc.
             if (a.value.* == .attribute) {
                 const inner_attr = a.value.attribute;
                 if (inner_attr.value.* == .name) {
                     const module_name = inner_attr.value.name.id;
-                    if (ModuleMap.get(module_name) == .sys and
-                        SysAttrMap.get(inner_attr.attr) == .version_info)
-                    {
-                        // sys.version_info.major/minor/micro are all i32
-                        if (VersionInfoAttrMap.has(a.attr)) {
-                            break :blk .{ .int = .bounded };
+                    if (ModuleMap.get(module_name) == .sys) {
+                        const sys_attr = SysAttrMap.get(inner_attr.attr);
+                        if (sys_attr == .version_info) {
+                            // sys.version_info.major/minor/micro are all i32
+                            if (VersionInfoAttrMap.has(a.attr)) {
+                                break :blk .{ .int = .bounded };
+                            }
+                        } else if (sys_attr == .float_info) {
+                            // sys.float_info.max/min/epsilon are floats
+                            if (FloatInfoFloatAttrs.has(a.attr)) {
+                                break :blk .float;
+                            }
+                            // sys.float_info.max_exp/min_exp/dig/etc are ints
+                            if (FloatInfoIntAttrs.has(a.attr)) {
+                                break :blk .{ .int = .bounded };
+                            }
+                        } else if (sys_attr == .hash_info) {
+                            // sys.hash_info.algorithm is a string
+                            if (std.mem.eql(u8, a.attr, "algorithm")) {
+                                break :blk .{ .string = .literal };
+                            }
+                            // sys.hash_info.width/modulus/inf/nan/etc are ints
+                            if (HashInfoIntAttrs.has(a.attr)) {
+                                break :blk .{ .int = .bounded };
+                            }
                         }
                     }
                 }

@@ -8,15 +8,59 @@ const NativeType = @import("../../../analysis/native_types.zig").NativeType;
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 
+/// Check if a dict expression is uncertain (needs PyValue operations)
+/// Two-Flow: routes uncertain dicts to runtime helpers
+fn isDictUncertain(self: *NativeCodegen, obj: ast.Node) bool {
+    if (obj == .name) {
+        const name = obj.name.id;
+        // Check scoped vars first (for loop variables, function params)
+        // then fall back to global var_types
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            switch (vt) {
+                .pyvalue, .unknown => return true,
+                else => {},
+            }
+        }
+        // Variable not in type map - it's likely a local with inferred type
+        // Don't assume uncertain - let Zig compiler catch type mismatches
+        return false;
+    }
+    return false;
+}
+
 /// Generate code for dict.get(key, default)
 /// Returns value if key exists, otherwise returns default (or null if no default)
 /// If no args, generates generic method call (for custom class methods)
+/// Two-Flow: Certain dicts use HashMap.get, uncertain dicts use PyValue.pyDictGet
 pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         // Not a dict.get() - must be custom class method with no args
         // Generate generic method call: obj.get()
         try self.genExpr(obj);
         try self.emit(".get()");
+        return;
+    }
+
+    // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
+    if (isDictUncertain(self, obj)) {
+        const default_val = if (args.len >= 2) args[1] else null;
+        // Route to PyValue.pyDictGet
+        if (default_val) |def| {
+            try self.emit("(");
+            try self.genExpr(obj);
+            try self.emit(".pyDictGet(");
+            try self.genExpr(args[0]);
+            try self.emit(") orelse ");
+            try self.genExpr(def);
+            try self.emit(")");
+        } else {
+            try self.genExpr(obj);
+            try self.emit(".pyDictGet(");
+            try self.genExpr(args[0]);
+            try self.emit(").?");
+        }
         return;
     }
 
@@ -76,8 +120,18 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 
 /// Generate code for dict.keys()
 /// Returns list of keys (always []const u8 for StringHashMap)
+/// Two-Flow: Certain dicts iterate HashMap.keys, uncertain use runtime.pyDictKeys
 pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // keys() takes no arguments
+
+    // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
+    if (isDictUncertain(self, obj)) {
+        // Route to runtime helper for PyValue dicts
+        try self.emit("runtime.pyDictKeys(__global_allocator, ");
+        try self.genExpr(obj);
+        try self.emit(")");
+        return;
+    }
 
     const needs_temp = producesBlockExpression(obj);
 
@@ -128,8 +182,18 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 
 /// Generate code for dict.values()
 /// Returns list of values
+/// Two-Flow: Certain dicts iterate HashMap.values, uncertain use runtime.pyDictValues
 pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // values() takes no arguments
+
+    // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
+    if (isDictUncertain(self, obj)) {
+        // Route to runtime helper for PyValue dicts
+        try self.emit("runtime.pyDictValues(__global_allocator, ");
+        try self.genExpr(obj);
+        try self.emit(")");
+        return;
+    }
 
     // Infer dict type to get value type
     const dict_type = try self.type_inferrer.inferExpr(obj);
@@ -186,8 +250,18 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
 /// Generate code for dict.items()
 /// Returns list of tuples (key-value pairs)
+/// Two-Flow: Certain dicts iterate HashMap, uncertain use runtime.pyDictItems
 pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // items() takes no arguments
+
+    // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
+    if (isDictUncertain(self, obj)) {
+        // Route to runtime helper for PyValue dicts
+        try self.emit("runtime.pyDictItems(__global_allocator, ");
+        try self.genExpr(obj);
+        try self.emit(")");
+        return;
+    }
 
     // Infer dict type to get value type (keys are always []const u8)
     const dict_type = try self.type_inferrer.inferExpr(obj);
@@ -264,9 +338,32 @@ fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
 /// Generate code for dict.pop(key, default?)
 /// Removes key and returns value, or returns default if key not present
 /// Raises KeyError if key not present and no default given
+/// Two-Flow: Certain dicts use HashMap.fetchSwapRemove, uncertain use runtime.pyDictPop
 pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // dict.pop() requires at least 1 argument (key), second (default) is optional
     if (args.len == 0) return error.UnsupportedSyntax;
+
+    // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
+    if (isDictUncertain(self, obj)) {
+        const default_val = if (args.len >= 2) args[1] else null;
+        // Route to runtime helper for PyValue dicts
+        if (default_val) |def| {
+            try self.emit("(runtime.pyDictPop(__global_allocator, &");
+            try self.genExpr(obj);
+            try self.emit(", ");
+            try self.genExpr(args[0]);
+            try self.emit(") orelse ");
+            try self.genExpr(def);
+            try self.emit(")");
+        } else {
+            try self.emit("(runtime.pyDictPop(__global_allocator, &");
+            try self.genExpr(obj);
+            try self.emit(", ");
+            try self.genExpr(args[0]);
+            try self.emit(") orelse return error.KeyError)");
+        }
+        return;
+    }
 
     const default_val = if (args.len >= 2) args[1] else null;
 
@@ -300,9 +397,21 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 
 /// Generate code for dict.update(other)
 /// Updates dict with key/value pairs from other dict or iterable of pairs
+/// Two-Flow: Certain dicts iterate and put, uncertain use runtime.pyDictUpdate
 pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // dict.update() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
+
+    // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
+    if (isDictUncertain(self, obj)) {
+        // Route to runtime helper for PyValue dicts
+        try self.emit("runtime.pyDictUpdate(__global_allocator, &");
+        try self.genExpr(obj);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
 
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
@@ -348,16 +457,37 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
 /// Generate code for dict.clear()
 /// Removes all items from dict
+/// Two-Flow: Certain dicts use HashMap.clearRetainingCapacity, uncertain use runtime.pyDictClear
 pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
+
+    // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
+    if (isDictUncertain(self, obj)) {
+        // Route to runtime helper for PyValue dicts
+        try self.emit("runtime.pyDictClear(&");
+        try self.genExpr(obj);
+        try self.emit(")");
+        return;
+    }
+
     try emitObjExpr(self, obj);
     try self.emit(".clearRetainingCapacity()");
 }
 
 /// Generate code for dict.copy()
 /// Returns shallow copy of dict
+/// Two-Flow: Certain dicts iterate and clone, uncertain use runtime.pyDictCopy
 pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
+
+    // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
+    if (isDictUncertain(self, obj)) {
+        // Route to runtime helper for PyValue dicts
+        try self.emit("runtime.pyDictCopy(__global_allocator, ");
+        try self.genExpr(obj);
+        try self.emit(")");
+        return;
+    }
 
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
@@ -401,9 +531,27 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 
 /// Generate code for dict.setdefault(key, default?)
 /// Returns value for key if present, otherwise sets key to default and returns it
+/// Two-Flow: Certain dicts use get/put, uncertain use runtime.pyDictSetdefault
 pub fn genSetdefault(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // dict.setdefault() requires at least 1 argument (key)
     if (args.len == 0) return error.UnsupportedSyntax;
+
+    // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
+    if (isDictUncertain(self, obj)) {
+        // Route to runtime helper for PyValue dicts
+        try self.emit("runtime.pyDictSetdefault(__global_allocator, &");
+        try self.genExpr(obj);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        if (args.len >= 2) {
+            try self.emit(", ");
+            try self.genExpr(args[1]);
+        } else {
+            try self.emit(", null");
+        }
+        try self.emit(")");
+        return;
+    }
 
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;
@@ -449,8 +597,18 @@ pub fn genSetdefault(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 
 /// Generate code for dict.popitem()
 /// Removes and returns arbitrary (key, value) pair. Raises KeyError if empty.
+/// Two-Flow: Certain dicts iterate and remove, uncertain use runtime.pyDictPopitem
 pub fn genPopitem(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
+
+    // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
+    if (isDictUncertain(self, obj)) {
+        // Route to runtime helper for PyValue dicts
+        try self.emit("runtime.pyDictPopitem(__global_allocator, &");
+        try self.genExpr(obj);
+        try self.emit(")");
+        return;
+    }
 
     const label_id = self.block_label_counter;
     self.block_label_counter += 1;

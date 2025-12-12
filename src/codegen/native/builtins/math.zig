@@ -18,18 +18,21 @@ fn isNoneArg(arg: ast.Node) bool {
 
 /// Check if an expression is uncertain (needs PyValue)
 /// Two-Flow: routes uncertain types to PyValue methods
+/// CONSERVATIVE: Only returns true for explicitly PyValue or unknown typed variables
+/// Does NOT use confidence fallback to avoid false positives on unset confidence
 fn isExprUncertain(self: *NativeCodegen, expr: ast.Node) bool {
     if (expr == .name) {
         const name = expr.name.id;
-        // Check if variable type is PyValue or unknown
-        if (self.type_inferrer.var_types.get(name)) |var_type| {
-            switch (var_type) {
-                .pyvalue, .unknown => return true,
-                else => {},
-            }
+        // Check scoped vars first (for loop variables, function params)
+        // then fall back to global var_types
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            return vt == .pyvalue or vt == .unknown;
         }
-        // Fall back to confidence check
-        return self.isVarUncertain(name);
+        // Variable not in type map - it's likely a local with inferred type
+        // Don't assume uncertain - let Zig compiler catch type mismatches
+        return false;
     }
     return false;
 }

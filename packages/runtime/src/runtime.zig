@@ -4,6 +4,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 /// Re-export allocator_helper for generated code (so it can use runtime.allocator_helper)
 pub const allocator_helper = @import("utils.allocator_helper");
+/// Re-export fast_allocator directly for convenience (also ensures allocator_helper is used)
+pub const fast_allocator = allocator_helper.fast_allocator;
 
 /// Browser WASM (freestanding) has no threading or OS support
 pub const is_freestanding = print_utils.is_freestanding;

@@ -95,8 +95,9 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     };
 
-    // Check if the type is unknown (PyObject*) - needs runtime dispatch
-    const is_pyobject = type_traits.isUnknown(arg_type);
+    // Check if the type is unknown or PyValue - needs runtime dispatch
+    // TWO-FLOW: Both .unknown and .pyvalue types need runtime handling
+    const is_pyobject = type_traits.isUnknown(arg_type) or arg_type == .pyvalue;
 
     // Check if the argument is a block expression that needs wrapping
     const needs_wrap = producesBlockExpression(args[0]);

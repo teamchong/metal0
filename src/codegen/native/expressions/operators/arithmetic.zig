@@ -492,11 +492,12 @@ fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
             return false;
         }
 
-        // FIRST: Check if var_types explicitly says this is PyValue or unknown
-        // This takes priority because Two-Flow system sets var_types to .pyvalue
-        // when wrapping uncertain primitives, even if confidence was certain
-        if (self.type_inferrer.var_types.get(name)) |var_type| {
-            switch (var_type) {
+        // FIRST: Check scoped vars (for loop variables, function params)
+        // then fall back to global var_types
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            switch (vt) {
                 // Explicit PyValue or unknown - always use PyValue methods
                 .pyvalue, .unknown => return true,
                 // Concrete types - don't use PyValue methods (loop variables, etc.)
@@ -1480,13 +1481,13 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
 
             // TWO-FLOW TYPE SYSTEM: Check if operand is a PyValue variable
             // If so, use PyValue.neg() method instead of Zig's negation operator
-            const is_pyvalue = if (unaryop.operand.* == .name)
-                if (self.type_inferrer.var_types.get(unaryop.operand.name.id)) |vt|
-                    (vt == .pyvalue or vt == .unknown)
-                else
-                    false
-            else
-                false;
+            // Check scoped vars first (for loop variables, function params)
+            const is_pyvalue = if (unaryop.operand.* == .name) blk: {
+                const name = unaryop.operand.name.id;
+                const vt = self.type_inferrer.getScopedVar(name) orelse
+                    self.type_inferrer.var_types.get(name);
+                break :blk if (vt) |v| (v == .pyvalue or v == .unknown) else false;
+            } else false;
             if (is_pyvalue) {
                 try self.emit("(");
                 try genExpr(self, unaryop.operand.*);

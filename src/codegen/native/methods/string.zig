@@ -13,15 +13,19 @@ const formatting = @import("string/formatting.zig");
 fn isStringUncertain(self: *NativeCodegen, obj: ast.Node) bool {
     if (obj == .name) {
         const name = obj.name.id;
-        // Check if variable type is PyValue or unknown
-        if (self.type_inferrer.var_types.get(name)) |var_type| {
-            switch (var_type) {
+        // Check scoped vars first (for loop variables, function params)
+        // then fall back to global var_types
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            switch (vt) {
                 .pyvalue, .unknown => return true,
                 else => {},
             }
         }
-        // Fall back to confidence check
-        return self.isVarUncertain(name);
+        // Variable not in type map - it's likely a local with inferred type
+        // Don't assume uncertain - let Zig compiler catch type mismatches
+        return false;
     }
     return false;
 }
@@ -170,14 +174,22 @@ pub fn genLower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
 /// Generate code for text.strip()
 /// Removes leading/trailing whitespace
+/// Two-Flow: handles uncertain strings (PyValue.string)
 pub fn genStrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // strip() takes no arguments
+
+    // Two-Flow: Check if string is uncertain (PyValue)
+    const is_uncertain = isStringUncertain(self, obj);
 
     // Allocate a copy to avoid "Invalid free" when result is used with defer
     const label_id = @as(u64, @intCast(std.time.milliTimestamp()));
     try self.emitFmt("strip_{d}: {{\n", .{label_id});
     try self.emit("    const _text = ");
     try self.genExpr(obj);
+    // Two-Flow: Extract string from PyValue if uncertain
+    if (is_uncertain) {
+        try self.emit(".string");
+    }
     try self.emit(";\n");
     try self.emit("    const _trimmed = std.mem.trim(u8, _text, \" \\t\\n\\r\");\n");
     try self.emit("    const _result = try __global_allocator.alloc(u8, _trimmed.len);\n");
@@ -236,15 +248,23 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 
 /// Generate code for sep.join(list)
 /// Joins list elements with separator
+/// Two-Flow: runtime.string_utils.pyJoin already handles PyValue types
 pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // sep.join() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
+
+    // Two-Flow: Check if separator is uncertain (PyValue)
+    const is_uncertain = isStringUncertain(self, obj);
 
     // Generate: blk: { break :blk try runtime.string_utils.pyJoin(allocator, separator, list); }
     // Uses runtime.string_utils.pyJoin which handles PyValue, slices, arrays, and ArrayLists
     try self.emit("blk: {\n");
     try self.emit("const __join_sep = ");
     try self.genExpr(obj); // The separator string
+    // Two-Flow: Extract string from PyValue if uncertain
+    if (is_uncertain) {
+        try self.emit(".string");
+    }
     try self.emit(";\n");
     try self.emit("const __join_list = ");
     try self.genExpr(args[0]); // The list

@@ -108,6 +108,7 @@ fn buildRuntimeModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]
 
     // 2. Runtime module with its deps
     for ([_][]const u8{
+        "utils.allocator_helper",
         "utils.hashmap_helper",
         "bigint",
         "gzip",
