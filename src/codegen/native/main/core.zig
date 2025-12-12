@@ -660,7 +660,7 @@ pub const NativeCodegen = struct {
 
         // Create and initialize symbol table
         const sym_table = try allocator.create(SymbolTable);
-        sym_table.* = SymbolTable.init(allocator);
+        sym_table.* = try SymbolTable.init(allocator);
 
         // Create and initialize class registry
         const cls_registry = try allocator.create(ClassRegistry);

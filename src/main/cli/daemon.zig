@@ -206,7 +206,7 @@ pub fn runDaemon(allocator: std.mem.Allocator) !void {
     std.fs.cwd().deleteFile(SOCKET_PATH) catch {};
 
     // Create Unix socket server
-    const addr = std.net.Address.initUnix(SOCKET_PATH) catch unreachable;
+    const addr = try std.net.Address.initUnix(SOCKET_PATH);
     var server = try addr.listen(.{ .reuse_address = true });
     defer server.deinit();
 

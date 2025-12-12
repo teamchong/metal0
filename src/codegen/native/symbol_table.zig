@@ -28,12 +28,12 @@ pub const SymbolTable = struct {
     // Stack of scopes: scopes[0] = global, scopes[n] = current
     scopes: std.ArrayList(FnvSymbolMap),
 
-    pub fn init(allocator: std.mem.Allocator) SymbolTable {
+    pub fn init(allocator: std.mem.Allocator) !SymbolTable {
         var scopes = std.ArrayList(FnvSymbolMap){};
 
         // Initialize with global scope
         const global = FnvSymbolMap.init(allocator);
-        scopes.append(allocator, global) catch unreachable;
+        try scopes.append(allocator, global);
 
         return SymbolTable{
             .allocator = allocator,
