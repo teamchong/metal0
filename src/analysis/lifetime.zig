@@ -179,6 +179,13 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
                 line = try analyzeLifetimes(info, body_node, line);
             }
 
+            // Analyze else body
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |else_node| {
+                    line = try analyzeLifetimes(info, else_node, line);
+                }
+            }
+
             // Mark scope end
             if (for_stmt.target.* == .name) {
                 try info.markScopeEnd(for_stmt.target.name.id, line);
@@ -194,6 +201,13 @@ pub fn analyzeLifetimes(info: *types.SemanticInfo, node: ast.Node, current_line:
             // Analyze body
             for (while_stmt.body) |body_node| {
                 line = try analyzeLifetimes(info, body_node, line);
+            }
+
+            // Analyze else body
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |else_node| {
+                    line = try analyzeLifetimes(info, else_node, line);
+                }
             }
 
             _ = scope_start;

@@ -185,8 +185,27 @@ fn collectGlobalVars(stmts: []const ast.Node, globals: *std.ArrayList([]const u8
             try collectGlobalVars(stmt.if_stmt.else_body, globals, allocator);
         } else if (stmt == .for_stmt) {
             try collectGlobalVars(stmt.for_stmt.body, globals, allocator);
+            if (stmt.for_stmt.orelse_body) |orelse_body| {
+                try collectGlobalVars(orelse_body, globals, allocator);
+            }
         } else if (stmt == .while_stmt) {
             try collectGlobalVars(stmt.while_stmt.body, globals, allocator);
+            if (stmt.while_stmt.orelse_body) |orelse_body| {
+                try collectGlobalVars(orelse_body, globals, allocator);
+            }
+        } else if (stmt == .try_stmt) {
+            try collectGlobalVars(stmt.try_stmt.body, globals, allocator);
+            for (stmt.try_stmt.handlers) |handler| {
+                try collectGlobalVars(handler.body, globals, allocator);
+            }
+            try collectGlobalVars(stmt.try_stmt.else_body, globals, allocator);
+            try collectGlobalVars(stmt.try_stmt.finalbody, globals, allocator);
+        } else if (stmt == .with_stmt) {
+            try collectGlobalVars(stmt.with_stmt.body, globals, allocator);
+        } else if (stmt == .match_stmt) {
+            for (stmt.match_stmt.cases) |case| {
+                try collectGlobalVars(case.body, globals, allocator);
+            }
         } else if (stmt == .function_def) {
             // Nested functions
             try collectGlobalVars(stmt.function_def.body, globals, allocator);
