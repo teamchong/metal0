@@ -235,7 +235,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         const expr_start = before_len - indent_len;
 
         // Temporarily store the generated content
-        const gen_copy = self.allocator.dupe(u8, self.output.items[expr_start..]) catch return;
+        const gen_copy = self.allocator.dupe(u8, self.output.items[expr_start..]) catch return error.OutOfMemory;
         defer self.allocator.free(gen_copy);
 
         // Reset to before indent and re-emit with _ =

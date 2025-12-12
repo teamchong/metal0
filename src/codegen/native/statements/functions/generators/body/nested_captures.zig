@@ -234,7 +234,7 @@ fn detectMutationInNode(
                         }
                     }
                     if (!is_param and self.func_local_vars.contains(var_name) and MutatingMethods.has(attr.attr)) {
-                        const key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, var_name }) catch return;
+                        const key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, var_name }) catch return error.OutOfMemory;
                         try self.mutated_captures.put(key, {});
                     }
                 }
