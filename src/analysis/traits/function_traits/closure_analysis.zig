@@ -90,6 +90,19 @@ fn collectVarTypes(body: []const ast.Node, var_types: *[32]VarTypeEntry, count: 
                     }
                 }
             },
+            .ann_assign => |ann| {
+                // Annotated assignment: x: int = 5
+                if (ann.value) |value| {
+                    const value_type = inferExprReturnType(value.*);
+                    if (ann.target.* == .name) {
+                        const name = ann.target.name.id;
+                        if (count.* < 32) {
+                            var_types[count.*] = .{ .name = name, .var_type = value_type };
+                            count.* += 1;
+                        }
+                    }
+                }
+            },
             .for_stmt => |for_stmt| {
                 // Recurse into for body
                 collectVarTypes(for_stmt.body, var_types, count);

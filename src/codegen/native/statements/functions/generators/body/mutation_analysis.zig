@@ -668,6 +668,24 @@ pub fn countAssignmentsWithScope(
                 }
             }
         },
+        .ann_assign => |ann| {
+            // Annotated assignment: x: int = 5
+            if (ann.target.* == .name) {
+                const name = ann.target.name.id;
+                const scoped_key = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ name, scope_id });
+                defer allocator.free(scoped_key);
+                const current = scoped_counts.get(scoped_key) orelse 0;
+                try scoped_counts.put(try allocator.dupe(u8, scoped_key), current + 1);
+                // Same as regular assign: mark as var if already exists at function scope
+                if (scope_id != 0) {
+                    const func_scope_key = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ name, @as(usize, 0) });
+                    defer allocator.free(func_scope_key);
+                    if (scoped_counts.get(func_scope_key) != null) {
+                        try aug_vars.put(name, {});
+                    }
+                }
+            }
+        },
         .if_stmt => |if_stmt| {
             // if/else bodies are same scope level as containing block
             for (if_stmt.body) |body_stmt| {
