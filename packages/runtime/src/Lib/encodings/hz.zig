@@ -62,8 +62,8 @@ fn gb2312ToUnicode(row: u8, col: u8) ?u21 {
 
 /// Decode HZ-GB-2312 to UTF-8
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     var in_gb_mode = false;
@@ -72,7 +72,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
         if (input[i] == '~') {
             if (i + 1 >= input.len) {
                 if (mode == .strict) return error.IncompleteEscape;
-                try result.append('~');
+                try result.append(allocator, '~');
                 i += 1;
                 continue;
             }
@@ -90,7 +90,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                 },
                 '~' => {
                     // Literal ~
-                    try result.append('~');
+                    try result.append(allocator, '~');
                     i += 2;
                 },
                 '\n' => {
@@ -99,7 +99,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                 },
                 else => {
                     if (mode == .strict) return error.InvalidEscape;
-                    try result.append('~');
+                    try result.append(allocator, '~');
                     i += 1;
                 },
             }
@@ -119,26 +119,26 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                 var buf: [4]u8 = undefined;
                 const len = std.unicode.utf8Encode(codepoint, &buf) catch {
                     if (mode == .strict) return error.InvalidCodepoint;
-                    try result.appendSlice("\xEF\xBF\xBD"); // U+FFFD
+                    try result.appendSlice(allocator, "\xEF\xBF\xBD"); // U+FFFD
                     i += 2;
                     continue;
                 };
-                try result.appendSlice(buf[0..len]);
+                try result.appendSlice(allocator, buf[0..len]);
             } else {
                 // Unknown GB2312 sequence - use replacement char
                 if (mode == .strict) return error.InvalidGB2312;
-                try result.appendSlice("\xEF\xBF\xBD"); // U+FFFD
+                try result.appendSlice(allocator, "\xEF\xBF\xBD"); // U+FFFD
             }
             i += 2;
         } else {
             // ASCII mode
-            try result.append(input[i]);
+            try result.append(allocator, input[i]);
             i += 1;
         }
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }
@@ -146,8 +146,8 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 /// Encode UTF-8 to HZ-GB-2312
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !EncodeResult {
     _ = mode;
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var in_gb_mode = false;
 
@@ -156,33 +156,33 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
         if (cp < 0x80) {
             // ASCII
             if (in_gb_mode) {
-                try result.appendSlice("~}");
+                try result.appendSlice(allocator, "~}");
                 in_gb_mode = false;
             }
             if (cp == '~') {
-                try result.appendSlice("~~");
+                try result.appendSlice(allocator, "~~");
             } else {
-                try result.append(@intCast(cp));
+                try result.append(allocator, @intCast(cp));
             }
         } else {
             // Non-ASCII - would need Unicode to GB2312 reverse mapping
             // For now, use replacement or error
             if (!in_gb_mode) {
-                try result.appendSlice("~{");
+                try result.appendSlice(allocator, "~{");
                 in_gb_mode = true;
             }
             // Simplified: output question marks for unmapped characters
-            try result.appendSlice("!#"); // GB2312 for ?
+            try result.appendSlice(allocator, "!#"); // GB2312 for ?
         }
     }
 
     // Return to ASCII mode at end
     if (in_gb_mode) {
-        try result.appendSlice("~}");
+        try result.appendSlice(allocator, "~}");
     }
 
     return EncodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .chars_consumed = input.len,
     };
 }

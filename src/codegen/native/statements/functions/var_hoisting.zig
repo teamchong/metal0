@@ -818,6 +818,18 @@ pub fn emitHoistedDeclarations(
     func_params: []const ast.Arg,
     func_body: []const ast.Node,
 ) CodegenError!void {
+    return emitHoistedDeclarationsWithSpecialParams(self, escaped_vars, func_params, func_body, null, null);
+}
+
+/// Extended version that also skips *args and **kwargs parameters
+pub fn emitHoistedDeclarationsWithSpecialParams(
+    self: *NativeCodegen,
+    escaped_vars: []const scope_analyzer.EscapedVar,
+    func_params: []const ast.Arg,
+    func_body: []const ast.Node,
+    vararg_name: ?[]const u8,
+    kwarg_name: ?[]const u8,
+) CodegenError!void {
     if (escaped_vars.len == 0) return;
 
     // Pre-scan function body to collect variable type information
@@ -859,6 +871,16 @@ pub fn emitHoistedDeclarations(
             }
         }
         if (is_param) continue;
+
+        // Skip *args parameter (vararg) - it's already declared in function signature
+        if (vararg_name) |vname| {
+            if (std.mem.eql(u8, escaped.name, vname)) continue;
+        }
+
+        // Skip **kwargs parameter (kwarg) - it's already declared in function signature
+        if (kwarg_name) |kname| {
+            if (std.mem.eql(u8, escaped.name, kname)) continue;
+        }
 
         // Skip module-level functions - they're already declared as functions
         // Python allows `genslices = rslices` to reassign function names,

@@ -40,7 +40,7 @@ pub const ArgumentParser = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         var parser = Self{
             .allocator = allocator,
-            .arguments = ArgList.init(allocator),
+            .arguments = .{},
         };
 
         // Add help argument by default
@@ -55,12 +55,12 @@ pub const ArgumentParser = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.arguments.deinit();
+        self.arguments.deinit(self.allocator);
     }
 
     /// Add an argument to the parser
     pub fn addArgument(self: *Self, names: []const []const u8, options: types.ArgumentOptions) !void {
-        try self.arguments.append(.{
+        try self.arguments.append(self.allocator, .{
             .names = names,
             .action = options.action,
             .nargs = options.nargs,
@@ -152,18 +152,18 @@ pub const ArgumentParser = struct {
                             if (result.values.get(dest)) |existing| {
                                 // Append to existing list
                                 if (existing == .strings) {
-                                    var new_list = std.ArrayList([]const u8).init(self.allocator);
+                                    var new_list: std.ArrayList([]const u8) = .{};
                                     for (existing.strings) |s| {
-                                        try new_list.append(s);
+                                        try new_list.append(self.allocator, s);
                                     }
-                                    try new_list.append(value_to_append);
-                                    try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice() });
+                                    try new_list.append(self.allocator, value_to_append);
+                                    try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice(self.allocator) });
                                 }
                             } else {
                                 // Create new list with single value
-                                var new_list = std.ArrayList([]const u8).init(self.allocator);
-                                try new_list.append(value_to_append);
-                                try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice() });
+                                var new_list: std.ArrayList([]const u8) = .{};
+                                try new_list.append(self.allocator, value_to_append);
+                                try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice(self.allocator) });
                             }
                         },
                         .append_const => {
@@ -172,17 +172,17 @@ pub const ArgumentParser = struct {
                             const dest = arg.getDest();
                             if (result.values.get(dest)) |existing| {
                                 if (existing == .strings) {
-                                    var new_list = std.ArrayList([]const u8).init(self.allocator);
+                                    var new_list: std.ArrayList([]const u8) = .{};
                                     for (existing.strings) |s| {
-                                        try new_list.append(s);
+                                        try new_list.append(self.allocator, s);
                                     }
-                                    try new_list.append(const_val);
-                                    try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice() });
+                                    try new_list.append(self.allocator, const_val);
+                                    try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice(self.allocator) });
                                 }
                             } else {
-                                var new_list = std.ArrayList([]const u8).init(self.allocator);
-                                try new_list.append(const_val);
-                                try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice() });
+                                var new_list: std.ArrayList([]const u8) = .{};
+                                try new_list.append(self.allocator, const_val);
+                                try result.values.put(dest, .{ .strings = try new_list.toOwnedSlice(self.allocator) });
                             }
                         },
                     }
@@ -197,7 +197,7 @@ pub const ArgumentParser = struct {
                     try result.values.put(arg.getDest(), .{ .string = arg_str });
                     positional_idx += 1;
                 } else {
-                    try result.remaining.append(arg_str);
+                    try result.remaining.append(self.allocator, arg_str);
                 }
             }
 

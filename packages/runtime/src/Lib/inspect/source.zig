@@ -98,12 +98,12 @@ pub fn getsourcelines_from_file(allocator: std.mem.Allocator, path: []const u8) 
     const content = try getsourceFromFile(allocator, path);
     errdefer allocator.free(content);
 
-    var lines = std.ArrayList([]const u8).init(allocator);
-    errdefer lines.deinit();
+    var lines: std.ArrayList([]const u8) = .{};
+    errdefer lines.deinit(allocator);
 
     var iter = std.mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| {
-        try lines.append(line);
+        try lines.append(allocator, line);
     }
 
     return .{ .lines = lines, .content = content };
@@ -138,8 +138,8 @@ pub fn getcomments(_: anytype) ?[]const u8 {
 
 /// Clean up indentation from docstrings
 pub fn cleandoc(allocator: std.mem.Allocator, doc: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var lines = std.mem.splitScalar(u8, doc, '\n');
     var first = true;
@@ -170,14 +170,14 @@ pub fn cleandoc(allocator: std.mem.Allocator, doc: []const u8) ![]u8 {
     lines = std.mem.splitScalar(u8, doc, '\n');
     while (lines.next()) |line| {
         if (!first) {
-            try result.append('\n');
+            try result.append(allocator, '\n');
         }
         first = false;
 
         if (line.len >= min_indent) {
-            try result.appendSlice(line[min_indent..]);
+            try result.appendSlice(allocator, line[min_indent..]);
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }

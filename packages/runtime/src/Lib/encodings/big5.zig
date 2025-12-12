@@ -128,8 +128,8 @@ fn decodeDoubleByte(b1: u8, b2: u8) ?u21 {
 
 /// Decode Big5 to UTF-8
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < input.len) {
@@ -137,13 +137,13 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 
         if (b1 < 0x80) {
             // ASCII
-            try result.append(b1);
+            try result.append(allocator, b1);
             i += 1;
         } else if (isLeadByte(b1)) {
             // Double-byte character
             if (i + 1 >= input.len) {
                 if (mode == .strict) return error.IncompleteSequence;
-                try result.appendSlice("\xEF\xBF\xBD"); // U+FFFD
+                try result.appendSlice(allocator, "\xEF\xBF\xBD"); // U+FFFD
                 i += 1;
                 continue;
             }
@@ -152,75 +152,75 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             if (decodeDoubleByte(b1, b2)) |cp| {
                 var buf: [4]u8 = undefined;
                 const len = std.unicode.utf8Encode(cp, &buf) catch {
-                    try result.appendSlice("\xEF\xBF\xBD");
+                    try result.appendSlice(allocator, "\xEF\xBF\xBD");
                     i += 2;
                     continue;
                 };
-                try result.appendSlice(buf[0..len]);
+                try result.appendSlice(allocator, buf[0..len]);
             } else {
                 if (mode == .strict) return error.InvalidSequence;
-                try result.appendSlice("\xEF\xBF\xBD");
+                try result.appendSlice(allocator, "\xEF\xBF\xBD");
             }
             i += 2;
         } else {
             // Invalid byte
             if (mode == .strict) return error.InvalidByte;
-            try result.appendSlice("\xEF\xBF\xBD");
+            try result.appendSlice(allocator, "\xEF\xBF\xBD");
             i += 1;
         }
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }
 
 /// Encode UTF-8 to Big5
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !EncodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var iter = std.unicode.Utf8Iterator{ .bytes = input, .i = 0 };
     while (iter.nextCodepoint()) |cp| {
         if (cp < 0x80) {
             // ASCII
-            try result.append(@intCast(cp));
+            try result.append(allocator, @intCast(cp));
         } else {
             // Check for common mappings
             if (cp >= 0xFF10 and cp <= 0xFF19) {
                 // Fullwidth digits
-                try result.append(0xA2);
-                try result.append(@as(u8, @intCast(0xAF + (cp - 0xFF10))));
+                try result.append(allocator, 0xA2);
+                try result.append(allocator, @as(u8, @intCast(0xAF + (cp - 0xFF10))));
             } else if (cp >= 0xFF21 and cp <= 0xFF3A) {
                 // Fullwidth uppercase
-                try result.append(0xA2);
-                try result.append(@as(u8, @intCast(0xC1 + (cp - 0xFF21))));
+                try result.append(allocator, 0xA2);
+                try result.append(allocator, @as(u8, @intCast(0xC1 + (cp - 0xFF21))));
             } else if (cp >= 0xFF41 and cp <= 0xFF5A) {
                 // Fullwidth lowercase
-                try result.append(0xA2);
-                try result.append(@as(u8, @intCast(0xE1 + (cp - 0xFF41))));
+                try result.append(allocator, 0xA2);
+                try result.append(allocator, @as(u8, @intCast(0xE1 + (cp - 0xFF41))));
             } else if (cp == 0x3000) {
                 // Ideographic space
-                try result.append(0xA1);
-                try result.append(0x40);
+                try result.append(allocator, 0xA1);
+                try result.append(allocator, 0x40);
             } else {
                 // Use CJK mapping tables for full support
                 const cjk = @import("cjk_mappings.zig");
                 if (cjk.encodeBig5(cp)) |big5_code| {
-                    try result.append(@intCast(big5_code >> 8));
-                    try result.append(@intCast(big5_code & 0xFF));
+                    try result.append(allocator, @intCast(big5_code >> 8));
+                    try result.append(allocator, @intCast(big5_code & 0xFF));
                 } else {
                     // No mapping available
                     if (mode == .strict) return error.UnencodableCharacter;
-                    try result.append('?');
+                    try result.append(allocator, '?');
                 }
             }
         }
     }
 
     return EncodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .chars_consumed = input.len,
     };
 }

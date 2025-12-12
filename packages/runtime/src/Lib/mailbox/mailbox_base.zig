@@ -24,7 +24,7 @@ pub fn Mailbox(comptime MessageType: type) type {
             var self = Self{
                 .allocator = allocator,
                 .path = path,
-                .messages = std.ArrayList(MessageType).init(allocator),
+                .messages = .{},
                 .factory = factory,
                 .file = null,
                 .is_locked = false,
@@ -42,12 +42,12 @@ pub fn Mailbox(comptime MessageType: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            self.messages.deinit();
+            self.messages.deinit(self.allocator);
         }
 
         /// Add a message
         pub fn add(self: *Self, message: MessageType) !usize {
-            try self.messages.append(message);
+            try self.messages.append(self.allocator, message);
             self.modified = true;
             return self.messages.items.len - 1;
         }

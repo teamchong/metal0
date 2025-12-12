@@ -281,20 +281,20 @@ pub const Fraction = struct {
 
     /// Format as string "numerator/denominator"
     pub fn format(self: Fraction, allocator: std.mem.Allocator) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(allocator);
 
         if (self.denominator == 1) {
             var buf: [32]u8 = undefined;
-            const str = std.fmt.bufPrint(&buf, "{d}", .{self.numerator}) catch return result.toOwnedSlice();
-            try result.appendSlice(str);
+            const str = std.fmt.bufPrint(&buf, "{d}", .{self.numerator}) catch return result.toOwnedSlice(allocator);
+            try result.appendSlice(allocator, str);
         } else {
             var buf: [64]u8 = undefined;
-            const str = std.fmt.bufPrint(&buf, "{d}/{d}", .{ self.numerator, self.denominator }) catch return result.toOwnedSlice();
-            try result.appendSlice(str);
+            const str = std.fmt.bufPrint(&buf, "{d}/{d}", .{ self.numerator, self.denominator }) catch return result.toOwnedSlice(allocator);
+            try result.appendSlice(allocator, str);
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 

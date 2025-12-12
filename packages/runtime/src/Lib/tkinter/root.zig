@@ -17,7 +17,7 @@ pub const Tk = struct {
     title_text: []const u8 = "tk",
     running: bool = false,
     /// Scheduled callbacks (timer-based)
-    scheduled: std.ArrayList(ScheduledCallback) = undefined,
+    scheduled: std.ArrayList(ScheduledCallback),
 
     const ScheduledCallback = struct {
         due_time: i64, // nanoseconds since epoch
@@ -49,8 +49,8 @@ pub const Tk = struct {
     /// Processes scheduled callbacks and user events
     pub fn mainloop(self: *Self) void {
         self.running = true;
-        self.scheduled = std.ArrayList(ScheduledCallback).init(self.widget.allocator);
-        defer self.scheduled.deinit();
+        self.scheduled = .{};
+        defer self.scheduled.deinit(self.widget.allocator);
 
         // Event loop - process scheduled callbacks
         while (self.running) {
@@ -101,7 +101,7 @@ pub const Tk = struct {
     pub fn after(self: *Self, ms: u32, callback: *const fn () void) void {
         const now = std.time.nanoTimestamp();
         const due = now + @as(i64, ms) * std.time.ns_per_ms;
-        self.scheduled.append(.{ .due_time = due, .callback = callback }) catch {};
+        self.scheduled.append(self.widget.allocator, .{ .due_time = due, .callback = callback }) catch {};
     }
 
     /// Cancel a scheduled callback (by finding and removing it)

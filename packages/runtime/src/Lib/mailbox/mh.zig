@@ -28,21 +28,21 @@ pub const MH = struct {
         pub fn init(allocator: std.mem.Allocator) MHMessage {
             return .{
                 .base = Message.init(allocator),
-                .sequences = std.ArrayList([]const u8).init(allocator),
+                .sequences = .{},
             };
         }
 
-        pub fn deinit(self: *MHMessage) void {
+        pub fn deinit(self: *MHMessage, allocator: std.mem.Allocator) void {
             self.base.deinit();
-            self.sequences.deinit();
+            self.sequences.deinit(allocator);
         }
 
         pub fn getSequences(self: *MHMessage) []const []const u8 {
             return self.sequences.items;
         }
 
-        pub fn addSequence(self: *MHMessage, sequence: []const u8) !void {
-            try self.sequences.append(sequence);
+        pub fn addSequence(self: *MHMessage, allocator: std.mem.Allocator, sequence: []const u8) !void {
+            try self.sequences.append(allocator, sequence);
         }
 
         pub fn removeSequence(self: *MHMessage, sequence: []const u8) void {
@@ -148,9 +148,9 @@ pub const MH = struct {
 test "MH message sequences" {
     const allocator = std.testing.allocator;
     var msg = MH.MHMessage.init(allocator);
-    defer msg.deinit();
+    defer msg.deinit(allocator);
 
-    try msg.addSequence("unseen");
-    try msg.addSequence("flagged");
+    try msg.addSequence(allocator, "unseen");
+    try msg.addSequence(allocator, "flagged");
     try std.testing.expectEqual(@as(usize, 2), msg.getSequences().len);
 }

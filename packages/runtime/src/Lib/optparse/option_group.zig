@@ -27,15 +27,15 @@ pub const OptionGroup = struct {
             .parser = parser,
             .title = title,
             .description = null,
-            .options = std.ArrayList(Option).init(allocator),
+            .options = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.options.deinit();
+        self.options.deinit(self.allocator);
     }
 
     pub fn addOption(self: *Self, opt: Option) !void {
-        try self.options.append(opt);
+        try self.options.append(self.allocator, opt);
     }
 };

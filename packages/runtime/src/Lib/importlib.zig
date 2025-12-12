@@ -55,7 +55,7 @@ pub const ModuleSpec = struct {
 
     pub fn deinit(self: *Self) void {
         if (self.submodule_search_locations) |*locs| {
-            locs.deinit();
+            locs.deinit(self.allocator);
         }
     }
 
@@ -271,11 +271,11 @@ pub const util = struct {
 
         // Navigate up package hierarchy
         var pkg_parts = std.mem.splitScalar(u8, pkg, '.');
-        var parts = std.ArrayList([]const u8).init(allocator);
-        defer parts.deinit();
+        var parts: std.ArrayList([]const u8) = .{};
+        defer parts.deinit(allocator);
 
         while (pkg_parts.next()) |part| {
-            try parts.append(part);
+            try parts.append(allocator, part);
         }
 
         if (level > parts.items.len) {
@@ -289,17 +289,17 @@ pub const util = struct {
 
         // Append remaining name
         if (level < name.len) {
-            try parts.append(name[level..]);
+            try parts.append(allocator, name[level..]);
         }
 
         // Join with dots
-        var result = std.ArrayList(u8).init(allocator);
+        var result: std.ArrayList(u8) = .{};
         for (parts.items, 0..) |part, i| {
-            if (i > 0) try result.append('.');
-            try result.appendSlice(part);
+            if (i > 0) try result.append(allocator, '.');
+            try result.appendSlice(allocator, part);
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 
     /// Find a spec for a module given its name and optionally a package
@@ -411,7 +411,7 @@ test "ModuleSpec init" {
 test "ModuleSpec isPackage" {
     const allocator = std.testing.allocator;
     var spec = ModuleSpec.init(allocator, "test_pkg", null);
-    spec.submodule_search_locations = std.ArrayList([]const u8).init(allocator);
+    spec.submodule_search_locations = std.ArrayList([]const u8){};
     defer spec.deinit();
 
     try std.testing.expect(spec.isPackage());

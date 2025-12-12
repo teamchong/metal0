@@ -31,10 +31,10 @@ pub const HtmlDiff = struct {
     }
 
     pub fn makeFile(self: *Self, fromlines: []const []const u8, tolines: []const []const u8, fromdesc: []const u8, todesc: []const u8) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
-        try result.appendSlice(
+        try result.appendSlice(self.allocator,
             \\<!DOCTYPE html>
             \\<html>
             \\<head>
@@ -52,25 +52,25 @@ pub const HtmlDiff = struct {
 
         const table = try self.makeTable(fromlines, tolines, fromdesc, todesc);
         defer self.allocator.free(table);
-        try result.appendSlice(table);
+        try result.appendSlice(self.allocator, table);
 
-        try result.appendSlice(
+        try result.appendSlice(self.allocator,
             \\</body>
             \\</html>
         );
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     pub fn makeTable(self: *Self, fromlines: []const []const u8, tolines: []const []const u8, fromdesc: []const u8, todesc: []const u8) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
-        try result.appendSlice("<table>\n<tr><th>");
-        try result.appendSlice(fromdesc);
-        try result.appendSlice("</th><th>");
-        try result.appendSlice(todesc);
-        try result.appendSlice("</th></tr>\n");
+        try result.appendSlice(self.allocator, "<table>\n<tr><th>");
+        try result.appendSlice(self.allocator, fromdesc);
+        try result.appendSlice(self.allocator, "</th><th>");
+        try result.appendSlice(self.allocator, todesc);
+        try result.appendSlice(self.allocator, "</th></tr>\n");
 
         var sm = SequenceMatcher([]const u8).init(self.allocator, fromlines, tolines);
         defer sm.deinit();
@@ -80,7 +80,7 @@ pub const HtmlDiff = struct {
             const maxlines = @max(op.i2 - op.i1, op.j2 - op.j1);
             var i: usize = 0;
             while (i < maxlines) : (i += 1) {
-                try result.appendSlice("<tr>");
+                try result.appendSlice(self.allocator, "<tr>");
 
                 // From column
                 if (op.i1 + i < op.i2) {
@@ -89,13 +89,13 @@ pub const HtmlDiff = struct {
                         .delete => "diff_sub",
                         else => "",
                     };
-                    try result.appendSlice("<td class=\"");
-                    try result.appendSlice(class);
-                    try result.appendSlice("\">");
-                    try result.appendSlice(fromlines[op.i1 + i]);
-                    try result.appendSlice("</td>");
+                    try result.appendSlice(self.allocator, "<td class=\"");
+                    try result.appendSlice(self.allocator, class);
+                    try result.appendSlice(self.allocator, "\">");
+                    try result.appendSlice(self.allocator, fromlines[op.i1 + i]);
+                    try result.appendSlice(self.allocator, "</td>");
                 } else {
-                    try result.appendSlice("<td></td>");
+                    try result.appendSlice(self.allocator, "<td></td>");
                 }
 
                 // To column
@@ -105,21 +105,21 @@ pub const HtmlDiff = struct {
                         .insert => "diff_add",
                         else => "",
                     };
-                    try result.appendSlice("<td class=\"");
-                    try result.appendSlice(class);
-                    try result.appendSlice("\">");
-                    try result.appendSlice(tolines[op.j1 + i]);
-                    try result.appendSlice("</td>");
+                    try result.appendSlice(self.allocator, "<td class=\"");
+                    try result.appendSlice(self.allocator, class);
+                    try result.appendSlice(self.allocator, "\">");
+                    try result.appendSlice(self.allocator, tolines[op.j1 + i]);
+                    try result.appendSlice(self.allocator, "</td>");
                 } else {
-                    try result.appendSlice("<td></td>");
+                    try result.appendSlice(self.allocator, "<td></td>");
                 }
 
-                try result.appendSlice("</tr>\n");
+                try result.appendSlice(self.allocator, "</tr>\n");
             }
         }
 
-        try result.appendSlice("</table>\n");
+        try result.appendSlice(self.allocator, "</table>\n");
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };

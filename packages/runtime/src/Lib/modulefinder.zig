@@ -81,12 +81,12 @@ pub const ModuleFinder = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .modules = hashmap_helper.StringHashMap(*Module).init(allocator),
-            .badmodules = hashmap_helper.StringHashMap(hashmap_helper.StringHashMap(void)).init(allocator),
-            .path = std.ArrayList([]const u8).init(allocator),
+            .modules = .{},
+            .badmodules = .{},
+            .path = .{},
             .debug = 0,
-            .excludes = hashmap_helper.StringHashMap(void).init(allocator),
-            .replace_paths = std.ArrayList(struct { old: []const u8, new: []const u8 }).init(allocator),
+            .excludes = .{},
+            .replace_paths = .{},
         };
     }
 
@@ -95,18 +95,18 @@ pub const ModuleFinder = struct {
         finder.debug = debug;
 
         for (path) |p| {
-            finder.path.append(p) catch {};
+            finder.path.append(allocator, p) catch {};
         }
 
         if (excludes) |excl| {
             for (excl) |e| {
-                finder.excludes.put(e, {}) catch {};
+                finder.excludes.put(allocator, e, {}) catch {};
             }
         }
 
         if (replace_paths) |rp| {
             for (rp) |r| {
-                finder.replace_paths.append(r) catch {};
+                finder.replace_paths.append(allocator, r) catch {};
             }
         }
 
@@ -118,16 +118,16 @@ pub const ModuleFinder = struct {
             mod.deinit();
             self.allocator.destroy(mod);
         }
-        self.modules.deinit();
+        self.modules.deinit(self.allocator);
 
         for (self.badmodules.values()) |*bad| {
-            bad.deinit();
+            bad.deinit(self.allocator);
         }
-        self.badmodules.deinit();
+        self.badmodules.deinit(self.allocator);
 
-        self.path.deinit();
-        self.excludes.deinit();
-        self.replace_paths.deinit();
+        self.path.deinit(self.allocator);
+        self.excludes.deinit(self.allocator);
+        self.replace_paths.deinit(self.allocator);
     }
 
     /// Output a message if debugging
@@ -317,11 +317,11 @@ pub const ModuleFinder = struct {
 
     /// Get any missing modules
     pub fn anyMissing(self: *Self) []const []const u8 {
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result: std.ArrayList([]const u8) = .{};
         for (self.badmodules.keys()) |name| {
-            result.append(name) catch {};
+            result.append(self.allocator, name) catch {};
         }
-        return result.toOwnedSlice() catch &[_][]const u8{};
+        return result.toOwnedSlice(self.allocator) catch &[_][]const u8{};
     }
 };
 
@@ -334,8 +334,9 @@ var package_paths: ?hashmap_helper.StringHashMap(std.ArrayList([]const u8)) = nu
 
 /// Initialize package paths registry
 fn initPackagePaths(allocator: std.mem.Allocator) void {
+    _ = allocator;
     if (package_paths == null) {
-        package_paths = hashmap_helper.StringHashMap(std.ArrayList([]const u8)).init(allocator);
+        package_paths = .{};
     }
 }
 
@@ -346,12 +347,12 @@ pub fn AddPackagePath(allocator: std.mem.Allocator, packagename: []const u8, pat
     if (package_paths) |*paths| {
         if (paths.getPtr(packagename)) |existing| {
             // Add to existing package path list
-            existing.append(path) catch {};
+            existing.append(allocator, path) catch {};
         } else {
             // Create new path list for this package
-            var path_list = std.ArrayList([]const u8).init(allocator);
-            path_list.append(path) catch {};
-            paths.put(packagename, path_list) catch {};
+            var path_list: std.ArrayList([]const u8) = .{};
+            path_list.append(allocator, path) catch {};
+            paths.put(allocator, packagename, path_list) catch {};
         }
     }
 }
@@ -375,8 +376,9 @@ var package_replacements: ?hashmap_helper.StringHashMap([]const u8) = null;
 
 /// Initialize package replacements registry
 fn initPackageReplacements(allocator: std.mem.Allocator) void {
+    _ = allocator;
     if (package_replacements == null) {
-        package_replacements = hashmap_helper.StringHashMap([]const u8).init(allocator);
+        package_replacements = .{};
     }
 }
 
@@ -385,7 +387,7 @@ pub fn ReplacePackage(allocator: std.mem.Allocator, oldname: []const u8, newname
     initPackageReplacements(allocator);
 
     if (package_replacements) |*replacements| {
-        replacements.put(oldname, newname) catch {};
+        replacements.put(allocator, oldname, newname) catch {};
     }
 }
 

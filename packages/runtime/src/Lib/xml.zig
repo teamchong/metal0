@@ -200,9 +200,11 @@ pub const dom = struct {
             NOTATION_NODE = 12,
         };
 
+        allocator: std.mem.Allocator,
+
         pub fn appendChild(self: *Node, child: *Node) !void {
             child.parent_node = self;
-            try self.child_nodes.append(child);
+            try self.child_nodes.append(self.allocator, child);
         }
 
         pub fn removeChild(self: *Node, child: *Node) void {
@@ -247,11 +249,12 @@ pub const dom = struct {
         pub fn createElement(self: *Document, tag_name: []const u8) !*Node {
             const node = try self.allocator.create(Node);
             node.* = .{
+                .allocator = self.allocator,
                 .node_type = .ELEMENT_NODE,
                 .node_name = try self.allocator.dupe(u8, tag_name),
                 .node_value = null,
                 .parent_node = null,
-                .child_nodes = std.ArrayList(*Node).init(self.allocator),
+                .child_nodes = .{},
                 .attributes = hashmap_helper.StringHashMap([]const u8).init(self.allocator),
             };
             return node;
@@ -260,30 +263,31 @@ pub const dom = struct {
         pub fn createTextNode(self: *Document, data: []const u8) !*Node {
             const node = try self.allocator.create(Node);
             node.* = .{
+                .allocator = self.allocator,
                 .node_type = .TEXT_NODE,
                 .node_name = "#text",
                 .node_value = try self.allocator.dupe(u8, data),
                 .parent_node = null,
-                .child_nodes = std.ArrayList(*Node).init(self.allocator),
+                .child_nodes = .{},
                 .attributes = null,
             };
             return node;
         }
 
         pub fn getElementsByTagName(self: *Document, name: []const u8) ![]*Node {
-            var result = std.ArrayList(*Node).init(self.allocator);
+            var result: std.ArrayList(*Node) = .{};
             if (self.document_element) |root| {
-                try collectByTagName(&result, root, name);
+                try collectByTagName(self.allocator, &result, root, name);
             }
-            return result.toOwnedSlice();
+            return result.toOwnedSlice(self.allocator);
         }
 
-        fn collectByTagName(result: *std.ArrayList(*Node), node: *Node, name: []const u8) !void {
+        fn collectByTagName(allocator: std.mem.Allocator, result: *std.ArrayList(*Node), node: *Node, name: []const u8) !void {
             if (std.mem.eql(u8, node.node_name, name)) {
-                try result.append(node);
+                try result.append(allocator, node);
             }
             for (node.child_nodes.items) |child| {
-                try collectByTagName(result, child, name);
+                try collectByTagName(allocator, result, child, name);
             }
         }
     };

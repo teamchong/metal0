@@ -21,21 +21,21 @@ pub const SimpleScheduler = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .scheduler = Scheduler.init(allocator),
-            .events = std.ArrayList(SimpleEvent).init(allocator),
+            .events = .{},
         };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         self.scheduler.deinit();
-        self.events.deinit();
+        self.events.deinit(allocator);
     }
 
     /// Schedule a named event
-    pub fn schedule(self: *Self, delay: i64, name: []const u8) !usize {
+    pub fn schedule(self: *Self, allocator: std.mem.Allocator, delay: i64, name: []const u8) !usize {
         const id = self.events.items.len;
         const time = self.scheduler.timefunc() + delay;
 
-        try self.events.append(.{
+        try self.events.append(allocator, .{
             .id = id,
             .time = time,
             .name = name,

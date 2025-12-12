@@ -19,14 +19,14 @@ pub fn read(parser: anytype, filename: []const u8) !void {
 
 /// Read configuration from multiple file paths
 pub fn readMany(parser: anytype, filenames: []const []const u8) ![]const []const u8 {
-    var read_ok = std.ArrayList([]const u8).init(parser.allocator);
+    var read_ok: std.ArrayList([]const u8) = .{};
     for (filenames) |filename| {
         const file = std.fs.cwd().openFile(filename, .{}) catch continue;
         defer file.close();
         readFile(parser, file) catch continue;
-        try read_ok.append(filename);
+        try read_ok.append(parser.allocator, filename);
     }
-    return read_ok.toOwnedSlice();
+    return read_ok.toOwnedSlice(parser.allocator);
 }
 
 /// Read configuration from an open file

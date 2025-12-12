@@ -184,8 +184,8 @@ pub fn format(allocator: std.mem.Allocator, fmt_str: []const u8, value: anytype,
     }
 
     // Apply grouping
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     // Find decimal point
     const decimal_pos = std.mem.indexOf(u8, str, ".") orelse str.len;
@@ -198,19 +198,19 @@ pub fn format(allocator: std.mem.Allocator, fmt_str: []const u8, value: anytype,
     while (i > 0) {
         i -= 1;
         if (group_count > 0 and group_count % 3 == 0) {
-            try result.insert(0, conv.thousands_sep[0]);
+            try result.insert(allocator, 0, conv.thousands_sep[0]);
         }
-        try result.insert(0, integer_part[i]);
+        try result.insert(allocator, 0, integer_part[i]);
         group_count += 1;
     }
 
     // Add decimal part
     if (decimal_part.len > 0) {
-        try result.append(conv.decimal_point[0]);
-        try result.appendSlice(decimal_part[1..]);
+        try result.append(allocator, conv.decimal_point[0]);
+        try result.appendSlice(allocator, decimal_part[1..]);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Format a string as a number
@@ -221,8 +221,8 @@ pub fn formatString(allocator: std.mem.Allocator, str: []const u8, grouping: boo
         return allocator.dupe(u8, str);
     }
 
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     const decimal_pos = std.mem.indexOf(u8, str, ".") orelse str.len;
     const integer_part = str[0..decimal_pos];
@@ -232,26 +232,26 @@ pub fn formatString(allocator: std.mem.Allocator, str: []const u8, grouping: boo
     while (i > 0) {
         i -= 1;
         if (group_count > 0 and group_count % 3 == 0) {
-            try result.insert(0, conv.thousands_sep[0]);
+            try result.insert(allocator, 0, conv.thousands_sep[0]);
         }
-        try result.insert(0, integer_part[i]);
+        try result.insert(allocator, 0, integer_part[i]);
         group_count += 1;
     }
 
     if (decimal_pos < str.len) {
-        try result.append(conv.decimal_point[0]);
-        try result.appendSlice(str[decimal_pos + 1 ..]);
+        try result.append(allocator, conv.decimal_point[0]);
+        try result.appendSlice(allocator, str[decimal_pos + 1 ..]);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Format currency
 pub fn currency(allocator: std.mem.Allocator, value: f64, grouping: bool, international: bool) ![]u8 {
     const conv = localeconv();
 
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     // Format the number
     var buf: [64]u8 = undefined;
@@ -269,15 +269,15 @@ pub fn currency(allocator: std.mem.Allocator, value: f64, grouping: bool, intern
 
     // Build result
     if (is_negative) {
-        try result.appendSlice(conv.negative_sign);
+        try result.appendSlice(allocator, conv.negative_sign);
     } else {
-        try result.appendSlice(conv.positive_sign);
+        try result.appendSlice(allocator, conv.positive_sign);
     }
 
     if (cs_precedes == 1) {
-        try result.appendSlice(curr_sym);
+        try result.appendSlice(allocator, curr_sym);
         if (sep_by_space == 1) {
-            try result.append(' ');
+            try result.append(allocator, ' ');
         }
     }
 
@@ -285,19 +285,19 @@ pub fn currency(allocator: std.mem.Allocator, value: f64, grouping: bool, intern
     if (grouping) {
         const formatted = try formatString(allocator, str, true);
         defer allocator.free(formatted);
-        try result.appendSlice(formatted);
+        try result.appendSlice(allocator, formatted);
     } else {
-        try result.appendSlice(str);
+        try result.appendSlice(allocator, str);
     }
 
     if (cs_precedes == 0) {
         if (sep_by_space == 1) {
-            try result.append(' ');
+            try result.append(allocator, ' ');
         }
-        try result.appendSlice(curr_sym);
+        try result.appendSlice(allocator, curr_sym);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================
@@ -309,16 +309,16 @@ pub fn atof(str: []const u8) !f64 {
     const conv = localeconv();
 
     // Replace locale decimal point with '.'
-    var normalized = std.ArrayList(u8).init(allocator_helper.fast_allocator);
-    defer normalized.deinit();
+    var normalized: std.ArrayList(u8) = .{};
+    defer normalized.deinit(allocator_helper.fast_allocator);
 
     for (str) |c| {
         if (conv.decimal_point.len > 0 and c == conv.decimal_point[0]) {
-            try normalized.append('.');
+            try normalized.append(allocator_helper.fast_allocator, '.');
         } else if (conv.thousands_sep.len > 0 and c == conv.thousands_sep[0]) {
             // Skip thousands separator
         } else {
-            try normalized.append(c);
+            try normalized.append(allocator_helper.fast_allocator, c);
         }
     }
 
@@ -330,14 +330,14 @@ pub fn atoi(str: []const u8) !i64 {
     const conv = localeconv();
 
     // Remove thousands separators
-    var normalized = std.ArrayList(u8).init(allocator_helper.fast_allocator);
-    defer normalized.deinit();
+    var normalized: std.ArrayList(u8) = .{};
+    defer normalized.deinit(allocator_helper.fast_allocator);
 
     for (str) |c| {
         if (conv.thousands_sep.len > 0 and c == conv.thousands_sep[0]) {
             // Skip
         } else {
-            try normalized.append(c);
+            try normalized.append(allocator_helper.fast_allocator, c);
         }
     }
 
@@ -381,22 +381,22 @@ pub fn getlocale(category: Category) struct { language: ?[]const u8, encoding: ?
 /// Normalize locale name
 pub fn normalize(allocator: std.mem.Allocator, localename: []const u8) ![]u8 {
     // Simple normalization: lowercase language, uppercase country
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var in_country = false;
     for (localename) |c| {
         if (c == '_') {
             in_country = true;
-            try result.append('_');
+            try result.append(allocator, '_');
         } else if (in_country) {
-            try result.append(std.ascii.toUpper(c));
+            try result.append(allocator, std.ascii.toUpper(c));
         } else {
-            try result.append(std.ascii.toLower(c));
+            try result.append(allocator, std.ascii.toLower(c));
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================

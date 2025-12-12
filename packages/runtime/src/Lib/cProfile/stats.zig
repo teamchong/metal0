@@ -24,13 +24,13 @@ pub const Stats = struct {
     prim_calls: u64 = 0,
 
     pub fn init(allocator: std.mem.Allocator, stats: *hashmap_helper.StringHashMap(ProfileEntry)) Self {
-        var entries = std.ArrayList(ProfileEntry).init(allocator);
+        var entries: std.ArrayList(ProfileEntry) = .{};
         var total_calls: u64 = 0;
         var total_time: f64 = 0.0;
 
         var iter = stats.iterator();
         while (iter.next()) |entry| {
-            entries.append(entry.value_ptr.*) catch continue;
+            entries.append(allocator, entry.value_ptr.*) catch continue;
             total_calls += entry.value_ptr.ncalls;
             total_time += entry.value_ptr.tottime;
         }
@@ -45,7 +45,7 @@ pub const Stats = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.entries.deinit();
+        self.entries.deinit(self.allocator);
     }
 
     /// Sort by given key

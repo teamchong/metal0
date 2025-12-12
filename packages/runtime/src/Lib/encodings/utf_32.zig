@@ -20,8 +20,8 @@ pub const BOM_BE = "\x00\x00\xfe\xff";
 
 /// Decode UTF-32-LE bytes to UTF-8
 fn decodeLe(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHandler) !DecodeResult {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
 
     var i: usize = 0;
     while (i + 3 < input.len) {
@@ -72,8 +72,8 @@ fn decodeLe(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHandle
 
 /// Decode UTF-32-BE bytes to UTF-8
 fn decodeBe(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHandler) !DecodeResult {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
 
     var i: usize = 0;
     while (i + 3 < input.len) {
@@ -140,8 +140,8 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHand
 
 /// Encode UTF-8 string to UTF-32-LE bytes (with BOM prefix)
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHandler) !EncodeResult {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
 
     // Add BOM
     try output.appendSlice(allocator, BOM_LE);

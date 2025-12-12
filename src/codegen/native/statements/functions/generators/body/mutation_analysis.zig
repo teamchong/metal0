@@ -751,6 +751,69 @@ pub fn countAssignmentsWithScope(
                 }
             }
         },
+        .function_def => |func_def| {
+            // Function definition is an implicit assignment: def foo() creates binding for "foo"
+            // This handles: def bar(): ...; bar = decorator(bar) -> bar is reassigned
+            const name = func_def.name;
+            const scoped_key = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ name, scope_id });
+            defer allocator.free(scoped_key);
+            const current = scoped_counts.get(scoped_key) orelse 0;
+            try scoped_counts.put(try allocator.dupe(u8, scoped_key), current + 1);
+            // If we're inside a loop (scope_id != 0) and defining a function with a name
+            // that was ALREADY assigned at function scope (scope_id=0), then the
+            // function-level variable is being mutated and needs `var`.
+            if (scope_id != 0) {
+                const func_scope_key = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ name, @as(usize, 0) });
+                defer allocator.free(func_scope_key);
+                if (scoped_counts.get(func_scope_key) != null) {
+                    try aug_vars.put(name, {});
+                }
+            }
+            // Check for `nonlocal` declarations in the nested function body
+            // Variables declared as nonlocal in inner function need to be mutable in outer scope
+            for (func_def.body) |nested_stmt| {
+                try collectNonlocalVarsForMutation(nested_stmt, aug_vars);
+            }
+        },
+        else => {},
+    }
+}
+
+/// Collect `nonlocal` declarations from a nested function body
+/// These variables need to be mutable in the outer scope because `nonlocal` allows modification
+fn collectNonlocalVarsForMutation(stmt: ast.Node, aug_vars: *hashmap_helper.StringHashMap(void)) !void {
+    switch (stmt) {
+        .nonlocal_stmt => |n| {
+            // Mark all nonlocal variables as needing mutation (var instead of const)
+            for (n.names) |name| {
+                try aug_vars.put(name, {});
+            }
+        },
+        // Recurse into compound statements (but NOT nested functions - they have their own scope)
+        .if_stmt => |i| {
+            for (i.body) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+            for (i.else_body) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+        },
+        .for_stmt => |f| {
+            for (f.body) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+            if (f.orelse_body) |ob| for (ob) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+            if (w.orelse_body) |ob| for (ob) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+            for (t.handlers) |h| for (h.body) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+            for (t.else_body) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+            for (t.finalbody) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+        },
+        .with_stmt => |w| {
+            for (w.body) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+        },
+        .match_stmt => |m| {
+            for (m.cases) |c| for (c.body) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+        },
         else => {},
     }
 }

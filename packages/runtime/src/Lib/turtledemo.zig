@@ -251,10 +251,10 @@ pub fn getDemoInfo(name: []const u8) ?DemoInfo {
 
 /// Get demos by category
 pub fn getDemosByCategory(allocator: std.mem.Allocator, category: Category) !std.ArrayList(DemoInfo) {
-    var result = std.ArrayList(DemoInfo).init(allocator);
+    var result: std.ArrayList(DemoInfo) = .{};
     for (demos) |demo| {
         if (demo.category == category) {
-            try result.append(demo);
+            try result.append(allocator, demo);
         }
     }
     return result;
@@ -262,9 +262,9 @@ pub fn getDemosByCategory(allocator: std.mem.Allocator, category: Category) !std
 
 /// Get all demo names
 pub fn getDemoNames(allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
-    var result = std.ArrayList([]const u8).init(allocator);
+    var result: std.ArrayList([]const u8) = .{};
     for (demos) |demo| {
-        try result.append(demo.name);
+        try result.append(allocator, demo.name);
     }
     return result;
 }
@@ -339,7 +339,7 @@ test "polygon" {
 test "getDemosByCategory" {
     const allocator = std.testing.allocator;
     var fractals = try getDemosByCategory(allocator, .fractals);
-    defer fractals.deinit();
+    defer fractals.deinit(allocator);
 
     try std.testing.expect(fractals.items.len > 0);
     for (fractals.items) |demo| {
@@ -350,7 +350,7 @@ test "getDemosByCategory" {
 test "getDemoNames" {
     const allocator = std.testing.allocator;
     var names = try getDemoNames(allocator);
-    defer names.deinit();
+    defer names.deinit(allocator);
 
     try std.testing.expectEqual(demos.len, names.items.len);
 }

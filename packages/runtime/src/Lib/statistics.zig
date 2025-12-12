@@ -153,8 +153,8 @@ pub fn multimode(comptime T: type, allocator: std.mem.Allocator, data: []const T
     }
 
     // Collect all values with max count
-    var modes = std.ArrayList(T).init(allocator);
-    errdefer modes.deinit();
+    var modes: std.ArrayList(T) = .{};
+    errdefer modes.deinit(allocator);
 
     for (data) |candidate| {
         var count: usize = 0;
@@ -171,12 +171,12 @@ pub fn multimode(comptime T: type, allocator: std.mem.Allocator, data: []const T
                 }
             }
             if (!found) {
-                try modes.append(candidate);
+                try modes.append(allocator, candidate);
             }
         }
     }
 
-    return modes.toOwnedSlice();
+    return modes.toOwnedSlice(allocator);
 }
 
 // ============================================================================

@@ -50,12 +50,12 @@ pub const ResponseHeaders = struct {
     pub fn init(allocator: std.mem.Allocator, headers: ?[]const struct { []const u8, []const u8 }) Self {
         var self = Self{
             .allocator = allocator,
-            .headers = std.ArrayList(struct { name: []const u8, value: []const u8 }).init(allocator),
+            .headers = .{},
         };
 
         if (headers) |h| {
             for (h) |header| {
-                self.headers.append(.{ .name = header[0], .value = header[1] }) catch {};
+                self.headers.append(allocator, .{ .name = header[0], .value = header[1] }) catch {};
             }
         }
 
@@ -63,7 +63,7 @@ pub const ResponseHeaders = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.headers.deinit();
+        self.headers.deinit(self.allocator);
     }
 
     /// Get the value of a header
@@ -78,10 +78,10 @@ pub const ResponseHeaders = struct {
 
     /// Get all values for a header
     pub fn getAll(self: *const Self, allocator: std.mem.Allocator, name: []const u8) !std.ArrayList([]const u8) {
-        var result = std.ArrayList([]const u8).init(allocator);
+        var result: std.ArrayList([]const u8) = .{};
         for (self.headers.items) |header| {
             if (std.ascii.eqlIgnoreCase(header.name, name)) {
-                try result.append(header.value);
+                try result.append(allocator, header.value);
             }
         }
         return result;
@@ -94,7 +94,7 @@ pub const ResponseHeaders = struct {
 
     /// Add a header (can have duplicates)
     pub fn add(self: *Self, name: []const u8, value: []const u8) !void {
-        try self.headers.append(.{ .name = name, .value = value });
+        try self.headers.append(self.allocator, .{ .name = name, .value = value });
     }
 
     /// Set a header (replaces existing)
@@ -131,14 +131,14 @@ pub const ResponseHeaders = struct {
 
     /// Convert to HTTP header string
     pub fn toString(self: *const Self, allocator: std.mem.Allocator) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        const writer = result.writer();
+        var result: std.ArrayList(u8) = .{};
+        const writer = result.writer(allocator);
 
         for (self.headers.items) |header| {
             try writer.print("{s}: {s}\r\n", .{ header.name, header.value });
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 
@@ -268,7 +268,7 @@ pub fn parseRequestLine(line: []const u8) !struct { method: []const u8, path: []
 
 /// Build a basic environ dict
 pub fn buildEnviron(allocator: std.mem.Allocator, method: []const u8, path: []const u8) !Environ {
-    var environ = Environ.init(allocator);
+    var environ: Environ = .{};
 
     try environ.put("REQUEST_METHOD", method);
     try environ.put("SCRIPT_NAME", "");
@@ -325,8 +325,8 @@ pub fn demo_app(environ: *Environ, start_response: StartResponse) !std.ArrayList
 
     try start_response("200 OK", &headers);
 
-    var response = std.ArrayList([]const u8).init(allocator_helper.fast_allocator);
-    try response.append("Hello, World!\n");
+    var response: std.ArrayList([]const u8) = .{};
+    try response.append(allocator_helper.fast_allocator, "Hello, World!\n");
     return response;
 }
 

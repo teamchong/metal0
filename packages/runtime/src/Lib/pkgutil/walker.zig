@@ -15,14 +15,14 @@ pub fn walk_packages(
     prefix: ?[]const u8,
     onerror: ?*const fn ([]const u8) void,
 ) !std.ArrayList(ModuleInfo) {
-    var result = std.ArrayList(ModuleInfo).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(ModuleInfo) = .{};
+    errdefer result.deinit(allocator);
 
     var iter = iter_modules(allocator, path, prefix);
     defer iter.deinit();
 
     while (try iter.next()) |info| {
-        try result.append(info);
+        try result.append(allocator, info);
 
         if (info.ispkg) {
             // Recursively walk subpackages
@@ -39,9 +39,9 @@ pub fn walk_packages(
             };
 
             for (subresult.items) |subinfo| {
-                try result.append(subinfo);
+                try result.append(allocator, subinfo);
             }
-            subresult.deinit();
+            subresult.deinit(allocator);
         }
     }
 

@@ -303,7 +303,7 @@ pub const Cursor = struct {
             .rowcount = -1,
             .lastrowid = null,
             .arraysize = 1,
-            .rows = std.ArrayList(Row).init(allocator),
+            .rows = .{},
             .current_row = 0,
             .stmt = null,
         };
@@ -313,7 +313,7 @@ pub const Cursor = struct {
         if (self.stmt) |stmt| {
             _ = c.sqlite3_finalize(stmt);
         }
-        self.rows.deinit();
+        self.rows.deinit(self.allocator);
         if (self.description) |desc| {
             self.allocator.free(desc);
         }
@@ -402,7 +402,7 @@ pub const Cursor = struct {
                         }
                     }
                 }
-                try self.rows.append(row);
+                try self.rows.append(self.allocator, row);
             } else if (rc == c.SQLITE_DONE) {
                 break;
             } else {
@@ -447,29 +447,29 @@ pub const Cursor = struct {
     /// Fetch many rows
     pub fn fetchmany(self: *Self, size: ?usize) ![]Row {
         const n = size orelse self.arraysize;
-        var result = std.ArrayList(Row).init(self.allocator);
+        var result: std.ArrayList(Row) = .{};
 
         var count: usize = 0;
         while (count < n) : (count += 1) {
             if (self.fetchone()) |row| {
-                try result.append(row);
+                try result.append(self.allocator, row);
             } else {
                 break;
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Fetch all rows
     pub fn fetchall(self: *Self) ![]Row {
-        var result = std.ArrayList(Row).init(self.allocator);
+        var result: std.ArrayList(Row) = .{};
 
         while (self.fetchone()) |row| {
-            try result.append(row);
+            try result.append(self.allocator, row);
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Close cursor
@@ -531,11 +531,11 @@ pub const RowObject = struct {
 
     /// Get all keys (column names)
     pub fn keys(self: *Self) ![][]const u8 {
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result: std.ArrayList([]const u8) = .{};
         for (self.description) |col| {
-            try result.append(col.name);
+            try result.append(self.allocator, col.name);
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };
 

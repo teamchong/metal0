@@ -56,7 +56,7 @@ pub const Value = union(enum) {
                 for (arr.items) |*item| {
                     item.deinit(allocator);
                 }
-                arr.deinit();
+                arr.deinit(allocator);
             },
             .@"struct" => |*s| {
                 var iter = s.iterator();
@@ -71,7 +71,7 @@ pub const Value = union(enum) {
 
     /// Serialize value to XML
     pub fn toXml(self: *const Value, allocator: std.mem.Allocator) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
+        var result: std.ArrayList(u8) = .{};
         const writer = result.writer();
 
         try writer.writeAll("<value>");
@@ -107,7 +107,7 @@ pub const Value = union(enum) {
         }
         try writer.writeAll("</value>");
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 
@@ -152,7 +152,7 @@ pub const ServerProxy = struct {
     }
 
     fn buildRequest(self: *Self, method: []const u8, params: []const Value) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
+        var result: std.ArrayList(u8) = .{};
         const writer = result.writer();
 
         try writer.writeAll("<?xml version=\"1.0\"?>\n");
@@ -171,7 +171,7 @@ pub const ServerProxy = struct {
         try writer.writeAll("</params>\n");
         try writer.writeAll("</methodCall>");
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };
 
@@ -254,7 +254,7 @@ pub const SimpleXMLRPCServer = struct {
         // Parse request and dispatch
         // In a full implementation, would parse XML and call dispatch
 
-        var response = std.ArrayList(u8).init(self.allocator);
+        var response: std.ArrayList(u8) = .{};
         const writer = response.writer();
 
         try writer.writeAll("<?xml version=\"1.0\"?>\n");
@@ -262,7 +262,7 @@ pub const SimpleXMLRPCServer = struct {
         try writer.writeAll("<params><param><value><string>OK</string></value></param></params>\n");
         try writer.writeAll("</methodResponse>");
 
-        return response.toOwnedSlice();
+        return response.toOwnedSlice(self.allocator);
     }
 
     /// Start serving XML-RPC requests
@@ -320,7 +320,7 @@ pub const SimpleXMLRPCServer = struct {
 
 /// Escape XML special characters
 pub fn escape(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
     const writer = result.writer();
 
     for (s) |c| {
@@ -334,12 +334,12 @@ pub fn escape(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Build a fault response
 pub fn buildFaultResponse(allocator: std.mem.Allocator, code: i32, message: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
     const writer = result.writer();
 
     try writer.writeAll("<?xml version=\"1.0\"?>\n");
@@ -352,7 +352,7 @@ pub fn buildFaultResponse(allocator: std.mem.Allocator, code: i32, message: []co
     try writer.writeAll("</fault>\n");
     try writer.writeAll("</methodResponse>");
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================

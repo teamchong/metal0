@@ -30,7 +30,7 @@ fn needsQuoting(c: u8, quotetabs: bool, header: bool) bool {
 
 /// Encode a file's contents to quoted-printable format
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, quotetabs: bool, header: bool) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
 
     var line_len: usize = 0;
 
@@ -39,7 +39,7 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, quotetabs: bool, 
         const next_is_newline = !is_last and input[i + 1] == '\n';
 
         if (c == '\n') {
-            try result.append('\n');
+            try result.append(allocator, '\n');
             line_len = 0;
             continue;
         }
@@ -71,24 +71,24 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, quotetabs: bool, 
         const extra = if ((c == ' ' or c == '\t') and (is_last or next_is_newline)) @as(usize, 1) else @as(usize, 0);
 
         if (line_len + encoded_len + extra >= MAXLINESIZE) {
-            try result.append('=');
-            try result.append('\n');
+            try result.append(allocator, '=');
+            try result.append(allocator, '\n');
             line_len = 0;
         }
 
-        try result.appendSlice(encoded[0..encoded_len]);
+        try result.appendSlice(allocator, encoded[0..encoded_len]);
         line_len += encoded_len;
 
         // Trailing space/tab before newline needs soft break
         if ((c == ' ' or c == '\t') and (is_last or next_is_newline)) {
             if (line_len + 1 >= MAXLINESIZE) {
-                try result.append('=');
-                try result.append('\n');
+                try result.append(allocator, '=');
+                try result.append(allocator, '\n');
             }
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================
@@ -97,7 +97,7 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, quotetabs: bool, 
 
 /// Decode quoted-printable data
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, header: bool) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
 
     var i: usize = 0;
     while (i < input.len) {
@@ -105,7 +105,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, header: bool) ![]
 
         if (header and c == '_') {
             // In headers, _ represents space
-            try result.append(' ');
+            try result.append(allocator, ' ');
             i += 1;
         } else if (c == '=') {
             if (i + 2 < input.len) {
@@ -117,30 +117,30 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, header: bool) ![]
                     i += if (h1 == '\r') @as(usize, 3) else @as(usize, 2);
                 } else if (hexValue(h1)) |v1| {
                     if (hexValue(h2)) |v2| {
-                        try result.append((v1 << 4) | v2);
+                        try result.append(allocator, (v1 << 4) | v2);
                         i += 3;
                     } else {
-                        try result.append(c);
+                        try result.append(allocator, c);
                         i += 1;
                     }
                 } else {
-                    try result.append(c);
+                    try result.append(allocator, c);
                     i += 1;
                 }
             } else if (i + 1 < input.len and input[i + 1] == '\n') {
                 // Soft line break at end
                 i += 2;
             } else {
-                try result.append(c);
+                try result.append(allocator, c);
                 i += 1;
             }
         } else {
-            try result.append(c);
+            try result.append(allocator, c);
             i += 1;
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Get hex value of a character

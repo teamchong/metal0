@@ -326,18 +326,18 @@ pub const MimeTypes = struct {
     /// Guess all extensions for a MIME type
     pub fn guessAllExtensions(self: *Self, allocator: std.mem.Allocator, mime_type: []const u8, strict: bool) ![][]const u8 {
         _ = strict;
-        var extensions = std.ArrayList([]const u8).init(allocator);
-        errdefer extensions.deinit();
+        var extensions: std.ArrayList([]const u8) = .{};
+        errdefer extensions.deinit(allocator);
 
         // Iterate through all type mappings to find matching extensions
         var iter = self.types_map.iterator();
         while (iter.next()) |entry| {
             if (std.mem.eql(u8, entry.value_ptr.*, mime_type)) {
-                try extensions.append(entry.key_ptr.*);
+                try extensions.append(allocator, entry.key_ptr.*);
             }
         }
 
-        return extensions.toOwnedSlice();
+        return extensions.toOwnedSlice(allocator);
     }
 
     /// Guess extension for a MIME type

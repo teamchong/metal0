@@ -30,14 +30,14 @@ pub const Text = struct {
     pub fn init(allocator: std.mem.Allocator, parent: ?*Widget) Text {
         var t = Text{
             .widget = Widget.init(allocator, "text"),
-            .content = std.ArrayList(u8).init(allocator),
+            .content = .{},
         };
         t.widget.parent = parent;
         return t;
     }
 
-    pub fn deinit(self: *Text) void {
-        self.content.deinit();
+    pub fn deinit(self: *Text, allocator: std.mem.Allocator) void {
+        self.content.deinit(allocator);
         self.widget.deinit();
     }
 
@@ -47,9 +47,9 @@ pub const Text = struct {
         return self.content.items;
     }
 
-    pub fn insert(self: *Text, index: []const u8, text: []const u8) !void {
+    pub fn insert(self: *Text, allocator: std.mem.Allocator, index: []const u8, text: []const u8) !void {
         _ = index;
-        try self.content.appendSlice(text);
+        try self.content.appendSlice(allocator, text);
     }
 };
 

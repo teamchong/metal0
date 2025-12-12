@@ -18,13 +18,13 @@ pub fn OrderedDict(comptime K: type, comptime V: type) type {
             return .{
                 .allocator = allocator,
                 .map = std.AutoHashMap(K, usize).init(allocator),
-                .order = std.ArrayList(Entry).init(allocator),
+                .order = .{},
             };
         }
 
         pub fn deinit(self: *Self) void {
             self.map.deinit();
-            self.order.deinit();
+            self.order.deinit(self.allocator);
         }
 
         pub fn put(self: *Self, key: K, value: V) !void {
@@ -32,7 +32,7 @@ pub fn OrderedDict(comptime K: type, comptime V: type) type {
                 self.order.items[idx].value = value;
             } else {
                 try self.map.put(key, self.order.items.len);
-                try self.order.append(.{ .key = key, .value = value });
+                try self.order.append(self.allocator, .{ .key = key, .value = value });
             }
         }
 
@@ -89,7 +89,7 @@ pub fn OrderedDict(comptime K: type, comptime V: type) type {
                     }
                 }
 
-                try self.order.append(entry);
+                try self.order.append(self.allocator, entry);
                 try self.map.put(key, self.order.items.len - 1);
             }
         }

@@ -39,8 +39,8 @@ pub const ExtendedInterpolation = struct {
     fn interpolate(self: *ExtendedInterpolation, parser: anytype, section: []const u8, value: []const u8, defaults: anytype, depth: u8) ![]const u8 {
         if (depth > self.max_depth) return error.InterpolationDepthError;
 
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         var i: usize = 0;
         while (i < value.len) {
@@ -50,7 +50,7 @@ pub const ExtendedInterpolation = struct {
                 var end = start;
                 while (end < value.len and value[end] != '}') : (end += 1) {}
                 if (end >= value.len) {
-                    try result.append(value[i]);
+                    try result.append(self.allocator, value[i]);
                     i += 1;
                     continue;
                 }
@@ -94,19 +94,19 @@ pub const ExtendedInterpolation = struct {
                 if (ref_value) |v| {
                     // Recursively interpolate
                     const interpolated = try self.interpolate(parser, ref_section, v, defaults, depth + 1);
-                    try result.appendSlice(interpolated);
+                    try result.appendSlice(self.allocator, interpolated);
                 } else {
                     return error.InterpolationMissingOptionError;
                 }
 
                 i = end + 1;
             } else {
-                try result.append(value[i]);
+                try result.append(self.allocator, value[i]);
                 i += 1;
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     pub fn beforeSet(self: *ExtendedInterpolation, parser: anytype, section: []const u8, option: []const u8, value: []const u8) []const u8 {

@@ -31,16 +31,16 @@ pub const Bytecode = struct {
 
     /// Get info about the code object
     pub fn info(self: *Self) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
+        var result: std.ArrayList(u8) = .{};
 
         // Format code object info similar to CPython's dis.code_info()
-        try result.appendSlice("Name:              ");
-        try result.appendSlice(self.co.name);
-        try result.append('\n');
+        try result.appendSlice(self.allocator, "Name:              ");
+        try result.appendSlice(self.allocator, self.co.name);
+        try result.append(self.allocator, '\n');
 
-        try result.appendSlice("Filename:          ");
-        try result.appendSlice(self.co.filename);
-        try result.append('\n');
+        try result.appendSlice(self.allocator, "Filename:          ");
+        try result.appendSlice(self.allocator, self.co.filename);
+        try result.append(self.allocator, '\n');
 
         try result.writer().print("Argument count:    {d}\n", .{self.co.argcount});
         try result.writer().print("Positional-only:   {d}\n", .{self.co.posonlyargcount});
@@ -50,23 +50,23 @@ pub const Bytecode = struct {
         try result.writer().print("Flags:             0x{x}\n", .{self.co.flags});
 
         if (self.co.varnames.len > 0) {
-            try result.appendSlice("Variable names:\n");
+            try result.appendSlice(self.allocator, "Variable names:\n");
             for (self.co.varnames, 0..) |name, i| {
                 try result.writer().print("   {d}: {s}\n", .{ i, name });
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Disassemble the code
     pub fn dis(self: *Self) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
+        var result: std.ArrayList(u8) = .{};
 
         // Header
-        try result.appendSlice("Disassembly of ");
-        try result.appendSlice(self.co.name);
-        try result.appendSlice(":\n");
+        try result.appendSlice(self.allocator, "Disassembly of ");
+        try result.appendSlice(self.allocator, self.co.name);
+        try result.appendSlice(self.allocator, ":\n");
 
         // Disassemble each instruction
         var offset: usize = 0;
@@ -79,13 +79,13 @@ pub const Bytecode = struct {
 
             // Current instruction marker
             if (self.current_offset != null and offset == self.current_offset.?) {
-                try result.appendSlice("--> ");
+                try result.appendSlice(self.allocator, "--> ");
             } else {
-                try result.appendSlice("    ");
+                try result.appendSlice(self.allocator, "    ");
             }
 
             // Opcode name
-            try result.appendSlice(opcode.name());
+            try result.appendSlice(self.allocator, opcode.name());
 
             // Argument if present
             if (opcode.hasArg() and offset + 1 < self.co.code.len) {
@@ -94,17 +94,17 @@ pub const Bytecode = struct {
 
                 // Resolve argument if possible
                 if (opcode == .LOAD_CONST and arg < self.co.consts.len) {
-                    try result.appendSlice(" (");
-                    try result.appendSlice(self.co.consts[arg]);
-                    try result.append(')');
+                    try result.appendSlice(self.allocator, " (");
+                    try result.appendSlice(self.allocator, self.co.consts[arg]);
+                    try result.append(self.allocator, ')');
                 } else if ((opcode == .LOAD_NAME or opcode == .STORE_NAME) and arg < self.co.names.len) {
-                    try result.appendSlice(" (");
-                    try result.appendSlice(self.co.names[arg]);
-                    try result.append(')');
+                    try result.appendSlice(self.allocator, " (");
+                    try result.appendSlice(self.allocator, self.co.names[arg]);
+                    try result.append(self.allocator, ')');
                 } else if ((opcode == .LOAD_FAST or opcode == .STORE_FAST) and arg < self.co.varnames.len) {
-                    try result.appendSlice(" (");
-                    try result.appendSlice(self.co.varnames[arg]);
-                    try result.append(')');
+                    try result.appendSlice(self.allocator, " (");
+                    try result.appendSlice(self.allocator, self.co.varnames[arg]);
+                    try result.append(self.allocator, ')');
                 }
 
                 offset += 2;
@@ -112,9 +112,9 @@ pub const Bytecode = struct {
                 offset += 1;
             }
 
-            try result.append('\n');
+            try result.append(self.allocator, '\n');
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };

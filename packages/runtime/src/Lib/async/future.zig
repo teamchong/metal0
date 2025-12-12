@@ -141,7 +141,7 @@ pub fn Future(comptime T: type) type {
                 .state = .pending,
                 .value = null,
                 .error_value = null,
-                .wakers = std.ArrayList(*const Waker).init(allocator),
+                .wakers = .{},
                 .allocator = allocator,
                 .mutex = std.Thread.Mutex{},
             };

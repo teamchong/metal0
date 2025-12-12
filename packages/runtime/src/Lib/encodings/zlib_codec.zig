@@ -32,8 +32,8 @@ pub const ErrorMode = enum {
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
     _ = mode;
 
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var fbs = std.io.fixedBufferStream(input);
     var decomp = std.compress.zlib.decompressor(fbs.reader());
@@ -48,11 +48,11 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             };
         };
         if (n == 0) break;
-        try result.appendSlice(buf[0..n]);
+        try result.appendSlice(allocator, buf[0..n]);
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }
@@ -61,8 +61,8 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !EncodeResult {
     _ = mode;
 
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var comp = std.compress.zlib.compressor(.{}, result.writer()) catch return error.CompressionError;
 
@@ -70,7 +70,7 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
     comp.finish() catch return error.CompressionError;
 
     return EncodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .chars_consumed = input.len,
     };
 }

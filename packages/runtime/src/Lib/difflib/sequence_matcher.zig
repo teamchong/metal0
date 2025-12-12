@@ -122,15 +122,15 @@ pub fn SequenceMatcher(comptime T: type) type {
                 return blocks;
             }
 
-            var blocks = std.ArrayList(Match).init(self.allocator);
-            errdefer blocks.deinit();
+            var blocks: std.ArrayList(Match) = .{};
+            errdefer blocks.deinit(self.allocator);
 
             try self.helper(&blocks, 0, self.a.len, 0, self.b.len);
 
             // Add sentinel
-            try blocks.append(Match{ .a = self.a.len, .b = self.b.len, .size = 0 });
+            try blocks.append(self.allocator, Match{ .a = self.a.len, .b = self.b.len, .size = 0 });
 
-            self.matching_blocks = try blocks.toOwnedSlice();
+            self.matching_blocks = try blocks.toOwnedSlice(self.allocator);
             return self.matching_blocks.?;
         }
 
@@ -140,7 +140,7 @@ pub fn SequenceMatcher(comptime T: type) type {
                 if (alo < match.a and blo < match.b) {
                     try self.helper(blocks, alo, match.a, blo, match.b);
                 }
-                try blocks.append(match);
+                try blocks.append(self.allocator, match);
                 if (match.a + match.size < ahi and match.b + match.size < bhi) {
                     try self.helper(blocks, match.a + match.size, ahi, match.b + match.size, bhi);
                 }
@@ -153,8 +153,8 @@ pub fn SequenceMatcher(comptime T: type) type {
                 return ops;
             }
 
-            var ops = std.ArrayList(Opcode).init(self.allocator);
-            errdefer ops.deinit();
+            var ops: std.ArrayList(Opcode) = .{};
+            errdefer ops.deinit(self.allocator);
 
             var i: usize = 0;
             var j: usize = 0;
@@ -162,7 +162,7 @@ pub fn SequenceMatcher(comptime T: type) type {
             const blocks = try self.getMatchingBlocks();
             for (blocks) |block| {
                 if (i < block.a and j < block.b) {
-                    try ops.append(.{
+                    try ops.append(self.allocator, .{
                         .tag = .replace,
                         .i1 = i,
                         .i2 = block.a,
@@ -170,7 +170,7 @@ pub fn SequenceMatcher(comptime T: type) type {
                         .j2 = block.b,
                     });
                 } else if (i < block.a) {
-                    try ops.append(.{
+                    try ops.append(self.allocator, .{
                         .tag = .delete,
                         .i1 = i,
                         .i2 = block.a,
@@ -178,7 +178,7 @@ pub fn SequenceMatcher(comptime T: type) type {
                         .j2 = j,
                     });
                 } else if (j < block.b) {
-                    try ops.append(.{
+                    try ops.append(self.allocator, .{
                         .tag = .insert,
                         .i1 = i,
                         .i2 = i,
@@ -189,7 +189,7 @@ pub fn SequenceMatcher(comptime T: type) type {
                 i = block.a + block.size;
                 j = block.b + block.size;
                 if (block.size > 0) {
-                    try ops.append(.{
+                    try ops.append(self.allocator, .{
                         .tag = .equal,
                         .i1 = block.a,
                         .i2 = i,
@@ -199,7 +199,7 @@ pub fn SequenceMatcher(comptime T: type) type {
                 }
             }
 
-            self.opcodes = try ops.toOwnedSlice();
+            self.opcodes = try ops.toOwnedSlice(self.allocator);
             return self.opcodes.?;
         }
 

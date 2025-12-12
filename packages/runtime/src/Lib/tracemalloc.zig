@@ -37,12 +37,12 @@ pub const Traceback = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .allocator = allocator,
-            .frames = std.ArrayList(Frame).init(allocator),
+            .frames = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.frames.deinit();
+        self.frames.deinit(self.allocator);
     }
 
     /// Get total frames in traceback
@@ -52,14 +52,14 @@ pub const Traceback = struct {
 
     /// Format the traceback for display
     pub fn format(self: *const Self, allocator: std.mem.Allocator) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        const writer = result.writer();
+        var result: std.ArrayList(u8) = .{};
+        const writer = result.writer(allocator);
 
         for (self.frames.items) |frame| {
             try writer.print("  File \"{s}\", line {d}\n", .{ frame.filename, frame.lineno });
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 
@@ -100,7 +100,7 @@ pub const Snapshot = struct {
     pub fn init(allocator: std.mem.Allocator, traceback_limit: u32) Self {
         return Self{
             .allocator = allocator,
-            .traces = std.ArrayList(Trace).init(allocator),
+            .traces = .{},
             .traceback_limit = traceback_limit,
         };
     }
@@ -109,7 +109,7 @@ pub const Snapshot = struct {
         for (self.traces.items) |*trace| {
             trace.deinit();
         }
-        self.traces.deinit();
+        self.traces.deinit(self.allocator);
     }
 
     /// Load a snapshot from file
@@ -178,9 +178,9 @@ pub const Snapshot = struct {
                     .traceback = Traceback.init(allocator),
                 };
                 for (trace.traceback.frames.items) |frame| {
-                    try new_trace.traceback.frames.append(frame);
+                    try new_trace.traceback.frames.append(allocator, frame);
                 }
-                try filtered.traces.append(new_trace);
+                try filtered.traces.append(allocator, new_trace);
             }
         }
 
@@ -215,10 +215,10 @@ pub const Snapshot = struct {
             }
         }
 
-        var result = std.ArrayList(Statistic).init(allocator);
+        var result: std.ArrayList(Statistic) = .{};
         var iter = stats.iterator();
         while (iter.next()) |entry| {
-            try result.append(entry.value_ptr.*);
+            try result.append(allocator, entry.value_ptr.*);
         }
 
         return result;
@@ -227,8 +227,8 @@ pub const Snapshot = struct {
     /// Compare with another snapshot
     /// Returns a list of StatisticDiff showing changes between snapshots
     pub fn compare_to(self: *const Self, allocator: std.mem.Allocator, other: *const Snapshot) !std.ArrayList(StatisticDiff) {
-        var result = std.ArrayList(StatisticDiff).init(allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(StatisticDiff) = .{};
+        errdefer result.deinit(allocator);
 
         // Build a map of traceback -> (size, count) for self (newer snapshot)
         var self_stats = hashmap_helper.StringHashMap(struct { size: usize, count: usize, traceback: Traceback }).init(allocator);
@@ -282,7 +282,7 @@ pub const Snapshot = struct {
             const old_size: i64 = if (old) |o| @intCast(o.size) else 0;
             const old_count: i64 = if (old) |o| @intCast(o.count) else 0;
 
-            try result.append(.{
+            try result.append(allocator, .{
                 .traceback = entry.value_ptr.traceback,
                 .size = new_size,
                 .size_diff = new_size - old_size,
@@ -300,14 +300,13 @@ pub const Snapshot = struct {
 
                 // Create a traceback for this removed entry
                 var empty_traceback = Traceback.init(allocator);
-                var frame = Frame{
+                const frame = Traceback.Frame{
                     .filename = entry.key_ptr.*,
                     .lineno = 0,
-                    .name = "<unknown>",
                 };
-                empty_traceback.frames.append(frame) catch {};
+                empty_traceback.frames.append(allocator, frame) catch {};
 
-                try result.append(.{
+                try result.append(allocator, .{
                     .traceback = empty_traceback,
                     .size = 0,
                     .size_diff = -old_size,
@@ -524,7 +523,7 @@ test "Traceback init" {
     var tb = Traceback.init(allocator);
     defer tb.deinit();
 
-    try tb.frames.append(.{ .filename = "test.py", .lineno = 42 });
+    try tb.frames.append(allocator, .{ .filename = "test.py", .lineno = 42 });
     try std.testing.expectEqual(@as(usize, 1), tb.total_nframe());
 }
 

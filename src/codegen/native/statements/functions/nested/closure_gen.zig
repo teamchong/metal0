@@ -136,10 +136,13 @@ pub fn genStandardClosure(
 
     // Identify captured vars that are mutated in the function body
     // These need to be captured by pointer (*T) instead of by value (T)
+    // Also mark `nonlocal` variables as mutated - `nonlocal x` declares intent to modify outer x
     var mutated_captures = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer mutated_captures.deinit();
     for (captured_vars) |var_name| {
-        if (var_tracking.isVarMutatedInStmts(var_name, func.body)) {
+        if (var_tracking.isVarMutatedInStmts(var_name, func.body) or
+            var_tracking.isNonlocalVar(var_name, func.body))
+        {
             try mutated_captures.put(var_name, {});
         }
     }
@@ -279,12 +282,9 @@ pub fn genStandardClosure(
         }
     } else {
         // Has return with value - use inferred type
+        // ALWAYS use error union since calls.zig wraps closure calls with `try`
         const zig_type = function_traits.closureReturnTypeToZig(closure_ret_type);
-        if (var_tracking.canProduceErrors(func.body)) {
-            try self.output.writer(self.allocator).print(") anyerror!{s} {{\n", .{zig_type});
-        } else {
-            try self.output.writer(self.allocator).print(") {s} {{\n", .{zig_type});
-        }
+        try self.output.writer(self.allocator).print(") anyerror!{s} {{\n", .{zig_type});
     }
 
     // Generate body with captured vars renamed to capture_param.varname
@@ -348,6 +348,15 @@ pub fn genStandardClosure(
         self.hoisted_vars = saved_hoisted_vars;
     }
 
+    // Save and clear func_local_vars - nested function has its own local variables
+    // Outer function's locals should NOT prevent var_renames lookup for parameters
+    const saved_func_local_vars = self.func_local_vars;
+    self.func_local_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.func_local_vars.deinit();
+        self.func_local_vars = saved_func_local_vars;
+    }
+
     // Populate func_local_uses with variables used in this function body
     try var_tracking.collectUsedNames(func.body, &self.func_local_uses);
 
@@ -362,15 +371,24 @@ pub fn genStandardClosure(
     }
 
     // Add captured variable renames so they get prefixed with capture struct access
+    // For mutated/nonlocal captures, add .* to dereference the pointer
     var capture_renames = std.ArrayList([]const u8){};
     defer capture_renames.deinit(self.allocator);
 
     for (captured_vars) |var_name| {
-        const rename = try std.fmt.allocPrint(
-            self.allocator,
-            "{s}.{s}",
-            .{ capture_param_name, var_name },
-        );
+        const rename = if (mutated_captures.contains(var_name))
+            // Mutated/nonlocal captures are pointers - need dereference
+            try std.fmt.allocPrint(
+                self.allocator,
+                "{s}.{s}.*",
+                .{ capture_param_name, var_name },
+            )
+        else
+            try std.fmt.allocPrint(
+                self.allocator,
+                "{s}.{s}",
+                .{ capture_param_name, var_name },
+            );
         try capture_renames.append(self.allocator, rename);
         try self.var_renames.put(var_name, rename);
     }
@@ -664,7 +682,15 @@ pub fn genStandardClosure(
         try self.emit(" } };\n");
 
         try self.emitIndent();
-        try self.emit("const ");
+        // Check if function name will be reassigned (e.g., bar = decorator(bar))
+        // If so, use var instead of const to allow the reassignment
+        // NOTE: We check saved_func_local_mutations (outer function's mutations) because
+        // at this point self.func_local_mutations has been replaced with the nested function's map
+        var outer_key_buf: [256]u8 = undefined;
+        const outer_key = std.fmt.bufPrint(&outer_key_buf, "{s}:0", .{func.name}) catch func.name;
+        const is_func_mutated = saved_func_local_mutations.contains(func.name) or
+            saved_func_local_mutations.contains(outer_key);
+        try self.emit(if (is_func_mutated) "var " else "const ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
         try self.output.writer(self.allocator).print(" = {s};\n", .{closure_var_name});
 
@@ -786,6 +812,17 @@ pub fn genNestedFunctionWithOuterCapture(
     const saved_counter = self.lambda_counter;
     self.lambda_counter += 1;
 
+    // Identify captured vars that are mutated in the function body (including nonlocal)
+    var mutated_captures = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer mutated_captures.deinit();
+    for (captured_vars) |var_name| {
+        if (var_tracking.isVarMutatedInStmts(var_name, func.body) or
+            var_tracking.isNonlocalVar(var_name, func.body))
+        {
+            try mutated_captures.put(var_name, {});
+        }
+    }
+
     // Generate comptime closure using runtime.Closure1 helper
     const closure_impl_name = try std.fmt.allocPrint(
         self.allocator,
@@ -809,7 +846,7 @@ pub fn genNestedFunctionWithOuterCapture(
         try self.emit(" ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
         // Emit the type for this captured variable
-        try emitCapturedVarType(self, var_name);
+        try emitCapturedVarType(self, var_name, mutated_captures.contains(var_name));
     }
     try self.emit(" };\n");
 
@@ -929,6 +966,14 @@ pub fn genNestedFunctionWithOuterCapture(
         self.hoisted_vars = saved_hoisted_vars2;
     }
 
+    // Save and clear func_local_vars - nested function has its own local variables
+    const saved_func_local_vars2 = self.func_local_vars;
+    self.func_local_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.func_local_vars.deinit();
+        self.func_local_vars = saved_func_local_vars2;
+    }
+
     // Populate func_local_uses with variables used in this function body
     try var_tracking.collectUsedNames(func.body, &self.func_local_uses);
 
@@ -942,15 +987,24 @@ pub fn genNestedFunctionWithOuterCapture(
     }
 
     // Add captured variable renames so they get prefixed with capture struct access
+    // For mutated/nonlocal captures, add .* to dereference the pointer
     var capture_renames = std.ArrayList([]const u8){};
     defer capture_renames.deinit(self.allocator);
 
     for (captured_vars) |var_name| {
-        const rename = try std.fmt.allocPrint(
-            self.allocator,
-            "{s}.{s}",
-            .{ capture_param_name, var_name },
-        );
+        const rename = if (mutated_captures.contains(var_name))
+            // Mutated/nonlocal captures are pointers - need dereference
+            try std.fmt.allocPrint(
+                self.allocator,
+                "{s}.{s}.*",
+                .{ capture_param_name, var_name },
+            )
+        else
+            try std.fmt.allocPrint(
+                self.allocator,
+                "{s}.{s}",
+                .{ capture_param_name, var_name },
+            );
         try capture_renames.append(self.allocator, rename);
         try self.var_renames.put(var_name, rename);
     }
@@ -1070,8 +1124,10 @@ pub fn genNestedFunctionWithOuterCapture(
 
     // Initialize captures - reference outer captured vars through outer capture struct
     // or use renamed variable names if applicable
+    // For mutated/nonlocal captures, use & to take pointer
     for (captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.emit(", ");
+        const is_mutated = mutated_captures.contains(var_name);
         // Check if this var is from outer closure's captures
         var is_outer_capture = false;
         for (outer_captured_vars) |outer_var| {
@@ -1081,11 +1137,19 @@ pub fn genNestedFunctionWithOuterCapture(
             }
         }
         if (is_outer_capture) {
-            try self.output.writer(self.allocator).print(" .{s} = {s}.{s}", .{ var_name, outer_capture_param, var_name });
+            if (is_mutated) {
+                try self.output.writer(self.allocator).print(" .{s} = &{s}.{s}", .{ var_name, outer_capture_param, var_name });
+            } else {
+                try self.output.writer(self.allocator).print(" .{s} = {s}.{s}", .{ var_name, outer_capture_param, var_name });
+            }
         } else {
             // Check if this var was renamed (e.g., function parameter renamed to avoid shadowing)
             const actual_name = self.var_renames.get(var_name) orelse var_name;
-            try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, actual_name });
+            if (is_mutated) {
+                try self.output.writer(self.allocator).print(" .{s} = &{s}", .{ var_name, actual_name });
+            } else {
+                try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, actual_name });
+            }
         }
     }
     try self.emit(" } };\n");

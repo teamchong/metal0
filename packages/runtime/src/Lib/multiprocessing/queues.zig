@@ -17,7 +17,7 @@ pub fn Queue(comptime T: type) type {
         pub fn init(allocator: std.mem.Allocator, maxsize: usize) Self {
             return .{
                 .allocator = allocator,
-                .items = std.ArrayList(T).init(allocator),
+                .items = std.ArrayList(T){},
                 .mutex = .{},
                 .not_empty = .{},
                 .not_full = .{},
@@ -27,7 +27,7 @@ pub fn Queue(comptime T: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            self.items.deinit();
+            self.items.deinit(self.allocator);
         }
 
         /// Put an item into the queue with optional blocking

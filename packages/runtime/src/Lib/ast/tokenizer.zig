@@ -127,14 +127,14 @@ pub const Tokenizer = struct {
             .line = 1,
             .column = 0,
             .allocator = allocator,
-            .tokens = std.ArrayList(Token).init(allocator),
-            .indent_stack = std.ArrayList(usize).init(allocator),
+            .tokens = std.ArrayList(Token){},
+            .indent_stack = std.ArrayList(usize){},
         };
     }
 
     pub fn deinit(self: *Tokenizer) void {
-        self.tokens.deinit();
-        self.indent_stack.deinit();
+        self.tokens.deinit(self.allocator);
+        self.indent_stack.deinit(self.allocator);
     }
 
     fn peek(self: *Tokenizer) ?u8 {
@@ -155,7 +155,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn tokenize(self: *Tokenizer) ![]Token {
-        try self.indent_stack.append(0);
+        try self.indent_stack.append(self.allocator, 0);
 
         while (self.peek() != null) {
             try self.scanToken();
@@ -164,10 +164,10 @@ pub const Tokenizer = struct {
         // Emit remaining dedents
         while (self.indent_stack.items.len > 1) {
             _ = self.indent_stack.pop();
-            try self.tokens.append(.{ .type = .Dedent, .lexeme = "", .line = self.line, .column = self.column });
+            try self.tokens.append(self.allocator, .{ .type = .Dedent, .lexeme = "", .line = self.line, .column = self.column });
         }
 
-        try self.tokens.append(.{ .type = .Eof, .lexeme = "", .line = self.line, .column = self.column });
+        try self.tokens.append(self.allocator, .{ .type = .Eof, .lexeme = "", .line = self.line, .column = self.column });
         return self.tokens.items;
     }
 
@@ -192,7 +192,7 @@ pub const Tokenizer = struct {
         // Newline
         if (c == '\n') {
             _ = self.advance();
-            try self.tokens.append(.{ .type = .Newline, .lexeme = "\n", .line = self.line - 1, .column = self.column });
+            try self.tokens.append(self.allocator, .{ .type = .Newline, .lexeme = "\n", .line = self.line - 1, .column = self.column });
             return;
         }
 
@@ -231,7 +231,7 @@ pub const Tokenizer = struct {
                 triple = true;
             } else {
                 // Empty string
-                try self.tokens.append(.{ .type = .String, .lexeme = "", .line = self.line, .column = self.column });
+                try self.tokens.append(self.allocator, .{ .type = .String, .lexeme = "", .line = self.line, .column = self.column });
                 return;
             }
         }
@@ -250,14 +250,14 @@ pub const Tokenizer = struct {
                         _ = self.advance();
                         _ = self.advance();
                         _ = self.advance();
-                        try self.tokens.append(.{ .type = .String, .lexeme = lexeme, .line = self.line, .column = self.column });
+                        try self.tokens.append(self.allocator, .{ .type = .String, .lexeme = lexeme, .line = self.line, .column = self.column });
                         return;
                     }
                     _ = self.advance();
                 } else {
                     const lexeme = self.source[start..self.pos];
                     _ = self.advance();
-                    try self.tokens.append(.{ .type = .String, .lexeme = lexeme, .line = self.line, .column = self.column });
+                    try self.tokens.append(self.allocator, .{ .type = .String, .lexeme = lexeme, .line = self.line, .column = self.column });
                     return;
                 }
             } else {
@@ -275,7 +275,7 @@ pub const Tokenizer = struct {
                 break;
             }
         }
-        try self.tokens.append(.{ .type = .Number, .lexeme = self.source[start..self.pos], .line = self.line, .column = self.column });
+        try self.tokens.append(self.allocator, .{ .type = .Number, .lexeme = self.source[start..self.pos], .line = self.line, .column = self.column });
     }
 
     fn scanIdentifier(self: *Tokenizer) !void {
@@ -289,7 +289,7 @@ pub const Tokenizer = struct {
         }
         const lexeme = self.source[start..self.pos];
         const tok_type = getKeywordType(lexeme);
-        try self.tokens.append(.{ .type = tok_type, .lexeme = lexeme, .line = self.line, .column = self.column });
+        try self.tokens.append(self.allocator, .{ .type = tok_type, .lexeme = lexeme, .line = self.line, .column = self.column });
     }
 
     fn getKeywordType(lexeme: []const u8) TokenType {
@@ -448,6 +448,6 @@ pub const Tokenizer = struct {
             else => return,
         };
 
-        try self.tokens.append(.{ .type = tok_type, .lexeme = self.source[self.pos - 1 .. self.pos], .line = start_line, .column = start_col });
+        try self.tokens.append(self.allocator, .{ .type = tok_type, .lexeme = self.source[self.pos - 1 .. self.pos], .line = start_line, .column = start_col });
     }
 };

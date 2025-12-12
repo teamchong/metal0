@@ -19,12 +19,12 @@ pub fn resolve_name(allocator: std.mem.Allocator, name: []const u8, package: ?[]
     }
 
     // Find package base (remove 'dots-1' components from end)
-    var pkg_parts = std.ArrayList([]const u8).init(allocator);
-    defer pkg_parts.deinit();
+    var pkg_parts: std.ArrayList([]const u8) = .{};
+    defer pkg_parts.deinit(allocator);
 
     var parts_iter = std.mem.splitScalar(u8, pkg, '.');
     while (parts_iter.next()) |part| {
-        try pkg_parts.append(part);
+        try pkg_parts.append(allocator, part);
     }
 
     if (dots > pkg_parts.items.len) {
@@ -32,22 +32,22 @@ pub fn resolve_name(allocator: std.mem.Allocator, name: []const u8, package: ?[]
     }
 
     // Build result
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
     for (pkg_parts.items[0 .. pkg_parts.items.len - (dots - 1)]) |part| {
         if (result.items.len > 0) {
-            try result.append('.');
+            try result.append(allocator, '.');
         }
-        try result.appendSlice(part);
+        try result.appendSlice(allocator, part);
     }
 
     if (dots < name.len) {
         if (result.items.len > 0) {
-            try result.append('.');
+            try result.append(allocator, '.');
         }
-        try result.appendSlice(name[dots..]);
+        try result.appendSlice(allocator, name[dots..]);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 test "resolve_name absolute" {

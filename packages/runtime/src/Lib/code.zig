@@ -143,7 +143,7 @@ pub const InteractiveConsole = struct {
 
         return .{
             .interpreter = interp,
-            .buffer = std.ArrayList([]const u8).init(allocator),
+            .buffer = .{},
             .banner = "Python 3.x (Metal0 Runtime)\nType \"help\", \"copyright\", \"credits\" or \"license\" for more information.",
             .exitmsg = "now exiting InteractiveConsole...",
             .raw_input = true,
@@ -152,7 +152,7 @@ pub const InteractiveConsole = struct {
 
     pub fn deinit(self: *Self) void {
         self.interpreter.deinit();
-        self.buffer.deinit();
+        self.buffer.deinit(self.interpreter.allocator);
     }
 
     /// Main interaction loop
@@ -199,7 +199,7 @@ pub const InteractiveConsole = struct {
 
     /// Push a line to the buffer and try to execute
     pub fn push(self: *Self, line: []const u8) !bool {
-        try self.buffer.append(line);
+        try self.buffer.append(self.interpreter.allocator, line);
 
         // Join buffer lines
         const source = try self.getSource();
@@ -216,17 +216,17 @@ pub const InteractiveConsole = struct {
 
     /// Get source from buffer
     fn getSource(self: *Self) ![]const u8 {
-        var result = std.ArrayList(u8).init(self.interpreter.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.interpreter.allocator);
 
         for (self.buffer.items, 0..) |line, i| {
             if (i > 0) {
-                try result.append('\n');
+                try result.append(self.interpreter.allocator, '\n');
             }
-            try result.appendSlice(line);
+            try result.appendSlice(self.interpreter.allocator, line);
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.interpreter.allocator);
     }
 
     /// Reset the input buffer
@@ -302,7 +302,7 @@ test "InteractiveConsole resetbuffer" {
     var console = InteractiveConsole.init(allocator, null, null);
     defer console.deinit();
 
-    try console.buffer.append("test");
+    try console.buffer.append(allocator, "test");
     try std.testing.expectEqual(@as(usize, 1), console.buffer.items.len);
 
     console.resetbuffer();

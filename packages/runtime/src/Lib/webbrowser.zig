@@ -98,15 +98,15 @@ pub const GenericBrowser = struct {
         _ = new;
 
         // Build command
-        var argv = std.ArrayList([]const u8).init(self.allocator);
-        defer argv.deinit();
+        var argv: std.ArrayList([]const u8) = .{};
+        defer argv.deinit(self.allocator);
 
-        try argv.append(self.base.name);
+        try argv.append(self.allocator, self.base.name);
         for (self.args) |arg| {
             if (std.mem.eql(u8, arg, "%s")) {
-                try argv.append(url);
+                try argv.append(self.allocator, url);
             } else {
-                try argv.append(arg);
+                try argv.append(self.allocator, arg);
             }
         }
 
@@ -358,7 +358,7 @@ pub const BrowserType = union(enum) {
     safari: Safari,
 };
 
-var _browsers: ?std.ArrayList(BrowserEntry) = null;
+var _browsers: ?std.ArrayList(BrowserEntry) = .{};
 var _default_browser: ?BrowserType = null;
 
 /// Register a browser
@@ -367,10 +367,10 @@ pub fn register(name: []const u8, klass: BrowserType, instance: ?BrowserType, up
     _ = update_tryorder;
 
     if (_browsers == null) {
-        _browsers = std.ArrayList(BrowserEntry).init(allocator_helper.fast_allocator);
+        _browsers = .{};
     }
 
-    try _browsers.?.append(.{ .name = name, .klass = klass });
+    try _browsers.?.append(allocator_helper.fast_allocator, .{ .name = name, .klass = klass });
 }
 
 /// Get a browser controller by name

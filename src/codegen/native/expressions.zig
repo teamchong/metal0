@@ -80,10 +80,18 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
     switch (node) {
         .constant => |c| try constants.genConstant(self, c),
         .name => |n| {
-            // Check if variable has been renamed (for local shadows, exception handling, etc.)
-            // Check hoisted_local_classes first (survives method body generation), then var_renames
-            // hoisted_local_classes is used for locally-defined classes that were hoisted to struct level
-            const name_to_use = self.hoisted_local_classes.get(n.id) orelse self.var_renames.get(n.id) orelse n.id;
+            // Resolve the name to use, with proper scoping rules:
+            // 1. Check hoisted_local_classes first (locally-defined classes hoisted to struct level)
+            // 2. Don't apply var_renames to local variables/parameters - they take precedence
+            //    over class attribute lazy patterns from outer scopes
+            // 3. Check var_renames for transformed names (class attributes, shadows, etc.)
+            const name_to_use = blk: {
+                if (self.hoisted_local_classes.get(n.id)) |hoisted| break :blk hoisted;
+                // Local vars/params take precedence - don't rename them with class attribute patterns
+                if (self.func_local_vars.contains(n.id)) break :blk n.id;
+                if (self.var_renames.get(n.id)) |renamed| break :blk renamed;
+                break :blk n.id;
+            };
 
             // Handle 'self' -> '__self' in nested class methods to avoid shadowing
             if (std.mem.eql(u8, name_to_use, "self") and self.method_nesting_depth > 0) {
@@ -467,6 +475,23 @@ fn convertFormatSpec(allocator: std.mem.Allocator, python_spec: []const u8) ![]c
     return allocator.dupe(u8, python_spec);
 }
 
+/// Escape special characters for Zig string literals
+/// Handles double quotes, backslashes, and braces (for format strings)
+fn escapeForZigString(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, input: []const u8) !void {
+    for (input) |c| {
+        switch (c) {
+            '"' => try buf.appendSlice(allocator, "\\\""),
+            '\\' => try buf.appendSlice(allocator, "\\\\"),
+            '\n' => try buf.appendSlice(allocator, "\\n"),
+            '\r' => try buf.appendSlice(allocator, "\\r"),
+            '\t' => try buf.appendSlice(allocator, "\\t"),
+            '{' => try buf.appendSlice(allocator, "{{"),
+            '}' => try buf.appendSlice(allocator, "}}"),
+            else => try buf.append(allocator, c),
+        }
+    }
+}
+
 /// Generate f-string code
 fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void {
     // For now, generate a compile-time concatenation if possible
@@ -522,7 +547,8 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
             .expr => |e| {
                 // Prepend debug_text (e.g., "x=") if present for f"{x=}"
                 if (e.debug_text) |dbg| {
-                    try format_buf.appendSlice(self.allocator, dbg);
+                    // Escape special chars for Zig string literal
+                    try escapeForZigString(&format_buf, self.allocator, dbg);
                 }
 
                 // Determine format specifier based on inferred type
@@ -550,7 +576,8 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
             .format_expr => |fe| {
                 // Prepend debug_text (e.g., "x=") if present for f"{x=:...}"
                 if (fe.debug_text) |dbg| {
-                    try format_buf.appendSlice(self.allocator, dbg);
+                    // Escape special chars for Zig string literal
+                    try escapeForZigString(&format_buf, self.allocator, dbg);
                 }
 
                 // Use runtime.pyFormat for ALL format specs to handle Python's format mini-language
@@ -634,7 +661,8 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
             .conv_expr => |ce| {
                 // Prepend debug_text (e.g., "x=") if present for f"{x=!r}"
                 if (ce.debug_text) |dbg| {
-                    try format_buf.appendSlice(self.allocator, dbg);
+                    // Escape special chars for Zig string literal
+                    try escapeForZigString(&format_buf, self.allocator, dbg);
                 }
 
                 // Expression with conversion specifier (!r, !s, !a)

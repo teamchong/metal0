@@ -23,8 +23,8 @@ pub fn formataddr(allocator: std.mem.Allocator, name: []const u8, email: []const
         return allocator.dupe(u8, email);
     }
 
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     // Check if name needs quoting
     var needs_quote = false;
@@ -36,41 +36,41 @@ pub fn formataddr(allocator: std.mem.Allocator, name: []const u8, email: []const
     }
 
     if (needs_quote) {
-        try result.append('"');
+        try result.append(allocator, '"');
         for (name) |c| {
             if (c == '"' or c == '\\') {
-                try result.append('\\');
+                try result.append(allocator, '\\');
             }
-            try result.append(c);
+            try result.append(allocator, c);
         }
-        try result.append('"');
+        try result.append(allocator, '"');
     } else {
-        try result.appendSlice(name);
+        try result.appendSlice(allocator, name);
     }
 
-    try result.appendSlice(" <");
-    try result.appendSlice(email);
-    try result.append('>');
+    try result.appendSlice(allocator, " <");
+    try result.appendSlice(allocator, email);
+    try result.append(allocator, '>');
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Get a list of addresses from a header
 pub fn getaddresses(allocator: std.mem.Allocator, fieldvalues: []const []const u8) ![]struct { name: []const u8, email: []const u8 } {
-    var result = std.ArrayList(struct { name: []const u8, email: []const u8 }).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(struct { name: []const u8, email: []const u8 }) = .{};
+    errdefer result.deinit(allocator);
 
     for (fieldvalues) |value| {
         var parts = std.mem.splitScalar(u8, value, ',');
         while (parts.next()) |part| {
             const trimmed = std.mem.trim(u8, part, " \t");
             if (trimmed.len > 0) {
-                try result.append(parseaddr(trimmed));
+                try result.append(allocator, parseaddr(trimmed));
             }
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // Day names for RFC 2822
@@ -182,10 +182,10 @@ pub fn parsedate_to_datetime(date: []const u8) ?struct {
 
 /// Create a unique message ID
 pub fn makeMessageId(allocator: std.mem.Allocator, domain: ?[]const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
-    try result.append('<');
+    try result.append(allocator, '<');
 
     // Generate random part
     var rng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp()));
@@ -197,32 +197,32 @@ pub fn makeMessageId(allocator: std.mem.Allocator, domain: ?[]const u8) ![]u8 {
 
     const hex = "0123456789abcdef";
     for (buf) |b| {
-        try result.append(hex[b >> 4]);
-        try result.append(hex[b & 0x0F]);
+        try result.append(allocator, hex[b >> 4]);
+        try result.append(allocator, hex[b & 0x0F]);
     }
 
-    try result.append('@');
-    try result.appendSlice(domain orelse "localhost");
-    try result.append('>');
+    try result.append(allocator, '@');
+    try result.appendSlice(allocator, domain orelse "localhost");
+    try result.append(allocator, '>');
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Quote a string for use in headers
 pub fn quoteString(allocator: std.mem.Allocator, str: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
-    try result.append('"');
+    try result.append(allocator, '"');
     for (str) |c| {
         if (c == '"' or c == '\\') {
-            try result.append('\\');
+            try result.append(allocator, '\\');
         }
-        try result.append(c);
+        try result.append(allocator, c);
     }
-    try result.append('"');
+    try result.append(allocator, '"');
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Make message ID (snake_case alias)

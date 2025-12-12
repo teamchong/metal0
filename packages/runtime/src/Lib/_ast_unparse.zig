@@ -58,12 +58,12 @@ pub const Unparser = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .allocator = allocator,
-            .output = std.ArrayList(u8).init(allocator),
+            .output = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.output.deinit();
+        self.output.deinit(self.allocator);
     }
 
     /// Get the unparsed output
@@ -73,19 +73,19 @@ pub const Unparser = struct {
 
     /// Write string to output
     pub fn write(self: *Self, s: []const u8) !void {
-        try self.output.appendSlice(s);
+        try self.output.appendSlice(self.allocator, s);
     }
 
     /// Write a single character
     pub fn writeChar(self: *Self, c: u8) !void {
-        try self.output.append(c);
+        try self.output.append(self.allocator, c);
     }
 
     /// Write newline with indentation
     pub fn newline(self: *Self) !void {
-        try self.output.append('\n');
+        try self.output.append(self.allocator, '\n');
         for (0..self.indent_level) |_| {
-            try self.output.appendSlice(self.indent_str);
+            try self.output.appendSlice(self.allocator, self.indent_str);
         }
     }
 
@@ -158,31 +158,31 @@ pub const Unparser = struct {
 
 /// Escape a string for Python source
 pub fn escapeString(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     for (s) |c| {
         switch (c) {
-            '\n' => try result.appendSlice("\\n"),
-            '\r' => try result.appendSlice("\\r"),
-            '\t' => try result.appendSlice("\\t"),
-            '\\' => try result.appendSlice("\\\\"),
-            '\'' => try result.appendSlice("\\'"),
-            '"' => try result.appendSlice("\\\""),
+            '\n' => try result.appendSlice(allocator, "\\n"),
+            '\r' => try result.appendSlice(allocator, "\\r"),
+            '\t' => try result.appendSlice(allocator, "\\t"),
+            '\\' => try result.appendSlice(allocator, "\\\\"),
+            '\'' => try result.appendSlice(allocator, "\\'"),
+            '"' => try result.appendSlice(allocator, "\\\""),
             else => {
                 if (c >= 32 and c < 127) {
-                    try result.append(c);
+                    try result.append(allocator, c);
                 } else {
-                    try result.appendSlice("\\x");
+                    try result.appendSlice(allocator, "\\x");
                     const hex = "0123456789abcdef";
-                    try result.append(hex[c >> 4]);
-                    try result.append(hex[c & 0xf]);
+                    try result.append(allocator, hex[c >> 4]);
+                    try result.append(allocator, hex[c & 0xf]);
                 }
             },
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Get operator string

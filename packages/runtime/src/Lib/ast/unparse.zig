@@ -10,162 +10,162 @@ const Expr = nodes.Expr;
 
 /// Convert AST to source code
 pub fn unparse(allocator: std.mem.Allocator, node: anytype) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    try unparseNode(&result, node, 0);
-    return result.toOwnedSlice();
+    var result: std.ArrayList(u8) = .{};
+    try unparseNode(&result, allocator, node, 0);
+    return result.toOwnedSlice(allocator);
 }
 
-fn unparseNode(result: *std.ArrayList(u8), node: anytype, indent: usize) !void {
+fn unparseNode(result: *std.ArrayList(u8), allocator: std.mem.Allocator, node: anytype, indent: usize) !void {
     const T = @TypeOf(node);
 
     if (T == *Module) {
         for (node.body) |stmt| {
-            try unparseStatement(result, stmt, indent);
-            try result.append('\n');
+            try unparseStatement(result, allocator, stmt, indent);
+            try result.append(allocator, '\n');
         }
     } else if (T == Expr) {
-        try unparseExpr(result, node);
+        try unparseExpr(result, allocator, node);
     } else if (T == Statement) {
-        try unparseStatement(result, node, indent);
+        try unparseStatement(result, allocator, node, indent);
     }
 }
 
-pub fn unparseStatement(result: *std.ArrayList(u8), stmt: Statement, indent: usize) !void {
+pub fn unparseStatement(result: *std.ArrayList(u8), allocator: std.mem.Allocator, stmt: Statement, indent: usize) !void {
     // Add indentation
     for (0..indent) |_| {
-        try result.appendSlice("    ");
+        try result.appendSlice(allocator, "    ");
     }
 
     switch (stmt) {
-        .pass_stmt => try result.appendSlice("pass"),
-        .break_stmt => try result.appendSlice("break"),
-        .continue_stmt => try result.appendSlice("continue"),
+        .pass_stmt => try result.appendSlice(allocator, "pass"),
+        .break_stmt => try result.appendSlice(allocator, "break"),
+        .continue_stmt => try result.appendSlice(allocator, "continue"),
         .return_stmt => |r| {
-            try result.appendSlice("return");
+            try result.appendSlice(allocator, "return");
             if (r.value) |v| {
-                try result.append(' ');
-                try unparseExpr(result, v);
+                try result.append(allocator, ' ');
+                try unparseExpr(result, allocator, v);
             }
         },
-        .expr_stmt => |e| try unparseExpr(result, e.value),
+        .expr_stmt => |e| try unparseExpr(result, allocator, e.value),
         .assign => |a| {
             for (a.targets, 0..) |target, i| {
-                if (i > 0) try result.appendSlice(" = ");
-                try unparseExpr(result, target);
+                if (i > 0) try result.appendSlice(allocator, " = ");
+                try unparseExpr(result, allocator, target);
             }
-            try result.appendSlice(" = ");
-            try unparseExpr(result, a.value);
+            try result.appendSlice(allocator, " = ");
+            try unparseExpr(result, allocator, a.value);
         },
         .function_def => |f| {
-            try result.appendSlice("def ");
-            try result.appendSlice(f.name);
-            try result.append('(');
+            try result.appendSlice(allocator, "def ");
+            try result.appendSlice(allocator, f.name);
+            try result.append(allocator, '(');
             for (f.args.args, 0..) |arg, i| {
-                if (i > 0) try result.appendSlice(", ");
-                try result.appendSlice(arg.arg);
+                if (i > 0) try result.appendSlice(allocator, ", ");
+                try result.appendSlice(allocator, arg.arg);
             }
-            try result.appendSlice("):\n");
+            try result.appendSlice(allocator, "):\n");
             for (f.body) |body_stmt| {
-                try unparseStatement(result, body_stmt, indent + 1);
-                try result.append('\n');
+                try unparseStatement(result, allocator, body_stmt, indent + 1);
+                try result.append(allocator, '\n');
             }
         },
         .class_def => |c| {
-            try result.appendSlice("class ");
-            try result.appendSlice(c.name);
+            try result.appendSlice(allocator, "class ");
+            try result.appendSlice(allocator, c.name);
             if (c.bases.len > 0) {
-                try result.append('(');
+                try result.append(allocator, '(');
                 for (c.bases, 0..) |base, i| {
-                    if (i > 0) try result.appendSlice(", ");
-                    try unparseExpr(result, base);
+                    if (i > 0) try result.appendSlice(allocator, ", ");
+                    try unparseExpr(result, allocator, base);
                 }
-                try result.append(')');
+                try result.append(allocator, ')');
             }
-            try result.appendSlice(":\n");
+            try result.appendSlice(allocator, ":\n");
             for (c.body) |body_stmt| {
-                try unparseStatement(result, body_stmt, indent + 1);
-                try result.append('\n');
+                try unparseStatement(result, allocator, body_stmt, indent + 1);
+                try result.append(allocator, '\n');
             }
         },
         .if_stmt => |i| {
-            try result.appendSlice("if ");
-            try unparseExpr(result, i.test);
-            try result.appendSlice(":\n");
+            try result.appendSlice(allocator, "if ");
+            try unparseExpr(result, allocator, i.test);
+            try result.appendSlice(allocator, ":\n");
             for (i.body) |body_stmt| {
-                try unparseStatement(result, body_stmt, indent + 1);
-                try result.append('\n');
+                try unparseStatement(result, allocator, body_stmt, indent + 1);
+                try result.append(allocator, '\n');
             }
             if (i.orelse.len > 0) {
                 for (0..indent) |_| {
-                    try result.appendSlice("    ");
+                    try result.appendSlice(allocator, "    ");
                 }
-                try result.appendSlice("else:\n");
+                try result.appendSlice(allocator, "else:\n");
                 for (i.orelse) |else_stmt| {
-                    try unparseStatement(result, else_stmt, indent + 1);
-                    try result.append('\n');
+                    try unparseStatement(result, allocator, else_stmt, indent + 1);
+                    try result.append(allocator, '\n');
                 }
             }
         },
         .for_stmt => |f| {
-            try result.appendSlice("for ");
-            try unparseExpr(result, f.target);
-            try result.appendSlice(" in ");
-            try unparseExpr(result, f.iter);
-            try result.appendSlice(":\n");
+            try result.appendSlice(allocator, "for ");
+            try unparseExpr(result, allocator, f.target);
+            try result.appendSlice(allocator, " in ");
+            try unparseExpr(result, allocator, f.iter);
+            try result.appendSlice(allocator, ":\n");
             for (f.body) |body_stmt| {
-                try unparseStatement(result, body_stmt, indent + 1);
-                try result.append('\n');
+                try unparseStatement(result, allocator, body_stmt, indent + 1);
+                try result.append(allocator, '\n');
             }
         },
         .while_stmt => |w| {
-            try result.appendSlice("while ");
-            try unparseExpr(result, w.test);
-            try result.appendSlice(":\n");
+            try result.appendSlice(allocator, "while ");
+            try unparseExpr(result, allocator, w.test);
+            try result.appendSlice(allocator, ":\n");
             for (w.body) |body_stmt| {
-                try unparseStatement(result, body_stmt, indent + 1);
-                try result.append('\n');
+                try unparseStatement(result, allocator, body_stmt, indent + 1);
+                try result.append(allocator, '\n');
             }
         },
         .import_stmt => |im| {
-            try result.appendSlice("import ");
+            try result.appendSlice(allocator, "import ");
             for (im.names, 0..) |alias, i| {
-                if (i > 0) try result.appendSlice(", ");
-                try result.appendSlice(alias.name);
+                if (i > 0) try result.appendSlice(allocator, ", ");
+                try result.appendSlice(allocator, alias.name);
                 if (alias.asname) |asname| {
-                    try result.appendSlice(" as ");
-                    try result.appendSlice(asname);
+                    try result.appendSlice(allocator, " as ");
+                    try result.appendSlice(allocator, asname);
                 }
             }
         },
-        else => try result.appendSlice("# unsupported statement"),
+        else => try result.appendSlice(allocator, "# unsupported statement"),
     }
 }
 
-pub fn unparseExpr(result: *std.ArrayList(u8), expr: Expr) !void {
+pub fn unparseExpr(result: *std.ArrayList(u8), allocator: std.mem.Allocator, expr: Expr) !void {
     switch (expr) {
         .constant => |c| {
             switch (c.value) {
-                .none => try result.appendSlice("None"),
-                .bool_val => |b| try result.appendSlice(if (b) "True" else "False"),
-                .int_val => |i| try result.writer().print("{d}", .{i}),
-                .float_val => |f| try result.writer().print("{d}", .{f}),
+                .none => try result.appendSlice(allocator, "None"),
+                .bool_val => |b| try result.appendSlice(allocator, if (b) "True" else "False"),
+                .int_val => |i| try result.writer(allocator).print("{d}", .{i}),
+                .float_val => |f| try result.writer(allocator).print("{d}", .{f}),
                 .string_val => |s| {
-                    try result.append('\'');
-                    try result.appendSlice(s);
-                    try result.append('\'');
+                    try result.append(allocator, '\'');
+                    try result.appendSlice(allocator, s);
+                    try result.append(allocator, '\'');
                 },
                 .bytes_val => |b| {
-                    try result.appendSlice("b'");
-                    try result.appendSlice(b);
-                    try result.append('\'');
+                    try result.appendSlice(allocator, "b'");
+                    try result.appendSlice(allocator, b);
+                    try result.append(allocator, '\'');
                 },
-                .ellipsis => try result.appendSlice("..."),
+                .ellipsis => try result.appendSlice(allocator, "..."),
             }
         },
-        .name => |n| try result.appendSlice(n.id),
+        .name => |n| try result.appendSlice(allocator, n.id),
         .bin_op => |b| {
-            try result.append('(');
-            try unparseExpr(result, b.left.*);
+            try result.append(allocator, '(');
+            try unparseExpr(result, allocator, b.left.*);
             const op_str: []const u8 = switch (b.op) {
                 .add => " + ",
                 .sub => " - ",
@@ -181,9 +181,9 @@ pub fn unparseExpr(result: *std.ArrayList(u8), expr: Expr) !void {
                 .bit_xor => " ^ ",
                 .bit_and => " & ",
             };
-            try result.appendSlice(op_str);
-            try unparseExpr(result, b.right.*);
-            try result.append(')');
+            try result.appendSlice(allocator, op_str);
+            try unparseExpr(result, allocator, b.right.*);
+            try result.append(allocator, ')');
         },
         .unary_op => |u| {
             const op_str: []const u8 = switch (u.op) {
@@ -192,8 +192,8 @@ pub fn unparseExpr(result: *std.ArrayList(u8), expr: Expr) !void {
                 .uadd => "+",
                 .usub => "-",
             };
-            try result.appendSlice(op_str);
-            try unparseExpr(result, u.operand.*);
+            try result.appendSlice(allocator, op_str);
+            try unparseExpr(result, allocator, u.operand.*);
         },
         .bool_op => |b| {
             const op_str: []const u8 = switch (b.op) {
@@ -201,12 +201,12 @@ pub fn unparseExpr(result: *std.ArrayList(u8), expr: Expr) !void {
                 .@"or" => " or ",
             };
             for (b.values, 0..) |v, i| {
-                if (i > 0) try result.appendSlice(op_str);
-                try unparseExpr(result, v);
+                if (i > 0) try result.appendSlice(allocator, op_str);
+                try unparseExpr(result, allocator, v);
             }
         },
         .compare => |c| {
-            try unparseExpr(result, c.left.*);
+            try unparseExpr(result, allocator, c.left.*);
             for (c.ops, 0..) |op, i| {
                 const op_str: []const u8 = switch (op) {
                     .eq => " == ",
@@ -220,69 +220,69 @@ pub fn unparseExpr(result: *std.ArrayList(u8), expr: Expr) !void {
                     .in => " in ",
                     .not_in => " not in ",
                 };
-                try result.appendSlice(op_str);
-                try unparseExpr(result, c.comparators[i]);
+                try result.appendSlice(allocator, op_str);
+                try unparseExpr(result, allocator, c.comparators[i]);
             }
         },
         .call => |c| {
-            try unparseExpr(result, c.func.*);
-            try result.append('(');
+            try unparseExpr(result, allocator, c.func.*);
+            try result.append(allocator, '(');
             for (c.args, 0..) |arg, i| {
-                if (i > 0) try result.appendSlice(", ");
-                try unparseExpr(result, arg);
+                if (i > 0) try result.appendSlice(allocator, ", ");
+                try unparseExpr(result, allocator, arg);
             }
-            try result.append(')');
+            try result.append(allocator, ')');
         },
         .attribute => |a| {
-            try unparseExpr(result, a.value.*);
-            try result.append('.');
-            try result.appendSlice(a.attr);
+            try unparseExpr(result, allocator, a.value.*);
+            try result.append(allocator, '.');
+            try result.appendSlice(allocator, a.attr);
         },
         .subscript => |s| {
-            try unparseExpr(result, s.value.*);
-            try result.append('[');
-            try unparseExpr(result, s.slice.*);
-            try result.append(']');
+            try unparseExpr(result, allocator, s.value.*);
+            try result.append(allocator, '[');
+            try unparseExpr(result, allocator, s.slice.*);
+            try result.append(allocator, ']');
         },
         .list => |l| {
-            try result.append('[');
+            try result.append(allocator, '[');
             for (l.elts, 0..) |elt, i| {
-                if (i > 0) try result.appendSlice(", ");
-                try unparseExpr(result, elt);
+                if (i > 0) try result.appendSlice(allocator, ", ");
+                try unparseExpr(result, allocator, elt);
             }
-            try result.append(']');
+            try result.append(allocator, ']');
         },
         .tuple => |t| {
-            try result.append('(');
+            try result.append(allocator, '(');
             for (t.elts, 0..) |elt, i| {
-                if (i > 0) try result.appendSlice(", ");
-                try unparseExpr(result, elt);
+                if (i > 0) try result.appendSlice(allocator, ", ");
+                try unparseExpr(result, allocator, elt);
             }
-            if (t.elts.len == 1) try result.append(',');
-            try result.append(')');
+            if (t.elts.len == 1) try result.append(allocator, ',');
+            try result.append(allocator, ')');
         },
         .dict => |d| {
-            try result.append('{');
+            try result.append(allocator, '{');
             for (d.keys, 0..) |key, i| {
-                if (i > 0) try result.appendSlice(", ");
+                if (i > 0) try result.appendSlice(allocator, ", ");
                 if (key) |k| {
-                    try unparseExpr(result, k);
-                    try result.appendSlice(": ");
+                    try unparseExpr(result, allocator, k);
+                    try result.appendSlice(allocator, ": ");
                 } else {
-                    try result.appendSlice("**");
+                    try result.appendSlice(allocator, "**");
                 }
-                try unparseExpr(result, d.values[i]);
+                try unparseExpr(result, allocator, d.values[i]);
             }
-            try result.append('}');
+            try result.append(allocator, '}');
         },
         .set => |s| {
-            try result.append('{');
+            try result.append(allocator, '{');
             for (s.elts, 0..) |elt, i| {
-                if (i > 0) try result.appendSlice(", ");
-                try unparseExpr(result, elt);
+                if (i > 0) try result.appendSlice(allocator, ", ");
+                try unparseExpr(result, allocator, elt);
             }
-            try result.append('}');
+            try result.append(allocator, '}');
         },
-        else => try result.appendSlice("..."),
+        else => try result.appendSlice(allocator, "..."),
     }
 }

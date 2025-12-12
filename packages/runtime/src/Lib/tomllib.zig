@@ -49,7 +49,7 @@ pub const Value = union(enum) {
                 for (arr.items) |*item| {
                     item.deinit(allocator);
                 }
-                arr.deinit();
+                arr.deinit(allocator);
             },
             .table => |*tbl| {
                 var iter = tbl.iterator();
@@ -381,7 +381,7 @@ pub const Parser = struct {
         if (self.source[self.pos] != '[') return error.InvalidSyntax;
         self.pos += 1;
 
-        var arr = std.ArrayList(Value).init(self.allocator);
+        var arr: std.ArrayList(Value) = .{};
 
         while (self.pos < self.source.len) {
             self.skipWhitespaceAndComments();
@@ -393,7 +393,7 @@ pub const Parser = struct {
             }
 
             const value = try self.parseValue();
-            try arr.append(value);
+            try arr.append(self.allocator, value);
 
             self.skipWhitespaceAndComments();
             if (self.pos < self.source.len and self.source[self.pos] == ',') {

@@ -124,27 +124,27 @@ pub fn compileString(
 
     // Create .pyc-compatible header format
     // This allows Python tooling to recognize the file as "compiled"
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
 
     // Magic number (simplified)
-    try result.appendSlice(&[_]u8{ 0x55, 0x0d, 0x0d, 0x0a });
+    try result.appendSlice(allocator, &[_]u8{ 0x55, 0x0d, 0x0d, 0x0a });
 
     // Timestamp placeholder (4 bytes)
-    try result.appendSlice(&[_]u8{ 0, 0, 0, 0 });
+    try result.appendSlice(allocator, &[_]u8{ 0, 0, 0, 0 });
 
     // Source size (4 bytes)
     const size: u32 = @intCast(source.len);
-    try result.appendSlice(&std.mem.toBytes(size));
+    try result.appendSlice(allocator, &std.mem.toBytes(size));
 
     // Filename length + filename
     const filename_len: u32 = @intCast(filename.len);
-    try result.appendSlice(&std.mem.toBytes(filename_len));
-    try result.appendSlice(filename);
+    try result.appendSlice(allocator, &std.mem.toBytes(filename_len));
+    try result.appendSlice(allocator, filename);
 
     // Source hash (simplified - just store source length)
-    try result.appendSlice(&std.mem.toBytes(size));
+    try result.appendSlice(allocator, &std.mem.toBytes(size));
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================

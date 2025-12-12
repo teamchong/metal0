@@ -39,7 +39,7 @@ pub const ABCRegistry = struct {
     pub fn deinit(self: *Self) void {
         var vs_it = self.virtual_subclasses.valueIterator();
         while (vs_it.next()) |list| {
-            list.deinit();
+            list.deinit(self.allocator);
         }
         self.virtual_subclasses.deinit();
 
@@ -62,9 +62,9 @@ pub const ABCRegistry = struct {
     pub fn registerVirtualSubclass(self: *Self, abc_id: u64, subclass_id: u64) !void {
         const result = try self.virtual_subclasses.getOrPut(abc_id);
         if (!result.found_existing) {
-            result.value_ptr.* = std.ArrayList(u64).init(self.allocator);
+            result.value_ptr.* = .{};
         }
-        try result.value_ptr.append(subclass_id);
+        try result.value_ptr.append(self.allocator, subclass_id);
         self.invalidateCache();
     }
 
@@ -156,11 +156,11 @@ pub const ABCMeta = struct {
 
     /// Get all abstract method names
     pub fn getAbstractMethodNames(self: *const Self, allocator: Allocator) ![][]const u8 {
-        var names = std.ArrayList([]const u8).init(allocator);
+        var names: std.ArrayList([]const u8) = .{};
         for (self.abstract_methods.keys()) |key| {
-            try names.append(key);
+            try names.append(allocator, key);
         }
-        return names.toOwnedSlice();
+        return names.toOwnedSlice(allocator);
     }
 
     /// Register a virtual subclass

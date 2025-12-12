@@ -300,6 +300,39 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             try self.emit("})");
             return true;
         }
+
+        // Special handling for type() with keyword arguments
+        // type(name='X', bases=(object,), dict={}) -> type(name, bases, dict)
+        if (std.mem.eql(u8, func_name, "type") and call.keyword_args.len > 0) {
+            var converted_args: [3]ast.Node = undefined;
+            var arg_count: usize = call.args.len;
+
+            // Copy positional args first
+            for (call.args, 0..) |arg, i| {
+                if (i < 3) converted_args[i] = arg;
+            }
+
+            // Map keyword args to positions: name=0, bases=1, dict=2
+            for (call.keyword_args) |kw| {
+                const pos: ?usize = if (std.mem.eql(u8, kw.name, "name"))
+                    0
+                else if (std.mem.eql(u8, kw.name, "bases"))
+                    1
+                else if (std.mem.eql(u8, kw.name, "dict"))
+                    2
+                else
+                    null;
+
+                if (pos) |p| {
+                    converted_args[p] = kw.value;
+                    if (p + 1 > arg_count) arg_count = p + 1;
+                }
+            }
+
+            try handler(self, converted_args[0..arg_count]);
+            return true;
+        }
+
         try handler(self, call.args);
         return true;
     }

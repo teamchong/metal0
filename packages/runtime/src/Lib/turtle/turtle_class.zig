@@ -42,8 +42,8 @@ pub const Turtle = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .allocator = allocator,
-            .lines = std.ArrayList(Line).init(allocator),
-            .fill_points = std.ArrayList(Point).init(allocator),
+            .lines = .{},
+            .fill_points = .{},
         };
     }
 

@@ -257,3 +257,80 @@ pub const deque = cons_mod.deque;
 /// Complex number type constructor
 pub const pycomplex_mod = @import("pycomplex.zig");
 pub const complex = pycomplex_mod.PyComplex.create;
+
+/// Python staticmethod wrapper type
+/// Used when `staticmethod` is passed as a first-class function
+/// Wraps a function to indicate it's a static method (no self parameter)
+pub const staticmethod = struct {
+    /// The wrapped function pointer (type-erased for heterogeneous storage)
+    __func__: *const anyopaque,
+    __wrapped__: *const anyopaque,
+    /// Function metadata (from wrapped function)
+    __name__: []const u8 = "<function>",
+    __module__: []const u8 = "__main__",
+    __qualname__: []const u8 = "<function>",
+    __doc__: ?[]const u8 = null,
+    __annotations__: ?*const anyopaque = null,
+
+    /// Create a staticmethod wrapper from any function
+    /// Called as staticmethod(func) - no allocator needed
+    pub fn init(func: anytype) @This() {
+        return .{
+            .__func__ = @ptrCast(&func),
+            .__wrapped__ = @ptrCast(&func),
+        };
+    }
+
+    /// Call the wrapped function (staticmethod is callable since Python 3.10)
+    pub fn call(self: @This(), arg: anytype) @TypeOf(arg) {
+        // For staticmethod, calling it directly just returns the argument
+        // (the wrapped function behavior - bpo-43682)
+        _ = self;
+        return arg;
+    }
+
+    /// String representation for repr()
+    pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("<staticmethod({s})>", .{self.__name__});
+    }
+};
+
+/// Python classmethod wrapper type
+/// Used when `classmethod` is passed as a first-class function
+/// Wraps a function to indicate it's a class method (receives cls as first parameter)
+pub const classmethod = struct {
+    /// The wrapped function pointer (type-erased for heterogeneous storage)
+    __func__: *const anyopaque,
+    __wrapped__: *const anyopaque,
+    /// Function metadata (from wrapped function)
+    __name__: []const u8 = "<function>",
+    __module__: []const u8 = "__main__",
+    __qualname__: []const u8 = "<function>",
+    __doc__: ?[]const u8 = null,
+    __annotations__: ?*const anyopaque = null,
+
+    /// Create a classmethod wrapper from any function
+    /// Called as classmethod(func) - no allocator needed
+    pub fn init(func: anytype) @This() {
+        return .{
+            .__func__ = @ptrCast(&func),
+            .__wrapped__ = @ptrCast(&func),
+        };
+    }
+
+    /// Calling classmethod directly raises TypeError (needs to be bound to class)
+    /// Note: We use noreturn because classmethod always raises TypeError
+    pub fn call(self: @This(), _: anytype) !noreturn {
+        _ = self;
+        return error.TypeError;
+    }
+
+    /// String representation for repr()
+    pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("<classmethod({s})>", .{self.__name__});
+    }
+};

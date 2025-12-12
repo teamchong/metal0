@@ -29,8 +29,9 @@ pub fn inferMethodCall(
     _ = var_types;
     _ = class_fields;
     _ = func_return_types;
-    // String methods
-    if (string_traits.isString(obj_type)) {
+    // String methods - also check on unknown types since file iteration returns unknown
+    // but often operates on strings (line.strip(), line.startswith(), etc.)
+    if (string_traits.isString(obj_type) or type_traits.isUnknown(obj_type)) {
         if (static_maps.StringMethods.get(method_name)) |return_type| {
             return return_type;
         }

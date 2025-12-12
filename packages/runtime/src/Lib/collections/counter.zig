@@ -49,12 +49,12 @@ pub fn Counter(comptime T: type) type {
         /// Remove all zero and negative counts
         pub fn keepPositive(self: *Self) void {
             var iter = self.counts.iterator();
-            var to_remove = std.ArrayList(T).init(self.allocator);
-            defer to_remove.deinit();
+            var to_remove: std.ArrayList(T) = .{};
+            defer to_remove.deinit(self.allocator);
 
             while (iter.next()) |entry| {
                 if (entry.value_ptr.* <= 0) {
-                    to_remove.append(entry.key_ptr.*) catch {};
+                    to_remove.append(self.allocator, entry.key_ptr.*) catch {};
                 }
             }
 
@@ -65,30 +65,30 @@ pub fn Counter(comptime T: type) type {
 
         /// Return list of (element, count) pairs
         pub fn elements(self: Self, allocator: std.mem.Allocator) ![]T {
-            var result = std.ArrayList(T).init(allocator);
-            errdefer result.deinit();
+            var result: std.ArrayList(T) = .{};
+            errdefer result.deinit(allocator);
 
             var iter = self.counts.iterator();
             while (iter.next()) |entry| {
                 var i: i64 = 0;
                 while (i < entry.value_ptr.*) : (i += 1) {
-                    try result.append(entry.key_ptr.*);
+                    try result.append(allocator, entry.key_ptr.*);
                 }
             }
 
-            return result.toOwnedSlice();
+            return result.toOwnedSlice(allocator);
         }
 
         /// Return n most common elements
         pub fn mostCommon(self: Self, allocator: std.mem.Allocator, n: ?usize) ![]struct { key: T, count: i64 } {
             const Entry = struct { key: T, count: i64 };
 
-            var list = std.ArrayList(Entry).init(allocator);
-            errdefer list.deinit();
+            var list: std.ArrayList(Entry) = .{};
+            errdefer list.deinit(allocator);
 
             var iter = self.counts.iterator();
             while (iter.next()) |entry| {
-                try list.append(.{ .key = entry.key_ptr.*, .count = entry.value_ptr.* });
+                try list.append(allocator, .{ .key = entry.key_ptr.*, .count = entry.value_ptr.* });
             }
 
             // Sort by count descending

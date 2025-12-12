@@ -57,14 +57,14 @@ pub const GzipFile = struct {
         return .{
             .allocator = allocator,
             .mode = mode,
-            .buffer = std.ArrayList(u8).init(allocator),
-            .compressed_data = std.ArrayList(u8).init(allocator),
+            .buffer = .{},
+            .compressed_data = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
-        self.compressed_data.deinit();
+        self.buffer.deinit(self.allocator);
+        self.compressed_data.deinit(self.allocator);
         if (self.file) |*f| {
             f.close();
         }
@@ -164,7 +164,7 @@ pub const GzipFile = struct {
             return error.InvalidMode;
         }
 
-        try self.buffer.appendSlice(data);
+        try self.buffer.appendSlice(self.allocator, data);
         self.size += data.len;
         self.crc = std.hash.crc.Crc32.hash(data);
 
@@ -194,8 +194,8 @@ pub const GzipFile = struct {
                 try f.writeAll(&header);
 
                 // Compress and write data
-                var compressed = std.ArrayList(u8).init(self.allocator);
-                defer compressed.deinit();
+                var compressed: std.ArrayList(u8) = .{};
+                defer compressed.deinit(self.allocator);
 
                 var comp = try std.compress.zlib.compressor(compressed.writer(), .{});
                 try comp.writer().writeAll(self.buffer.items);
@@ -261,19 +261,19 @@ pub fn openGzip(allocator: std.mem.Allocator, filename: []const u8, mode: []cons
 /// Compress data in one shot
 /// compresslevel: 0-9 where 0=no compression, 1=fast, 9=best compression (default: 9)
 pub fn compress(allocator: std.mem.Allocator, data: []const u8, compresslevel: i32) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     // Write gzip header
-    try result.appendSlice(&GZIP_MAGIC);
-    try result.append(DEFLATE);
-    try result.append(0); // flags
-    try result.appendSlice(&[_]u8{ 0, 0, 0, 0 }); // mtime
+    try result.appendSlice(allocator, &GZIP_MAGIC);
+    try result.append(allocator, DEFLATE);
+    try result.append(allocator, 0); // flags
+    try result.appendSlice(allocator, &[_]u8{ 0, 0, 0, 0 }); // mtime
 
     // Extra flags field (XFL): 2 = compressor used max compression, 4 = compressor used fastest
     const xfl: u8 = if (compresslevel >= 9) 2 else if (compresslevel <= 1) 4 else 0;
-    try result.append(xfl); // extra flags
-    try result.append(255); // OS (255 = unknown)
+    try result.append(allocator, xfl); // extra flags
+    try result.append(allocator, 255); // OS (255 = unknown)
 
     // Map Python gzip levels to zlib compression levels
     // Python: 0-9, Zig zlib: .none, .level_1 to .level_9
@@ -298,18 +298,18 @@ pub fn compress(allocator: std.mem.Allocator, data: []const u8, compresslevel: i
 
     // Write trailer
     const crc = std.hash.crc.Crc32.hash(data);
-    try result.append(@intCast(crc & 0xFF));
-    try result.append(@intCast((crc >> 8) & 0xFF));
-    try result.append(@intCast((crc >> 16) & 0xFF));
-    try result.append(@intCast((crc >> 24) & 0xFF));
+    try result.append(allocator, @intCast(crc & 0xFF));
+    try result.append(allocator, @intCast((crc >> 8) & 0xFF));
+    try result.append(allocator, @intCast((crc >> 16) & 0xFF));
+    try result.append(allocator, @intCast((crc >> 24) & 0xFF));
 
     const size32: u32 = @intCast(data.len & 0xFFFFFFFF);
-    try result.append(@intCast(size32 & 0xFF));
-    try result.append(@intCast((size32 >> 8) & 0xFF));
-    try result.append(@intCast((size32 >> 16) & 0xFF));
-    try result.append(@intCast((size32 >> 24) & 0xFF));
+    try result.append(allocator, @intCast(size32 & 0xFF));
+    try result.append(allocator, @intCast((size32 >> 8) & 0xFF));
+    try result.append(allocator, @intCast((size32 >> 16) & 0xFF));
+    try result.append(allocator, @intCast((size32 >> 24) & 0xFF));
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Decompress gzip data in one shot

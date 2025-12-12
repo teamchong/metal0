@@ -46,11 +46,11 @@ pub fn gnu_getopt(
     shortopts: []const u8,
     longopts: []const []const u8,
 ) !GetoptResult {
-    var opts = std.ArrayList(struct { opt: []const u8, arg: []const u8 }).init(allocator);
-    errdefer opts.deinit();
+    var opts: std.ArrayList(struct { opt: []const u8, arg: []const u8 }) = .{};
+    errdefer opts.deinit(allocator);
 
-    var remaining = std.ArrayList([]const u8).init(allocator);
-    errdefer remaining.deinit();
+    var remaining: std.ArrayList([]const u8) = .{};
+    errdefer remaining.deinit(allocator);
 
     var i: usize = 0;
     while (i < args.len) {
@@ -58,7 +58,7 @@ pub fn gnu_getopt(
 
         if (arg.len == 0 or arg[0] != '-' or std.mem.eql(u8, arg, "-")) {
             // Not an option, add to remaining args
-            try remaining.append(arg);
+            try remaining.append(allocator, arg);
             i += 1;
             continue;
         }
@@ -67,7 +67,7 @@ pub fn gnu_getopt(
             // End of options
             i += 1;
             while (i < args.len) : (i += 1) {
-                try remaining.append(args[i]);
+                try remaining.append(allocator, args[i]);
             }
             break;
         }
@@ -110,15 +110,15 @@ pub fn gnu_getopt(
 
             if (requires_arg) {
                 if (opt_value) |v| {
-                    try opts.append(.{ .opt = arg[0 .. 2 + opt_name.len], .arg = v });
+                    try opts.append(allocator, .{ .opt = arg[0 .. 2 + opt_name.len], .arg = v });
                 } else if (i + 1 < args.len) {
                     i += 1;
-                    try opts.append(.{ .opt = arg, .arg = args[i] });
+                    try opts.append(allocator, .{ .opt = arg, .arg = args[i] });
                 } else {
                     return error.MissingArgument;
                 }
             } else {
-                try opts.append(.{ .opt = arg, .arg = "" });
+                try opts.append(allocator, .{ .opt = arg, .arg = "" });
             }
             i += 1;
         } else {
@@ -151,18 +151,18 @@ pub fn gnu_getopt(
                 if (requires_arg) {
                     // Argument follows immediately or is next arg
                     if (j + 1 < arg.len) {
-                        try opts.append(.{ .opt = opt_str, .arg = arg[j + 1 ..] });
+                        try opts.append(allocator, .{ .opt = opt_str, .arg = arg[j + 1 ..] });
                         break; // Rest of arg is the option value
                     } else if (i + 1 < args.len) {
                         i += 1;
-                        try opts.append(.{ .opt = opt_str, .arg = args[i] });
+                        try opts.append(allocator, .{ .opt = opt_str, .arg = args[i] });
                         break;
                     } else {
                         allocator.free(opt_str);
                         return error.MissingArgument;
                     }
                 } else {
-                    try opts.append(.{ .opt = opt_str, .arg = "" });
+                    try opts.append(allocator, .{ .opt = opt_str, .arg = "" });
                 }
                 j += 1;
             }
@@ -171,8 +171,8 @@ pub fn gnu_getopt(
     }
 
     return .{
-        .opts = try opts.toOwnedSlice(),
-        .args = try remaining.toOwnedSlice(),
+        .opts = try opts.toOwnedSlice(allocator),
+        .args = try remaining.toOwnedSlice(allocator),
         .allocator = allocator,
     };
 }

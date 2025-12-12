@@ -28,12 +28,12 @@ pub const Differ = struct {
 
     /// Compare two sequences of lines
     pub fn compare(self: *Self, a: []const []const u8, b: []const []const u8) ![][]u8 {
-        var result = std.ArrayList([]u8).init(self.allocator);
+        var result: std.ArrayList([]u8) = .{};
         errdefer {
             for (result.items) |item| {
                 self.allocator.free(item);
             }
-            result.deinit();
+            result.deinit(self.allocator);
         }
 
         var sm = SequenceMatcher([]const u8).init(self.allocator, a, b);
@@ -46,35 +46,35 @@ pub const Differ = struct {
                     // Delete from a
                     for (a[op.i1..op.i2]) |line| {
                         const output = try std.fmt.allocPrint(self.allocator, "- {s}", .{line});
-                        try result.append(output);
+                        try result.append(self.allocator, output);
                     }
                     // Insert from b
                     for (b[op.j1..op.j2]) |line| {
                         const output = try std.fmt.allocPrint(self.allocator, "+ {s}", .{line});
-                        try result.append(output);
+                        try result.append(self.allocator, output);
                     }
                 },
                 .delete => {
                     for (a[op.i1..op.i2]) |line| {
                         const output = try std.fmt.allocPrint(self.allocator, "- {s}", .{line});
-                        try result.append(output);
+                        try result.append(self.allocator, output);
                     }
                 },
                 .insert => {
                     for (b[op.j1..op.j2]) |line| {
                         const output = try std.fmt.allocPrint(self.allocator, "+ {s}", .{line});
-                        try result.append(output);
+                        try result.append(self.allocator, output);
                     }
                 },
                 .equal => {
                     for (a[op.i1..op.i2]) |line| {
                         const output = try std.fmt.allocPrint(self.allocator, "  {s}", .{line});
-                        try result.append(output);
+                        try result.append(self.allocator, output);
                     }
                 },
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };

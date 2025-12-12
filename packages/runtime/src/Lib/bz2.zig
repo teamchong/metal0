@@ -42,13 +42,13 @@ pub const BZ2File = struct {
         return .{
             .allocator = allocator,
             .mode = mode,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .{},
             .compresslevel = compresslevel,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
         if (self.file) |*f| {
             f.close();
         }
@@ -112,7 +112,7 @@ pub const BZ2File = struct {
             return error.InvalidMode;
         }
 
-        try self.buffer.appendSlice(data);
+        try self.buffer.appendSlice(self.allocator, data);
         return data.len;
     }
 
@@ -175,37 +175,37 @@ pub const BZ2Compressor = struct {
         return .{
             .allocator = allocator,
             .compresslevel = compresslevel,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     /// Compress data incrementally
     pub fn compress(self: *Self, data: []const u8) ![]u8 {
         // Accumulate data - actual compression happens on flush
-        try self.buffer.appendSlice(data);
+        try self.buffer.appendSlice(self.allocator, data);
         // Return empty slice - data is buffered
         return try self.allocator.alloc(u8, 0);
     }
 
     /// Flush all pending data and return compressed output
     pub fn flush(self: *Self) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         // Write bz2 header
-        try result.appendSlice(&BZ2_MAGIC);
-        try result.append('0' + @as(u8, @intCast(self.compresslevel)));
+        try result.appendSlice(self.allocator, &BZ2_MAGIC);
+        try result.append(self.allocator, '0' + @as(u8, @intCast(self.compresslevel)));
 
         // BZ2 compression requires BWT implementation (see BZ2File.read() comment)
         // Append raw data as placeholder
-        try result.appendSlice(self.buffer.items);
+        try result.appendSlice(self.allocator, self.buffer.items);
 
         self.buffer.clearRetainingCapacity();
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };
 
@@ -226,12 +226,12 @@ pub const BZ2Decompressor = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     /// Decompress data incrementally
@@ -239,7 +239,7 @@ pub const BZ2Decompressor = struct {
         _ = max_length;
 
         // Accumulate compressed data
-        try self.buffer.appendSlice(data);
+        try self.buffer.appendSlice(self.allocator, data);
 
         // Check for bz2 magic
         if (self.buffer.items.len >= 4) {

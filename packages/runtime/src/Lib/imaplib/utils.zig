@@ -8,22 +8,22 @@ const std = @import("std");
 /// Input: "* FLAGS (\\Seen \\Answered \\Flagged)"
 /// Output: array of flag strings
 pub fn parseFlags(allocator: std.mem.Allocator, data: []const u8) ![][]const u8 {
-    var flags = std.ArrayList([]const u8).init(allocator);
-    errdefer flags.deinit();
+    var flags: std.ArrayList([]const u8) = .{};
+    errdefer flags.deinit(allocator);
 
     // Find the parenthesized list
-    const start = std.mem.indexOf(u8, data, "(") orelse return flags.toOwnedSlice();
-    const end = std.mem.indexOf(u8, data[start..], ")") orelse return flags.toOwnedSlice();
+    const start = std.mem.indexOf(u8, data, "(") orelse return flags.toOwnedSlice(allocator);
+    const end = std.mem.indexOf(u8, data[start..], ")") orelse return flags.toOwnedSlice(allocator);
 
     const flags_str = data[start + 1 .. start + end];
 
     // Split by whitespace
     var iter = std.mem.tokenizeAny(u8, flags_str, " \t");
     while (iter.next()) |flag| {
-        try flags.append(flag);
+        try flags.append(allocator, flag);
     }
 
-    return flags.toOwnedSlice();
+    return flags.toOwnedSlice(allocator);
 }
 
 /// Parse FETCH response to extract message flags
@@ -44,19 +44,19 @@ pub fn hasFlag(flags: []const []const u8, flag: []const u8) bool {
 /// Encode modified UTF-7 (IMAP mailbox encoding per RFC 3501)
 /// Modified UTF-7 uses & instead of + and , instead of /
 pub fn encodeModifiedUtf7(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < s.len) {
         const c = s[i];
         if (c == '&') {
             // Literal & becomes &-
-            try result.appendSlice("&-");
+            try result.appendSlice(allocator, "&-");
             i += 1;
         } else if (c >= 0x20 and c <= 0x7e) {
             // Printable ASCII (except &)
-            try result.append(c);
+            try result.append(allocator, c);
             i += 1;
         } else {
             // Non-ASCII: collect UTF-8 sequence and encode as modified base64
@@ -70,36 +70,36 @@ pub fn encodeModifiedUtf7(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
             }
 
             // Encode as modified base64 (+ becomes &, / becomes ,)
-            try result.append('&');
+            try result.append(allocator, '&');
             var base64_buf: [128]u8 = undefined;
             const encoded = std.base64.standard.Encoder.encode(&base64_buf, utf8_buf[0..utf8_len]);
             for (encoded) |b| {
                 if (b == '/') {
-                    try result.append(',');
+                    try result.append(allocator, ',');
                 } else if (b == '=') {
                     // Skip padding
                 } else {
-                    try result.append(b);
+                    try result.append(allocator, b);
                 }
             }
-            try result.append('-');
+            try result.append(allocator, '-');
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Decode modified UTF-7 (IMAP mailbox encoding per RFC 3501)
 pub fn decodeModifiedUtf7(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < s.len) {
         if (s[i] == '&') {
             if (i + 1 < s.len and s[i + 1] == '-') {
                 // &- is literal &
-                try result.append('&');
+                try result.append(allocator, '&');
                 i += 2;
             } else {
                 // Find end of base64 sequence (marked by -)
@@ -132,16 +132,16 @@ pub fn decodeModifiedUtf7(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
                 const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(base64_buf[0..base64_len]) catch 0;
                 if (decoded_len > 0) {
                     std.base64.standard.Decoder.decode(&decoded_buf, base64_buf[0..base64_len]) catch {};
-                    try result.appendSlice(decoded_buf[0..decoded_len]);
+                    try result.appendSlice(allocator, decoded_buf[0..decoded_len]);
                 }
 
                 i = end + 1; // Skip closing -
             }
         } else {
-            try result.append(s[i]);
+            try result.append(allocator, s[i]);
             i += 1;
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }

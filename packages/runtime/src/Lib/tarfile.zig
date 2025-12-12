@@ -148,12 +148,12 @@ pub const TarFile = struct {
         return .{
             .allocator = allocator,
             .mode = mode,
-            .members = std.ArrayList(TarInfo).init(allocator),
+            .members = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.members.deinit();
+        self.members.deinit(self.allocator);
         if (self.file) |*f| {
             f.close();
         }
@@ -192,7 +192,7 @@ pub const TarFile = struct {
                 if (err == error.EndOfArchive) break;
                 return err;
             };
-            try self.members.append(info);
+            try self.members.append(self.allocator, info);
 
             // Skip to next header (aligned to BLOCKSIZE)
             const blocks = (info.size + BLOCKSIZE - 1) / BLOCKSIZE;
@@ -361,7 +361,7 @@ pub const TarFile = struct {
 
         var mutable_info = info;
         mutable_info.size = size;
-        try self.members.append(mutable_info);
+        try self.members.append(self.allocator, mutable_info);
     }
 
     /// Write octal value to header

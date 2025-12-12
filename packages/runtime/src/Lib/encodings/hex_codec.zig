@@ -25,8 +25,8 @@ fn hexToInt(c: u8) ?u8 {
 
 /// Decode hex string to bytes
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHandler) !DecodeResult {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
 
     var i: usize = 0;
     while (i + 1 < input.len) {

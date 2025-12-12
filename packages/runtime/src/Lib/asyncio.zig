@@ -196,33 +196,33 @@ pub fn wait(
     const start = std.time.milliTimestamp();
     const timeout_ms: ?i64 = if (timeout_seconds) |t| @intFromFloat(t * 1000) else null;
 
-    var done_list = std.ArrayList(*GreenThread).init(allocator);
-    defer done_list.deinit();
+    var done_list: std.ArrayList(*GreenThread) = .{};
+    defer done_list.deinit(allocator);
 
-    var pending_list = std.ArrayList(*GreenThread).init(allocator);
-    defer pending_list.deinit();
+    var pending_list: std.ArrayList(*GreenThread) = .{};
+    defer pending_list.deinit(allocator);
 
     for (tasks) |task| {
         // Check timeout
         if (timeout_ms) |tm| {
             const elapsed = std.time.milliTimestamp() - start;
             if (elapsed >= tm) {
-                try pending_list.append(task);
+                try pending_list.append(allocator, task);
                 continue;
             }
         }
 
         // Check if task is done
         if (task.state == .completed) {
-            try done_list.append(task);
+            try done_list.append(allocator, task);
         } else {
-            try pending_list.append(task);
+            try pending_list.append(allocator, task);
         }
     }
 
     return .{
-        .done = try done_list.toOwnedSlice(),
-        .pending = try pending_list.toOwnedSlice(),
+        .done = try done_list.toOwnedSlice(allocator),
+        .pending = try pending_list.toOwnedSlice(allocator),
     };
 }
 

@@ -94,39 +94,39 @@ pub fn hasOption(parser: anytype, section: []const u8, option: []const u8) bool 
 
 /// Get all options in a section
 pub fn getOptions(parser: anytype, section: []const u8) ![][]const u8 {
-    var result = std.ArrayList([]const u8).init(parser.allocator);
+    var result: std.ArrayList([]const u8) = .{};
 
     // Add defaults first
     for (parser.defaults.keys()) |key| {
-        try result.append(key);
+        try result.append(parser.allocator, key);
     }
 
     // Add section-specific options
     if (parser.sections.get(section)) |section_map| {
         for (section_map.keys()) |key| {
-            try result.append(key);
+            try result.append(parser.allocator, key);
         }
     } else {
         return error.NoSection;
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(parser.allocator);
 }
 
 /// Get all items in a section
 pub fn items(parser: anytype, section: []const u8) ![]struct { key: []const u8, value: []const u8 } {
-    var result = std.ArrayList(struct { key: []const u8, value: []const u8 }).init(parser.allocator);
+    var result: std.ArrayList(struct { key: []const u8, value: []const u8 }) = .{};
 
     if (parser.sections.get(section)) |section_map| {
         var iter = section_map.iterator();
         while (iter.next()) |entry| {
-            try result.append(.{ .key = entry.key_ptr.*, .value = entry.value_ptr.* });
+            try result.append(parser.allocator, .{ .key = entry.key_ptr.*, .value = entry.value_ptr.* });
         }
     } else {
         return error.NoSection;
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(parser.allocator);
 }
 
 /// Remove an option from a section

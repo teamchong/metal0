@@ -51,7 +51,7 @@ pub const Processor = struct {
             .state = .idle,
             .current_task = null,
             .next_task = null,
-            .local_queue = std.ArrayList(*Task).init(allocator),
+            .local_queue = .{},
             .queue_head = 0,
             .queue_tail = 0,
             .machine_id = null,
@@ -134,7 +134,7 @@ pub const Processor = struct {
 
     /// Steal half of the tasks from this processor (for work-stealing)
     pub fn stealTasks(self: *Processor, allocator: std.mem.Allocator) !std.ArrayList(*Task) {
-        var stolen = std.ArrayList(*Task){};
+        var stolen: std.ArrayList(*Task) = .{};
 
         const queue_size = self.local_queue.items.len;
         if (queue_size == 0) {

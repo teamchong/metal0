@@ -43,12 +43,12 @@ pub const PollSelector = struct {
     }
 
     pub fn select(self: *Self, timeout: ?f64) ![]EventResult {
-        var result = std.ArrayList(EventResult).init(self.base_sel.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(EventResult) = .{};
+        errdefer result.deinit(self.base_sel.allocator);
 
         // Build poll fds array
-        var poll_fds = std.ArrayList(std.posix.pollfd).init(self.base_sel.allocator);
-        defer poll_fds.deinit();
+        var poll_fds: std.ArrayList(std.posix.pollfd) = .{};
+        defer poll_fds.deinit(self.base_sel.allocator);
 
         var iter = self.base_sel.registered.iterator();
         while (iter.next()) |entry| {
@@ -57,7 +57,7 @@ pub const PollSelector = struct {
             if (key.events & EVENT_READ != 0) poll_events |= std.posix.POLL.IN;
             if (key.events & EVENT_WRITE != 0) poll_events |= std.posix.POLL.OUT;
 
-            try poll_fds.append(.{
+            try poll_fds.append(self.base_sel.allocator, .{
                 .fd = key.fd,
                 .events = poll_events,
                 .revents = 0,
@@ -79,11 +79,11 @@ pub const PollSelector = struct {
                 var ready_events: u32 = 0;
                 if (pfd.revents & std.posix.POLL.IN != 0) ready_events |= EVENT_READ;
                 if (pfd.revents & std.posix.POLL.OUT != 0) ready_events |= EVENT_WRITE;
-                try result.append(.{ .key = key, .events = ready_events });
+                try result.append(self.base_sel.allocator, .{ .key = key, .events = ready_events });
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.base_sel.allocator);
     }
 
     pub fn close(self: *Self) void {

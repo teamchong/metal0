@@ -47,8 +47,8 @@ pub const SelectSelector = struct {
 
     /// Wait for events
     pub fn select(self: *Self, timeout: ?f64) ![]EventResult {
-        var result = std.ArrayList(EventResult).init(self.base_sel.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(EventResult) = .{};
+        errdefer result.deinit(self.base_sel.allocator);
 
         // Convert timeout to timeval
         const timeout_ns: i64 = if (timeout) |t|
@@ -94,11 +94,11 @@ pub const SelectSelector = struct {
             }
 
             if (ready_events != 0) {
-                try result.append(.{ .key = key.*, .events = ready_events });
+                try result.append(self.base_sel.allocator, .{ .key = key.*, .events = ready_events });
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.base_sel.allocator);
     }
 
     /// Close the selector

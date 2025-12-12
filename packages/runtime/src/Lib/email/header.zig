@@ -7,8 +7,8 @@ const std = @import("std");
 /// Decode a header value
 pub fn decodeHeader(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
     // Simple implementation - just looks for =?charset?encoding?text?= patterns
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < value.len) {
@@ -27,43 +27,43 @@ pub fn decodeHeader(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
                     if (encoding.?[0] == 'B' or encoding.?[0] == 'b') {
                         // Base64 decode
                         const decoded = std.base64.standard.Decoder.calcSizeForSlice(text.?) catch {
-                            try result.appendSlice(value[i .. i + 2 + end + 2]);
+                            try result.appendSlice(allocator, value[i .. i + 2 + end + 2]);
                             i = i + 2 + end + 2;
                             continue;
                         };
                         var buf = try allocator.alloc(u8, decoded);
                         defer allocator.free(buf);
                         std.base64.standard.Decoder.decode(buf, text.?) catch {
-                            try result.appendSlice(value[i .. i + 2 + end + 2]);
+                            try result.appendSlice(allocator, value[i .. i + 2 + end + 2]);
                             i = i + 2 + end + 2;
                             continue;
                         };
-                        try result.appendSlice(buf);
+                        try result.appendSlice(allocator, buf);
                     } else if (encoding.?[0] == 'Q' or encoding.?[0] == 'q') {
                         // Quoted-printable decode
                         var j: usize = 0;
                         while (j < text.?.len) {
                             const c = text.?[j];
                             if (c == '_') {
-                                try result.append(' ');
+                                try result.append(allocator, ' ');
                                 j += 1;
                             } else if (c == '=' and j + 2 < text.?.len) {
                                 // Decode hex pair
                                 const hex_chars = text.?[j + 1 .. j + 3];
                                 if (std.fmt.parseInt(u8, hex_chars, 16)) |byte| {
-                                    try result.append(byte);
+                                    try result.append(allocator, byte);
                                     j += 3;
                                 } else |_| {
-                                    try result.append(c);
+                                    try result.append(allocator, c);
                                     j += 1;
                                 }
                             } else {
-                                try result.append(c);
+                                try result.append(allocator, c);
                                 j += 1;
                             }
                         }
                     } else {
-                        try result.appendSlice(text.?);
+                        try result.appendSlice(allocator, text.?);
                     }
                 }
 
@@ -72,11 +72,11 @@ pub fn decodeHeader(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
             }
         }
 
-        try result.append(value[i]);
+        try result.append(allocator, value[i]);
         i += 1;
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Make a header with the given charset
@@ -95,22 +95,22 @@ pub fn makeHeader(allocator: std.mem.Allocator, decoded_value: []const u8, chars
     }
 
     // Encode using base64
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
-    try result.appendSlice("=?");
-    try result.appendSlice(charset);
-    try result.appendSlice("?B?");
+    try result.appendSlice(allocator, "=?");
+    try result.appendSlice(allocator, charset);
+    try result.appendSlice(allocator, "?B?");
 
     const encoded_len = std.base64.standard.Encoder.calcSize(decoded_value.len);
     var encoded = try allocator.alloc(u8, encoded_len);
     defer allocator.free(encoded);
     _ = std.base64.standard.Encoder.encode(encoded, decoded_value);
-    try result.appendSlice(encoded);
+    try result.appendSlice(allocator, encoded);
 
-    try result.appendSlice("?=");
+    try result.appendSlice(allocator, "?=");
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Header class for complex headers
@@ -125,34 +125,34 @@ pub const Header = struct {
 
     pub fn init(allocator: std.mem.Allocator) Header {
         return .{
-            .parts = std.ArrayList(Part).init(allocator),
+            .parts = .{},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Header) void {
-        self.parts.deinit();
+        self.parts.deinit(self.allocator);
     }
 
     pub fn append(self: *Header, text: []const u8, charset: ?[]const u8) !void {
-        try self.parts.append(.{
+        try self.parts.append(self.allocator, .{
             .text = text,
             .charset = charset,
         });
     }
 
     pub fn encode(self: *Header) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         for (self.parts.items, 0..) |part, i| {
-            if (i > 0) try result.append(' ');
+            if (i > 0) try result.append(self.allocator, ' ');
             const encoded = try makeHeader(self.allocator, part.text, part.charset orelse "utf-8");
             defer self.allocator.free(encoded);
-            try result.appendSlice(encoded);
+            try result.appendSlice(self.allocator, encoded);
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };
 

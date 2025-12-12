@@ -24,22 +24,22 @@ pub const WalkIterator = struct {
             var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch continue;
             defer dir.close();
 
-            var dirnames = std.ArrayList([]const u8).init(self.allocator);
-            var filenames = std.ArrayList([]const u8).init(self.allocator);
+            var dirnames: std.ArrayList([]const u8) = .{};
+            var filenames: std.ArrayList([]const u8) = .{};
             errdefer {
                 for (dirnames.items) |d| self.allocator.free(d);
-                dirnames.deinit();
+                dirnames.deinit(self.allocator);
                 for (filenames.items) |f| self.allocator.free(f);
-                filenames.deinit();
+                filenames.deinit(self.allocator);
             }
 
             var iter = dir.iterate();
             while (iter.next() catch null) |entry| {
                 const entry_name = try self.allocator.dupe(u8, entry.name);
                 if (entry.kind == .directory) {
-                    try dirnames.append(entry_name);
+                    try dirnames.append(self.allocator, entry_name);
                 } else {
-                    try filenames.append(entry_name);
+                    try filenames.append(self.allocator, entry_name);
                 }
             }
 
@@ -50,14 +50,14 @@ pub const WalkIterator = struct {
                 while (i > 0) {
                     i -= 1;
                     const subdir = try path_mod.join(self.allocator, &.{ dir_path, dirnames.items[i] });
-                    try self.stack.append(subdir);
+                    try self.stack.append(self.allocator, subdir);
                 }
             }
 
             return WalkEntry{
                 .dirpath = try self.allocator.dupe(u8, dir_path),
-                .dirnames = try dirnames.toOwnedSlice(),
-                .filenames = try filenames.toOwnedSlice(),
+                .dirnames = try dirnames.toOwnedSlice(self.allocator),
+                .filenames = try filenames.toOwnedSlice(self.allocator),
             };
         }
         return null;
@@ -65,7 +65,7 @@ pub const WalkIterator = struct {
 
     pub fn deinit(self: *WalkIterator) void {
         for (self.stack.items) |p| self.allocator.free(p);
-        self.stack.deinit();
+        self.stack.deinit(self.allocator);
     }
 };
 
@@ -77,8 +77,8 @@ pub fn walk(allocator: std.mem.Allocator, top: []const u8) !WalkIterator {
 
 /// os.walk with topdown parameter
 pub fn walkTopdown(allocator: std.mem.Allocator, top: []const u8, topdown: bool) !WalkIterator {
-    var stack = std.ArrayList([]const u8).init(allocator);
-    try stack.append(try allocator.dupe(u8, top));
+    var stack: std.ArrayList([]const u8) = .{};
+    try stack.append(allocator, try allocator.dupe(u8, top));
     return WalkIterator{
         .allocator = allocator,
         .stack = stack,

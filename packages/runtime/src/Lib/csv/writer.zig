@@ -26,24 +26,24 @@ pub const Writer = struct {
     pub fn init(allocator: std.mem.Allocator, dialect: Dialect) Self {
         return .{
             .allocator = allocator,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .{},
             .dialect = dialect,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     /// Write a row
     pub fn writerow(self: *Self, row: []const []const u8) !void {
         for (row, 0..) |field, i| {
             if (i > 0) {
-                try self.buffer.append(self.dialect.delimiter);
+                try self.buffer.append(self.allocator, self.dialect.delimiter);
             }
             try self.writeField(field);
         }
-        try self.buffer.appendSlice(self.dialect.lineterminator);
+        try self.buffer.appendSlice(self.allocator, self.dialect.lineterminator);
     }
 
     /// Write multiple rows
@@ -57,23 +57,23 @@ pub const Writer = struct {
         const needs_quoting = self.needsQuoting(field);
 
         if (needs_quoting or self.dialect.quoting == QUOTE_ALL) {
-            try self.buffer.append(self.dialect.quotechar);
+            try self.buffer.append(self.allocator, self.dialect.quotechar);
             for (field) |c| {
                 if (c == self.dialect.quotechar) {
                     if (self.dialect.doublequote) {
-                        try self.buffer.append(self.dialect.quotechar);
-                        try self.buffer.append(self.dialect.quotechar);
+                        try self.buffer.append(self.allocator, self.dialect.quotechar);
+                        try self.buffer.append(self.allocator, self.dialect.quotechar);
                     } else if (self.dialect.escapechar) |esc| {
-                        try self.buffer.append(esc);
-                        try self.buffer.append(c);
+                        try self.buffer.append(self.allocator, esc);
+                        try self.buffer.append(self.allocator, c);
                     }
                 } else {
-                    try self.buffer.append(c);
+                    try self.buffer.append(self.allocator, c);
                 }
             }
-            try self.buffer.append(self.dialect.quotechar);
+            try self.buffer.append(self.allocator, self.dialect.quotechar);
         } else {
-            try self.buffer.appendSlice(field);
+            try self.buffer.appendSlice(self.allocator, field);
         }
     }
 
@@ -98,7 +98,7 @@ pub const Writer = struct {
 
     /// Get output as owned slice
     pub fn toOwnedSlice(self: *Self) ![]u8 {
-        return self.buffer.toOwnedSlice();
+        return self.buffer.toOwnedSlice(self.allocator);
     }
 };
 

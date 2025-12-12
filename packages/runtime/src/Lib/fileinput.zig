@@ -55,7 +55,7 @@ pub const FileInput = struct {
             .file_index = 0,
             .current_file = null,
             .reader = null,
-            .line_buffer = std.ArrayList(u8).init(allocator),
+            .line_buffer = .{},
             .filename_ = null,
             .filelineno_ = 0,
             .lineno_ = 0,
@@ -83,7 +83,7 @@ pub const FileInput = struct {
 
     pub fn deinit(self: *Self) void {
         self.close();
-        self.line_buffer.deinit();
+        self.line_buffer.deinit(self.allocator);
     }
 
     /// Close the current file
@@ -141,7 +141,7 @@ pub const FileInput = struct {
                 self.filelineno_ += 1;
 
                 // Append newline to match Python behavior
-                self.line_buffer.append('\n') catch {};
+                self.line_buffer.append(self.allocator, '\n') catch {};
 
                 return self.line_buffer.items;
             } else {

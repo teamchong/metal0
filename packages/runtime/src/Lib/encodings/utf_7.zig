@@ -55,15 +55,15 @@ fn base64Decode(c: u8) ?u6 {
 /// Decode UTF-7 to UTF-8
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
     _ = mode;
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < input.len) {
         if (input[i] == '+') {
             if (i + 1 < input.len and input[i + 1] == '-') {
                 // +- encodes literal +
-                try result.append('+');
+                try result.append(allocator, '+');
                 i += 2;
                 continue;
             }
@@ -93,26 +93,26 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 
                     // Convert to UTF-8
                     if (codepoint < 0x80) {
-                        try result.append(@intCast(codepoint));
+                        try result.append(allocator, @intCast(codepoint));
                     } else if (codepoint < 0x800) {
-                        try result.append(@intCast(0xC0 | (codepoint >> 6)));
-                        try result.append(@intCast(0x80 | (codepoint & 0x3F)));
+                        try result.append(allocator, @intCast(0xC0 | (codepoint >> 6)));
+                        try result.append(allocator, @intCast(0x80 | (codepoint & 0x3F)));
                     } else {
-                        try result.append(@intCast(0xE0 | (codepoint >> 12)));
-                        try result.append(@intCast(0x80 | ((codepoint >> 6) & 0x3F)));
-                        try result.append(@intCast(0x80 | (codepoint & 0x3F)));
+                        try result.append(allocator, @intCast(0xE0 | (codepoint >> 12)));
+                        try result.append(allocator, @intCast(0x80 | ((codepoint >> 6) & 0x3F)));
+                        try result.append(allocator, @intCast(0x80 | (codepoint & 0x3F)));
                     }
                 }
             }
         } else {
             // Direct character
-            try result.append(input[i]);
+            try result.append(allocator, input[i]);
             i += 1;
         }
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }
@@ -120,22 +120,22 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 /// Encode UTF-8 to UTF-7
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !EncodeResult {
     _ = mode;
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < input.len) {
         const c = input[i];
 
         if (c < 0x80 and isDirectChar(c)) {
-            try result.append(c);
+            try result.append(allocator, c);
             i += 1;
         } else if (c == '+') {
-            try result.appendSlice("+-");
+            try result.appendSlice(allocator, "+-");
             i += 1;
         } else {
             // Need to encode as Base64
-            try result.append('+');
+            try result.append(allocator, '+');
 
             var bits: u32 = 0;
             var bit_count: u5 = 0;
@@ -185,7 +185,7 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                     // Output accumulated bits if needed
                     while (bit_count >= 6) {
                         bit_count -= 6;
-                        try result.append(base64_chars[@intCast((bits >> bit_count) & 0x3F)]);
+                        try result.append(allocator, base64_chars[@intCast((bits >> bit_count) & 0x3F)]);
                     }
 
                     bits = (bits << 16) | low;
@@ -195,22 +195,22 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                 // Output complete 6-bit groups
                 while (bit_count >= 6) {
                     bit_count -= 6;
-                    try result.append(base64_chars[@intCast((bits >> bit_count) & 0x3F)]);
+                    try result.append(allocator, base64_chars[@intCast((bits >> bit_count) & 0x3F)]);
                 }
             }
 
             // Output remaining bits with padding
             if (bit_count > 0) {
                 bits <<= @intCast(6 - bit_count);
-                try result.append(base64_chars[@intCast(bits & 0x3F)]);
+                try result.append(allocator, base64_chars[@intCast(bits & 0x3F)]);
             }
 
-            try result.append('-');
+            try result.append(allocator, '-');
         }
     }
 
     return EncodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .chars_consumed = input.len,
     };
 }

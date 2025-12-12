@@ -7,18 +7,18 @@ pub fn listdir(allocator: std.mem.Allocator, dir_path: []const u8) ![][]const u8
     var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
     defer dir.close();
 
-    var entries = std.ArrayList([]const u8).init(allocator);
+    var entries: std.ArrayList([]const u8) = .{};
     errdefer {
         for (entries.items) |entry| allocator.free(entry);
-        entries.deinit();
+        entries.deinit(allocator);
     }
 
     var iter = dir.iterate();
     while (try iter.next()) |entry| {
-        try entries.append(try allocator.dupe(u8, entry.name));
+        try entries.append(allocator, try allocator.dupe(u8, entry.name));
     }
 
-    return entries.toOwnedSlice();
+    return entries.toOwnedSlice(allocator);
 }
 
 /// Create a directory

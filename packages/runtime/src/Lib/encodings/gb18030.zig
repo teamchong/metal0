@@ -75,8 +75,8 @@ fn decode4Byte(b1: u8, b2: u8, b3: u8, b4: u8) ?u21 {
 
 /// Decode GB18030 to UTF-8
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < input.len) {
@@ -84,12 +84,12 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 
         if (b1 < 0x80) {
             // ASCII
-            try result.append(b1);
+            try result.append(allocator, b1);
             i += 1;
         } else if (isFirstByte(b1)) {
             if (i + 1 >= input.len) {
                 if (mode == .strict) return error.IncompleteSequence;
-                try result.appendSlice("\xEF\xBF\xBD");
+                try result.appendSlice(allocator, "\xEF\xBF\xBD");
                 i += 1;
                 continue;
             }
@@ -100,7 +100,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                 // 4-byte sequence
                 if (i + 3 >= input.len) {
                     if (mode == .strict) return error.IncompleteSequence;
-                    try result.appendSlice("\xEF\xBF\xBD");
+                    try result.appendSlice(allocator, "\xEF\xBF\xBD");
                     i += 1;
                     continue;
                 }
@@ -110,7 +110,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 
                 if (!isThirdByte(b3) or !isFourthByte(b4)) {
                     if (mode == .strict) return error.InvalidSequence;
-                    try result.appendSlice("\xEF\xBF\xBD");
+                    try result.appendSlice(allocator, "\xEF\xBF\xBD");
                     i += 1;
                     continue;
                 }
@@ -118,14 +118,14 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                 if (decode4Byte(b1, b2, b3, b4)) |cp| {
                     var buf: [4]u8 = undefined;
                     const len = std.unicode.utf8Encode(cp, &buf) catch {
-                        try result.appendSlice("\xEF\xBF\xBD");
+                        try result.appendSlice(allocator, "\xEF\xBF\xBD");
                         i += 4;
                         continue;
                     };
-                    try result.appendSlice(buf[0..len]);
+                    try result.appendSlice(allocator, buf[0..len]);
                 } else {
                     if (mode == .strict) return error.InvalidSequence;
-                    try result.appendSlice("\xEF\xBF\xBD");
+                    try result.appendSlice(allocator, "\xEF\xBF\xBD");
                 }
                 i += 4;
             } else if (isSecondByte2Byte(b2)) {
@@ -139,46 +139,46 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                 };
                 const gbk_result = try gbk.decode(allocator, input[i .. i + 2], gbk_mode);
                 defer allocator.free(gbk_result.output);
-                try result.appendSlice(gbk_result.output);
+                try result.appendSlice(allocator, gbk_result.output);
                 i += 2;
             } else {
                 if (mode == .strict) return error.InvalidSequence;
-                try result.appendSlice("\xEF\xBF\xBD");
+                try result.appendSlice(allocator, "\xEF\xBF\xBD");
                 i += 1;
             }
         } else {
             if (mode == .strict) return error.InvalidByte;
-            try result.appendSlice("\xEF\xBF\xBD");
+            try result.appendSlice(allocator, "\xEF\xBF\xBD");
             i += 1;
         }
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }
 
 /// Encode UTF-8 to GB18030
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !EncodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var iter = std.unicode.Utf8Iterator{ .bytes = input, .i = 0 };
     while (iter.nextCodepoint()) |cp| {
         if (cp < 0x80) {
             // ASCII
-            try result.append(@intCast(cp));
+            try result.append(allocator, @intCast(cp));
         } else {
             // For non-ASCII, would need full GBK/GB18030 reverse mapping
             // Use replacement for now
             if (mode == .strict) return error.UnencodableCharacter;
-            try result.append('?');
+            try result.append(allocator, '?');
         }
     }
 
     return EncodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .chars_consumed = input.len,
     };
 }

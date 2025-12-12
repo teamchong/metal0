@@ -27,7 +27,7 @@ pub fn Queue(comptime T: type) type {
         pub fn init(allocator: std.mem.Allocator, maxsize: usize) Self {
             return .{
                 .allocator = allocator,
-                .items = std.ArrayList(T).init(allocator),
+                .items = .{},
                 .maxsize = maxsize,
                 .unfinished_tasks = 0,
                 .all_tasks_done = .{},
@@ -35,7 +35,7 @@ pub fn Queue(comptime T: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            self.items.deinit();
+            self.items.deinit(self.allocator);
         }
 
         /// Put an item into the queue
@@ -47,7 +47,7 @@ pub fn Queue(comptime T: type) type {
                 return error.QueueFull;
             }
 
-            try self.items.append(item);
+            try self.items.append(self.allocator, item);
             self.unfinished_tasks += 1;
         }
 
@@ -65,7 +65,7 @@ pub fn Queue(comptime T: type) type {
                 return error.QueueEmpty;
             }
 
-            return self.items.orderedRemove(0);
+            return self.items.orderedRemove(self.allocator, 0);
         }
 
         /// Remove and return an item without blocking
@@ -150,13 +150,13 @@ pub fn LifoQueue(comptime T: type) type {
         pub fn init(allocator: std.mem.Allocator, maxsize: usize) Self {
             return .{
                 .allocator = allocator,
-                .items = std.ArrayList(T).init(allocator),
+                .items = .{},
                 .maxsize = maxsize,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.items.deinit();
+            self.items.deinit(self.allocator);
         }
 
         /// Put an item into the queue
@@ -168,7 +168,7 @@ pub fn LifoQueue(comptime T: type) type {
                 return error.QueueFull;
             }
 
-            try self.items.append(item);
+            try self.items.append(self.allocator, item);
         }
 
         /// Put an item without blocking
@@ -330,19 +330,19 @@ pub fn SimpleQueue(comptime T: type) type {
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .allocator = allocator,
-                .items = std.ArrayList(T).init(allocator),
+                .items = .{},
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.items.deinit();
+            self.items.deinit(self.allocator);
         }
 
         /// Put an item into the queue
         pub fn put(self: *Self, item: T) !void {
             self.mutex.lock();
             defer self.mutex.unlock();
-            try self.items.append(item);
+            try self.items.append(self.allocator, item);
         }
 
         /// Put an item without blocking
@@ -359,7 +359,7 @@ pub fn SimpleQueue(comptime T: type) type {
                 return error.QueueEmpty;
             }
 
-            return self.items.orderedRemove(0);
+            return self.items.orderedRemove(self.allocator, 0);
         }
 
         /// Remove and return an item without blocking

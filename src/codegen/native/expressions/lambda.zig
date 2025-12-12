@@ -245,6 +245,10 @@ fn isParamUsedInBody(param_name: []const u8, body: ast.Node) bool {
         .name => |n| std.mem.eql(u8, n.id, param_name),
         .binop => |b| isParamUsedInBody(param_name, b.left.*) or isParamUsedInBody(param_name, b.right.*),
         .unaryop => |u| isParamUsedInBody(param_name, u.operand.*),
+        // Handle starred expressions (*args unpacking in calls)
+        .starred => |s| isParamUsedInBody(param_name, s.value.*),
+        // Handle double-starred expressions (**kwargs unpacking in calls)
+        .double_starred => |ds| isParamUsedInBody(param_name, ds.value.*),
         .call => |c| blk: {
             if (isParamUsedInBody(param_name, c.func.*)) break :blk true;
             for (c.args) |arg| {
@@ -346,6 +350,14 @@ fn findVarReferences(self: *NativeCodegen, node: ast.Node, captured: *std.ArrayL
                 if (std.mem.eql(u8, existing, n.id)) return;
             }
             try captured.append(self.allocator, n.id);
+        },
+        // Handle starred expressions (*args unpacking in calls)
+        .starred => |s| {
+            try findVarReferences(self, s.value.*, captured);
+        },
+        // Handle double-starred expressions (**kwargs unpacking in calls)
+        .double_starred => |ds| {
+            try findVarReferences(self, ds.value.*, captured);
         },
         .binop => |b| {
             try findVarReferences(self, b.left.*, captured);

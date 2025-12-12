@@ -105,60 +105,60 @@ pub const Repr = struct {
 
     /// Repr for lists/slices with item limit
     pub fn repr_list(self: *const Repr, items: anytype, level: usize) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        try result.append('[');
+        var result: std.ArrayList(u8) = .{};
+        try result.append(self.allocator, '[');
 
         const max = @min(items.len, self.maxlist);
         for (items[0..max], 0..) |item, i| {
             if (i > 0) {
-                try result.appendSlice(", ");
+                try result.appendSlice(self.allocator, ", ");
             }
             const item_repr = try self.repr1(item, level - 1);
             defer self.allocator.free(item_repr);
-            try result.appendSlice(item_repr);
+            try result.appendSlice(self.allocator, item_repr);
         }
 
         if (items.len > self.maxlist) {
-            try result.appendSlice(", ...");
+            try result.appendSlice(self.allocator, ", ...");
         }
 
-        try result.append(']');
-        return result.toOwnedSlice();
+        try result.append(self.allocator, ']');
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Repr for tuples with item limit
     pub fn repr_tuple(self: *const Repr, items: anytype, level: usize) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        try result.append('(');
+        var result: std.ArrayList(u8) = .{};
+        try result.append(self.allocator, '(');
 
         const max = @min(items.len, self.maxtuple);
         for (items[0..max], 0..) |item, i| {
             if (i > 0) {
-                try result.appendSlice(", ");
+                try result.appendSlice(self.allocator, ", ");
             }
             const item_repr = try self.repr1(item, level - 1);
             defer self.allocator.free(item_repr);
-            try result.appendSlice(item_repr);
+            try result.appendSlice(self.allocator, item_repr);
         }
 
         if (items.len > self.maxtuple) {
-            try result.appendSlice(", ...");
+            try result.appendSlice(self.allocator, ", ...");
         } else if (items.len == 1) {
-            try result.append(',');
+            try result.append(self.allocator, ',');
         }
 
-        try result.append(')');
-        return result.toOwnedSlice();
+        try result.append(self.allocator, ')');
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Repr for sets with item limit
     pub fn repr_set(self: *const Repr, items: anytype, level: usize, frozen: bool) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
+        var result: std.ArrayList(u8) = .{};
 
         if (frozen) {
-            try result.appendSlice("frozenset({");
+            try result.appendSlice(self.allocator, "frozenset({");
         } else {
-            try result.append('{');
+            try result.append(self.allocator, '{');
         }
 
         const max_items = if (frozen) self.maxfrozenset else self.maxset;
@@ -166,25 +166,25 @@ pub const Repr = struct {
 
         for (items) |item| {
             if (count >= max_items) {
-                try result.appendSlice(", ...");
+                try result.appendSlice(self.allocator, ", ...");
                 break;
             }
             if (count > 0) {
-                try result.appendSlice(", ");
+                try result.appendSlice(self.allocator, ", ");
             }
             const item_repr = try self.repr1(item, level - 1);
             defer self.allocator.free(item_repr);
-            try result.appendSlice(item_repr);
+            try result.appendSlice(self.allocator, item_repr);
             count += 1;
         }
 
         if (frozen) {
-            try result.appendSlice("})");
+            try result.appendSlice(self.allocator, "})");
         } else {
-            try result.append('}');
+            try result.append(self.allocator, '}');
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };
 

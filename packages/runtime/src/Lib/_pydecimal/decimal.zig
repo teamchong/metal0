@@ -157,15 +157,15 @@ pub const Decimal = struct {
         }
 
         // Parse coefficient and exponent
-        var coeff = std.ArrayList(u8).init(allocator);
-        defer coeff.deinit();
+        var coeff: std.ArrayList(u8) = .{};
+        defer coeff.deinit(allocator);
         var exp: i32 = 0;
         var decimal_pos: ?usize = null;
 
         while (pos < s.len) {
             const c = s[pos];
             if (c >= '0' and c <= '9') {
-                try coeff.append(c);
+                try coeff.append(allocator, c);
             } else if (c == '.') {
                 if (decimal_pos != null) return error.InvalidDecimal;
                 decimal_pos = coeff.items.len;
@@ -269,24 +269,24 @@ pub const Decimal = struct {
     ///   - Infinity: "Infinity" or "-Infinity"
     ///   - NaN: "NaN" or "sNaN"
     pub fn format(self: *const Self, allocator: Allocator) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
+        var result: std.ArrayList(u8) = .{};
 
         // Add sign
-        if (self.sign == 1) try result.append('-');
+        if (self.sign == 1) try result.append(allocator, '-');
 
         // Handle special values
         switch (self.special) {
             .infinity => {
-                try result.appendSlice("Infinity");
-                return result.toOwnedSlice();
+                try result.appendSlice(allocator, "Infinity");
+                return result.toOwnedSlice(allocator);
             },
             .nan => {
-                try result.appendSlice("NaN");
-                return result.toOwnedSlice();
+                try result.appendSlice(allocator, "NaN");
+                return result.toOwnedSlice(allocator);
             },
             .snan => {
-                try result.appendSlice("sNaN");
-                return result.toOwnedSlice();
+                try result.appendSlice(allocator, "sNaN");
+                return result.toOwnedSlice(allocator);
             },
             .normal => {},
         }
@@ -297,30 +297,30 @@ pub const Decimal = struct {
 
         if (exp >= 0) {
             // Integer or needs trailing zeros (e.g., 123 with exp=2 -> 12300)
-            try result.appendSlice(coeff);
+            try result.appendSlice(allocator, coeff);
             for (0..@intCast(exp)) |_| {
-                try result.append('0');
+                try result.append(allocator, '0');
             }
         } else {
             // Negative exponent (decimal point)
             const neg_exp: usize = @intCast(-exp);
             if (neg_exp >= coeff.len) {
                 // Need leading "0." with zeros (e.g., 0.00123)
-                try result.appendSlice("0.");
+                try result.appendSlice(allocator, "0.");
                 for (0..neg_exp - coeff.len) |_| {
-                    try result.append('0');
+                    try result.append(allocator, '0');
                 }
-                try result.appendSlice(coeff);
+                try result.appendSlice(allocator, coeff);
             } else {
                 // Decimal point in middle (e.g., 12.3)
                 const decimal_pos = coeff.len - neg_exp;
-                try result.appendSlice(coeff[0..decimal_pos]);
-                try result.append('.');
-                try result.appendSlice(coeff[decimal_pos..]);
+                try result.appendSlice(allocator, coeff[0..decimal_pos]);
+                try result.append(allocator, '.');
+                try result.appendSlice(allocator, coeff[decimal_pos..]);
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 

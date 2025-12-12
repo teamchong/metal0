@@ -44,7 +44,7 @@ pub const History = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .allocator = allocator,
-            .entries = std.ArrayList(HistoryEntry).init(allocator),
+            .entries = .{},
         };
     }
 
@@ -52,7 +52,7 @@ pub const History = struct {
         for (self.entries.items) |entry| {
             self.allocator.free(entry.line);
         }
-        self.entries.deinit();
+        self.entries.deinit(self.allocator);
     }
 
     /// Add an entry to history
@@ -72,7 +72,7 @@ pub const History = struct {
             self.allocator.free(removed.line);
         }
 
-        try self.entries.append(.{
+        try self.entries.append(self.allocator, .{
             .line = try self.allocator.dupe(u8, line),
             .timestamp = std.time.timestamp(),
         });
@@ -142,17 +142,17 @@ pub const LineBuffer = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .allocator = allocator,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     /// Insert a character at cursor
     pub fn insert(self: *Self, c: u8) !void {
-        try self.buffer.insert(self.cursor, c);
+        try self.buffer.insert(self.allocator, self.cursor, c);
         self.cursor += 1;
     }
 
@@ -211,7 +211,7 @@ pub const LineBuffer = struct {
     /// Set buffer content
     pub fn set(self: *Self, content: []const u8) !void {
         self.buffer.clearRetainingCapacity();
-        try self.buffer.appendSlice(content);
+        try self.buffer.appendSlice(self.allocator, content);
         self.cursor = self.buffer.items.len;
     }
 

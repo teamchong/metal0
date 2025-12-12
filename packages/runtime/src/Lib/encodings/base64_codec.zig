@@ -29,8 +29,8 @@ const decode_table = buildDecodeTable();
 
 /// Decode base64 string to bytes
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHandler) !DecodeResult {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
 
     var buffer: u32 = 0;
     var bits: u5 = 0;

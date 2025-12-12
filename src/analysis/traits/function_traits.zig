@@ -13,12 +13,8 @@ pub const ListAlias = types.ListAlias;
 pub const BuiltinSubclassInstance = types.BuiltinSubclassInstance;
 pub const TypeHint = types.TypeHint;
 
-// Runtime type categories and comptime patterns
+// Runtime type categories and comptime patterns (internal use)
 pub const runtime_types = @import("function_traits/runtime_types.zig");
-pub const RuntimeTypeCategory = runtime_types.RuntimeTypeCategory;
-pub const comptimeTypeCheck = runtime_types.comptimeTypeCheck;
-pub const genComptimeDispatch = runtime_types.genComptimeDispatch;
-pub const ComptimePatterns = runtime_types.ComptimePatterns;
 
 // Primitive method dispatch
 pub const method_dispatch = @import("function_traits/method_dispatch.zig");
@@ -52,9 +48,8 @@ pub const UsedVarsSet = mutation_analysis.UsedVarsSet;
 pub const analyzeUsedVars = mutation_analysis.analyzeUsedVars;
 pub const isVarActuallyUsed = mutation_analysis.isVarActuallyUsed;
 
-// Precise error types
+// Precise error types (internal use)
 pub const error_types = @import("function_traits/error_types.zig");
-pub const PreciseError = error_types.PreciseError;
 pub const ErrorSet = error_types.ErrorSet;
 
 // SIMD and parallelization analysis
@@ -72,9 +67,8 @@ pub const CallGraph = call_graph.CallGraph;
 pub const AnalyzerContext = call_graph.AnalyzerContext;
 pub const buildCallGraph = call_graph.buildCallGraph;
 
-// Heterogeneous list analysis
+// Heterogeneous list analysis (internal use)
 pub const heterogeneous_analysis = @import("function_traits/heterogeneous_analysis.zig");
-pub const analyzeHeterogeneousLists = heterogeneous_analysis.analyzeHeterogeneousLists;
 
 // Allocator analysis
 pub const allocator_analysis = @import("function_traits/allocator_analysis.zig");

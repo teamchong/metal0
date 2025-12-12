@@ -175,15 +175,15 @@ pub const Trace = struct {
             .trace = trace,
             .countfuncs = countfuncs,
             .countcallers = countcallers,
-            .ignoredirs = std.ArrayList([]const u8).init(allocator),
-            .ignoremods = std.ArrayList([]const u8).init(allocator),
+            .ignoredirs = .{},
+            .ignoremods = .{},
             .results = CoverageResults.init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.ignoredirs.deinit();
-        self.ignoremods.deinit();
+        self.ignoredirs.deinit(self.allocator);
+        self.ignoremods.deinit(self.allocator);
         self.results.deinit();
         if (self.outfile) |*f| {
             f.close();

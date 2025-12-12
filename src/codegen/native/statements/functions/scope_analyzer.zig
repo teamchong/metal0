@@ -955,6 +955,35 @@ fn collectAssignments(
                         .source = source,
                     });
                 }
+            } else if (target == .tuple) {
+                // Tuple unpacking: opname, res = ('evalname', make_decorator)
+                // Each name in the tuple needs hoisting when used across if/elif/else blocks
+                for (target.tuple.elts) |elt| {
+                    if (elt == .name) {
+                        const var_name = elt.name.id;
+                        if (!decls.contains(var_name)) {
+                            try decls.put(var_name, .{
+                                .name = var_name,
+                                .init_expr = assign.value, // Use the full tuple value for type inference
+                                .source = source,
+                            });
+                        }
+                    }
+                }
+            } else if (target == .list) {
+                // List unpacking: [opname, res] = ['evalname', make_decorator]
+                for (target.list.elts) |elt| {
+                    if (elt == .name) {
+                        const var_name = elt.name.id;
+                        if (!decls.contains(var_name)) {
+                            try decls.put(var_name, .{
+                                .name = var_name,
+                                .init_expr = assign.value,
+                                .source = source,
+                            });
+                        }
+                    }
+                }
             }
         }
     }

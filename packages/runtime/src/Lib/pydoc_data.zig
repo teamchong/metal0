@@ -58,10 +58,10 @@ pub const topics = struct {
 
     /// Get all topic names
     pub fn keys(allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
-        var result = std.ArrayList([]const u8).init(allocator);
+        var result: std.ArrayList([]const u8) = .{};
         var iter = data.iterator();
         while (iter.next()) |entry| {
-            try result.append(entry.key);
+            try result.append(allocator, entry.key);
         }
         return result;
     }

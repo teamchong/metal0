@@ -11,33 +11,33 @@ const entities = @import("entities.zig");
 
 /// Escape special HTML characters: &, <, >, " and optionally '
 pub fn escape(allocator: std.mem.Allocator, s: []const u8, quote: bool) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     for (s) |c| {
         switch (c) {
-            '&' => try result.appendSlice("&amp;"),
-            '<' => try result.appendSlice("&lt;"),
-            '>' => try result.appendSlice("&gt;"),
-            '"' => try result.appendSlice("&quot;"),
+            '&' => try result.appendSlice(allocator, "&amp;"),
+            '<' => try result.appendSlice(allocator, "&lt;"),
+            '>' => try result.appendSlice(allocator, "&gt;"),
+            '"' => try result.appendSlice(allocator, "&quot;"),
             '\'' => {
                 if (quote) {
-                    try result.appendSlice("&#x27;");
+                    try result.appendSlice(allocator, "&#x27;");
                 } else {
-                    try result.append(c);
+                    try result.append(allocator, c);
                 }
             },
-            else => try result.append(c),
+            else => try result.append(allocator, c),
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Unescape HTML entities to their character equivalents
 pub fn unescape(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < s.len) {
@@ -53,11 +53,11 @@ pub fn unescape(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
                         var buf: [4]u8 = undefined;
                         const len = std.unicode.utf8Encode(cp, &buf) catch {
                             // Invalid codepoint, output as-is
-                            try result.appendSlice(s[i .. end + 1]);
+                            try result.appendSlice(allocator, s[i .. end + 1]);
                             i = end + 1;
                             continue;
                         };
-                        try result.appendSlice(buf[0..len]);
+                        try result.appendSlice(allocator, buf[0..len]);
                         i = end + 1;
                         continue;
                     }
@@ -65,18 +65,18 @@ pub fn unescape(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
 
                 // Check for named entity
                 if (entities.html5_entities.get(entity)) |replacement| {
-                    try result.appendSlice(replacement);
+                    try result.appendSlice(allocator, replacement);
                     i = end + 1;
                     continue;
                 }
             }
         }
 
-        try result.append(s[i]);
+        try result.append(allocator, s[i]);
         i += 1;
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 fn parseNumericEntity(entity: []const u8) ?u21 {
@@ -103,29 +103,29 @@ pub fn isHtmlSpace(c: u8) bool {
 
 /// Normalize whitespace in HTML text
 pub fn normalizeWhitespace(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var in_whitespace = false;
     for (s) |c| {
         if (isHtmlSpace(c)) {
             if (!in_whitespace) {
-                try result.append(' ');
+                try result.append(allocator, ' ');
                 in_whitespace = true;
             }
         } else {
-            try result.append(c);
+            try result.append(allocator, c);
             in_whitespace = false;
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Strip HTML tags from text
 pub fn stripTags(allocator: std.mem.Allocator, html: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var in_tag = false;
     for (html) |c| {
@@ -134,11 +134,11 @@ pub fn stripTags(allocator: std.mem.Allocator, html: []const u8) ![]u8 {
         } else if (c == '>') {
             in_tag = false;
         } else if (!in_tag) {
-            try result.append(c);
+            try result.append(allocator, c);
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================

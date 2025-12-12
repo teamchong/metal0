@@ -43,34 +43,34 @@ pub fn getSignature(comptime T: type) Signature {
 
 /// Format a signature as a string
 pub fn formatargspec(sig: Signature, allocator: std.mem.Allocator) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
-    try result.append('(');
+    try result.append(allocator, '(');
 
     for (sig.parameters, 0..) |param, i| {
         if (i > 0) {
-            try result.appendSlice(", ");
+            try result.appendSlice(allocator, ", ");
         }
-        try result.appendSlice(param.name);
+        try result.appendSlice(allocator, param.name);
 
         if (param.annotation) |ann| {
-            try result.appendSlice(": ");
-            try result.appendSlice(ann);
+            try result.appendSlice(allocator, ": ");
+            try result.appendSlice(allocator, ann);
         }
 
         if (param.default) |def| {
-            try result.appendSlice(" = ");
-            try result.appendSlice(def);
+            try result.appendSlice(allocator, " = ");
+            try result.appendSlice(allocator, def);
         }
     }
 
-    try result.append(')');
+    try result.append(allocator, ')');
 
     if (sig.return_annotation) |ret| {
-        try result.appendSlice(" -> ");
-        try result.appendSlice(ret);
+        try result.appendSlice(allocator, " -> ");
+        try result.appendSlice(allocator, ret);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }

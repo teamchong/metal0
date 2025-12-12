@@ -188,7 +188,9 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
 
     // Check if this is a module attribute access (e.g., string.ascii_lowercase, math.pi)
     if (attr.value.* == .name) {
-        const module_name = attr.value.name.id;
+        const raw_name = attr.value.name.id;
+        // Apply var_renames if this name has been renamed (e.g., cls -> @This() for implicit classmethods)
+        const module_name = self.var_renames.get(raw_name) orelse raw_name;
         const attr_name = attr.attr;
 
         // Check if this is a lazy class attribute access (C.items, C.y)

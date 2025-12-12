@@ -102,8 +102,8 @@ fn decodeJISX0208(b1: u8, b2: u8) ?u21 {
 
 /// Decode ISO-2022-JP to UTF-8
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var charset: CharSet = .ascii;
     var i: usize = 0;
@@ -118,7 +118,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             }
             // Invalid escape sequence
             if (mode == .strict) return error.InvalidSequence;
-            try result.appendSlice("\xEF\xBF\xBD");
+            try result.appendSlice(allocator, "\xEF\xBF\xBD");
             i += 1;
             continue;
         }
@@ -126,17 +126,17 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
         switch (charset) {
             .ascii, .jis_x_0201_roman => {
                 if (input[i] < 0x80) {
-                    try result.append(input[i]);
+                    try result.append(allocator, input[i]);
                 } else {
                     if (mode == .strict) return error.InvalidByte;
-                    try result.appendSlice("\xEF\xBF\xBD");
+                    try result.appendSlice(allocator, "\xEF\xBF\xBD");
                 }
                 i += 1;
             },
             .jis_x_0208_1978, .jis_x_0208_1983 => {
                 if (i + 1 >= input.len) {
                     if (mode == .strict) return error.IncompleteSequence;
-                    try result.appendSlice("\xEF\xBF\xBD");
+                    try result.appendSlice(allocator, "\xEF\xBF\xBD");
                     i += 1;
                     continue;
                 }
@@ -147,14 +147,14 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                 if (decodeJISX0208(b1, b2)) |cp| {
                     var buf: [4]u8 = undefined;
                     const len = std.unicode.utf8Encode(cp, &buf) catch {
-                        try result.appendSlice("\xEF\xBF\xBD");
+                        try result.appendSlice(allocator, "\xEF\xBF\xBD");
                         i += 2;
                         continue;
                     };
-                    try result.appendSlice(buf[0..len]);
+                    try result.appendSlice(allocator, buf[0..len]);
                 } else {
                     if (mode == .strict) return error.InvalidSequence;
-                    try result.appendSlice("\xEF\xBF\xBD");
+                    try result.appendSlice(allocator, "\xEF\xBF\xBD");
                 }
                 i += 2;
             },
@@ -162,15 +162,15 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }
 
 /// Encode UTF-8 to ISO-2022-JP
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !EncodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var in_ascii = true;
 
@@ -179,40 +179,40 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
         if (cp < 0x80) {
             // Switch to ASCII if not already
             if (!in_ascii) {
-                try result.appendSlice(&[_]u8{ ESC, '(', 'B' });
+                try result.appendSlice(allocator, &[_]u8{ ESC, '(', 'B' });
                 in_ascii = true;
             }
-            try result.append(@intCast(cp));
+            try result.append(allocator, @intCast(cp));
         } else {
             // Use CJK mapping tables for JIS X 0208 encoding
             const cjk = @import("cjk_mappings.zig");
             if (cjk.encodeJisx0208(cp)) |jis_code| {
                 // Switch to JIS X 0208 if not already
                 if (in_ascii) {
-                    try result.appendSlice(&[_]u8{ ESC, '$', 'B' }); // JIS X 0208
+                    try result.appendSlice(allocator, &[_]u8{ ESC, '$', 'B' }); // JIS X 0208
                     in_ascii = false;
                 }
-                try result.append(@intCast(jis_code >> 8));
-                try result.append(@intCast(jis_code & 0xFF));
+                try result.append(allocator, @intCast(jis_code >> 8));
+                try result.append(allocator, @intCast(jis_code & 0xFF));
             } else {
                 // No mapping available
                 if (mode == .strict) return error.UnencodableCharacter;
                 if (!in_ascii) {
-                    try result.appendSlice(&[_]u8{ ESC, '(', 'B' });
+                    try result.appendSlice(allocator, &[_]u8{ ESC, '(', 'B' });
                     in_ascii = true;
                 }
-                try result.append('?');
+                try result.append(allocator, '?');
             }
         }
     }
 
     // End in ASCII mode
     if (!in_ascii) {
-        try result.appendSlice(&[_]u8{ ESC, '(', 'B' });
+        try result.appendSlice(allocator, &[_]u8{ ESC, '(', 'B' });
     }
 
     return EncodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .chars_consumed = input.len,
     };
 }

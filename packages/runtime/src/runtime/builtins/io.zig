@@ -41,6 +41,20 @@ pub fn breakpoint() void {
 
 /// print(*args) - print values to stdout
 pub fn print(allocator: std.mem.Allocator, args: anytype) void {
+    printWithOptions(allocator, args, " ", "\n", null);
+}
+
+/// print(*args, sep=" ", end="\n", file=None) - print values to file/stdout
+/// sep: separator between values (default: " ")
+/// end: string appended after last value (default: "\n")
+/// file: file handle (null = stdout)
+pub fn printWithOptions(
+    allocator: std.mem.Allocator,
+    args: anytype,
+    sep: []const u8,
+    end: []const u8,
+    file: ?std.fs.File,
+) void {
     var output = std.ArrayListUnmanaged(u8){};
     defer output.deinit(allocator);
 
@@ -49,17 +63,20 @@ pub fn print(allocator: std.mem.Allocator, args: anytype) void {
 
     if (args_info == .pointer and args_info.pointer.size == .slice) {
         for (args, 0..) |arg, i| {
-            if (i > 0) output.append(allocator, ' ') catch {};
+            if (i > 0) output.appendSlice(allocator, sep) catch {};
             printValueToList(&output, arg, allocator);
         }
     } else if (args_info == .@"struct" and args_info.@"struct".is_tuple) {
         inline for (args_info.@"struct".fields, 0..) |field, i| {
-            if (i > 0) output.append(allocator, ' ') catch {};
+            if (i > 0) output.appendSlice(allocator, sep) catch {};
             printValueToList(&output, @field(args, field.name), allocator);
         }
     }
-    output.append(allocator, '\n') catch {};
-    _ = std.posix.write(std.posix.STDOUT_FILENO, output.items) catch {};
+    output.appendSlice(allocator, end) catch {};
+
+    // Write to file or stdout
+    const handle = if (file) |f| f.handle else std.posix.STDOUT_FILENO;
+    _ = std.posix.write(handle, output.items) catch {};
 }
 
 fn printValueToList(output: *std.ArrayListUnmanaged(u8), value: anytype, allocator: std.mem.Allocator) void {

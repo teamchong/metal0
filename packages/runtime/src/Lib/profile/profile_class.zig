@@ -114,12 +114,12 @@ pub const Profile = struct {
         try stdout.writeAll("   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n");
 
         // Collect stats into array for sorting
-        var entries = std.ArrayList(struct { key: []const u8, stat: *FuncStats }).init(self.allocator);
-        defer entries.deinit();
+        var entries: std.ArrayList(struct { key: []const u8, stat: *FuncStats }) = .{};
+        defer entries.deinit(self.allocator);
 
         var stats_iter = self.stats.iterator();
         while (stats_iter.next()) |entry| {
-            entries.append(.{ .key = entry.key_ptr.*, .stat = entry.value_ptr }) catch continue;
+            entries.append(self.allocator, .{ .key = entry.key_ptr.*, .stat = entry.value_ptr }) catch continue;
         }
 
         // Sort based on sort key

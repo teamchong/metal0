@@ -54,7 +54,7 @@ pub const Class = struct {
             .allocator = allocator,
             .module = try allocator.dupe(u8, module),
             .name = try allocator.dupe(u8, name),
-            .super = std.ArrayList([]const u8).init(allocator),
+            .super = .{},
             .methods = hashmap_helper.StringHashMap(usize).init(allocator),
             .file = try allocator.dupe(u8, file),
             .lineno = lineno,
@@ -71,7 +71,7 @@ pub const Class = struct {
         for (self.super.items) |s| {
             self.allocator.free(s);
         }
-        self.super.deinit();
+        self.super.deinit(self.allocator);
 
         self.methods.deinit();
 
@@ -90,7 +90,7 @@ pub const Class = struct {
 
     /// Add a super class
     pub fn addSuper(self: *Class, name: []const u8) !void {
-        try self.super.append(try self.allocator.dupe(u8, name));
+        try self.super.append(self.allocator, try self.allocator.dupe(u8, name));
     }
 };
 
@@ -302,16 +302,16 @@ fn parseFuncDef(line: []const u8, is_async: bool) ?[]const u8 {
 /// Convert module name to filename
 fn moduleToFilename(allocator: std.mem.Allocator, module: []const u8) ![]u8 {
     // Replace dots with path separator
-    var filename = std.ArrayList(u8).init(allocator);
+    var filename: std.ArrayList(u8) = .{};
     for (module) |c| {
         if (c == '.') {
-            try filename.append(std.fs.path.sep);
+            try filename.append(allocator, std.fs.path.sep);
         } else {
-            try filename.append(c);
+            try filename.append(allocator, c);
         }
     }
-    try filename.appendSlice(".py");
-    return filename.toOwnedSlice();
+    try filename.appendSlice(allocator, ".py");
+    return filename.toOwnedSlice(allocator);
 }
 
 // ============================================================================

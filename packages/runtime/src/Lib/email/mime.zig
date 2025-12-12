@@ -43,7 +43,7 @@ pub const MIMEMultipart = struct {
         try msg.set("MIME-Version", "1.0");
 
         // Initialize as multipart
-        msg.payload = .{ .parts = std.ArrayList(*Message).init(allocator) };
+        msg.payload = .{ .parts = .{} };
 
         return .{ .message = msg };
     }

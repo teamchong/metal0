@@ -109,17 +109,17 @@ pub const GlobalQueue = struct {
 
     /// Pop multiple tasks as a batch (for work distribution)
     /// Returns up to max_count tasks
-    pub fn popBatch(self: *Self, max_count: usize) []?*Task {
+    pub fn popBatch(self: *Self, allocator: std.mem.Allocator, max_count: usize) []?*Task {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        var tasks = std.ArrayList(?*Task).init(allocator_helper.fast_allocator);
+        var tasks: std.ArrayList(?*Task) = .{};
         var current = self.head.load(.acquire);
         var count: usize = 0;
 
         while (current != null and count < max_count) {
             const task = current.?;
-            tasks.append(task) catch break;
+            tasks.append(allocator, task) catch break;
 
             current = task.next;
             task.next = null;
@@ -240,7 +240,7 @@ test "GlobalQueue batch operations" {
     try testing.expect(queue.size() == 5);
 
     // Test batch pop
-    const popped = queue.popBatch(3);
+    const popped = queue.popBatch(testing.allocator, 3);
     try testing.expect(popped.len == 3);
     try testing.expect(popped[0].?.id == 0);
     try testing.expect(popped[1].?.id == 1);

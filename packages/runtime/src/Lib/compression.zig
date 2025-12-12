@@ -100,12 +100,12 @@ pub const Compressor = struct {
             .allocator = allocator,
             .format = format,
             .level = level,
-            .output = std.ArrayList(u8).init(allocator),
+            .output = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.output.deinit();
+        self.output.deinit(self.allocator);
     }
 
     /// Compress data incrementally
@@ -115,11 +115,11 @@ pub const Compressor = struct {
         // Use Zig's builtin compression
         switch (self.format) {
             .deflate, .gzip, .zlib => {
-                var compressed = std.ArrayList(u8).init(self.allocator);
-                var compressor = try std.compress.zlib.compressor(compressed.writer(), .{});
+                var compressed: std.ArrayList(u8) = .{};
+                var compressor = try std.compress.zlib.compressor(compressed.writer(self.allocator), .{});
                 try compressor.writer().writeAll(data);
                 try compressor.finish();
-                return compressed.toOwnedSlice();
+                return compressed.toOwnedSlice(self.allocator);
             },
             else => {
                 // For unsupported formats, just return data
@@ -130,7 +130,7 @@ pub const Compressor = struct {
 
     /// Flush any pending compressed data
     pub fn flush(self: *Self) ![]const u8 {
-        return self.output.toOwnedSlice();
+        return self.output.toOwnedSlice(self.allocator);
     }
 
     /// Finish compression and return remaining data
@@ -158,12 +158,12 @@ pub const Decompressor = struct {
         return .{
             .allocator = allocator,
             .format = format,
-            .output = std.ArrayList(u8).init(allocator),
+            .output = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.output.deinit();
+        self.output.deinit(self.allocator);
     }
 
     /// Decompress data incrementally
@@ -172,7 +172,7 @@ pub const Decompressor = struct {
 
         switch (self.format) {
             .deflate, .gzip, .zlib => {
-                var decompressed = std.ArrayList(u8).init(self.allocator);
+                var decompressed: std.ArrayList(u8) = .{};
                 var fbs = std.io.fixedBufferStream(data);
                 var decompressor = std.compress.zlib.decompressor(fbs.reader());
                 const reader = decompressor.reader();
@@ -181,11 +181,11 @@ pub const Decompressor = struct {
                 while (true) {
                     const n = reader.read(&buf) catch break;
                     if (n == 0) break;
-                    try decompressed.appendSlice(buf[0..n]);
+                    try decompressed.appendSlice(self.allocator, buf[0..n]);
                 }
 
                 self.eof = true;
-                return decompressed.toOwnedSlice();
+                return decompressed.toOwnedSlice(self.allocator);
             },
             else => {
                 return try self.allocator.dupe(u8, data);
@@ -195,7 +195,7 @@ pub const Decompressor = struct {
 
     /// Flush any pending decompressed data
     pub fn flush(self: *Self) ![]const u8 {
-        return self.output.toOwnedSlice();
+        return self.output.toOwnedSlice(self.allocator);
     }
 };
 
@@ -208,11 +208,11 @@ pub fn compress(allocator: std.mem.Allocator, data: []const u8, format: Format, 
     _ = level;
     switch (format) {
         .deflate, .gzip, .zlib => {
-            var compressed = std.ArrayList(u8).init(allocator);
-            var compressor = try std.compress.zlib.compressor(compressed.writer(), .{});
+            var compressed: std.ArrayList(u8) = .{};
+            var compressor = try std.compress.zlib.compressor(compressed.writer(allocator), .{});
             try compressor.writer().writeAll(data);
             try compressor.finish();
-            return compressed.toOwnedSlice();
+            return compressed.toOwnedSlice(allocator);
         },
         else => {
             return try allocator.dupe(u8, data);
@@ -224,7 +224,7 @@ pub fn compress(allocator: std.mem.Allocator, data: []const u8, format: Format, 
 pub fn decompress(allocator: std.mem.Allocator, data: []const u8, format: Format) ![]u8 {
     switch (format) {
         .deflate, .gzip, .zlib => {
-            var decompressed = std.ArrayList(u8).init(allocator);
+            var decompressed: std.ArrayList(u8) = .{};
             var fbs = std.io.fixedBufferStream(data);
             var decompressor = std.compress.zlib.decompressor(fbs.reader());
             const reader = decompressor.reader();
@@ -233,10 +233,10 @@ pub fn decompress(allocator: std.mem.Allocator, data: []const u8, format: Format
             while (true) {
                 const n = reader.read(&buf) catch break;
                 if (n == 0) break;
-                try decompressed.appendSlice(buf[0..n]);
+                try decompressed.appendSlice(allocator, buf[0..n]);
             }
 
-            return decompressed.toOwnedSlice();
+            return decompressed.toOwnedSlice(allocator);
         },
         else => {
             return try allocator.dupe(u8, data);

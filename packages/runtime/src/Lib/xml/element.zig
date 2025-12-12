@@ -25,7 +25,7 @@ pub const Element = struct {
             .text = null,
             .tail = null,
             .attrib = hashmap_helper.StringHashMap([]const u8).init(allocator),
-            .children = std.ArrayList(*Element).init(allocator),
+            .children = .{},
             .parent = null,
         };
         return self;
@@ -47,7 +47,7 @@ pub const Element = struct {
             child.deinit();
             self.allocator.destroy(child);
         }
-        self.children.deinit();
+        self.children.deinit(self.allocator);
     }
 
     /// Get attribute value
@@ -64,33 +64,33 @@ pub const Element = struct {
 
     /// Get all attribute keys
     pub fn keys(self: *Self) ![][]const u8 {
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result: std.ArrayList([]const u8) = .{};
         for (self.attrib.keys()) |key| {
-            try result.append(key);
+            try result.append(self.allocator, key);
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Get all attribute items
     pub fn items(self: *Self) ![]struct { key: []const u8, value: []const u8 } {
-        var result = std.ArrayList(struct { key: []const u8, value: []const u8 }).init(self.allocator);
+        var result: std.ArrayList(struct { key: []const u8, value: []const u8 }) = .{};
         var iter = self.attrib.iterator();
         while (iter.next()) |entry| {
-            try result.append(.{ .key = entry.key_ptr.*, .value = entry.value_ptr.* });
+            try result.append(self.allocator, .{ .key = entry.key_ptr.*, .value = entry.value_ptr.* });
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Append a child element
     pub fn append(self: *Self, child: *Element) !void {
         child.parent = self;
-        try self.children.append(child);
+        try self.children.append(self.allocator, child);
     }
 
     /// Insert a child at index
     pub fn insert(self: *Self, index: usize, child: *Element) !void {
         child.parent = self;
-        try self.children.insert(index, child);
+        try self.children.insert(self.allocator, index, child);
     }
 
     /// Remove a child element
@@ -116,13 +116,13 @@ pub const Element = struct {
 
     /// Find all children with matching tag
     pub fn findall(self: *Self, path: []const u8) ![]*Element {
-        var result = std.ArrayList(*Element).init(self.allocator);
+        var result: std.ArrayList(*Element) = .{};
         for (self.children.items) |child| {
             if (std.mem.eql(u8, child.tag, path)) {
-                try result.append(child);
+                try result.append(self.allocator, child);
             }
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Find text of first child with matching tag

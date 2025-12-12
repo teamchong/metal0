@@ -16,17 +16,17 @@ pub fn ChainMap(comptime K: type, comptime V: type) type {
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .allocator = allocator,
-                .maps = std.ArrayList(*Map).init(allocator),
+                .maps = .{},
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.maps.deinit();
+            self.maps.deinit(self.allocator);
         }
 
         /// Add a new map to the chain
         pub fn addMap(self: *Self, map: *Map) !void {
-            try self.maps.append(map);
+            try self.maps.append(self.allocator, map);
         }
 
         /// Get value, searching maps in order
@@ -59,10 +59,10 @@ pub fn ChainMap(comptime K: type, comptime V: type) type {
         pub fn newChild(self: Self, map: ?*Map, allocator: std.mem.Allocator) !Self {
             var result = Self.init(allocator);
             if (map) |m| {
-                try result.maps.append(m);
+                try result.maps.append(allocator, m);
             }
             for (self.maps.items) |m| {
-                try result.maps.append(m);
+                try result.maps.append(allocator, m);
             }
             return result;
         }
@@ -72,7 +72,7 @@ pub fn ChainMap(comptime K: type, comptime V: type) type {
             var result = Self.init(allocator);
             if (self.maps.items.len > 1) {
                 for (self.maps.items[1..]) |m| {
-                    try result.maps.append(m);
+                    try result.maps.append(allocator, m);
                 }
             }
             return result;

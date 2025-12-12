@@ -182,20 +182,20 @@ pub const Context = struct {
 
     /// Get all keys
     pub fn keys(self: *const Self) []const []const u8 {
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result: std.ArrayList([]const u8) = .{};
         for (self.data.keys()) |key| {
-            result.append(key) catch continue;
+            result.append(self.allocator, key) catch continue;
         }
-        return result.toOwnedSlice() catch &[_][]const u8{};
+        return result.toOwnedSlice(self.allocator) catch &[_][]const u8{};
     }
 
     /// Get all values
     pub fn values(self: *const Self) []const ContextValue {
-        var result = std.ArrayList(ContextValue).init(self.allocator);
+        var result: std.ArrayList(ContextValue) = .{};
         for (self.data.values()) |val| {
-            result.append(val) catch continue;
+            result.append(self.allocator, val) catch continue;
         }
-        return result.toOwnedSlice() catch &[_]ContextValue{};
+        return result.toOwnedSlice(self.allocator) catch &[_]ContextValue{};
     }
 
     /// Iterate over items

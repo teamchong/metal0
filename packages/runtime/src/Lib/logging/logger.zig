@@ -41,16 +41,16 @@ pub const Logger = struct {
             .name = name,
             .level = level,
             .parent = null,
-            .handlers = std.ArrayList(*StreamHandler).init(allocator),
-            .file_handlers = std.ArrayList(*FileHandler).init(allocator),
+            .handlers = .{},
+            .file_handlers = .{},
             .propagate = true,
             .disabled = false,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.handlers.deinit();
-        self.file_handlers.deinit();
+        self.handlers.deinit(self.allocator);
+        self.file_handlers.deinit(self.allocator);
     }
 
     /// Set the logging level
@@ -76,12 +76,12 @@ pub const Logger = struct {
 
     /// Add a handler
     pub fn addHandler(self: *Self, h: *StreamHandler) !void {
-        try self.handlers.append(h);
+        try self.handlers.append(self.allocator, h);
     }
 
     /// Add a file handler
     pub fn addFileHandler(self: *Self, h: *FileHandler) !void {
-        try self.file_handlers.append(h);
+        try self.file_handlers.append(self.allocator, h);
     }
 
     /// Log at a specified level

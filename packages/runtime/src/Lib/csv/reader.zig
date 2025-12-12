@@ -43,18 +43,18 @@ pub const Reader = struct {
             return null;
         }
 
-        var fields = std.ArrayList([]const u8).init(self.allocator);
+        var fields: std.ArrayList([]const u8) = .{};
         errdefer {
             for (fields.items) |field| {
                 self.allocator.free(field);
             }
-            fields.deinit();
+            fields.deinit(self.allocator);
         }
 
         var in_quoted = false;
         var field_start = self.pos;
-        var field_buf = std.ArrayList(u8).init(self.allocator);
-        defer field_buf.deinit();
+        var field_buf: std.ArrayList(u8) = .{};
+        defer field_buf.deinit(self.allocator);
 
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
@@ -65,7 +65,7 @@ pub const Reader = struct {
                     if (self.dialect.doublequote and self.pos + 1 < self.source.len and
                         self.source[self.pos + 1] == self.dialect.quotechar)
                     {
-                        try field_buf.append(c);
+                        try field_buf.append(self.allocator, c);
                         self.pos += 2;
                         continue;
                     }
@@ -73,7 +73,7 @@ pub const Reader = struct {
                     self.pos += 1;
                     continue;
                 }
-                try field_buf.append(c);
+                try field_buf.append(self.allocator, c);
                 self.pos += 1;
             } else {
                 if (c == self.dialect.quotechar) {
@@ -85,7 +85,7 @@ pub const Reader = struct {
                 if (c == self.dialect.delimiter) {
                     // End of field
                     const field_copy = try self.allocator.dupe(u8, field_buf.items);
-                    try fields.append(field_copy);
+                    try fields.append(self.allocator, field_copy);
                     field_buf.clearRetainingCapacity();
                     field_start = self.pos + 1;
                     self.pos += 1;
@@ -95,10 +95,10 @@ pub const Reader = struct {
                 // Check for line terminator
                 if (self.isLineTerminator()) {
                     const field_copy = try self.allocator.dupe(u8, field_buf.items);
-                    try fields.append(field_copy);
+                    try fields.append(self.allocator, field_copy);
                     self.skipLineTerminator();
                     self.line_number += 1;
-                    return try fields.toOwnedSlice();
+                    return try fields.toOwnedSlice(self.allocator);
                 }
 
                 // Skip initial space if configured
@@ -107,7 +107,7 @@ pub const Reader = struct {
                     continue;
                 }
 
-                try field_buf.append(c);
+                try field_buf.append(self.allocator, c);
                 self.pos += 1;
             }
         }
@@ -115,9 +115,9 @@ pub const Reader = struct {
         // End of source - return final field if any
         if (field_buf.items.len > 0 or fields.items.len > 0) {
             const field_copy = try self.allocator.dupe(u8, field_buf.items);
-            try fields.append(field_copy);
+            try fields.append(self.allocator, field_copy);
             self.line_number += 1;
-            return try fields.toOwnedSlice();
+            return try fields.toOwnedSlice(self.allocator);
         }
 
         return null;
@@ -148,7 +148,7 @@ pub const Reader = struct {
 
     /// Read all rows
     pub fn readAll(self: *Self) ![][]const []const u8 {
-        var rows = std.ArrayList([][]const u8).init(self.allocator);
+        var rows: std.ArrayList([][]const u8) = .{};
         errdefer {
             for (rows.items) |row| {
                 for (row) |field| {
@@ -156,16 +156,16 @@ pub const Reader = struct {
                 }
                 self.allocator.free(row);
             }
-            rows.deinit();
+            rows.deinit(self.allocator);
         }
 
         while (try self.next()) |row| {
             // Cast to proper type
             const typed_row: [][]const u8 = @ptrCast(row);
-            try rows.append(typed_row);
+            try rows.append(self.allocator, typed_row);
         }
 
-        return rows.toOwnedSlice();
+        return rows.toOwnedSlice(self.allocator);
     }
 };
 

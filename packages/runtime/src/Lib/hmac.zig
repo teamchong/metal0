@@ -79,8 +79,8 @@ pub const HMAC = struct {
         const digest_size = DIGEST_SIZES.get(digest_name) orelse 16;
 
         // Process key
-        var processed_key = std.ArrayList(u8).init(allocator);
-        defer processed_key.deinit();
+        var processed_key: std.ArrayList(u8) = .{};
+        defer processed_key.deinit(allocator);
 
         if (key.len > block_size) {
             // Hash the key if too long
@@ -88,14 +88,14 @@ pub const HMAC = struct {
             hasher.update(key);
             var hashed: [16]u8 = undefined;
             hasher.final(&hashed);
-            try processed_key.appendSlice(&hashed);
+            try processed_key.appendSlice(allocator, &hashed);
         } else {
-            try processed_key.appendSlice(key);
+            try processed_key.appendSlice(allocator, key);
         }
 
         // Pad key to block size
         while (processed_key.items.len < block_size) {
-            try processed_key.append(0);
+            try processed_key.append(allocator, 0);
         }
 
         // Create inner and outer pads

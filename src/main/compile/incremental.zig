@@ -54,6 +54,7 @@ const ModuleDef = struct {
 /// Order matters: dependencies must come before dependents
 const RUNTIME_MODULES = [_]ModuleDef{
     // Leaf modules (no deps)
+    .{ .name = "utils.allocator_helper", .path = "src/utils/allocator_helper.zig", .deps = &.{} },
     .{ .name = "utils.hashmap_helper", .path = "src/utils/hashmap_helper.zig", .deps = &.{} },
     .{ .name = "bigint", .path = "packages/bigint/src/bigint.zig", .deps = &.{} },
     .{ .name = "green_thread", .path = "packages/runtime/src/runtime/green_thread.zig", .deps = &.{} },

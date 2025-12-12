@@ -186,8 +186,8 @@ pub const TokenType = enum {
 
 /// Process tokens for indentation checking
 pub fn processTokens(tokens: []const struct { type: TokenType, value: []const u8, line: usize }) ?NannyNag {
-    var indent_stack = std.ArrayList(Whitespace).init(allocator_helper.fast_allocator);
-    defer indent_stack.deinit();
+    var indent_stack: std.ArrayList(Whitespace) = .{};
+    defer indent_stack.deinit(allocator_helper.fast_allocator);
 
     for (tokens) |token| {
         switch (token.type) {
@@ -212,7 +212,7 @@ pub fn processTokens(tokens: []const struct { type: TokenType, value: []const u8
                     }
                 }
 
-                indent_stack.append(ws) catch continue;
+                indent_stack.append(allocator_helper.fast_allocator, ws) catch continue;
             },
             .dedent => {
                 if (indent_stack.items.len > 0) {

@@ -31,8 +31,8 @@ fn isTrailByte(b: u8) bool {
 
 /// Decode CP949 to UTF-8
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < input.len) {
@@ -40,12 +40,12 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 
         if (b1 < 0x80) {
             // ASCII
-            try result.append(b1);
+            try result.append(allocator, b1);
             i += 1;
         } else if (isLeadByte(b1)) {
             if (i + 1 >= input.len) {
                 if (mode == .strict) return error.IncompleteSequence;
-                try result.appendSlice("\xEF\xBF\xBD");
+                try result.appendSlice(allocator, "\xEF\xBF\xBD");
                 i += 1;
                 continue;
             }
@@ -53,7 +53,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             const b2 = input[i + 1];
             if (!isTrailByte(b2)) {
                 if (mode == .strict) return error.InvalidSequence;
-                try result.appendSlice("\xEF\xBF\xBD");
+                try result.appendSlice(allocator, "\xEF\xBF\xBD");
                 i += 1;
                 continue;
             }
@@ -62,24 +62,24 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             if (b1 >= 0xA1 and b1 <= 0xFE and b2 >= 0xA1 and b2 <= 0xFE) {
                 const euc_result = try euc_kr.decode(allocator, input[i .. i + 2], mode);
                 defer allocator.free(euc_result.output);
-                try result.appendSlice(euc_result.output);
+                try result.appendSlice(allocator, euc_result.output);
                 i += 2;
                 continue;
             }
 
             // CP949 extension area - would need full mapping table
             if (mode == .strict) return error.InvalidSequence;
-            try result.appendSlice("\xEF\xBF\xBD");
+            try result.appendSlice(allocator, "\xEF\xBF\xBD");
             i += 2;
         } else {
             if (mode == .strict) return error.InvalidByte;
-            try result.appendSlice("\xEF\xBF\xBD");
+            try result.appendSlice(allocator, "\xEF\xBF\xBD");
             i += 1;
         }
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }

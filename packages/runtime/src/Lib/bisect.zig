@@ -226,8 +226,8 @@ test "bisect_right" {
 
 test "insort_left" {
     const allocator = std.testing.allocator;
-    var list = std.ArrayList(i32).init(allocator);
-    defer list.deinit();
+    var list: std.ArrayList(i32) = .{};
+    defer list.deinit(allocator);
 
     try insort_left(i32, &list, 3);
     try insort_left(i32, &list, 1);
@@ -240,8 +240,8 @@ test "insort_left" {
 
 test "insort_right" {
     const allocator = std.testing.allocator;
-    var list = std.ArrayList(i32).init(allocator);
-    defer list.deinit();
+    var list: std.ArrayList(i32) = .{};
+    defer list.deinit(allocator);
 
     try insort_right(i32, &list, 3);
     try insort_right(i32, &list, 1);

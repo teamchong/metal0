@@ -22,7 +22,7 @@ pub const Screen = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .allocator = allocator,
-            .turtles = std.ArrayList(*Turtle).init(allocator),
+            .turtles = .{},
         };
     }
 

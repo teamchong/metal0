@@ -317,7 +317,7 @@ pub fn parseName(data: []const u8) ?[]const u8 {
 
 /// Unescape HTML entities in text
 pub fn unescapeEntities(allocator: Allocator, text: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
     var i: usize = 0;
 
     while (i < text.len) {
@@ -331,18 +331,18 @@ pub fn unescapeEntities(allocator: Allocator, text: []const u8) ![]u8 {
             if (j < text.len and text[j] == ';') {
                 const entity = text[i + 1 .. j];
                 if (resolveEntity(entity)) |resolved| {
-                    try result.appendSlice(resolved);
+                    try result.appendSlice(allocator, resolved);
                     i = j + 1;
                     continue;
                 }
             }
         }
 
-        try result.append(text[i]);
+        try result.append(allocator, text[i]);
         i += 1;
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Resolve common HTML entities

@@ -16,8 +16,8 @@ pub const EncodeResult = charmap.EncodeResult;
 
 /// Decode UTF-32-LE bytes to UTF-8
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHandler) !DecodeResult {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
 
     var i: usize = 0;
     while (i + 3 < input.len) {
@@ -67,8 +67,8 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHand
 
 /// Encode UTF-8 string to UTF-32-LE bytes (no BOM)
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHandler) !EncodeResult {
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
 
     var chars_consumed: usize = 0;
     var i: usize = 0;

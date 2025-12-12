@@ -10,8 +10,8 @@ const process = @import("process.zig");
 pub fn join(allocator: std.mem.Allocator, paths: []const []const u8) ![]const u8 {
     if (paths.len == 0) return try allocator.dupe(u8, "");
 
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     for (paths, 0..) |p, i| {
         if (p.len == 0) continue;
@@ -19,18 +19,18 @@ pub fn join(allocator: std.mem.Allocator, paths: []const []const u8) ![]const u8
         // If path is absolute, start fresh
         if (isabs(p)) {
             result.clearRetainingCapacity();
-            try result.appendSlice(p);
+            try result.appendSlice(allocator, p);
         } else {
             // Add separator if needed
             if (result.items.len > 0 and result.items[result.items.len - 1] != constants.sep[0]) {
-                try result.appendSlice(constants.sep);
+                try result.appendSlice(allocator, constants.sep);
             }
-            try result.appendSlice(p);
+            try result.appendSlice(allocator, p);
         }
         _ = i;
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Check if path is absolute
@@ -137,8 +137,8 @@ pub fn abspath(allocator: std.mem.Allocator, p: []const u8) ![]const u8 {
 pub fn normpath(allocator: std.mem.Allocator, p: []const u8) ![]const u8 {
     if (p.len == 0) return try allocator.dupe(u8, ".");
 
-    var components = std.ArrayList([]const u8).init(allocator);
-    defer components.deinit();
+    var components: std.ArrayList([]const u8) = .{};
+    defer components.deinit(allocator);
 
     const is_absolute = isabs(p);
     var iter = std.mem.splitScalar(u8, p, '/');
@@ -151,10 +151,10 @@ pub fn normpath(allocator: std.mem.Allocator, p: []const u8) ![]const u8 {
             if (components.items.len > 0 and !std.mem.eql(u8, components.items[components.items.len - 1], "..")) {
                 _ = components.pop();
             } else if (!is_absolute) {
-                try components.append("..");
+                try components.append(allocator, "..");
             }
         } else {
-            try components.append(component);
+            try components.append(allocator, component);
         }
     }
 
@@ -162,15 +162,15 @@ pub fn normpath(allocator: std.mem.Allocator, p: []const u8) ![]const u8 {
         return try allocator.dupe(u8, if (is_absolute) "/" else ".");
     }
 
-    var result = std.ArrayList(u8).init(allocator);
-    if (is_absolute) try result.append('/');
+    var result: std.ArrayList(u8) = .{};
+    if (is_absolute) try result.append(allocator, '/');
 
     for (components.items, 0..) |comp, i| {
-        if (i > 0) try result.append('/');
-        try result.appendSlice(comp);
+        if (i > 0) try result.append(allocator, '/');
+        try result.appendSlice(allocator, comp);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================

@@ -69,13 +69,13 @@ pub const ABCMeta = struct {
     pub fn deinit(self: *ABCMeta) void {
         var reg_iter = self.registry.iterator();
         while (reg_iter.next()) |entry| {
-            entry.value_ptr.deinit();
+            entry.value_ptr.deinit(self.allocator);
         }
         self.registry.deinit();
 
         var neg_iter = self.negative_cache.iterator();
         while (neg_iter.next()) |entry| {
-            entry.value_ptr.deinit();
+            entry.value_ptr.deinit(self.allocator);
         }
         self.negative_cache.deinit();
     }
@@ -84,9 +84,9 @@ pub const ABCMeta = struct {
     pub fn register(self: *ABCMeta, abc_name: []const u8, subclass_name: []const u8) !void {
         const result = try self.registry.getOrPut(abc_name);
         if (!result.found_existing) {
-            result.value_ptr.* = std.ArrayList([]const u8).init(self.allocator);
+            result.value_ptr.* = .{};
         }
-        try result.value_ptr.append(subclass_name);
+        try result.value_ptr.append(self.allocator, subclass_name);
 
         // Invalidate negative cache for this ABC
         if (self.negative_cache.get(abc_name)) |*cache| {
@@ -282,12 +282,12 @@ pub fn updateAbstractMethods(
     existing: []const []const u8,
     new_methods: []const []const u8,
 ) ![]const []const u8 {
-    var result = std.ArrayList([]const u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList([]const u8) = .{};
+    errdefer result.deinit(allocator);
 
     // Add existing methods
     for (existing) |method| {
-        try result.append(method);
+        try result.append(allocator, method);
     }
 
     // Add new methods if not already present
@@ -300,11 +300,11 @@ pub fn updateAbstractMethods(
             }
         }
         if (!found) {
-            try result.append(new_method);
+            try result.append(allocator, new_method);
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================

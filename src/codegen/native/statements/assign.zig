@@ -440,6 +440,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 var_name;
             if (is_loop_capture_reassign) {
                 var_name = loop_renamed_name;
+                // Propagate confidence from original name to renamed name
+                // This prevents defaulting to uncertain for renamed loop capture variables
+                // when the original variable had certain confidence
+                const original_confidence = self.type_inferrer.getConfidence(original_var_name);
+                self.type_inferrer.putConfidence(loop_renamed_name, original_confidence) catch {};
             }
 
             // Check if this is assigning a type attribute to a variable with the same name
@@ -843,6 +848,33 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // nested classes now return *@This() from init(), so x is already a pointer
                 }
 
+                // Handle function-local type aliases: R = fractions.Fraction, D = decimal.Decimal
+                // These are type aliases inside functions that need `const R = type`, not PyValue wrapping
+                if (assign.value.* == .attribute) {
+                    const attr = assign.value.attribute;
+                    if (attr.value.* == .name) {
+                        const module_name = attr.value.name.id;
+                        const attr_name = attr.attr;
+                        // Known type exports from modules (same list as generator.zig)
+                        const is_type_alias = blk: {
+                            if (std.mem.eql(u8, module_name, "fractions") and std.mem.eql(u8, attr_name, "Fraction")) break :blk true;
+                            if (std.mem.eql(u8, module_name, "decimal") and std.mem.eql(u8, attr_name, "Decimal")) break :blk true;
+                            break :blk false;
+                        };
+                        if (is_type_alias) {
+                            // Emit: const R = type (let Zig infer, no PyValue wrapping)
+                            try self.emit("const ");
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                            try self.emit(" = ");
+                            try self.genExpr(assign.value.*);
+                            try self.emit(";\n");
+                            try self.declareVarWithType(var_name, value_type);
+                            try triggerDeferredClosureInstantiations(self, var_name);
+                            return;
+                        }
+                    }
+                }
+
                 // First assignment: emit var/const declaration with type annotation
                 try valueGen.emitVarDeclaration(
                     self,
@@ -1228,12 +1260,19 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Emit value normally
                 try self.genExpr(assign.value.*);
                 // TWO-FLOW TYPE SYSTEM: Close PyValue.from() wrapper if uncertain type
-                // WHITELIST: Only primitives (int, float, bool, string, none) get PyValue wrapper
+                // WHITELIST: Only primitives (int, float, bool, string, none) and unknown types get PyValue wrapper
                 const is_primitive = type_traits.isIntegral(value_type) or type_traits.isFloating(value_type) or
                     type_traits.isBoolean(value_type) or string_traits.isString(value_type) or
                     type_traits.isNone(value_type);
-                if (is_first_assignment and is_primitive and self.shouldUsePyValue(var_name)) {
+                // Match the opening condition from value_generation.zig
+                // Only close PyValue wrapper if value_type is unknown OR (primitive AND var uncertain AND not string)
+                const needs_pyvalue_close = type_traits.isUnknown(value_type) or
+                    (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type));
+                if (is_first_assignment and needs_pyvalue_close) {
                     try self.emit(")");
+                    // Update var_types to mark this variable as PyValue so that subsequent
+                    // uses in binop detect it via isOperandUncertain and use PyValue methods
+                    try self.type_inferrer.var_types.put(var_name, .pyvalue);
                 }
                 try self.emit(";\n");
             }
@@ -1320,6 +1359,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Also register the type for the renamed variable so type inference works
                 // e.g., when checking `not __loop_line` we need to know it's a string
                 try self.type_inferrer.var_types.put(loop_renamed_name, value_type);
+                // Remove from func_local_vars so var_renames lookup is used in expressions.zig
+                // This ensures subsequent uses of the variable resolve to the renamed version
+                _ = self.func_local_vars.swapRemove(original_var_name);
             }
 
             // Trigger any deferred closures waiting on this variable

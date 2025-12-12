@@ -49,7 +49,7 @@ pub const LZMAFile = struct {
     mode: Mode,
     name: ?[]const u8 = null,
     file: ?std.fs.File = null,
-    buffer: std.ArrayList(u8),
+    buffer: std.ArrayList(u8) = .{},
     format: i32,
     check: CHECK,
     preset: ?u32,
@@ -71,7 +71,6 @@ pub const LZMAFile = struct {
         return .{
             .allocator = allocator,
             .mode = mode,
-            .buffer = std.ArrayList(u8).init(allocator),
             .format = format,
             .check = check,
             .preset = preset,
@@ -79,7 +78,7 @@ pub const LZMAFile = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
         if (self.file) |*f| {
             f.close();
         }
@@ -142,7 +141,7 @@ pub const LZMAFile = struct {
             return error.InvalidMode;
         }
 
-        try self.buffer.appendSlice(data);
+        try self.buffer.appendSlice(self.allocator, data);
         return data.len;
     }
 
@@ -153,8 +152,8 @@ pub const LZMAFile = struct {
         if (self.mode == .write or self.mode == .append) {
             if (self.file) |*f| {
                 // Compress and write
-                var compressed = std.ArrayList(u8).init(self.allocator);
-                defer compressed.deinit();
+                var compressed: std.ArrayList(u8) = .{};
+                defer compressed.deinit(self.allocator);
 
                 // Use XZ format
                 var comp = try std.compress.xz.compressor(compressed.writer(), self.allocator, .{});
@@ -197,7 +196,7 @@ pub const LZMACompressor = struct {
     format: i32,
     check: CHECK,
     preset: ?u32,
-    buffer: std.ArrayList(u8),
+    buffer: std.ArrayList(u8) = .{},
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -210,25 +209,24 @@ pub const LZMACompressor = struct {
             .format = format,
             .check = check,
             .preset = preset,
-            .buffer = std.ArrayList(u8).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     /// Compress data incrementally
     pub fn compress(self: *Self, data: []const u8) ![]u8 {
-        try self.buffer.appendSlice(data);
+        try self.buffer.appendSlice(self.allocator, data);
         // Data is buffered until flush
         return try self.allocator.alloc(u8, 0);
     }
 
     /// Flush all pending data and return compressed output
     pub fn flush(self: *Self) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         // Compress using XZ format
         var comp = try std.compress.xz.compressor(result.writer(), self.allocator, .{});
@@ -236,7 +234,7 @@ pub const LZMACompressor = struct {
         try comp.finish();
 
         self.buffer.clearRetainingCapacity();
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };
 
@@ -250,7 +248,7 @@ pub const LZMADecompressor = struct {
 
     allocator: std.mem.Allocator,
     format: i32,
-    buffer: std.ArrayList(u8),
+    buffer: std.ArrayList(u8) = .{},
     eof: bool = false,
     needs_input: bool = true,
     unused_data: []const u8 = "",
@@ -260,17 +258,16 @@ pub const LZMADecompressor = struct {
         return .{
             .allocator = allocator,
             .format = format,
-            .buffer = std.ArrayList(u8).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     /// Decompress data incrementally
     pub fn decompress(self: *Self, data: []const u8, max_length: ?usize) ![]u8 {
-        try self.buffer.appendSlice(data);
+        try self.buffer.appendSlice(self.allocator, data);
 
         // Need enough data to determine format
         if (self.buffer.items.len < 6) {
@@ -351,14 +348,14 @@ pub fn compress(allocator: std.mem.Allocator, data: []const u8, format: i32, che
     _ = check;
     _ = preset;
 
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var comp = try std.compress.xz.compressor(result.writer(), allocator, .{});
     try comp.write(data);
     try comp.finish();
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Decompress LZMA data in one shot

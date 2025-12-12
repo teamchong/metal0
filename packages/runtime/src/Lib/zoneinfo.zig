@@ -50,7 +50,7 @@ pub const ZoneInfo = struct {
         var zone = Self{
             .allocator = allocator,
             .key = try allocator.dupe(u8, key),
-            .transitions = std.ArrayList(Transition).init(allocator),
+            .transitions = .{},
         };
 
         // Try to load from TZDATA
@@ -64,7 +64,7 @@ pub const ZoneInfo = struct {
 
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.key);
-        self.transitions.deinit();
+        self.transitions.deinit(self.allocator);
     }
 
     fn loadFromTZData(self: *Self) !void {

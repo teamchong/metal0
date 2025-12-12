@@ -70,17 +70,17 @@ pub const EpollSelector = struct {
             return err;
         };
 
-        var result = std.ArrayList(EventResult).init(self.base_sel.allocator);
+        var result: std.ArrayList(EventResult) = .{};
         for (eventlist[0..n]) |ev| {
             const fd = ev.data.fd;
             if (self.base_sel.registered.get(fd)) |key| {
                 var events: u32 = 0;
                 if (ev.events & std.os.linux.EPOLL.IN != 0) events |= EVENT_READ;
                 if (ev.events & std.os.linux.EPOLL.OUT != 0) events |= EVENT_WRITE;
-                try result.append(.{ .key = key, .events = events });
+                try result.append(self.base_sel.allocator, .{ .key = key, .events = events });
             }
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.base_sel.allocator);
     }
 
     pub fn close(self: *Self) void {

@@ -27,14 +27,14 @@ pub const Widget = struct {
         return Self{
             .name = name,
             .allocator = allocator,
-            .children = std.ArrayList(*Widget).init(allocator),
+            .children = .{},
             .options = hashmap_helper.StringHashMap(types.OptionValue).init(allocator),
             .bindings = hashmap_helper.StringHashMap(*const fn () void).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.children.deinit();
+        self.children.deinit(self.allocator);
         self.options.deinit();
         self.bindings.deinit();
     }
@@ -115,7 +115,7 @@ pub const Widget = struct {
         for (self.children.items) |child| {
             child.destroy();
         }
-        self.children.clearAndFree();
+        self.children.clearAndFree(self.allocator);
     }
 
     /// Focus on widget

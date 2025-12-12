@@ -56,8 +56,8 @@ pub fn collapse_addresses(allocator: std.mem.Allocator, addresses: []const IPv4N
         }
     }.lessThan);
 
-    var result = std.ArrayList(IPv4Network).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(IPv4Network) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < sorted.len) {
@@ -109,8 +109,8 @@ pub fn summarize_address_range(allocator: std.mem.Allocator, first: IPv4Address,
         return error.LastAddressBeforeFirst;
     }
 
-    var networks = std.ArrayList(IPv4Network).init(allocator);
-    errdefer networks.deinit();
+    var networks: std.ArrayList(IPv4Network) = .{};
+    errdefer networks.deinit(allocator);
 
     var ip = first._packed;
     const end = last._packed;

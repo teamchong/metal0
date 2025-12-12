@@ -13,14 +13,15 @@ pub const aliases = [_][]const u8{ "646", "us-ascii" };
 /// Decode ASCII bytes to UTF-8 string
 /// ASCII is a subset of UTF-8, so valid ASCII bytes are already valid UTF-8
 pub fn decode(input: []const u8, errors: ErrorHandler) !DecodeResult {
-    var output = std.ArrayList(u8).init(allocator_helper.fast_allocator);
-    errdefer output.deinit();
+    const allocator = allocator_helper.fast_allocator;
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
     var bytes_consumed: usize = 0;
 
     for (input, 0..) |byte, i| {
         if (byte < 0x80) {
             // Valid ASCII - copy directly (ASCII is subset of UTF-8)
-            try output.append(byte);
+            try output.append(allocator, byte);
             bytes_consumed = i + 1;
         } else {
             // Invalid ASCII byte (>= 0x80)
@@ -32,14 +33,14 @@ pub fn decode(input: []const u8, errors: ErrorHandler) !DecodeResult {
                 },
                 .replace => {
                     // Replace with U+FFFD (replacement character) encoded as UTF-8
-                    try output.appendSlice("\xEF\xBF\xBD");
+                    try output.appendSlice(allocator, "\xEF\xBF\xBD");
                     bytes_consumed = i + 1;
                 },
                 .backslashreplace => {
                     // Replace with \xNN escape
                     var buf: [4]u8 = undefined;
                     const len = std.fmt.bufPrint(&buf, "\\x{x:0>2}", .{byte}) catch unreachable;
-                    try output.appendSlice(len);
+                    try output.appendSlice(allocator, len);
                     bytes_consumed = i + 1;
                 },
             }
@@ -47,7 +48,7 @@ pub fn decode(input: []const u8, errors: ErrorHandler) !DecodeResult {
     }
 
     return .{
-        .output = try output.toOwnedSlice(),
+        .output = try output.toOwnedSlice(allocator),
         .bytes_consumed = bytes_consumed,
     };
 }
@@ -55,8 +56,9 @@ pub fn decode(input: []const u8, errors: ErrorHandler) !DecodeResult {
 /// Encode UTF-8 string to ASCII bytes
 /// Only codepoints 0x00-0x7F can be encoded; others raise an error
 pub fn encode(input: []const u8, errors: ErrorHandler) !EncodeResult {
-    var output = std.ArrayList(u8).init(allocator_helper.fast_allocator);
-    errdefer output.deinit();
+    const allocator = allocator_helper.fast_allocator;
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
     var chars_consumed: usize = 0;
 
     var i: usize = 0;
@@ -65,7 +67,7 @@ pub fn encode(input: []const u8, errors: ErrorHandler) !EncodeResult {
 
         if (byte < 0x80) {
             // Single-byte UTF-8 (ASCII) - copy directly
-            try output.append(byte);
+            try output.append(allocator, byte);
             chars_consumed += 1;
             i += 1;
         } else {
@@ -82,7 +84,7 @@ pub fn encode(input: []const u8, errors: ErrorHandler) !EncodeResult {
                 },
                 .replace => {
                     // Replace with '?'
-                    try output.append('?');
+                    try output.append(allocator, '?');
                     chars_consumed += 1;
                     i += seq_len;
                 },
@@ -93,7 +95,7 @@ pub fn encode(input: []const u8, errors: ErrorHandler) !EncodeResult {
                         std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{codepoint}) catch unreachable
                     else
                         std.fmt.bufPrint(&buf, "\\U{x:0>8}", .{codepoint}) catch unreachable;
-                    try output.appendSlice(len);
+                    try output.appendSlice(allocator, len);
                     chars_consumed += 1;
                     i += seq_len;
                 },
@@ -102,7 +104,7 @@ pub fn encode(input: []const u8, errors: ErrorHandler) !EncodeResult {
     }
 
     return .{
-        .output = try output.toOwnedSlice(),
+        .output = try output.toOwnedSlice(allocator),
         .chars_consumed = chars_consumed,
     };
 }

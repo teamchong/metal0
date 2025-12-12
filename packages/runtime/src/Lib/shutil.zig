@@ -265,19 +265,19 @@ pub fn make_archive(
         else
             "";
 
-        var args_list = std.ArrayList([]const u8).init(allocator);
-        defer args_list.deinit();
+        var args_list: std.ArrayList([]const u8) = .{};
+        defer args_list.deinit(allocator);
 
-        try args_list.append("tar");
-        try args_list.append("-c");
+        try args_list.append(allocator, "tar");
+        try args_list.append(allocator, "-c");
         if (compress_flag.len > 0) {
-            try args_list.append(compress_flag);
+            try args_list.append(allocator, compress_flag);
         }
-        try args_list.append("-f");
-        try args_list.append(archive_name);
-        try args_list.append("-C");
-        try args_list.append(root_dir);
-        try args_list.append(".");
+        try args_list.append(allocator, "-f");
+        try args_list.append(allocator, archive_name);
+        try args_list.append(allocator, "-C");
+        try args_list.append(allocator, root_dir);
+        try args_list.append(allocator, ".");
 
         var child = std.process.Child.init(args_list.items, allocator);
         try child.spawn();

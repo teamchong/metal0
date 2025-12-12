@@ -467,6 +467,17 @@ pub fn findForwardReferencedCapturesWithParams(
     stmts: []ast.Node,
     func_params: []const ast.Arg,
 ) CodegenError!std.ArrayList([]const u8) {
+    return findForwardReferencedCapturesWithSpecialParams(self, stmts, func_params, null, null);
+}
+
+/// Extended version that also excludes *args and **kwargs parameters
+pub fn findForwardReferencedCapturesWithSpecialParams(
+    self: *NativeCodegen,
+    stmts: []ast.Node,
+    func_params: []const ast.Arg,
+    vararg_name: ?[]const u8,
+    kwarg_name: ?[]const u8,
+) CodegenError!std.ArrayList([]const u8) {
     var forward_refs = std.ArrayList([]const u8){};
     var declared_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer declared_vars.deinit();
@@ -474,6 +485,16 @@ pub fn findForwardReferencedCapturesWithParams(
     // Function parameters are already declared - don't forward-declare them
     for (func_params) |param| {
         try declared_vars.put(param.name, {});
+    }
+
+    // *args parameter (vararg) is also a parameter - skip it
+    if (vararg_name) |vname| {
+        try declared_vars.put(vname, {});
+    }
+
+    // **kwargs parameter (kwarg) is also a parameter - skip it
+    if (kwarg_name) |kname| {
+        try declared_vars.put(kname, {});
     }
 
     // Track which variables are captured and which are declared, in order

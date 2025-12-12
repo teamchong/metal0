@@ -149,13 +149,13 @@ pub const ThreadRegistry = struct {
         lock.lock();
         defer lock.unlock();
 
-        var result = std.ArrayList(*Thread).init(allocator);
+        var result: std.ArrayList(*Thread) = .{};
         for (threads) |maybe_thread| {
             if (maybe_thread) |t| {
-                try result.append(t);
+                try result.append(allocator, t);
             }
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 

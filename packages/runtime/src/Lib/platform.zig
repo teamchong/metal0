@@ -177,19 +177,19 @@ pub fn uname(allocator: std.mem.Allocator) !PlatformInfo {
 pub fn platform_str(allocator: std.mem.Allocator, aliased: bool, terse: bool) ![]u8 {
     _ = aliased;
 
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
-    try result.appendSlice(system());
+    try result.appendSlice(allocator, system());
 
     if (!terse) {
-        try result.append('-');
-        try result.appendSlice(release());
-        try result.append('-');
-        try result.appendSlice(machine());
+        try result.append(allocator, '-');
+        try result.appendSlice(allocator, release());
+        try result.append(allocator, '-');
+        try result.appendSlice(allocator, machine());
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================

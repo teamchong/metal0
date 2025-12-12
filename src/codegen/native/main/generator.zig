@@ -319,6 +319,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // PHASE 4: Define __name__ constant (for if __name__ == "__main__" support)
     try self.emit("const __name__ = \"__main__\";\n");
+    // Track __name__ as module-level so local assignments get renamed to avoid shadowing
+    try self.module_level_vars.put("__name__", {});
 
     // PHASE 4.0.1: Define __file__ constant (Python magic variable for source file path)
     try self.emit("const __file__: []const u8 = \"");
@@ -337,6 +339,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("<unknown>");
     }
     try self.emit("\";\n\n");
+    // Track __file__ as module-level so local assignments get renamed to avoid shadowing
+    try self.module_level_vars.put("__file__", {});
 
     // PHASE 4.1: Emit source directory for runtime eval subprocess
     // This allows eval() to spawn metal0 subprocess with correct import paths
@@ -1462,6 +1466,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
         // Add __name__ constant
         try self.emit("const __name__ = \"__main__\";\n");
+        try self.module_level_vars.put("__name__", {});
 
         // Add __file__ constant
         try self.emit("const __file__: []const u8 = \"");
@@ -1479,6 +1484,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             try self.emit("<unknown>");
         }
         try self.emit("\";\n\n");
+        try self.module_level_vars.put("__file__", {});
 
         // Add lambda functions
         for (self.lambda_functions.items) |lambda_code| {
@@ -1615,11 +1621,13 @@ fn genClosureWrapperTypes(self: *NativeCodegen, module: ast.Node.Module) !void {
                 if (nested_func) |nf| {
                     // Check if this is a zero-capture closure
                     // We can only pre-generate zero-capture closures at module level
-                    // Pass outer function's params so we can detect captured variables
-                    const captured = var_tracking.findCapturedVarsWithOuter(
+                    // Pass outer function's params (including *args and **kwargs) so we can detect captured variables
+                    const captured = var_tracking.findCapturedVarsWithSpecialParams(
                         self,
                         nf,
                         func.args,
+                        func.vararg,
+                        func.kwarg,
                     ) catch continue;
                     defer self.allocator.free(captured);
 

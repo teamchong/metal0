@@ -64,14 +64,14 @@ pub const Entry = struct {
     pub fn init(allocator: std.mem.Allocator, parent: ?*Widget) Entry {
         var e = Entry{
             .widget = Widget.init(allocator, "entry"),
-            .text = std.ArrayList(u8).init(allocator),
+            .text = .{},
         };
         e.widget.parent = parent;
         return e;
     }
 
-    pub fn deinit(self: *Entry) void {
-        self.text.deinit();
+    pub fn deinit(self: *Entry, allocator: std.mem.Allocator) void {
+        self.text.deinit(allocator);
         self.widget.deinit();
     }
 
@@ -79,9 +79,9 @@ pub const Entry = struct {
         return self.text.items;
     }
 
-    pub fn insert(self: *Entry, index: usize, text: []const u8) !void {
+    pub fn insert(self: *Entry, allocator: std.mem.Allocator, index: usize, text: []const u8) !void {
         const pos = @min(index, self.text.items.len);
-        try self.text.insertSlice(pos, text);
+        try self.text.insertSlice(allocator, pos, text);
     }
 
     pub fn delete(self: *Entry, first: usize, last: usize) void {

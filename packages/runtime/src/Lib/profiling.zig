@@ -163,10 +163,10 @@ pub const Profiler = struct {
 
     /// Get statistics
     pub fn getStats(self: *const Self) []const FunctionStats {
-        var result = std.ArrayList(FunctionStats).init(self.allocator);
+        var result: std.ArrayList(FunctionStats) = .{};
         var iter = self.stats.iterator();
         while (iter.next()) |entry| {
-            result.append(entry.value_ptr.*) catch {};
+            result.append(self.allocator, entry.value_ptr.*) catch {};
         }
         return result.items;
     }

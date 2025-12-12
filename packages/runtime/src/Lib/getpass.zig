@@ -80,8 +80,8 @@ fn getpassUnix(allocator: std.mem.Allocator, prompt: []const u8) ![]u8 {
         _ = tty_file.write("\n") catch {};
     }
 
-    var password = std.ArrayList(u8).init(allocator);
-    errdefer password.deinit();
+    var password: std.ArrayList(u8) = .{};
+    errdefer password.deinit(allocator);
 
     var buf: [1]u8 = undefined;
     while (true) {
@@ -98,10 +98,10 @@ fn getpassUnix(allocator: std.mem.Allocator, prompt: []const u8) ![]u8 {
             return GetPassError.PasswordTooLong;
         }
 
-        try password.append(buf[0]);
+        try password.append(allocator, buf[0]);
     }
 
-    return password.toOwnedSlice();
+    return password.toOwnedSlice(allocator);
 }
 
 /// Windows implementation using kernel32 console APIs for echo-less input
@@ -109,8 +109,8 @@ fn getpassWindows(allocator: std.mem.Allocator, prompt: []const u8) ![]u8 {
     // Write prompt to stderr
     std.io.getStdErr().writer().writeAll(prompt) catch {};
 
-    var password = std.ArrayList(u8).init(allocator);
-    errdefer password.deinit();
+    var password: std.ArrayList(u8) = .{};
+    errdefer password.deinit(allocator);
 
     if (comptime builtin.os.tag == .windows) {
         // Use Windows Console API to disable echo
@@ -158,7 +158,7 @@ fn getpassWindows(allocator: std.mem.Allocator, prompt: []const u8) ![]u8 {
                 return GetPassError.PasswordTooLong;
             }
 
-            try password.append(c);
+            try password.append(allocator, c);
         }
     } else {
         // Non-Windows: just read from stdin (shouldn't be called)
@@ -172,14 +172,14 @@ fn getpassWindows(allocator: std.mem.Allocator, prompt: []const u8) ![]u8 {
                 continue;
             }
             if (password.items.len >= MAX_PASSWORD_LENGTH) return GetPassError.PasswordTooLong;
-            try password.append(c);
+            try password.append(allocator, c);
         }
     }
 
     // Print newline
     std.io.getStdErr().writer().writeAll("\n") catch {};
 
-    return password.toOwnedSlice();
+    return password.toOwnedSlice(allocator);
 }
 
 /// Fallback when no TTY available

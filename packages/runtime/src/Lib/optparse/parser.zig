@@ -49,8 +49,8 @@ pub const OptionParser = struct {
             .version = null,
             .prog = null,
             .add_help_option = true,
-            .options = std.ArrayList(Option).init(allocator),
-            .groups = std.ArrayList(OptionGroup).init(allocator),
+            .options = .{},
+            .groups = .{},
         };
 
         // Add default help option
@@ -66,16 +66,16 @@ pub const OptionParser = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.options.deinit();
+        self.options.deinit(self.allocator);
         for (self.groups.items) |*group| {
             group.deinit();
         }
-        self.groups.deinit();
+        self.groups.deinit(self.allocator);
     }
 
     fn addDefaultOptions(self: *Self) !void {
         if (self.add_help_option) {
-            try self.options.append(.{
+            try self.options.append(self.allocator, .{
                 .short = "-h",
                 .long = "--help",
                 .action = .help,
@@ -96,7 +96,7 @@ pub const OptionParser = struct {
 
     /// Add an option
     pub fn addOption(self: *Self, opt: Option) !void {
-        try self.options.append(opt);
+        try self.options.append(self.allocator, opt);
     }
 
     /// Add option using builder pattern
@@ -116,7 +116,7 @@ pub const OptionParser = struct {
             metavar: ?[]const u8 = null,
         },
     ) !void {
-        try self.options.append(.{
+        try self.options.append(self.allocator, .{
             .short = short,
             .long = long,
             .action = config.action,
@@ -133,7 +133,7 @@ pub const OptionParser = struct {
 
     /// Add an option group
     pub fn addOptionGroup(self: *Self, group: OptionGroup) !void {
-        try self.groups.append(group);
+        try self.groups.append(self.allocator, group);
     }
 
     /// Create a new option group
@@ -153,8 +153,8 @@ pub const OptionParser = struct {
         var vals = Values.init(self.allocator);
         errdefer vals.deinit();
 
-        var remaining = std.ArrayList([]const u8).init(self.allocator);
-        errdefer remaining.deinit();
+        var remaining: std.ArrayList([]const u8) = .{};
+        errdefer remaining.deinit(self.allocator);
 
         // Set defaults
         for (self.options.items) |opt| {
@@ -177,7 +177,7 @@ pub const OptionParser = struct {
             if (std.mem.eql(u8, arg, "--")) {
                 i += 1;
                 while (i < args.len) : (i += 1) {
-                    try remaining.append(args[i]);
+                    try remaining.append(self.allocator, args[i]);
                 }
                 break;
             }
@@ -196,13 +196,13 @@ pub const OptionParser = struct {
                 const option_found = opt.?;
                 i = try self.processOption(option_found, args, i, &vals);
             } else {
-                try remaining.append(arg);
+                try remaining.append(self.allocator, arg);
             }
         }
 
         return .{
             .values = vals,
-            .args = try remaining.toOwnedSlice(),
+            .args = try remaining.toOwnedSlice(self.allocator),
         };
     }
 
@@ -276,19 +276,19 @@ pub const OptionParser = struct {
                     if (vals.values.getPtr(dest)) |existing| {
                         switch (existing.*) {
                             .string_list => |*list| {
-                                try list.append(args[i]);
+                                try list.append(vals.allocator, args[i]);
                             },
                             else => {
                                 // Convert to list
-                                var list = std.ArrayList([]const u8).init(vals.allocator);
-                                try list.append(args[i]);
+                                var list: std.ArrayList([]const u8) = .{};
+                                try list.append(vals.allocator, args[i]);
                                 try vals.set(dest, .{ .string_list = list });
                             },
                         }
                     } else {
                         // Create new list
-                        var list = std.ArrayList([]const u8).init(vals.allocator);
-                        try list.append(args[i]);
+                        var list: std.ArrayList([]const u8) = .{};
+                        try list.append(vals.allocator, args[i]);
                         try vals.set(dest, .{ .string_list = list });
                     }
                 }

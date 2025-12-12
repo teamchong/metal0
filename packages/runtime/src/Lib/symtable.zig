@@ -72,7 +72,7 @@ pub const Symbol = struct {
 
     pub fn deinit(self: *Self) void {
         if (self.namespaces) |*ns| {
-            ns.deinit();
+            ns.deinit(self.allocator);
         }
     }
 
@@ -222,7 +222,7 @@ pub const SymbolTable = struct {
             .coroutine = false,
             .comprehension = false,
             .symbols = hashmap_helper.StringHashMap(Symbol).init(allocator),
-            .children = std.ArrayList(*Self).init(allocator),
+            .children = .{},
             .allocator = allocator,
         };
     }
@@ -234,7 +234,7 @@ pub const SymbolTable = struct {
             sym.deinit();
         }
         self.symbols.deinit();
-        self.children.deinit();
+        self.children.deinit(self.allocator);
     }
 
     /// Get the type of the block
@@ -297,12 +297,12 @@ pub const SymbolTable = struct {
 
     /// Get identifiers in this scope
     pub fn getIdentifiers(self: *const Self) [][]const u8 {
-        var identifiers = std.ArrayList([]const u8).init(self.allocator);
+        var identifiers: std.ArrayList([]const u8) = .{};
         var iter = self.symbols.iterator();
         while (iter.next()) |entry| {
-            identifiers.append(entry.key_ptr.*) catch continue;
+            identifiers.append(self.allocator, entry.key_ptr.*) catch continue;
         }
-        return identifiers.toOwnedSlice() catch &[_][]const u8{};
+        return identifiers.toOwnedSlice(self.allocator) catch &[_][]const u8{};
     }
 
     /// Look up a symbol by name
@@ -328,7 +328,7 @@ pub const SymbolTable = struct {
 
     /// Add a child symbol table
     pub fn addChild(self: *Self, child: *Self) !void {
-        try self.children.append(child);
+        try self.children.append(self.allocator, child);
         self.has_children = true;
         child.is_nested = true;
     }

@@ -47,8 +47,8 @@ pub fn CharmapCodec(comptime decode_table: *const [256]u21, comptime codec_name:
 
         /// Decode bytes to UTF-8 string using the charmap
         pub fn decode(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHandler) !DecodeResult {
-            var output = std.ArrayList(u8).init(allocator);
-            errdefer output.deinit();
+            var output: std.ArrayList(u8) = .{};
+            errdefer output.deinit(allocator);
 
             for (input) |byte| {
                 const codepoint = decode_table[byte];
@@ -102,8 +102,8 @@ pub fn CharmapCodec(comptime decode_table: *const [256]u21, comptime codec_name:
 
         /// Encode UTF-8 string to bytes using the charmap
         pub fn encode(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHandler) !EncodeResult {
-            var output = std.ArrayList(u8).init(allocator);
-            errdefer output.deinit();
+            var output: std.ArrayList(u8) = .{};
+            errdefer output.deinit(allocator);
             var chars_consumed: usize = 0;
 
             var i: usize = 0;

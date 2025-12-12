@@ -38,12 +38,12 @@ pub fn printStats(
     try writer.writeAll("   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n");
 
     // Get sorted stats
-    var entries = std.ArrayList(sorting.Entry).init(allocator);
-    defer entries.deinit();
+    var entries: std.ArrayList(sorting.Entry) = .{};
+    defer entries.deinit(allocator);
 
     var it = stats.iterator();
     while (it.next()) |entry| {
-        try entries.append(.{
+        try entries.append(allocator, .{
             .key = entry.key_ptr.*,
             .value = entry.value_ptr.*,
         });

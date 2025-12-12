@@ -118,8 +118,8 @@ const ChildRegistry = struct {
         lock.lock();
         defer lock.unlock();
 
-        var result = std.ArrayList(std.posix.pid_t).init(allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(std.posix.pid_t) = .{};
+        errdefer result.deinit(allocator);
 
         for (children) |maybe_pid| {
             if (maybe_pid) |pid_val| {
@@ -141,8 +141,8 @@ pub fn activeChildren(allocator: std.mem.Allocator) ![]Process {
     const active_pids = try ChildRegistry.getActive(allocator);
     defer allocator.free(active_pids);
 
-    var result = std.ArrayList(Process).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(Process) = .{};
+    errdefer result.deinit(allocator);
 
     for (active_pids) |pid_val| {
         var proc = Process.init(allocator, null, null, null, false);

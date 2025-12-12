@@ -31,11 +31,11 @@ pub const Message = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .headers = std.ArrayList(Header).init(allocator),
+            .headers = .{},
             .payload = .{ .text = "" },
             .preamble = null,
             .epilogue = null,
-            .defects = std.ArrayList([]const u8).init(allocator),
+            .defects = .{},
             .policy = null,
         };
     }
@@ -45,7 +45,7 @@ pub const Message = struct {
             self.allocator.free(h.name);
             self.allocator.free(h.value);
         }
-        self.headers.deinit();
+        self.headers.deinit(self.allocator);
 
         switch (self.payload) {
             .parts => |parts| {
@@ -53,7 +53,8 @@ pub const Message = struct {
                     part.deinit();
                     self.allocator.destroy(part);
                 }
-                parts.deinit();
+                var mut_parts = parts;
+                mut_parts.deinit(self.allocator);
             },
             .text => |t| {
                 if (t.len > 0) self.allocator.free(t);
@@ -62,7 +63,7 @@ pub const Message = struct {
 
         if (self.preamble) |p| self.allocator.free(p);
         if (self.epilogue) |e| self.allocator.free(e);
-        self.defects.deinit();
+        self.defects.deinit(self.allocator);
     }
 
     /// Get header value by name (first occurrence)
@@ -82,13 +83,13 @@ pub const Message = struct {
 
     /// Get all values for a header
     pub fn getAll(self: *Self, name: []const u8) ![][]const u8 {
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result: std.ArrayList([]const u8) = .{};
         for (self.headers.items) |h| {
             if (std.ascii.eqlIgnoreCase(h.name, name)) {
-                try result.append(h.value);
+                try result.append(self.allocator, h.value);
             }
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Set a header (replaces existing)
@@ -106,7 +107,7 @@ pub const Message = struct {
         }
 
         // Add new header
-        try self.headers.append(.{
+        try self.headers.append(self.allocator, .{
             .name = try self.allocator.dupe(u8, name),
             .value = try self.allocator.dupe(u8, value),
         });
@@ -114,7 +115,7 @@ pub const Message = struct {
 
     /// Add a header (allows duplicates)
     pub fn addHeader(self: *Self, name: []const u8, value: []const u8) !void {
-        try self.headers.append(.{
+        try self.headers.append(self.allocator, .{
             .name = try self.allocator.dupe(u8, name),
             .value = try self.allocator.dupe(u8, value),
         });
@@ -141,7 +142,7 @@ pub const Message = struct {
 
     /// Get all header names
     pub fn keys(self: *Self) ![][]const u8 {
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result: std.ArrayList([]const u8) = .{};
         var seen = hashmap_helper.StringHashMap(void).init(self.allocator);
         defer seen.deinit();
 
@@ -150,19 +151,19 @@ pub const Message = struct {
             defer self.allocator.free(lower);
             if (!seen.contains(lower)) {
                 try seen.put(try self.allocator.dupe(u8, lower), {});
-                try result.append(h.name);
+                try result.append(self.allocator, h.name);
             }
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Get all header values
     pub fn values(self: *Self) ![][]const u8 {
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result: std.ArrayList([]const u8) = .{};
         for (self.headers.items) |h| {
-            try result.append(h.value);
+            try result.append(self.allocator, h.value);
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Get all header items
@@ -189,7 +190,8 @@ pub const Message = struct {
                     part.deinit();
                     self.allocator.destroy(part);
                 }
-                parts.deinit();
+                var mut_parts = parts;
+                mut_parts.deinit(self.allocator);
             },
         }
         self.payload = .{ .text = try self.allocator.dupe(u8, payload) };
@@ -261,12 +263,12 @@ pub const Message = struct {
     pub fn attach(self: *Self, part: *Message) !void {
         switch (self.payload) {
             .parts => |*parts| {
-                try parts.append(part);
+                try parts.append(self.allocator, part);
             },
             .text => |t| {
                 if (t.len > 0) self.allocator.free(t);
-                var parts = std.ArrayList(*Message).init(self.allocator);
-                try parts.append(part);
+                var parts: std.ArrayList(*Message) = .{};
+                try parts.append(self.allocator, part);
                 self.payload = .{ .parts = parts };
             },
         }
@@ -287,50 +289,50 @@ pub const Message = struct {
 
     /// Convert to string
     pub fn asString(self: *Self) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         // Write headers
         for (self.headers.items) |h| {
-            try result.appendSlice(h.name);
-            try result.appendSlice(": ");
-            try result.appendSlice(h.value);
-            try result.appendSlice("\r\n");
+            try result.appendSlice(self.allocator, h.name);
+            try result.appendSlice(self.allocator, ": ");
+            try result.appendSlice(self.allocator, h.value);
+            try result.appendSlice(self.allocator, "\r\n");
         }
 
         // Blank line before body
-        try result.appendSlice("\r\n");
+        try result.appendSlice(self.allocator, "\r\n");
 
         // Write payload
         switch (self.payload) {
             .text => |t| {
-                try result.appendSlice(t);
+                try result.appendSlice(self.allocator, t);
             },
             .parts => |parts| {
                 const boundary = self.getBoundary() orelse "boundary";
                 if (self.preamble) |p| {
-                    try result.appendSlice(p);
-                    try result.appendSlice("\r\n");
+                    try result.appendSlice(self.allocator, p);
+                    try result.appendSlice(self.allocator, "\r\n");
                 }
                 for (parts.items) |part| {
-                    try result.appendSlice("--");
-                    try result.appendSlice(boundary);
-                    try result.appendSlice("\r\n");
+                    try result.appendSlice(self.allocator, "--");
+                    try result.appendSlice(self.allocator, boundary);
+                    try result.appendSlice(self.allocator, "\r\n");
                     const part_str = try part.asString();
                     defer self.allocator.free(part_str);
-                    try result.appendSlice(part_str);
-                    try result.appendSlice("\r\n");
+                    try result.appendSlice(self.allocator, part_str);
+                    try result.appendSlice(self.allocator, "\r\n");
                 }
-                try result.appendSlice("--");
-                try result.appendSlice(boundary);
-                try result.appendSlice("--\r\n");
+                try result.appendSlice(self.allocator, "--");
+                try result.appendSlice(self.allocator, boundary);
+                try result.appendSlice(self.allocator, "--\r\n");
                 if (self.epilogue) |e| {
-                    try result.appendSlice(e);
+                    try result.appendSlice(self.allocator, e);
                 }
             },
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };
 
@@ -340,8 +342,8 @@ pub const MessageIterator = struct {
     allocator: std.mem.Allocator,
 
     pub fn init(root: *Message) MessageIterator {
-        var stack = std.ArrayList(*Message).init(root.allocator);
-        stack.append(root) catch {};
+        var stack: std.ArrayList(*Message) = .{};
+        stack.append(root.allocator, root) catch {};
         return .{
             .stack = stack,
             .allocator = root.allocator,
@@ -349,7 +351,7 @@ pub const MessageIterator = struct {
     }
 
     pub fn deinit(self: *MessageIterator) void {
-        self.stack.deinit();
+        self.stack.deinit(self.allocator);
     }
 
     pub fn next(self: *MessageIterator) ?*Message {
@@ -362,7 +364,7 @@ pub const MessageIterator = struct {
             var i = parts.len;
             while (i > 0) {
                 i -= 1;
-                self.stack.append(parts[i]) catch {};
+                self.stack.append(self.allocator, parts[i]) catch {};
             }
         }
 

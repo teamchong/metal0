@@ -57,9 +57,9 @@ pub const Pdb = struct {
     pub fn init(allocator: std.mem.Allocator, skip: ?[]const []const u8) Self {
         return .{
             .allocator = allocator,
-            .breakpoints = std.ArrayList(Breakpoint).init(allocator),
+            .breakpoints = .{},
             .bp_counter = 0,
-            .stack = std.ArrayList(Frame).init(allocator),
+            .stack = .{},
             .curindex = 0,
             .curframe = null,
             .skip = skip orelse &[_][]const u8{},
@@ -78,11 +78,11 @@ pub const Pdb = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.breakpoints.deinit();
+        self.breakpoints.deinit(self.allocator);
         for (self.stack.items) |*frame| {
             frame.deinit();
         }
-        self.stack.deinit();
+        self.stack.deinit(self.allocator);
         self.commands.deinit();
         self.commands_doprompt.deinit();
         self.commands_silent.deinit();
@@ -219,7 +219,7 @@ pub const Pdb = struct {
     pub fn run(self: *Self, cmd: []const u8) !void {
         // Create initial frame from command
         var frame = Frame.init(self.allocator, "<string>", 1, "<module>");
-        try self.stack.append(frame);
+        try self.stack.append(self.allocator, frame);
         self.curindex = 0;
         self.curframe = &self.stack.items[0];
 

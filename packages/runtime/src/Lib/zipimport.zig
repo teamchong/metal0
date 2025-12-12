@@ -174,10 +174,10 @@ pub const zipimporter = struct {
         while (zip_iter.next() catch return null) |entry| {
             if (std.mem.eql(u8, entry.filename, inner_path)) {
                 // Found the file, decompress it
-                var decompressed = std.ArrayList(u8).init(self.allocator);
-                errdefer decompressed.deinit();
+                var decompressed: std.ArrayList(u8) = .{};
+                errdefer decompressed.deinit(self.allocator);
 
-                entry.decompress(decompressed.writer(), null) catch |err| {
+                entry.decompress(decompressed.writer(self.allocator), null) catch |err| {
                     // If stored (no compression), read directly
                     if (err == error.Unsupported) {
                         // Try reading uncompressed data
@@ -195,7 +195,7 @@ pub const zipimporter = struct {
                     return null;
                 };
 
-                return decompressed.toOwnedSlice();
+                return decompressed.toOwnedSlice(self.allocator);
             }
         }
 

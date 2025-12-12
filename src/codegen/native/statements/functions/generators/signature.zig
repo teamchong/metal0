@@ -965,11 +965,33 @@ pub fn genFunctionSignature(
                     defer self.allocator.free(zig_type);
                     try self.emit(zig_type);
                 } else {
-                    try self.emit("?i64");
+                    // Two-Flow: Check confidence before defaulting to i64
+                    // Create scoped key for parameter confidence lookup
+                    const param_scoped_key = std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ func.name, arg.name }) catch null;
+                    defer if (param_scoped_key) |k| self.allocator.free(k);
+                    const param_confidence = if (param_scoped_key) |k|
+                        self.type_inferrer.scoped_var_confidence.get(k) orelse .uncertain
+                    else
+                        .uncertain;
+                    if (param_confidence == .uncertain) {
+                        try self.emit("?runtime.PyValue");
+                    } else {
+                        try self.emit("?i64");
+                    }
                 }
             } else {
-                // .unknown means we don't know - default to i64
-                try self.emit("i64");
+                // Two-Flow: .unknown means we don't know - check confidence
+                const param_scoped_key = std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ func.name, arg.name }) catch null;
+                defer if (param_scoped_key) |k| self.allocator.free(k);
+                const param_confidence = if (param_scoped_key) |k|
+                    self.type_inferrer.scoped_var_confidence.get(k) orelse .uncertain
+                else
+                    .uncertain;
+                if (param_confidence == .uncertain) {
+                    try self.emit("runtime.PyValue");
+                } else {
+                    try self.emit("i64");
+                }
             }
         } else if (arg.default) |default_expr| {
             // Infer type from default value
@@ -981,11 +1003,33 @@ pub fn genFunctionSignature(
                 defer self.allocator.free(zig_type);
                 try self.emit(zig_type);
             } else {
-                try self.emit("?i64");
+                // Two-Flow: Check confidence before defaulting to i64
+                const param_scoped_key = std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ func.name, arg.name }) catch null;
+                defer if (param_scoped_key) |k| self.allocator.free(k);
+                const param_confidence = if (param_scoped_key) |k|
+                    self.type_inferrer.scoped_var_confidence.get(k) orelse .uncertain
+                else
+                    .uncertain;
+                if (param_confidence == .uncertain) {
+                    try self.emit("?runtime.PyValue");
+                } else {
+                    try self.emit("?i64");
+                }
             }
         } else {
-            // No type hint, no inference, no default, no call site - default to i64
-            try self.emit("i64");
+            // No type hint, no inference, no default, no call site
+            // Two-Flow: Check confidence before defaulting to i64
+            const param_scoped_key = std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ func.name, arg.name }) catch null;
+            defer if (param_scoped_key) |k| self.allocator.free(k);
+            const param_confidence = if (param_scoped_key) |k|
+                self.type_inferrer.scoped_var_confidence.get(k) orelse .uncertain
+            else
+                .uncertain;
+            if (param_confidence == .uncertain) {
+                try self.emit("runtime.PyValue");
+            } else {
+                try self.emit("i64");
+            }
         }
     }
 

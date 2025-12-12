@@ -51,7 +51,7 @@ pub fn Cmd(comptime Context: type) type {
                 .undoc_header = "Undocumented commands:",
                 .nohelp = "*** No help on %s",
                 .use_rawinput = true,
-                .cmdqueue = std.ArrayList([]const u8).init(allocator),
+                .cmdqueue = .{},
                 .allocator = allocator,
                 .context = context,
                 .stop = false,
@@ -61,7 +61,7 @@ pub fn Cmd(comptime Context: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            self.cmdqueue.deinit();
+            self.cmdqueue.deinit(self.allocator);
         }
 
         /// Main command loop

@@ -17,8 +17,8 @@ const std = @import("std");
 ///   file://server/share/path -> \\server\share\path
 ///   file:///C|/path -> C:\path (legacy IE format)
 pub fn url2pathname(allocator: std.mem.Allocator, url: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     // Remove leading slashes
     var path = url;
@@ -28,7 +28,7 @@ pub fn url2pathname(allocator: std.mem.Allocator, url: []const u8) ![]u8 {
 
     // Handle UNC paths (//server/share -> \\server\share)
     if (url.len >= 2 and url[0] == '/' and url[1] == '/') {
-        try result.appendSlice("\\\\");
+        try result.appendSlice(allocator, "\\\\");
         path = url[2..];
     }
 
@@ -40,24 +40,24 @@ pub fn url2pathname(allocator: std.mem.Allocator, url: []const u8) ![]u8 {
             // URL-encoded character
             const hex = path[i + 1 .. i + 3];
             if (hexToInt(hex)) |value| {
-                try result.append(value);
+                try result.append(allocator, value);
                 i += 3;
                 continue;
             }
         }
 
         if (c == '/') {
-            try result.append('\\');
+            try result.append(allocator, '\\');
         } else if (c == '|' and i == 1) {
             // Legacy IE format: C| -> C:
-            try result.append(':');
+            try result.append(allocator, ':');
         } else {
-            try result.append(c);
+            try result.append(allocator, c);
         }
         i += 1;
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================
@@ -69,33 +69,33 @@ pub fn url2pathname(allocator: std.mem.Allocator, url: []const u8) ![]u8 {
 ///   C:\path -> file:///C:/path
 ///   \\server\share\path -> file://server/share/path
 pub fn pathname2url(allocator: std.mem.Allocator, pathname: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var path = pathname;
 
     // Handle UNC paths
     if (path.len >= 2 and path[0] == '\\' and path[1] == '\\') {
-        try result.appendSlice("//");
+        try result.appendSlice(allocator, "//");
         path = path[2..];
     } else {
-        try result.append('/');
+        try result.append(allocator, '/');
     }
 
     // Encode special characters and convert backslashes
     for (path) |c| {
         if (c == '\\') {
-            try result.append('/');
+            try result.append(allocator, '/');
         } else if (needsEncoding(c)) {
-            try result.append('%');
-            try result.append(HEX_DIGITS[c >> 4]);
-            try result.append(HEX_DIGITS[c & 0x0F]);
+            try result.append(allocator, '%');
+            try result.append(allocator, HEX_DIGITS[c >> 4]);
+            try result.append(allocator, HEX_DIGITS[c & 0x0F]);
         } else {
-            try result.append(c);
+            try result.append(allocator, c);
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================

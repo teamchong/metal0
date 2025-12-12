@@ -31,8 +31,8 @@ pub const ErrorMode = enum {
 /// Decode uuencoded data to binary
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
     _ = mode;
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var lines = std.mem.splitScalar(u8, input, '\n');
     var in_body = false;
@@ -76,15 +76,15 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             const c3 = decodeChar(data[i + 3]);
 
             if (decoded < line_len) {
-                try result.append(@truncate((c0 << 2) | (c1 >> 4)));
+                try result.append(allocator, @truncate((c0 << 2) | (c1 >> 4)));
                 decoded += 1;
             }
             if (decoded < line_len) {
-                try result.append(@truncate((c1 << 4) | (c2 >> 2)));
+                try result.append(allocator, @truncate((c1 << 4) | (c2 >> 2)));
                 decoded += 1;
             }
             if (decoded < line_len) {
-                try result.append(@truncate((c2 << 6) | c3));
+                try result.append(allocator, @truncate((c2 << 6) | c3));
                 decoded += 1;
             }
 
@@ -93,7 +93,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }
@@ -101,11 +101,11 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 /// Encode binary data to uuencode format
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !EncodeResult {
     _ = mode;
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     // Add begin line
-    try result.appendSlice("begin 644 data\n");
+    try result.appendSlice(allocator, "begin 644 data\n");
 
     var offset: usize = 0;
     while (offset < input.len) {
@@ -113,7 +113,7 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
         const line_len: u8 = @intCast(@min(remaining, 45));
 
         // Length character
-        try result.append(line_len + 32);
+        try result.append(allocator, line_len + 32);
 
         // Encode up to 45 bytes per line
         var i: usize = 0;
@@ -122,23 +122,23 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             const b1: u8 = if (i + 1 < line_len) input[offset + i + 1] else 0;
             const b2: u8 = if (i + 2 < line_len) input[offset + i + 2] else 0;
 
-            try result.append(encodeChar(b0 >> 2));
-            try result.append(encodeChar(((b0 & 0x03) << 4) | (b1 >> 4)));
-            try result.append(encodeChar(((b1 & 0x0F) << 2) | (b2 >> 6)));
-            try result.append(encodeChar(b2 & 0x3F));
+            try result.append(allocator, encodeChar(b0 >> 2));
+            try result.append(allocator, encodeChar(((b0 & 0x03) << 4) | (b1 >> 4)));
+            try result.append(allocator, encodeChar(((b1 & 0x0F) << 2) | (b2 >> 6)));
+            try result.append(allocator, encodeChar(b2 & 0x3F));
 
             i += 3;
         }
 
-        try result.append('\n');
+        try result.append(allocator, '\n');
         offset += line_len;
     }
 
     // End marker (backtick = empty line)
-    try result.appendSlice("`\nend\n");
+    try result.appendSlice(allocator, "`\nend\n");
 
     return EncodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .chars_consumed = input.len,
     };
 }

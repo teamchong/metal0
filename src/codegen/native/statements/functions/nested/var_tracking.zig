@@ -5,6 +5,99 @@ const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const hashmap_helper = @import("utils.hashmap_helper");
 
+/// Check if a variable is declared as `nonlocal` in a function body.
+/// Used to determine if a captured variable needs pointer-based capture.
+pub fn isNonlocalVar(var_name: []const u8, stmts: []const ast.Node) bool {
+    for (stmts) |stmt| {
+        if (isNonlocalVarInNode(var_name, stmt)) return true;
+    }
+    return false;
+}
+
+fn isNonlocalVarInNode(var_name: []const u8, node: ast.Node) bool {
+    switch (node) {
+        .nonlocal_stmt => |n| {
+            for (n.names) |name| {
+                if (std.mem.eql(u8, name, var_name)) return true;
+            }
+        },
+        // Recurse into compound statements (but NOT nested functions - they have their own scope)
+        .if_stmt => |i| {
+            for (i.body) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+            for (i.else_body) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+        },
+        .for_stmt => |f| {
+            for (f.body) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+            if (f.orelse_body) |ob| for (ob) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+            if (w.orelse_body) |ob| for (ob) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+            for (t.handlers) |h| for (h.body) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+            for (t.else_body) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+            for (t.finalbody) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+        },
+        .with_stmt => |w| {
+            for (w.body) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+        },
+        .match_stmt => |m| {
+            for (m.cases) |c| for (c.body) |s| if (isNonlocalVarInNode(var_name, s)) return true;
+        },
+        else => {},
+    }
+    return false;
+}
+
+/// Collect all `nonlocal` variable declarations from a function body.
+/// Returns a set of variable names that are declared as nonlocal.
+/// These variables should NOT be treated as local assignments.
+pub fn collectNonlocalVars(allocator: std.mem.Allocator, stmts: []const ast.Node) !hashmap_helper.StringHashMap(void) {
+    var nonlocals = hashmap_helper.StringHashMap(void).init(allocator);
+    for (stmts) |stmt| {
+        try collectNonlocalVarsInNode(allocator, stmt, &nonlocals);
+    }
+    return nonlocals;
+}
+
+fn collectNonlocalVarsInNode(allocator: std.mem.Allocator, node: ast.Node, nonlocals: *hashmap_helper.StringHashMap(void)) !void {
+    switch (node) {
+        .nonlocal_stmt => |n| {
+            for (n.names) |name| {
+                try nonlocals.put(name, {});
+            }
+        },
+        // Recurse into compound statements (but NOT nested functions - they have their own scope)
+        .if_stmt => |i| {
+            for (i.body) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+            for (i.else_body) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+        },
+        .for_stmt => |f| {
+            for (f.body) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+            if (f.orelse_body) |ob| for (ob) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+            if (w.orelse_body) |ob| for (ob) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+            for (t.handlers) |h| for (h.body) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+            for (t.else_body) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+            for (t.finalbody) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+        },
+        .with_stmt => |w| {
+            for (w.body) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+        },
+        .match_stmt => |m| {
+            for (m.cases) |c| for (c.body) |s| try collectNonlocalVarsInNode(allocator, s, nonlocals);
+        },
+        else => {},
+    }
+}
+
 /// Collect variable names from an assignment target (handles name, tuple, list)
 fn collectTargetVarsToList(allocator: std.mem.Allocator, node: ast.Node, list: *std.ArrayList([]const u8)) !void {
     switch (node) {
@@ -43,6 +136,17 @@ pub fn findCapturedVarsWithOuter(
     func: ast.Node.FunctionDef,
     outer_func_params: ?[]ast.Arg,
 ) CodegenError![][]const u8 {
+    return findCapturedVarsWithSpecialParams(self, func, outer_func_params, null, null);
+}
+
+/// Extended version that also considers outer *args and **kwargs parameters
+pub fn findCapturedVarsWithSpecialParams(
+    self: *NativeCodegen,
+    func: ast.Node.FunctionDef,
+    outer_func_params: ?[]ast.Arg,
+    outer_vararg: ?[]const u8,
+    outer_kwarg: ?[]const u8,
+) CodegenError![][]const u8 {
     var captured = std.ArrayList([]const u8){};
 
     // Collect all variables referenced in function body
@@ -51,11 +155,38 @@ pub fn findCapturedVarsWithOuter(
 
     try collectReferencedVars(self, func.body, &referenced);
 
+    // FIRST: Collect nonlocal declarations in this function body
+    // Nonlocal variables reference the enclosing scope and should NOT be treated as local
+    var nonlocals = collectNonlocalVars(self.allocator, func.body) catch hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer nonlocals.deinit();
+
     // Collect all variables that are locally assigned in function body
     // These shadow outer scope and should NOT be captured
+    // IMPORTANT: Exclude nonlocal vars - they reference outer scope, not local
     var locally_assigned = std.ArrayList([]const u8){};
     defer locally_assigned.deinit(self.allocator);
-    collectLocallyAssignedVars(self.allocator, func.body, &locally_assigned) catch {};
+    collectLocallyAssignedVarsExcludingNonlocal(self.allocator, func.body, &locally_assigned, &nonlocals) catch {};
+
+    // EXPLICITLY add nonlocal vars to the captured list
+    // `nonlocal x` declares intent to modify outer scope's x, even if only assigned
+    for (nonlocals.keys()) |nonlocal_var| {
+        // Check if variable is in outer scope
+        const in_symbol_table = self.symbol_table.lookup(nonlocal_var) != null;
+        const in_outer_params = if (outer_func_params) |params| blk: {
+            for (params) |param| {
+                if (std.mem.eql(u8, param.name, nonlocal_var)) {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        } else false;
+        const in_outer_vararg = if (outer_vararg) |varg| std.mem.eql(u8, varg, nonlocal_var) else false;
+        const in_outer_kwarg = if (outer_kwarg) |kwarg| std.mem.eql(u8, kwarg, nonlocal_var) else false;
+
+        if (in_symbol_table or in_outer_params or in_outer_vararg or in_outer_kwarg) {
+            try captured.append(self.allocator, nonlocal_var);
+        }
+    }
 
     // Check which referenced vars are in outer scope (not params or local)
     for (referenced.items) |var_name| {
@@ -79,7 +210,7 @@ pub fn findCapturedVarsWithOuter(
         }
         if (is_local) continue;
 
-        // Check if variable is in outer scope (symbol table OR outer function's params)
+        // Check if variable is in outer scope (symbol table OR outer function's params/vararg/kwarg)
         const in_symbol_table = self.symbol_table.lookup(var_name) != null;
         const in_outer_params = if (outer_func_params) |params| blk: {
             for (params) |param| {
@@ -90,7 +221,19 @@ pub fn findCapturedVarsWithOuter(
             break :blk false;
         } else false;
 
-        if (in_symbol_table or in_outer_params) {
+        // Check if it's the outer function's *args parameter
+        const in_outer_vararg = if (outer_vararg) |varg|
+            std.mem.eql(u8, varg, var_name)
+        else
+            false;
+
+        // Check if it's the outer function's **kwargs parameter
+        const in_outer_kwarg = if (outer_kwarg) |kwarg|
+            std.mem.eql(u8, kwarg, var_name)
+        else
+            false;
+
+        if (in_symbol_table or in_outer_params or in_outer_vararg or in_outer_kwarg) {
             // Add to captured list (avoid duplicates)
             var already_captured = false;
             for (captured.items) |captured_var| {
@@ -111,85 +254,108 @@ pub fn findCapturedVarsWithOuter(
 /// Collect all variable names that are assigned (as targets) in statements
 /// These are local variables that shadow outer scope
 fn collectLocallyAssignedVars(allocator: std.mem.Allocator, stmts: []ast.Node, assigned: *std.ArrayList([]const u8)) !void {
+    // No nonlocal exclusions - backward compatible version
+    try collectLocallyAssignedVarsExcludingNonlocal(allocator, stmts, assigned, null);
+}
+
+/// Collect locally assigned vars, but exclude variables declared as `nonlocal`
+/// nonlocal variables are NOT local - they reference the enclosing scope
+fn collectLocallyAssignedVarsExcludingNonlocal(
+    allocator: std.mem.Allocator,
+    stmts: []ast.Node,
+    assigned: *std.ArrayList([]const u8),
+    nonlocals: ?*const hashmap_helper.StringHashMap(void),
+) !void {
     for (stmts) |stmt| {
-        try collectLocallyAssignedVarsInNode(allocator, stmt, assigned);
+        try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, stmt, assigned, nonlocals);
     }
 }
 
 fn collectLocallyAssignedVarsInNode(allocator: std.mem.Allocator, node: ast.Node, assigned: *std.ArrayList([]const u8)) !void {
+    try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, node, assigned, null);
+}
+
+fn collectLocallyAssignedVarsInNodeExcludingNonlocal(
+    allocator: std.mem.Allocator,
+    node: ast.Node,
+    assigned: *std.ArrayList([]const u8),
+    nonlocals: ?*const hashmap_helper.StringHashMap(void),
+) !void {
     switch (node) {
         .assign => |a| {
             for (a.targets) |target| {
-                try collectAssignTargetVars(allocator, target, assigned);
+                try collectAssignTargetVarsExcludingNonlocal(allocator, target, assigned, nonlocals);
             }
         },
         .aug_assign => |a| {
-            try collectAssignTargetVars(allocator, a.target.*, assigned);
+            try collectAssignTargetVarsExcludingNonlocal(allocator, a.target.*, assigned, nonlocals);
         },
         .for_stmt => |f| {
             // for loop target is a local variable
-            try collectAssignTargetVars(allocator, f.target.*, assigned);
+            try collectAssignTargetVarsExcludingNonlocal(allocator, f.target.*, assigned, nonlocals);
             for (f.body) |s| {
-                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
             }
             if (f.orelse_body) |orelse_body| {
                 for (orelse_body) |s| {
-                    try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                    try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
                 }
             }
         },
         .if_stmt => |i| {
             for (i.body) |s| {
-                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
             }
             for (i.else_body) |s| {
-                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
             }
         },
         .while_stmt => |w| {
             for (w.body) |s| {
-                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
             }
             if (w.orelse_body) |orelse_body| {
                 for (orelse_body) |s| {
-                    try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                    try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
                 }
             }
         },
         .match_stmt => |m| {
             for (m.cases) |case| {
                 for (case.body) |s| {
-                    try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                    try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
                 }
             }
         },
         .try_stmt => |t| {
             for (t.body) |s| {
-                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
             }
             for (t.handlers) |h| {
-                // Exception variable is local
+                // Exception variable is local (unless declared nonlocal, which is rare)
                 if (h.name) |name| {
-                    try addUniqueVar(allocator, assigned, name);
+                    if (nonlocals == null or !nonlocals.?.contains(name)) {
+                        try addUniqueVar(allocator, assigned, name);
+                    }
                 }
                 for (h.body) |s| {
-                    try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                    try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
                 }
             }
             for (t.else_body) |s| {
-                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
             }
             for (t.finalbody) |s| {
-                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
             }
         },
         .with_stmt => |w| {
             // with ... as target: introduces local var(s)
             if (w.optional_vars) |target| {
-                try collectTargetVarsToList(allocator, target.*, assigned);
+                try collectAssignTargetVarsExcludingNonlocal(allocator, target.*, assigned, nonlocals);
             }
             for (w.body) |s| {
-                try collectLocallyAssignedVarsInNode(allocator, s, assigned);
+                try collectLocallyAssignedVarsInNodeExcludingNonlocal(allocator, s, assigned, nonlocals);
             }
         },
         else => {},
@@ -197,18 +363,30 @@ fn collectLocallyAssignedVarsInNode(allocator: std.mem.Allocator, node: ast.Node
 }
 
 fn collectAssignTargetVars(allocator: std.mem.Allocator, target: ast.Node, assigned: *std.ArrayList([]const u8)) !void {
+    try collectAssignTargetVarsExcludingNonlocal(allocator, target, assigned, null);
+}
+
+fn collectAssignTargetVarsExcludingNonlocal(
+    allocator: std.mem.Allocator,
+    target: ast.Node,
+    assigned: *std.ArrayList([]const u8),
+    nonlocals: ?*const hashmap_helper.StringHashMap(void),
+) !void {
     switch (target) {
         .name => |n| {
-            try addUniqueVar(allocator, assigned, n.id);
+            // Skip if this variable is declared as nonlocal
+            if (nonlocals == null or !nonlocals.?.contains(n.id)) {
+                try addUniqueVar(allocator, assigned, n.id);
+            }
         },
         .tuple => |t| {
             for (t.elts) |elem| {
-                try collectAssignTargetVars(allocator, elem, assigned);
+                try collectAssignTargetVarsExcludingNonlocal(allocator, elem, assigned, nonlocals);
             }
         },
         .list => |l| {
             for (l.elts) |elem| {
-                try collectAssignTargetVars(allocator, elem, assigned);
+                try collectAssignTargetVarsExcludingNonlocal(allocator, elem, assigned, nonlocals);
             }
         },
         else => {},

@@ -140,7 +140,7 @@ pub fn divDigitArrayByDigit(
 
 /// Convert decimal string to digit array
 pub fn decimalToDigits(allocator: Allocator, decimal: []const u8) !std.ArrayList(u64) {
-    var digits = std.ArrayList(u64).init(allocator);
+    var digits: std.ArrayList(u64) = .{};
 
     // Skip leading sign
     var start: usize = 0;
@@ -154,12 +154,12 @@ pub fn decimalToDigits(allocator: Allocator, decimal: []const u8) !std.ArrayList
     }
 
     if (start >= decimal.len) {
-        try digits.append(0);
+        try digits.append(allocator, 0);
         return digits;
     }
 
     // Process decimal digits
-    try digits.append(0);
+    try digits.append(allocator, 0);
 
     for (decimal[start..]) |c| {
         if (c < '0' or c > '9') continue; // Skip non-digits
@@ -181,7 +181,7 @@ pub fn decimalToDigits(allocator: Allocator, decimal: []const u8) !std.ArrayList
 
         // Add new digit if needed
         if (carry > 0) {
-            try digits.append(carry);
+            try digits.append(allocator, carry);
         }
     }
 
@@ -199,7 +199,7 @@ pub fn digitsToDecimal(allocator: Allocator, digits: []const u64) ![]u8 {
     defer allocator.free(work);
     @memcpy(work, digits);
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
 
     // Extract decimal digits by repeated division
     while (true) {
@@ -219,7 +219,7 @@ pub fn digitsToDecimal(allocator: Allocator, digits: []const u64) ![]u8 {
         // Convert remainder to decimal digits
         var r = remainder;
         for (0..9) |_| {
-            try result.append(@intCast((r % 10) + '0'));
+            try result.append(allocator, @intCast((r % 10) + '0'));
             r /= 10;
         }
     }
@@ -232,7 +232,7 @@ pub fn digitsToDecimal(allocator: Allocator, digits: []const u64) ![]u8 {
     // Reverse
     std.mem.reverse(u8, result.items);
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Convert to hex string
@@ -241,7 +241,7 @@ pub fn digitsToHex(allocator: Allocator, digits: []const u64, uppercase: bool) !
         return try allocator.dupe(u8, "0");
     }
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
     const hex_chars = if (uppercase) "0123456789ABCDEF" else "0123456789abcdef";
 
     // Process from most significant digit
@@ -255,13 +255,13 @@ pub fn digitsToHex(allocator: Allocator, digits: []const u64, uppercase: bool) !
         for (0..8) |j| {
             const nibble = (digit >> @intCast((7 - j) * 4)) & 0xF;
             if (nibble != 0 or started or (i == 0 and j == 7)) {
-                try result.append(hex_chars[@intCast(nibble)]);
+                try result.append(allocator, hex_chars[@intCast(nibble)]);
                 started = true;
             }
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================
@@ -410,7 +410,7 @@ test "compare digit arrays" {
 test "decimal to digits" {
     const allocator = std.testing.allocator;
     var digits = try decimalToDigits(allocator, "12345");
-    defer digits.deinit();
+    defer digits.deinit(allocator);
 
     try std.testing.expectEqual(@as(u64, 12345), digits.items[0]);
 }

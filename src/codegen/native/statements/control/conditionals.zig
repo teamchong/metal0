@@ -388,6 +388,10 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             // Skip if already hoisted at function level
             if (self.hoisted_vars.contains(v.name)) continue;
 
+            // Skip module-level variables/constants - they're already declared at module level
+            // This prevents shadowing errors for __name__, __file__, and user-defined module vars
+            if (self.module_level_vars.contains(v.name)) continue;
+
             // Skip module-level functions - they're already declared as functions
             // Python allows `genslices = rslices` to reassign function names,
             // but in Zig the function is already defined so we skip hoisting

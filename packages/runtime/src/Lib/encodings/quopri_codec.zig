@@ -30,8 +30,8 @@ pub const ErrorMode = enum {
 
 /// Decode quoted-printable data
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < input.len) {
@@ -48,7 +48,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             // Hex encoded byte
             if (i + 2 < input.len) {
                 if (parseHexByte(input[i + 1], input[i + 2])) |byte| {
-                    try result.append(byte);
+                    try result.append(allocator, byte);
                     i += 3;
                     continue;
                 }
@@ -57,16 +57,16 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             if (mode == .strict) {
                 return error.InvalidQuotedPrintable;
             }
-            try result.append('=');
+            try result.append(allocator, '=');
             i += 1;
         } else {
-            try result.append(input[i]);
+            try result.append(allocator, input[i]);
             i += 1;
         }
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }
@@ -74,37 +74,37 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 /// Encode data to quoted-printable format
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !EncodeResult {
     _ = mode;
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var line_len: usize = 0;
 
     for (input) |c| {
         // Check if we need a soft line break (max 76 chars per line)
         if (line_len >= 73) {
-            try result.appendSlice("=\r\n");
+            try result.appendSlice(allocator, "=\r\n");
             line_len = 0;
         }
 
         if (c == '\r' or c == '\n') {
             // Preserve line endings
-            try result.append(c);
+            try result.append(allocator, c);
             if (c == '\n') line_len = 0;
         } else if (c == '=' or c < 32 or c > 126) {
             // Encode special characters and non-printables
-            try result.append('=');
-            try result.append(hexDigit(c >> 4));
-            try result.append(hexDigit(c & 0x0F));
+            try result.append(allocator, '=');
+            try result.append(allocator, hexDigit(c >> 4));
+            try result.append(allocator, hexDigit(c & 0x0F));
             line_len += 3;
         } else {
             // Printable ASCII
-            try result.append(c);
+            try result.append(allocator, c);
             line_len += 1;
         }
     }
 
     return EncodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .chars_consumed = input.len,
     };
 }

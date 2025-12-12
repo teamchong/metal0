@@ -174,14 +174,14 @@ pub fn Database(comptime K: type, comptime V: type) type {
 
         /// Get all keys
         pub fn keys(self: *Self) ![]K {
-            var result = std.ArrayList(K).init(self.allocator);
-            errdefer result.deinit();
+            var result: std.ArrayList(K) = .{};
+            errdefer result.deinit(self.allocator);
 
             for (self.data.keys()) |key| {
-                try result.append(key);
+                try result.append(self.allocator, key);
             }
 
-            return result.toOwnedSlice();
+            return result.toOwnedSlice(self.allocator);
         }
 
         /// Get number of entries

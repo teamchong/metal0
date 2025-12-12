@@ -148,6 +148,16 @@ pub const MethodInfo = struct {
     is_static: bool,
 };
 
+/// Check if method has @staticmethod decorator
+fn hasStaticmethodDecorator(decorators: []const ast.Node) bool {
+    for (decorators) |decorator| {
+        if (decorator == .name and std.mem.eql(u8, decorator.name.id, "staticmethod")) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// Class registry with method lookup
 pub const ClassRegistry = struct {
     allocator: std.mem.Allocator,
@@ -234,7 +244,7 @@ pub const ClassRegistry = struct {
                                 .class_name = current_class,
                                 .params = func.args,
                                 .return_type = return_type,
-                                .is_static = false,
+                                .is_static = hasStaticmethodDecorator(func.decorators),
                             };
                         }
                     }
@@ -272,13 +282,17 @@ pub const ClassRegistry = struct {
     }
 
     /// Get all methods in class (including inherited) with return type inference
+    /// Deduplicates methods by name - later definitions override earlier ones (Python semantics)
+    /// This handles property decorator chains: @property def foo, @foo.setter def foo, etc.
     pub fn getMethodsWithTypes(
         self: *ClassRegistry,
         class_name: []const u8,
         allocator: std.mem.Allocator,
         type_inferrer: ?*TypeInferrer,
     ) ![]MethodInfo {
-        var methods = std.ArrayList(MethodInfo){};
+        // Use hashmap to deduplicate by method name (last definition wins)
+        var method_map = hashmap_helper.StringHashMap(MethodInfo).init(allocator);
+        defer method_map.deinit();
 
         var current_class = class_name;
         while (true) {
@@ -303,9 +317,10 @@ pub const ClassRegistry = struct {
                             .class_name = current_class,
                             .params = func.args,
                             .return_type = return_type,
-                            .is_static = false,
+                            .is_static = hasStaticmethodDecorator(func.decorators),
                         };
-                        try methods.append(allocator, info);
+                        // Put overwrites existing - later definitions win (Python semantics)
+                        try method_map.put(func.name, info);
                     }
                 }
             }
@@ -317,6 +332,12 @@ pub const ClassRegistry = struct {
             }
         }
 
+        // Convert hashmap values to slice
+        var methods = std.ArrayList(MethodInfo){};
+        var iter = method_map.valueIterator();
+        while (iter.next()) |info| {
+            try methods.append(allocator, info.*);
+        }
         return methods.toOwnedSlice(allocator);
     }
 

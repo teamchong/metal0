@@ -28,22 +28,22 @@ pub const Babyl = struct {
         pub fn init(allocator: std.mem.Allocator) BabylMessage {
             return .{
                 .base = Message.init(allocator),
-                .labels = std.ArrayList([]const u8).init(allocator),
+                .labels = .{},
                 .visible = true,
             };
         }
 
-        pub fn deinit(self: *BabylMessage) void {
+        pub fn deinit(self: *BabylMessage, allocator: std.mem.Allocator) void {
             self.base.deinit();
-            self.labels.deinit();
+            self.labels.deinit(allocator);
         }
 
         pub fn getLabels(self: *BabylMessage) []const []const u8 {
             return self.labels.items;
         }
 
-        pub fn addLabel(self: *BabylMessage, label: []const u8) !void {
-            try self.labels.append(label);
+        pub fn addLabel(self: *BabylMessage, allocator: std.mem.Allocator, label: []const u8) !void {
+            try self.labels.append(allocator, label);
         }
 
         pub fn removeLabel(self: *BabylMessage, label: []const u8) void {
@@ -100,9 +100,9 @@ pub const Babyl = struct {
 test "Babyl message labels" {
     const allocator = std.testing.allocator;
     var msg = Babyl.BabylMessage.init(allocator);
-    defer msg.deinit();
+    defer msg.deinit(allocator);
 
-    try msg.addLabel("answered");
+    try msg.addLabel(allocator, "answered");
     try std.testing.expectEqual(@as(usize, 1), msg.getLabels().len);
     try std.testing.expect(msg.getVisible());
 }

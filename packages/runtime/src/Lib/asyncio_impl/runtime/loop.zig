@@ -253,8 +253,8 @@ pub const SimpleScheduler = struct {
 
     pub fn init(allocator: std.mem.Allocator) SimpleScheduler {
         return SimpleScheduler{
-            .queue = std.ArrayList(*Task).init(allocator),
-            .completed = std.ArrayList(*Task).init(allocator),
+            .queue = .{},
+            .completed = .{},
             .mutex = std.Thread.Mutex{},
             .allocator = allocator,
             .total_spawned = 0,

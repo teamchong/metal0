@@ -45,8 +45,8 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, errors: ErrorHand
     const inner_result = try utf_16_le.encode(allocator, input, errors);
 
     // Prepend BOM
-    var output = std.ArrayList(u8).init(allocator);
-    errdefer output.deinit();
+    var output: std.ArrayList(u8) = .{};
+    errdefer output.deinit(allocator);
 
     try output.appendSlice(allocator, BOM_LE);
     try output.appendSlice(allocator, inner_result.output);

@@ -10,16 +10,21 @@ pub fn UserList(comptime T: type) type {
         const Self = @This();
         data: std.ArrayList(T),
 
+        allocator: std.mem.Allocator,
+
         pub fn init(allocator: std.mem.Allocator) Self {
-            return .{ .data = std.ArrayList(T).init(allocator) };
+            return .{
+                .allocator = allocator,
+                .data = .{},
+            };
         }
 
         pub fn deinit(self: *Self) void {
-            self.data.deinit();
+            self.data.deinit(self.allocator);
         }
 
         pub fn append(self: *Self, item: T) !void {
-            try self.data.append(item);
+            try self.data.append(self.allocator, item);
         }
 
         pub fn get(self: Self, index: usize) ?T {

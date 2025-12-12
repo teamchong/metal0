@@ -154,6 +154,16 @@ pub fn genZeroCaptureClosure(
         self.hoisted_vars = saved_hoisted_vars;
     }
 
+    // Save and clear func_local_vars - nested function has its own local variables
+    // Outer function's locals should NOT prevent var_renames lookup for parameters
+    // (e.g., outer `x` should not prevent `x -> __p_x_11` rename in nested function)
+    const saved_func_local_vars = self.func_local_vars;
+    self.func_local_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer {
+        self.func_local_vars.deinit();
+        self.func_local_vars = saved_func_local_vars;
+    }
+
     // Save and clear mutation tracking for this nested function body
     // Nested functions need their own mutation analysis to determine var vs const
     const saved_func_local_mutations = self.func_local_mutations;
@@ -480,7 +490,16 @@ pub fn genZeroCaptureClosure(
         defer self.allocator.free(alias_name);
 
         try self.emitIndent();
-        try self.emit("const ");
+        // Check if function name will be reassigned (e.g., bar = decorator(bar))
+        // If so, use var instead of const to allow the reassignment
+        // NOTE: We check saved_func_local_mutations (outer function's mutations) because
+        // at this point self.func_local_mutations has been replaced with the nested function's
+        // mutation map. The decorator reassignment happens in the OUTER function scope.
+        var outer_key_buf: [256]u8 = undefined;
+        const outer_key = std.fmt.bufPrint(&outer_key_buf, "{s}:0", .{func.name}) catch func.name;
+        const is_func_mutated = saved_func_local_mutations.contains(func.name) or
+            saved_func_local_mutations.contains(outer_key);
+        try self.emit(if (is_func_mutated) "var " else "const ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
         try self.output.writer(self.allocator).print(" = {s};\n", .{wrapper_name});
 

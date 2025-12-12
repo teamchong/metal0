@@ -133,14 +133,14 @@ pub const PrepareProtocol = struct {
             .pointer => |ptr| {
                 if (ptr.size == .Slice and ptr.child == u8) {
                     // String - escape single quotes
-                    var result = std.ArrayList(u8).init(allocator);
-                    try result.append('\'');
+                    var result: std.ArrayList(u8) = .{};
+                    try result.append(allocator, '\'');
                     for (value) |c| {
-                        if (c == '\'') try result.append('\''); // Escape with double quote
-                        try result.append(c);
+                        if (c == '\'') try result.append(allocator, '\''); // Escape with double quote
+                        try result.append(allocator, c);
                     }
-                    try result.append('\'');
-                    return result.toOwnedSlice();
+                    try result.append(allocator, '\'');
+                    return result.toOwnedSlice(allocator);
                 }
                 return error.UnsupportedType;
             },

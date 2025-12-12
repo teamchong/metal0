@@ -243,7 +243,7 @@ pub fn bgRgb(r: u8, g: u8, b: u8) [19]u8 {
 
 /// Strip ANSI escape codes from a string
 pub fn stripColors(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
     var i: usize = 0;
 
     while (i < text.len) {
@@ -255,12 +255,12 @@ pub fn stripColors(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
             }
             if (i < text.len) i += 1; // Skip 'm'
         } else {
-            try result.append(text[i]);
+            try result.append(allocator, text[i]);
             i += 1;
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================

@@ -49,18 +49,20 @@ pub const CompileResult = struct {
     files_compiled: usize,
     files_failed: usize,
     errors: std.ArrayList(CompileError),
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) CompileResult {
         return .{
             .success = true,
             .files_compiled = 0,
             .files_failed = 0,
-            .errors = std.ArrayList(CompileError).init(allocator),
+            .errors = .{},
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *CompileResult) void {
-        self.errors.deinit();
+        self.errors.deinit(self.allocator);
     }
 };
 
@@ -316,7 +318,7 @@ const WorkerPool = struct {
         var self = Self{
             .allocator = allocator,
             .workers = try allocator.alloc(std.Thread, num_workers),
-            .queue = std.ArrayList([]const u8).init(allocator),
+            .queue = .{},
             .mutex = .{},
             .cond = .{},
             .done = false,
@@ -345,13 +347,13 @@ const WorkerPool = struct {
         }
 
         self.allocator.free(self.workers);
-        self.queue.deinit();
+        self.queue.deinit(self.allocator);
     }
 
     pub fn addFile(self: *Self, path: []const u8) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
-        try self.queue.append(path);
+        try self.queue.append(self.allocator, path);
         self.cond.signal();
     }
 
@@ -395,8 +397,8 @@ pub fn main(
     args: []const []const u8,
 ) !CompileResult {
     var options = CompileOptions{};
-    var paths = std.ArrayList([]const u8).init(allocator);
-    defer paths.deinit();
+    var paths: std.ArrayList([]const u8) = .{};
+    defer paths.deinit(allocator);
 
     // Parse command-line arguments (simplified)
     var i: usize = 0;
@@ -419,13 +421,13 @@ pub fn main(
                 options.workers = std.fmt.parseInt(usize, args[i], 10) catch 1;
             }
         } else if (arg[0] != '-') {
-            try paths.append(arg);
+            try paths.append(allocator, arg);
         }
     }
 
     // Default to current directory if no paths given
     if (paths.items.len == 0) {
-        try paths.append(".");
+        try paths.append(allocator, ".");
     }
 
     return compile_path(allocator, paths.items, options);

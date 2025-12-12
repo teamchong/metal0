@@ -68,8 +68,8 @@ pub const Breakpoint = struct {
 
     /// Get breakpoint info string
     pub fn bpformat(self: *const Self, allocator: std.mem.Allocator) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(allocator);
 
         const disp = if (self.temporary) "del  " else "keep ";
         const enab = if (self.enabled) "yes" else "no ";
@@ -81,28 +81,28 @@ pub const Breakpoint = struct {
             enab,
             self.file,
             self.line,
-        }) catch return result.toOwnedSlice();
+        }) catch return result.toOwnedSlice(allocator);
 
-        try result.appendSlice(info);
+        try result.appendSlice(allocator, info);
 
         if (self.cond) |cond| {
-            try result.appendSlice("\n\tstop only if ");
-            try result.appendSlice(cond);
+            try result.appendSlice(allocator, "\n\tstop only if ");
+            try result.appendSlice(allocator, cond);
         }
 
         if (self.ignore > 0) {
             var ignore_buf: [64]u8 = undefined;
             const ignore_str = std.fmt.bufPrint(&ignore_buf, "\n\tignore next {d} hits", .{self.ignore}) catch "";
-            try result.appendSlice(ignore_str);
+            try result.appendSlice(allocator, ignore_str);
         }
 
         if (self.hits > 0) {
             var hits_buf: [64]u8 = undefined;
             const hits_str = std.fmt.bufPrint(&hits_buf, "\n\tbreakpoint already hit {d} time(s)", .{self.hits}) catch "";
-            try result.appendSlice(hits_str);
+            try result.appendSlice(allocator, hits_str);
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 
     /// Evaluate a breakpoint condition expression

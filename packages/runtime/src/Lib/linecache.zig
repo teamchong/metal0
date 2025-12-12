@@ -96,24 +96,24 @@ pub fn checkcache(filename: ?[]const u8) void {
         }
     } else {
         // Check all cached files
-        var to_remove = std.ArrayList([]const u8).init(cache_allocator);
-        defer to_remove.deinit();
+        var to_remove: std.ArrayList([]const u8) = .{};
+        defer to_remove.deinit(cache_allocator);
 
         var iter = cache.?.iterator();
         while (iter.next()) |entry| {
             const file = std.fs.cwd().openFile(entry.key_ptr.*, .{}) catch {
-                to_remove.append(entry.key_ptr.*) catch continue;
+                to_remove.append(cache_allocator, entry.key_ptr.*) catch continue;
                 continue;
             };
             defer file.close();
 
             const stat = file.stat() catch {
-                to_remove.append(entry.key_ptr.*) catch continue;
+                to_remove.append(cache_allocator, entry.key_ptr.*) catch continue;
                 continue;
             };
 
             if (stat.size != entry.value_ptr.size or stat.mtime != entry.value_ptr.mtime) {
-                to_remove.append(entry.key_ptr.*) catch continue;
+                to_remove.append(cache_allocator, entry.key_ptr.*) catch continue;
             }
         }
 
@@ -156,17 +156,17 @@ fn readFileIntoCache(filename: []const u8, file: std.fs.File) ?[][]const u8 {
     defer cache_allocator.free(content);
 
     // Split into lines
-    var lines = std.ArrayList([]const u8).init(cache_allocator);
+    var lines: std.ArrayList([]const u8) = .{};
     var iter = std.mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| {
         const owned_line = cache_allocator.dupe(u8, line) catch continue;
-        lines.append(owned_line) catch {
+        lines.append(cache_allocator, owned_line) catch {
             cache_allocator.free(owned_line);
             continue;
         };
     }
 
-    const lines_slice = lines.toOwnedSlice() catch return null;
+    const lines_slice = lines.toOwnedSlice(cache_allocator) catch return null;
     const fullname = cache_allocator.dupe(u8, filename) catch {
         cache_allocator.free(lines_slice);
         return null;

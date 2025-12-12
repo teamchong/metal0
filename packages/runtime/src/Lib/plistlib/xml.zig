@@ -77,7 +77,7 @@ fn parseXMLElement(allocator: std.mem.Allocator, data: []const u8) !PlistValue {
 }
 
 fn parseXMLArray(allocator: std.mem.Allocator, content: []const u8) !PlistValue {
-    var items = std.ArrayList(PlistValue).init(allocator);
+    var items: std.ArrayList(PlistValue) = .{};
     var pos: usize = 0;
 
     while (pos < content.len) {
@@ -98,12 +98,12 @@ fn parseXMLArray(allocator: std.mem.Allocator, content: []const u8) !PlistValue 
         const elem = content[pos .. pos + elem_end];
 
         const value = try parseXMLElement(allocator, elem);
-        try items.append(value);
+        try items.append(allocator, value);
 
         pos += elem_end;
     }
 
-    return PlistValue{ .array = try items.toOwnedSlice() };
+    return PlistValue{ .array = try items.toOwnedSlice(allocator) };
 }
 
 fn parseXMLDict(allocator: std.mem.Allocator, content: []const u8) !PlistValue {
@@ -191,40 +191,40 @@ fn unescapeXMLAlloc(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
         return try allocator.dupe(u8, s);
     }
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
     var i: usize = 0;
     while (i < s.len) {
         if (s[i] == '&') {
             if (std.mem.startsWith(u8, s[i..], "&lt;")) {
-                try result.append('<');
+                try result.append(allocator, '<');
                 i += 4;
             } else if (std.mem.startsWith(u8, s[i..], "&gt;")) {
-                try result.append('>');
+                try result.append(allocator, '>');
                 i += 4;
             } else if (std.mem.startsWith(u8, s[i..], "&amp;")) {
-                try result.append('&');
+                try result.append(allocator, '&');
                 i += 5;
             } else if (std.mem.startsWith(u8, s[i..], "&quot;")) {
-                try result.append('"');
+                try result.append(allocator, '"');
                 i += 6;
             } else if (std.mem.startsWith(u8, s[i..], "&apos;")) {
-                try result.append('\'');
+                try result.append(allocator, '\'');
                 i += 6;
             } else {
-                try result.append(s[i]);
+                try result.append(allocator, s[i]);
                 i += 1;
             }
         } else {
-            try result.append(s[i]);
+            try result.append(allocator, s[i]);
             i += 1;
         }
     }
-    return try result.toOwnedSlice();
+    return try result.toOwnedSlice(allocator);
 }
 
 pub fn dumpXML(allocator: std.mem.Allocator, value: PlistValue) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    const writer = result.writer();
+    var result: std.ArrayList(u8) = .{};
+    const writer = result.writer(allocator);
 
     try writer.writeAll("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     try writer.writeAll("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
@@ -234,7 +234,7 @@ pub fn dumpXML(allocator: std.mem.Allocator, value: PlistValue) ![]u8 {
 
     try writer.writeAll("</plist>\n");
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 fn writeXMLValue(writer: anytype, value: PlistValue, indent: usize) !void {

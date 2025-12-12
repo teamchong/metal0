@@ -39,8 +39,8 @@ pub fn normpath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
         }
     }
 
-    var components = std.ArrayList([]const u8).init(allocator);
-    defer components.deinit();
+    var components: std.ArrayList([]const u8) = .{};
+    defer components.deinit(allocator);
 
     // Split path by /
     var parts = std.mem.splitSequence(u8, path, "/");
@@ -52,32 +52,32 @@ pub fn normpath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
             if (components.items.len > 0 and !std.mem.eql(u8, components.items[components.items.len - 1], "..")) {
                 _ = components.pop();
             } else if (!initial_slash) {
-                try components.append("..");
+                try components.append(allocator, "..");
             }
         } else {
-            try components.append(part);
+            try components.append(allocator, part);
         }
     }
 
     // Reconstruct path
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
 
     // Add initial slashes
     for (0..initial_slashes) |_| {
-        try result.append('/');
+        try result.append(allocator, '/');
     }
 
     // Join components
     for (components.items, 0..) |comp, i| {
-        if (i > 0) try result.append('/');
-        try result.appendSlice(comp);
+        if (i > 0) try result.append(allocator, '/');
+        try result.appendSlice(allocator, comp);
     }
 
     if (result.items.len == 0) {
         return try allocator.dupe(u8, ".");
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Return an absolute path.
@@ -104,7 +104,7 @@ pub fn isabs(path: []const u8) bool {
 
 /// Join path components.
 pub fn join(allocator: std.mem.Allocator, paths: []const []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
 
     for (paths) |p| {
         if (p.len == 0) continue;
@@ -112,16 +112,16 @@ pub fn join(allocator: std.mem.Allocator, paths: []const []const u8) ![]u8 {
         if (p[0] == '/') {
             // Absolute path resets
             result.clearRetainingCapacity();
-            try result.appendSlice(p);
+            try result.appendSlice(allocator, p);
         } else {
             if (result.items.len > 0 and result.items[result.items.len - 1] != '/') {
-                try result.append('/');
+                try result.append(allocator, '/');
             }
-            try result.appendSlice(p);
+            try result.appendSlice(allocator, p);
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Split a pathname into (head, tail).
@@ -211,12 +211,12 @@ pub fn expanduser(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     // ~user expansion would require passwd lookup
 
     if (home) |h| {
-        var result = std.ArrayList(u8).init(allocator);
-        try result.appendSlice(h);
+        var result: std.ArrayList(u8) = .{};
+        try result.appendSlice(allocator, h);
         if (i < path.len) {
-            try result.appendSlice(path[i..]);
+            try result.appendSlice(allocator, path[i..]);
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 
     return try allocator.dupe(u8, path);
@@ -224,7 +224,7 @@ pub fn expanduser(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 
 /// Expand shell variables of the form $var and ${var}.
 pub fn expandvars(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
     var i: usize = 0;
 
     while (i < path.len) {
@@ -232,7 +232,7 @@ pub fn expandvars(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
             if (i + 1 < path.len) {
                 if (path[i + 1] == '$') {
                     // Escaped $
-                    try result.append('$');
+                    try result.append(allocator, '$');
                     i += 2;
                     continue;
                 } else if (path[i + 1] == '{') {
@@ -240,7 +240,7 @@ pub fn expandvars(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
                     if (std.mem.indexOfScalar(u8, path[i + 2 ..], '}')) |end| {
                         const var_name = path[i + 2 .. i + 2 + end];
                         if (std.posix.getenv(var_name)) |val| {
-                            try result.appendSlice(val);
+                            try result.appendSlice(allocator, val);
                         }
                         i = i + 3 + end;
                         continue;
@@ -254,7 +254,7 @@ pub fn expandvars(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
                     if (j > i + 1) {
                         const var_name = path[i + 1 .. j];
                         if (std.posix.getenv(var_name)) |val| {
-                            try result.appendSlice(val);
+                            try result.appendSlice(allocator, val);
                         }
                         i = j;
                         continue;
@@ -262,11 +262,11 @@ pub fn expandvars(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
                 }
             }
         }
-        try result.append(path[i]);
+        try result.append(allocator, path[i]);
         i += 1;
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 // ============================================================================

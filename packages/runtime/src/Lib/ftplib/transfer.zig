@@ -64,8 +64,8 @@ pub fn retrlines(
 
     // Read lines from data connection
     if (ftp.sock) |sock| {
-        var line_buf = std.ArrayList(u8).init(ftp.allocator);
-        defer line_buf.deinit();
+        var line_buf: std.ArrayList(u8) = .{};
+        defer line_buf.deinit(ftp.allocator);
         var buf: [1]u8 = undefined;
 
         while (true) {
@@ -78,7 +78,7 @@ pub fn retrlines(
                 }
                 line_buf.clearRetainingCapacity();
             } else if (buf[0] != '\r') {
-                line_buf.append(buf[0]) catch break;
+                line_buf.append(ftp.allocator, buf[0]) catch break;
             }
         }
 

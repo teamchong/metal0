@@ -39,18 +39,18 @@ pub const CodecInfo = struct {
 
 /// Normalize encoding name
 pub fn normalize_encoding(allocator: std.mem.Allocator, encoding: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
 
     for (encoding) |c| {
         if (c == ' ' or c == '-' or c == '_') {
             // Skip or normalize to underscore
             continue;
         } else {
-            try result.append(std.ascii.toLower(c));
+            try result.append(allocator, std.ascii.toLower(c));
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Search for a codec
@@ -166,17 +166,17 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, encoding: []const
 
     // For Latin-1, convert to UTF-8
     if (std.mem.eql(u8, info.name, "latin-1")) {
-        var result = std.ArrayList(u8).init(allocator);
+        var result: std.ArrayList(u8) = .{};
         for (input) |c| {
             if (c < 128) {
-                try result.append(c);
+                try result.append(allocator, c);
             } else {
                 // Encode as UTF-8
-                try result.append(0xC0 | (c >> 6));
-                try result.append(0x80 | (c & 0x3F));
+                try result.append(allocator, 0xC0 | (c >> 6));
+                try result.append(allocator, 0x80 | (c & 0x3F));
             }
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 
     return error.UnknownEncoding;

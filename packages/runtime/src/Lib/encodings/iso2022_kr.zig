@@ -40,8 +40,8 @@ const SO = 0x0E; // Shift Out - switch to KS X 1001
 
 /// Decode ISO-2022-KR to UTF-8
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var in_korean = false;
     var i: usize = 0;
@@ -68,14 +68,14 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                 i += 4;
             } else {
                 if (mode == .strict) return error.InvalidSequence;
-                try result.appendSlice("\xEF\xBF\xBD");
+                try result.appendSlice(allocator, "\xEF\xBF\xBD");
                 i += 1;
             }
         } else if (in_korean) {
             // KS X 1001 double-byte
             if (i + 1 >= input.len) {
                 if (mode == .strict) return error.IncompleteSequence;
-                try result.appendSlice("\xEF\xBF\xBD");
+                try result.appendSlice(allocator, "\xEF\xBF\xBD");
                 i += 1;
                 continue;
             }
@@ -94,33 +94,33 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             };
             const euc_result = try euc_kr.decode(allocator, &euc_bytes, euc_mode);
             defer allocator.free(euc_result.output);
-            try result.appendSlice(euc_result.output);
+            try result.appendSlice(allocator, euc_result.output);
             i += 2;
         } else {
             // ASCII mode
             if (b < 0x80) {
-                try result.append(b);
+                try result.append(allocator, b);
             } else {
                 if (mode == .strict) return error.InvalidByte;
-                try result.appendSlice("\xEF\xBF\xBD");
+                try result.appendSlice(allocator, "\xEF\xBF\xBD");
             }
             i += 1;
         }
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }
 
 /// Encode UTF-8 to ISO-2022-KR
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !EncodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     // Start with designator sequence
-    try result.appendSlice(&[_]u8{ ESC, '$', ')', 'C' });
+    try result.appendSlice(allocator, &[_]u8{ ESC, '$', ')', 'C' });
 
     var in_korean = false;
 
@@ -129,41 +129,41 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
         if (cp < 0x80) {
             // Switch to ASCII if not already
             if (in_korean) {
-                try result.append(SI);
+                try result.append(allocator, SI);
                 in_korean = false;
             }
-            try result.append(@intCast(cp));
+            try result.append(allocator, @intCast(cp));
         } else {
             // Use CJK mapping tables for KS X 1001 encoding
             const cjk = @import("cjk_mappings.zig");
             if (cjk.encodeKsx1001(cp)) |ks_code| {
                 // Switch to Korean if not already
                 if (!in_korean) {
-                    try result.append(SO);
+                    try result.append(allocator, SO);
                     in_korean = true;
                 }
                 // Output without high bit (ISO-2022 uses 7-bit)
-                try result.append(@intCast(ks_code >> 8));
-                try result.append(@intCast(ks_code & 0xFF));
+                try result.append(allocator, @intCast(ks_code >> 8));
+                try result.append(allocator, @intCast(ks_code & 0xFF));
             } else {
                 // No mapping available
                 if (mode == .strict) return error.UnencodableCharacter;
                 if (in_korean) {
-                    try result.append(SI);
+                    try result.append(allocator, SI);
                     in_korean = false;
                 }
-                try result.append('?');
+                try result.append(allocator, '?');
             }
         }
     }
 
     // End in ASCII mode
     if (in_korean) {
-        try result.append(SI);
+        try result.append(allocator, SI);
     }
 
     return EncodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .chars_consumed = input.len,
     };
 }

@@ -28,8 +28,9 @@ var sys_path_initialized: bool = false;
 
 /// Get sys.path (initializes if needed)
 pub fn getSysPath(allocator: std.mem.Allocator) *std.ArrayList([]const u8) {
+    _ = allocator;
     if (!sys_path_initialized) {
-        sys_path = std.ArrayList([]const u8).init(allocator);
+        sys_path = .{};
         sys_path_initialized = true;
     }
     return &sys_path;
@@ -42,7 +43,7 @@ pub fn addToSysPath(allocator: std.mem.Allocator, path: []const u8) !void {
     for (sp.items) |existing| {
         if (std.mem.eql(u8, existing, path)) return;
     }
-    try sp.append(path);
+    try sp.append(allocator, path);
 }
 
 // ============================================================================
@@ -51,11 +52,11 @@ pub fn addToSysPath(allocator: std.mem.Allocator, path: []const u8) !void {
 
 /// Initialize the site module
 pub fn main(allocator: std.mem.Allocator) void {
-    PREFIXES = std.ArrayList([]const u8).init(allocator);
+    PREFIXES = .{};
 
     // Add standard prefixes
-    PREFIXES.append("/usr/local") catch {};
-    PREFIXES.append("/usr") catch {};
+    PREFIXES.append(allocator, "/usr/local") catch {};
+    PREFIXES.append(allocator, "/usr") catch {};
 
     // Determine user directories
     if (std.posix.getenv("PYTHONUSERBASE")) |base| {
@@ -137,17 +138,17 @@ pub fn addsitedir(allocator: std.mem.Allocator, sitedir: []const u8, known_paths
 
 /// Get standard site-packages directories
 pub fn getsitepackages(allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
-    var result = std.ArrayList([]const u8).init(allocator);
+    var result: std.ArrayList([]const u8) = .{};
 
     // Platform-specific site-packages locations
     switch (builtin.os.tag) {
         .linux, .macos => {
-            try result.append("/usr/local/lib/python3.12/site-packages");
-            try result.append("/usr/lib/python3.12/site-packages");
-            try result.append("/usr/lib/python3/dist-packages");
+            try result.append(allocator, "/usr/local/lib/python3.12/site-packages");
+            try result.append(allocator, "/usr/lib/python3.12/site-packages");
+            try result.append(allocator, "/usr/lib/python3/dist-packages");
         },
         .windows => {
-            try result.append("C:\\Python312\\Lib\\site-packages");
+            try result.append(allocator, "C:\\Python312\\Lib\\site-packages");
         },
         else => {},
     }

@@ -52,13 +52,13 @@ pub const BreakpointManager = struct {
 
     /// Get all breakpoints at a location
     pub fn getBreaks(breakpoints: *std.ArrayList(Breakpoint), allocator: std.mem.Allocator, filename: []const u8, lineno: usize) []Breakpoint {
-        var result = std.ArrayList(Breakpoint).init(allocator);
+        var result: std.ArrayList(Breakpoint) = .{};
         for (breakpoints.items) |bp| {
             if (std.mem.eql(u8, bp.file, filename) and bp.line == lineno) {
-                result.append(bp) catch continue;
+                result.append(allocator, bp) catch continue;
             }
         }
-        return result.toOwnedSlice() catch &[_]Breakpoint{};
+        return result.toOwnedSlice(allocator) catch &[_]Breakpoint{};
     }
 
     /// Check if there's a breakpoint at given location

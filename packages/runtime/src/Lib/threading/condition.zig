@@ -24,13 +24,13 @@ pub const Condition = struct {
         return .{
             .allocator = allocator,
             .lock = l,
-            .waiters = std.ArrayList(*std.Thread.Condition).init(allocator),
+            .waiters = .{},
             .internal_cond = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.waiters.deinit();
+        self.waiters.deinit(self.allocator);
     }
 
     /// Acquire the underlying lock

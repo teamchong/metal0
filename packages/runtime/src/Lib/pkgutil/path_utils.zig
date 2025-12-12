@@ -27,11 +27,11 @@ pub fn get_data(allocator: std.mem.Allocator, package: []const u8, resource: []c
 /// Extend package __path__ for namespace packages
 /// Searches sys.path for additional directories containing the package
 pub fn extend_path(allocator: std.mem.Allocator, path: []const []const u8, name: []const u8) ![]const []const u8 {
-    var result = std.ArrayList([]const u8).init(allocator);
+    var result: std.ArrayList([]const u8) = .{};
 
     // Keep existing paths
     for (path) |p| {
-        try result.append(try allocator.dupe(u8, p));
+        try result.append(allocator, try allocator.dupe(u8, p));
     }
 
     // Check sys.path for additional namespace package paths
@@ -68,7 +68,7 @@ pub fn extend_path(allocator: std.mem.Allocator, path: []const []const u8, name:
             }
 
             if (!found) {
-                try result.append(try allocator.dupe(u8, pkg_path));
+                try result.append(allocator, try allocator.dupe(u8, pkg_path));
             }
         } else |_| {}
     }
@@ -98,13 +98,13 @@ pub fn extend_path(allocator: std.mem.Allocator, path: []const []const u8, name:
                 }
 
                 if (!found) {
-                    try result.append(try allocator.dupe(u8, full_path));
+                    try result.append(allocator, try allocator.dupe(u8, full_path));
                 }
             } else |_| {}
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 test "extend_path preserves paths" {

@@ -45,7 +45,7 @@ pub fn TopologicalSorter(comptime T: type) type {
                 .graph = std.AutoHashMap(T, std.ArrayList(T)).init(allocator),
                 .nodes = std.AutoHashMap(T, void).init(allocator),
                 .allocator = allocator,
-                .ready_nodes = std.ArrayList(T).init(allocator),
+                .ready_nodes = .{},
                 .done_nodes = std.AutoHashMap(T, void).init(allocator),
                 .in_degree = std.AutoHashMap(T, usize).init(allocator),
             };
@@ -55,11 +55,11 @@ pub fn TopologicalSorter(comptime T: type) type {
         pub fn deinit(self: *Self) void {
             var it = self.graph.iterator();
             while (it.next()) |entry| {
-                entry.value_ptr.deinit();
+                entry.value_ptr.deinit(self.allocator);
             }
             self.graph.deinit();
             self.nodes.deinit();
-            self.ready_nodes.deinit();
+            self.ready_nodes.deinit(self.allocator);
             self.done_nodes.deinit();
             self.in_degree.deinit();
         }
@@ -76,12 +76,12 @@ pub fn TopologicalSorter(comptime T: type) type {
             // Get or create predecessor list
             const result = try self.graph.getOrPut(node);
             if (!result.found_existing) {
-                result.value_ptr.* = std.ArrayList(T).init(self.allocator);
+                result.value_ptr.* = .{};
             }
 
             // Add predecessors
             for (predecessors) |pred| {
-                try result.value_ptr.append(pred);
+                try result.value_ptr.append(self.allocator, pred);
                 try self.nodes.put(pred, {});
             }
         }
@@ -108,7 +108,7 @@ pub fn TopologicalSorter(comptime T: type) type {
             var degree_it = self.in_degree.iterator();
             while (degree_it.next()) |entry| {
                 if (entry.value_ptr.* == 0) {
-                    try self.ready_nodes.append(entry.key_ptr.*);
+                    try self.ready_nodes.append(self.allocator, entry.key_ptr.*);
                 }
             }
 
@@ -151,7 +151,7 @@ pub fn TopologicalSorter(comptime T: type) type {
                             if (current > 0) {
                                 try self.in_degree.put(successor, current - 1);
                                 if (current - 1 == 0 and !self.done_nodes.contains(successor)) {
-                                    try self.ready_nodes.append(successor);
+                                    try self.ready_nodes.append(self.allocator, successor);
                                 }
                             }
                         }
@@ -166,8 +166,8 @@ pub fn TopologicalSorter(comptime T: type) type {
                 try self.prepare();
             }
 
-            var result = std.ArrayList(T).init(self.allocator);
-            errdefer result.deinit();
+            var result: std.ArrayList(T) = .{};
+            errdefer result.deinit(self.allocator);
 
             while (self.isActive()) {
                 const ready = try self.getReady();
@@ -176,12 +176,12 @@ pub fn TopologicalSorter(comptime T: type) type {
                     return GraphError.CycleError;
                 }
                 for (ready) |node| {
-                    try result.append(node);
+                    try result.append(self.allocator, node);
                 }
                 try self.done(ready);
             }
 
-            return result.toOwnedSlice();
+            return result.toOwnedSlice(self.allocator);
         }
 
         /// Copy the sorter
@@ -191,9 +191,9 @@ pub fn TopologicalSorter(comptime T: type) type {
             // Copy graph
             var it = self.graph.iterator();
             while (it.next()) |entry| {
-                var new_list = std.ArrayList(T).init(self.allocator);
+                var new_list: std.ArrayList(T) = .{};
                 for (entry.value_ptr.items) |item| {
-                    try new_list.append(item);
+                    try new_list.append(self.allocator, item);
                 }
                 try new_sorter.graph.put(entry.key_ptr.*, new_list);
             }

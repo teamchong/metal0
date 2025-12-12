@@ -82,12 +82,69 @@ pub fn genBreakpoint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for print(*args, sep=" ", end="\\n", file=sys.stdout, flush=False)
 pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("runtime.builtins.print(__global_allocator, &.{");
+    genPrintWithKeywords(self, args, &.{}) catch {};
+}
+
+/// Generate code for print() with keyword arguments support
+pub fn genPrintWithKeywords(self: *NativeCodegen, args: []ast.Node, keyword_args: []const ast.Node.KeywordArg) CodegenError!void {
+    // Extract keyword arguments
+    var sep_expr: ?ast.Node = null;
+    var end_expr: ?ast.Node = null;
+    var file_expr: ?ast.Node = null;
+
+    for (keyword_args) |kw| {
+        if (std.mem.eql(u8, kw.name, "sep")) {
+            sep_expr = kw.value;
+        } else if (std.mem.eql(u8, kw.name, "end")) {
+            end_expr = kw.value;
+        } else if (std.mem.eql(u8, kw.name, "file")) {
+            file_expr = kw.value;
+        }
+        // Ignore flush= for now (Zig stdout is unbuffered)
+    }
+
+    // If no keyword args, use simple print for efficiency
+    if (sep_expr == null and end_expr == null and file_expr == null) {
+        try self.emit("runtime.builtins.print(__global_allocator, &.{");
+        for (args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try self.genExpr(arg);
+        }
+        try self.emit("})");
+        return;
+    }
+
+    // Use printWithOptions for keyword args
+    try self.emit("runtime.builtins.printWithOptions(__global_allocator, &.{");
     for (args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
         try self.genExpr(arg);
     }
-    try self.emit("})");
+    try self.emit("}, ");
+
+    // sep argument
+    if (sep_expr) |sep| {
+        try self.genExpr(sep);
+    } else {
+        try self.emit("\" \"");
+    }
+    try self.emit(", ");
+
+    // end argument
+    if (end_expr) |end| {
+        try self.genExpr(end);
+    } else {
+        try self.emit("\"\\n\"");
+    }
+    try self.emit(", ");
+
+    // file argument (null for stdout)
+    if (file_expr) |file| {
+        try self.genExpr(file);
+    } else {
+        try self.emit("null");
+    }
+    try self.emit(")");
 }
 
 /// Generate code for aiter(async_iterable) - async iterator

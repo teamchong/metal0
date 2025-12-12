@@ -26,16 +26,16 @@ pub const RobotFileParser = struct {
             .url = url,
             .disallow_all = false,
             .allow_all = false,
-            .rules = std.ArrayList(Rule).init(allocator),
+            .rules = .{},
         };
     }
 
     pub fn deinit(self: *RobotFileParser) void {
         for (self.rules.items) |*rule| {
-            rule.disallow.deinit();
-            rule.allow.deinit();
+            rule.disallow.deinit(self.allocator);
+            rule.allow.deinit(self.allocator);
         }
-        self.rules.deinit();
+        self.rules.deinit(self.allocator);
     }
 
     pub fn setUrl(self: *RobotFileParser, url: []const u8) void {
@@ -61,12 +61,12 @@ pub const RobotFileParser = struct {
             const body = body_buf[0..body_len];
 
             // Split into lines and parse
-            var lines = std.ArrayList([]const u8).init(self.allocator);
-            defer lines.deinit();
+            var lines: std.ArrayList([]const u8) = .{};
+            defer lines.deinit(self.allocator);
 
             var iter = std.mem.splitScalar(u8, body, '\n');
             while (iter.next()) |line| {
-                lines.append(line) catch continue;
+                lines.append(self.allocator, line) catch continue;
             }
 
             try self.parseLines(lines.items);
@@ -87,17 +87,17 @@ pub const RobotFileParser = struct {
 
                 if (std.ascii.eqlIgnoreCase(key, "user-agent")) {
                     current_useragent = value;
-                    try self.rules.append(.{
+                    try self.rules.append(self.allocator, .{
                         .useragent = value,
-                        .disallow = std.ArrayList([]const u8).init(self.allocator),
-                        .allow = std.ArrayList([]const u8).init(self.allocator),
+                        .disallow = .{},
+                        .allow = .{},
                     });
                     current_rule = &self.rules.items[self.rules.items.len - 1];
                 } else if (current_rule) |rule| {
                     if (std.ascii.eqlIgnoreCase(key, "disallow")) {
-                        try rule.disallow.append(value);
+                        try rule.disallow.append(self.allocator, value);
                     } else if (std.ascii.eqlIgnoreCase(key, "allow")) {
-                        try rule.allow.append(value);
+                        try rule.allow.append(self.allocator, value);
                     }
                 }
             }

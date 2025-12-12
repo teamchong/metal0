@@ -937,6 +937,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try buf.writer(self.allocator).print("__local_{s}_{d}", .{ var_name, helper_id });
             const renamed = try buf.toOwnedSlice(self.allocator);
             try self.var_renames.put(var_name, renamed);
+            // Remove from func_local_vars so var_renames lookup is used in expressions.zig
+            // This ensures starred unpacking (*instances) uses __local_instances_N instead
+            _ = self.func_local_vars.swapRemove(var_name);
         }
 
         // Save any existing renames for written_outer_vars before overwriting
@@ -964,6 +967,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 try buf.writer(self.allocator).print("p_{s}_{d}.*", .{ var_name, helper_id });
                 const renamed = try buf.toOwnedSlice(self.allocator);
                 try self.var_renames.put(var_name, renamed);
+                // Remove from func_local_vars so var_renames lookup is used
+                _ = self.func_local_vars.swapRemove(var_name);
                 continue;
             }
             // Check if variable is used in try body, exception handlers, or finally block
@@ -990,6 +995,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try buf.writer(self.allocator).print("p_{s}_{d}.*", .{ var_name, helper_id });
             const renamed = try buf.toOwnedSlice(self.allocator);
             try self.var_renames.put(var_name, renamed);
+            // Remove from func_local_vars so var_renames lookup is used
+            _ = self.func_local_vars.swapRemove(var_name);
         }
 
         // Save any existing import-shadowing renames for hoisted vars before overwriting
@@ -1030,6 +1037,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try buf.writer(self.allocator).print("p_{s}_{d}.*", .{ hoisted.name, helper_id });
             const renamed = try buf.toOwnedSlice(self.allocator);
             try self.var_renames.put(hoisted.name, renamed);
+            // Remove from func_local_vars so var_renames lookup is used
+            _ = self.func_local_vars.swapRemove(hoisted.name);
         }
 
         // Check if try body contains break/continue for special handling

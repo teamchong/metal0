@@ -31,8 +31,9 @@ pub const Manager = struct {
 
     /// Create a managed list
     pub fn list(self: *Self, comptime T: type) !std.ArrayList(T) {
+        _ = self;
         if (!self.started) return error.ManagerNotStarted;
-        return std.ArrayList(T).init(self.allocator);
+        return std.ArrayList(T){};
     }
 
     /// Create a managed dict

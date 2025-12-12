@@ -33,8 +33,8 @@ pub const ErrorMode = enum {
 /// Decode raw unicode escape sequences to UTF-8
 /// Handles \uXXXX and \UXXXXXXXX sequences only
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < input.len) {
@@ -46,11 +46,11 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                     var buf: [4]u8 = undefined;
                     const len = std.unicode.utf8Encode(@intCast(codepoint), &buf) catch {
                         if (mode == .strict) return error.InvalidCodepoint;
-                        try result.append(0xFFFD & 0xFF); // replacement char
+                        try result.append(allocator, 0xFFFD & 0xFF); // replacement char
                         i += 6;
                         continue;
                     };
-                    try result.appendSlice(buf[0..len]);
+                    try result.appendSlice(allocator, buf[0..len]);
                     i += 6;
                     continue;
                 }
@@ -62,11 +62,11 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
                         var buf: [4]u8 = undefined;
                         const len = std.unicode.utf8Encode(@intCast(codepoint), &buf) catch {
                             if (mode == .strict) return error.InvalidCodepoint;
-                            try result.appendSlice("\xEF\xBF\xBD"); // U+FFFD
+                            try result.appendSlice(allocator, "\xEF\xBF\xBD"); // U+FFFD
                             i += 10;
                             continue;
                         };
-                        try result.appendSlice(buf[0..len]);
+                        try result.appendSlice(allocator, buf[0..len]);
                         i += 10;
                         continue;
                     }
@@ -74,12 +74,12 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             }
         }
         // Not an escape sequence, copy as-is
-        try result.append(input[i]);
+        try result.append(allocator, input[i]);
         i += 1;
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }
@@ -87,31 +87,31 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 /// Encode UTF-8 to raw unicode escape format
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !EncodeResult {
     _ = mode;
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var iter = std.unicode.Utf8Iterator{ .bytes = input, .i = 0 };
     while (iter.nextCodepoint()) |cp| {
         if (cp < 0x80) {
             // ASCII - output directly
-            try result.append(@intCast(cp));
+            try result.append(allocator, @intCast(cp));
         } else if (cp <= 0xFFFF) {
             // BMP - use \uXXXX
-            try result.appendSlice("\\u");
+            try result.appendSlice(allocator, "\\u");
             var buf: [4]u8 = undefined;
             _ = std.fmt.bufPrint(&buf, "{x:0>4}", .{cp}) catch unreachable;
-            try result.appendSlice(&buf);
+            try result.appendSlice(allocator, &buf);
         } else {
             // Non-BMP - use \UXXXXXXXX
-            try result.appendSlice("\\U");
+            try result.appendSlice(allocator, "\\U");
             var buf: [8]u8 = undefined;
             _ = std.fmt.bufPrint(&buf, "{x:0>8}", .{cp}) catch unreachable;
-            try result.appendSlice(&buf);
+            try result.appendSlice(allocator, &buf);
         }
     }
 
     return EncodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .chars_consumed = input.len,
     };
 }

@@ -26,16 +26,16 @@ pub const TestCase = struct {
         return .{
             .allocator = allocator,
             .name = name,
-            .failures = std.ArrayList([]const u8).init(allocator),
-            .errors = std.ArrayList([]const u8).init(allocator),
+            .failures = .{},
+            .errors = .{},
             .skipped = false,
             .skip_reason = null,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.failures.deinit();
-        self.errors.deinit();
+        self.failures.deinit(self.allocator);
+        self.errors.deinit(self.allocator);
     }
 
     /// setUp - called before each test method
@@ -68,7 +68,7 @@ pub const TestCase = struct {
     pub fn assertTrue(self: *Self, value: bool, msg: ?[]const u8) !void {
         if (!value) {
             const message = msg orelse "assertTrue failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -77,7 +77,7 @@ pub const TestCase = struct {
     pub fn assertFalse(self: *Self, value: bool, msg: ?[]const u8) !void {
         if (value) {
             const message = msg orelse "assertFalse failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -86,7 +86,7 @@ pub const TestCase = struct {
     pub fn assertEqual(self: *Self, comptime T: type, actual: T, expected: T, msg: ?[]const u8) !void {
         if (actual != expected) {
             const message = msg orelse "assertEqual failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -95,7 +95,7 @@ pub const TestCase = struct {
     pub fn assertNotEqual(self: *Self, comptime T: type, actual: T, expected: T, msg: ?[]const u8) !void {
         if (actual == expected) {
             const message = msg orelse "assertNotEqual failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -104,7 +104,7 @@ pub const TestCase = struct {
     pub fn assertIs(self: *Self, comptime T: type, actual: T, expected: T, msg: ?[]const u8) !void {
         if (@intFromPtr(actual) != @intFromPtr(expected)) {
             const message = msg orelse "assertIs failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -113,7 +113,7 @@ pub const TestCase = struct {
     pub fn assertIsNot(self: *Self, comptime T: type, actual: T, expected: T, msg: ?[]const u8) !void {
         if (@intFromPtr(actual) == @intFromPtr(expected)) {
             const message = msg orelse "assertIsNot failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -122,7 +122,7 @@ pub const TestCase = struct {
     pub fn assertIsNone(self: *Self, value: anytype, msg: ?[]const u8) !void {
         if (value != null) {
             const message = msg orelse "assertIsNone failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -131,7 +131,7 @@ pub const TestCase = struct {
     pub fn assertIsNotNone(self: *Self, value: anytype, msg: ?[]const u8) !void {
         if (value == null) {
             const message = msg orelse "assertIsNotNone failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -151,7 +151,7 @@ pub const TestCase = struct {
         for (container) |c| {
             if (c == item) {
                 const message = msg orelse "assertNotIn failed";
-                try self.failures.append(self.allocator, message);
+                try self.failures.append(self.allocator,self.allocator, message);
                 return error.AssertionFailed;
             }
         }
@@ -161,7 +161,7 @@ pub const TestCase = struct {
     pub fn assertGreater(self: *Self, comptime T: type, a: T, b: T, msg: ?[]const u8) !void {
         if (a <= b) {
             const message = msg orelse "assertGreater failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -170,7 +170,7 @@ pub const TestCase = struct {
     pub fn assertGreaterEqual(self: *Self, comptime T: type, a: T, b: T, msg: ?[]const u8) !void {
         if (a < b) {
             const message = msg orelse "assertGreaterEqual failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -179,7 +179,7 @@ pub const TestCase = struct {
     pub fn assertLess(self: *Self, comptime T: type, a: T, b: T, msg: ?[]const u8) !void {
         if (a >= b) {
             const message = msg orelse "assertLess failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -188,7 +188,7 @@ pub const TestCase = struct {
     pub fn assertLessEqual(self: *Self, comptime T: type, a: T, b: T, msg: ?[]const u8) !void {
         if (a > b) {
             const message = msg orelse "assertLessEqual failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }
@@ -198,7 +198,7 @@ pub const TestCase = struct {
         const tolerance = std.math.pow(f64, 10.0, -@as(f64, @floatFromInt(places)));
         if (@abs(actual - expected) > tolerance) {
             const message = msg orelse "assertAlmostEqual failed";
-            try self.failures.append(self.allocator, message);
+            try self.failures.append(self.allocator,self.allocator, message);
             return error.AssertionFailed;
         }
     }

@@ -27,8 +27,8 @@ pub fn parseMessage(allocator: std.mem.Allocator, text: []const u8) !*Message {
     // Parse headers
     const headers_text = text[0..header_end];
     var current_name: ?[]const u8 = null;
-    var current_value = std.ArrayList(u8).init(allocator);
-    defer current_value.deinit();
+    var current_value: std.ArrayList(u8) = .{};
+    defer current_value.deinit(allocator);
 
     var lines = std.mem.splitAny(u8, headers_text, "\r\n");
     while (lines.next()) |line| {
@@ -37,8 +37,8 @@ pub fn parseMessage(allocator: std.mem.Allocator, text: []const u8) !*Message {
         // Continuation line (starts with whitespace)
         if (line[0] == ' ' or line[0] == '\t') {
             if (current_name != null) {
-                try current_value.append(' ');
-                try current_value.appendSlice(std.mem.trim(u8, line, " \t"));
+                try current_value.append(allocator, ' ');
+                try current_value.appendSlice(allocator, std.mem.trim(u8, line, " \t"));
             }
             continue;
         }
@@ -53,7 +53,7 @@ pub fn parseMessage(allocator: std.mem.Allocator, text: []const u8) !*Message {
         if (std.mem.indexOf(u8, line, ":")) |colon_pos| {
             current_name = line[0..colon_pos];
             const value = std.mem.trim(u8, line[colon_pos + 1 ..], " \t");
-            try current_value.appendSlice(value);
+            try current_value.appendSlice(allocator, value);
         }
     }
 
@@ -76,12 +76,12 @@ pub fn parseMessage(allocator: std.mem.Allocator, text: []const u8) !*Message {
 
         // Check if multipart
         if (msg.getBoundary()) |boundary| {
-            var parts = std.ArrayList(*Message).init(allocator);
-            var search_boundary = std.ArrayList(u8).init(allocator);
-            defer search_boundary.deinit();
+            var parts: std.ArrayList(*Message) = .{};
+            var search_boundary: std.ArrayList(u8) = .{};
+            defer search_boundary.deinit(allocator);
 
-            try search_boundary.appendSlice("--");
-            try search_boundary.appendSlice(boundary);
+            try search_boundary.appendSlice(allocator, "--");
+            try search_boundary.appendSlice(allocator, boundary);
 
             var part_start: ?usize = null;
             var i: usize = 0;
@@ -97,7 +97,7 @@ pub fn parseMessage(allocator: std.mem.Allocator, text: []const u8) !*Message {
                         }
                         if (end > start) {
                             const part = try parseMessage(allocator, body[start..end]);
-                            try parts.append(part);
+                            try parts.append(allocator, part);
                         }
                     }
 
@@ -172,8 +172,8 @@ pub const HeaderParser = struct {
 
         // Parse only headers (no body)
         var current_name: ?[]const u8 = null;
-        var current_value = std.ArrayList(u8).init(self.allocator);
-        defer current_value.deinit();
+        var current_value: std.ArrayList(u8) = .{};
+        defer current_value.deinit(self.allocator);
 
         var lines = std.mem.splitAny(u8, text, "\r\n");
         while (lines.next()) |line| {
@@ -182,8 +182,8 @@ pub const HeaderParser = struct {
             // Continuation line (starts with whitespace)
             if (line[0] == ' ' or line[0] == '\t') {
                 if (current_name != null) {
-                    try current_value.append(' ');
-                    try current_value.appendSlice(std.mem.trim(u8, line, " \t"));
+                    try current_value.append(self.allocator, ' ');
+                    try current_value.appendSlice(self.allocator, std.mem.trim(u8, line, " \t"));
                 }
                 continue;
             }
@@ -198,7 +198,7 @@ pub const HeaderParser = struct {
             if (std.mem.indexOf(u8, line, ":")) |colon_pos| {
                 current_name = line[0..colon_pos];
                 const value = std.mem.trim(u8, line[colon_pos + 1 ..], " \t");
-                try current_value.appendSlice(value);
+                try current_value.appendSlice(self.allocator, value);
             }
         }
 
@@ -219,16 +219,16 @@ pub const FeedParser = struct {
     pub fn init(allocator: std.mem.Allocator) FeedParser {
         return .{
             .allocator = allocator,
-            .buffer = std.ArrayList(u8).init(allocator),
+            .buffer = .{},
         };
     }
 
     pub fn deinit(self: *FeedParser) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     pub fn feed(self: *FeedParser, data: []const u8) !void {
-        try self.buffer.appendSlice(data);
+        try self.buffer.appendSlice(self.allocator, data);
     }
 
     pub fn close(self: *FeedParser) !*Message {

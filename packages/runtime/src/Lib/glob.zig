@@ -112,10 +112,10 @@ fn matchCharClass(pattern: []const u8, char: u8) ?usize {
 
 /// Expand glob pattern and return matching paths
 pub fn glob(allocator: Allocator, pattern: []const u8) !std.ArrayList([]const u8) {
-    var results = std.ArrayList([]const u8).init(allocator);
+    var results: std.ArrayList([]const u8) = .{};
     errdefer {
         for (results.items) |item| allocator.free(item);
-        results.deinit();
+        results.deinit(allocator);
     }
 
     // Split pattern into directory and file parts
@@ -130,7 +130,7 @@ pub fn glob(allocator: Allocator, pattern: []const u8) !std.ArrayList([]const u8
             var dir_matches = try glob(allocator, dir_pattern);
             defer {
                 for (dir_matches.items) |item| allocator.free(item);
-                dir_matches.deinit();
+                dir_matches.deinit(allocator);
             }
 
             for (dir_matches.items) |dir_path| {
@@ -170,7 +170,7 @@ fn globInDir(
     while (try iter.next()) |entry| {
         if (fnmatch(pattern, entry.name)) {
             const full_path = try std.fs.path.join(allocator, &.{ dir_path, entry.name });
-            try results.append(full_path);
+            try results.append(allocator, full_path);
         }
     }
 }
@@ -178,10 +178,10 @@ fn globInDir(
 /// Recursive glob with ** support
 /// The ** pattern matches any number of directory levels
 pub fn iglob(allocator: Allocator, pattern: []const u8) !std.ArrayList([]const u8) {
-    var results = std.ArrayList([]const u8).init(allocator);
+    var results: std.ArrayList([]const u8) = .{};
     errdefer {
         for (results.items) |item| allocator.free(item);
-        results.deinit();
+        results.deinit(allocator);
     }
 
     // Check if pattern contains **
@@ -195,9 +195,9 @@ pub fn iglob(allocator: Allocator, pattern: []const u8) !std.ArrayList([]const u
     } else {
         // No ** pattern, use regular glob
         var regular = try glob(allocator, pattern);
-        defer regular.deinit();
+        defer regular.deinit(allocator);
         for (regular.items) |item| {
-            try results.append(item);
+            try results.append(allocator, item);
         }
         // Don't free items - ownership transferred to results
         regular.items.len = 0;
@@ -223,7 +223,7 @@ fn recursiveGlob(
 
         // Check if this file/dir matches the suffix pattern
         if (suffix_pattern.len == 0 or fnmatch(suffix_pattern, entry.name)) {
-            try results.append(full_path);
+            try results.append(allocator, full_path);
         } else {
             allocator.free(full_path);
         }
@@ -239,7 +239,7 @@ fn recursiveGlob(
 
 /// Escape special characters in a pathname
 pub fn escape(allocator: Allocator, pathname: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8){};
+    var result: std.ArrayList(u8) = .{};
     errdefer result.deinit(allocator);
 
     for (pathname) |c| {

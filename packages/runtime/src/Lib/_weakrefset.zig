@@ -72,14 +72,14 @@ pub fn WeakSet(comptime T: type) type {
             return .{
                 .allocator = allocator,
                 .data = std.AutoHashMap(usize, Ref).init(allocator),
-                .pending_removals = std.ArrayList(usize).init(allocator),
+                .pending_removals = .{},
                 .iterating = false,
             };
         }
 
         pub fn deinit(self: *Self) void {
             self.data.deinit();
-            self.pending_removals.deinit();
+            self.pending_removals.deinit(self.allocator);
         }
 
         /// Remove dead references
@@ -105,7 +105,7 @@ pub fn WeakSet(comptime T: type) type {
             const key = @intFromPtr(item);
 
             if (self.iterating) {
-                try self.pending_removals.append(key);
+                try self.pending_removals.append(self.allocator, key);
             } else {
                 self.commitRemovals();
                 _ = self.data.remove(key);
@@ -303,14 +303,14 @@ pub fn WeakSet(comptime T: type) type {
 
         /// Update with intersection
         pub fn intersectionUpdate(self: *Self, other: *Self) void {
-            var to_remove = std.ArrayList(usize).init(self.allocator);
-            defer to_remove.deinit();
+            var to_remove: std.ArrayList(usize) = .{};
+            defer to_remove.deinit(self.allocator);
 
             var it = self.data.iterator();
             while (it.next()) |entry| {
                 if (entry.value_ptr.deref()) |obj| {
                     if (!other.contains(obj)) {
-                        to_remove.append(entry.key_ptr.*) catch continue;
+                        to_remove.append(self.allocator, entry.key_ptr.*) catch continue;
                     }
                 }
             }

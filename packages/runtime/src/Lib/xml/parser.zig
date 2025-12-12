@@ -8,8 +8,8 @@ const Element = @import("element.zig").Element;
 /// Parse XML string to Element
 pub fn parseXML(allocator: std.mem.Allocator, text: []const u8) !*Element {
     // Simple XML parser
-    var stack = std.ArrayList(*Element).init(allocator);
-    defer stack.deinit();
+    var stack: std.ArrayList(*Element) = .{};
+    defer stack.deinit(allocator);
 
     var root: ?*Element = null;
     var current: ?*Element = null;
@@ -73,7 +73,7 @@ pub fn parseXML(allocator: std.mem.Allocator, text: []const u8) !*Element {
                 }
 
                 if (!self_closing) {
-                    try stack.append(elem);
+                    try stack.append(allocator, elem);
                     current = elem;
                 }
 
@@ -220,8 +220,8 @@ pub fn parseElement(allocator: std.mem.Allocator, source: []const u8, pos: *usiz
     }
 
     // Parse content and children
-    var text_buf = std.ArrayList(u8).init(allocator);
-    defer text_buf.deinit();
+    var text_buf: std.ArrayList(u8) = .{};
+    defer text_buf.deinit(allocator);
 
     while (pos.* < source.len) {
         if (source[pos.*] == '<') {
@@ -245,7 +245,7 @@ pub fn parseElement(allocator: std.mem.Allocator, source: []const u8, pos: *usiz
             const child = try parseElement(allocator, source, pos);
             try elem.append(child);
         } else {
-            try text_buf.append(source[pos.*]);
+            try text_buf.append(allocator, source[pos.*]);
             pos.* += 1;
         }
     }

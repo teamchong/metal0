@@ -458,6 +458,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         var is_class_method_call = false;
         var class_method_needs_alloc = false;
         var is_nested_class_method_call = false;
+        var is_static_method = false; // Track @staticmethod for type-based invocation
         {
             // FIRST: Check if this is a self.method() call within the current class
             // This must be checked BEFORE the generic type inferrer check because
@@ -488,6 +489,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     // Look up method in class registry
                     if (self.class_registry.findMethod(class_name, attr.attr)) |method_info| {
                         is_class_method_call = true;
+                        is_static_method = method_info.is_static; // Track staticmethod for type-based call
                         // Get the method's FunctionDef from the class and check if it needs allocator
                         // Use analyzeNeedsAllocator to match method signature generation
                         if (self.class_registry.getClass(method_info.class_name)) |class_def| {
@@ -496,6 +498,18 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                                     class_method_needs_alloc = function_traits.analyzeNeedsAllocator(stmt.function_def, class_name);
                                     break;
                                 }
+                            }
+                        }
+                    } else if (self.nested_class_defs.get(class_name)) |nested_class_def| {
+                        // Also check nested class definitions for the method
+                        for (nested_class_def.body) |stmt| {
+                            if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
+                                is_class_method_call = true;
+                                // Import hasStaticmethodDecorator from signature module
+                                const signature = @import("../statements/functions/generators/signature.zig");
+                                is_static_method = signature.hasStaticmethodDecorator(stmt.function_def.decorators);
+                                class_method_needs_alloc = function_traits.analyzeNeedsAllocator(stmt.function_def, class_name);
+                                break;
                             }
                         }
                     }
@@ -513,6 +527,16 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     const method_key = std.fmt.bufPrint(&method_key_buf, "{s}.{s}", .{ class_name, attr.attr }) catch null;
                     if (method_key) |key| {
                         class_method_needs_alloc = self.nested_class_method_needs_alloc.contains(key);
+                    }
+                    // Check if method is staticmethod
+                    if (self.nested_class_defs.get(class_name)) |nested_class_def| {
+                        for (nested_class_def.body) |stmt| {
+                            if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
+                                const signature = @import("../statements/functions/generators/signature.zig");
+                                is_static_method = signature.hasStaticmethodDecorator(stmt.function_def.decorators);
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -567,7 +591,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             if (emit_try and !self.inside_defer) {
                 try self.emit("try ");
             }
-            try self.emit("__obj.");
+            // For @staticmethod: use @TypeOf(__obj.*).method() since staticmethod has no self parameter
+            // Instance method call with no self parameter requires type-based invocation
+            if (is_static_method) {
+                try self.emit("@TypeOf(__obj.*).");
+            } else {
+                try self.emit("__obj.");
+            }
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
             try self.emit("(");
 
@@ -610,10 +640,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Otherwise Zig parses "1." as start of a float literal
             const needs_parens = attr.value.* == .constant and
                 (attr.value.constant.value == .int or attr.value.constant.value == .float);
-            if (needs_parens) try self.emit("(");
-            try genExpr(self, attr.value.*);
-            if (needs_parens) try self.emit(")");
-            try self.emit(".");
+            // For @staticmethod: use @TypeOf(obj.*).method() since staticmethod has no self parameter
+            if (is_static_method) {
+                try self.emit("@TypeOf(");
+                if (needs_parens) try self.emit("(");
+                try genExpr(self, attr.value.*);
+                if (needs_parens) try self.emit(")");
+                try self.emit(".*).");
+            } else {
+                if (needs_parens) try self.emit("(");
+                try genExpr(self, attr.value.*);
+                if (needs_parens) try self.emit(")");
+                try self.emit(".");
+            }
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
             try self.emit("(");
 

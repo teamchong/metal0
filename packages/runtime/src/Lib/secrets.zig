@@ -143,20 +143,20 @@ pub fn compare_digest(a: []const u8, b: []const u8) bool {
 
 /// Generate a secure random password of given length
 pub fn generate_password(allocator: std.mem.Allocator, length: usize, options: PasswordOptions) ![]u8 {
-    var charset = std.ArrayList(u8).init(allocator);
-    defer charset.deinit();
+    var charset: std.ArrayList(u8) = .{};
+    defer charset.deinit(allocator);
 
     if (options.lowercase) {
-        try charset.appendSlice("abcdefghijklmnopqrstuvwxyz");
+        try charset.appendSlice(allocator, "abcdefghijklmnopqrstuvwxyz");
     }
     if (options.uppercase) {
-        try charset.appendSlice("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+        try charset.appendSlice(allocator, "ABCDEFGHIJKLMNOPQRSTUVWXYZ");
     }
     if (options.digits) {
-        try charset.appendSlice("0123456789");
+        try charset.appendSlice(allocator, "0123456789");
     }
     if (options.special) {
-        try charset.appendSlice("!@#$%^&*()_+-=[]{}|;:,.<>?");
+        try charset.appendSlice(allocator, "!@#$%^&*()_+-=[]{}|;:,.<>?");
     }
 
     if (charset.items.len == 0) {

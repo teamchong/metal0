@@ -75,27 +75,27 @@ pub fn printHelp(parser: anytype) void {
 
 /// Format help as string
 pub fn formatHelp(parser: anytype, allocator: std.mem.Allocator) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
-    try result.appendSlice("usage: ");
-    try result.appendSlice(parser.prog orelse "prog");
+    try result.appendSlice(allocator, "usage: ");
+    try result.appendSlice(allocator, parser.prog orelse "prog");
 
     for (parser.arguments.items) |arg| {
         if (!arg.isPositional()) {
-            try result.appendSlice(" [");
-            try result.appendSlice(arg.names[0]);
-            try result.append(']');
+            try result.appendSlice(allocator, " [");
+            try result.appendSlice(allocator, arg.names[0]);
+            try result.append(allocator, ']');
         }
     }
 
-    try result.append('\n');
+    try result.append(allocator, '\n');
 
     if (parser.description) |desc| {
-        try result.append('\n');
-        try result.appendSlice(desc);
-        try result.append('\n');
+        try result.append(allocator, '\n');
+        try result.appendSlice(allocator, desc);
+        try result.append(allocator, '\n');
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }

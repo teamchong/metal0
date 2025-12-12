@@ -540,10 +540,21 @@ pub fn emitVarDeclaration(
     // TWO-FLOW TYPE SYSTEM: Check if variable has uncertain confidence
     // If uncertain, emit PyValue type instead of raw Zig type (safer, prevents runtime panics)
     // WHITELIST: Only wrap primitive types that PyValue supports (int, float, bool, string, none)
+    // Also wrap unknown types to be safe
+    //
+    // IMPORTANT: If value_type is a KNOWN concrete type (string, int, float, bool, none),
+    // we should NOT wrap in PyValue because the type is certain from the VALUE itself.
+    // PyValue wrapping should only apply when:
+    // 1. value_type is UNKNOWN (can't determine type at compile time), OR
+    // 2. value_type is primitive AND the value SOURCE is uncertain (e.g., user function return)
     const is_primitive = type_traits.isIntegral(value_type) or type_traits.isFloating(value_type) or
         type_traits.isBoolean(value_type) or string_traits.isString(value_type) or
         type_traits.isNone(value_type);
-    if (is_primitive and self.shouldUsePyValue(var_name)) {
+    // Only wrap if value_type is unknown OR (primitive AND var is uncertain)
+    // If value_type is a concrete primitive, we know the exact type from the value itself
+    const needs_pyvalue_wrap = type_traits.isUnknown(value_type) or
+        (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type));
+    if (needs_pyvalue_wrap) {
         try self.emit(": runtime.PyValue = runtime.PyValue.from(");
         return; // Caller will emit value and close paren
     }

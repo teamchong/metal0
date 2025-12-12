@@ -31,12 +31,12 @@ pub const Handler = struct {
             .allocator = allocator,
             .level = level,
             .formatter = null,
-            .filters = std.ArrayList(*Filter).init(allocator),
+            .filters = .{},
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.filters.deinit();
+        self.filters.deinit(self.allocator);
     }
 
     /// Set the formatter
@@ -46,7 +46,7 @@ pub const Handler = struct {
 
     /// Add a filter
     pub fn addFilter(self: *Self, f: *Filter) !void {
-        try self.filters.append(f);
+        try self.filters.append(self.allocator, f);
     }
 
     /// Check if this handler should process the record

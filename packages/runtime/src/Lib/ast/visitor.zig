@@ -22,12 +22,12 @@ pub const NodeIterator = struct {
         _ = root;
         return .{
             .allocator = allocator,
-            .stack = std.ArrayList(*anyopaque).init(allocator),
+            .stack = std.ArrayList(*anyopaque){},
         };
     }
 
     pub fn deinit(self: *NodeIterator) void {
-        self.stack.deinit();
+        self.stack.deinit(self.allocator);
     }
 
     pub fn next(self: *NodeIterator) ?*anyopaque {

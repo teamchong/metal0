@@ -24,8 +24,8 @@ pub fn currentframe() ?*anyopaque {
 /// Get stack trace as formatted string
 /// Uses Zig's builtin stack trace functionality
 pub fn stack(allocator: std.mem.Allocator) ![]const u8 {
-    var buffer = std.ArrayList(u8).init(allocator);
-    const writer = buffer.writer();
+    var buffer: std.ArrayList(u8) = .{};
+    const writer = buffer.writer(allocator);
 
     var stack_trace = std.builtin.StackTrace{
         .instruction_addresses = undefined,
@@ -40,7 +40,7 @@ pub fn stack(allocator: std.mem.Allocator) ![]const u8 {
         try writer.writeAll("Stack (most recent call last):\n");
         var debug_info = std.debug.getSelfDebugInfo() catch {
             try writer.writeAll("  <debug info unavailable>\n");
-            return buffer.toOwnedSlice();
+            return buffer.toOwnedSlice(allocator);
         };
 
         for (stack_trace.instruction_addresses[0..stack_trace.index]) |addr| {
@@ -55,14 +55,14 @@ pub fn stack(allocator: std.mem.Allocator) ![]const u8 {
         }
     }
 
-    return buffer.toOwnedSlice();
+    return buffer.toOwnedSlice(allocator);
 }
 
 /// Get the outer frames (caller frames)
 /// Returns frame info for each frame in the call stack
 pub fn getouterframes(allocator: std.mem.Allocator, frame: ?*anyopaque, context: usize) ![]FrameInfo {
     _ = frame;
-    var frames = std.ArrayList(FrameInfo).init(allocator);
+    var frames: std.ArrayList(FrameInfo) = .{};
 
     var stack_trace = std.builtin.StackTrace{
         .instruction_addresses = undefined,
@@ -70,12 +70,12 @@ pub fn getouterframes(allocator: std.mem.Allocator, frame: ?*anyopaque, context:
     };
     std.debug.captureStackTrace(@returnAddress(), &stack_trace);
 
-    const debug_info = std.debug.getSelfDebugInfo() catch return frames.toOwnedSlice();
+    const debug_info = std.debug.getSelfDebugInfo() catch return frames.toOwnedSlice(allocator);
 
     const max_frames = @min(stack_trace.index, context);
     for (stack_trace.instruction_addresses[0..max_frames]) |addr| {
         const symbol = debug_info.getSymbolFromAddress(addr);
-        try frames.append(.{
+        try frames.append(allocator, .{
             .filename = symbol.compile_unit_name orelse "<unknown>",
             .lineno = symbol.line_info.line orelse 0,
             .function = symbol.symbol_name orelse "<unknown>",
@@ -84,7 +84,7 @@ pub fn getouterframes(allocator: std.mem.Allocator, frame: ?*anyopaque, context:
         });
     }
 
-    return frames.toOwnedSlice();
+    return frames.toOwnedSlice(allocator);
 }
 
 /// Get the inner frames (frames called from this frame)

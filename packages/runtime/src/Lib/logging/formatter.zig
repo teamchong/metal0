@@ -32,8 +32,8 @@ pub const Formatter = struct {
 
     /// Format the specified record
     pub fn format(self: *Self, record: LogRecord) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         var i: usize = 0;
         const fmt = self.format_str;
@@ -48,16 +48,16 @@ pub const Formatter = struct {
                 if (end + 1 < fmt.len and fmt[end] == ')' and fmt[end + 1] == 's') {
                     const field_name = fmt[start..end];
                     const value = self.getField(record, field_name);
-                    try result.appendSlice(value);
+                    try result.appendSlice(self.allocator, value);
                     i = end + 2;
                     continue;
                 }
             }
-            try result.append(fmt[i]);
+            try result.append(self.allocator, fmt[i]);
             i += 1;
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     fn getField(self: *Self, record: LogRecord, field: []const u8) []const u8 {

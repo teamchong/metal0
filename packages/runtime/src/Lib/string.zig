@@ -52,15 +52,15 @@ pub const Formatter = struct {
     /// Format a string with named arguments
     /// Format: "Hello {name}, you are {age} years old"
     pub fn format(self: Formatter, template: []const u8, kwargs: anytype) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         var i: usize = 0;
         while (i < template.len) {
             if (template[i] == '{') {
                 if (i + 1 < template.len and template[i + 1] == '{') {
                     // Escaped brace
-                    try result.append('{');
+                    try result.append(self.allocator, '{');
                     i += 2;
                 } else {
                     // Find closing brace
@@ -80,7 +80,7 @@ pub const Formatter = struct {
                     inline for (std.meta.fields(@TypeOf(kwargs))) |field| {
                         if (std.mem.eql(u8, field.name, key)) {
                             const value = @field(kwargs, field.name);
-                            try appendValue(&result, value);
+                            try appendValue(&result, self.allocator, value);
                             break;
                         }
                     }
@@ -90,37 +90,37 @@ pub const Formatter = struct {
             } else if (template[i] == '}') {
                 if (i + 1 < template.len and template[i + 1] == '}') {
                     // Escaped brace
-                    try result.append('}');
+                    try result.append(self.allocator, '}');
                     i += 2;
                 } else {
                     return error.UnmatchedBrace;
                 }
             } else {
-                try result.append(template[i]);
+                try result.append(self.allocator, template[i]);
                 i += 1;
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
-    fn appendValue(result: *std.ArrayList(u8), value: anytype) !void {
+    fn appendValue(result: *std.ArrayList(u8), allocator: std.mem.Allocator, value: anytype) !void {
         const T = @TypeOf(value);
         if (T == []const u8 or T == []u8) {
-            try result.appendSlice(value);
+            try result.appendSlice(allocator, value);
         } else if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .One) {
             // Pointer to array (string literal)
-            try result.appendSlice(value);
+            try result.appendSlice(allocator, value);
         } else if (@typeInfo(T) == .int) {
             var buf: [32]u8 = undefined;
             const str = std.fmt.bufPrint(&buf, "{d}", .{value}) catch return;
-            try result.appendSlice(str);
+            try result.appendSlice(allocator, str);
         } else if (@typeInfo(T) == .float) {
             var buf: [64]u8 = undefined;
             const str = std.fmt.bufPrint(&buf, "{d}", .{value}) catch return;
-            try result.appendSlice(str);
+            try result.appendSlice(allocator, str);
         } else if (T == bool) {
-            try result.appendSlice(if (value) "True" else "False");
+            try result.appendSlice(allocator, if (value) "True" else "False");
         }
     }
 };
@@ -142,8 +142,8 @@ pub const Template = struct {
 
     /// Substitute $name or ${name} with values from mapping
     pub fn substitute(self: Template, kwargs: anytype) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         var i: usize = 0;
         while (i < self.template.len) {
@@ -151,7 +151,7 @@ pub const Template = struct {
                 if (i + 1 < self.template.len) {
                     if (self.template[i + 1] == '$') {
                         // Escaped $
-                        try result.append('$');
+                        try result.append(self.allocator, '$');
                         i += 2;
                     } else if (self.template[i + 1] == '{') {
                         // ${name} form
@@ -178,37 +178,37 @@ pub const Template = struct {
 
                         if (end > start) {
                             const key = self.template[start..end];
-                            try substituteKey(&result, key, kwargs);
+                            try substituteKey(&result, self.allocator, key, kwargs);
                             i = end;
                         } else {
-                            try result.append('$');
+                            try result.append(self.allocator, '$');
                             i += 1;
                         }
                     }
                 } else {
-                    try result.append('$');
+                    try result.append(self.allocator, '$');
                     i += 1;
                 }
             } else {
-                try result.append(self.template[i]);
+                try result.append(self.allocator, self.template[i]);
                 i += 1;
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Safe substitute - missing keys left unchanged
     pub fn safe_substitute(self: Template, kwargs: anytype) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         var i: usize = 0;
         while (i < self.template.len) {
             if (self.template[i] == '$') {
                 if (i + 1 < self.template.len) {
                     if (self.template[i + 1] == '$') {
-                        try result.append('$');
+                        try result.append(self.allocator, '$');
                         i += 2;
                     } else if (self.template[i + 1] == '{') {
                         const start = i + 2;
@@ -219,13 +219,13 @@ pub const Template = struct {
 
                         if (end >= self.template.len) {
                             // Leave as-is
-                            try result.appendSlice(self.template[i..]);
+                            try result.appendSlice(self.allocator, self.template[i..]);
                             break;
                         }
 
                         const key = self.template[start..end];
-                        if (!trySubstituteKey(&result, key, kwargs)) {
-                            try result.appendSlice(self.template[i .. end + 1]);
+                        if (!trySubstituteKey(&result, self.allocator, key, kwargs)) {
+                            try result.appendSlice(self.allocator, self.template[i .. end + 1]);
                         }
                         i = end + 1;
                     } else {
@@ -237,26 +237,26 @@ pub const Template = struct {
 
                         if (end > start) {
                             const key = self.template[start..end];
-                            if (!trySubstituteKey(&result, key, kwargs)) {
-                                try result.appendSlice(self.template[i..end]);
+                            if (!trySubstituteKey(&result, self.allocator, key, kwargs)) {
+                                try result.appendSlice(self.allocator, self.template[i..end]);
                             }
                             i = end;
                         } else {
-                            try result.append('$');
+                            try result.append(self.allocator, '$');
                             i += 1;
                         }
                     }
                 } else {
-                    try result.append('$');
+                    try result.append(self.allocator, '$');
                     i += 1;
                 }
             } else {
-                try result.append(self.template[i]);
+                try result.append(self.allocator, self.template[i]);
                 i += 1;
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     fn isIdChar(c: u8) bool {
@@ -266,22 +266,22 @@ pub const Template = struct {
             c == '_';
     }
 
-    fn substituteKey(result: *std.ArrayList(u8), key: []const u8, kwargs: anytype) !void {
+    fn substituteKey(result: *std.ArrayList(u8), allocator: std.mem.Allocator, key: []const u8, kwargs: anytype) !void {
         inline for (std.meta.fields(@TypeOf(kwargs))) |field| {
             if (std.mem.eql(u8, field.name, key)) {
                 const value = @field(kwargs, field.name);
-                try Formatter.appendValue(result, value);
+                try Formatter.appendValue(result, allocator, value);
                 return;
             }
         }
         return error.KeyError;
     }
 
-    fn trySubstituteKey(result: *std.ArrayList(u8), key: []const u8, kwargs: anytype) bool {
+    fn trySubstituteKey(result: *std.ArrayList(u8), allocator: std.mem.Allocator, key: []const u8, kwargs: anytype) bool {
         inline for (std.meta.fields(@TypeOf(kwargs))) |field| {
             if (std.mem.eql(u8, field.name, key)) {
                 const value = @field(kwargs, field.name);
-                Formatter.appendValue(result, value) catch return false;
+                Formatter.appendValue(result, allocator, value) catch return false;
                 return true;
             }
         }

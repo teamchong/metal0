@@ -69,8 +69,8 @@ fn decodeDigit(c: u8) ?u32 {
 /// Decode Punycode to UTF-8
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
     _ = mode;
-    var result = std.ArrayList(u21).init(allocator);
-    defer result.deinit();
+    var result: std.ArrayList(u21) = .{};
+    defer result.deinit(allocator);
 
     // Find the last delimiter
     var basic_end: usize = 0;
@@ -81,7 +81,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
     // Copy basic ASCII characters
     for (input[0..basic_end]) |c| {
         if (c >= 0x80) return error.InvalidPunycode;
-        try result.append(c);
+        try result.append(allocator, c);
     }
 
     var n: u32 = INITIAL_N;
@@ -121,22 +121,22 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
         i = i % len;
 
         // Insert codepoint at position i
-        try result.insert(@intCast(i), @intCast(n));
+        try result.insert(allocator, @intCast(i), @intCast(n));
         i += 1;
     }
 
     // Convert to UTF-8
-    var utf8_result = std.ArrayList(u8).init(allocator);
-    errdefer utf8_result.deinit();
+    var utf8_result: std.ArrayList(u8) = .{};
+    errdefer utf8_result.deinit(allocator);
 
     for (result.items) |cp| {
         var buf: [4]u8 = undefined;
         const len = std.unicode.utf8Encode(cp, &buf) catch return error.InvalidCodepoint;
-        try utf8_result.appendSlice(buf[0..len]);
+        try utf8_result.appendSlice(allocator, buf[0..len]);
     }
 
     return DecodeResult{
-        .output = try utf8_result.toOwnedSlice(),
+        .output = try utf8_result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }
@@ -144,30 +144,30 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 /// Encode UTF-8 to Punycode
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !EncodeResult {
     _ = mode;
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     // Collect codepoints
-    var codepoints = std.ArrayList(u21).init(allocator);
-    defer codepoints.deinit();
+    var codepoints: std.ArrayList(u21) = .{};
+    defer codepoints.deinit(allocator);
 
     var iter = std.unicode.Utf8Iterator{ .bytes = input, .i = 0 };
     while (iter.nextCodepoint()) |cp| {
-        try codepoints.append(cp);
+        try codepoints.append(allocator, cp);
     }
 
     // Output basic (ASCII) characters first
     var basic_count: u32 = 0;
     for (codepoints.items) |cp| {
         if (cp < 0x80) {
-            try result.append(@intCast(cp));
+            try result.append(allocator, @intCast(cp));
             basic_count += 1;
         }
     }
 
     // Add delimiter if there were basic characters
     if (basic_count > 0) {
-        try result.append(DELIMITER);
+        try result.append(allocator, DELIMITER);
     }
 
     var n: u32 = INITIAL_N;
@@ -204,12 +204,12 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 
                     if (q < t) break;
 
-                    try result.append(encodeDigit(t + ((q - t) % (BASE - t))));
+                    try result.append(allocator, encodeDigit(t + ((q - t) % (BASE - t))));
                     q = (q - t) / (BASE - t);
                     k += BASE;
                 }
 
-                try result.append(encodeDigit(q));
+                try result.append(allocator, encodeDigit(q));
                 bias = adapt(delta, handled + 1, handled == basic_count);
                 delta = 0;
                 handled += 1;
@@ -221,7 +221,7 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
     }
 
     return EncodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .chars_consumed = input.len,
     };
 }

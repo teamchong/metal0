@@ -32,8 +32,9 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     if (expr == .call and expr.call.func.* == .name) {
         const func_name = expr.call.func.name.id;
         if (std.mem.eql(u8, func_name, "print")) {
-            const genPrint = @import("../misc.zig").genPrint;
-            try genPrint(self, expr.call.args);
+            const io = @import("../../builtins/io.zig");
+            try io.genPrintWithKeywords(self, expr.call.args, expr.call.keyword_args);
+            try self.emit(";\n");
             return;
         }
     }

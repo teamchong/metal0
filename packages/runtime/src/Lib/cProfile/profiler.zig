@@ -35,14 +35,14 @@ pub const Profile = struct {
         return .{
             .allocator = allocator,
             .stats = hashmap_helper.StringHashMap(ProfileEntry).init(allocator),
-            .call_stack = std.ArrayList(CallStackEntry).init(allocator),
+            .call_stack = .{},
             .timer = defaultTimer,
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.stats.deinit();
-        self.call_stack.deinit();
+        self.call_stack.deinit(self.allocator);
     }
 
     fn defaultTimer() i128 {
@@ -71,7 +71,7 @@ pub const Profile = struct {
         if (!self.enabled) return;
 
         const now = self.timer();
-        self.call_stack.append(.{
+        self.call_stack.append(self.allocator, .{
             .name = name,
             .start_time = now,
             .subcall_time = 0.0,

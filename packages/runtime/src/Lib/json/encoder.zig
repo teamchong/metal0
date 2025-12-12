@@ -673,12 +673,12 @@ fn stringifyPyObjectWithOptions(obj: *runtime.PyObject, buffer: *std.ArrayList(u
 
                 if (options.sort_keys) {
                     // Collect and sort keys
-                    var keys = std.ArrayList([]const u8).init(allocator);
-                    defer keys.deinit();
+                    var keys: std.ArrayList([]const u8) = .{};
+                    defer keys.deinit(allocator);
 
                     var it = map.iterator();
                     while (it.next()) |entry| {
-                        try keys.append(entry.key_ptr.*);
+                        try keys.append(allocator, entry.key_ptr.*);
                     }
 
                     std.mem.sort([]const u8, keys.items, {}, struct {

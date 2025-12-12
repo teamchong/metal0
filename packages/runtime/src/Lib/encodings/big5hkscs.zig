@@ -29,8 +29,8 @@ fn isTrailByte(b: u8) bool {
 
 /// Decode Big5-HKSCS to UTF-8
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) !DecodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < input.len) {
@@ -38,12 +38,12 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
 
         if (b1 < 0x80) {
             // ASCII
-            try result.append(b1);
+            try result.append(allocator, b1);
             i += 1;
         } else if (isLeadByte(b1)) {
             if (i + 1 >= input.len) {
                 if (mode == .strict) return error.IncompleteSequence;
-                try result.appendSlice("\xEF\xBF\xBD");
+                try result.appendSlice(allocator, "\xEF\xBF\xBD");
                 i += 1;
                 continue;
             }
@@ -51,7 +51,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             const b2 = input[i + 1];
             if (!isTrailByte(b2)) {
                 if (mode == .strict) return error.InvalidSequence;
-                try result.appendSlice("\xEF\xBF\xBD");
+                try result.appendSlice(allocator, "\xEF\xBF\xBD");
                 i += 1;
                 continue;
             }
@@ -64,20 +64,20 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, mode: ErrorMode) 
             if (std.mem.eql(u8, big5_result.output, "\xEF\xBF\xBD")) {
                 // HKSCS extension area - would need full mapping
                 if (mode == .strict) return error.InvalidSequence;
-                try result.appendSlice("\xEF\xBF\xBD");
+                try result.appendSlice(allocator, "\xEF\xBF\xBD");
             } else {
-                try result.appendSlice(big5_result.output);
+                try result.appendSlice(allocator, big5_result.output);
             }
             i += 2;
         } else {
             if (mode == .strict) return error.InvalidByte;
-            try result.appendSlice("\xEF\xBF\xBD");
+            try result.appendSlice(allocator, "\xEF\xBF\xBD");
             i += 1;
         }
     }
 
     return DecodeResult{
-        .output = try result.toOwnedSlice(),
+        .output = try result.toOwnedSlice(allocator),
         .bytes_consumed = input.len,
     };
 }

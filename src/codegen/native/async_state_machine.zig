@@ -46,6 +46,49 @@ fn emitFloat(self: *NativeCodegen, f: f64) CodegenError!void {
     try self.emit(slice);
 }
 
+/// Get Zig type string for a variable in async function context (Two-Flow aware)
+/// Returns "runtime.PyValue" for uncertain types, otherwise the inferred Zig type
+fn getAsyncVarType(self: *NativeCodegen, func_name: []const u8, var_name: []const u8) []const u8 {
+    // Check if type is uncertain - use PyValue for safety
+    if (self.type_inferrer.isUncertain(var_name)) {
+        return "runtime.PyValue";
+    }
+
+    // Try scoped lookup first (function-local)
+    if (self.getVarTypeInScope(func_name, var_name)) |var_type| {
+        return self.nativeTypeToZigType(var_type) catch "i64";
+    }
+
+    // Try global lookup
+    if (self.getVarType(var_name)) |var_type| {
+        return self.nativeTypeToZigType(var_type) catch "i64";
+    }
+
+    // Default to i64 for untracked variables
+    return "i64";
+}
+
+/// Get Zig return type string for an async function (Two-Flow aware)
+/// Returns "runtime.PyValue" for uncertain returns, otherwise the inferred Zig type
+fn getAsyncReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef) []const u8 {
+    // Check if function has explicit return annotation
+    if (func.return_type) |type_name| {
+        if (std.mem.eql(u8, type_name, "int")) return "i64";
+        if (std.mem.eql(u8, type_name, "float")) return "f64";
+        if (std.mem.eql(u8, type_name, "str")) return "[]const u8";
+        if (std.mem.eql(u8, type_name, "bool")) return "bool";
+        if (std.mem.eql(u8, type_name, "None")) return "void";
+    }
+
+    // Try to get inferred return type from type inferrer
+    if (self.type_inferrer.func_return_types.get(func.name)) |return_type| {
+        return self.nativeTypeToZigType(return_type) catch "i64";
+    }
+
+    // Default to i64 for async functions without annotation
+    return "i64";
+}
+
 /// Information about an await point in an async function
 const AwaitPoint = struct {
     index: usize,              // Sequential index (0, 1, 2, ...)
@@ -371,11 +414,13 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
     try self.emit(name);
     try self.emit("_State = .start,\n");
 
-    // Add parameters as fields
+    // Add parameters as fields (Two-Flow: use inferred types)
     for (func.args) |arg| {
         try self.emit("    ");
         try self.emit(arg.name);
-        try self.emit(": i64,\n");
+        try self.emit(": ");
+        try self.emit(getAsyncVarType(self, name, arg.name));
+        try self.emit(",\n");
     }
 
     // Add timer_id for sleep awaits and child frames for task awaits
@@ -396,12 +441,27 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
     }
 
     // Add local variables for await results (except gather, handled separately)
+    // Two-Flow: use inferred types for await results
     for (await_points) |point| {
         if (point.await_type != .gather) {
             if (point.target_var) |var_name| {
                 try self.emit("    ");
                 try self.emit(var_name);
-                try self.emit(": i64 = 0,\n");
+                try self.emit(": ");
+                try self.emit(getAsyncVarType(self, name, var_name));
+                try self.emit(" = ");
+                // Default value based on type
+                const var_type = getAsyncVarType(self, name, var_name);
+                if (std.mem.eql(u8, var_type, "runtime.PyValue")) {
+                    try self.emit("runtime.PyValue.none()");
+                } else if (std.mem.eql(u8, var_type, "f64")) {
+                    try self.emit("0.0");
+                } else if (std.mem.eql(u8, var_type, "bool")) {
+                    try self.emit("false");
+                } else {
+                    try self.emit("0");
+                }
+                try self.emit(",\n");
             }
         }
     }
@@ -434,32 +494,69 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
             } else if (std.mem.eql(u8, var_name, "start") or std.mem.eql(u8, var_name, "elapsed") or std.mem.eql(u8, var_name, "end")) {
                 try self.emit(": f64 = 0,\n");
             } else {
-                try self.emit(": i64 = 0,\n");
+                // Two-Flow: use inferred type for local variables
+                try self.emit(": ");
+                const var_type = getAsyncVarType(self, name, var_name);
+                try self.emit(var_type);
+                try self.emit(" = ");
+                // Default value based on type
+                if (std.mem.eql(u8, var_type, "runtime.PyValue")) {
+                    try self.emit("runtime.PyValue.none()");
+                } else if (std.mem.eql(u8, var_type, "f64")) {
+                    try self.emit("0.0");
+                } else if (std.mem.eql(u8, var_type, "bool")) {
+                    try self.emit("false");
+                } else {
+                    try self.emit("0");
+                }
+                try self.emit(",\n");
             }
         }
     }
 
     // Add gather result fields with proper list type
+    // Two-Flow: use inferred element type for gather results
     for (await_points) |point| {
         if (point.await_type == .gather) {
             if (point.target_var) |var_name| {
                 try self.emit("    ");
                 try self.emit(var_name);
-                try self.emit(": std.ArrayListUnmanaged(i64) = .{},\n");
+                // For gather, the result is a list - use element type from inference
+                const elem_type = getAsyncVarType(self, name, var_name);
+                if (std.mem.eql(u8, elem_type, "runtime.PyValue")) {
+                    try self.emit(": std.ArrayListUnmanaged(runtime.PyValue) = .{},\n");
+                } else {
+                    try self.emit(": std.ArrayListUnmanaged(i64) = .{},\n");
+                }
             }
         }
     }
 
-    // Add result field
-    try self.emit("    __result: i64 = 0,\n");
+    // Add result field - Two-Flow: use inferred return type
+    const result_type = getAsyncReturnType(self, func);
+    try self.emit("    __result: ");
+    try self.emit(result_type);
+    try self.emit(" = ");
+    if (std.mem.eql(u8, result_type, "runtime.PyValue")) {
+        try self.emit("runtime.PyValue.none()");
+    } else if (std.mem.eql(u8, result_type, "f64")) {
+        try self.emit("0.0");
+    } else if (std.mem.eql(u8, result_type, "bool")) {
+        try self.emit("false");
+    } else {
+        try self.emit("0");
+    }
+    try self.emit(",\n");
     try self.emit("};\n\n");
 
-    // 3. Generate poll function
+    // 3. Generate poll function - Two-Flow: use inferred return type
     try self.emit("fn ");
     try self.emit(name);
     try self.emit("_poll(frame: *");
     try self.emit(name);
-    try self.emit("_Frame) ?i64 {\n");
+    try self.emit("_Frame) ?");
+    try self.emit(result_type);
+    try self.emit(" {\n");
     try self.emit("    switch (frame.state) {\n");
 
     // Generate state handlers
@@ -468,14 +565,15 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
     try self.emit("    }\n");
     try self.emit("}\n\n");
 
-    // 4. Generate spawn function that returns frame
+    // 4. Generate spawn function that returns frame (Two-Flow: use inferred types)
     try self.emit("fn ");
     try self.emit(name);
     try self.emit("_async(");
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
         try self.emit(arg.name);
-        try self.emit(": i64");
+        try self.emit(": ");
+        try self.emit(getAsyncVarType(self, name, arg.name));
     }
     try self.emit(") !*");
     try self.emit(name);
@@ -1276,22 +1374,41 @@ fn genSyncFunction(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenErro
     try self.emit(name);
     try self.emit("_State = .start,\n");
 
-    // Add parameters as fields
+    // Add parameters as fields (Two-Flow: use inferred types)
     for (func.args) |arg| {
         try self.emit("    ");
         try self.emit(arg.name);
-        try self.emit(": i64,\n");
+        try self.emit(": ");
+        try self.emit(getAsyncVarType(self, name, arg.name));
+        try self.emit(",\n");
     }
 
-    try self.emit("    __result: i64 = 0,\n");
+    // Two-Flow: use inferred return type
+    const result_type = getAsyncReturnType(self, func);
+    try self.emit("    __result: ");
+    try self.emit(result_type);
+    try self.emit(" = ");
+    if (std.mem.eql(u8, result_type, "runtime.PyValue")) {
+        try self.emit("runtime.PyValue.none()");
+    } else if (std.mem.eql(u8, result_type, "f64")) {
+        try self.emit("0.0");
+    } else if (std.mem.eql(u8, result_type, "bool")) {
+        try self.emit("false");
+    } else {
+        try self.emit("0");
+    }
+    try self.emit(",\n");
     try self.emit("};\n\n");
 
     // 3. Generate poll function - executes synchronously and returns immediately
+    // Two-Flow: use inferred return type
     try self.emit("fn ");
     try self.emit(name);
     try self.emit("_poll(frame: *");
     try self.emit(name);
-    try self.emit("_Frame) ?i64 {\n");
+    try self.emit("_Frame) ?");
+    try self.emit(result_type);
+    try self.emit(" {\n");
     try self.emit("    switch (frame.state) {\n");
     try self.emit("        .start => {\n");
 
@@ -1327,14 +1444,15 @@ fn genSyncFunction(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenErro
     try self.emit("    }\n");
     try self.emit("}\n\n");
 
-    // 4. Generate async spawn function
+    // 4. Generate async spawn function (Two-Flow: use inferred types)
     try self.emit("fn ");
     try self.emit(name);
     try self.emit("_async(");
     for (func.args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
         try self.emit(arg.name);
-        try self.emit(": i64");
+        try self.emit(": ");
+        try self.emit(getAsyncVarType(self, name, arg.name));
     }
     try self.emit(") !*");
     try self.emit(name);

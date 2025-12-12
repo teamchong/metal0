@@ -851,6 +851,44 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         return;
     }
 
+    // TWO-FLOW TYPE SYSTEM: Handle uncertain/PyValue targets with PyValue methods
+    // This prevents generating raw Zig operators for PyValue types which would cause type mismatches
+    if (aug.target.* == .name) {
+        const var_name = aug.target.name.id;
+        // Check if variable is tracked as PyValue in var_types
+        const is_pyvalue = if (self.type_inferrer.var_types.get(var_name)) |vt|
+            (vt == .pyvalue or vt == .unknown)
+        else
+            false;
+        // Also check if variable is uncertain via confidence tracking
+        const is_uncertain = is_pyvalue or self.isVarUncertain(var_name);
+
+        if (is_uncertain) {
+            // PyValue method names for augmented assignment operations
+            const PyValueAugMethods = std.StaticStringMap([]const u8).initComptime(.{
+                .{ "Add", "add" },
+                .{ "Sub", "sub" },
+                .{ "Mult", "mul" },
+                .{ "Div", "div" },
+                .{ "FloorDiv", "floordiv" },
+                .{ "Mod", "mod" },
+            });
+
+            if (PyValueAugMethods.get(@tagName(aug.op))) |method_name| {
+                // Generate: target = (runtime.PyValue.from(target)).method(runtime.PyValue.from(value))
+                try self.genExpr(aug.target.*);
+                try self.emit(" = (runtime.PyValue.from(");
+                try self.genExpr(aug.target.*);
+                try self.emit(")).");
+                try self.emit(method_name);
+                try self.emit("(runtime.PyValue.from(");
+                try self.genExpr(aug.value.*);
+                try self.emit("));\n");
+                return;
+            }
+        }
+    }
+
     // Emit target (variable name)
     try self.genExpr(aug.target.*);
     try self.emit(" = ");

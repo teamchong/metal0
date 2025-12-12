@@ -118,12 +118,12 @@ pub fn Shelf(comptime V: type) type {
 
         /// Get all keys
         pub fn keys(self: *Self) [][]const u8 {
-            var result = std.ArrayList([]const u8).init(self.allocator);
+            var result: std.ArrayList([]const u8) = .{};
             var iter = self.dict.iterator();
             while (iter.next()) |entry| {
-                result.append(entry.key_ptr.*) catch continue;
+                result.append(self.allocator, entry.key_ptr.*) catch continue;
             }
-            return result.toOwnedSlice() catch &[_][]const u8{};
+            return result.toOwnedSlice(self.allocator) catch &[_][]const u8{};
         }
 
         /// Get number of items

@@ -114,8 +114,8 @@ pub const Netrc = struct {
         var current_password: ?[]const u8 = null;
         var in_macro: bool = false;
         var macro_name: ?[]const u8 = null;
-        var macro_lines = std.ArrayList(u8).init(self.allocator);
-        defer macro_lines.deinit();
+        var macro_lines: std.ArrayList(u8) = .{};
+        defer macro_lines.deinit(self.allocator);
 
         while (reader.readUntilDelimiterOrEof(&line_buf, '\n') catch null) |line| {
             const trimmed = std.mem.trim(u8, line, " \t\r\n");
@@ -128,13 +128,13 @@ pub const Netrc = struct {
                 if (trimmed.len == 0) {
                     // End of macro
                     if (macro_name) |name| {
-                        try self.macros.put(name, try macro_lines.toOwnedSlice());
+                        try self.macros.put(name, try macro_lines.toOwnedSlice(self.allocator));
                     }
                     in_macro = false;
                     macro_name = null;
                 } else {
-                    try macro_lines.appendSlice(trimmed);
-                    try macro_lines.append('\n');
+                    try macro_lines.appendSlice(self.allocator, trimmed);
+                    try macro_lines.append(self.allocator, '\n');
                 }
                 continue;
             }
@@ -224,52 +224,52 @@ pub const Netrc = struct {
 
     /// Format as string (for writing back)
     pub fn format(self: *Self, allocator: std.mem.Allocator) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(allocator);
 
         var it = self.hosts.iterator();
         while (it.next()) |entry| {
-            try result.appendSlice("machine ");
-            try result.appendSlice(entry.key_ptr.*);
-            try result.append('\n');
-            try result.appendSlice("\tlogin ");
-            try result.appendSlice(entry.value_ptr.login);
-            try result.append('\n');
+            try result.appendSlice(allocator, "machine ");
+            try result.appendSlice(allocator, entry.key_ptr.*);
+            try result.append(allocator, '\n');
+            try result.appendSlice(allocator, "\tlogin ");
+            try result.appendSlice(allocator, entry.value_ptr.login);
+            try result.append(allocator, '\n');
             if (entry.value_ptr.account) |account| {
-                try result.appendSlice("\taccount ");
-                try result.appendSlice(account);
-                try result.append('\n');
+                try result.appendSlice(allocator, "\taccount ");
+                try result.appendSlice(allocator, account);
+                try result.append(allocator, '\n');
             }
-            try result.appendSlice("\tpassword ");
-            try result.appendSlice(entry.value_ptr.password);
-            try result.append('\n');
+            try result.appendSlice(allocator, "\tpassword ");
+            try result.appendSlice(allocator, entry.value_ptr.password);
+            try result.append(allocator, '\n');
         }
 
         if (self.default_entry) |def| {
-            try result.appendSlice("default\n");
-            try result.appendSlice("\tlogin ");
-            try result.appendSlice(def.login);
-            try result.append('\n');
+            try result.appendSlice(allocator, "default\n");
+            try result.appendSlice(allocator, "\tlogin ");
+            try result.appendSlice(allocator, def.login);
+            try result.append(allocator, '\n');
             if (def.account) |account| {
-                try result.appendSlice("\taccount ");
-                try result.appendSlice(account);
-                try result.append('\n');
+                try result.appendSlice(allocator, "\taccount ");
+                try result.appendSlice(allocator, account);
+                try result.append(allocator, '\n');
             }
-            try result.appendSlice("\tpassword ");
-            try result.appendSlice(def.password);
-            try result.append('\n');
+            try result.appendSlice(allocator, "\tpassword ");
+            try result.appendSlice(allocator, def.password);
+            try result.append(allocator, '\n');
         }
 
         var macro_it = self.macros.iterator();
         while (macro_it.next()) |entry| {
-            try result.appendSlice("macdef ");
-            try result.appendSlice(entry.key_ptr.*);
-            try result.append('\n');
-            try result.appendSlice(entry.value_ptr.*);
-            try result.append('\n');
+            try result.appendSlice(allocator, "macdef ");
+            try result.appendSlice(allocator, entry.key_ptr.*);
+            try result.append(allocator, '\n');
+            try result.appendSlice(allocator, entry.value_ptr.*);
+            try result.append(allocator, '\n');
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 

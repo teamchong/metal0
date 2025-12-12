@@ -14,36 +14,36 @@ pub fn encodeBase64(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
 
 /// Encode as quoted-printable
 pub fn encodeQuopri(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var line_len: usize = 0;
     const hex = "0123456789ABCDEF";
 
     for (data) |c| {
         if (c == '\r' or c == '\n') {
-            try result.append(c);
+            try result.append(allocator, c);
             line_len = 0;
         } else if (c >= 33 and c <= 126 and c != '=') {
             if (line_len >= 75) {
-                try result.appendSlice("=\r\n");
+                try result.appendSlice(allocator, "=\r\n");
                 line_len = 0;
             }
-            try result.append(c);
+            try result.append(allocator, c);
             line_len += 1;
         } else {
             if (line_len >= 73) {
-                try result.appendSlice("=\r\n");
+                try result.appendSlice(allocator, "=\r\n");
                 line_len = 0;
             }
-            try result.append('=');
-            try result.append(hex[c >> 4]);
-            try result.append(hex[c & 0x0F]);
+            try result.append(allocator, '=');
+            try result.append(allocator, hex[c >> 4]);
+            try result.append(allocator, hex[c & 0x0F]);
             line_len += 3;
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Encode as 7bit (no-op, just validates)

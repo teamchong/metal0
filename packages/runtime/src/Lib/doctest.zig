@@ -7,11 +7,12 @@ const Allocator = std.mem.Allocator;
 /// Output checker for comparing expected vs actual output
 pub const OutputChecker = struct {
     optionflags: u32 = 0,
+    allocator: Allocator,
 
     const Self = @This();
 
-    pub fn init() Self {
-        return .{};
+    pub fn init(allocator: Allocator) Self {
+        return .{ .allocator = allocator };
     }
 
     /// Check if want matches got
@@ -32,14 +33,14 @@ pub const OutputChecker = struct {
         }
 
         // Build a simple diff output
-        var result = std.ArrayList(u8).init(self.allocator);
-        result.appendSlice("Expected:\n") catch return "";
-        result.appendSlice(example) catch return "";
-        result.appendSlice("\nGot:\n") catch return "";
-        result.appendSlice(got) catch return "";
-        result.append('\n') catch return "";
+        var result: std.ArrayList(u8) = .{};
+        result.appendSlice(self.allocator, "Expected:\n") catch return "";
+        result.appendSlice(self.allocator, example) catch return "";
+        result.appendSlice(self.allocator, "\nGot:\n") catch return "";
+        result.appendSlice(self.allocator, got) catch return "";
+        result.append(self.allocator, '\n') catch return "";
 
-        return result.toOwnedSlice() catch "";
+        return result.toOwnedSlice(self.allocator) catch "";
     }
 };
 
@@ -72,7 +73,7 @@ pub const DocTest = struct {
 
     pub fn init(allocator: Allocator, docstring: []const u8, name: []const u8) Self {
         return .{
-            .examples = std.ArrayList(Example){},
+            .examples = .{},
             .name = name,
             .filename = "<doctest>",
             .lineno = 0,
@@ -102,11 +103,11 @@ pub const DocTestParser = struct {
         // Simple parsing: look for >>> and expected output
         var lines = std.mem.splitScalar(u8, docstring, '\n');
         var collecting_output = false;
-        var output_lines = std.ArrayList(u8){};
+        var output_lines: std.ArrayList(u8) = .{};
         defer output_lines.deinit(allocator);
 
         // Use ArrayList to build multi-line source (for ... continuations)
-        var source_lines = std.ArrayList(u8){};
+        var source_lines: std.ArrayList(u8) = .{};
         defer source_lines.deinit(allocator);
 
         while (lines.next()) |line| {
@@ -161,9 +162,9 @@ pub const DocTestRunner = struct {
 
     const Self = @This();
 
-    pub fn init() Self {
+    pub fn init(allocator: Allocator) Self {
         return .{
-            .checker = OutputChecker.init(),
+            .checker = OutputChecker.init(allocator),
         };
     }
 
@@ -203,11 +204,12 @@ pub const DocTestFinder = struct {
     }
 
     /// Find doctests (stub - returns empty in AOT)
-    pub fn find(self: *Self, allocator: Allocator, module: anytype) std.ArrayList(DocTest) {
+    pub fn find(self: *Self, allocator: Allocator, module: anytype) !std.ArrayList(DocTest) {
         _ = self;
-        _ = allocator;
         _ = module;
-        return std.ArrayList(DocTest){};
+        _ = allocator;
+        const result: std.ArrayList(DocTest) = .{};
+        return result;
     }
 };
 
@@ -234,7 +236,7 @@ pub fn run_docstring_examples(allocator: Allocator, docstring: []const u8, name:
     var test_obj = parser.parse(allocator, docstring, name);
     defer test_obj.deinit();
 
-    var runner = DocTestRunner.init();
+    var runner = DocTestRunner.init(allocator);
     runner.verbose = verbose;
     runner.run(&test_obj);
 
@@ -288,7 +290,8 @@ test "DocTestParser parse" {
 }
 
 test "OutputChecker" {
-    var checker = OutputChecker.init();
+    const allocator = std.testing.allocator;
+    var checker = OutputChecker.init(allocator);
 
     try std.testing.expect(checker.check_output("hello", "hello", 0));
     try std.testing.expect(checker.check_output("  hello  ", "hello", 0));

@@ -42,12 +42,12 @@ pub fn Future(comptime T: type) type {
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .allocator = allocator,
-                .callbacks = std.ArrayList(*const fn (*Self) void).init(allocator),
+                .callbacks = .{},
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.callbacks.deinit();
+            self.callbacks.deinit(self.allocator);
         }
 
         /// Cancel the future
@@ -110,7 +110,7 @@ pub fn Future(comptime T: type) type {
             if (self.done()) {
                 callback(self);
             } else {
-                try self.callbacks.append(callback);
+                try self.callbacks.append(self.allocator, callback);
             }
         }
 
@@ -216,9 +216,9 @@ pub const ThreadPoolExecutor = struct {
             .allocator = allocator,
             .max_workers = workers,
             .thread_name_prefix = thread_name_prefix orelse "ThreadPool",
-            .workers = std.ArrayList(std.Thread).init(allocator),
+            .workers = .{},
             .shutdown_flag = std.atomic.Value(bool).init(false),
-            .work_queue = std.ArrayList(WorkItem).init(allocator),
+            .work_queue = .{},
             .queue_mutex = .{},
             .work_available = .{},
         };
@@ -226,8 +226,8 @@ pub const ThreadPoolExecutor = struct {
 
     pub fn deinit(self: *Self) void {
         self.shutdown(true, false);
-        self.workers.deinit();
-        self.work_queue.deinit();
+        self.workers.deinit(self.allocator);
+        self.work_queue.deinit(self.allocator);
     }
 
     /// Submit work to the pool
@@ -235,7 +235,7 @@ pub const ThreadPoolExecutor = struct {
         self.queue_mutex.lock();
         defer self.queue_mutex.unlock();
 
-        try self.work_queue.append(.{ .func = func, .context = context });
+        try self.work_queue.append(self.allocator, .{ .func = func, .context = context });
         self.work_available.signal();
     }
 

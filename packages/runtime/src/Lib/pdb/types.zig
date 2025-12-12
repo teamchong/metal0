@@ -42,13 +42,13 @@ pub const Breakpoint = struct {
     }
 
     pub fn bpformat(self: *const Breakpoint, allocator: std.mem.Allocator) ![]const u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(allocator);
 
         const disp = if (self.temporary) "del" else "keep";
         const enab = if (self.enabled) "yes" else "no";
 
-        try result.writer().print("{d:>4} breakpoint   {s} {s}   at {s}:{d}", .{
+        try result.writer(allocator).print("{d:>4} breakpoint   {s} {s}   at {s}:{d}", .{
             self.number,
             disp,
             enab,
@@ -57,19 +57,19 @@ pub const Breakpoint = struct {
         });
 
         if (self.condition) |cond| {
-            try result.writer().print("\n\tstop only if {s}", .{cond});
+            try result.writer(allocator).print("\n\tstop only if {s}", .{cond});
         }
 
         if (self.ignore > 0) {
-            try result.writer().print("\n\tignore next {d} hits", .{self.ignore});
+            try result.writer(allocator).print("\n\tignore next {d} hits", .{self.ignore});
         }
 
         if (self.hits > 0) {
             const ss = if (self.hits > 1) "s" else "";
-            try result.writer().print("\n\tbreakpoint already hit {d} time{s}", .{ self.hits, ss });
+            try result.writer(allocator).print("\n\tbreakpoint already hit {d} time{s}", .{ self.hits, ss });
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 

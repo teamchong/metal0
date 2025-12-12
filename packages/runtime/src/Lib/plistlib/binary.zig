@@ -182,122 +182,125 @@ fn getBinaryLength(data: []const u8, offset: usize, info: u4) !usize {
 }
 
 pub fn dumpBinary(allocator: std.mem.Allocator, value: PlistValue) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
 
     // Magic header
-    try result.appendSlice("bplist00");
+    try result.appendSlice(allocator, "bplist00");
 
     // Collect all objects for serialization
-    var objects = std.ArrayList(PlistValue).init(allocator);
-    defer objects.deinit();
-    try collectObjects(&objects, value);
+    var objects: std.ArrayList(PlistValue) = .{};
+    defer objects.deinit(allocator);
+    try collectObjects(allocator, &objects, value);
 
     // Write objects and track offsets
-    var offsets = std.ArrayList(u64).init(allocator);
-    defer offsets.deinit();
+    var offsets: std.ArrayList(u64) = .{};
+    defer offsets.deinit(allocator);
 
     for (objects.items) |obj| {
-        try offsets.append(@intCast(result.items.len));
-        try writeBinaryObject(&result, obj);
+        try offsets.append(allocator, @intCast(result.items.len));
+        try writeBinaryObject(allocator, &result, obj);
     }
 
     // Write offset table
     const offset_table_offset = result.items.len;
     for (offsets.items) |off| {
-        try result.append(@intCast((off >> 24) & 0xFF));
-        try result.append(@intCast((off >> 16) & 0xFF));
-        try result.append(@intCast((off >> 8) & 0xFF));
-        try result.append(@intCast(off & 0xFF));
+        try result.append(allocator, @intCast((off >> 24) & 0xFF));
+        try result.append(allocator, @intCast((off >> 16) & 0xFF));
+        try result.append(allocator, @intCast((off >> 8) & 0xFF));
+        try result.append(allocator, @intCast(off & 0xFF));
     }
 
     // Write trailer
-    try result.appendNTimes(0, 6); // unused
-    try result.append(4); // offset int size
-    try result.append(4); // object ref size
-    try result.writer().writeInt(u64, @intCast(objects.items.len), .big);
-    try result.writer().writeInt(u64, 0, .big); // top object
-    try result.writer().writeInt(u64, @intCast(offset_table_offset), .big);
+    try result.appendNTimes(allocator, 0, 6); // unused
+    try result.append(allocator, 4); // offset int size
+    try result.append(allocator, 4); // object ref size
+    var writer = result.writer(allocator);
+    try writer.writeInt(u64, @intCast(objects.items.len), .big);
+    try writer.writeInt(u64, 0, .big); // top object
+    try writer.writeInt(u64, @intCast(offset_table_offset), .big);
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
-fn collectObjects(objects: *std.ArrayList(PlistValue), value: PlistValue) !void {
-    try objects.append(value);
+fn collectObjects(allocator: std.mem.Allocator, objects: *std.ArrayList(PlistValue), value: PlistValue) !void {
+    try objects.append(allocator, value);
     switch (value) {
         .array => |arr| {
-            for (arr) |item| try collectObjects(objects, item);
+            for (arr) |item| try collectObjects(allocator, objects, item);
         },
         .dict => |dict| {
             var it = dict.iterator();
             while (it.next()) |entry| {
-                try objects.append(PlistValue{ .string = entry.key_ptr.* });
-                try collectObjects(objects, entry.value_ptr.*);
+                try objects.append(allocator, PlistValue{ .string = entry.key_ptr.* });
+                try collectObjects(allocator, objects, entry.value_ptr.*);
             }
         },
         else => {},
     }
 }
 
-fn writeBinaryObject(result: *std.ArrayList(u8), obj: PlistValue) !void {
+fn writeBinaryObject(allocator: std.mem.Allocator, result: *std.ArrayList(u8), obj: PlistValue) !void {
     switch (obj) {
-        .boolean => |b| try result.append(if (b) 0x09 else 0x08),
+        .boolean => |b| try result.append(allocator, if (b) 0x09 else 0x08),
         .integer => |i| {
-            try result.append(0x10); // 1-byte int
-            try result.append(@intCast(@as(u8, @truncate(@as(u64, @bitCast(i))))));
+            try result.append(allocator, 0x10); // 1-byte int
+            try result.append(allocator, @intCast(@as(u8, @truncate(@as(u64, @bitCast(i))))));
         },
         .real => |r| {
-            try result.append(0x23); // 8-byte float
-            try result.writer().writeInt(u64, @bitCast(r), .big);
+            try result.append(allocator, 0x23); // 8-byte float
+            var writer = result.writer(allocator);
+            try writer.writeInt(u64, @bitCast(r), .big);
         },
         .string => |s| {
             if (s.len < 15) {
-                try result.append(0x50 | @as(u8, @intCast(s.len)));
+                try result.append(allocator, 0x50 | @as(u8, @intCast(s.len)));
             } else {
-                try result.append(0x5F);
-                try result.append(0x10);
-                try result.append(@intCast(s.len));
+                try result.append(allocator, 0x5F);
+                try result.append(allocator, 0x10);
+                try result.append(allocator, @intCast(s.len));
             }
-            try result.appendSlice(s);
+            try result.appendSlice(allocator, s);
         },
         .data => |d| {
             if (d.len < 15) {
-                try result.append(0x40 | @as(u8, @intCast(d.len)));
+                try result.append(allocator, 0x40 | @as(u8, @intCast(d.len)));
             } else {
-                try result.append(0x4F);
-                try result.append(0x10);
-                try result.append(@intCast(d.len));
+                try result.append(allocator, 0x4F);
+                try result.append(allocator, 0x10);
+                try result.append(allocator, @intCast(d.len));
             }
-            try result.appendSlice(d);
+            try result.appendSlice(allocator, d);
         },
         .date => |timestamp| {
-            try result.append(0x33);
+            try result.append(allocator, 0x33);
             const f: f64 = @floatFromInt(timestamp);
-            try result.writer().writeInt(u64, @bitCast(f), .big);
+            var writer = result.writer(allocator);
+            try writer.writeInt(u64, @bitCast(f), .big);
         },
         .array => |arr| {
             if (arr.len < 15) {
-                try result.append(0xA0 | @as(u8, @intCast(arr.len)));
+                try result.append(allocator, 0xA0 | @as(u8, @intCast(arr.len)));
             } else {
-                try result.append(0xAF);
-                try result.append(0x10);
-                try result.append(@intCast(arr.len));
+                try result.append(allocator, 0xAF);
+                try result.append(allocator, 0x10);
+                try result.append(allocator, @intCast(arr.len));
             }
             // Object refs would go here - simplified
         },
         .dict => |dict| {
             const count = dict.count();
             if (count < 15) {
-                try result.append(0xD0 | @as(u8, @intCast(count)));
+                try result.append(allocator, 0xD0 | @as(u8, @intCast(count)));
             } else {
-                try result.append(0xDF);
-                try result.append(0x10);
-                try result.append(@intCast(count));
+                try result.append(allocator, 0xDF);
+                try result.append(allocator, 0x10);
+                try result.append(allocator, @intCast(count));
             }
             // Key/value refs would go here - simplified
         },
         .uid => |u| {
-            try result.append(0x80);
-            try result.append(@intCast(u.data & 0xFF));
+            try result.append(allocator, 0x80);
+            try result.append(allocator, @intCast(u.data & 0xFF));
         },
     }
 }

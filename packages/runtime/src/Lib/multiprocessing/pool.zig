@@ -23,7 +23,7 @@ pub const Pool = struct {
         return .{
             .allocator = allocator,
             .processes = num_processes,
-            .workers = std.ArrayList(Process).init(allocator),
+            .workers = std.ArrayList(Process){},
             .closed = false,
             .terminated = false,
         };
@@ -33,7 +33,7 @@ pub const Pool = struct {
         for (self.workers.items) |*worker| {
             worker.deinit();
         }
-        self.workers.deinit();
+        self.workers.deinit(self.allocator);
     }
 
     /// Apply a function to arguments (blocking)

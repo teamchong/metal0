@@ -7,7 +7,7 @@ const dbapi2 = @import("dbapi2.zig");
 
 /// Iterate SQL dump - returns SQL statements to recreate database
 pub fn iterdump(connection: *dbapi2.Connection) !std.ArrayList([]const u8) {
-    var result = std.ArrayList([]const u8).init(connection.allocator);
+    var result: std.ArrayList([]const u8) = .{};
 
     // Get all table names from sqlite_master
     var cur = try connection.cursor();
@@ -18,7 +18,7 @@ pub fn iterdump(connection: *dbapi2.Connection) !std.ArrayList([]const u8) {
     for (cur.rows.items) |row| {
         if (row.len > 0) {
             if (row[0]) |sql| {
-                try result.append(try connection.allocator.dupe(u8, sql));
+                try result.append(connection.allocator, try connection.allocator.dupe(u8, sql));
             }
         }
     }

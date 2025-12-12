@@ -71,8 +71,8 @@ pub const TextDoc = struct {
 
     /// Format text with word wrapping
     pub fn wrap(self: *Self, text: []const u8) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        const writer = result.writer();
+        var result: std.ArrayList(u8) = .{};
+        const writer = result.writer(self.allocator);
 
         var col: usize = 0;
         var iter = std.mem.splitScalar(u8, text, ' ');
@@ -89,13 +89,13 @@ pub const TextDoc = struct {
             col += word.len;
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Add indentation to text
     pub fn indentText(self: *Self, text: []const u8) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        const writer = result.writer();
+        var result: std.ArrayList(u8) = .{};
+        const writer = result.writer(self.allocator);
 
         var lines = std.mem.splitScalar(u8, text, '\n');
         var first = true;
@@ -110,13 +110,13 @@ pub const TextDoc = struct {
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Format module documentation
     pub fn docModule(self: *Self, name: []const u8, synopsis: ?[]const u8) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        const writer = result.writer();
+        var result: std.ArrayList(u8) = .{};
+        const writer = result.writer(self.allocator);
 
         try writer.print("NAME\n    {s}", .{name});
         if (synopsis) |s| {
@@ -124,13 +124,13 @@ pub const TextDoc = struct {
         }
         try writer.writeAll("\n\n");
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Format function documentation
     pub fn docFunction(self: *Self, name: []const u8, signature: ?[]const u8, docstring: ?[]const u8) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        const writer = result.writer();
+        var result: std.ArrayList(u8) = .{};
+        const writer = result.writer(self.allocator);
 
         try writer.print("{s}", .{name});
         if (signature) |sig| {
@@ -147,7 +147,7 @@ pub const TextDoc = struct {
             try writer.writeByte('\n');
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };
 
@@ -193,8 +193,8 @@ pub const HTMLDoc = struct {
 
     /// Format module as HTML
     pub fn docModule(self: *Self, name: []const u8, synopsis: ?[]const u8) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        const writer = result.writer();
+        var result: std.ArrayList(u8) = .{};
+        const writer = result.writer(self.allocator);
 
         try writer.print("<div class=\"module\">\n<h1>{s}</h1>\n", .{name});
         if (synopsis) |s| {
@@ -202,13 +202,13 @@ pub const HTMLDoc = struct {
         }
         try writer.writeAll("</div>\n");
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Format function as HTML
     pub fn docFunction(self: *Self, name: []const u8, signature: ?[]const u8, docstring: ?[]const u8) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        const writer = result.writer();
+        var result: std.ArrayList(u8) = .{};
+        const writer = result.writer(self.allocator);
 
         try writer.writeAll("<div class=\"function\">\n");
         try writer.print("<code>{s}(", .{name});
@@ -223,13 +223,13 @@ pub const HTMLDoc = struct {
 
         try writer.writeAll("</div>\n");
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Escape HTML special characters
     pub fn escape(self: *Self, text: []const u8) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        const writer = result.writer();
+        var result: std.ArrayList(u8) = .{};
+        const writer = result.writer(self.allocator);
 
         for (text) |c| {
             switch (c) {
@@ -241,7 +241,7 @@ pub const HTMLDoc = struct {
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };
 

@@ -54,7 +54,7 @@ pub const Bdb = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .breakpoints = std.ArrayList(Breakpoint).init(allocator),
+            .breakpoints = .{},
             .bp_by_file = hashmap_helper.StringHashMap(std.ArrayList(usize)).init(allocator),
             .next_bp_number = 1,
             .stop_here = false,
@@ -66,22 +66,22 @@ pub const Bdb = struct {
             .quitting = false,
             .curframe = null,
             .curindex = 0,
-            .stack = std.ArrayList(*FrameInfo).init(allocator),
+            .stack = .{},
             .on_stop = null,
             .on_breakpoint = null,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.breakpoints.deinit();
+        self.breakpoints.deinit(self.allocator);
 
         var it = self.bp_by_file.iterator();
         while (it.next()) |entry| {
-            entry.value_ptr.deinit();
+            entry.value_ptr.deinit(self.allocator);
         }
         self.bp_by_file.deinit();
 
-        self.stack.deinit();
+        self.stack.deinit(self.allocator);
     }
 
     /// Reset the debugger state
@@ -117,14 +117,14 @@ pub const Bdb = struct {
         );
         self.next_bp_number += 1;
 
-        try self.breakpoints.append(bp);
+        try self.breakpoints.append(self.allocator, bp);
 
         // Add to file index
         if (self.bp_by_file.getPtr(filename)) |list| {
-            try list.append(self.breakpoints.items.len - 1);
+            try list.append(self.allocator, self.breakpoints.items.len - 1);
         } else {
-            var list = std.ArrayList(usize).init(self.allocator);
-            try list.append(self.breakpoints.items.len - 1);
+            var list: std.ArrayList(usize) = .{};
+            try list.append(self.allocator, self.breakpoints.items.len - 1);
             try self.bp_by_file.put(filename, list);
         }
 
@@ -157,10 +157,10 @@ pub const Bdb = struct {
 
     /// Get breakpoints at a location
     pub fn getBreaks(self: *Self, filename: []const u8, lineno: usize) std.ArrayList(*Breakpoint) {
-        var result = std.ArrayList(*Breakpoint).init(self.allocator);
+        var result: std.ArrayList(*Breakpoint) = .{};
         for (self.breakpoints.items) |*bp| {
             if (std.mem.eql(u8, bp.file, filename) and bp.line == lineno and bp.enabled) {
-                result.append(bp) catch continue;
+                result.append(self.allocator, bp) catch continue;
             }
         }
         return result;
@@ -307,7 +307,7 @@ pub const Bdb = struct {
             // Stepping through, might need to stop
         }
 
-        self.stack.append(frame) catch {};
+        self.stack.append(self.allocator, frame) catch {};
     }
 
     /// Called on line execution
