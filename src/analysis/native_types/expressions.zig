@@ -1189,7 +1189,7 @@ pub fn inferExprWithInferrer(
 
             // Add param types to temp scope
             for (lam.args, 0..) |arg, i| {
-                temp_var_types.put(arg.name, param_types[i]) catch {};
+                try temp_var_types.put(arg.name, param_types[i]);
             }
 
             // Infer body type with params in scope
