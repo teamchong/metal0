@@ -247,8 +247,9 @@ fn getCallableReturnKind(name: []const u8) ?core.CallableReturnKind {
 /// Known types for from-imported names
 /// Maps (module, name) -> NativeType
 pub fn getFromImportType(module_name: []const u8, symbol_name: []const u8) ?NativeType {
-    // math module constants
+    // math module constants and functions
     if (std.mem.eql(u8, module_name, "math")) {
+        // Constants
         if (std.mem.eql(u8, symbol_name, "inf") or
             std.mem.eql(u8, symbol_name, "nan") or
             std.mem.eql(u8, symbol_name, "pi") or
@@ -257,30 +258,131 @@ pub fn getFromImportType(module_name: []const u8, symbol_name: []const u8) ?Nati
         {
             return .float;
         }
-        // math functions that return float
+        // Functions that return float
         if (std.mem.eql(u8, symbol_name, "sqrt") or
             std.mem.eql(u8, symbol_name, "sin") or
             std.mem.eql(u8, symbol_name, "cos") or
             std.mem.eql(u8, symbol_name, "tan") or
             std.mem.eql(u8, symbol_name, "log") or
             std.mem.eql(u8, symbol_name, "log10") or
+            std.mem.eql(u8, symbol_name, "log2") or
             std.mem.eql(u8, symbol_name, "exp") or
             std.mem.eql(u8, symbol_name, "floor") or
             std.mem.eql(u8, symbol_name, "ceil") or
             std.mem.eql(u8, symbol_name, "trunc") or
             std.mem.eql(u8, symbol_name, "copysign") or
-            std.mem.eql(u8, symbol_name, "fabs"))
+            std.mem.eql(u8, symbol_name, "fabs") or
+            std.mem.eql(u8, symbol_name, "fmod") or
+            std.mem.eql(u8, symbol_name, "asin") or
+            std.mem.eql(u8, symbol_name, "acos") or
+            std.mem.eql(u8, symbol_name, "atan") or
+            std.mem.eql(u8, symbol_name, "atan2") or
+            std.mem.eql(u8, symbol_name, "sinh") or
+            std.mem.eql(u8, symbol_name, "cosh") or
+            std.mem.eql(u8, symbol_name, "tanh") or
+            std.mem.eql(u8, symbol_name, "asinh") or
+            std.mem.eql(u8, symbol_name, "acosh") or
+            std.mem.eql(u8, symbol_name, "atanh") or
+            std.mem.eql(u8, symbol_name, "hypot") or
+            std.mem.eql(u8, symbol_name, "ldexp") or
+            std.mem.eql(u8, symbol_name, "expm1") or
+            std.mem.eql(u8, symbol_name, "log1p") or
+            std.mem.eql(u8, symbol_name, "pow") or
+            std.mem.eql(u8, symbol_name, "remainder") or
+            std.mem.eql(u8, symbol_name, "degrees") or
+            std.mem.eql(u8, symbol_name, "radians"))
         {
             return .{ .callable = .fixed_float };
         }
-        // math functions that return bool
+        // Functions that return bool
         if (std.mem.eql(u8, symbol_name, "isnan") or
             std.mem.eql(u8, symbol_name, "isinf") or
-            std.mem.eql(u8, symbol_name, "isfinite"))
+            std.mem.eql(u8, symbol_name, "isfinite") or
+            std.mem.eql(u8, symbol_name, "isclose"))
         {
             return .{ .callable = .fixed_bool };
         }
+        // Functions that return int
+        if (std.mem.eql(u8, symbol_name, "factorial") or
+            std.mem.eql(u8, symbol_name, "gcd") or
+            std.mem.eql(u8, symbol_name, "lcm") or
+            std.mem.eql(u8, symbol_name, "comb") or
+            std.mem.eql(u8, symbol_name, "perm"))
+        {
+            return .{ .callable = .fixed_int };
+        }
     }
+
+    // operator module functions
+    if (std.mem.eql(u8, module_name, "operator")) {
+        // Numeric operators that preserve type
+        if (std.mem.eql(u8, symbol_name, "add") or
+            std.mem.eql(u8, symbol_name, "sub") or
+            std.mem.eql(u8, symbol_name, "mul") or
+            std.mem.eql(u8, symbol_name, "truediv") or
+            std.mem.eql(u8, symbol_name, "floordiv") or
+            std.mem.eql(u8, symbol_name, "mod") or
+            std.mem.eql(u8, symbol_name, "pow") or
+            std.mem.eql(u8, symbol_name, "neg") or
+            std.mem.eql(u8, symbol_name, "pos") or
+            std.mem.eql(u8, symbol_name, "abs"))
+        {
+            return .{ .callable = .same_as_input };
+        }
+        // Comparison operators return bool
+        if (std.mem.eql(u8, symbol_name, "eq") or
+            std.mem.eql(u8, symbol_name, "ne") or
+            std.mem.eql(u8, symbol_name, "lt") or
+            std.mem.eql(u8, symbol_name, "le") or
+            std.mem.eql(u8, symbol_name, "gt") or
+            std.mem.eql(u8, symbol_name, "ge") or
+            std.mem.eql(u8, symbol_name, "is_") or
+            std.mem.eql(u8, symbol_name, "is_not") or
+            std.mem.eql(u8, symbol_name, "contains") or
+            std.mem.eql(u8, symbol_name, "not_"))
+        {
+            return .{ .callable = .fixed_bool };
+        }
+        // Bitwise operators return int
+        if (std.mem.eql(u8, symbol_name, "and_") or
+            std.mem.eql(u8, symbol_name, "or_") or
+            std.mem.eql(u8, symbol_name, "xor") or
+            std.mem.eql(u8, symbol_name, "invert") or
+            std.mem.eql(u8, symbol_name, "lshift") or
+            std.mem.eql(u8, symbol_name, "rshift") or
+            std.mem.eql(u8, symbol_name, "index"))
+        {
+            return .{ .callable = .fixed_int };
+        }
+    }
+
+    // sys module constants
+    if (std.mem.eql(u8, module_name, "sys")) {
+        if (std.mem.eql(u8, symbol_name, "maxsize") or
+            std.mem.eql(u8, symbol_name, "maxunicode") or
+            std.mem.eql(u8, symbol_name, "hash_info") or
+            std.mem.eql(u8, symbol_name, "int_info"))
+        {
+            return .{ .int = .bounded };
+        }
+    }
+
+    // string module constants
+    if (std.mem.eql(u8, module_name, "string")) {
+        if (std.mem.eql(u8, symbol_name, "ascii_letters") or
+            std.mem.eql(u8, symbol_name, "ascii_lowercase") or
+            std.mem.eql(u8, symbol_name, "ascii_uppercase") or
+            std.mem.eql(u8, symbol_name, "digits") or
+            std.mem.eql(u8, symbol_name, "hexdigits") or
+            std.mem.eql(u8, symbol_name, "octdigits") or
+            std.mem.eql(u8, symbol_name, "punctuation") or
+            std.mem.eql(u8, symbol_name, "printable") or
+            std.mem.eql(u8, symbol_name, "whitespace"))
+        {
+            return .{ .string = .literal };
+        }
+    }
+
     return null;
 }
 
