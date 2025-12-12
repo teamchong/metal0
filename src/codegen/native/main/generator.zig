@@ -1570,7 +1570,8 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 if (yield.value) |val| {
                     try expressions.genExpr(self, val.*);
                 } else {
-                    try self.emit("undefined");
+                    // yield without value yields None in Python
+                    try self.emit("null");
                 }
                 try self.emit("));\n");
             } else {

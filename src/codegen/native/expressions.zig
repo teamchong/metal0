@@ -199,8 +199,8 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .genexp => |ge| try comprehensions.genGenExp(self, ge),
         .slice_expr => |sl| try genSliceExpr(self, sl),
         else => {
-            // Unsupported expression type - emit undefined placeholder to avoid syntax errors
-            try self.emit("@as(?*anyopaque, null)");
+            // Statement node passed to expression dispatcher - this is a bug
+            return error.UnsupportedSyntax;
         },
     }
 }

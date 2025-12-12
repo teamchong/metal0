@@ -656,8 +656,8 @@ pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Returns a stateful iterator over the iterable
 pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
-        try self.emit("@as(?*anyopaque, null)");
-        return;
+        // iter() requires at least one argument
+        return error.UnsupportedSyntax;
     }
 
     // Infer the type of the iterable to choose the right iterator
@@ -713,8 +713,8 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Returns the next item from the iterator
 pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
-        try self.emit("@as(?*anyopaque, null)");
-        return;
+        // next() requires at least one argument
+        return error.UnsupportedSyntax;
     }
 
     // For custom iterator objects with __next__ method
