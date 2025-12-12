@@ -192,8 +192,8 @@ pub const Calendar = struct {
 
     /// Return weeks in a month as an iterator of tuples (day, weekday)
     pub fn itermonthdays2(self: *const Calendar, allocator: std.mem.Allocator, year: i32, month: i32) ![]struct { day: i32, weekday: i32 } {
-        var days = std.ArrayList(struct { day: i32, weekday: i32 }).init(allocator);
-        errdefer days.deinit();
+        var days: std.ArrayList(struct { day: i32, weekday: i32 }) = .{};
+        errdefer days.deinit(allocator);
 
         const range = monthrange(year, month);
         const first = range.first_weekday;
@@ -202,13 +202,13 @@ pub const Calendar = struct {
         // Days before month (0s with weekday)
         const days_before = @rem(first - self.firstweekday + 7, 7);
         for (0..@as(usize, @intCast(days_before))) |i| {
-            try days.append(.{ .day = 0, .weekday = @rem(self.firstweekday + @as(i32, @intCast(i)), 7) });
+            try days.append(allocator, .{ .day = 0, .weekday = @rem(self.firstweekday + @as(i32, @intCast(i)), 7) });
         }
 
         // Days in month
         for (1..@as(usize, @intCast(ndays + 1))) |d| {
             const dow = weekday(year, month, @intCast(d));
-            try days.append(.{ .day = @intCast(d), .weekday = dow });
+            try days.append(allocator, .{ .day = @intCast(d), .weekday = dow });
         }
 
         // Days after month to complete the week
@@ -216,10 +216,10 @@ pub const Calendar = struct {
         const remaining = (7 - @rem(total, 7)) % 7;
         for (0..remaining) |i| {
             const dow = @rem(@as(i32, @intCast(i)) + weekday(year, month, ndays) + 1, 7);
-            try days.append(.{ .day = 0, .weekday = dow });
+            try days.append(allocator, .{ .day = 0, .weekday = dow });
         }
 
-        return days.toOwnedSlice();
+        return days.toOwnedSlice(allocator);
     }
 
     /// Return weeks of a month
@@ -256,60 +256,60 @@ pub const TextCalendar = struct {
 
     /// Format a week header
     pub fn formatweekheader(self: *const TextCalendar, allocator: std.mem.Allocator, width: usize) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(allocator);
 
         const weekdays = self.cal.iterweekdays();
         for (weekdays, 0..) |dow, i| {
-            if (i > 0) try result.append(' ');
+            if (i > 0) try result.append(allocator, ' ');
             const name = day_abbr[@intCast(dow)];
             const display = if (width >= name.len) name else name[0..width];
-            try result.appendSlice(display);
+            try result.appendSlice(allocator, display);
             // Pad to width
             for (display.len..width) |_| {
-                try result.append(' ');
+                try result.append(allocator, ' ');
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 
     /// Format a month name and year
     pub fn formatmonthname(allocator: std.mem.Allocator, year: i32, month: i32, width: usize) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(allocator);
 
         var buf: [64]u8 = undefined;
-        const header = std.fmt.bufPrint(&buf, "{s} {d}", .{ month_name[@intCast(month)], year }) catch return result.toOwnedSlice();
+        const header = std.fmt.bufPrint(&buf, "{s} {d}", .{ month_name[@intCast(month)], year }) catch return result.toOwnedSlice(allocator);
 
         // Center the header
         const padding = if (width > header.len) (width - header.len) / 2 else 0;
         for (0..padding) |_| {
-            try result.append(' ');
+            try result.append(allocator, ' ');
         }
-        try result.appendSlice(header);
+        try result.appendSlice(allocator, header);
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 
     /// Format a month as a string
     pub fn formatmonth(self: *const TextCalendar, allocator: std.mem.Allocator, year: i32, month: i32) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(allocator);
 
         const width: usize = 21; // 7 * 3 = 21 for standard calendar
 
         // Month name header
         const header = try formatmonthname(allocator, year, month, width);
         defer allocator.free(header);
-        try result.appendSlice(header);
-        try result.append('\n');
+        try result.appendSlice(allocator, header);
+        try result.append(allocator, '\n');
 
         // Weekday header
         const weekheader = try self.formatweekheader(allocator, 2);
         defer allocator.free(weekheader);
-        try result.appendSlice(weekheader);
-        try result.append('\n');
+        try result.appendSlice(allocator, weekheader);
+        try result.append(allocator, '\n');
 
         // Days
         const weeks = monthcalendar(allocator, year, month);
@@ -317,19 +317,19 @@ pub const TextCalendar = struct {
 
         for (weeks) |week| {
             for (week, 0..) |day, i| {
-                if (i > 0) try result.append(' ');
+                if (i > 0) try result.append(allocator, ' ');
                 if (day == 0) {
-                    try result.appendSlice("  ");
+                    try result.appendSlice(allocator, "  ");
                 } else {
                     var buf: [8]u8 = undefined;
                     const day_str = std.fmt.bufPrint(&buf, "{d:2}", .{day}) catch "  ";
-                    try result.appendSlice(day_str);
+                    try result.appendSlice(allocator, day_str);
                 }
             }
-            try result.append('\n');
+            try result.append(allocator, '\n');
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 

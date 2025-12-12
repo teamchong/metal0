@@ -151,7 +151,7 @@ pub const TemporaryDirectory = struct {
 
 /// SpooledTemporaryFile - A file that starts in memory and spills to disk
 pub const SpooledTemporaryFile = struct {
-    buffer: std.ArrayList(u8),
+    buffer: std.ArrayList(u8) = .{},
     file: ?std.fs.File,
     file_path: ?[]u8,
     allocator: std.mem.Allocator,
@@ -160,7 +160,6 @@ pub const SpooledTemporaryFile = struct {
 
     pub fn init(allocator: std.mem.Allocator, max_size: usize) SpooledTemporaryFile {
         return .{
-            .buffer = std.ArrayList(u8).init(allocator),
             .file = null,
             .file_path = null,
             .allocator = allocator,
@@ -180,7 +179,7 @@ pub const SpooledTemporaryFile = struct {
             return self.file.?.write(data);
         }
 
-        try self.buffer.appendSlice(data);
+        try self.buffer.appendSlice(self.allocator, data);
         return data.len;
     }
 
@@ -205,7 +204,7 @@ pub const SpooledTemporaryFile = struct {
         if (self.buffer.items.len > 0) {
             _ = try self.file.?.write(self.buffer.items);
         }
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     pub fn deinit(self: *SpooledTemporaryFile) void {
@@ -216,7 +215,7 @@ pub const SpooledTemporaryFile = struct {
                 self.allocator.free(path);
             }
         } else {
-            self.buffer.deinit();
+            self.buffer.deinit(self.allocator);
         }
     }
 };

@@ -29,8 +29,8 @@ pub fn formatWarning(
     lineno: usize,
     line: ?[]const u8,
 ) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    const writer = result.writer();
+    var result: std.ArrayList(u8) = .{};
+    const writer = result.writer(allocator);
 
     try writer.print("{s}:{d}: {s}: {s}\n", .{ filename, lineno, category.name(), message });
 
@@ -38,7 +38,7 @@ pub fn formatWarning(
         try writer.print("  {s}\n", .{l});
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Default show warning function (customizable hook)

@@ -104,13 +104,13 @@ pub const StringIO = struct {
 
     /// Read all lines into a list
     pub fn readlines(self: *Self, allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
-        var lines = std.ArrayList([]const u8).init(allocator);
-        errdefer lines.deinit();
+        var lines: std.ArrayList([]const u8) = .{};
+        errdefer lines.deinit(allocator);
 
         while (self.position < self.buffer.items.len) {
             const line = self.readline();
             if (line.len == 0) break;
-            try lines.append(line);
+            try lines.append(allocator, line);
         }
 
         return lines;

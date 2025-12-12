@@ -217,27 +217,26 @@ pub const ExitStack = struct {
     const Callback = *const fn () void;
 
     allocator: std.mem.Allocator,
-    callbacks: std.ArrayList(Callback),
+    callbacks: std.ArrayList(Callback) = .{},
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .callbacks = std.ArrayList(Callback).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.callbacks.deinit();
+        self.callbacks.deinit(self.allocator);
     }
 
     /// Register a callback to be called on exit
     pub fn callback(self: *Self, cb: Callback) !void {
-        try self.callbacks.append(cb);
+        try self.callbacks.append(self.allocator, cb);
     }
 
     /// Push a callback and return it
     pub fn pushCallback(self: *Self, cb: Callback) !Callback {
-        try self.callbacks.append(cb);
+        try self.callbacks.append(self.allocator, cb);
         return cb;
     }
 

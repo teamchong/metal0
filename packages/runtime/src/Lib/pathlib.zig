@@ -277,10 +277,10 @@ pub const Path = struct {
 
     /// Iterate over directory contents (iterdir)
     pub fn iterdir(self: *const Path, allocator: std.mem.Allocator) !std.ArrayList(*Path) {
-        var result = std.ArrayList(*Path).init(allocator);
+        var result: std.ArrayList(*Path) = .{};
         errdefer {
             for (result.items) |p| p.destroy();
-            result.deinit();
+            result.deinit(allocator);
         }
 
         var dir = try std.fs.cwd().openDir(self.path, .{ .iterate = true });
@@ -291,7 +291,7 @@ pub const Path = struct {
             const child_path = try std.fs.path.join(allocator, &.{ self.path, entry.name });
             const p = try allocator.create(Path);
             p.* = .{ .path = child_path, .allocator = allocator };
-            try result.append(p);
+            try result.append(allocator, p);
         }
 
         return result;
@@ -299,11 +299,11 @@ pub const Path = struct {
 
     /// Get all parts of the path
     pub fn parts(self: *const Path, allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
-        var result = std.ArrayList([]const u8).init(allocator);
+        var result: std.ArrayList([]const u8) = .{};
         var iter = std.mem.splitScalar(u8, self.path, std.fs.path.sep);
         while (iter.next()) |part| {
             if (part.len > 0) {
-                try result.append(try allocator.dupe(u8, part));
+                try result.append(allocator, try allocator.dupe(u8, part));
             }
         }
         return result;

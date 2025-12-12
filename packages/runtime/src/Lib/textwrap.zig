@@ -103,16 +103,16 @@ pub fn dedent(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     if (remove == 0) return allocator.dupe(u8, text);
 
     // Build result with dedented lines
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     line_start = 0;
     for (text, 0..) |c, i| {
         if (c == '\n') {
             const line = text[line_start..i];
             const skip = @min(countIndent(line), remove);
-            try result.appendSlice(line[skip..]);
-            try result.append('\n');
+            try result.appendSlice(allocator, line[skip..]);
+            try result.append(allocator, '\n');
             line_start = i + 1;
         }
     }
@@ -121,10 +121,10 @@ pub fn dedent(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     if (line_start < text.len) {
         const line = text[line_start..];
         const skip = @min(countIndent(line), remove);
-        try result.appendSlice(line[skip..]);
+        try result.appendSlice(allocator, line[skip..]);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Add prefix to beginning of every line
@@ -139,18 +139,18 @@ pub fn indentWithPredicate(
     prefix: []const u8,
     predicate: ?*const fn ([]const u8) bool,
 ) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var line_start: usize = 0;
     for (text, 0..) |c, i| {
         if (c == '\n') {
             const line = text[line_start..i];
             if (shouldIndent(line, predicate)) {
-                try result.appendSlice(prefix);
+                try result.appendSlice(allocator, prefix);
             }
-            try result.appendSlice(line);
-            try result.append('\n');
+            try result.appendSlice(allocator, line);
+            try result.append(allocator, '\n');
             line_start = i + 1;
         }
     }
@@ -159,12 +159,12 @@ pub fn indentWithPredicate(
     if (line_start < text.len) {
         const line = text[line_start..];
         if (shouldIndent(line, predicate)) {
-            try result.appendSlice(prefix);
+            try result.appendSlice(allocator, prefix);
         }
-        try result.appendSlice(line);
+        try result.appendSlice(allocator, line);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 fn shouldIndent(line: []const u8, predicate: ?*const fn ([]const u8) bool) bool {
@@ -244,41 +244,41 @@ pub const TextWrapper = struct {
     }
 
     pub fn wrap(self: *TextWrapper, text: []const u8) ![][]const u8 {
-        var lines = std.ArrayList([]const u8).init(self.allocator);
+        var lines: std.ArrayList([]const u8) = .{};
         errdefer {
             for (lines.items) |line| {
                 self.allocator.free(line);
             }
-            lines.deinit();
+            lines.deinit(self.allocator);
         }
 
         // Preprocess text
-        var processed = std.ArrayList(u8).init(self.allocator);
-        defer processed.deinit();
+        var processed: std.ArrayList(u8) = .{};
+        defer processed.deinit(self.allocator);
 
         for (text) |c| {
             if (self.options.expand_tabs and c == '\t') {
                 for (0..self.options.tab_size) |_| {
-                    try processed.append(' ');
+                    try processed.append(self.allocator, ' ');
                 }
             } else if (self.options.replace_whitespace and (c == '\n' or c == '\r')) {
-                try processed.append(' ');
+                try processed.append(self.allocator, ' ');
             } else {
-                try processed.append(c);
+                try processed.append(self.allocator, c);
             }
         }
 
         const processed_text = processed.items;
 
         // Split into words
-        var words = std.ArrayList([]const u8).init(self.allocator);
-        defer words.deinit();
+        var words: std.ArrayList([]const u8) = .{};
+        defer words.deinit(self.allocator);
 
         var word_start: ?usize = null;
         for (processed_text, 0..) |c, i| {
             if (c == ' ') {
                 if (word_start) |start| {
-                    try words.append(processed_text[start..i]);
+                    try words.append(self.allocator, processed_text[start..i]);
                     word_start = null;
                 }
             } else {
@@ -288,12 +288,12 @@ pub const TextWrapper = struct {
             }
         }
         if (word_start) |start| {
-            try words.append(processed_text[start..]);
+            try words.append(self.allocator, processed_text[start..]);
         }
 
         // Build lines
-        var current_line = std.ArrayList(u8).init(self.allocator);
-        defer current_line.deinit();
+        var current_line: std.ArrayList(u8) = .{};
+        defer current_line.deinit(self.allocator);
 
         const initial_indent = self.options.initial_indent;
         const subsequent_indent = self.options.subsequent_indent;
@@ -305,19 +305,19 @@ pub const TextWrapper = struct {
 
             if (current_line.items.len + space_needed + word.len + current_indent.len <= self.options.width or current_line.items.len == 0) {
                 if (current_line.items.len > 0) {
-                    try current_line.append(' ');
+                    try current_line.append(self.allocator, ' ');
                 }
-                try current_line.appendSlice(word);
+                try current_line.appendSlice(self.allocator, word);
             } else {
                 // Finish current line
                 var line = try self.allocator.alloc(u8, current_indent.len + current_line.items.len);
                 @memcpy(line[0..current_indent.len], current_indent);
                 @memcpy(line[current_indent.len..], current_line.items);
-                try lines.append(line);
+                try lines.append(self.allocator, line);
 
                 is_first_line = false;
                 current_line.clearRetainingCapacity();
-                try current_line.appendSlice(word);
+                try current_line.appendSlice(self.allocator, word);
             }
         }
 
@@ -327,10 +327,10 @@ pub const TextWrapper = struct {
             var line = try self.allocator.alloc(u8, current_indent.len + current_line.items.len);
             @memcpy(line[0..current_indent.len], current_indent);
             @memcpy(line[current_indent.len..], current_line.items);
-            try lines.append(line);
+            try lines.append(self.allocator, line);
         }
 
-        return lines.toOwnedSlice();
+        return lines.toOwnedSlice(self.allocator);
     }
 };
 

@@ -11,7 +11,7 @@ pub const WarningsState = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
-    filters: std.ArrayList(types.WarningFilter),
+    filters: std.ArrayList(types.WarningFilter) = .{},
     once_registry: hashmap_helper.StringHashMap(void),
     default_action: types.FilterAction = .default,
     show_source: bool = true,
@@ -19,24 +19,23 @@ pub const WarningsState = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .filters = std.ArrayList(types.WarningFilter).init(allocator),
             .once_registry = hashmap_helper.StringHashMap(void).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.filters.deinit();
+        self.filters.deinit(self.allocator);
         self.once_registry.deinit();
     }
 
     /// Add a filter at the beginning of the filter list
     pub fn insertFilter(self: *Self, filter: types.WarningFilter) !void {
-        try self.filters.insert(0, filter);
+        try self.filters.insert(self.allocator, 0, filter);
     }
 
     /// Add a filter at the end of the filter list
     pub fn appendFilter(self: *Self, filter: types.WarningFilter) !void {
-        try self.filters.append(filter);
+        try self.filters.append(self.allocator, filter);
     }
 
     /// Get the action for a warning

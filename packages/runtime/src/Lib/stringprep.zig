@@ -304,7 +304,7 @@ pub fn containsUnassigned(s: []const u8) bool {
 
 /// Map string according to table B.1 (remove mapped-to-nothing chars)
 pub fn mapB1(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
     var i: usize = 0;
     while (i < s.len) {
         const len = std.unicode.utf8ByteSequenceLength(s[i]) catch {
@@ -313,26 +313,26 @@ pub fn mapB1(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
         };
         if (i + len > s.len) break;
         if (!in_table_b1(s[i .. i + len])) {
-            try result.appendSlice(s[i .. i + len]);
+            try result.appendSlice(allocator, s[i .. i + len]);
         }
         i += len;
     }
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Map string to lowercase (table B.2)
 pub fn mapB2(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .{};
     var i: usize = 0;
     while (i < s.len) {
         const len = std.unicode.utf8ByteSequenceLength(s[i]) catch {
-            try result.append(s[i]);
+            try result.append(allocator, s[i]);
             i += 1;
             continue;
         };
         if (i + len > s.len) break;
         const c = std.unicode.utf8Decode(s[i .. i + len]) catch {
-            try result.appendSlice(s[i .. i + len]);
+            try result.appendSlice(allocator, s[i .. i + len]);
             i += len;
             continue;
         };
@@ -340,12 +340,12 @@ pub fn mapB2(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
         const mapped: u21 = if (c >= 'A' and c <= 'Z') c + 32 else c;
         var buf: [4]u8 = undefined;
         const enc_len = std.unicode.utf8Encode(mapped, &buf) catch {
-            try result.appendSlice(s[i .. i + len]);
+            try result.appendSlice(allocator, s[i .. i + len]);
             i += len;
             continue;
         };
-        try result.appendSlice(buf[0..enc_len]);
+        try result.appendSlice(allocator, buf[0..enc_len]);
         i += len;
     }
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
