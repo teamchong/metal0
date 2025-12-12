@@ -82,14 +82,30 @@ fn checkStmtForLocalClassReturn(stmt: ast.Node, local_classes: []const []const u
         },
         .for_stmt => |for_stmt| {
             if (checkStmtsForLocalClassReturn(for_stmt.body, local_classes)) |found| return found;
+            if (for_stmt.orelse_body) |orelse_body| {
+                if (checkStmtsForLocalClassReturn(orelse_body, local_classes)) |found| return found;
+            }
         },
         .while_stmt => |while_stmt| {
             if (checkStmtsForLocalClassReturn(while_stmt.body, local_classes)) |found| return found;
+            if (while_stmt.orelse_body) |orelse_body| {
+                if (checkStmtsForLocalClassReturn(orelse_body, local_classes)) |found| return found;
+            }
         },
         .try_stmt => |try_stmt| {
             if (checkStmtsForLocalClassReturn(try_stmt.body, local_classes)) |found| return found;
             for (try_stmt.handlers) |handler| {
                 if (checkStmtsForLocalClassReturn(handler.body, local_classes)) |found| return found;
+            }
+            if (checkStmtsForLocalClassReturn(try_stmt.else_body, local_classes)) |found| return found;
+            if (checkStmtsForLocalClassReturn(try_stmt.finalbody, local_classes)) |found| return found;
+        },
+        .with_stmt => |with_stmt| {
+            if (checkStmtsForLocalClassReturn(with_stmt.body, local_classes)) |found| return found;
+        },
+        .match_stmt => |match_stmt| {
+            for (match_stmt.cases) |case| {
+                if (checkStmtsForLocalClassReturn(case.body, local_classes)) |found| return found;
             }
         },
         else => {},
@@ -120,14 +136,30 @@ fn collectLocalClasses(stmts: []const ast.Node, names: *[32][]const u8, count: *
             },
             .for_stmt => |for_stmt| {
                 collectLocalClasses(for_stmt.body, names, count);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    collectLocalClasses(orelse_body, names, count);
+                }
             },
             .while_stmt => |while_stmt| {
                 collectLocalClasses(while_stmt.body, names, count);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    collectLocalClasses(orelse_body, names, count);
+                }
             },
             .try_stmt => |try_stmt| {
                 collectLocalClasses(try_stmt.body, names, count);
                 for (try_stmt.handlers) |handler| {
                     collectLocalClasses(handler.body, names, count);
+                }
+                collectLocalClasses(try_stmt.else_body, names, count);
+                collectLocalClasses(try_stmt.finalbody, names, count);
+            },
+            .with_stmt => |with_stmt| {
+                collectLocalClasses(with_stmt.body, names, count);
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    collectLocalClasses(case.body, names, count);
                 }
             },
             else => {},
@@ -150,14 +182,30 @@ fn findClassDefInBody(stmts: []const ast.Node, class_name: []const u8) ?ast.Node
             },
             .for_stmt => |for_stmt| {
                 if (findClassDefInBody(for_stmt.body, class_name)) |found| return found;
+                if (for_stmt.orelse_body) |orelse_body| {
+                    if (findClassDefInBody(orelse_body, class_name)) |found| return found;
+                }
             },
             .while_stmt => |while_stmt| {
                 if (findClassDefInBody(while_stmt.body, class_name)) |found| return found;
+                if (while_stmt.orelse_body) |orelse_body| {
+                    if (findClassDefInBody(orelse_body, class_name)) |found| return found;
+                }
             },
             .try_stmt => |try_stmt| {
                 if (findClassDefInBody(try_stmt.body, class_name)) |found| return found;
                 for (try_stmt.handlers) |handler| {
                     if (findClassDefInBody(handler.body, class_name)) |found| return found;
+                }
+                if (findClassDefInBody(try_stmt.else_body, class_name)) |found| return found;
+                if (findClassDefInBody(try_stmt.finalbody, class_name)) |found| return found;
+            },
+            .with_stmt => |with_stmt| {
+                if (findClassDefInBody(with_stmt.body, class_name)) |found| return found;
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    if (findClassDefInBody(case.body, class_name)) |found| return found;
                 }
             },
             else => {},
@@ -190,10 +238,20 @@ fn hasSelfAttrAssignImpl(node: ast.Node) bool {
             for (for_stmt.body) |s| {
                 if (hasSelfAttrAssignImpl(s)) return true;
             }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (hasSelfAttrAssignImpl(s)) return true;
+                }
+            }
         },
         .while_stmt => |while_stmt| {
             for (while_stmt.body) |s| {
                 if (hasSelfAttrAssignImpl(s)) return true;
+            }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (hasSelfAttrAssignImpl(s)) return true;
+                }
             }
         },
         .try_stmt => |try_stmt| {
@@ -202,6 +260,24 @@ fn hasSelfAttrAssignImpl(node: ast.Node) bool {
             }
             for (try_stmt.handlers) |handler| {
                 for (handler.body) |s| {
+                    if (hasSelfAttrAssignImpl(s)) return true;
+                }
+            }
+            for (try_stmt.else_body) |s| {
+                if (hasSelfAttrAssignImpl(s)) return true;
+            }
+            for (try_stmt.finalbody) |s| {
+                if (hasSelfAttrAssignImpl(s)) return true;
+            }
+        },
+        .with_stmt => |with_stmt| {
+            for (with_stmt.body) |s| {
+                if (hasSelfAttrAssignImpl(s)) return true;
+            }
+        },
+        .match_stmt => |match_stmt| {
+            for (match_stmt.cases) |case| {
+                for (case.body) |s| {
                     if (hasSelfAttrAssignImpl(s)) return true;
                 }
             }
