@@ -614,12 +614,52 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             break :blk false;
         } else false;
 
+        // Check if tuple contains callable types (functions must be const in Zig)
+        // First check via type inference
+        var has_callable_elements = if (iter_type.tuple.len > 0) blk: {
+            for (iter_type.tuple) |elem_type| {
+                if (type_traits.isCallable(elem_type)) {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        } else false;
+
+        // Also check AST for known builtins that are callable (pow, operator.pow, operator.mod)
+        // Type inference may not detect these as callable if they're unknown/dynamic
+        if (!has_callable_elements and for_stmt.iter.* == .tuple) {
+            const tuple_elts = for_stmt.iter.tuple.elts;
+            for (tuple_elts) |elt| {
+                if (elt == .name) {
+                    const name = elt.name.id;
+                    // pow is a callable builtin function
+                    if (std.mem.eql(u8, name, "pow")) {
+                        has_callable_elements = true;
+                        break;
+                    }
+                } else if (elt == .attribute) {
+                    const attr = elt.attribute;
+                    if (attr.value.* == .name) {
+                        const mod_name = attr.value.name.id;
+                        // operator.pow and operator.mod are callable structs
+                        if (std.mem.eql(u8, mod_name, "operator")) {
+                            if (std.mem.eql(u8, attr.attr, "pow") or std.mem.eql(u8, attr.attr, "mod")) {
+                                has_callable_elements = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Declare variable before loop so it persists after (Python semantics)
         // Only declare if not already declared in current scope (handles reuse like `for index in ...` twice)
         // Also skip if variable was hoisted at function start (avoids redeclaration)
         // Skip for type tuples - types can't be stored in runtime variables
         // Skip for heterogeneous tuples - can't use a single type for mixed-type elements
-        if (!is_type_tuple and !is_heterogeneous_tuple and !self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+        // Skip for callable tuples - function types must be const in Zig
+        if (!is_type_tuple and !is_heterogeneous_tuple and !has_callable_elements and !self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
             try self.emitIndent();
             try self.emit("var ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
@@ -723,9 +763,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         } else false;
 
         try self.emitIndent();
-        if (is_type_tuple_inner or is_heterogeneous_inner) {
-            // For type tuples and heterogeneous tuples: const var = __loop_val_N
-            // Types must be comptime, heterogeneous values can't share a single type
+        if (is_type_tuple_inner or is_heterogeneous_inner or has_callable_elements) {
+            // For type tuples, heterogeneous tuples, and callable tuples: const var = __loop_val_N
+            // Types must be comptime, heterogeneous values can't share a single type,
+            // and function types must be const in Zig
             try self.emit("const ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
             try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
@@ -1238,7 +1279,18 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     if (var_used and shadows_outer) {
         try self.emitIndent();
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        try self.output.writer(self.allocator).print(" = __loop_{s}_{d}__;\n", .{ var_name, unique_capture_id });
+
+        // Check if target variable is typed as BigInt - need to convert loop capture
+        // This handles cases like: for n in [324, 2**100] where n is BigInt but loop yields i64
+        const var_type = self.type_inferrer.var_types.get(var_name);
+        const is_bigint_target = self.bigint_vars.contains(var_name) or
+            (var_type != null and var_type.? == .bigint);
+
+        if (is_bigint_target) {
+            try self.output.writer(self.allocator).print(" = (runtime.BigInt.fromInt(__global_allocator, __loop_{s}_{d}__) catch unreachable);\n", .{ var_name, unique_capture_id });
+        } else {
+            try self.output.writer(self.allocator).print(" = __loop_{s}_{d}__;\n", .{ var_name, unique_capture_id });
+        }
         // Trigger any deferred closures waiting on this variable
         // This handles closures defined before the for-loop that capture the loop variable
         try triggerDeferredClosureInstantiations(self, for_stmt.target.name.id);

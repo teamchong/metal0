@@ -175,6 +175,22 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
         if (@typeInfo(FirstT) == .int or @typeInfo(FirstT) == .comptime_int) {
             break :blk @intCast(first);
         }
+        // Handle direct BigInt struct type
+        // Check for struct with toInt method (BigInt signature)
+        if (@typeInfo(FirstT) == .@"struct" and @hasDecl(FirstT, "toInt")) {
+            // This is a BigInt - try to convert to i32 if it fits
+            if (first.toInt(i32)) |val| {
+                break :blk val;
+            } else |_| {
+                // BigInt is too large for ndigits, use extreme value
+                // Check if negative (very small n) or positive (very large n)
+                if (first.isNegative()) {
+                    break :blk -1000; // Will trigger early return for 0.0
+                } else {
+                    break :blk 1000; // Will trigger early return for original value
+                }
+            }
+        }
         // Handle PyValue or similar tagged union containing int or bigint
         // Use duck-typing: check if it's a tagged union with int/bigint fields
         const first_info = @typeInfo(FirstT);
@@ -238,11 +254,26 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
         return float_val;
     }
 
-    const rounded = bankersRound(float_val * multiplier);
+    const scaled = float_val * multiplier;
+
+    // If scaled overflows to infinity, the original value has more precision
+    // than the requested ndigits, so rounding has no effect - return original
+    // e.g., round(1e150, 300) - scaling by 10^300 overflows, but 1e150 is already
+    // precise at 300 decimal places (it's actually precise at all decimal places)
+    if (std.math.isInf(scaled) and !std.math.isInf(float_val)) {
+        return float_val;
+    }
+
+    const rounded = bankersRound(scaled);
     const result = rounded / multiplier;
 
-    // Check for overflow - Python raises OverflowError
-    if (std.math.isInf(result)) {
+    // Note: For very large numbers, floating point division may introduce small errors
+    // Python uses decimal arithmetic internally for these edge cases
+    // e.g., round(56294995342131.5, 3) may return 56294995342131.51 instead of .5
+
+    // Check for overflow - Python raises OverflowError only when input was finite
+    // but result is infinite (actual overflow, not just scaling overflow)
+    if (std.math.isInf(result) and !std.math.isInf(float_val)) {
         return PythonError.OverflowError;
     }
     // Preserve sign of input when result is zero (Python semantics)
@@ -253,26 +284,41 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
 }
 
 /// Banker's rounding (round half to even)
+/// Handles floating point imprecision near 0.5
 pub fn bankersRound(value: f64) f64 {
     if (std.math.isNan(value) or std.math.isInf(value)) {
         return value;
     }
 
+    // Use @round for the basic rounding, then check for half cases
+    const rounded = @round(value);
+    const diff = value - rounded;
+
+    // If we're very close to the rounded value, just use it
+    // This handles cases like 2.5000000000001 which should round to 2 (even)
+    const epsilon = 1e-9;
+
+    // Check if value is close to X.5 (halfway between integers)
     const floor_val = @floor(value);
     const frac = value - floor_val;
 
-    if (frac < 0.5) {
-        return floor_val;
-    } else if (frac > 0.5) {
-        return floor_val + 1.0;
-    } else {
-        // Exactly 0.5 - round to even
+    // Is this a "half" case? (frac is very close to 0.5)
+    if (@abs(frac - 0.5) < epsilon) {
+        // Apply banker's rounding - round to even
         const floor_int: i64 = @intFromFloat(floor_val);
         if (@mod(floor_int, 2) == 0) {
             return floor_val;
         } else {
             return floor_val + 1.0;
         }
+    }
+
+    // For non-half cases, just use standard rounding
+    _ = diff; // unused
+    if (frac < 0.5) {
+        return floor_val;
+    } else {
+        return floor_val + 1.0;
     }
 }
 

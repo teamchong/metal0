@@ -34,6 +34,32 @@ fn isBigIntExpression(expr: ast.Node) bool {
             return true;
         }
     }
+    // Pow operator (2**100) produces BigInt when result would overflow
+    // The genExpr for Pow uses BigInt.pow() which returns BigInt
+    if (expr == .binop and expr.binop.op == .Pow) {
+        const rhs = expr.binop.right.*;
+        // If RHS is not a small constant, pow produces BigInt
+        if (rhs != .constant or rhs.constant.value != .int) {
+            return true;
+        }
+        // Even small bases with large exponents overflow
+        // e.g., 2**100 overflows i64
+        if (rhs.constant.value.int >= 63) {
+            return true;
+        }
+        // Check if base is also small - 2**10 fits in i64, but 2**100 doesn't
+        const lhs = expr.binop.left.*;
+        if (lhs == .constant and lhs.constant.value == .int) {
+            const base = lhs.constant.value.int;
+            const exp = rhs.constant.value.int;
+            // Rough check: if base^exp would overflow i64
+            // log2(base^exp) = exp * log2(base), overflow if > 63
+            if (base >= 2 and exp >= 63) return true;
+            if (base >= 4 and exp >= 32) return true;
+            if (base >= 16 and exp >= 16) return true;
+            if (base >= 256 and exp >= 8) return true;
+        }
+    }
     // int() call with non-literal argument could produce BigInt
     // e.g., int(s) where s is a string variable (could be from file/input)
     if (expr == .call and expr.call.func.* == .name) {
@@ -1127,6 +1153,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Other int expressions (arithmetic, int(string), etc.) may produce i128
                     // BUT: if the constant is already a bigint literal, genExpr already produces
                     // parseIntToBigInt(...) which returns BigInt directly - don't double-wrap
+                    // ALSO: if expression already produces BigInt (e.g., 2**100 uses .pow() which returns BigInt)
+                    // we should emit directly without wrapping
                     if (assign.value.* == .constant and assign.value.constant.value == .bigint) {
                         // Already a bigint literal - genExpr will produce BigInt directly
                         try self.genExpr(assign.value.*);
@@ -1135,6 +1163,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         try self.emit("(runtime.BigInt.fromInt(__global_allocator, ");
                         try self.genExpr(assign.value.*);
                         try self.emit(") catch unreachable);\n");
+                    } else if (isBigIntExpression(assign.value.*)) {
+                        // Expression already produces BigInt (e.g., 2**100, bigint ops)
+                        try self.genExpr(assign.value.*);
+                        try self.emit(";\n");
                     } else {
                         try self.emit("(runtime.BigInt.fromInt128(__global_allocator, ");
                         try self.genExpr(assign.value.*);
