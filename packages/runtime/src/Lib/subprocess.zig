@@ -229,7 +229,7 @@ pub fn check_call(allocator: std.mem.Allocator, args: []const []const u8) !void 
 
 /// Run command and return output
 pub fn check_output(allocator: std.mem.Allocator, args: []const []const u8) ![]u8 {
-    var result = try run(allocator, args, .{ .capture_output = true, .check = true });
+    const result = try run(allocator, args, .{ .capture_output = true, .check = true });
     defer {
         if (result.stderr) |s| allocator.free(s);
     }
@@ -253,7 +253,7 @@ pub fn getstatusoutput(allocator: std.mem.Allocator, cmd: []const u8) !struct { 
     else
         &[_][]const u8{ "/bin/sh", "-c", cmd };
 
-    var result = try run(allocator, shell, .{ .capture_output = true });
+    const result = try run(allocator, shell, .{ .capture_output = true });
     defer {
         if (result.stderr) |s| allocator.free(s);
     }

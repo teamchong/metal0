@@ -393,6 +393,82 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
+        // Handle subprocess module - expand "from subprocess import *"
+        if (std.mem.eql(u8, from_imp.module, "subprocess")) {
+            for (from_imp.names) |name| {
+                if (std.mem.eql(u8, name, "*")) {
+                    const subprocess_exports = [_][]const u8{
+                        "PIPE",
+                        "STDOUT",
+                        "DEVNULL",
+                        "CompletedProcess",
+                        "Popen",
+                        "run",
+                        "call",
+                        "check_call",
+                        "check_output",
+                        "getoutput",
+                        "getstatusoutput",
+                    };
+                    for (subprocess_exports) |exp_name| {
+                        if (generated_symbols.contains(exp_name)) continue;
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = subprocess.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
+                        try generated_symbols.put(exp_name, {});
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Handle collections.abc module - expand "from collections.abc import *"
+        if (std.mem.eql(u8, from_imp.module, "collections.abc")) {
+            for (from_imp.names) |name| {
+                if (std.mem.eql(u8, name, "*")) {
+                    const abc_exports = [_][]const u8{
+                        "Hashable",
+                        "Awaitable",
+                        "Coroutine",
+                        "AsyncIterable",
+                        "AsyncIterator",
+                        "AsyncGenerator",
+                        "Iterable",
+                        "Iterator",
+                        "Reversible",
+                        "Generator",
+                        "Container",
+                        "Sized",
+                        "Callable",
+                        "Collection",
+                        "Sequence",
+                        "MutableSequence",
+                        "ByteString",
+                        "Set",
+                        "MutableSet",
+                        "Mapping",
+                        "MutableMapping",
+                        "MappingView",
+                        "KeysView",
+                        "ValuesView",
+                        "ItemsView",
+                    };
+                    for (abc_exports) |exp_name| {
+                        if (generated_symbols.contains(exp_name)) continue;
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = collections.abc.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
+                        try generated_symbols.put(exp_name, {});
+                    }
+                }
+            }
+            continue;
+        }
+
         // Handle inline-only modules (no zig_import, functions are generated inline)
         // These modules don't have a struct to reference - their functions are
         // directly generated at call sites via dispatch (e.g., from decimal import Decimal)
