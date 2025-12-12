@@ -123,6 +123,25 @@ pub fn toIntBig(allocator: std.mem.Allocator, value: anytype) !IntResult {
         return IntResult{ .small = @as(i64, @intFromBool(value)) };
     }
 
+    // Handle PyValue (Two-Flow Type System support)
+    if (T == runtime_core.PyValue) {
+        return switch (value) {
+            .int => |i| IntResult{ .small = i },
+            .float => |f| blk: {
+                // Check i64 bounds for float
+                const min_f: f64 = @floatFromInt(std.math.minInt(i64));
+                const max_f: f64 = @floatFromInt(std.math.maxInt(i64));
+                if (f >= min_f and f <= max_f) {
+                    break :blk IntResult{ .small = @intFromFloat(f) };
+                }
+                break :blk IntResult{ .big = try BigInt.fromFloat(allocator, f) };
+            },
+            .bool => |b| IntResult{ .small = @as(i64, @intFromBool(b)) },
+            .bigint => |b| IntResult{ .big = b },
+            else => return error.IntConversionFailed,
+        };
+    }
+
     return error.IntConversionFailed;
 }
 

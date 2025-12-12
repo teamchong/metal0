@@ -480,7 +480,35 @@ const PyValueMethods = std.StaticStringMap([]const u8).initComptime(.{
 fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
     // Check if this is a variable with uncertain confidence
     if (expr == .name) {
-        return self.isVarUncertain(expr.name.id);
+        const name = expr.name.id;
+
+        // NEVER treat 'self' in class methods as uncertain - it's always the concrete class type
+        if (std.mem.eql(u8, name, "self")) {
+            return false;
+        }
+
+        // NEVER treat anytype parameters as uncertain - they use comptime polymorphism
+        if (self.anytype_params.contains(name)) {
+            return false;
+        }
+
+        // FIRST: Check if var_types explicitly says this is PyValue or unknown
+        // This takes priority because Two-Flow system sets var_types to .pyvalue
+        // when wrapping uncertain primitives, even if confidence was certain
+        if (self.type_inferrer.var_types.get(name)) |var_type| {
+            switch (var_type) {
+                // Explicit PyValue or unknown - always use PyValue methods
+                .pyvalue, .unknown => return true,
+                // Concrete types - don't use PyValue methods (loop variables, etc.)
+                .string, .int, .float, .bool, .none, .bytes => return false,
+                // Class instances - don't use PyValue methods
+                .class_instance => return false,
+                else => {},
+            }
+        }
+        // Fall back to confidence check for variables not in var_types
+        // or with unknown types
+        return self.isVarUncertain(name);
     }
     return false;
 }
@@ -495,14 +523,18 @@ fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!voi
         return;
     };
 
-    // Emit: left.method(right) - both are PyValue
-    try self.emit("(");
+    // ALWAYS wrap both operands in PyValue.from() for safety
+    // This handles mixed type operations like: primitive // PyValue
+    // PyValue.from() is a no-op for existing PyValues, so it's safe to wrap unconditionally
+    // This avoids complex type tracking issues where one operand might be uncertain
+    // but the type inference doesn't detect it correctly
+    try self.emit("(runtime.PyValue.from(");
     try genExpr(self, binop.left.*);
-    try self.emit(").");
+    try self.emit(")).");
     try self.emit(method_name);
-    try self.emit("(");
+    try self.emit("(runtime.PyValue.from(");
     try genExpr(self, binop.right.*);
-    try self.emit(")");
+    try self.emit("))");
 }
 
 /// Generate binary operations (+, -, *, /, %, //)
@@ -518,9 +550,21 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     const right_uncertain = isOperandUncertain(self, binop.right.*);
     if (left_uncertain or right_uncertain) {
         // Only use PyValue ops for supported arithmetic operations
+        // EXCEPTION: For Mod operator, check if left is string - that's string formatting, not arithmetic
         if (PyValueMethods.get(@tagName(binop.op)) != null) {
-            try genPyValueBinOp(self, binop);
-            return;
+            // Skip PyValue.mod() for string formatting - let the standard handling do it
+            if (binop.op == .Mod) {
+                const left_type = try self.inferExprScoped(binop.left.*);
+                if (string_traits.isString(left_type) or (binop.left.* == .constant and binop.left.constant.value == .string)) {
+                    // String formatting - don't use PyValue.mod(), fall through to standard handling
+                } else {
+                    try genPyValueBinOp(self, binop);
+                    return;
+                }
+            } else {
+                try genPyValueBinOp(self, binop);
+                return;
+            }
         }
     }
 
@@ -1433,6 +1477,23 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
         .USub => {
             // In Python, -bool converts to int first: -True = -1, -False = 0
             const operand_type = try self.inferExprScoped(unaryop.operand.*);
+
+            // TWO-FLOW TYPE SYSTEM: Check if operand is a PyValue variable
+            // If so, use PyValue.neg() method instead of Zig's negation operator
+            const is_pyvalue = if (unaryop.operand.* == .name)
+                if (self.type_inferrer.var_types.get(unaryop.operand.name.id)) |vt|
+                    (vt == .pyvalue or vt == .unknown)
+                else
+                    false
+            else
+                false;
+            if (is_pyvalue) {
+                try self.emit("(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(").neg()");
+                return;
+            }
+
             if (type_traits.isBoolean(operand_type)) {
                 try self.emit("-@as(i64, @intFromBool(");
                 try genExpr(self, unaryop.operand.*);

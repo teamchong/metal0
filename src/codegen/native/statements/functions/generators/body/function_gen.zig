@@ -186,7 +186,14 @@ fn generateComptimeTypeDispatch(
 
         // Find isClassName body and emit with substitution
         try self.var_renames.put(param_name, try std.fmt.allocPrint(self.allocator, "{s}_converted", .{param_name}));
+        // Remove from func_local_vars so var_renames lookup is used in expressions.zig
+        const saved_func_local = self.func_local_vars.contains(param_name);
+        _ = self.func_local_vars.swapRemove(param_name);
         try generateBodyForTypeCheck(self, method, class_name, true);
+        // Restore func_local_vars after body generation
+        if (saved_func_local) {
+            try self.func_local_vars.put(param_name, {});
+        }
         if (self.var_renames.fetchSwapRemove(param_name)) |entry| {
             self.allocator.free(entry.value);
         }
@@ -481,7 +488,15 @@ pub fn genFunctionBody(
     // Emit hoisted variable declarations using shared hoisting module
     // This handles forward reference detection and fallback types
     // Pass func.body for pre-scan type inference (Solution 3 for forward refs)
-    try var_hoisting.emitHoistedDeclarations(self, scope_analysis.escaped_vars.items, func.args, func.body);
+    // Include vararg and kwarg names to prevent shadowing *args/**kwargs parameters
+    try var_hoisting.emitHoistedDeclarationsWithSpecialParams(
+        self,
+        scope_analysis.escaped_vars.items,
+        func.args,
+        func.body,
+        func.vararg,
+        func.kwarg,
+    );
 
     // For generator functions, yield body becomes `// pass` which loses param usage.
     // We need to emit `_ = param;` ONLY for params that:
@@ -607,13 +622,16 @@ pub fn genFunctionBody(
             try self.emit(";\n");
             // Rename all references to use the mutable copy
             try self.var_renames.put(arg.name, mut_name);
+            // Remove from func_local_vars so expressions.zig uses var_renames lookup
+            // (func_local_vars is checked before var_renames, so we need to remove it)
+            _ = self.func_local_vars.swapRemove(arg.name);
         }
     }
 
     // Forward-referenced captured variables: emit var declarations with undefined
     // before the class definitions, so `&list2` doesn't fail with "undeclared"
-    // Pass func.args to avoid shadowing function parameters
-    var forward_refs = try nested_captures.findForwardReferencedCapturesWithParams(self, func.body, func.args);
+    // Pass func.args, func.vararg, func.kwarg to avoid shadowing function parameters
+    var forward_refs = try nested_captures.findForwardReferencedCapturesWithSpecialParams(self, func.body, func.args, func.vararg, func.kwarg);
     defer forward_refs.deinit(self.allocator);
     for (forward_refs.items) |fwd_var| {
         // Check if this variable would shadow a module-level declaration
@@ -1198,6 +1216,10 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // This is CRITICAL: nested_class_captures must NOT be cleared when generating methods
     // of a nested class, because sibling classes defined in the parent scope need their captures preserved
     self.func_local_vars.clearRetainingCapacity();
+    // Clear var_renames to prevent lazy class attribute patterns from one method's nested classes
+    // from affecting subsequent methods. E.g., if method1 has nested class A with `a = property(...)`,
+    // method2's local variable `a` should not be renamed to `(try a(__alloc))`
+    self.var_renames.clearRetainingCapacity();
     const current_class_is_nested = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
     if (!current_class_is_nested and self.class_nesting_depth <= 1) {
         self.nested_class_names.clearRetainingCapacity();
@@ -1245,7 +1267,10 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Using _ = &self instead of _ = self avoids "pointless discard" errors when self IS used.
     const is_new_method = std.mem.eql(u8, method.name, "__new__");
     const is_staticmethod = signature.hasStaticmethodDecorator(method.decorators);
-    const is_classmethod = signature.hasClassmethodDecorator(method.decorators);
+    // Note: __init_subclass__ and __class_getitem__ are implicit classmethods in Python
+    const is_implicit_classmethod = std.mem.eql(u8, method.name, "__init_subclass__") or
+        std.mem.eql(u8, method.name, "__class_getitem__");
+    const is_classmethod = signature.hasClassmethodDecorator(method.decorators) or is_implicit_classmethod;
 
     // Skip self suppression for @staticmethod and @classmethod - they don't have a self parameter
     if (self.current_class_name != null and method.args.len > 0 and !is_staticmethod and !is_classmethod) {
@@ -1297,37 +1322,58 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     var renamed_params = std.ArrayListUnmanaged([]const u8){};
     defer renamed_params.deinit(self.allocator);
 
-    // Declare method parameters in the scope (skip 'self')
+    // Declare method parameters in the scope (skip 'self' for non-static methods)
     // This prevents variable shadowing when reassigning parameters
     // Get the first param name for renaming if it's not "self"
     const first_param_name = if (method.args.len > 0) method.args[0].name else null;
+
+    // Only rename first param to "self" if this is NOT a static/class method
+    // Static methods don't have self/cls as first param
     const needs_first_param_rename = if (first_param_name) |name|
-        !std.mem.eql(u8, name, "self")
+        !std.mem.eql(u8, name, "self") and !is_staticmethod and !is_classmethod
     else
         false;
 
     // Track the first param name so we can recognize unittest calls like test_self.assertEqual()
     // Save previous value and restore on exit (for nested class methods)
+    // For static methods, don't set this since the first param isn't self
     const saved_first_param = self.current_method_first_param;
-    self.current_method_first_param = first_param_name;
+    self.current_method_first_param = if (is_staticmethod or is_classmethod) null else first_param_name;
     defer self.current_method_first_param = saved_first_param;
 
     // If first param isn't named "self", rename it to "self" for proper Zig self reference
     // Use the appropriate self name based on nesting depth (self vs __self)
+    // Skip for @staticmethod and @classmethod which don't have self
     if (needs_first_param_rename) {
         const target_self_name = if (self.method_nesting_depth > 0) "__self" else "self";
         try self.var_renames.put(first_param_name.?, target_self_name);
         try renamed_params.append(self.allocator, first_param_name.?);
     }
 
+    // For implicit classmethods (__init_subclass__, __class_getitem__), the first param `cls`
+    // is skipped in signature generation but body code may still reference it.
+    // Add a var_rename so `cls` → `@This()` (the type itself).
+    // Note: This won't support runtime class modification (cls.attr = value) but allows compilation.
+    if (is_implicit_classmethod and first_param_name != null) {
+        try self.var_renames.put(first_param_name.?, "@This()");
+        try renamed_params.append(self.allocator, first_param_name.?);
+        // Remove from func_local_vars so var_renames lookup is used in expressions.zig
+        // (func_local_vars is checked before var_renames, so we need to remove it)
+        _ = self.func_local_vars.swapRemove(first_param_name.?);
+    }
+
     const var_tracking = @import("../../nested/var_tracking.zig");
     var is_first = true;
     for (method.args) |arg| {
-        // Skip the first parameter (self/cls/test_self/etc.)
-        if (is_first) {
+        // Skip the first parameter (self/cls/test_self/etc.) for non-static methods
+        // For @staticmethod: don't skip - first param is a regular param
+        // For @classmethod (explicit): don't skip - first param (cls) is a regular param in signature
+        // For implicit classmethod: skip first param - cls is renamed to @This() above
+        if (is_first and (!is_staticmethod and !is_classmethod or is_implicit_classmethod)) {
             is_first = false;
             continue;
         }
+        is_first = false;
         // Check if this param would shadow a method name or sibling class method
         const shadows_builtin_method = zig_keywords.wouldShadowMethod(arg.name);
         const shadows_class_method = if (self.current_class_body) |cb| blk: {
@@ -1417,8 +1463,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
 
     // Forward-referenced captured variables: emit var declarations with undefined
     // before the class definitions, so `&list2` doesn't fail with "undeclared"
-    // Pass method.args to avoid shadowing method parameters
-    var forward_refs_method = try nested_captures.findForwardReferencedCapturesWithParams(self, method.body, method.args);
+    // Pass method.args, method.vararg, method.kwarg to avoid shadowing method parameters
+    var forward_refs_method = try nested_captures.findForwardReferencedCapturesWithSpecialParams(self, method.body, method.args, method.vararg, method.kwarg);
     defer forward_refs_method.deinit(self.allocator);
     for (forward_refs_method.items) |fwd_var| {
         // Check if this variable would shadow a module-level declaration
@@ -1506,7 +1552,13 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             // These params are named "_" in Zig, so referencing the original Python name would
             // cause "undeclared identifier" errors. We check if the param was used in Python
             // body analysis - if not, signature gen already handled it.
-            const was_param_used_in_python = param_analyzer.isNameUsedInBody(method.body, arg.name);
+            // NOTE: For class methods without known parents, super() calls are stripped during codegen,
+            // so use isNameUsedInBodyExcludingSuperCalls to match signature generation logic.
+            const has_known_parent = if (self.current_class_name) |ccn| self.getParentClassName(ccn) != null else true;
+            const was_param_used_in_python = if (!has_known_parent)
+                param_analyzer.isNameUsedInBodyExcludingSuperCalls(method.body, arg.name)
+            else
+                param_analyzer.isNameUsedInBody(method.body, arg.name);
             if (!was_param_used_in_python) {
                 // Param was made anonymous in signature - no discard needed
                 continue;
@@ -1548,8 +1600,11 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Remove parameter renames when exiting method scope
     for (renamed_params.items) |param_name| {
         if (self.var_renames.fetchSwapRemove(param_name)) |entry| {
-            // Only free dynamically allocated strings (not static "self" or "__self")
-            if (!std.mem.eql(u8, entry.value, "self") and !std.mem.eql(u8, entry.value, "__self")) {
+            // Only free dynamically allocated strings (not static literals)
+            if (!std.mem.eql(u8, entry.value, "self") and
+                !std.mem.eql(u8, entry.value, "__self") and
+                !std.mem.eql(u8, entry.value, "@This()"))
+            {
                 self.allocator.free(entry.value);
             }
         }

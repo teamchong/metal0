@@ -396,10 +396,11 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             }
         }
         // For runtime float values, use toIntBig which handles overflow to BigInt
+        // Call .asI64() to extract i64, throws OverflowError for BigInt values
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-        try self.emitFmt("(try runtime.toIntBig({s}, ", .{alloc_name});
+        try self.emitFmt("(try (try runtime.toIntBig({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
-        try self.emit("))");
+        try self.emit(")).asI64())");
         return;
     }
 
@@ -460,12 +461,13 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For unknown types, use runtime.toIntBig which handles strings, numbers, and overflow to BigInt
     // This handles cases where type inference couldn't determine the type
-    // (e.g., variables captured by anytype in try/except helper structs, attribute access)
+    // (e.g., variables captured by anytype in try/except helper structs, attribute access, PyValue)
     // toIntBig returns !IntResult which safely handles large floats
+    // We call .asI64() to extract i64, which throws OverflowError for BigInt values
     const alloc_name_unknown = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    try self.emitFmt("(try runtime.toIntBig({s}, ", .{alloc_name_unknown});
+    try self.emitFmt("(try (try runtime.toIntBig({s}, ", .{alloc_name_unknown});
     try self.genExpr(args[0]);
-    try self.emit("))");
+    try self.emit(")).asI64())");
 }
 
 /// Generate code for hex(x) - convert int to hex string prefixed with "0x"
