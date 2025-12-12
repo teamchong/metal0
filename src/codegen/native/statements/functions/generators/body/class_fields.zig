@@ -398,6 +398,11 @@ fn isNestedClassInBody(body: []const ast.Node, class_name: []const u8) bool {
             .with_stmt => |with_stmt| {
                 if (isNestedClassInBody(with_stmt.body, class_name)) return true;
             },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    if (isNestedClassInBody(case.body, class_name)) return true;
+                }
+            },
             else => {},
         }
     }
