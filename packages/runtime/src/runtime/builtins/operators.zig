@@ -1,10 +1,17 @@
 /// Operator comparison functions (eq, ne, lt, le, gt, ge, pyEqual)
 const std = @import("std");
+const PyValue = @import("../../Objects/object.zig").PyValue;
 
 /// operator.eq - equality comparison
+/// Two-Flow: Handles PyValue for uncertain types
 pub fn operatorEq(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
+
+    // Two-Flow: Handle PyValue comparisons
+    if (TypeA == PyValue and TypeB == PyValue) {
+        return a.eql(b);
+    }
 
     if (TypeA == TypeB) {
         const info = @typeInfo(TypeA);

@@ -802,14 +802,35 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             break :inner_blk false;
         } else false;
 
+        // Check if variable is already declared (from previous loop or hoisting)
+        // If so, we can't use `const var` as it would shadow the outer declaration
+        const var_already_declared = self.isDeclared(var_name) or self.hoisted_vars.contains(var_name);
+
+        // Track if we need to temporarily remove var from func_local_vars for rename to take effect
+        // In expressions.zig, func_local_vars is checked BEFORE var_renames, so we need to
+        // temporarily remove the var from func_local_vars during the loop body
+        var removed_from_func_locals = false;
+
         try self.emitIndent();
         if (is_type_tuple_inner or is_heterogeneous_inner or has_callable_elements) {
-            // For type tuples, heterogeneous tuples, and callable tuples: const var = __loop_val_N
-            // Types must be comptime, heterogeneous values can't share a single type,
-            // and function types must be const in Zig
-            try self.emit("const ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-            try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
+            if (var_already_declared) {
+                // Variable already declared - use unique name to avoid shadowing
+                // Register rename so loop body uses the unique name
+                const unique_name = try std.fmt.allocPrint(self.allocator, "__inner_{s}_{d}", .{ var_name, loop_var_id });
+                try self.var_renames.put(var_name, unique_name);
+                // Temporarily remove from func_local_vars so rename takes effect in expressions.zig
+                if (self.func_local_vars.swapRemove(var_name)) {
+                    removed_from_func_locals = true;
+                }
+                try self.output.writer(self.allocator).print("const __inner_{s}_{d} = __loop_val_{d};\n", .{ var_name, loop_var_id, loop_var_id });
+            } else {
+                // For type tuples, heterogeneous tuples, and callable tuples: const var = __loop_val_N
+                // Types must be comptime, heterogeneous values can't share a single type,
+                // and function types must be const in Zig
+                try self.emit("const ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
+            }
         } else {
             // For homogeneous value tuples: T = __loop_val_N (runtime assignment to outer var)
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
@@ -911,6 +932,14 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             for (keys_to_remove.items) |key| {
                 _ = self.pending_discards.swapRemove(key);
             }
+        }
+
+        // Clean up var_renames that were added for shadowing avoidance
+        _ = self.var_renames.swapRemove(var_name);
+
+        // Restore func_local_vars if we removed it for rename to take effect
+        if (removed_from_func_locals) {
+            try self.func_local_vars.put(var_name, {});
         }
 
         self.dedent();
@@ -1096,24 +1125,33 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             .{ label_id, label_id, label_id, label_id, label_id, label_id },
         );
 
+        // Check if loop variable would shadow an outer scope variable
+        const shadows_outer_pyval = self.isDeclared(var_name) or self.hoisted_vars.contains(var_name) or
+            self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
+        const unique_capture_id_pyval = self.block_label_counter;
+        if (shadows_outer_pyval) self.block_label_counter += 1;
+
         try self.emitIndent();
         try self.output.writer(self.allocator).print("for (__pyval_items_{d}) |", .{label_id});
         if (!tuple_var_used) {
             try self.emit("_");
+        } else if (shadows_outer_pyval) {
+            // Use unique capture name to avoid shadowing
+            try self.output.writer(self.allocator).print("__loop_{s}_{d}__", .{ var_name, unique_capture_id_pyval });
         } else {
-            // Check if loop variable shadows a module-level function or imported module
-            const shadows_module_func = self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
-            if (shadows_module_func and !self.var_renames.contains(var_name)) {
-                const renamed = try self.name_gen.local(var_name);
-                try self.var_renames.put(var_name, renamed);
-            }
-            const actual_name = self.var_renames.get(var_name) orelse var_name;
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
         }
         try self.emit("| {\n");
 
         self.indent();
         try self.pushScope();
+
+        // If we used a unique capture name, assign to outer variable (Python semantics)
+        if (tuple_var_used and shadows_outer_pyval) {
+            try self.emitIndent();
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try self.output.writer(self.allocator).print(" = __loop_{s}_{d}__;\n", .{ var_name, unique_capture_id_pyval });
+        }
 
         // Register loop variable type as pyvalue (element of PyValue list)
         try self.type_inferrer.putScopedVar(for_stmt.target.name.id, .pyvalue);

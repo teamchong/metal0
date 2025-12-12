@@ -3,6 +3,7 @@ const std = @import("std");
 const runtime_core = @import("../../runtime.zig");
 
 const PyObject = runtime_core.PyObject;
+const PyValue = @import("../../Objects/object.zig").PyValue;
 
 /// callable() builtin - returns true if object is callable
 pub fn callable(obj: anytype) bool {
@@ -34,9 +35,13 @@ pub fn isSlice(comptime T: type) bool {
 }
 
 /// len() builtin
+/// Two-Flow: Handles PyValue for uncertain types
 pub fn len(obj: anytype) usize {
     const T = @TypeOf(obj);
-    if (T == *PyObject) {
+    // Two-Flow: Handle PyValue (uncertain type wrapper)
+    if (T == PyValue) {
+        return obj.pyLen();
+    } else if (T == *PyObject) {
         return runtime_core.pyLen(obj);
     } else if (comptime isSlice(T)) {
         return obj.len;
@@ -70,9 +75,13 @@ pub fn id(obj: anytype) usize {
 }
 
 /// hash() builtin - returns hash of object
+/// Two-Flow: Handles PyValue for uncertain types
 pub fn hash(obj: anytype) i64 {
     const T = @TypeOf(obj);
-    if (T == *PyObject) {
+    // Two-Flow: Handle PyValue (uncertain type wrapper)
+    if (T == PyValue) {
+        return obj.pyHash();
+    } else if (T == *PyObject) {
         return @intCast(runtime_core.pyHash(obj));
     } else if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
         return @intCast(obj);
