@@ -261,6 +261,34 @@ fn collectNestedClassNames(stmts: []const ast.Node, classes: *std.ArrayList([]co
                 try collectNestedClassNames(nested_if.body, classes, allocator);
                 try collectNestedClassNames(nested_if.else_body, classes, allocator);
             },
+            .for_stmt => |for_stmt| {
+                try collectNestedClassNames(for_stmt.body, classes, allocator);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    try collectNestedClassNames(orelse_body, classes, allocator);
+                }
+            },
+            .while_stmt => |while_stmt| {
+                try collectNestedClassNames(while_stmt.body, classes, allocator);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    try collectNestedClassNames(orelse_body, classes, allocator);
+                }
+            },
+            .try_stmt => |try_stmt| {
+                try collectNestedClassNames(try_stmt.body, classes, allocator);
+                for (try_stmt.handlers) |handler| {
+                    try collectNestedClassNames(handler.body, classes, allocator);
+                }
+                try collectNestedClassNames(try_stmt.else_body, classes, allocator);
+                try collectNestedClassNames(try_stmt.finalbody, classes, allocator);
+            },
+            .with_stmt => |with_stmt| {
+                try collectNestedClassNames(with_stmt.body, classes, allocator);
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    try collectNestedClassNames(case.body, classes, allocator);
+                }
+            },
             else => {},
         }
     }
