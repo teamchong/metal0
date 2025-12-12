@@ -47,7 +47,7 @@ const FloatClassMethods = std.StaticStringMap([]const u8).initComptime(.{
 /// Handler type for assertion methods
 const AssertHandler = *const fn (*NativeCodegen, ast.Node, []ast.Node) CodegenError!void;
 
-// Comptime generator for simple 1-arg assertions: unittest.func(arg)
+// Comptime generator for simple 1-arg assertions: try unittest.func(arg)
 fn gen1ArgAssert(comptime func_name: []const u8) AssertHandler {
     return struct {
         fn handler(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
@@ -56,14 +56,14 @@ fn gen1ArgAssert(comptime func_name: []const u8) AssertHandler {
                 try self.emit("@compileError(\"" ++ func_name ++ " requires 1 argument\")");
                 return;
             }
-            try self.emit("unittest." ++ func_name ++ "(");
+            try self.emit("try unittest." ++ func_name ++ "(");
             try parent.genExpr(self, args[0]);
             try self.emit(")");
         }
     }.handler;
 }
 
-// Comptime generator for simple 2-arg assertions: unittest.func(a, b)
+// Comptime generator for simple 2-arg assertions: try unittest.func(a, b)
 fn gen2ArgAssert(comptime func_name: []const u8) AssertHandler {
     return struct {
         fn handler(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
@@ -72,7 +72,7 @@ fn gen2ArgAssert(comptime func_name: []const u8) AssertHandler {
                 try self.emit("@compileError(\"" ++ func_name ++ " requires 2 arguments\")");
                 return;
             }
-            try self.emit("unittest." ++ func_name ++ "(");
+            try self.emit("try unittest." ++ func_name ++ "(");
             try parent.genExpr(self, args[0]);
             try self.emit(", ");
             try parent.genExpr(self, args[1]);
@@ -686,7 +686,7 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
                 if (PyToZigTypes.get(type_name)) |ztype| {
                     // Skip "anytype" - those are collection types that need runtime check
                     if (!std.mem.eql(u8, ztype, "anytype")) {
-                        try self.emit("unittest.assertTypeIs(@TypeOf(");
+                        try self.emit("try unittest.assertTypeIs(@TypeOf(");
                         try parent.genExpr(self, args[0].call.args[0]);
                         try self.emit("), ");
                         try self.emit(ztype);
@@ -694,7 +694,7 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
                         return;
                     }
                     // For collection types (dict, list, set), use runtime string-based type check
-                    try self.emit("unittest.assertTypeIsStr(");
+                    try self.emit("try unittest.assertTypeIsStr(");
                     try parent.genExpr(self, args[0].call.args[0]);
                     try self.emit(", \"");
                     try self.emit(type_name);
@@ -709,7 +709,7 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
                     // Mark variable as used to avoid "unused local" error
                     try self.emit("{ _ = &");
                     try self.emit(type_name);
-                    try self.emit("; unittest.assertTypeIsStr(");
+                    try self.emit("; try unittest.assertTypeIsStr(");
                     try parent.genExpr(self, args[0].call.args[0]);
                     try self.emit(", ");
                     try self.emit(type_name);
@@ -719,7 +719,7 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
             }
         }
     }
-    try self.emit("unittest.assertIs(");
+    try self.emit("try unittest.assertIs(");
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     try parent.genExpr(self, args[1]);
@@ -733,7 +733,7 @@ pub fn genAssertIn(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
         try self.emit("@compileError(\"assertIn requires 2 arguments\")");
         return;
     }
-    try self.emit("unittest.assertIn(");
+    try self.emit("try unittest.assertIn(");
 
     // Check if item is a call that might return error union (like float.__getformat__)
     if (args[0] == .call and args[0].call.func.* == .attribute) {
@@ -766,7 +766,7 @@ pub fn genAssertIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         if (!isBuiltinTypeName(type_var)) {
             // For user-defined classes, use the class's __name__ constant
             // which is a string like "aug_test" that matches the Python class name
-            try self.emit("unittest.assertIsInstance(");
+            try self.emit("try unittest.assertIsInstance(");
             try parent.genExpr(self, args[0]);
             try self.emit(", ");
             // Escape Zig keywords like "struct" when used as variable names
@@ -775,7 +775,7 @@ pub fn genAssertIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
             return;
         }
     }
-    try self.emit("unittest.assertIsInstance(");
+    try self.emit("try unittest.assertIsInstance(");
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     if (args[1] == .name) {
@@ -795,7 +795,7 @@ pub fn genAssertNotIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.N
         try self.emit("@compileError(\"assertNotIsInstance requires 2 arguments\")");
         return;
     }
-    try self.emit("unittest.assertNotIsInstance(");
+    try self.emit("try unittest.assertNotIsInstance(");
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     if (args[1] == .name) {
@@ -1028,7 +1028,7 @@ pub fn genAssertStartsWith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         try self.emit("@compileError(\"assertStartsWith requires 2 arguments\")");
         return;
     }
-    try self.emit("unittest.assertTrue(std.mem.startsWith(u8, ");
+    try self.emit("try unittest.assertTrue(std.mem.startsWith(u8, ");
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     try parent.genExpr(self, args[1]);
@@ -1042,7 +1042,7 @@ pub fn genAssertNotStartsWith(self: *NativeCodegen, obj: ast.Node, args: []ast.N
         try self.emit("@compileError(\"assertNotStartsWith requires 2 arguments\")");
         return;
     }
-    try self.emit("unittest.assertFalse(std.mem.startsWith(u8, ");
+    try self.emit("try unittest.assertFalse(std.mem.startsWith(u8, ");
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     try parent.genExpr(self, args[1]);
@@ -1056,7 +1056,7 @@ pub fn genAssertEndsWith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) 
         try self.emit("@compileError(\"assertEndsWith requires 2 arguments\")");
         return;
     }
-    try self.emit("unittest.assertTrue(std.mem.endsWith(u8, ");
+    try self.emit("try unittest.assertTrue(std.mem.endsWith(u8, ");
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     try parent.genExpr(self, args[1]);
