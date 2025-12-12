@@ -238,6 +238,46 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
+        // Handle stringprep module - expand "from stringprep import *"
+        if (std.mem.eql(u8, from_imp.module, "stringprep")) {
+            for (from_imp.names) |name| {
+                if (std.mem.eql(u8, name, "*")) {
+                    // Expand all stringprep table functions
+                    const stringprep_exports = [_][]const u8{
+                        "in_table_a1",
+                        "in_table_b1",
+                        "map_table_b2",
+                        "map_table_b3",
+                        "in_table_c11",
+                        "in_table_c12",
+                        "in_table_c11_c12",
+                        "in_table_c21",
+                        "in_table_c22",
+                        "in_table_c21_c22",
+                        "in_table_c3",
+                        "in_table_c4",
+                        "in_table_c5",
+                        "in_table_c6",
+                        "in_table_c7",
+                        "in_table_c8",
+                        "in_table_c9",
+                        "in_table_d1",
+                        "in_table_d2",
+                    };
+                    for (stringprep_exports) |exp_name| {
+                        if (generated_symbols.contains(exp_name)) continue;
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = stringprep.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
+                        try generated_symbols.put(exp_name, {});
+                    }
+                }
+            }
+            continue;
+        }
+
         // Handle inline-only modules (no zig_import, functions are generated inline)
         // These modules don't have a struct to reference - their functions are
         // directly generated at call sites via dispatch (e.g., from decimal import Decimal)

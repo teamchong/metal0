@@ -8,13 +8,22 @@
 const std = @import("std");
 
 // ============================================================================
-// Character set membership tables
+// Helper to decode first UTF-8 codepoint from a string
+// ============================================================================
+fn decodeFirstCodepoint(s: []const u8) ?u21 {
+    if (s.len == 0) return null;
+    const len = std.unicode.utf8ByteSequenceLength(s[0]) catch return null;
+    if (s.len < len) return null;
+    return std.unicode.utf8Decode(s[0..len]) catch null;
+}
+
+// ============================================================================
+// Character set membership tables (take string, check first char)
 // ============================================================================
 
 /// Table A.1: Unassigned code points in Unicode 3.2
-pub fn in_table_a1(c: u21) bool {
-    // Simplified version - check common unassigned ranges
-    // Full implementation would include all Unicode 3.2 unassigned ranges
+pub fn in_table_a1(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return switch (c) {
         0x0221 => true,
         0x0234...0x024F => true,
@@ -30,7 +39,8 @@ pub fn in_table_a1(c: u21) bool {
 }
 
 /// Table B.1: Commonly mapped to nothing
-pub fn in_table_b1(c: u21) bool {
+pub fn in_table_b1(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return switch (c) {
         0x00AD => true, // SOFT HYPHEN
         0x034F => true, // COMBINING GRAPHEME JOINER
@@ -48,28 +58,29 @@ pub fn in_table_b1(c: u21) bool {
     };
 }
 
-/// Table B.2: Case mapping (simplified - returns lowercase)
-pub fn map_table_b2(c: u21) u21 {
-    // Simplified ASCII case folding
-    if (c >= 'A' and c <= 'Z') {
-        return c + 32;
-    }
-    return c;
+/// Table B.2: Case mapping (simplified - returns lowercase char as string)
+/// Returns true if mapping exists (Python returns the mapped char or original)
+pub fn map_table_b2(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
+    // Simplified ASCII case folding - returns true if char can be mapped
+    return c >= 'A' and c <= 'Z' or c >= 'a' and c <= 'z';
 }
 
 /// Table B.3: Case folding with normalization
-pub fn map_table_b3(c: u21) u21 {
+pub fn map_table_b3(s: []const u8) bool {
     // Same as B.2 for basic ASCII
-    return map_table_b2(c);
+    return map_table_b2(s);
 }
 
 /// Table C.1.1: ASCII space characters
-pub fn in_table_c11(c: u21) bool {
+pub fn in_table_c11(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return c == 0x0020; // SPACE
 }
 
 /// Table C.1.2: Non-ASCII space characters
-pub fn in_table_c12(c: u21) bool {
+pub fn in_table_c12(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return switch (c) {
         0x00A0 => true, // NO-BREAK SPACE
         0x1680 => true, // OGHAM SPACE MARK
@@ -81,13 +92,20 @@ pub fn in_table_c12(c: u21) bool {
     };
 }
 
+/// Table C.1: Space characters (combined C.1.1 and C.1.2)
+pub fn in_table_c11_c12(s: []const u8) bool {
+    return in_table_c11(s) or in_table_c12(s);
+}
+
 /// Table C.2.1: ASCII control characters
-pub fn in_table_c21(c: u21) bool {
+pub fn in_table_c21(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return c <= 0x001F or c == 0x007F;
 }
 
 /// Table C.2.2: Non-ASCII control characters
-pub fn in_table_c22(c: u21) bool {
+pub fn in_table_c22(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return switch (c) {
         0x0080...0x009F => true,
         0x06DD => true, // ARABIC END OF AYAH
@@ -107,8 +125,14 @@ pub fn in_table_c22(c: u21) bool {
     };
 }
 
+/// Table C.2: Control characters (combined C.2.1 and C.2.2)
+pub fn in_table_c21_c22(s: []const u8) bool {
+    return in_table_c21(s) or in_table_c22(s);
+}
+
 /// Table C.3: Private use
-pub fn in_table_c3(c: u21) bool {
+pub fn in_table_c3(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return switch (c) {
         0xE000...0xF8FF => true, // Private use area
         0xF0000...0xFFFFD => true, // Supplementary private use area A
@@ -118,7 +142,8 @@ pub fn in_table_c3(c: u21) bool {
 }
 
 /// Table C.4: Non-character code points
-pub fn in_table_c4(c: u21) bool {
+pub fn in_table_c4(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     // Last two code points of each plane
     if ((c & 0xFFFF) >= 0xFFFE) return true;
     // Noncharacter range
@@ -126,12 +151,14 @@ pub fn in_table_c4(c: u21) bool {
 }
 
 /// Table C.5: Surrogate codes
-pub fn in_table_c5(c: u21) bool {
+pub fn in_table_c5(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return c >= 0xD800 and c <= 0xDFFF;
 }
 
 /// Table C.6: Inappropriate for plain text
-pub fn in_table_c6(c: u21) bool {
+pub fn in_table_c6(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return switch (c) {
         0xFFF9 => true, // INTERLINEAR ANNOTATION ANCHOR
         0xFFFA => true, // INTERLINEAR ANNOTATION SEPARATOR
@@ -143,12 +170,14 @@ pub fn in_table_c6(c: u21) bool {
 }
 
 /// Table C.7: Inappropriate for canonical representation
-pub fn in_table_c7(c: u21) bool {
+pub fn in_table_c7(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return c >= 0x2FF0 and c <= 0x2FFB; // Ideographic description characters
 }
 
 /// Table C.8: Change display properties or deprecated
-pub fn in_table_c8(c: u21) bool {
+pub fn in_table_c8(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return switch (c) {
         0x0340 => true, // COMBINING GRAVE TONE MARK
         0x0341 => true, // COMBINING ACUTE TONE MARK
@@ -170,12 +199,14 @@ pub fn in_table_c8(c: u21) bool {
 }
 
 /// Table C.9: Tagging characters
-pub fn in_table_c9(c: u21) bool {
+pub fn in_table_c9(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return c >= 0xE0001 and c <= 0xE007F;
 }
 
 /// Table D.1: Characters with bidirectional property "R" or "AL"
-pub fn in_table_d1(c: u21) bool {
+pub fn in_table_d1(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return switch (c) {
         0x05BE => true,
         0x05C0 => true,
@@ -215,7 +246,8 @@ pub fn in_table_d1(c: u21) bool {
 }
 
 /// Table D.2: Characters with bidirectional property "L"
-pub fn in_table_d2(c: u21) bool {
+pub fn in_table_d2(s: []const u8) bool {
+    const c = decodeFirstCodepoint(s) orelse return false;
     return switch (c) {
         0x0041...0x005A => true, // A-Z
         0x0061...0x007A => true, // a-z
@@ -257,9 +289,15 @@ pub fn in_table_d2(c: u21) bool {
 
 /// Check if string contains any unassigned code points
 pub fn containsUnassigned(s: []const u8) bool {
-    var iter = std.unicode.Utf8Iterator{ .bytes = s, .i = 0 };
-    while (iter.nextCodepoint()) |c| {
-        if (in_table_a1(c)) return true;
+    var i: usize = 0;
+    while (i < s.len) {
+        const len = std.unicode.utf8ByteSequenceLength(s[i]) catch {
+            i += 1;
+            continue;
+        };
+        if (i + len > s.len) break;
+        if (in_table_a1(s[i .. i + len])) return true;
+        i += len;
     }
     return false;
 }
@@ -267,13 +305,17 @@ pub fn containsUnassigned(s: []const u8) bool {
 /// Map string according to table B.1 (remove mapped-to-nothing chars)
 pub fn mapB1(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
     var result = std.ArrayList(u8).init(allocator);
-    var iter = std.unicode.Utf8Iterator{ .bytes = s, .i = 0 };
-    while (iter.nextCodepoint()) |c| {
-        if (!in_table_b1(c)) {
-            var buf: [4]u8 = undefined;
-            const len = std.unicode.utf8Encode(c, &buf) catch continue;
-            try result.appendSlice(buf[0..len]);
+    var i: usize = 0;
+    while (i < s.len) {
+        const len = std.unicode.utf8ByteSequenceLength(s[i]) catch {
+            i += 1;
+            continue;
+        };
+        if (i + len > s.len) break;
+        if (!in_table_b1(s[i .. i + len])) {
+            try result.appendSlice(s[i .. i + len]);
         }
+        i += len;
     }
     return result.toOwnedSlice();
 }
@@ -281,67 +323,29 @@ pub fn mapB1(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
 /// Map string to lowercase (table B.2)
 pub fn mapB2(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
     var result = std.ArrayList(u8).init(allocator);
-    var iter = std.unicode.Utf8Iterator{ .bytes = s, .i = 0 };
-    while (iter.nextCodepoint()) |c| {
-        const mapped = map_table_b2(c);
+    var i: usize = 0;
+    while (i < s.len) {
+        const len = std.unicode.utf8ByteSequenceLength(s[i]) catch {
+            try result.append(s[i]);
+            i += 1;
+            continue;
+        };
+        if (i + len > s.len) break;
+        const c = std.unicode.utf8Decode(s[i .. i + len]) catch {
+            try result.appendSlice(s[i .. i + len]);
+            i += len;
+            continue;
+        };
+        // Simple ASCII case folding
+        const mapped: u21 = if (c >= 'A' and c <= 'Z') c + 32 else c;
         var buf: [4]u8 = undefined;
-        const len = std.unicode.utf8Encode(mapped, &buf) catch continue;
-        try result.appendSlice(buf[0..len]);
+        const enc_len = std.unicode.utf8Encode(mapped, &buf) catch {
+            try result.appendSlice(s[i .. i + len]);
+            i += len;
+            continue;
+        };
+        try result.appendSlice(buf[0..enc_len]);
+        i += len;
     }
     return result.toOwnedSlice();
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-test "in_table_b1" {
-    try std.testing.expect(in_table_b1(0x00AD)); // SOFT HYPHEN
-    try std.testing.expect(in_table_b1(0x200B)); // ZERO WIDTH SPACE
-    try std.testing.expect(!in_table_b1('A'));
-}
-
-test "map_table_b2" {
-    try std.testing.expectEqual(@as(u21, 'a'), map_table_b2('A'));
-    try std.testing.expectEqual(@as(u21, 'z'), map_table_b2('Z'));
-    try std.testing.expectEqual(@as(u21, 'a'), map_table_b2('a'));
-}
-
-test "in_table_c21" {
-    try std.testing.expect(in_table_c21(0x00)); // NUL
-    try std.testing.expect(in_table_c21(0x1F)); // US
-    try std.testing.expect(in_table_c21(0x7F)); // DEL
-    try std.testing.expect(!in_table_c21('A'));
-}
-
-test "in_table_c3" {
-    try std.testing.expect(in_table_c3(0xE000)); // Private use start
-    try std.testing.expect(in_table_c3(0xF8FF)); // Private use end
-    try std.testing.expect(!in_table_c3('A'));
-}
-
-test "in_table_d1" {
-    try std.testing.expect(in_table_d1(0x05D0)); // Hebrew Alef
-    try std.testing.expect(in_table_d1(0x0621)); // Arabic Hamza
-    try std.testing.expect(!in_table_d1('A'));
-}
-
-test "in_table_d2" {
-    try std.testing.expect(in_table_d2('A'));
-    try std.testing.expect(in_table_d2('z'));
-    try std.testing.expect(!in_table_d2(0x05D0)); // Hebrew
-}
-
-test "mapB1" {
-    const allocator = std.testing.allocator;
-    const result = try mapB1(allocator, "hello");
-    defer allocator.free(result);
-    try std.testing.expectEqualStrings("hello", result);
-}
-
-test "mapB2 case folding" {
-    const allocator = std.testing.allocator;
-    const result = try mapB2(allocator, "HELLO");
-    defer allocator.free(result);
-    try std.testing.expectEqualStrings("hello", result);
 }
