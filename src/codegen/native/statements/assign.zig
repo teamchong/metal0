@@ -562,6 +562,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             try self.declareVar(var_name);
                             // Mark as csv iterator for proper for-loop handling
                             try self.csv_iterators.put(try self.allocator.dupe(u8, var_name), {});
+                            // Add suppression for "never mutated" warning (csv types use var for internal state)
+                            try self.emitIndent();
+                            try self.emit("_ = &");
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                            try self.emit(";\n");
                         }
                         return;
                     }
