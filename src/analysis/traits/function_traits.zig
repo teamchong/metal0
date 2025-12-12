@@ -248,7 +248,7 @@ pub fn getNonEscapingLocals(graph: *const CallGraph, func_name: []const u8) []co
             escaping_set.put(local, {}) catch continue;
         }
 
-        var result = std.ArrayList([]const u8).init(graph.allocator);
+        var result: std.ArrayList([]const u8) = .{};
         for (traits.all_locals) |local| {
             if (!escaping_set.contains(local)) {
                 result.append(graph.allocator, local) catch continue;

@@ -52,8 +52,8 @@ pub fn genComptimeDispatch(
         return std.fmt.allocPrint(allocator, "{s}{s}", .{ var_name, expressions[0] });
     }
 
-    var result = std.ArrayList(u8).init(allocator);
-    const writer = result.writer();
+    var result: std.ArrayList(u8) = .{};
+    const writer = result.writer(allocator);
 
     // Generate nested if-else chain
     try writer.print("blk: {{ const __val = {s}; break :blk ", .{var_name});
@@ -66,7 +66,7 @@ pub fn genComptimeDispatch(
     // Final else case
     try writer.print(" else __val{s}; }}", .{expressions[expressions.len - 1]});
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Standard comptime patterns for common operations
