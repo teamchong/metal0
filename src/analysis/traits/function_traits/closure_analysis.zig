@@ -109,11 +109,19 @@ fn collectVarTypes(body: []const ast.Node, var_types: *[32]VarTypeEntry, count: 
             },
             .try_stmt => |try_stmt| {
                 collectVarTypes(try_stmt.body, var_types, count);
+                for (try_stmt.handlers) |handler| {
+                    collectVarTypes(handler.body, var_types, count);
+                }
                 collectVarTypes(try_stmt.else_body, var_types, count);
                 collectVarTypes(try_stmt.finalbody, var_types, count);
             },
             .with_stmt => |with_stmt| {
                 collectVarTypes(with_stmt.body, var_types, count);
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    collectVarTypes(case.body, var_types, count);
+                }
             },
             else => {},
         }
