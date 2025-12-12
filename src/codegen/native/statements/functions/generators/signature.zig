@@ -1793,6 +1793,27 @@ pub fn genMethodSignatureWithSkip(
     }
 
     try self.emit(" {\n");
+
+    // Emit self parameter suppression directly in signature generation as a safety net.
+    // This ensures _ = &self; (or _ = &__self;) is always emitted for regular methods,
+    // even in edge cases where the body generation might miss it (e.g., property decorators).
+    // The suppression is harmless when self IS used (taking address of any variable is valid).
+    if (!is_staticmethod and !is_classmethod) {
+        const self_param_name: ?[]const u8 = if (std.mem.eql(u8, method.name, "__new__"))
+            (if (self.method_nesting_depth > 0) "__cls" else null)
+        else if (self.method_nesting_depth > 0)
+            "__self"
+        else
+            "self";
+        if (self_param_name) |spn| {
+            self.indent();
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emit(spn);
+            try self.emit(";\n");
+            self.dedent();
+        }
+    }
 }
 
 

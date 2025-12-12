@@ -968,10 +968,11 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // Handle string concatenation: s += "more" => s = std.mem.concat(allocator, u8, &.{s, "more"})
     // Also check for unknown target + string value (e.g., msg += f"...")
     // and check if value is a fstring (f-string) which always produces string
+    // Two-Flow: Include .pyvalue for uncertain target types
     const value_type = try self.inferExprScoped(aug.value.*);
     const is_fstring = aug.value.* == .fstring;
     const is_string_concat = string_traits.isString(target_type) or string_traits.isString(value_type) or is_fstring or
-        (type_traits.isUnknown(target_type) and (string_traits.isString(value_type) or is_fstring));
+        ((type_traits.isUnknown(target_type) or target_type == .pyvalue) and (string_traits.isString(value_type) or is_fstring));
     if (aug.op == .Add and is_string_concat) {
         try self.emit("try std.mem.concat(__global_allocator, u8, &.{");
         try self.genExpr(aug.target.*);

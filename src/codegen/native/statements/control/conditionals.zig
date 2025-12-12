@@ -139,18 +139,25 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
                     // Infer the type from the value
                     const value_type = try self.type_inferrer.inferExpr(ne.value.*);
 
-                    // Get the Zig type string
-                    var type_buf = std.ArrayList(u8){};
-                    defer type_buf.deinit(self.allocator);
-                    value_type.toZigType(self.allocator, &type_buf) catch {
-                        try type_buf.writer(self.allocator).writeAll("i64");
-                    };
+                    // Two-Flow: For uncertain types, use runtime.PyValue
+                    const is_uncertain = type_traits.isUnknown(value_type) or value_type == .pyvalue;
 
                     try self.emitIndent();
                     try self.emit("var ");
                     try self.emit(var_name);
                     try self.emit(": ");
-                    try self.emit(type_buf.items);
+
+                    if (is_uncertain) {
+                        try self.emit("runtime.PyValue");
+                    } else {
+                        // Get the Zig type string
+                        var type_buf = std.ArrayList(u8){};
+                        defer type_buf.deinit(self.allocator);
+                        value_type.toZigType(self.allocator, &type_buf) catch {
+                            try type_buf.writer(self.allocator).writeAll("i64");
+                        };
+                        try self.emit(type_buf.items);
+                    }
                     try self.emit(" = undefined;\n");
                     try self.declareVar(var_name);
                 }
@@ -491,8 +498,8 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
     if (is_feature_macros_subscript) {
         // FeatureMacros subscript returns comptime bool - use directly
         try self.genExpr(if_stmt.condition.*);
-    } else if (type_traits.isUnknown(cond_type)) {
-        // Unknown type (PyObject) - use runtime truthiness check
+    } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
+        // Two-Flow: Unknown/PyValue type - use runtime truthiness check
         _ = try builder.write("runtime.pyTruthy(");
         try self.genExpr(if_stmt.condition.*);
         _ = try builder.write(")");

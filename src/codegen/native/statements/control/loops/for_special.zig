@@ -155,6 +155,20 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         try self.var_renames.put(item_var, renamed);
     }
 
+    // Emit suppression for loop capture variable to handle mismatch between
+    // AST-based usage analysis and actual codegen (e.g., class field assignments
+    // that get optimized away during class codegen)
+    if (item_var_used) {
+        try self.emitIndent();
+        try self.emit("_ = &");
+        if (shadows_import) {
+            try self.output.writer(self.allocator).print("__loop_{s}_{d}__", .{ item_var, enum_unique_capture_id });
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), item_var);
+        }
+        try self.emit(";\n");
+    }
+
     // Generate: const idx = __enum_idx_N;
     try self.emitIndent();
     try self.emit("const ");

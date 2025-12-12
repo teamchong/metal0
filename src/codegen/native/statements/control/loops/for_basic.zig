@@ -1134,9 +1134,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         return;
     }
 
-    // Handle PyObject iteration (e.g., from json.load() returning PyList)
+    // Handle PyObject/PyValue iteration (e.g., from json.load() returning PyList)
+    // Two-Flow: Include .pyvalue for uncertain iterable types
     // Use while loop with runtime.PyList.getItem() since we can't use Zig for-each on PyObject
-    if (type_traits.isUnknown(iter_type)) {
+    if (type_traits.isUnknown(iter_type) or iter_type == .pyvalue) {
         // Generate: var __i: usize = 0; const __len = runtime.PyList.len(iter);
         //           while (__i < __len) : (__i += 1) { const var = try runtime.PyList.getItem(iter, __i); ... }
         const label_id = self.block_label_counter;

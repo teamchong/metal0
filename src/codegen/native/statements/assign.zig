@@ -288,8 +288,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             self.unpack_counter += 1;
 
             // Infer source type
+            // Two-Flow: Include .pyvalue for uncertain container types
             const source_type = try self.type_inferrer.inferExpr(assign.value.*);
-            const is_list_type = container_traits.isList(source_type);
+            const is_list_type = container_traits.isList(source_type) or source_type == .pyvalue;
 
             // Generate: const __chained_tmp_N = value_expr;
             try self.emitIndent();
@@ -806,8 +807,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     continue;
                 }
 
-                if (type_traits.isUnknown(value_type)) {
-                    // PyObject: capture in block and decref immediately
+                // Two-Flow: Include .pyvalue for uncertain types
+                if (type_traits.isUnknown(value_type) or value_type == .pyvalue) {
+                    // PyObject/PyValue: capture in block and decref immediately
                     // { const __unused = expr; runtime.decref(__unused, __global_allocator); }
                     try self.emit("{ const __unused = ");
                     try self.genExpr(assign.value.*);

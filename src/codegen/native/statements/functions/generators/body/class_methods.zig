@@ -1543,6 +1543,15 @@ pub fn genClassMethods(
             if (is_new_method) self.inside_new_method = true;
             defer self.inside_new_method = prev_inside_new;
 
+            // Track whether we're inside a classmethod (no self/__self, captured vars need special access)
+            // Both explicit @classmethod and implicit classmethods like __init_subclass__/__class_getitem__
+            const is_implicit_classmethod = std.mem.eql(u8, method.name, "__init_subclass__") or
+                std.mem.eql(u8, method.name, "__class_getitem__");
+            const is_classmethod = signature.hasClassmethodDecorator(method.decorators) or is_implicit_classmethod;
+            const prev_inside_classmethod = self.inside_classmethod;
+            if (is_classmethod) self.inside_classmethod = true;
+            defer self.inside_classmethod = prev_inside_classmethod;
+
             // IMPORTANT: We preserve var_renames here rather than clearing them.
             // Outer closure parameter renames (e.g., meta -> __p_meta_23) need to
             // remain visible so nested class methods can reference outer scope params.
@@ -1742,6 +1751,14 @@ fn inheritMethodsFromClass(
             const prev_self_mutable = self.method_self_is_mutable;
             self.method_self_is_mutable = mutates_self;
             defer self.method_self_is_mutable = prev_self_mutable;
+
+            // Track whether we're inside a classmethod for inherited methods
+            const is_implicit_classmethod = std.mem.eql(u8, parent_method.name, "__init_subclass__") or
+                std.mem.eql(u8, parent_method.name, "__class_getitem__");
+            const is_classmethod = signature.hasClassmethodDecorator(parent_method.decorators) or is_implicit_classmethod;
+            const prev_inside_classmethod = self.inside_classmethod;
+            if (is_classmethod) self.inside_classmethod = true;
+            defer self.inside_classmethod = prev_inside_classmethod;
 
             // For inherited methods, pass the parent class name so method body can call its constructor
             // (e.g., aug_test.__add__ returns aug_test(...) - when inherited to aug_test4,

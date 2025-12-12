@@ -76,10 +76,11 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.emit(";\n");
 
                 // Determine if we need .items or direct iteration
+                // Two-Flow: Include .pyvalue for uncertain container types
                 const needs_items = if (starred_value == .name)
                     self.arraylist_vars.contains(starred_value.name.id)
                 else
-                    container_traits.isList(value_type);
+                    (container_traits.isList(value_type) or value_type == .pyvalue);
 
                 if (needs_items) {
                     try self.emit("    for (__starred.items) |__elem| {\n");
@@ -164,7 +165,8 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (type_traits.isNone(arg_type)) {
             has_none = true;
         }
-        if (type_traits.isUnknown(arg_type)) {
+        // Two-Flow: Include .pyvalue for uncertain types
+        if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
             has_unknown = true;
         }
         if (arg_type == .pyobject) {
@@ -217,8 +219,8 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("runtime.print(\"{s}\", .{runtime.builtins.bytesRepr(__global_allocator, (");
             try self.genExpr(arg);
             try self.emit(").data) catch \"<bytes>\"});\n");
-        } else if (type_traits.isUnknown(arg_type)) {
-            // Unknown types - use runtime printer
+        } else if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
+            // Two-Flow: Unknown/PyValue types - use runtime printer
             try self.emit("runtime.printPyObject(");
             try self.genExpr(arg);
             try self.emit(");\n");
@@ -248,8 +250,8 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("runtime.print(\"None\", .{});\n");
         } else {
             // For non-list/tuple/bool args in mixed print, use runtime.print
-            // Note: unknown types try {s} (works for string constants)
-            const fmt = if (type_traits.isUnknown(arg_type)) "{s}" else arg_type.getPrintFormat();
+            // Two-Flow: unknown/pyvalue types try {s} (works for string constants)
+            const fmt = if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) "{s}" else arg_type.getPrintFormat();
             try self.emit("runtime.print(\"");
             try self.emit(fmt);
             try self.emit("\", .{");
@@ -476,8 +478,8 @@ fn genPrintSimple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     for (args, 0..) |arg, i| {
         const arg_type = try self.type_inferrer.inferExpr(arg);
         // Note: bool uses {s} because formatAny() returns string
-        // Note: unknown uses {s} - works for string constants
-        const fmt = if (type_traits.isBoolean(arg_type) or type_traits.isUnknown(arg_type)) "{s}" else arg_type.getPrintFormat();
+        // Two-Flow: unknown/pyvalue uses {s} - works for string constants
+        const fmt = if (type_traits.isBoolean(arg_type) or type_traits.isUnknown(arg_type) or arg_type == .pyvalue) "{s}" else arg_type.getPrintFormat();
         try self.emit(fmt);
 
         if (i < args.len - 1) {

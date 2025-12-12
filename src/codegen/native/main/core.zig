@@ -479,6 +479,10 @@ pub const NativeCodegen = struct {
     // True when inside __new__ method - captured vars accessed via __cls, not __self
     inside_new_method: bool,
 
+    // True when inside a classmethod (e.g., @classmethod or __init_subclass__)
+    // Classmethods don't have self/__self, so captured vars need different access pattern
+    inside_classmethod: bool,
+
     // True when current method has mutable self (*@This() vs *const @This())
     // Used to dereference self when returning from methods that mutate and return self
     method_self_is_mutable: bool,
@@ -782,6 +786,7 @@ pub const NativeCodegen = struct {
             .current_class_captures = null,
             .inside_init_method = false,
             .inside_new_method = false,
+            .inside_classmethod = false,
             .method_self_is_mutable = false,
             .current_method_first_param = null,
             .current_class_parent = null,
