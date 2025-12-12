@@ -98,12 +98,28 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                         try self.emit(");\n");
                         return;
                     }
+                    // Handle MatMul (@=) specially - needs __imatmul__ method
+                    if (aug.op == .MatMul) {
+                        try self.emit(" = try ");
+                        try self.emit(self_name);
+                        try self.emit(".");
+                        try self.emit(attr.attr);
+                        try self.emit(".__imatmul__(__global_allocator, ");
+                        try self.genExpr(aug.value.*);
+                        try self.emit(");\n");
+                        return;
+                    }
                     try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
                     try self.genExpr(aug.value.*);
                     try self.emit(";\n");
                     return;
                 } else {
                     // Dynamic attribute aug assign: put the new value
+                    // Note: Pow and MatMul not supported for dynamic dict attributes
+                    if (aug.op == .Pow or aug.op == .MatMul) {
+                        try self.emit("@compileError(\"**= and @= not supported for dynamic attributes\");\n");
+                        return;
+                    }
                     try self.emit("try ");
                     try self.emit(self_name);
                     try self.output.writer(self.allocator).print(".__dict__.put(\"{s}\", .{{ .int = ", .{attr.attr});
@@ -344,6 +360,17 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     try self.emit(".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
                     try self.emit("))], ");
+                    try self.genExpr(aug.value.*);
+                    try self.emit(");\n");
+                    return;
+                }
+                // Handle MatMul (@=) specially - needs __imatmul__ method
+                if (aug.op == .MatMul) {
+                    try self.emit("try ");
+                    try self.genExpr(subscript.value.*);
+                    try self.emit(".items[@as(usize, @intCast(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit("))].__imatmul__(__global_allocator, ");
                     try self.genExpr(aug.value.*);
                     try self.emit(");\n");
                     return;
