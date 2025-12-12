@@ -8,8 +8,8 @@
 const std = @import("std");
 
 /// Push item onto heap, maintaining heap invariant
-pub fn heappush(comptime T: type, heap: *std.ArrayList(T), item: T) !void {
-    try heap.append(item);
+pub fn heappush(comptime T: type, allocator: std.mem.Allocator, heap: *std.ArrayList(T), item: T) !void {
+    try heap.append(allocator, item);
     siftdown(T, heap.items, 0, heap.items.len - 1);
 }
 
@@ -80,12 +80,12 @@ pub fn nlargest(
     const count = @min(n, items.len);
 
     // Use a min-heap of size n
-    var heap = std.ArrayList(T).init(allocator);
-    defer heap.deinit();
+    var heap: std.ArrayList(T) = .{};
+    defer heap.deinit(allocator);
 
     for (items) |item| {
         if (heap.items.len < count) {
-            try heappush(T, &heap, item);
+            try heappush(T, allocator, &heap, item);
         } else if (item > heap.items[0]) {
             _ = heappushpop(T, &heap, item);
         }
@@ -116,11 +116,11 @@ pub fn nsmallest(
     const count = @min(n, items.len);
 
     // Copy and heapify
-    var heap = std.ArrayList(T).init(allocator);
-    defer heap.deinit();
+    var heap: std.ArrayList(T) = .{};
+    defer heap.deinit(allocator);
 
     for (items) |item| {
-        try heap.append(item);
+        try heap.append(allocator, item);
     }
     heapify(T, heap.items);
 
@@ -166,13 +166,13 @@ pub fn merge(
         }
     };
 
-    var heap = std.ArrayList(HeapItem).init(allocator);
-    defer heap.deinit();
+    var heap: std.ArrayList(HeapItem) = .{};
+    defer heap.deinit(allocator);
 
     // Initialize heap with first element from each non-empty iterable
     for (iterables, 0..) |it, i| {
         if (it.len > 0) {
-            try heappushGeneric(HeapItem, &heap, .{ .value = it[0], .source = i }, HeapItem.lessThan);
+            try heappushGeneric(HeapItem, allocator, &heap, .{ .value = it[0], .source = i }, HeapItem.lessThan);
             positions[i] = 1;
         }
     }
@@ -186,7 +186,7 @@ pub fn merge(
 
         const source = item.source;
         if (positions[source] < iterables[source].len) {
-            try heappushGeneric(HeapItem, &heap, .{
+            try heappushGeneric(HeapItem, allocator, &heap, .{
                 .value = iterables[source][positions[source]],
                 .source = source,
             }, HeapItem.lessThan);
@@ -243,11 +243,12 @@ fn siftup(comptime T: type, items: []T, pos: usize) void {
 // Generic versions with custom comparator
 fn heappushGeneric(
     comptime T: type,
+    allocator: std.mem.Allocator,
     heap: *std.ArrayList(T),
     item: T,
     comptime lessThan: fn (void, T, T) bool,
 ) !void {
-    try heap.append(item);
+    try heap.append(allocator, item);
     siftdownGeneric(T, heap.items, 0, heap.items.len - 1, lessThan);
 }
 
@@ -327,13 +328,13 @@ fn siftupGeneric(
 
 test "heappush and heappop" {
     const allocator = std.testing.allocator;
-    var heap = std.ArrayList(i32).init(allocator);
-    defer heap.deinit();
+    var heap: std.ArrayList(i32) = .{};
+    defer heap.deinit(allocator);
 
-    try heappush(i32, &heap, 5);
-    try heappush(i32, &heap, 3);
-    try heappush(i32, &heap, 7);
-    try heappush(i32, &heap, 1);
+    try heappush(i32, allocator, &heap, 5);
+    try heappush(i32, allocator, &heap, 3);
+    try heappush(i32, allocator, &heap, 7);
+    try heappush(i32, allocator, &heap, 1);
 
     try std.testing.expectEqual(@as(i32, 1), try heappop(i32, &heap));
     try std.testing.expectEqual(@as(i32, 3), try heappop(i32, &heap));
@@ -363,11 +364,11 @@ test "heapify" {
 
 test "heappushpop" {
     const allocator = std.testing.allocator;
-    var heap = std.ArrayList(i32).init(allocator);
-    defer heap.deinit();
+    var heap: std.ArrayList(i32) = .{};
+    defer heap.deinit(allocator);
 
-    try heappush(i32, &heap, 5);
-    try heappush(i32, &heap, 3);
+    try heappush(i32, allocator, &heap, 5);
+    try heappush(i32, allocator, &heap, 3);
 
     // Push 1, should return 1 immediately (smaller than heap min)
     try std.testing.expectEqual(@as(i32, 1), heappushpop(i32, &heap, 1));
@@ -378,11 +379,11 @@ test "heappushpop" {
 
 test "heapreplace" {
     const allocator = std.testing.allocator;
-    var heap = std.ArrayList(i32).init(allocator);
-    defer heap.deinit();
+    var heap: std.ArrayList(i32) = .{};
+    defer heap.deinit(allocator);
 
-    try heappush(i32, &heap, 5);
-    try heappush(i32, &heap, 3);
+    try heappush(i32, allocator, &heap, 5);
+    try heappush(i32, allocator, &heap, 3);
 
     // Replace min (3) with 10
     try std.testing.expectEqual(@as(i32, 3), try heapreplace(i32, &heap, 10));

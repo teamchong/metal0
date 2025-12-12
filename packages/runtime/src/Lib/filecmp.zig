@@ -63,14 +63,14 @@ pub fn cmpfiles(allocator: std.mem.Allocator, dir1: []const u8, dir2: []const u8
     mismatch: [][]const u8,
     errors: [][]const u8,
 } {
-    var match = std.ArrayList([]const u8).init(allocator);
-    var mismatch = std.ArrayList([]const u8).init(allocator);
-    var errors = std.ArrayList([]const u8).init(allocator);
+    var match: std.ArrayList([]const u8) = .{};
+    var mismatch: std.ArrayList([]const u8) = .{};
+    var errors: std.ArrayList([]const u8) = .{};
 
     errdefer {
-        match.deinit();
-        mismatch.deinit();
-        errors.deinit();
+        match.deinit(allocator);
+        mismatch.deinit(allocator);
+        errors.deinit(allocator);
     }
 
     for (common) |name| {
@@ -81,21 +81,21 @@ pub fn cmpfiles(allocator: std.mem.Allocator, dir1: []const u8, dir2: []const u8
         defer allocator.free(path2);
 
         const result = cmp(path1, path2, shallow) catch {
-            try errors.append(name);
+            try errors.append(allocator, name);
             continue;
         };
 
         if (result) {
-            try match.append(name);
+            try match.append(allocator, name);
         } else {
-            try mismatch.append(name);
+            try mismatch.append(allocator, name);
         }
     }
 
     return .{
-        .match = try match.toOwnedSlice(),
-        .mismatch = try mismatch.toOwnedSlice(),
-        .errors = try errors.toOwnedSlice(),
+        .match = try match.toOwnedSlice(allocator),
+        .mismatch = try mismatch.toOwnedSlice(allocator),
+        .errors = try errors.toOwnedSlice(allocator),
     };
 }
 
@@ -199,11 +199,11 @@ pub const DirCmp = struct {
     }
 
     fn filterDir(self: *Self, path: []const u8) ![][]const u8 {
-        var result = std.ArrayList([]const u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList([]const u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch {
-            return result.toOwnedSlice();
+            return result.toOwnedSlice(self.allocator);
         };
         defer dir.close();
 
@@ -229,10 +229,10 @@ pub const DirCmp = struct {
             }
             if (ignored) continue;
 
-            try result.append(try self.allocator.dupe(u8, entry.name));
+            try result.append(self.allocator, try self.allocator.dupe(u8, entry.name));
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Get files common to both directories
@@ -242,19 +242,19 @@ pub const DirCmp = struct {
         const left = try self.getLeftList();
         const right = try self.getRightList();
 
-        var result = std.ArrayList([]const u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList([]const u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         for (left) |l| {
             for (right) |r| {
                 if (std.mem.eql(u8, l, r)) {
-                    try result.append(l);
+                    try result.append(self.allocator, l);
                     break;
                 }
             }
         }
 
-        self.common = try result.toOwnedSlice();
+        self.common = try result.toOwnedSlice(self.allocator);
         return self.common.?;
     }
 
@@ -265,8 +265,8 @@ pub const DirCmp = struct {
         const left = try self.getLeftList();
         const common = try self.getCommon();
 
-        var result = std.ArrayList([]const u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList([]const u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         for (left) |l| {
             var in_common = false;
@@ -277,11 +277,11 @@ pub const DirCmp = struct {
                 }
             }
             if (!in_common) {
-                try result.append(l);
+                try result.append(self.allocator, l);
             }
         }
 
-        self.left_only = try result.toOwnedSlice();
+        self.left_only = try result.toOwnedSlice(self.allocator);
         return self.left_only.?;
     }
 
@@ -292,8 +292,8 @@ pub const DirCmp = struct {
         const right = try self.getRightList();
         const common = try self.getCommon();
 
-        var result = std.ArrayList([]const u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList([]const u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         for (right) |r| {
             var in_common = false;
@@ -304,11 +304,11 @@ pub const DirCmp = struct {
                 }
             }
             if (!in_common) {
-                try result.append(r);
+                try result.append(self.allocator, r);
             }
         }
 
-        self.right_only = try result.toOwnedSlice();
+        self.right_only = try result.toOwnedSlice(self.allocator);
         return self.right_only.?;
     }
 
