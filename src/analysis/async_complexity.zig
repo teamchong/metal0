@@ -76,15 +76,61 @@ fn analyzeStmt(ctx: *AnalysisContext, stmt: ast.Node) void {
             for (while_stmt.body) |s| {
                 analyzeStmt(ctx, s);
             }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    analyzeStmt(ctx, s);
+                }
+            }
             ctx.op_count += 5; // Loop overhead
         },
         .for_stmt => |for_stmt| {
             ctx.has_loops = true;
-            analyzeExpr(ctx, for_stmt.iterable.*);
+            analyzeExpr(ctx, for_stmt.iter.*);
             for (for_stmt.body) |s| {
                 analyzeStmt(ctx, s);
             }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    analyzeStmt(ctx, s);
+                }
+            }
             ctx.op_count += 5; // Loop overhead
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |s| {
+                analyzeStmt(ctx, s);
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |s| {
+                    analyzeStmt(ctx, s);
+                }
+            }
+            for (try_stmt.else_body) |s| {
+                analyzeStmt(ctx, s);
+            }
+            for (try_stmt.finalbody) |s| {
+                analyzeStmt(ctx, s);
+            }
+            ctx.op_count += 3; // Exception handling overhead
+        },
+        .with_stmt => |with_stmt| {
+            analyzeExpr(ctx, with_stmt.context_expr.*);
+            for (with_stmt.body) |s| {
+                analyzeStmt(ctx, s);
+            }
+            ctx.op_count += 2; // Context management overhead
+        },
+        .match_stmt => |match_stmt| {
+            analyzeExpr(ctx, match_stmt.subject.*);
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    analyzeExpr(ctx, guard.*);
+                }
+                for (case.body) |s| {
+                    analyzeStmt(ctx, s);
+                }
+            }
+            ctx.op_count += 2; // Pattern matching overhead
         },
         else => {
             ctx.op_count += 1;
@@ -289,11 +335,21 @@ fn checkPurity(ctx: *PurityContext, stmt: ast.Node) void {
             for (while_stmt.body) |s| {
                 checkPurity(ctx, s);
             }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    checkPurity(ctx, s);
+                }
+            }
         },
         .for_stmt => |for_stmt| {
-            checkExprPurity(ctx, for_stmt.iterable.*);
+            checkExprPurity(ctx, for_stmt.iter.*);
             for (for_stmt.body) |s| {
                 checkPurity(ctx, s);
+            }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    checkPurity(ctx, s);
+                }
             }
         },
         .try_stmt => |try_stmt| {
@@ -316,6 +372,17 @@ fn checkPurity(ctx: *PurityContext, stmt: ast.Node) void {
             checkExprPurity(ctx, with_stmt.context_expr.*);
             for (with_stmt.body) |s| {
                 checkPurity(ctx, s);
+            }
+        },
+        .match_stmt => |match_stmt| {
+            checkExprPurity(ctx, match_stmt.subject.*);
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    checkExprPurity(ctx, guard.*);
+                }
+                for (case.body) |s| {
+                    checkPurity(ctx, s);
+                }
             }
         },
         .aug_assign => |aug| {
