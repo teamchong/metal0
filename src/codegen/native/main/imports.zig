@@ -340,6 +340,26 @@ pub fn collectImports(
                         try scanStatements(s, i.body, mod_names);
                         try scanStatements(s, i.else_body, mod_names);
                     },
+                    .for_stmt => |f| {
+                        try scanStatements(s, f.body, mod_names);
+                        if (f.orelse_body) |orelse_body| {
+                            try scanStatements(s, orelse_body, mod_names);
+                        }
+                    },
+                    .while_stmt => |w| {
+                        try scanStatements(s, w.body, mod_names);
+                        if (w.orelse_body) |orelse_body| {
+                            try scanStatements(s, orelse_body, mod_names);
+                        }
+                    },
+                    .with_stmt => |w| {
+                        try scanStatements(s, w.body, mod_names);
+                    },
+                    .match_stmt => |m| {
+                        for (m.cases) |case| {
+                            try scanStatements(s, case.body, mod_names);
+                        }
+                    },
                     else => {},
                 }
             }
