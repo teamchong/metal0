@@ -20,8 +20,9 @@ fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
 /// Generate code for list.append(item)
 /// NOTE: Zig arrays are fixed size, need ArrayList for dynamic appending
 pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    // list.append() requires exactly 1 argument
     if (args.len != 1) {
-        return;
+        return error.UnsupportedSyntax;
     }
 
     // Check if list expects PyValue or PyObject elements
@@ -99,7 +100,8 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 /// Generate code for list.extend(other)
 /// Appends all items from other list
 pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // list.extend() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     const arg = args[0];
 
@@ -134,7 +136,8 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 /// Generate code for list.insert(index, item)
 /// Inserts item at index
 pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 2) return;
+    // list.insert() requires exactly 2 arguments
+    if (args.len != 2) return error.UnsupportedSyntax;
 
     // Generate: try list.insert(__global_allocator, @intCast(index), item)
     // Need @intCast because index may be i64 from floor division, but insert needs usize
@@ -150,7 +153,8 @@ pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 /// Generate code for list.remove(item)
 /// Removes first occurrence of item
 pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // list.remove() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     // Generate: { const idx = std.mem.indexOfScalar(T, list.items, item).?; _ = list.orderedRemove(idx); }
     try self.emit("{ const __idx = std.mem.indexOfScalar(i64, ");
@@ -252,7 +256,8 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 /// Generate code for list.index(item)
 /// Returns index of first occurrence, throws if not found
 pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // list.index() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     // Infer element type from the search item
     const item_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
@@ -275,7 +280,8 @@ pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Generate code for list.count(item)
 /// Returns number of occurrences of item
 pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // list.count() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     // Infer element type from the search item
     const item_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
@@ -299,7 +305,8 @@ pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Generate code for deque.appendleft(item)
 /// Inserts item at the beginning (index 0)
 pub fn genAppendleft(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // deque.appendleft() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     // Generate: try deque.insert(__global_allocator, 0, item)
     try self.emit("try ");
@@ -322,7 +329,8 @@ pub fn genPopleft(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 /// Generate code for deque.extendleft(iterable)
 /// Extends deque from the left (items are reversed)
 pub fn genExtendleft(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len != 1) return;
+    // deque.extendleft() requires exactly 1 argument
+    if (args.len != 1) return error.UnsupportedSyntax;
 
     const arg = args[0];
 
