@@ -957,6 +957,20 @@ fn stmtHasSuperCall(stmt: ast.Node) bool {
             break :blk hasSuperCall(t.finalbody);
         },
         .with_stmt => |w| exprHasSuperCall(w.context_expr.*) or hasSuperCall(w.body),
+        .match_stmt => |m| blk: {
+            if (exprHasSuperCall(m.subject.*)) break :blk true;
+            for (m.cases) |case| {
+                if (case.guard) |g| if (exprHasSuperCall(g.*)) break :blk true;
+                if (hasSuperCall(case.body)) break :blk true;
+            }
+            break :blk false;
+        },
+        .assert_stmt => |a| blk: {
+            if (exprHasSuperCall(a.condition.*)) break :blk true;
+            if (a.msg) |msg| if (exprHasSuperCall(msg.*)) break :blk true;
+            break :blk false;
+        },
+        .ann_assign => |a| if (a.value) |v| exprHasSuperCall(v.*) else false,
         else => false,
     };
 }

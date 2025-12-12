@@ -547,16 +547,30 @@ fn stmtUsesAssertRaisesWithOperatorEqNe(stmt: ast.Node) bool {
         },
         .for_stmt => |f| blk: {
             for (f.body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            if (f.orelse_body) |ob| for (ob) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
             break :blk false;
         },
         .while_stmt => |w| blk: {
             for (w.body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            if (w.orelse_body) |ob| for (ob) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
             break :blk false;
         },
         .try_stmt => |t| blk: {
             for (t.body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
             for (t.handlers) |h| {
                 for (h.body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            }
+            for (t.else_body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            for (t.finalbody) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            for (w.body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            for (m.cases) |case| {
+                for (case.body) |s| if (stmtUsesAssertRaisesWithOperatorEqNe(s)) break :blk true;
             }
             break :blk false;
         },
@@ -646,6 +660,14 @@ fn stmtUsesCPythonInternalModules(stmt: ast.Node) bool {
             if (r.value) |v| return exprUsesCPythonInternalModules(v.*);
             return false;
         },
+        .match_stmt => |m| {
+            if (exprUsesCPythonInternalModules(m.subject.*)) return true;
+            for (m.cases) |case| {
+                if (case.guard) |g| if (exprUsesCPythonInternalModules(g.*)) return true;
+                for (case.body) |s| if (stmtUsesCPythonInternalModules(s)) return true;
+            }
+            return false;
+        },
         else => return false,
     }
 }
@@ -719,6 +741,47 @@ fn exprUsesCPythonInternalModules(expr: ast.Node) bool {
             for (d.values) |v| if (exprUsesCPythonInternalModules(v)) return true;
             return false;
         },
+        .boolop => |bo| {
+            for (bo.values) |v| if (exprUsesCPythonInternalModules(v)) return true;
+            return false;
+        },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (exprUsesCPythonInternalModules(e.node.*)) return true,
+                    .format_expr => |fe| if (exprUsesCPythonInternalModules(fe.expr.*)) return true,
+                    .conv_expr => |ce| if (exprUsesCPythonInternalModules(ce.expr.*)) return true,
+                    .literal => {},
+                }
+            }
+            return false;
+        },
+        .listcomp => |lc| {
+            if (exprUsesCPythonInternalModules(lc.elt.*)) return true;
+            for (lc.generators) |gen| {
+                if (exprUsesCPythonInternalModules(gen.iter.*)) return true;
+                for (gen.ifs) |cond| if (exprUsesCPythonInternalModules(cond)) return true;
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (exprUsesCPythonInternalModules(dc.key.*) or exprUsesCPythonInternalModules(dc.value.*)) return true;
+            for (dc.generators) |gen| {
+                if (exprUsesCPythonInternalModules(gen.iter.*)) return true;
+                for (gen.ifs) |cond| if (exprUsesCPythonInternalModules(cond)) return true;
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            if (exprUsesCPythonInternalModules(ge.elt.*)) return true;
+            for (ge.generators) |gen| {
+                if (exprUsesCPythonInternalModules(gen.iter.*)) return true;
+                for (gen.ifs) |cond| if (exprUsesCPythonInternalModules(cond)) return true;
+            }
+            return false;
+        },
+        .lambda => |lam| return exprUsesCPythonInternalModules(lam.body.*),
+        .starred => |st| return exprUsesCPythonInternalModules(st.value.*),
         else => return false,
     }
 }

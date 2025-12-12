@@ -74,10 +74,20 @@ fn stmtMutatesSelf(stmt: ast.Node) bool {
             for (while_stmt.body) |body_stmt| {
                 if (stmtMutatesSelf(body_stmt)) return true;
             }
+            if (while_stmt.orelse_body) |ob| {
+                for (ob) |body_stmt| {
+                    if (stmtMutatesSelf(body_stmt)) return true;
+                }
+            }
         },
         .for_stmt => |for_stmt| {
             for (for_stmt.body) |body_stmt| {
                 if (stmtMutatesSelf(body_stmt)) return true;
+            }
+            if (for_stmt.orelse_body) |ob| {
+                for (ob) |body_stmt| {
+                    if (stmtMutatesSelf(body_stmt)) return true;
+                }
             }
         },
         .try_stmt => |try_stmt| {
@@ -99,6 +109,13 @@ fn stmtMutatesSelf(stmt: ast.Node) bool {
         .with_stmt => |with_stmt| {
             for (with_stmt.body) |body_stmt| {
                 if (stmtMutatesSelf(body_stmt)) return true;
+            }
+        },
+        .match_stmt => |match_stmt| {
+            for (match_stmt.cases) |case| {
+                for (case.body) |body_stmt| {
+                    if (stmtMutatesSelf(body_stmt)) return true;
+                }
             }
         },
         else => {},
