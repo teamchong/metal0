@@ -1,4 +1,4 @@
-//\! Event types and SelectorKey for I/O multiplexing.
+//! Event types and SelectorKey for I/O multiplexing.
 
 const std = @import("std");
 

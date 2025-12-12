@@ -44,7 +44,7 @@ pub fn Enum(comptime T: type, comptime members: anytype) type {
         /// All enum members
         pub const _members = blk: {
             var result: [members.len]Member = undefined;
-            inline for (members, 0..) |m, i| {
+            for (members, 0..) |m, i| {
                 result[i] = Member.init(m.@"0", m.@"1");
             }
             break :blk result;
@@ -152,7 +152,7 @@ pub fn Flag(comptime members: anytype) type {
         /// All flag members
         pub const _members = blk: {
             var result: [members.len]Member = undefined;
-            inline for (members, 0..) |m, i| {
+            for (members, 0..) |m, i| {
                 result[i] = Member.init(m.@"0", m.@"1");
             }
             break :blk result;

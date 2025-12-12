@@ -18,8 +18,8 @@ pub const Random = struct {
     rng: std.Random.DefaultPrng,
     gauss_next: ?f64,
 
-    pub fn init(seed: ?u64) Self {
-        const actual_seed = seed orelse @as(u64, @intCast(std.time.timestamp()));
+    pub fn init(init_seed: ?u64) Self {
+        const actual_seed = init_seed orelse @as(u64, @intCast(std.time.timestamp()));
         return .{
             .rng = std.Random.DefaultPrng.init(actual_seed),
             .gauss_next = null,
@@ -27,8 +27,8 @@ pub const Random = struct {
     }
 
     /// Seed the generator
-    pub fn seedWith(self: *Self, seed: u64) void {
-        self.rng = std.Random.DefaultPrng.init(seed);
+    pub fn seedWith(self: *Self, new_seed: u64) void {
+        self.rng = std.Random.DefaultPrng.init(new_seed);
         self.gauss_next = null;
     }
 
@@ -221,13 +221,13 @@ pub const Random = struct {
             const ccc = alpha + ainv;
 
             while (true) {
-                const u1 = self.randomFloat();
-                if (u1 < 1e-7 or u1 > 0.9999999) continue;
+                const r1 = self.randomFloat();
+                if (r1 < 1e-7 or r1 > 0.9999999) continue;
 
-                const u2 = 1.0 - self.randomFloat();
-                const v = @log(u1 / (1.0 - u1)) / ainv;
+                const r2 = 1.0 - self.randomFloat();
+                const v = @log(r1 / (1.0 - r1)) / ainv;
                 const x = alpha * @exp(v);
-                const z = u1 * u1 * u2;
+                const z = r1 * r1 * r2;
                 const r = bbb + ccc * v - x;
 
                 if (r + 2.504077396776274 - 4.5 * z >= 0.0 or r >= @log(z)) {
@@ -266,11 +266,11 @@ pub const Random = struct {
             return mu + next * sigma;
         }
 
-        const u1 = self.randomFloat();
-        const u2 = self.randomFloat();
+        const r1 = self.randomFloat();
+        const r2 = self.randomFloat();
 
-        const z0 = @sqrt(-2.0 * @log(u1)) * @cos(2.0 * math.pi * u2);
-        const z1 = @sqrt(-2.0 * @log(u1)) * @sin(2.0 * math.pi * u2);
+        const z0 = @sqrt(-2.0 * @log(r1)) * @cos(2.0 * math.pi * r2);
+        const z1 = @sqrt(-2.0 * @log(r1)) * @sin(2.0 * math.pi * r2);
 
         self.gauss_next = z1;
         return mu + z0 * sigma;
@@ -296,20 +296,20 @@ pub const Random = struct {
         const r = s + @sqrt(1.0 + s * s);
 
         while (true) {
-            const u1 = self.randomFloat();
-            const z = @cos(math.pi * u1);
+            const r1 = self.randomFloat();
+            const z = @cos(math.pi * r1);
             const d = z / (r + z);
-            const u2 = self.randomFloat();
+            const r2 = self.randomFloat();
 
-            if (u2 < 1.0 - d * d or u2 <= (1.0 - d) * @exp(d)) {
+            if (r2 < 1.0 - d * d or r2 <= (1.0 - d) * @exp(d)) {
                 const q = 1.0 / r;
                 const f = (q + z) / (1.0 + q * z);
-                const u3 = self.randomFloat();
+                const r3 = self.randomFloat();
 
-                if (u3 > 0.5) {
-                    return @mod(mu + @acos(f), 2.0 * math.pi);
+                if (r3 > 0.5) {
+                    return @mod(mu + math.acos(f), 2.0 * math.pi);
                 } else {
-                    return @mod(mu - @acos(f), 2.0 * math.pi);
+                    return @mod(mu - math.acos(f), 2.0 * math.pi);
                 }
             }
         }

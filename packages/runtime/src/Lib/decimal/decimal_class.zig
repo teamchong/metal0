@@ -340,11 +340,11 @@ pub const Decimal = struct {
             return .{ .sign = self.sign != other.sign, .special = .Infinity };
         }
 
-        return Self{
+        return (Self{
             .sign = self.sign != other.sign,
             .coefficient = self.coefficient * other.coefficient,
             .exponent = self.exponent + other.exponent,
-        }.normalize();
+        }).normalize();
     }
 
     /// Divide two decimals
@@ -376,11 +376,11 @@ pub const Decimal = struct {
             scale += 1;
         }
 
-        return Self{
+        return (Self{
             .sign = self.sign != other.sign,
             .coefficient = num / other.coefficient,
             .exponent = self.exponent - other.exponent - scale,
-        }.normalize();
+        }).normalize();
     }
 
     /// Negate
