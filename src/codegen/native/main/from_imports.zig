@@ -352,6 +352,47 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
+        // Handle sys module - expand "from sys import *"
+        if (std.mem.eql(u8, from_imp.module, "sys")) {
+            for (from_imp.names) |name| {
+                if (std.mem.eql(u8, name, "*")) {
+                    // Expand common sys module exports
+                    const sys_exports = [_][]const u8{
+                        "platform",
+                        "version_info",
+                        "version",
+                        "implementation",
+                        "byteorder",
+                        "maxsize",
+                        "float_info",
+                        "int_info",
+                        "hash_info",
+                        "exit",
+                        "getrecursionlimit",
+                        "setrecursionlimit",
+                        "get_int_max_str_digits",
+                        "set_int_max_str_digits",
+                        "stdin",
+                        "stdout",
+                        "stderr",
+                        "getrefcount",
+                        "getsizeof",
+                        "executable",
+                    };
+                    for (sys_exports) |exp_name| {
+                        if (generated_symbols.contains(exp_name)) continue;
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = sys.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
+                        try generated_symbols.put(exp_name, {});
+                    }
+                }
+            }
+            continue;
+        }
+
         // Handle inline-only modules (no zig_import, functions are generated inline)
         // These modules don't have a struct to reference - their functions are
         // directly generated at call sites via dispatch (e.g., from decimal import Decimal)
