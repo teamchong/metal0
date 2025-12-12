@@ -801,7 +801,7 @@ fn isUnittestContextManager(expr: ast.Node) bool {
 /// This handles both direct assignments and nested with statements
 /// Uses @TypeOf(init_expr) for comptime type inference instead of guessing
 fn hoistWithBodyVars(self: *NativeCodegen, body: []const ast.Node) CodegenError!void {
-    hoistWithBodyVarsSkipping(self, body, null) catch {};
+    try hoistWithBodyVarsSkipping(self, body, null);
 }
 
 /// Internal helper that tracks for-loop target to skip hoisting reassignments

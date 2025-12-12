@@ -22,10 +22,10 @@ pub fn genDefaultdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
             try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
         } else {
             // Non-variable (like int, str, list literals) - wrap in discard block
-            const id = h.emitUniqueBlockStart(self, "discard") catch 0;
+            const id = try h.emitUniqueBlockStart(self, "discard");
             try self.emit("_ = ");
             try self.genExpr(arg);
-            h.emitBlockBreak(self, "discard", id) catch {};
+            try h.emitBlockBreak(self, "discard", id);
             try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator); }");
         }
     } else {

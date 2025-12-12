@@ -61,7 +61,7 @@ pub fn discard(comptime ret: []const u8) H {
                 if (i < args.len - 1) try self.emit(";"); // semicolon between args, not after last
             }
             // emitBlockBreak adds "; break :label " so no trailing semicolon needed on last arg
-            emitBlockBreak(self, "discard", id) catch {};
+            try emitBlockBreak(self, "discard", id);
             try self.emit(ret);
             try self.emit("; }");
         }

@@ -503,17 +503,17 @@ fn genStateHandlers(self: *NativeCodegen, func: ast.Node.FunctionDef, await_poin
 
     // Parameters are frame fields
     for (func.args) |arg| {
-        frame_fields.append(self.allocator, arg.name) catch {};
+        try frame_fields.append(self.allocator, arg.name);
     }
     // Await results are frame fields
     for (await_points) |point| {
         if (point.target_var) |var_name| {
-            frame_fields.append(self.allocator, var_name) catch {};
+            try frame_fields.append(self.allocator, var_name);
         }
     }
     // Local variables are frame fields
     for (local_vars) |var_name| {
-        frame_fields.append(self.allocator, var_name) catch {};
+        try frame_fields.append(self.allocator, var_name);
     }
 
     // Start state - execute until first await

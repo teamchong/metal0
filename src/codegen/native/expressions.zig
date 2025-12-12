@@ -175,7 +175,10 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .tuple => |t| try misc.genTuple(self, t),
         .subscript => |s| try misc.genSubscript(self, s),
         .attribute => |a| try misc.genAttribute(self, a),
-        .lambda => |lam| lambda_mod.genLambda(self, lam) catch {},
+        .lambda => |lam| lambda_mod.genLambda(self, lam) catch |e| switch (e) {
+            error.NotAClosure => return error.UnsupportedSyntax,
+            else => |err| return err,
+        },
         .await_expr => |a| try genAwait(self, a),
         .ellipsis_literal => {
             // Python Ellipsis literal (...)
