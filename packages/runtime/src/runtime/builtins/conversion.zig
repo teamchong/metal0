@@ -218,21 +218,29 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
 
     // Handle extreme ndigits that would cause underflow/overflow
     // For very negative ndigits, the result is 0.0 (or -0.0 for negative input)
-    // For very positive ndigits, the result is the original value
     if (ndigits < -308) {
         return if (float_val < 0) -0.0 else 0.0;
     }
-    if (ndigits > 308) {
-        return float_val;
-    }
 
+    // For very large positive ndigits, the multiplier overflows to inf
+    // but the division brings it back, so we can still compute correctly
     const multiplier = std.math.pow(f64, 10.0, @floatFromInt(ndigits));
+
     // Guard against multiplier underflow to 0
     if (multiplier == 0.0) {
         return if (float_val < 0) -0.0 else 0.0;
     }
+
+    // If multiplier is inf, the result is the original value
+    // (any finite * inf that rounds stays infinite, infinite / inf = same sign finite)
+    if (std.math.isInf(multiplier)) {
+        // For very large ndigits, rounding has no effect on finite numbers
+        return float_val;
+    }
+
     const rounded = bankersRound(float_val * multiplier);
     const result = rounded / multiplier;
+
     // Check for overflow - Python raises OverflowError
     if (std.math.isInf(result)) {
         return PythonError.OverflowError;
