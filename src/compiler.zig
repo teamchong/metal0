@@ -36,6 +36,7 @@ const MODULES = [_]ModuleDef{
 
     // Runtime - imports modules needed by Lib/ submodules
     .{ .name = "runtime", .path = "packages/runtime/src/runtime.zig", .deps = &.{
+        "utils.allocator_helper",
         "utils.hashmap_helper",
         "bigint",
         "gzip",

@@ -142,6 +142,7 @@ pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 
 /// Generate float.__trunc__() - truncate towards zero (as BigInt for large values)
 /// Python: (-1.7).__trunc__() -> -1
+/// Two-Flow: Extracts float from PyValue if uncertain
 /// Zig: try runtime.floatTrunc(allocator, f)
 pub fn genTrunc(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
@@ -149,12 +150,13 @@ pub fn genTrunc(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit("(try runtime.floatTrunc(");
     try self.emit(alloc_name);
     try self.emit(", ");
-    try self.genExpr(obj);
+    try emitFloatExpr(self, obj);
     try self.emit("))");
 }
 
 /// Generate float.__round__([ndigits]) - round to nearest
 /// Python: (1.5).__round__() -> 2, (1.25).__round__(1) -> 1.2
+/// Two-Flow: Extracts float from PyValue if uncertain
 /// Zig: try runtime.floatRound(allocator, f) for no args
 pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
@@ -162,7 +164,7 @@ pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try self.emit("(try runtime.floatRound(");
         try self.emit(alloc_name);
         try self.emit(", ");
-        try self.genExpr(obj);
+        try emitFloatExpr(self, obj);
         try self.emit("))");
     } else {
         // Round to ndigits decimal places - returns float, not int
@@ -170,7 +172,7 @@ pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try self.genExpr(args[0]);
         try self.emit("; const __mult = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(__ndigits))); ");
         try self.emit("break :blk @round(");
-        try self.genExpr(obj);
+        try emitFloatExpr(self, obj);
         try self.emit(" * __mult) / __mult; }");
     }
 }
