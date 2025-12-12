@@ -1163,7 +1163,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     if (is_nested_class_in_function) {
         var iter = self.hoisted_vars.iterator();
         while (iter.next()) |entry| {
-            saved_hoisted_keys.append(self.allocator, entry.key_ptr.*) catch {};
+            try saved_hoisted_keys.append(self.allocator, entry.key_ptr.*);
         }
     }
     // Restore parent's hoisted vars when this method completes (using defer)
