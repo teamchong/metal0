@@ -1304,7 +1304,8 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         .BitXor => " ^ ",
         .LShift => " << ",
         .RShift => " >> ",
-        else => " ? ",
+        // Div, FloorDiv, Mod, Pow, MatMul are handled earlier with explicit returns
+        else => unreachable,
     };
     try self.emit(op_str);
 
