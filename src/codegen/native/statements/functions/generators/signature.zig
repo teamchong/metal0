@@ -294,6 +294,10 @@ fn checkExprForBigIntMethodCall(expr: ast.Node, method_name: []const u8, param_i
             for (c.args) |arg| {
                 if (checkExprForBigIntMethodCall(arg, method_name, param_index)) return true;
             }
+            // Check keyword arguments
+            for (c.keyword_args) |kw| {
+                if (checkExprForBigIntMethodCall(kw.value, method_name, param_index)) return true;
+            }
         },
         .binop => |b| {
             if (checkExprForBigIntMethodCall(b.left.*, method_name, param_index)) return true;
@@ -302,6 +306,86 @@ fn checkExprForBigIntMethodCall(expr: ast.Node, method_name: []const u8, param_i
         .unaryop => |u| {
             if (checkExprForBigIntMethodCall(u.operand.*, method_name, param_index)) return true;
         },
+        .boolop => |b| {
+            for (b.values) |v| {
+                if (checkExprForBigIntMethodCall(v, method_name, param_index)) return true;
+            }
+        },
+        .compare => |c| {
+            if (checkExprForBigIntMethodCall(c.left.*, method_name, param_index)) return true;
+            for (c.comparators) |comp| {
+                if (checkExprForBigIntMethodCall(comp, method_name, param_index)) return true;
+            }
+        },
+        .if_expr => |ie| {
+            if (checkExprForBigIntMethodCall(ie.condition.*, method_name, param_index)) return true;
+            if (checkExprForBigIntMethodCall(ie.body.*, method_name, param_index)) return true;
+            if (checkExprForBigIntMethodCall(ie.orelse_value.*, method_name, param_index)) return true;
+        },
+        .subscript => |sub| {
+            if (checkExprForBigIntMethodCall(sub.value.*, method_name, param_index)) return true;
+            switch (sub.slice) {
+                .index => |idx| if (checkExprForBigIntMethodCall(idx.*, method_name, param_index)) return true,
+                .slice => |sr| {
+                    if (sr.lower) |l| if (checkExprForBigIntMethodCall(l.*, method_name, param_index)) return true;
+                    if (sr.upper) |u| if (checkExprForBigIntMethodCall(u.*, method_name, param_index)) return true;
+                    if (sr.step) |s| if (checkExprForBigIntMethodCall(s.*, method_name, param_index)) return true;
+                },
+            }
+        },
+        .list => |lst| {
+            for (lst.elts) |e| {
+                if (checkExprForBigIntMethodCall(e, method_name, param_index)) return true;
+            }
+        },
+        .tuple => |tup| {
+            for (tup.elts) |e| {
+                if (checkExprForBigIntMethodCall(e, method_name, param_index)) return true;
+            }
+        },
+        .dict => |d| {
+            for (d.keys) |k| {
+                if (checkExprForBigIntMethodCall(k, method_name, param_index)) return true;
+            }
+            for (d.values) |v| {
+                if (checkExprForBigIntMethodCall(v, method_name, param_index)) return true;
+            }
+        },
+        .fstring => |fs| {
+            for (fs.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (checkExprForBigIntMethodCall(e.node.*, method_name, param_index)) return true,
+                    .format_expr => |fe| if (checkExprForBigIntMethodCall(fe.expr.*, method_name, param_index)) return true,
+                    .conv_expr => |ce| if (checkExprForBigIntMethodCall(ce.expr.*, method_name, param_index)) return true,
+                    .literal => {},
+                }
+            }
+        },
+        .listcomp => |lc| {
+            if (checkExprForBigIntMethodCall(lc.elt.*, method_name, param_index)) return true;
+            for (lc.generators) |gen| {
+                if (checkExprForBigIntMethodCall(gen.iter.*, method_name, param_index)) return true;
+                for (gen.ifs) |cond| if (checkExprForBigIntMethodCall(cond, method_name, param_index)) return true;
+            }
+        },
+        .dictcomp => |dc| {
+            if (checkExprForBigIntMethodCall(dc.key.*, method_name, param_index)) return true;
+            if (checkExprForBigIntMethodCall(dc.value.*, method_name, param_index)) return true;
+            for (dc.generators) |gen| {
+                if (checkExprForBigIntMethodCall(gen.iter.*, method_name, param_index)) return true;
+                for (gen.ifs) |cond| if (checkExprForBigIntMethodCall(cond, method_name, param_index)) return true;
+            }
+        },
+        .genexp => |ge| {
+            if (checkExprForBigIntMethodCall(ge.elt.*, method_name, param_index)) return true;
+            for (ge.generators) |gen| {
+                if (checkExprForBigIntMethodCall(gen.iter.*, method_name, param_index)) return true;
+                for (gen.ifs) |cond| if (checkExprForBigIntMethodCall(cond, method_name, param_index)) return true;
+            }
+        },
+        .lambda => |lam| if (checkExprForBigIntMethodCall(lam.body.*, method_name, param_index)) return true,
+        .starred => |st| if (checkExprForBigIntMethodCall(st.value.*, method_name, param_index)) return true,
+        .attribute => |attr| if (checkExprForBigIntMethodCall(attr.value.*, method_name, param_index)) return true,
         else => {},
     }
     return false;
