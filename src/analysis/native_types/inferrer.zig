@@ -15,6 +15,7 @@ pub const ClassInfo = core.ClassInfo;
 const FnvHashMap = hashmap_helper.StringHashMap(NativeType);
 const FnvClassMap = hashmap_helper.StringHashMap(ClassInfo);
 const FnvArgsMap = hashmap_helper.StringHashMap([]const NativeType);
+const FnvConfidenceMap = hashmap_helper.StringHashMap(core.TypeConfidence);
 
 /// Common Python builtin function names (lowercase) - used to distinguish from class constructors
 const CommonBuiltins = std.StaticStringMap(void).initComptime(.{
@@ -57,6 +58,8 @@ pub const TypeInferrer = struct {
     arena: *std.heap.ArenaAllocator, // Heap-allocated arena for type allocations
     var_types: FnvHashMap, // Legacy: global var types (still needed for some lookups)
     scoped_var_types: FnvHashMap, // Function-scoped variable types (key: "class.method:varname" or "func:varname")
+    var_confidence: FnvConfidenceMap, // Type confidence per variable (certain = use raw Zig, uncertain = use PyValue)
+    scoped_var_confidence: FnvConfidenceMap, // Function-scoped type confidence
     current_scope_name: ?[]const u8, // Current function/method scope name (null = global)
     class_fields: FnvClassMap, // class_name -> field types
     func_return_types: FnvHashMap, // function_name -> return type
@@ -75,6 +78,8 @@ pub const TypeInferrer = struct {
             .arena = arena,
             .var_types = FnvHashMap.init(allocator),
             .scoped_var_types = FnvHashMap.init(allocator),
+            .var_confidence = FnvConfidenceMap.init(allocator),
+            .scoped_var_confidence = FnvConfidenceMap.init(allocator),
             .current_scope_name = null,
             .class_fields = FnvClassMap.init(allocator),
             .func_return_types = FnvHashMap.init(allocator),
@@ -96,6 +101,8 @@ pub const TypeInferrer = struct {
         self.class_fields.deinit();
         self.var_types.deinit();
         self.scoped_var_types.deinit();
+        self.var_confidence.deinit();
+        self.scoped_var_confidence.deinit();
         self.func_return_types.deinit();
         self.class_constructor_args.deinit();
         self.function_call_args.deinit();
@@ -188,8 +195,67 @@ pub const TypeInferrer = struct {
         }
     }
 
+    // ============================================================================
+    // Type Confidence Tracking (Two-Flow Type System)
+    // ============================================================================
+
+    /// Put variable type WITH confidence (for new inference system)
+    /// Use .certain for literals, annotations, known builtins
+    /// Use .uncertain for user functions, external input, dict lookups
+    pub fn putTypedVar(self: *TypeInferrer, name: []const u8, var_type: NativeType, confidence: core.TypeConfidence) !void {
+        try self.putScopedVar(name, var_type);
+        try self.putConfidence(name, confidence);
+    }
+
+    /// Set confidence for a variable
+    pub fn putConfidence(self: *TypeInferrer, name: []const u8, confidence: core.TypeConfidence) !void {
+        if (self.current_scope_name) |scope| {
+            const scoped_key = try std.fmt.allocPrint(self.arena.allocator(), "{s}:{s}", .{ scope, name });
+            try self.scoped_var_confidence.put(scoped_key, confidence);
+        }
+        try self.var_confidence.put(name, confidence);
+    }
+
+    /// Get confidence for a variable (defaults to uncertain if not set)
+    pub fn getConfidence(self: *TypeInferrer, name: []const u8) core.TypeConfidence {
+        if (self.current_scope_name) |scope| {
+            const scoped_key = std.fmt.allocPrint(self.arena.allocator(), "{s}:{s}", .{ scope, name }) catch return .uncertain;
+            if (self.scoped_var_confidence.get(scoped_key)) |conf| {
+                return conf;
+            }
+        }
+        return self.var_confidence.get(name) orelse .uncertain;
+    }
+
+    /// Get TypedValue (type + confidence) for a variable
+    pub fn getTypedVar(self: *TypeInferrer, name: []const u8) ?core.TypedValue {
+        const native_type = self.getScopedVar(name) orelse self.var_types.get(name) orelse return null;
+        const confidence = self.getConfidence(name);
+        return .{
+            .native_type = native_type,
+            .confidence = confidence,
+            .source = .inferred,
+        };
+    }
+
+    /// Check if a variable has certain (safe) type
+    pub fn isCertain(self: *TypeInferrer, name: []const u8) bool {
+        return self.getConfidence(name) == .certain;
+    }
+
+    /// Check if a variable has uncertain (needs PyValue) type
+    pub fn isUncertain(self: *TypeInferrer, name: []const u8) bool {
+        return self.getConfidence(name) == .uncertain;
+    }
+
+    /// Degrade confidence when widening (reassignment makes type uncertain)
+    pub fn degradeConfidence(self: *TypeInferrer, name: []const u8) !void {
+        try self.putConfidence(name, .uncertain);
+    }
+
     /// Widen a variable type in current scope (for reassignments)
     /// Special handling for dict types: when value types differ, widen to dict with pyvalue values
+    /// CONFIDENCE: When type is widened to a DIFFERENT type, confidence degrades to uncertain
     pub fn widenScopedVar(self: *TypeInferrer, name: []const u8, new_type: NativeType) !void {
         const arena_alloc = self.arena.allocator();
 
@@ -200,6 +266,14 @@ pub const TypeInferrer = struct {
                 try self.scoped_var_types.put(scoped_key, widened);
                 // Also update legacy var_types
                 try self.var_types.put(name, widened);
+
+                // CONFIDENCE: If types differ, degrade to uncertain
+                // e.g., x = 42; x = "hello" → can't use single raw Zig type
+                const existing_tag = @as(std.meta.Tag(NativeType), existing);
+                const new_tag = @as(std.meta.Tag(NativeType), new_type);
+                if (existing_tag != new_tag) {
+                    try self.degradeConfidence(name);
+                }
             } else {
                 // First assignment in this scope
                 try self.putScopedVar(name, new_type);
@@ -209,6 +283,13 @@ pub const TypeInferrer = struct {
             if (self.var_types.get(name)) |existing| {
                 const widened = try self.widenDictAware(existing, new_type, arena_alloc);
                 try self.var_types.put(name, widened);
+
+                // CONFIDENCE: If types differ, degrade to uncertain
+                const existing_tag = @as(std.meta.Tag(NativeType), existing);
+                const new_tag = @as(std.meta.Tag(NativeType), new_type);
+                if (existing_tag != new_tag) {
+                    try self.degradeConfidence(name);
+                }
             } else {
                 try self.var_types.put(name, new_type);
             }

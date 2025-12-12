@@ -93,6 +93,96 @@ pub const IntKind = enum {
     }
 };
 
+/// Type inference confidence level
+/// Determines whether to use raw Zig types (fast) or PyValue (safe)
+pub const TypeConfidence = enum {
+    /// 100% provable at compile time - use raw Zig types
+    /// Sources: literals, type annotations, known builtins
+    certain,
+
+    /// Cannot prove type at compile time - use PyValue for safety
+    /// Sources: user functions without annotations, dict/list subscript, external input
+    uncertain,
+
+    /// Combine confidences - uncertain taints the result
+    pub fn combine(self: TypeConfidence, other: TypeConfidence) TypeConfidence {
+        if (self == .uncertain or other == .uncertain) {
+            return .uncertain;
+        }
+        return .certain;
+    }
+
+    /// Degrade confidence (for operations that add uncertainty)
+    pub fn degrade(self: TypeConfidence) TypeConfidence {
+        _ = self;
+        return .uncertain;
+    }
+};
+
+/// Source of type inference (for debugging and documentation)
+pub const TypeSource = enum {
+    literal, // From literal value: x = 42
+    annotation, // From type hint: x: int = ...
+    builtin, // From known builtin: len(s)
+    inferred, // From expression analysis
+    widened, // From type widening (multiple assignments)
+    external, // From external source (user func, file, network)
+};
+
+/// Type with confidence metadata
+/// Used to track both the inferred type AND how certain we are about it
+pub const TypedValue = struct {
+    native_type: NativeType,
+    confidence: TypeConfidence,
+    source: TypeSource = .inferred,
+
+    /// Create a certain typed value (for literals, annotations, builtins)
+    pub fn certain(native_type: NativeType, source: TypeSource) TypedValue {
+        return .{
+            .native_type = native_type,
+            .confidence = .certain,
+            .source = source,
+        };
+    }
+
+    /// Create an uncertain typed value (for user funcs, external input)
+    pub fn uncertain(native_type: NativeType, source: TypeSource) TypedValue {
+        return .{
+            .native_type = native_type,
+            .confidence = .uncertain,
+            .source = source,
+        };
+    }
+
+    /// Create from existing NativeType (defaults to uncertain for safety)
+    pub fn fromNativeType(native_type: NativeType) TypedValue {
+        return .{
+            .native_type = native_type,
+            .confidence = .uncertain,
+            .source = .inferred,
+        };
+    }
+
+    /// Combine with another typed value (for binary ops)
+    pub fn combineWith(self: TypedValue, other: TypedValue) TypedValue {
+        return .{
+            .native_type = self.native_type.widen(other.native_type),
+            .confidence = self.confidence.combine(other.confidence),
+            .source = .inferred,
+        };
+    }
+
+    /// Check if safe to use raw Zig type
+    pub fn isSafe(self: TypedValue) bool {
+        return self.confidence == .certain;
+    }
+
+    /// Check if should use PyValue for safety
+    pub fn usePyValue(self: TypedValue) bool {
+        return self.confidence == .uncertain;
+    }
+};
+
 /// Native Zig types inferred from Python code
 pub const NativeType = union(enum) {
     // Primitives - stack allocated, zero overhead
