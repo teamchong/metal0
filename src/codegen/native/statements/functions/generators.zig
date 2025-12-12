@@ -2044,11 +2044,29 @@ fn checkSelfUsedInNode(node: ast.Node) bool {
         },
         .for_stmt => |f| {
             if (checkSelfUsedInNode(f.iter.*)) return true;
-            return checkSelfUsedInBody(f.body);
+            if (checkSelfUsedInBody(f.body)) return true;
+            if (f.orelse_body) |orelse_body| {
+                if (checkSelfUsedInBody(orelse_body)) return true;
+            }
+            return false;
         },
         .while_stmt => |w| {
             if (checkSelfUsedInNode(w.condition.*)) return true;
-            return checkSelfUsedInBody(w.body);
+            if (checkSelfUsedInBody(w.body)) return true;
+            if (w.orelse_body) |orelse_body| {
+                if (checkSelfUsedInBody(orelse_body)) return true;
+            }
+            return false;
+        },
+        .match_stmt => |m| {
+            if (checkSelfUsedInNode(m.subject.*)) return true;
+            for (m.cases) |case| {
+                if (case.guard) |guard| {
+                    if (checkSelfUsedInNode(guard.*)) return true;
+                }
+                if (checkSelfUsedInBody(case.body)) return true;
+            }
+            return false;
         },
         .with_stmt => |w| {
             if (checkSelfUsedInNode(w.context_expr.*)) return true;
