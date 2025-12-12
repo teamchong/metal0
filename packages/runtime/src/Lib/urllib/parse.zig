@@ -253,59 +253,59 @@ pub fn urlsplitWithParams(allocator: std.mem.Allocator, url: []const u8) !struct
 
 /// Reconstruct URL from components
 pub fn urlunparse(allocator: std.mem.Allocator, components: ParseResult) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     if (components.scheme.len > 0) {
-        try result.appendSlice(components.scheme);
-        try result.appendSlice("://");
+        try result.appendSlice(allocator, components.scheme);
+        try result.appendSlice(allocator, "://");
     }
 
-    try result.appendSlice(components.netloc);
-    try result.appendSlice(components.path);
+    try result.appendSlice(allocator, components.netloc);
+    try result.appendSlice(allocator, components.path);
 
     if (components.params.len > 0) {
-        try result.append(';');
-        try result.appendSlice(components.params);
+        try result.append(allocator, ';');
+        try result.appendSlice(allocator, components.params);
     }
 
     if (components.query.len > 0) {
-        try result.append('?');
-        try result.appendSlice(components.query);
+        try result.append(allocator, '?');
+        try result.appendSlice(allocator, components.query);
     }
 
     if (components.fragment.len > 0) {
-        try result.append('#');
-        try result.appendSlice(components.fragment);
+        try result.append(allocator, '#');
+        try result.appendSlice(allocator, components.fragment);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Reconstruct URL from split components
 pub fn urlunsplit(allocator: std.mem.Allocator, components: SplitResult) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     if (components.scheme.len > 0) {
-        try result.appendSlice(components.scheme);
-        try result.appendSlice("://");
+        try result.appendSlice(allocator, components.scheme);
+        try result.appendSlice(allocator, "://");
     }
 
-    try result.appendSlice(components.netloc);
-    try result.appendSlice(components.path);
+    try result.appendSlice(allocator, components.netloc);
+    try result.appendSlice(allocator, components.path);
 
     if (components.query.len > 0) {
-        try result.append('?');
-        try result.appendSlice(components.query);
+        try result.append(allocator, '?');
+        try result.appendSlice(allocator, components.query);
     }
 
     if (components.fragment.len > 0) {
-        try result.append('#');
-        try result.appendSlice(components.fragment);
+        try result.append(allocator, '#');
+        try result.appendSlice(allocator, components.fragment);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Join a base URL with a relative URL
@@ -344,11 +344,11 @@ pub fn urljoin(allocator: std.mem.Allocator, base: []const u8, url: []const u8) 
     } else {
         // Relative path - merge with base
         if (std.mem.lastIndexOf(u8, base_parsed.path, "/")) |last_slash| {
-            var merged = std.ArrayList(u8).init(allocator);
-            defer merged.deinit();
-            try merged.appendSlice(base_parsed.path[0 .. last_slash + 1]);
-            try merged.appendSlice(url_parsed.path);
-            result.path = try merged.toOwnedSlice();
+            var merged: std.ArrayList(u8) = .{};
+            defer merged.deinit(allocator);
+            try merged.appendSlice(allocator, base_parsed.path[0 .. last_slash + 1]);
+            try merged.appendSlice(allocator, url_parsed.path);
+            result.path = try merged.toOwnedSlice(allocator);
         } else {
             result.path = url_parsed.path;
         }
@@ -359,118 +359,118 @@ pub fn urljoin(allocator: std.mem.Allocator, base: []const u8, url: []const u8) 
 
 /// Percent-encode a string
 pub fn quote(allocator: std.mem.Allocator, s: []const u8, safe: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     for (s) |c| {
         if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~') {
-            try result.append(c);
+            try result.append(allocator, c);
         } else if (std.mem.indexOfScalar(u8, safe, c) != null) {
-            try result.append(c);
+            try result.append(allocator, c);
         } else {
-            try result.append('%');
+            try result.append(allocator, '%');
             const hex = "0123456789ABCDEF";
-            try result.append(hex[c >> 4]);
-            try result.append(hex[c & 0x0F]);
+            try result.append(allocator, hex[c >> 4]);
+            try result.append(allocator, hex[c & 0x0F]);
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Percent-encode with space as +
 pub fn quote_plus(allocator: std.mem.Allocator, s: []const u8, safe: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     for (s) |c| {
         if (c == ' ') {
-            try result.append('+');
+            try result.append(allocator, '+');
         } else if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~') {
-            try result.append(c);
+            try result.append(allocator, c);
         } else if (std.mem.indexOfScalar(u8, safe, c) != null) {
-            try result.append(c);
+            try result.append(allocator, c);
         } else {
-            try result.append('%');
+            try result.append(allocator, '%');
             const hex = "0123456789ABCDEF";
-            try result.append(hex[c >> 4]);
-            try result.append(hex[c & 0x0F]);
+            try result.append(allocator, hex[c >> 4]);
+            try result.append(allocator, hex[c & 0x0F]);
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Decode percent-encoded string
 pub fn unquote(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < s.len) {
         if (s[i] == '%' and i + 2 < s.len) {
             const hex = s[i + 1 .. i + 3];
             if (std.fmt.parseInt(u8, hex, 16)) |byte| {
-                try result.append(byte);
+                try result.append(allocator, byte);
                 i += 3;
                 continue;
             } else |_| {}
         }
-        try result.append(s[i]);
+        try result.append(allocator, s[i]);
         i += 1;
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Decode percent-encoded string, with + as space
 pub fn unquote_plus(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var i: usize = 0;
     while (i < s.len) {
         if (s[i] == '+') {
-            try result.append(' ');
+            try result.append(allocator, ' ');
             i += 1;
         } else if (s[i] == '%' and i + 2 < s.len) {
             const hex = s[i + 1 .. i + 3];
             if (std.fmt.parseInt(u8, hex, 16)) |byte| {
-                try result.append(byte);
+                try result.append(allocator, byte);
                 i += 3;
                 continue;
             } else |_| {}
-            try result.append(s[i]);
+            try result.append(allocator, s[i]);
             i += 1;
         } else {
-            try result.append(s[i]);
+            try result.append(allocator, s[i]);
             i += 1;
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Encode query parameters
 pub fn urlencode(allocator: std.mem.Allocator, params: []const struct { key: []const u8, value: []const u8 }) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     for (params, 0..) |param, i| {
-        if (i > 0) try result.append('&');
+        if (i > 0) try result.append(allocator, '&');
 
         const key = try quote_plus(allocator, param.key, "");
         defer allocator.free(key);
-        try result.appendSlice(key);
+        try result.appendSlice(allocator, key);
 
-        try result.append('=');
+        try result.append(allocator, '=');
 
         const value = try quote_plus(allocator, param.value, "");
         defer allocator.free(value);
-        try result.appendSlice(value);
+        try result.appendSlice(allocator, value);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Parse query string into key-value pairs
@@ -492,10 +492,10 @@ pub fn parse_qs(allocator: std.mem.Allocator, qs: []const u8) !hashmap_helper.St
         }
 
         if (result.getPtr(key)) |list| {
-            try list.append(value);
+            try list.append(allocator, value);
         } else {
-            var list = std.ArrayList([]const u8).init(allocator);
-            try list.append(value);
+            var list: std.ArrayList([]const u8) = .{};
+            try list.append(allocator, value);
             try result.put(key, list);
         }
     }
@@ -505,7 +505,7 @@ pub fn parse_qs(allocator: std.mem.Allocator, qs: []const u8) !hashmap_helper.St
 
 /// Parse query string into single key-value pairs (last value wins)
 pub fn parse_qsl(allocator: std.mem.Allocator, qs: []const u8) ![]struct { key: []const u8, value: []const u8 } {
-    var result = std.ArrayList(struct { key: []const u8, value: []const u8 }).init(allocator);
+    var result: std.ArrayList(struct { key: []const u8, value: []const u8 }) = .{};
 
     var pairs = std.mem.splitScalar(u8, qs, '&');
     while (pairs.next()) |pair| {
@@ -521,10 +521,10 @@ pub fn parse_qsl(allocator: std.mem.Allocator, qs: []const u8) ![]struct { key: 
             key = try unquote_plus(allocator, pair);
         }
 
-        try result.append(.{ .key = key, .value = value });
+        try result.append(allocator, .{ .key = key, .value = value });
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Default safe characters for quote

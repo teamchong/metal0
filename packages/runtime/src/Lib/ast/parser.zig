@@ -55,7 +55,7 @@ pub const RuntimeParser = struct {
     }
 
     pub fn parseModule(self: *RuntimeParser) !*Module {
-        var statements = std.ArrayList(Statement).init(self.allocator);
+        var statements: std.ArrayList(Statement) = .{};
 
         while (self.peek()) |tok| {
             if (tok.type == .Eof) break;
@@ -64,12 +64,12 @@ pub const RuntimeParser = struct {
                 continue;
             }
             const stmt = try self.parseStatement();
-            try statements.append(stmt);
+            try statements.append(self.allocator, stmt);
         }
 
         const module = try self.allocator.create(Module);
         module.* = .{
-            .body = try statements.toOwnedSlice(),
+            .body = try statements.toOwnedSlice(self.allocator),
             .type_ignores = &[_]nodes.TypeIgnore{},
         };
         return module;
@@ -115,7 +115,7 @@ pub const RuntimeParser = struct {
 
     fn parseImport(self: *RuntimeParser) !Statement {
         _ = self.advance(); // consume 'import'
-        var names = std.ArrayList(Alias).init(self.allocator);
+        var names: std.ArrayList(Alias) = .{};
 
         while (true) {
             const name_tok = self.advance() orelse return error.UnexpectedEof;
@@ -128,12 +128,12 @@ pub const RuntimeParser = struct {
                 asname = as_tok.lexeme;
             }
 
-            try names.append(.{ .name = name_tok.lexeme, .asname = asname });
+            try names.append(self.allocator, .{ .name = name_tok.lexeme, .asname = asname });
 
             if (!self.match(.Comma)) break;
         }
 
-        return .{ .import_stmt = .{ .names = try names.toOwnedSlice() } };
+        return .{ .import_stmt = .{ .names = try names.toOwnedSlice(self.allocator) } };
     }
 
     fn parseFunctionDef(self: *RuntimeParser) !Statement {
@@ -168,7 +168,7 @@ pub const RuntimeParser = struct {
     }
 
     fn parseArguments(self: *RuntimeParser) !Arguments {
-        var args_list = std.ArrayList(Arg).init(self.allocator);
+        var args_list: std.ArrayList(Arg) = .{};
 
         while (self.peek()) |tok| {
             if (tok.type == .RightParen) break;
@@ -180,7 +180,7 @@ pub const RuntimeParser = struct {
                 annotation = try self.parseExpr();
             }
 
-            try args_list.append(.{
+            try args_list.append(self.allocator, .{
                 .arg = arg_tok.lexeme,
                 .annotation = annotation,
                 .type_comment = null,
@@ -191,7 +191,7 @@ pub const RuntimeParser = struct {
 
         return .{
             .posonlyargs = &[_]Arg{},
-            .args = try args_list.toOwnedSlice(),
+            .args = try args_list.toOwnedSlice(self.allocator),
             .vararg = null,
             .kwonlyargs = &[_]Arg{},
             .kw_defaults = &[_]?Expr{},
@@ -205,12 +205,12 @@ pub const RuntimeParser = struct {
         const name_tok = self.advance() orelse return error.UnexpectedEof;
         if (name_tok.type != .Name) return error.UnexpectedToken;
 
-        var bases = std.ArrayList(Expr).init(self.allocator);
+        var bases: std.ArrayList(Expr) = .{};
         if (self.match(.LeftParen)) {
             while (self.peek()) |tok| {
                 if (tok.type == .RightParen) break;
                 const base = try self.parseExpr();
-                try bases.append(base);
+                try bases.append(self.allocator, base);
                 if (!self.match(.Comma)) break;
             }
             if (!self.match(.RightParen)) return error.UnexpectedToken;
@@ -222,7 +222,7 @@ pub const RuntimeParser = struct {
         return .{
             .class_def = .{
                 .name = name_tok.lexeme,
-                .bases = try bases.toOwnedSlice(),
+                .bases = try bases.toOwnedSlice(self.allocator),
                 .keywords = &[_]Keyword{},
                 .body = body,
                 .decorator_list = &[_]Expr{},
@@ -291,7 +291,7 @@ pub const RuntimeParser = struct {
         _ = self.match(.Newline);
         _ = self.match(.Indent);
 
-        var statements = std.ArrayList(Statement).init(self.allocator);
+        var statements: std.ArrayList(Statement) = .{};
         while (self.peek()) |tok| {
             if (tok.type == .Dedent or tok.type == .Eof) break;
             if (tok.type == .Newline) {
@@ -302,10 +302,10 @@ pub const RuntimeParser = struct {
             if (tok.type == .KwElse or tok.type == .KwElif or tok.type == .KwExcept or tok.type == .KwFinally) break;
 
             const stmt = try self.parseStatement();
-            try statements.append(stmt);
+            try statements.append(self.allocator, stmt);
         }
         _ = self.match(.Dedent);
-        return statements.toOwnedSlice();
+        return statements.toOwnedSlice(self.allocator);
     }
 
     fn parseExprStatement(self: *RuntimeParser) !Statement {
@@ -369,16 +369,16 @@ pub const RuntimeParser = struct {
     fn parseComparison(self: *RuntimeParser) !Expr {
         var left = try self.parseAddSub();
 
-        var ops = std.ArrayList(CmpOp).init(self.allocator);
-        var comparators = std.ArrayList(Expr).init(self.allocator);
+        var ops: std.ArrayList(CmpOp) = .{};
+        var comparators: std.ArrayList(Expr) = .{};
 
         while (true) {
             const op: ?CmpOp = if (self.match(.Less)) .lt else if (self.match(.Greater)) .gt else if (self.match(.LessEqual)) .lte else if (self.match(.GreaterEqual)) .gte else if (self.match(.EqualEqual)) .eq else if (self.match(.NotEqual)) .not_eq else if (self.match(.KwIn)) .in else if (self.match(.KwIs)) .is else null;
 
             if (op) |o| {
-                try ops.append(o);
+                try ops.append(self.allocator, o);
                 const right = try self.parseAddSub();
-                try comparators.append(right);
+                try comparators.append(self.allocator, right);
             } else break;
         }
 
@@ -388,8 +388,8 @@ pub const RuntimeParser = struct {
             return .{
                 .compare = .{
                     .left = left_ptr,
-                    .ops = try ops.toOwnedSlice(),
-                    .comparators = try comparators.toOwnedSlice(),
+                    .ops = try ops.toOwnedSlice(self.allocator),
+                    .comparators = try comparators.toOwnedSlice(self.allocator),
                 },
             };
         }
@@ -478,11 +478,11 @@ pub const RuntimeParser = struct {
         while (true) {
             if (self.match(.LeftParen)) {
                 // Function call
-                var args = std.ArrayList(Expr).init(self.allocator);
+                var args: std.ArrayList(Expr) = .{};
                 while (self.peek()) |tok| {
                     if (tok.type == .RightParen) break;
                     const arg = try self.parseExpr();
-                    try args.append(arg);
+                    try args.append(self.allocator, arg);
                     if (!self.match(.Comma)) break;
                 }
                 if (!self.match(.RightParen)) return error.UnexpectedToken;
@@ -492,7 +492,7 @@ pub const RuntimeParser = struct {
                 expr = .{
                     .call = .{
                         .func = func_ptr,
-                        .args = try args.toOwnedSlice(),
+                        .args = try args.toOwnedSlice(self.allocator),
                         .keywords = &[_]Keyword{},
                     },
                 };
@@ -568,31 +568,31 @@ pub const RuntimeParser = struct {
                 const inner = try self.parseExpr();
                 if (self.match(.Comma)) {
                     // It's a tuple
-                    var elts = std.ArrayList(Expr).init(self.allocator);
-                    try elts.append(inner);
+                    var elts: std.ArrayList(Expr) = .{};
+                    try elts.append(self.allocator, inner);
                     while (self.peek()) |t| {
                         if (t.type == .RightParen) break;
                         const elt = try self.parseExpr();
-                        try elts.append(elt);
+                        try elts.append(self.allocator, elt);
                         if (!self.match(.Comma)) break;
                     }
                     if (!self.match(.RightParen)) return error.UnexpectedToken;
-                    break :blk .{ .tuple = .{ .elts = try elts.toOwnedSlice(), .ctx = .load } };
+                    break :blk .{ .tuple = .{ .elts = try elts.toOwnedSlice(self.allocator), .ctx = .load } };
                 }
                 if (!self.match(.RightParen)) return error.UnexpectedToken;
                 break :blk inner;
             },
             .LeftBracket => blk: {
                 // List
-                var elts = std.ArrayList(Expr).init(self.allocator);
+                var elts: std.ArrayList(Expr) = .{};
                 while (self.peek()) |t| {
                     if (t.type == .RightBracket) break;
                     const elt = try self.parseExpr();
-                    try elts.append(elt);
+                    try elts.append(self.allocator, elt);
                     if (!self.match(.Comma)) break;
                 }
                 if (!self.match(.RightBracket)) return error.UnexpectedToken;
-                break :blk .{ .list = .{ .elts = try elts.toOwnedSlice(), .ctx = .load } };
+                break :blk .{ .list = .{ .elts = try elts.toOwnedSlice(self.allocator), .ctx = .load } };
             },
             .LeftBrace => blk: {
                 // Dict or set
@@ -602,11 +602,11 @@ pub const RuntimeParser = struct {
                 const first = try self.parseExpr();
                 if (self.match(.Colon)) {
                     // Dict
-                    var keys = std.ArrayList(?Expr).init(self.allocator);
-                    var values = std.ArrayList(Expr).init(self.allocator);
+                    var keys: std.ArrayList(?Expr) = .{};
+                    var values: std.ArrayList(Expr) = .{};
                     const first_value = try self.parseExpr();
-                    try keys.append(first);
-                    try values.append(first_value);
+                    try keys.append(self.allocator, first);
+                    try values.append(self.allocator, first_value);
 
                     while (self.match(.Comma)) {
                         if (self.peek()) |t| {
@@ -615,24 +615,24 @@ pub const RuntimeParser = struct {
                         const key = try self.parseExpr();
                         if (!self.match(.Colon)) return error.UnexpectedToken;
                         const value = try self.parseExpr();
-                        try keys.append(key);
-                        try values.append(value);
+                        try keys.append(self.allocator, key);
+                        try values.append(self.allocator, value);
                     }
                     if (!self.match(.RightBrace)) return error.UnexpectedToken;
-                    break :blk .{ .dict = .{ .keys = try keys.toOwnedSlice(), .values = try values.toOwnedSlice() } };
+                    break :blk .{ .dict = .{ .keys = try keys.toOwnedSlice(self.allocator), .values = try values.toOwnedSlice(self.allocator) } };
                 } else {
                     // Set
-                    var elts = std.ArrayList(Expr).init(self.allocator);
-                    try elts.append(first);
+                    var elts: std.ArrayList(Expr) = .{};
+                    try elts.append(self.allocator, first);
                     while (self.match(.Comma)) {
                         if (self.peek()) |t| {
                             if (t.type == .RightBrace) break;
                         }
                         const elt = try self.parseExpr();
-                        try elts.append(elt);
+                        try elts.append(self.allocator, elt);
                     }
                     if (!self.match(.RightBrace)) return error.UnexpectedToken;
-                    break :blk .{ .set = .{ .elts = try elts.toOwnedSlice() } };
+                    break :blk .{ .set = .{ .elts = try elts.toOwnedSlice(self.allocator) } };
                 }
             },
             else => error.UnexpectedToken,

@@ -35,38 +35,38 @@ pub const FrameSummary = struct {
     }
 
     pub fn format(self: *const FrameSummary, allocator: std.mem.Allocator) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(allocator);
 
         // File "filename", line X, in name
-        try result.appendSlice("  File \"");
-        try result.appendSlice(self.filename);
-        try result.appendSlice("\"");
+        try result.appendSlice(allocator, "  File \"");
+        try result.appendSlice(allocator, self.filename);
+        try result.appendSlice(allocator, "\"");
 
         if (self.lineno) |line| {
             var buf: [32]u8 = undefined;
             const num_str = std.fmt.bufPrint(&buf, ", line {d}", .{line}) catch "";
-            try result.appendSlice(num_str);
+            try result.appendSlice(allocator, num_str);
         }
 
-        try result.appendSlice(", in ");
-        try result.appendSlice(self.name);
-        try result.append('\n');
+        try result.appendSlice(allocator, ", in ");
+        try result.appendSlice(allocator, self.name);
+        try result.append(allocator, '\n');
 
         if (self.line) |code_line| {
-            try result.appendSlice("    ");
+            try result.appendSlice(allocator, "    ");
             // Strip leading whitespace
             var trimmed = code_line;
             while (trimmed.len > 0 and (trimmed[0] == ' ' or trimmed[0] == '\t')) {
                 trimmed = trimmed[1..];
             }
-            try result.appendSlice(trimmed);
+            try result.appendSlice(allocator, trimmed);
             if (trimmed.len == 0 or trimmed[trimmed.len - 1] != '\n') {
-                try result.append('\n');
+                try result.append(allocator, '\n');
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 };
 
@@ -79,30 +79,30 @@ pub const StackSummary = struct {
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
-            .frames = std.ArrayList(FrameSummary).init(allocator),
+            .frames = .{},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.frames.deinit();
+        self.frames.deinit(self.allocator);
     }
 
     pub fn append(self: *Self, frame: FrameSummary) !void {
-        try self.frames.append(frame);
+        try self.frames.append(self.allocator, frame);
     }
 
     pub fn format(self: *const Self) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         for (self.frames.items) |frame| {
             const frame_str = try frame.format(self.allocator);
             defer self.allocator.free(frame_str);
-            try result.appendSlice(frame_str);
+            try result.appendSlice(self.allocator, frame_str);
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Extract from a frame
@@ -159,64 +159,64 @@ pub const TracebackException = struct {
 
     /// Format the exception only (no traceback)
     pub fn formatExceptionOnly(self: *const Self) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
-        try result.appendSlice(self.exc_type);
+        try result.appendSlice(self.allocator, self.exc_type);
         if (self.exc_value.len > 0) {
-            try result.appendSlice(": ");
-            try result.appendSlice(self.exc_value);
+            try result.appendSlice(self.allocator, ": ");
+            try result.appendSlice(self.allocator, self.exc_value);
         }
-        try result.append('\n');
+        try result.append(self.allocator, '\n');
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Format the full exception with traceback
     pub fn format(self: *const Self) ![]u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result: std.ArrayList(u8) = .{};
+        errdefer result.deinit(self.allocator);
 
         // Context chain
         if (self.context != null and !self.suppress_context) {
             const ctx_str = try self.context.?.format();
             defer self.allocator.free(ctx_str);
-            try result.appendSlice(ctx_str);
-            try result.appendSlice("\nDuring handling of the above exception, another exception occurred:\n\n");
+            try result.appendSlice(self.allocator, ctx_str);
+            try result.appendSlice(self.allocator, "\nDuring handling of the above exception, another exception occurred:\n\n");
         }
 
         // Cause chain
         if (self.cause) |cause| {
             const cause_str = try cause.format();
             defer self.allocator.free(cause_str);
-            try result.appendSlice(cause_str);
-            try result.appendSlice("\nThe above exception was the direct cause of the following exception:\n\n");
+            try result.appendSlice(self.allocator, cause_str);
+            try result.appendSlice(self.allocator, "\nThe above exception was the direct cause of the following exception:\n\n");
         }
 
         // Traceback header
-        try result.appendSlice("Traceback (most recent call last):\n");
+        try result.appendSlice(self.allocator, "Traceback (most recent call last):\n");
 
         // Stack frames
         if (self.exc_traceback) |tb| {
             const tb_str = try tb.format();
             defer self.allocator.free(tb_str);
-            try result.appendSlice(tb_str);
+            try result.appendSlice(self.allocator, tb_str);
         }
 
         // Exception line
         const exc_str = try self.formatExceptionOnly();
         defer self.allocator.free(exc_str);
-        try result.appendSlice(exc_str);
+        try result.appendSlice(self.allocator, exc_str);
 
         // Notes
         if (self.notes) |notes| {
             for (notes) |note| {
-                try result.appendSlice(note);
-                try result.append('\n');
+                try result.appendSlice(self.allocator, note);
+                try result.append(self.allocator, '\n');
             }
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 };
 
@@ -243,12 +243,12 @@ pub fn format_exception(allocator: std.mem.Allocator, exc_type: []const u8, exc_
     _ = limit;
     _ = chain;
 
-    var lines = std.ArrayList([]u8).init(allocator);
+    var lines: std.ArrayList([]u8) = .{};
     errdefer {
         for (lines.items) |line| {
             allocator.free(line);
         }
-        lines.deinit();
+        lines.deinit(allocator);
     }
 
     const te = TracebackException.init(allocator, exc_type, exc_value, tb);
@@ -261,31 +261,31 @@ pub fn format_exception(allocator: std.mem.Allocator, exc_type: []const u8, exc_
             var owned_line = try allocator.alloc(u8, line.len + 1);
             @memcpy(owned_line[0..line.len], line);
             owned_line[line.len] = '\n';
-            try lines.append(owned_line);
+            try lines.append(allocator, owned_line);
         }
     }
     allocator.free(formatted);
 
-    return lines.toOwnedSlice();
+    return lines.toOwnedSlice(allocator);
 }
 
 /// Format exception only (without traceback)
 pub fn format_exception_only(allocator: std.mem.Allocator, exc_type: []const u8, exc_value: []const u8) ![][]u8 {
-    var lines = std.ArrayList([]u8).init(allocator);
-    errdefer lines.deinit();
+    var lines: std.ArrayList([]u8) = .{};
+    errdefer lines.deinit(allocator);
 
-    var line = std.ArrayList(u8).init(allocator);
-    errdefer line.deinit();
+    var line: std.ArrayList(u8) = .{};
+    errdefer line.deinit(allocator);
 
-    try line.appendSlice(exc_type);
+    try line.appendSlice(allocator, exc_type);
     if (exc_value.len > 0) {
-        try line.appendSlice(": ");
-        try line.appendSlice(exc_value);
+        try line.appendSlice(allocator, ": ");
+        try line.appendSlice(allocator, exc_value);
     }
-    try line.append('\n');
+    try line.append(allocator, '\n');
 
-    try lines.append(try line.toOwnedSlice());
-    return lines.toOwnedSlice();
+    try lines.append(allocator, try line.toOwnedSlice(allocator));
+    return lines.toOwnedSlice(allocator);
 }
 
 /// Print traceback
@@ -302,15 +302,15 @@ pub fn print_tb(allocator: std.mem.Allocator, tb: StackSummary, limit: ?i32, fil
 pub fn format_tb(allocator: std.mem.Allocator, tb: StackSummary, limit: ?i32) ![][]u8 {
     _ = limit;
 
-    var lines = std.ArrayList([]u8).init(allocator);
-    errdefer lines.deinit();
+    var lines: std.ArrayList([]u8) = .{};
+    errdefer lines.deinit(allocator);
 
     for (tb.frames.items) |frame| {
         const frame_str = try frame.format(allocator);
-        try lines.append(frame_str);
+        try lines.append(allocator, frame_str);
     }
 
-    return lines.toOwnedSlice();
+    return lines.toOwnedSlice(allocator);
 }
 
 /// Extract traceback as list of tuples (filename, lineno, name, line)
@@ -332,15 +332,15 @@ pub fn format_stack(allocator: std.mem.Allocator, frame: anytype, limit: ?i32) !
     var stack = try StackSummary.extract(allocator, frame, limit);
     defer stack.deinit();
 
-    var lines = std.ArrayList([]u8).init(allocator);
-    errdefer lines.deinit();
+    var lines: std.ArrayList([]u8) = .{};
+    errdefer lines.deinit(allocator);
 
     for (stack.frames.items) |f| {
         const frame_str = try f.format(allocator);
-        try lines.append(frame_str);
+        try lines.append(allocator, frame_str);
     }
 
-    return lines.toOwnedSlice();
+    return lines.toOwnedSlice(allocator);
 }
 
 /// Extract stack as list of tuples
@@ -356,16 +356,16 @@ pub fn clear_frames(tb: anytype) void {
 
 /// Format a list of lines with proper handling
 pub fn format_list(allocator: std.mem.Allocator, extracted_list: []const FrameSummary) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     for (extracted_list) |frame| {
         const frame_str = try frame.format(allocator);
         defer allocator.free(frame_str);
-        try result.appendSlice(frame_str);
+        try result.appendSlice(allocator, frame_str);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Print a list of tuples as formatted traceback
