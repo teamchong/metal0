@@ -44,11 +44,54 @@ pub fn analyzeExpressions(info: *types.SemanticInfo, node: ast.Node) !void {
             for (for_stmt.body) |body_node| {
                 try analyzeExpressions(info, body_node);
             }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |else_node| {
+                    try analyzeExpressions(info, else_node);
+                }
+            }
         },
         .while_stmt => |while_stmt| {
             try analyzeExpressions(info, while_stmt.condition.*);
             for (while_stmt.body) |body_node| {
                 try analyzeExpressions(info, body_node);
+            }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |else_node| {
+                    try analyzeExpressions(info, else_node);
+                }
+            }
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |body_node| {
+                try analyzeExpressions(info, body_node);
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |body_node| {
+                    try analyzeExpressions(info, body_node);
+                }
+            }
+            for (try_stmt.else_body) |else_node| {
+                try analyzeExpressions(info, else_node);
+            }
+            for (try_stmt.finalbody) |finally_node| {
+                try analyzeExpressions(info, finally_node);
+            }
+        },
+        .with_stmt => |with_stmt| {
+            try analyzeExpressions(info, with_stmt.context_expr.*);
+            for (with_stmt.body) |body_node| {
+                try analyzeExpressions(info, body_node);
+            }
+        },
+        .match_stmt => |match_stmt| {
+            try analyzeExpressions(info, match_stmt.subject.*);
+            for (match_stmt.cases) |case| {
+                if (case.guard) |guard| {
+                    try analyzeExpressions(info, guard.*);
+                }
+                for (case.body) |body_node| {
+                    try analyzeExpressions(info, body_node);
+                }
             }
         },
         .function_def => |func| {
