@@ -1795,9 +1795,15 @@ fn isFunctionAliasRecursive(body: []const ast.Node, var_name: []const u8, module
             },
             .for_stmt => {
                 if (isFunctionAliasRecursive(stmt.for_stmt.body, var_name, module_level_funcs)) return true;
+                if (stmt.for_stmt.orelse_body) |orelse_body| {
+                    if (isFunctionAliasRecursive(orelse_body, var_name, module_level_funcs)) return true;
+                }
             },
             .while_stmt => {
                 if (isFunctionAliasRecursive(stmt.while_stmt.body, var_name, module_level_funcs)) return true;
+                if (stmt.while_stmt.orelse_body) |orelse_body| {
+                    if (isFunctionAliasRecursive(orelse_body, var_name, module_level_funcs)) return true;
+                }
             },
             .try_stmt => {
                 const try_s = stmt.try_stmt;
@@ -1805,7 +1811,16 @@ fn isFunctionAliasRecursive(body: []const ast.Node, var_name: []const u8, module
                 for (try_s.handlers) |handler| {
                     if (isFunctionAliasRecursive(handler.body, var_name, module_level_funcs)) return true;
                 }
+                if (isFunctionAliasRecursive(try_s.else_body, var_name, module_level_funcs)) return true;
                 if (isFunctionAliasRecursive(try_s.finalbody, var_name, module_level_funcs)) return true;
+            },
+            .with_stmt => {
+                if (isFunctionAliasRecursive(stmt.with_stmt.body, var_name, module_level_funcs)) return true;
+            },
+            .match_stmt => {
+                for (stmt.match_stmt.cases) |case| {
+                    if (isFunctionAliasRecursive(case.body, var_name, module_level_funcs)) return true;
+                }
             },
             else => {},
         }

@@ -432,14 +432,27 @@ pub fn analyzeNestedFunctions(
             try analyzeNestedFunctions(stmt.if_stmt.else_body, parent_locals, allocator);
         } else if (stmt.* == .for_stmt) {
             try analyzeNestedFunctions(stmt.for_stmt.body, parent_locals, allocator);
+            if (stmt.for_stmt.orelse_body) |orelse_body| {
+                try analyzeNestedFunctions(orelse_body, parent_locals, allocator);
+            }
         } else if (stmt.* == .while_stmt) {
             try analyzeNestedFunctions(stmt.while_stmt.body, parent_locals, allocator);
+            if (stmt.while_stmt.orelse_body) |orelse_body| {
+                try analyzeNestedFunctions(orelse_body, parent_locals, allocator);
+            }
         } else if (stmt.* == .try_stmt) {
             try analyzeNestedFunctions(stmt.try_stmt.body, parent_locals, allocator);
             for (stmt.try_stmt.handlers) |handler| {
                 try analyzeNestedFunctions(handler.body, parent_locals, allocator);
             }
+            try analyzeNestedFunctions(stmt.try_stmt.else_body, parent_locals, allocator);
             try analyzeNestedFunctions(stmt.try_stmt.finalbody, parent_locals, allocator);
+        } else if (stmt.* == .with_stmt) {
+            try analyzeNestedFunctions(stmt.with_stmt.body, parent_locals, allocator);
+        } else if (stmt.* == .match_stmt) {
+            for (stmt.match_stmt.cases) |case| {
+                try analyzeNestedFunctions(case.body, parent_locals, allocator);
+            }
         } else if (stmt.* == .class_def) {
             // Analyze nested functions inside class methods
             try analyzeNestedFunctions(stmt.class_def.body, parent_locals, allocator);
