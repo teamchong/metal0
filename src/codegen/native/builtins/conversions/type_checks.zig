@@ -207,15 +207,18 @@ pub fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For now, emit a runtime check or true for known callable types
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
+    // Two-Flow: Check for uncertain types first
+    if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
+        // Runtime check - use @typeInfo for uncertain types
+        try self.emit("runtime.isCallable(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
+
     switch (arg_type) {
         .function => {
             try self.emit("true");
-        },
-        .unknown => {
-            // Runtime check - use @typeInfo
-            try self.emit("runtime.isCallable(");
-            try self.genExpr(args[0]);
-            try self.emit(")");
         },
         else => {
             // Check if it's a class (has __call__)
@@ -314,6 +317,16 @@ pub fn genId(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
+    // Two-Flow: Check if argument is uncertain
+    const arg_type = self.inferExprScoped(args[0]) catch .unknown;
+    if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
+        // For PyValue/uncertain types, use runtime id function
+        try self.emit("runtime.builtins.id(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
+
     // Return the pointer address as an integer
     try self.emit("@as(i64, @intCast(@intFromPtr(&(");
     try self.genExpr(args[0]);
@@ -325,6 +338,18 @@ pub fn genId(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genDelattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
         try self.emit("{}");
+        return;
+    }
+
+    // Two-Flow: Check if object is uncertain
+    const obj_type = self.inferExprScoped(args[0]) catch .unknown;
+    if (type_traits.isUnknown(obj_type) or obj_type == .pyvalue) {
+        // For PyValue/uncertain types, use runtime delattr
+        try self.emit("runtime.builtins.delattr(");
+        try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit(")");
         return;
     }
 

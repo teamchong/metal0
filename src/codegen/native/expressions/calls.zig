@@ -1478,9 +1478,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         // Pass class instances by pointer to allow mutations to propagate
                         try self.emit("&");
                     }
-                } else if (arg_type == .pyvalue) {
-                    // PyValue argument - use comptime type dispatch to handle function param type
+                } else if (arg_type == .pyvalue or type_traits.isUnknown(arg_type)) {
+                    // Two-Flow: PyValue/unknown argument - use comptime type dispatch to handle function param type
                     // This handles cases where we pass a PyValue to a function expecting string/int/etc
+                    // For uncertain types, let the runtime handle conversion via PyValue
                     try self.emit("pyval_arg_blk: { const __pv = ");
                     try genExpr(self, arg);
                     try self.emit("; break :pyval_arg_blk if (@TypeOf(__pv) == runtime.PyValue) __pv.asString() else __pv; }");

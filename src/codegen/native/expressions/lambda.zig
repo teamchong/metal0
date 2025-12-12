@@ -16,6 +16,8 @@ const ClosureError = error{
 } || CodegenError;
 const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
+const core = @import("../../../analysis/native_types/core.zig");
+const TypeConfidence = core.TypeConfidence;
 const lambda_closure = @import("lambda_closure.zig");
 const shared = @import("../shared_maps.zig");
 const ListMethodsMap = shared.MutatingMethods;
@@ -109,6 +111,11 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
         // Register parameter with type inferrer so it knows the type during body codegen
         const native_type = stringToNativeType(param_types[i]);
         try self.type_inferrer.var_types.put(arg.name, native_type);
+
+        // Two-Flow: Track confidence for lambda parameters
+        // Inferred params are uncertain unless they're literal types
+        const confidence: TypeConfidence = if (type_traits.isUnknown(native_type)) .uncertain else .certain;
+        self.type_inferrer.putConfidence(arg.name, confidence) catch {};
     }
 
     // Generate parameter list - check if parameter is used in body
@@ -185,10 +192,16 @@ pub fn getLambdaReturnType(self: *NativeCodegen, lambda: ast.Node.Lambda) Codege
         const param_type_str = try inferParamType(self, arg.name, lambda.body.*);
         const param_native_type = stringToNativeType(param_type_str);
         try self.type_inferrer.var_types.put(arg.name, param_native_type);
+
+        // Two-Flow: Track confidence for lambda parameters
+        const confidence: TypeConfidence = if (type_traits.isUnknown(param_native_type)) .uncertain else .certain;
+        self.type_inferrer.putConfidence(arg.name, confidence) catch {};
     }
     defer {
         for (lambda.args) |arg| {
             _ = self.type_inferrer.var_types.swapRemove(arg.name);
+            // Two-Flow: Also clean up confidence tracking
+            _ = self.type_inferrer.var_confidence.swapRemove(arg.name);
         }
     }
 
@@ -811,6 +824,10 @@ fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!v
         // Register parameter with type inferrer
         const native_type = stringToNativeType(param_types[i]);
         try self.type_inferrer.var_types.put(arg.name, native_type);
+
+        // Two-Flow: Track confidence for inline lambda parameters
+        const confidence: TypeConfidence = if (type_traits.isUnknown(native_type)) .uncertain else .certain;
+        self.type_inferrer.putConfidence(arg.name, confidence) catch {};
     }
 
     // Generate parameter list

@@ -209,6 +209,17 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
+    // Two-Flow: For unknown/PyValue types, use runtime bytes conversion
+    if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
+        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+        try self.emit("(try runtime.builtins.bytes(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit("))");
+        return;
+    }
+
     // For lists/iterables, convert to bytes
     try self.genExpr(args[0]);
 }
@@ -249,6 +260,17 @@ pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("@memset(_buf, 0);\n");
         try self.emit("break :blk _buf;\n");
         try self.emit("}");
+        return;
+    }
+
+    // Two-Flow: For unknown/PyValue types, use runtime bytearray conversion
+    if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
+        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+        try self.emit("(try runtime.builtins.bytearray(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
+        try self.genExpr(args[0]);
+        try self.emit("))");
         return;
     }
 
@@ -385,6 +407,15 @@ pub fn genAscii(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Get the repr and escape non-ASCII
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
+    // Two-Flow: Check for uncertain types first
+    if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
+        // Use runtime ascii for uncertain types
+        try self.emit("runtime.asciiRepr(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
+
     if (string_traits.isString(arg_type)) {
         // For strings, wrap in quotes and escape non-ASCII
         try self.emit("runtime.asciiStr(");
@@ -408,13 +439,26 @@ pub fn genFormat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
+    // Two-Flow: Check if value is uncertain
+    const arg_type = self.inferExprScoped(args[0]) catch .unknown;
+    const is_uncertain = type_traits.isUnknown(arg_type) or arg_type == .pyvalue;
+
     if (args.len == 1) {
         // format(value) - use default format spec
-        try self.emit("std.fmt.allocPrint(");
-        try self.emit(alloc_name);
-        try self.emit(", \"{any}\", .{");
-        try self.genExpr(args[0]);
-        try self.emit("}) catch \"\"");
+        if (is_uncertain) {
+            // For uncertain types, use runtime format
+            try self.emit("(try runtime.pyFormat(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try self.genExpr(args[0]);
+            try self.emit(", \"\"))");
+        } else {
+            try self.emit("std.fmt.allocPrint(");
+            try self.emit(alloc_name);
+            try self.emit(", \"{any}\", .{");
+            try self.genExpr(args[0]);
+            try self.emit("}) catch \"\"");
+        }
     } else {
         // format(value, format_spec)
         // Use runtime.pyFormat for proper Python format handling

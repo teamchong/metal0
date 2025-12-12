@@ -7,6 +7,7 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const zig_keywords = @import("utils.zig_keywords");
 const shared = @import("../shared_maps.zig");
 const BinOpStrings = shared.BinOpStrings;
@@ -105,13 +106,21 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     try writer.print("const {s} = struct {{\n", .{closure_name});
 
     // Captured fields - use concrete types from type inference
+    // Two-Flow: Use runtime.PyValue for uncertain captured vars
     for (captured_vars) |var_name| {
         // Get type from type inference
         const var_type = self.getVarType(var_name) orelse .unknown;
-        const zig_type = try self.nativeTypeToZigType(var_type);
-        defer self.allocator.free(zig_type);
 
-        try writer.print("    {s}: {s},\n", .{ var_name, zig_type });
+        // Two-Flow: Check if captured var is uncertain
+        const is_uncertain = self.isVarUncertain(var_name) or type_traits.isUnknown(var_type) or var_type == .pyvalue;
+
+        if (is_uncertain) {
+            try writer.print("    {s}: runtime.PyValue,\n", .{var_name});
+        } else {
+            const zig_type = try self.nativeTypeToZigType(var_type);
+            defer self.allocator.free(zig_type);
+            try writer.print("    {s}: {s},\n", .{ var_name, zig_type });
+        }
     }
     try writer.writeAll("\n");
 
@@ -191,11 +200,20 @@ fn genInlineClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda, c
     try self.emit("(struct {\n");
 
     // Fields for captured vars
+    // Two-Flow: Use runtime.PyValue for uncertain captured vars
     for (captured_vars) |var_name| {
         const var_type = self.getVarType(var_name) orelse .unknown;
-        const zig_type = try self.nativeTypeToZigType(var_type);
-        defer self.allocator.free(zig_type);
-        try self.output.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
+
+        // Two-Flow: Check if captured var is uncertain
+        const is_uncertain = self.isVarUncertain(var_name) or type_traits.isUnknown(var_type) or var_type == .pyvalue;
+
+        if (is_uncertain) {
+            try self.output.writer(self.allocator).print("    {s}: runtime.PyValue,\n", .{var_name});
+        } else {
+            const zig_type = try self.nativeTypeToZigType(var_type);
+            defer self.allocator.free(zig_type);
+            try self.output.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
+        }
     }
     try self.emit("\n");
 
@@ -299,13 +317,21 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
     try writer.print("const {s} = struct {{\n", .{closure_name});
 
     // Captured fields with concrete types from type inference
+    // Two-Flow: Use runtime.PyValue for uncertain captured vars
     for (captured_vars) |var_name| {
         // Get type from type inference
         const var_type = self.getVarType(var_name) orelse .unknown;
-        const zig_type = try self.nativeTypeToZigType(var_type);
-        defer self.allocator.free(zig_type);
 
-        try writer.print("    {s}: {s},\n", .{ var_name, zig_type });
+        // Two-Flow: Check if captured var is uncertain
+        const is_uncertain = self.isVarUncertain(var_name) or type_traits.isUnknown(var_type) or var_type == .pyvalue;
+
+        if (is_uncertain) {
+            try writer.print("    {s}: runtime.PyValue,\n", .{var_name});
+        } else {
+            const zig_type = try self.nativeTypeToZigType(var_type);
+            defer self.allocator.free(zig_type);
+            try writer.print("    {s}: {s},\n", .{ var_name, zig_type });
+        }
     }
     try writer.writeAll("\n");
 
