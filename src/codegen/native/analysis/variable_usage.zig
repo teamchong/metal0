@@ -399,6 +399,47 @@ pub fn collectReferencedVarsInExpr(expr: ast.Node, vars: *StringSet, allocator: 
             try collectReferencedVarsInExpr(if_expr.body.*, vars, allocator);
             try collectReferencedVarsInExpr(if_expr.orelse_value.*, vars, allocator);
         },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| try collectReferencedVarsInExpr(e.node.*, vars, allocator),
+                    .format_expr => |fe| try collectReferencedVarsInExpr(fe.expr.*, vars, allocator),
+                    .conv_expr => |ce| try collectReferencedVarsInExpr(ce.expr.*, vars, allocator),
+                    .literal => {},
+                }
+            }
+        },
+        .listcomp => |lc| {
+            try collectReferencedVarsInExpr(lc.elt.*, vars, allocator);
+            for (lc.generators) |gen| {
+                try collectReferencedVarsInExpr(gen.iter.*, vars, allocator);
+                for (gen.ifs) |cond| {
+                    try collectReferencedVarsInExpr(cond, vars, allocator);
+                }
+            }
+        },
+        .dictcomp => |dc| {
+            try collectReferencedVarsInExpr(dc.key.*, vars, allocator);
+            try collectReferencedVarsInExpr(dc.value.*, vars, allocator);
+            for (dc.generators) |gen| {
+                try collectReferencedVarsInExpr(gen.iter.*, vars, allocator);
+                for (gen.ifs) |cond| {
+                    try collectReferencedVarsInExpr(cond, vars, allocator);
+                }
+            }
+        },
+        .genexp => |ge| {
+            try collectReferencedVarsInExpr(ge.elt.*, vars, allocator);
+            for (ge.generators) |gen| {
+                try collectReferencedVarsInExpr(gen.iter.*, vars, allocator);
+                for (gen.ifs) |cond| {
+                    try collectReferencedVarsInExpr(cond, vars, allocator);
+                }
+            }
+        },
+        .lambda => |lam| {
+            try collectReferencedVarsInExpr(lam.body.*, vars, allocator);
+        },
         else => {},
     }
 }

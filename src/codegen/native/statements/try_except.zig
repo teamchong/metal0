@@ -687,12 +687,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         try declared_var_set.put(name, {});
                     }
                 }
-            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.nested_class_names.contains(name) or self.func_local_vars.contains(name) or self.hoisted_vars.contains(name) or self.forward_declared_vars.contains(name)) {
+            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.type_inferrer.getScopedVar(name) != null or self.nested_class_names.contains(name) or self.func_local_vars.contains(name) or self.hoisted_vars.contains(name) or self.forward_declared_vars.contains(name)) {
                 // Variable is only read and we can verify it exists - capture as read-only
                 // Note: nested_class_names tracks classes defined inside methods (like for-loop bodies)
                 // Note: func_local_vars tracks function-local variables declared before the try block
                 // Note: hoisted_vars tracks variables that were hoisted for scope escaping
                 // Note: forward_declared_vars tracks variables forward declared for scope escaping
+                // Note: getScopedVar checks for loop-local variables stored in scoped_var_types
                 try read_only_vars.append(self.allocator, name);
             }
 
