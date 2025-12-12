@@ -5,6 +5,7 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const helpers = @import("assign_helpers.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const zig_keywords = @import("utils.zig_keywords");
 
 /// Get the allocator name based on current scope level
 fn getAllocName(self: *NativeCodegen) []const u8 {
@@ -18,7 +19,10 @@ pub fn emitStringConcatDefer(self: *NativeCodegen, var_name: []const u8, is_firs
     if (is_first_assignment) {
         const alloc_name = getAllocName(self);
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("defer {s}.free({s});\n", .{ alloc_name, var_name });
+        const writer = self.output.writer(self.allocator);
+        try writer.print("defer {s}.free(", .{alloc_name});
+        try zig_keywords.writeLocalVarName(writer, var_name);
+        try writer.writeAll(");\n");
     }
 }
 
@@ -26,14 +30,20 @@ pub fn emitStringConcatDefer(self: *NativeCodegen, var_name: []const u8, is_firs
 pub fn emitArrayListDefer(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
     const alloc_name = getAllocName(self);
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("defer {s}.deinit({s});\n", .{ var_name, alloc_name });
+    const writer = self.output.writer(self.allocator);
+    try writer.writeAll("defer ");
+    try zig_keywords.writeLocalVarName(writer, var_name);
+    try writer.print(".deinit({s});\n", .{alloc_name});
 }
 
 /// Add defer cleanup for list comprehensions (return ArrayLists)
 pub fn emitListCompDefer(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
     const alloc_name = getAllocName(self);
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("defer {s}.deinit({s});\n", .{ var_name, alloc_name });
+    const writer = self.output.writer(self.allocator);
+    try writer.writeAll("defer ");
+    try zig_keywords.writeLocalVarName(writer, var_name);
+    try writer.print(".deinit({s});\n", .{alloc_name});
 }
 
 /// Check if dict needs complex cleanup (string values that were allocated)
@@ -63,7 +73,10 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
     if (assign_value != .dict) {
         // Simple defer for non-dict literals
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("defer {s}.deinit();\n", .{var_name});
+        const writer = self.output.writer(self.allocator);
+        try writer.writeAll("defer ");
+        try zig_keywords.writeLocalVarName(writer, var_name);
+        try writer.writeAll(".deinit();\n");
         return;
     }
 
@@ -108,26 +121,32 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
     const alloc_name = getAllocName(self);
 
     // If needs value cleanup, free all string values before deinit
+    const writer = self.output.writer(self.allocator);
     if (needs_cleanup) {
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("defer {{\n", .{});
+        try writer.writeAll("defer {\n");
         self.indent();
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("for ({s}.values()) |value| {{\n", .{var_name});
+        try writer.writeAll("for (");
+        try zig_keywords.writeLocalVarName(writer, var_name);
+        try writer.writeAll(".values()) |value| {\n");
         self.indent();
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("{s}.free(value);\n", .{alloc_name});
+        try writer.print("{s}.free(value);\n", .{alloc_name});
         self.dedent();
         try self.emitIndent();
         try self.emit("}\n");
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("{s}.deinit();\n", .{var_name});
+        try zig_keywords.writeLocalVarName(writer, var_name);
+        try writer.writeAll(".deinit();\n");
         self.dedent();
         try self.emitIndent();
         try self.emit("}\n");
     } else {
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("defer {s}.deinit();\n", .{var_name});
+        try writer.writeAll("defer ");
+        try zig_keywords.writeLocalVarName(writer, var_name);
+        try writer.writeAll(".deinit();\n");
     }
 }
 
@@ -135,7 +154,10 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
 pub fn emitAllocatedStringDefer(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
     const alloc_name = getAllocName(self);
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("defer {s}.free({s});\n", .{ alloc_name, var_name });
+    const writer = self.output.writer(self.allocator);
+    try writer.print("defer {s}.free(", .{alloc_name});
+    try zig_keywords.writeLocalVarName(writer, var_name);
+    try writer.writeAll(");\n");
 }
 
 /// Emit all appropriate defer cleanups based on assignment properties
