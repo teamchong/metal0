@@ -1,9 +1,9 @@
-//\! CPython source: Lib/dataclasses.py
-//\!
-//\! Provides a decorator and functions for automatically adding generated
-//\! special methods to classes.
-//\!
-//\! Mirrors: CPython Lib/dataclasses.py
+//! CPython source: Lib/dataclasses.py
+//!
+//! Provides a decorator and functions for automatically adding generated
+//! special methods to classes.
+//!
+//! Mirrors: CPython Lib/dataclasses.py
 
 pub const types = @import("dataclasses/types.zig");
 pub const field_mod = @import("dataclasses/field.zig");
@@ -65,7 +65,7 @@ test "dataclass equality" {
     const p3 = DataPoint.init(.{ .x = 5, .y = 20 });
 
     try std.testing.expect(p1.eql(p2));
-    try std.testing.expect(\!p1.eql(p3));
+    try std.testing.expect(!p1.eql(p3));
 }
 
 test "dataclass repr" {
@@ -82,8 +82,8 @@ test "dataclass repr" {
     const r = try p.reprStr(allocator);
     defer allocator.free(r);
 
-    try std.testing.expect(std.mem.indexOf(u8, r, "x=10") \!= null);
-    try std.testing.expect(std.mem.indexOf(u8, r, "y=20") \!= null);
+    try std.testing.expect(std.mem.indexOf(u8, r, "x=10") != null);
+    try std.testing.expect(std.mem.indexOf(u8, r, "y=20") != null);
 }
 
 test "dataclass with ordering" {
@@ -98,7 +98,7 @@ test "dataclass with ordering" {
     const b = OrderedItem.init(.{ .priority = 2, .name = "second" });
 
     try std.testing.expect(a.lessThan(b));
-    try std.testing.expect(\!b.lessThan(a));
+    try std.testing.expect(!b.lessThan(a));
 }
 
 test "dataclass hash" {
@@ -114,7 +114,7 @@ test "dataclass hash" {
     const p3 = DataPoint.init(.{ .x = 5, .y = 20 });
 
     try std.testing.expectEqual(p1.hashValue(), p2.hashValue());
-    try std.testing.expect(p1.hashValue() \!= p3.hashValue());
+    try std.testing.expect(p1.hashValue() != p3.hashValue());
 }
 
 test "replace" {

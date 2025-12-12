@@ -41,7 +41,7 @@ pub fn disassemble(allocator: std.mem.Allocator, co: *CodeObject, lasti: ?i32) !
 }
 
 /// Disassemble bytecode bytes
-pub fn disassembleBytes(allocator: std.mem.Allocator, code: []const u8, lasti: ?i32, varnames: ?[][]const u8, names: ?[][]const u8, constants: ?[]anytype) ![]u8 {
+pub fn disassembleBytes(allocator: std.mem.Allocator, code: []const u8, lasti: ?i32, varnames: ?[][]const u8, names: ?[][]const u8, constants: anytype) ![]u8 {
     var result = std.ArrayList(u8).init(allocator);
     errdefer result.deinit();
 

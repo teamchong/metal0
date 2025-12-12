@@ -1,11 +1,11 @@
-//\! Utility functions for dataclasses
-//\!
-//\! Provides helper functions for working with dataclass instances:
-//\! - getFields: Extract field information
-//\! - asdict: Convert to dictionary-like structure
-//\! - replace: Create modified copy with updated fields
-//\! - copy: Shallow copy
-//\! - isDataclass: Type checking
+//! Utility functions for dataclasses
+//!
+//! Provides helper functions for working with dataclass instances:
+//! - getFields: Extract field information
+//! - asdict: Convert to dictionary-like structure
+//! - replace: Create modified copy with updated fields
+//! - copy: Shallow copy
+//! - isDataclass: Type checking
 
 const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
@@ -42,14 +42,14 @@ pub fn getFields(comptime T: type) []const std.builtin.Type.StructField {
 /// Check if a type is a dataclass
 pub fn isDataclass(comptime T: type) bool {
     const type_info = @typeInfo(T);
-    if (type_info \!= .@"struct") return false;
+    if (type_info != .@"struct") return false;
 
     // Check if it has the characteristic dataclass methods
     return @hasDecl(T, "data") or @hasDecl(T, "repr") or @hasDecl(T, "eql");
 }
 
 /// Convert a dataclass instance to a dict-like struct
-pub fn asdict(comptime T: type, instance: T, allocator: std.mem.Allocator) \!hashmap_helper.StringHashMap([]const u8) {
+pub fn asdict(comptime T: type, instance: T, allocator: std.mem.Allocator) !hashmap_helper.StringHashMap([]const u8) {
     var result = hashmap_helper.StringHashMap([]const u8).init(allocator);
     errdefer result.deinit();
 
@@ -65,7 +65,7 @@ pub fn asdict(comptime T: type, instance: T, allocator: std.mem.Allocator) \!has
 }
 
 /// Format a value for dictionary representation
-fn formatValue(buf: []u8, value: anytype) \![]const u8 {
+fn formatValue(buf: []u8, value: anytype) ![]const u8 {
     const VT = @TypeOf(value);
     const vt_info = @typeInfo(VT);
 

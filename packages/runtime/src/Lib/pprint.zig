@@ -334,9 +334,9 @@ pub const PrettyPrinter = struct {
 
     fn getIndent(self: *const PrettyPrinter, level: usize) ![]u8 {
         const total = level * self.options.indent;
-        var indent = try self.allocator.alloc(u8, total);
-        @memset(indent, ' ');
-        return indent;
+        const indent_buf = try self.allocator.alloc(u8, total);
+        @memset(indent_buf, ' ');
+        return indent_buf;
     }
 };
 

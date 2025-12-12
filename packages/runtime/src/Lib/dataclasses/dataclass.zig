@@ -1,8 +1,8 @@
-//\! Main dataclass type and generator
-//\!
-//\! Provides the Dataclass generic type that wraps a struct and
-//\! automatically generates initialization, representation, equality,
-//\! comparison, and hashing methods based on options.
+//! Main dataclass type and generator
+//!
+//! Provides the Dataclass generic type that wraps a struct and
+//! automatically generates initialization, representation, equality,
+//! comparison, and hashing methods based on options.
 
 const std = @import("std");
 const types = @import("types.zig");
@@ -15,7 +15,7 @@ const utilities = @import("utilities.zig");
 pub fn Dataclass(comptime T: type, comptime options: types.DataclassOptions) type {
     const type_info = @typeInfo(T);
 
-    if (type_info \!= .@"struct") {
+    if (type_info != .@"struct") {
         @compileError("Dataclass requires a struct type");
     }
 
@@ -42,7 +42,7 @@ pub fn Dataclass(comptime T: type, comptime options: types.DataclassOptions) typ
         }
 
         /// Generated __repr__ method
-        pub fn reprStr(self: Self, allocator: std.mem.Allocator) \![]u8 {
+        pub fn reprStr(self: Self, allocator: std.mem.Allocator) ![]u8 {
             return repr.generateRepr(T, self, options, allocator);
         }
 

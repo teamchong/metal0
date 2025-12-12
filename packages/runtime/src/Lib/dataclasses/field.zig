@@ -14,7 +14,7 @@ pub fn Field(comptime T: type) type {
         field_type: type = T,
         default: ?T = null,
         default_factory: ?*const fn () T = null,
-        init: bool = true,
+        init_param: bool = true,
         repr: bool = true,
         hash: ?bool = null,
         compare: bool = true,

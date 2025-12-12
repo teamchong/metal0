@@ -1,7 +1,7 @@
-//\! Hashing operations for dataclasses
-//\!
-//\! Generates __hash__ methods for dataclass instances
-//\! and related field hashing utilities.
+//! Hashing operations for dataclasses
+//!
+//! Generates __hash__ methods for dataclass instances
+//! and related field hashing utilities.
 
 const std = @import("std");
 
