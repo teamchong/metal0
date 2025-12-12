@@ -127,6 +127,11 @@ pub const VarTypeContext = struct {
             .with_stmt => |w| {
                 self.scanFunctionBody(w.body);
             },
+            .match_stmt => |m| {
+                for (m.cases) |case| {
+                    self.scanFunctionBody(case.body);
+                }
+            },
             else => {},
         }
     }
