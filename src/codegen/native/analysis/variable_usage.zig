@@ -180,7 +180,11 @@ pub fn isNameUsedInExpr(expr: ast.Node, name: []const u8) bool {
                 .index => |idx| {
                     if (isNameUsedInExpr(idx.*, name)) return true;
                 },
-                else => {},
+                .slice => |range| {
+                    if (range.lower) |lower| if (isNameUsedInExpr(lower.*, name)) return true;
+                    if (range.upper) |upper| if (isNameUsedInExpr(upper.*, name)) return true;
+                    if (range.step) |step| if (isNameUsedInExpr(step.*, name)) return true;
+                },
             }
             return false;
         },
@@ -343,8 +347,13 @@ pub fn collectReferencedVarsInExpr(expr: ast.Node, vars: *StringSet, allocator: 
         },
         .subscript => |sub| {
             try collectReferencedVarsInExpr(sub.value.*, vars, allocator);
-            if (sub.slice == .index) {
-                try collectReferencedVarsInExpr(sub.slice.index.*, vars, allocator);
+            switch (sub.slice) {
+                .index => |idx| try collectReferencedVarsInExpr(idx.*, vars, allocator),
+                .slice => |range| {
+                    if (range.lower) |lower| try collectReferencedVarsInExpr(lower.*, vars, allocator);
+                    if (range.upper) |upper| try collectReferencedVarsInExpr(upper.*, vars, allocator);
+                    if (range.step) |step| try collectReferencedVarsInExpr(step.*, vars, allocator);
+                },
             }
         },
         .call => |call| {
@@ -352,7 +361,18 @@ pub fn collectReferencedVarsInExpr(expr: ast.Node, vars: *StringSet, allocator: 
             if (isSuperMethodCall(ast.Node{ .call = call })) return;
             try collectReferencedVarsInExpr(call.func.*, vars, allocator);
             for (call.args) |arg| {
-                try collectReferencedVarsInExpr(arg, vars, allocator);
+                // Handle starred (*args) and double_starred (**kwargs) unpacking
+                if (arg == .starred) {
+                    try collectReferencedVarsInExpr(arg.starred.value.*, vars, allocator);
+                } else if (arg == .double_starred) {
+                    try collectReferencedVarsInExpr(arg.double_starred.value.*, vars, allocator);
+                } else {
+                    try collectReferencedVarsInExpr(arg, vars, allocator);
+                }
+            }
+            // Handle keyword arguments
+            for (call.keyword_args) |kwarg| {
+                try collectReferencedVarsInExpr(kwarg.value, vars, allocator);
             }
         },
         .binop => |binop| {
