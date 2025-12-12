@@ -613,6 +613,11 @@ fn stmtUsesVar(stmt: ast.Node, var_name: []const u8) bool {
             break :blk false;
         },
         .aug_assign => |a| exprUsesVar(a.target.*, var_name) or exprUsesVar(a.value.*, var_name),
+        .ann_assign => |a| blk: {
+            if (exprUsesVar(a.target.*, var_name)) break :blk true;
+            if (a.value) |v| if (exprUsesVar(v.*, var_name)) break :blk true;
+            break :blk false;
+        },
         .if_stmt => |i| blk: {
             if (exprUsesVar(i.condition.*, var_name)) break :blk true;
             for (i.body) |s| {
@@ -628,12 +633,22 @@ fn stmtUsesVar(stmt: ast.Node, var_name: []const u8) bool {
             for (f.body) |s| {
                 if (stmtUsesVar(s, var_name)) break :blk true;
             }
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (stmtUsesVar(s, var_name)) break :blk true;
+                }
+            }
             break :blk false;
         },
         .while_stmt => |w| blk: {
             if (exprUsesVar(w.condition.*, var_name)) break :blk true;
             for (w.body) |s| {
                 if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (stmtUsesVar(s, var_name)) break :blk true;
+                }
             }
             break :blk false;
         },
@@ -653,6 +668,46 @@ fn stmtUsesVar(stmt: ast.Node, var_name: []const u8) bool {
                 for (h.body) |s| {
                     if (stmtUsesVar(s, var_name)) break :blk true;
                 }
+            }
+            for (t.else_body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            for (t.finalbody) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            if (exprUsesVar(m.subject.*, var_name)) break :blk true;
+            for (m.cases) |case| {
+                if (case.guard) |g| if (exprUsesVar(g.*, var_name)) break :blk true;
+                for (case.body) |s| {
+                    if (stmtUsesVar(s, var_name)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .assert_stmt => |a| blk: {
+            if (exprUsesVar(a.condition.*, var_name)) break :blk true;
+            if (a.msg) |m| if (exprUsesVar(m.*, var_name)) break :blk true;
+            break :blk false;
+        },
+        .raise_stmt => |r| blk: {
+            if (r.exc) |e| if (exprUsesVar(e.*, var_name)) break :blk true;
+            if (r.cause) |c| if (exprUsesVar(c.*, var_name)) break :blk true;
+            break :blk false;
+        },
+        .yield_stmt => |y| if (y.value) |v| exprUsesVar(v.*, var_name) else false,
+        .yield_from_stmt => |y| exprUsesVar(y.value.*, var_name),
+        .function_def => |f| blk: {
+            for (f.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .class_def => |c| blk: {
+            for (c.body) |s| {
+                if (stmtUsesVar(s, var_name)) break :blk true;
             }
             break :blk false;
         },

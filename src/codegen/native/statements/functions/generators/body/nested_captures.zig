@@ -99,6 +99,16 @@ pub fn collectLocalVarsInStmts(self: *NativeCodegen, stmts: []ast.Node) CodegenE
                 }
                 try collectLocalVarsInStmts(self, with_stmt.body);
             },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    try collectLocalVarsInStmts(self, case.body);
+                }
+            },
+            .ann_assign => |ann| {
+                if (ann.target.* == .name) {
+                    try self.func_local_vars.put(ann.target.name.id, {});
+                }
+            },
             else => {},
         }
     }
@@ -158,6 +168,11 @@ pub fn findNestedClassCaptures(self: *NativeCodegen, stmts: []ast.Node) CodegenE
             },
             .with_stmt => |with_stmt| {
                 try findNestedClassCaptures(self, with_stmt.body);
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    try findNestedClassCaptures(self, case.body);
+                }
             },
             else => {},
         }
@@ -236,14 +251,30 @@ fn detectMutationInNode(
         },
         .for_stmt => |f| {
             for (f.body) |s| try detectMutationInNode(self, class_name, s, method_params);
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |s| try detectMutationInNode(self, class_name, s, method_params);
+            }
         },
         .while_stmt => |w| {
             for (w.body) |s| try detectMutationInNode(self, class_name, s, method_params);
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |s| try detectMutationInNode(self, class_name, s, method_params);
+            }
         },
         .try_stmt => |t| {
             for (t.body) |s| try detectMutationInNode(self, class_name, s, method_params);
             for (t.handlers) |h| {
                 for (h.body) |s| try detectMutationInNode(self, class_name, s, method_params);
+            }
+            for (t.else_body) |s| try detectMutationInNode(self, class_name, s, method_params);
+            for (t.finalbody) |s| try detectMutationInNode(self, class_name, s, method_params);
+        },
+        .with_stmt => |w| {
+            for (w.body) |s| try detectMutationInNode(self, class_name, s, method_params);
+        },
+        .match_stmt => |m| {
+            for (m.cases) |case| {
+                for (case.body) |s| try detectMutationInNode(self, class_name, s, method_params);
             }
         },
         else => {},
