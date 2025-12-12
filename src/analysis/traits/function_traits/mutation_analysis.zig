@@ -92,11 +92,19 @@ fn collectMutatedVars(body: []const ast.Node, result: *MutatedVarSet, first_assi
             },
             .try_stmt => |try_stmt| {
                 collectMutatedVars(try_stmt.body, result, &seen);
+                for (try_stmt.handlers) |handler| {
+                    collectMutatedVars(handler.body, result, &seen);
+                }
                 collectMutatedVars(try_stmt.else_body, result, &seen);
                 collectMutatedVars(try_stmt.finalbody, result, &seen);
             },
             .with_stmt => |with_stmt| {
                 collectMutatedVars(with_stmt.body, result, &seen);
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    collectMutatedVars(case.body, result, &seen);
+                }
             },
             .function_def => {
                 // Don't recurse into nested function definitions -
