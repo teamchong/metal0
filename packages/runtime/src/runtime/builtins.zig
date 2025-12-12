@@ -3,6 +3,42 @@
 const std = @import("std");
 
 // =============================================================================
+// PyCallable - Generic callable wrapper for heterogeneous callable lists
+// =============================================================================
+
+/// A type-erased wrapper for any callable (function, lambda, class)
+/// Used by codegen for lists like [bool, int, float, str]
+pub const PyCallable = struct {
+    /// The wrapped function pointer (type-erased)
+    ptr: *const anyopaque,
+    /// Type identifier for runtime dispatch (comptime hash of type name)
+    type_id: usize,
+
+    /// Create a PyCallable from any function/callable type
+    pub fn fromAny(comptime T: type, func: *const T) PyCallable {
+        return .{
+            .ptr = @ptrCast(func),
+            .type_id = comptime typeHash(T),
+        };
+    }
+
+    /// Comptime type hash from type name
+    fn typeHash(comptime T: type) usize {
+        const name = @typeName(T);
+        var h: usize = 5381;
+        for (name) |c| {
+            h = ((h << 5) +% h) +% c;
+        }
+        return h;
+    }
+
+    /// Check equality (by pointer and type)
+    pub fn eql(a: PyCallable, b: PyCallable) bool {
+        return a.ptr == b.ptr and a.type_id == b.type_id;
+    }
+};
+
+// =============================================================================
 // Re-exports from submodules
 // =============================================================================
 
@@ -92,6 +128,10 @@ pub const operatorGt = ops_mod.operatorGt;
 pub const operatorGe = ops_mod.operatorGe;
 pub const classInstanceEq = ops_mod.classInstanceEq;
 pub const classInstanceNe = ops_mod.classInstanceNe;
+pub const classInstanceLt = ops_mod.classInstanceLt;
+pub const classInstanceLe = ops_mod.classInstanceLe;
+pub const classInstanceGt = ops_mod.classInstanceGt;
+pub const classInstanceGe = ops_mod.classInstanceGe;
 pub const assertEqualGeneric = ops_mod.assertEqualGeneric;
 pub const pyEqual = ops_mod.pyEqual;
 pub const pyEqualSliceToTuple = ops_mod.pyEqualSliceToTuple;
@@ -114,10 +154,14 @@ pub const CompareOp = types_mod.CompareOp;
 pub const bigIntDivmod = types_mod.bigIntDivmod;
 pub const bigIntCompare = types_mod.bigIntCompare;
 
-/// Type constructor callables (list, tuple, set, frozenset, deque)
+/// Type constructor callables (list, tuple, set, frozenset, deque, complex)
 pub const cons_mod = @import("builtins/constructors.zig");
 pub const list = cons_mod.list;
 pub const tuple = cons_mod.tuple;
 pub const set = cons_mod.set;
 pub const frozenset = cons_mod.frozenset;
 pub const deque = cons_mod.deque;
+
+/// Complex number type constructor
+pub const pycomplex_mod = @import("pycomplex.zig");
+pub const complex = pycomplex_mod.PyComplex.create;

@@ -126,6 +126,287 @@ pub fn classInstanceNe(a: anytype, b: anytype, allocator: std.mem.Allocator) boo
     return !classInstanceEq(a, b, allocator);
 }
 
+/// Class instance less-than comparison
+/// The result can be any type (e.g., SymbolicBool) - caller must handle __bool__ conversion
+pub fn classInstanceLt(a: anytype, b: anytype, allocator: std.mem.Allocator) bool {
+    const TypeA = @TypeOf(a);
+    const type_info = @typeInfo(TypeA);
+
+    if (type_info == .@"struct" and @hasDecl(TypeA, "__lt__")) {
+        const lt_info = @typeInfo(@TypeOf(TypeA.__lt__));
+        if (lt_info == .@"fn") {
+            const params = lt_info.@"fn".params;
+            const result = if (params.len == 3)
+                a.__lt__(allocator, b)
+            else
+                a.__lt__(b);
+
+            const ResultType = @TypeOf(result);
+            if (@typeInfo(ResultType) == .error_union) {
+                const payload = result catch return false;
+                const PayloadType = @TypeOf(payload);
+                if (PayloadType == bool) {
+                    return payload;
+                } else {
+                    return toBoolFromResult(payload);
+                }
+            } else if (ResultType == bool) {
+                return result;
+            } else {
+                return toBoolFromResult(result);
+            }
+        }
+    } else if (type_info == .pointer and @typeInfo(type_info.pointer.child) == .@"struct") {
+        const ChildType = type_info.pointer.child;
+        if (@hasDecl(ChildType, "__lt__")) {
+            const lt_info = @typeInfo(@TypeOf(ChildType.__lt__));
+            if (lt_info == .@"fn") {
+                const params = lt_info.@"fn".params;
+                const result = if (params.len == 3)
+                    a.__lt__(allocator, b)
+                else
+                    a.__lt__(b);
+
+                const ResultType = @TypeOf(result);
+                if (@typeInfo(ResultType) == .error_union) {
+                    const payload = result catch return false;
+                    const PayloadType = @TypeOf(payload);
+                    if (PayloadType == bool) {
+                        return payload;
+                    } else {
+                        return toBoolFromResult(payload);
+                    }
+                } else if (ResultType == bool) {
+                    return result;
+                } else {
+                    return toBoolFromResult(result);
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// Class instance less-than-or-equal comparison
+pub fn classInstanceLe(a: anytype, b: anytype, allocator: std.mem.Allocator) bool {
+    const TypeA = @TypeOf(a);
+    const type_info = @typeInfo(TypeA);
+
+    if (type_info == .@"struct" and @hasDecl(TypeA, "__le__")) {
+        const le_info = @typeInfo(@TypeOf(TypeA.__le__));
+        if (le_info == .@"fn") {
+            const params = le_info.@"fn".params;
+            const result = if (params.len == 3)
+                a.__le__(allocator, b)
+            else
+                a.__le__(b);
+
+            const ResultType = @TypeOf(result);
+            if (@typeInfo(ResultType) == .error_union) {
+                const payload = result catch return false;
+                const PayloadType = @TypeOf(payload);
+                if (PayloadType == bool) {
+                    return payload;
+                } else {
+                    return toBoolFromResult(payload);
+                }
+            } else if (ResultType == bool) {
+                return result;
+            } else {
+                return toBoolFromResult(result);
+            }
+        }
+    } else if (type_info == .pointer and @typeInfo(type_info.pointer.child) == .@"struct") {
+        const ChildType = type_info.pointer.child;
+        if (@hasDecl(ChildType, "__le__")) {
+            const le_info = @typeInfo(@TypeOf(ChildType.__le__));
+            if (le_info == .@"fn") {
+                const params = le_info.@"fn".params;
+                const result = if (params.len == 3)
+                    a.__le__(allocator, b)
+                else
+                    a.__le__(b);
+
+                const ResultType = @TypeOf(result);
+                if (@typeInfo(ResultType) == .error_union) {
+                    const payload = result catch return false;
+                    const PayloadType = @TypeOf(payload);
+                    if (PayloadType == bool) {
+                        return payload;
+                    } else {
+                        return toBoolFromResult(payload);
+                    }
+                } else if (ResultType == bool) {
+                    return result;
+                } else {
+                    return toBoolFromResult(result);
+                }
+            }
+        }
+    }
+    // Fallback: a <= b is a < b or a == b
+    return classInstanceLt(a, b, allocator) or classInstanceEq(a, b, allocator);
+}
+
+/// Class instance greater-than comparison
+pub fn classInstanceGt(a: anytype, b: anytype, allocator: std.mem.Allocator) bool {
+    const TypeA = @TypeOf(a);
+    const type_info = @typeInfo(TypeA);
+
+    if (type_info == .@"struct" and @hasDecl(TypeA, "__gt__")) {
+        const gt_info = @typeInfo(@TypeOf(TypeA.__gt__));
+        if (gt_info == .@"fn") {
+            const params = gt_info.@"fn".params;
+            const result = if (params.len == 3)
+                a.__gt__(allocator, b)
+            else
+                a.__gt__(b);
+
+            const ResultType = @TypeOf(result);
+            if (@typeInfo(ResultType) == .error_union) {
+                // Result is error union - unwrap and check payload type
+                const payload = result catch return false;
+                const PayloadType = @TypeOf(payload);
+                if (PayloadType == bool) {
+                    return payload;
+                } else {
+                    // Payload is a class instance (like *SymbolicBool) - call __bool__
+                    return toBoolFromResult(payload);
+                }
+            } else if (ResultType == bool) {
+                return result;
+            } else {
+                return toBoolFromResult(result);
+            }
+        }
+    } else if (type_info == .pointer and @typeInfo(type_info.pointer.child) == .@"struct") {
+        const ChildType = type_info.pointer.child;
+        if (@hasDecl(ChildType, "__gt__")) {
+            const gt_info = @typeInfo(@TypeOf(ChildType.__gt__));
+            if (gt_info == .@"fn") {
+                const params = gt_info.@"fn".params;
+                const result = if (params.len == 3)
+                    a.__gt__(allocator, b)
+                else
+                    a.__gt__(b);
+
+                const ResultType = @TypeOf(result);
+                if (@typeInfo(ResultType) == .error_union) {
+                    // Result is error union - unwrap and check payload type
+                    const payload = result catch return false;
+                    const PayloadType = @TypeOf(payload);
+                    if (PayloadType == bool) {
+                        return payload;
+                    } else {
+                        // Payload is a class instance (like *SymbolicBool) - call __bool__
+                        return toBoolFromResult(payload);
+                    }
+                } else if (ResultType == bool) {
+                    return result;
+                } else {
+                    return toBoolFromResult(result);
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// Class instance greater-than-or-equal comparison
+pub fn classInstanceGe(a: anytype, b: anytype, allocator: std.mem.Allocator) bool {
+    const TypeA = @TypeOf(a);
+    const type_info = @typeInfo(TypeA);
+
+    if (type_info == .@"struct" and @hasDecl(TypeA, "__ge__")) {
+        const ge_info = @typeInfo(@TypeOf(TypeA.__ge__));
+        if (ge_info == .@"fn") {
+            const params = ge_info.@"fn".params;
+            const result = if (params.len == 3)
+                a.__ge__(allocator, b)
+            else
+                a.__ge__(b);
+
+            const ResultType = @TypeOf(result);
+            if (@typeInfo(ResultType) == .error_union) {
+                const payload = result catch return false;
+                const PayloadType = @TypeOf(payload);
+                if (PayloadType == bool) {
+                    return payload;
+                } else {
+                    return toBoolFromResult(payload);
+                }
+            } else if (ResultType == bool) {
+                return result;
+            } else {
+                return toBoolFromResult(result);
+            }
+        }
+    } else if (type_info == .pointer and @typeInfo(type_info.pointer.child) == .@"struct") {
+        const ChildType = type_info.pointer.child;
+        if (@hasDecl(ChildType, "__ge__")) {
+            const ge_info = @typeInfo(@TypeOf(ChildType.__ge__));
+            if (ge_info == .@"fn") {
+                const params = ge_info.@"fn".params;
+                const result = if (params.len == 3)
+                    a.__ge__(allocator, b)
+                else
+                    a.__ge__(b);
+
+                const ResultType = @TypeOf(result);
+                if (@typeInfo(ResultType) == .error_union) {
+                    const payload = result catch return false;
+                    const PayloadType = @TypeOf(payload);
+                    if (PayloadType == bool) {
+                        return payload;
+                    } else {
+                        return toBoolFromResult(payload);
+                    }
+                } else if (ResultType == bool) {
+                    return result;
+                } else {
+                    return toBoolFromResult(result);
+                }
+            }
+        }
+    }
+    // Fallback: a >= b is a > b or a == b
+    return classInstanceGt(a, b, allocator) or classInstanceEq(a, b, allocator);
+}
+
+/// Helper to convert comparison result to bool (handles SymbolicBool with __bool__)
+fn toBoolFromResult(result: anytype) bool {
+    const ResultType = @TypeOf(result);
+    const result_info = @typeInfo(ResultType);
+
+    // Handle pointer to struct (like *SymbolicBool)
+    if (result_info == .pointer and result_info.pointer.size == .one) {
+        const ChildType = result_info.pointer.child;
+        if (@typeInfo(ChildType) == .@"struct" and @hasDecl(ChildType, "__bool__")) {
+            const bool_result = result.__bool__();
+            const BoolResultType = @TypeOf(bool_result);
+            if (@typeInfo(BoolResultType) == .error_union) {
+                // __bool__ raised an error (like TypeError) - propagate as false
+                // In assertRaises context, this would be caught
+                return bool_result catch false;
+            } else {
+                return bool_result;
+            }
+        }
+    }
+    // Handle struct directly
+    if (result_info == .@"struct" and @hasDecl(ResultType, "__bool__")) {
+        const bool_result = result.__bool__();
+        const BoolResultType = @TypeOf(bool_result);
+        if (@typeInfo(BoolResultType) == .error_union) {
+            return bool_result catch false;
+        } else {
+            return bool_result;
+        }
+    }
+    // Can't convert - return false
+    return false;
+}
+
 /// Generic assertEqual helper
 pub fn assertEqualGeneric(a: anytype, b: anytype, allocator: std.mem.Allocator) !bool {
     return pyEqual(allocator, a, b);

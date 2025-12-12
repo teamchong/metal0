@@ -1052,47 +1052,84 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             const was_in_assert_raises = self.in_assert_raises_context;
             self.in_assert_raises_context = true;
 
-            // Generate a labeled block that raise can break out of
+            // Set inside_try_body so that any error-returning calls propagate errors
+            // instead of using catch unreachable
+            const prev_inside_try = self.inside_try_body;
+            self.inside_try_body = true;
+
+            // Count expression statements to determine if we need the labeled block
+            var has_expr_stmts = false;
+            for (with_node.body) |stmt| {
+                if (stmt == .expr_stmt) {
+                    has_expr_stmts = true;
+                    break;
+                }
+            }
+
+            // Generate a labeled block only if we have expression statements that might error
             const block_id = self.assert_raises_block_id;
             self.assert_raises_block_id += 1;
-            self.current_assert_raises_block_id = block_id;
 
-            try self.emitIndent();
-            try self.emitFmt("_ = blk_{d}: {{\n", .{block_id});
-            self.indent();
+            if (has_expr_stmts) {
+                try self.emitIndent();
+                try self.emitFmt("_ = __ar_blk_{d}: {{\n", .{block_id});
+                self.indent();
+            }
 
             // Save and reset control_flow_terminated for the block body
             const saved_control_flow = self.control_flow_terminated;
             self.control_flow_terminated = false;
 
+            // Generate body statements - for expression statements, catch any errors
             for (with_node.body) |stmt| {
                 // Skip if control flow already terminated (e.g., after raise)
                 if (self.control_flow_terminated) break;
 
-                // For expression statements that might error, wrap the expression in catch
-                // Use comptime check to handle both error unions and non-error types
+                // For expression statements, wrap to catch errors
+                // The expression is assigned to __ar_val, then if it's an error union or error set, catch it
                 if (stmt == .expr_stmt) {
                     try self.emitIndent();
-                    try self.emit("{ const __ar_expr = ");
+                    try self.emit("{\n");
+                    self.indent();
+                    try self.emitIndent();
+                    try self.emit("const __ar_val = ");
                     try self.genExpr(stmt.expr_stmt.value.*);
-                    try self.emit("; if (@typeInfo(@TypeOf(__ar_expr)) == .error_union) { _ = __ar_expr catch {}; } }\n");
+                    try self.emit(";\n");
+                    try self.emitIndent();
+                    try self.emit("const __T = @typeInfo(@TypeOf(__ar_val));\n");
+                    try self.emitIndent();
+                    // Check for both error_union (!T) and error_set (error.X)
+                    try self.emitFmt("if (__T == .error_union) {{ _ = __ar_val catch break :__ar_blk_{d} {{}}; }}\n", .{block_id});
+                    try self.emitIndent();
+                    try self.emitFmt("if (__T == .error_set) {{ break :__ar_blk_{d} {{}}; }}\n", .{block_id});
+                    self.dedent();
+                    try self.emitIndent();
+                    try self.emit("}\n");
                 } else {
                     try self.generateStmt(stmt);
                 }
             }
 
-            // Break out of block if we didn't already (normal completion)
-            if (!self.control_flow_terminated) {
+            // Close block and handle test pass/fail
+            if (has_expr_stmts) {
+                // If body completed normally without raising, test fails
+                if (!self.control_flow_terminated) {
+                    try self.emitIndent();
+                    try self.emit("@panic(\"assertRaises: expected exception\");\n");
+                }
+                self.dedent();
                 try self.emitIndent();
-                try self.emitFmt("break :blk_{d} {{}};\n", .{block_id});
+                try self.emit("};\n");
+            } else {
+                // No expression statements - body has non-error statements
+                // This is a test case that expects error from non-expr stmt (if condition, etc)
+                // For now, just generate the body and mark as TODO
+                // The comparison/condition should return error which propagates up
             }
 
-            // Restore control_flow_terminated
+            // Restore flags
             self.control_flow_terminated = saved_control_flow;
-
-            self.dedent();
-            try self.emitIndent();
-            try self.emit("};\n");
+            self.inside_try_body = prev_inside_try;
 
             // Restore context flag
             self.in_assert_raises_context = was_in_assert_raises;

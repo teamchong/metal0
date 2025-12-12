@@ -237,7 +237,13 @@ pub const intFromBytes = @import("runtime/int_ops.zig").intFromBytes;
 pub const int__new__ = @import("runtime/int_ops.zig").int__new__;
 
 // Re-export class operations for codegen
-pub const classInstanceEq = @import("runtime/builtins/operators.zig").classInstanceEq;
+const class_ops = @import("runtime/builtins/operators.zig");
+pub const classInstanceEq = class_ops.classInstanceEq;
+pub const classInstanceNe = class_ops.classInstanceNe;
+pub const classInstanceLt = class_ops.classInstanceLt;
+pub const classInstanceLe = class_ops.classInstanceLe;
+pub const classInstanceGt = class_ops.classInstanceGt;
+pub const classInstanceGe = class_ops.classInstanceGe;
 
 /// Export _string module (formatter_parser, etc.)
 pub const _string = @import("Modules/_string.zig");

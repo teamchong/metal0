@@ -79,27 +79,27 @@ const KnownZigTypes = std.StaticStringMap(void).initComptime(.{
 
 /// Magic method return types - these have fixed return types in Python
 /// regardless of what the method body might suggest
-/// NOTE: Comparison methods return bool. `return NotImplemented` is converted
-/// to `return false` during code generation.
+/// NOTE: __eq__/__ne__ return bool, but __lt__/__le__/__gt__/__ge__ can return
+/// any type (e.g., SymbolicBool) that gets converted to bool in boolean context.
+/// `return NotImplemented` is converted to `return false` during code generation.
 const MagicMethodReturnTypes = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "__bool__", "runtime.PythonError!bool" },  // Must return bool or error
-    .{ "__len__", "runtime.PythonError!i64" },  // Must return non-negative int or error
+    .{ "__bool__", "runtime.PythonError!bool" }, // Must return bool or error
+    .{ "__len__", "runtime.PythonError!i64" }, // Must return non-negative int or error
     .{ "__hash__", "i64" },
     .{ "__repr__", "[]const u8" },
     .{ "__str__", "[]const u8" },
     .{ "__bytes__", "[]const u8" },
     .{ "__format__", "[]const u8" },
-    .{ "__int__", "runtime.PythonError!i64" },  // Can error (ValueError, OverflowError)
-    .{ "__float__", "runtime.PythonError!f64" },  // Can error (ZeroDivisionError, ValueError)
-    .{ "__index__", "runtime.PythonError!i64" },  // Can error
+    .{ "__int__", "runtime.PythonError!i64" }, // Can error (ValueError, OverflowError)
+    .{ "__float__", "runtime.PythonError!f64" }, // Can error (ZeroDivisionError, ValueError)
+    .{ "__index__", "runtime.PythonError!i64" }, // Can error
     .{ "__sizeof__", "i64" },
     .{ "__contains__", "bool" },
     .{ "__eq__", "bool" },
     .{ "__ne__", "bool" },
-    .{ "__lt__", "bool" },
-    .{ "__le__", "bool" },
-    .{ "__gt__", "bool" },
-    .{ "__ge__", "bool" },
+    // NOTE: __lt__/__le__/__gt__/__ge__ are NOT in this map because they can
+    // return non-bool values (e.g., SymbolicBool, NotImplemented sentinel).
+    // The return type is inferred from the method body.
     // __new__ should return the class instance type, but in Zig we can't determine
     // the type at compile time, especially for metaclasses. Default to i64.
     .{ "__new__", "i64" },
@@ -1448,6 +1448,10 @@ pub fn genMethodSignatureWithSkip(
             // This handles inherited methods like aug_test.__add__ returning aug_test(...)
             const returned_class = getReturnedNestedClassConstructor(method.body, self);
             if (returned_class) |rc| {
+                // Class constructors can fail (allocator error), so ALWAYS add error union
+                // when returning a class instance. The constructor uses try, so the
+                // method must also be able to propagate errors.
+                try self.emit("!");
                 // Nested classes are heap-allocated and return pointers
                 // Check if the returned class OR the current class is nested
                 const current_class_is_nested = self.nested_class_names.contains(class_name);

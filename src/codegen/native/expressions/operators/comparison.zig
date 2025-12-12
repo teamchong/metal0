@@ -958,42 +958,130 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             const left_is_class = type_traits.isClassInstance(current_left_type);
 
             if (left_is_class) {
-                // For __ne__, if class doesn't define it, we need to negate __eq__
-                if (op == .NotEq) {
-                    // Check if class has __ne__
-                    const class_name = current_left_type.class_instance;
-                    const has_ne = if (self.type_inferrer.class_fields.get(class_name)) |info|
-                        info.methods.contains("__ne__")
-                    else
-                        false;
+                const class_name = current_left_type.class_instance;
+                const class_info = self.type_inferrer.class_fields.get(class_name);
 
-                    if (!has_ne) {
-                        // Use !(a.__eq__(b)) as fallback
-                        // Generate: !(runtime.classInstanceEq(a, b))
-                        try self.emit("!runtime.classInstanceEq(");
+                // Map comparison operators to dunder methods
+                switch (op) {
+                    .Eq => {
+                        // Generate: runtime.classInstanceEq(a, b, allocator)
+                        try self.emit("runtime.classInstanceEq(");
                         try genExpr(self, current_left);
                         try self.emit(", ");
                         try genExpr(self, compare.comparators[i]);
                         try self.emit(", __global_allocator)");
-                    } else {
-                        // Generate: runtime.classInstanceCompare(a, "__ne__", b, allocator)
-                        try self.emit("runtime.classInstanceNe(");
+                    },
+                    .NotEq => {
+                        // Check if class has __ne__
+                        const has_ne = if (class_info) |info|
+                            info.methods.contains("__ne__")
+                        else
+                            false;
+
+                        if (!has_ne) {
+                            // Use !(a.__eq__(b)) as fallback
+                            try self.emit("!runtime.classInstanceEq(");
+                            try genExpr(self, current_left);
+                            try self.emit(", ");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(", __global_allocator)");
+                        } else {
+                            try self.emit("runtime.classInstanceNe(");
+                            try genExpr(self, current_left);
+                            try self.emit(", ");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(", __global_allocator)");
+                        }
+                    },
+                    .Lt => {
+                        // Check if class has __lt__, call it directly
+                        const has_lt = if (class_info) |info|
+                            info.methods.contains("__lt__")
+                        else
+                            false;
+
+                        if (has_lt) {
+                            // Direct method call: a.__lt__(b)
+                            // The result may be a class instance (like SymbolicBool) that needs __bool__ when used in if
+                            try self.emit("runtime.classInstanceLt(");
+                            try genExpr(self, current_left);
+                            try self.emit(", ");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(", __global_allocator)");
+                        } else {
+                            // No __lt__, use default comparison (by identity)
+                            try genExpr(self, current_left);
+                            try self.emit(" < ");
+                            try genExpr(self, compare.comparators[i]);
+                        }
+                    },
+                    .LtEq => {
+                        const has_le = if (class_info) |info|
+                            info.methods.contains("__le__")
+                        else
+                            false;
+
+                        if (has_le) {
+                            try self.emit("runtime.classInstanceLe(");
+                            try genExpr(self, current_left);
+                            try self.emit(", ");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(", __global_allocator)");
+                        } else {
+                            try genExpr(self, current_left);
+                            try self.emit(" <= ");
+                            try genExpr(self, compare.comparators[i]);
+                        }
+                    },
+                    .Gt => {
+                        const has_gt = if (class_info) |info|
+                            info.methods.contains("__gt__")
+                        else
+                            false;
+
+                        if (has_gt) {
+                            try self.emit("runtime.classInstanceGt(");
+                            try genExpr(self, current_left);
+                            try self.emit(", ");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(", __global_allocator)");
+                        } else {
+                            try genExpr(self, current_left);
+                            try self.emit(" > ");
+                            try genExpr(self, compare.comparators[i]);
+                        }
+                    },
+                    .GtEq => {
+                        const has_ge = if (class_info) |info|
+                            info.methods.contains("__ge__")
+                        else
+                            false;
+
+                        if (has_ge) {
+                            try self.emit("runtime.classInstanceGe(");
+                            try genExpr(self, current_left);
+                            try self.emit(", ");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(", __global_allocator)");
+                        } else {
+                            try genExpr(self, current_left);
+                            try self.emit(" >= ");
+                            try genExpr(self, compare.comparators[i]);
+                        }
+                    },
+                    else => {
+                        // In, NotIn, Is, IsNot are handled above
+                        // Fallback to runtime comparison
+                        try self.emit("runtime.classInstanceEq(");
                         try genExpr(self, current_left);
                         try self.emit(", ");
                         try genExpr(self, compare.comparators[i]);
                         try self.emit(", __global_allocator)");
-                    }
-                } else {
-                    // Generate: runtime.classInstanceEq(a, b, allocator)
-                    // The runtime function will check method signature at comptime
-                    try self.emit("runtime.classInstanceEq(");
-                    try genExpr(self, current_left);
-                    try self.emit(", ");
-                    try genExpr(self, compare.comparators[i]);
-                    try self.emit(", __global_allocator)");
+                    },
                 }
             } else {
                 // Right is class instance - use reflected method
+                // TODO: Handle all operators for reflected comparisons
                 try self.emit("runtime.classInstanceEq(");
                 try genExpr(self, compare.comparators[i]);
                 try self.emit(", ");
