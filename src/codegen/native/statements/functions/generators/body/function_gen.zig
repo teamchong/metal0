@@ -931,17 +931,32 @@ fn stmtHasSuperCall(stmt: ast.Node) bool {
     return switch (stmt) {
         .expr_stmt => |e| exprHasSuperCall(e.value.*),
         .assign => |a| exprHasSuperCall(a.value.*),
+        .aug_assign => |a| exprHasSuperCall(a.target.*) or exprHasSuperCall(a.value.*),
         .return_stmt => |r| if (r.value) |v| exprHasSuperCall(v.*) else false,
-        .if_stmt => |i| hasSuperCall(i.body) or hasSuperCall(i.else_body),
-        .while_stmt => |w| hasSuperCall(w.body),
-        .for_stmt => |f| hasSuperCall(f.body),
+        .if_stmt => |i| blk: {
+            if (exprHasSuperCall(i.condition.*)) break :blk true;
+            if (hasSuperCall(i.body) or hasSuperCall(i.else_body)) break :blk true;
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            if (exprHasSuperCall(w.condition.*) or hasSuperCall(w.body)) break :blk true;
+            if (w.orelse_body) |ob| if (hasSuperCall(ob)) break :blk true;
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            if (exprHasSuperCall(f.iter.*) or hasSuperCall(f.body)) break :blk true;
+            if (f.orelse_body) |ob| if (hasSuperCall(ob)) break :blk true;
+            break :blk false;
+        },
         .try_stmt => |t| blk: {
             if (hasSuperCall(t.body)) break :blk true;
             for (t.handlers) |h| {
                 if (hasSuperCall(h.body)) break :blk true;
             }
+            if (hasSuperCall(t.else_body)) break :blk true;
             break :blk hasSuperCall(t.finalbody);
         },
+        .with_stmt => |w| exprHasSuperCall(w.context_expr.*) or hasSuperCall(w.body),
         else => false,
     };
 }
@@ -967,10 +982,86 @@ fn exprHasSuperCall(expr: ast.Node) bool {
             for (c.args) |arg| {
                 if (exprHasSuperCall(arg)) break :blk true;
             }
+            for (c.keyword_args) |kw| {
+                if (exprHasSuperCall(kw.value)) break :blk true;
+            }
             break :blk false;
         },
         .binop => |b| exprHasSuperCall(b.left.*) or exprHasSuperCall(b.right.*),
+        .unaryop => |u| exprHasSuperCall(u.operand.*),
+        .boolop => |bo| blk: {
+            for (bo.values) |v| if (exprHasSuperCall(v)) break :blk true;
+            break :blk false;
+        },
+        .compare => |cmp| blk: {
+            if (exprHasSuperCall(cmp.left.*)) break :blk true;
+            for (cmp.comparators) |co| if (exprHasSuperCall(co)) break :blk true;
+            break :blk false;
+        },
         .attribute => |a| exprHasSuperCall(a.value.*),
+        .subscript => |s| blk: {
+            if (exprHasSuperCall(s.value.*)) break :blk true;
+            switch (s.slice) {
+                .index => |idx| break :blk exprHasSuperCall(idx.*),
+                .slice => |range| {
+                    if (range.lower) |l| if (exprHasSuperCall(l.*)) break :blk true;
+                    if (range.upper) |u| if (exprHasSuperCall(u.*)) break :blk true;
+                    if (range.step) |st| if (exprHasSuperCall(st.*)) break :blk true;
+                    break :blk false;
+                },
+            }
+        },
+        .if_expr => |ie| exprHasSuperCall(ie.condition.*) or exprHasSuperCall(ie.body.*) or exprHasSuperCall(ie.orelse_value.*),
+        .list => |l| blk: {
+            for (l.elts) |e| if (exprHasSuperCall(e)) break :blk true;
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |e| if (exprHasSuperCall(e)) break :blk true;
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys) |k| if (exprHasSuperCall(k)) break :blk true;
+            for (d.values) |v| if (exprHasSuperCall(v)) break :blk true;
+            break :blk false;
+        },
+        .fstring => |fstr| blk: {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (exprHasSuperCall(e.node.*)) break :blk true,
+                    .format_expr => |fe| if (exprHasSuperCall(fe.expr.*)) break :blk true,
+                    .conv_expr => |ce| if (exprHasSuperCall(ce.expr.*)) break :blk true,
+                    .literal => {},
+                }
+            }
+            break :blk false;
+        },
+        .listcomp => |lc| blk: {
+            if (exprHasSuperCall(lc.elt.*)) break :blk true;
+            for (lc.generators) |gen| {
+                if (exprHasSuperCall(gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| if (exprHasSuperCall(cond)) break :blk true;
+            }
+            break :blk false;
+        },
+        .dictcomp => |dc| blk: {
+            if (exprHasSuperCall(dc.key.*) or exprHasSuperCall(dc.value.*)) break :blk true;
+            for (dc.generators) |gen| {
+                if (exprHasSuperCall(gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| if (exprHasSuperCall(cond)) break :blk true;
+            }
+            break :blk false;
+        },
+        .genexp => |ge| blk: {
+            if (exprHasSuperCall(ge.elt.*)) break :blk true;
+            for (ge.generators) |gen| {
+                if (exprHasSuperCall(gen.iter.*)) break :blk true;
+                for (gen.ifs) |cond| if (exprHasSuperCall(cond)) break :blk true;
+            }
+            break :blk false;
+        },
+        .lambda => |lam| exprHasSuperCall(lam.body.*),
+        .starred => |st| exprHasSuperCall(st.value.*),
         else => false,
     };
 }
