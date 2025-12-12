@@ -76,6 +76,64 @@ pub fn exprContainsName(expr: *const ast.Node, var_name: []const u8) bool {
                 exprContainsName(ie.body, var_name) or
                 exprContainsName(ie.orelse_value, var_name);
         },
+        .boolop => |bo| {
+            for (bo.values) |v| {
+                if (exprContainsNameNode(v, var_name)) return true;
+            }
+            return false;
+        },
+        .dict => |d| {
+            for (d.keys) |k| {
+                if (exprContainsNameNode(k, var_name)) return true;
+            }
+            for (d.values) |v| {
+                if (exprContainsNameNode(v, var_name)) return true;
+            }
+            return false;
+        },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (exprContainsName(e.node, var_name)) return true,
+                    .format_expr => |fe| if (exprContainsName(fe.expr, var_name)) return true,
+                    .conv_expr => |ce| if (exprContainsName(ce.expr, var_name)) return true,
+                    .literal => {},
+                }
+            }
+            return false;
+        },
+        .listcomp => |lc| {
+            if (exprContainsName(lc.elt, var_name)) return true;
+            for (lc.generators) |gen| {
+                if (exprContainsName(gen.iter, var_name)) return true;
+                for (gen.ifs) |cond| {
+                    if (exprContainsNameNode(cond, var_name)) return true;
+                }
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (exprContainsName(dc.key, var_name) or exprContainsName(dc.value, var_name)) return true;
+            for (dc.generators) |gen| {
+                if (exprContainsName(gen.iter, var_name)) return true;
+                for (gen.ifs) |cond| {
+                    if (exprContainsNameNode(cond, var_name)) return true;
+                }
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            if (exprContainsName(ge.elt, var_name)) return true;
+            for (ge.generators) |gen| {
+                if (exprContainsName(gen.iter, var_name)) return true;
+                for (gen.ifs) |cond| {
+                    if (exprContainsNameNode(cond, var_name)) return true;
+                }
+            }
+            return false;
+        },
+        .lambda => |lam| exprContainsName(lam.body, var_name),
+        .starred => |st| exprContainsName(st.value, var_name),
         else => false,
     };
 }
@@ -309,6 +367,76 @@ pub fn initExprIsSafe(init: *const ast.Node, safe_vars: *const hashmap_helper.St
                 initExprIsSafe(ie.orelse_value, safe_vars);
         },
 
+        // Bool operations - check all values
+        .boolop => |bo| {
+            for (bo.values) |v| {
+                if (!initExprIsSafeNode(v, safe_vars)) return false;
+            }
+            return true;
+        },
+
+        // Dict - check all keys and values
+        .dict => |d| {
+            for (d.keys) |k| {
+                if (!initExprIsSafeNode(k, safe_vars)) return false;
+            }
+            for (d.values) |v| {
+                if (!initExprIsSafeNode(v, safe_vars)) return false;
+            }
+            return true;
+        },
+
+        // F-strings - check embedded expressions
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (!initExprIsSafe(e.node, safe_vars)) return false,
+                    .format_expr => |fe| if (!initExprIsSafe(fe.expr, safe_vars)) return false,
+                    .conv_expr => |ce| if (!initExprIsSafe(ce.expr, safe_vars)) return false,
+                    .literal => {},
+                }
+            }
+            return true;
+        },
+
+        // Comprehensions - check element and generators
+        .listcomp => |lc| {
+            if (!initExprIsSafe(lc.elt, safe_vars)) return false;
+            for (lc.generators) |gen| {
+                if (!initExprIsSafe(gen.iter, safe_vars)) return false;
+                for (gen.ifs) |cond| {
+                    if (!initExprIsSafeNode(cond, safe_vars)) return false;
+                }
+            }
+            return true;
+        },
+        .dictcomp => |dc| {
+            if (!initExprIsSafe(dc.key, safe_vars) or !initExprIsSafe(dc.value, safe_vars)) return false;
+            for (dc.generators) |gen| {
+                if (!initExprIsSafe(gen.iter, safe_vars)) return false;
+                for (gen.ifs) |cond| {
+                    if (!initExprIsSafeNode(cond, safe_vars)) return false;
+                }
+            }
+            return true;
+        },
+        .genexp => |ge| {
+            if (!initExprIsSafe(ge.elt, safe_vars)) return false;
+            for (ge.generators) |gen| {
+                if (!initExprIsSafe(gen.iter, safe_vars)) return false;
+                for (gen.ifs) |cond| {
+                    if (!initExprIsSafeNode(cond, safe_vars)) return false;
+                }
+            }
+            return true;
+        },
+
+        // Lambda - check body
+        .lambda => |lam| initExprIsSafe(lam.body, safe_vars),
+
+        // Starred - check value
+        .starred => |st| initExprIsSafe(st.value, safe_vars),
+
         // Conservative default: assume unsafe for unknown node types
         else => false,
     };
@@ -344,6 +472,84 @@ fn initExprIsSafeNode(node: ast.Node, safe_vars: *const hashmap_helper.StringHas
             }
             return true;
         },
+        .boolop => |bo| {
+            for (bo.values) |v| {
+                if (!initExprIsSafeNode(v, safe_vars)) return false;
+            }
+            return true;
+        },
+        .compare => |cmp| {
+            if (!initExprIsSafe(cmp.left, safe_vars)) return false;
+            for (cmp.comparators) |c| {
+                if (!initExprIsSafeNode(c, safe_vars)) return false;
+            }
+            return true;
+        },
+        .subscript => |s| {
+            if (!initExprIsSafe(s.value, safe_vars)) return false;
+            return switch (s.slice) {
+                .index => |idx| initExprIsSafe(idx, safe_vars),
+                .slice => |sl| {
+                    if (sl.lower) |l| if (!initExprIsSafe(l, safe_vars)) return false;
+                    if (sl.upper) |u| if (!initExprIsSafe(u, safe_vars)) return false;
+                    if (sl.step) |st| if (!initExprIsSafe(st, safe_vars)) return false;
+                    return true;
+                },
+            };
+        },
+        .if_expr => |ie| initExprIsSafe(ie.condition, safe_vars) and initExprIsSafe(ie.body, safe_vars) and initExprIsSafe(ie.orelse_value, safe_vars),
+        .dict => |d| {
+            for (d.keys) |k| {
+                if (!initExprIsSafeNode(k, safe_vars)) return false;
+            }
+            for (d.values) |v| {
+                if (!initExprIsSafeNode(v, safe_vars)) return false;
+            }
+            return true;
+        },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (!initExprIsSafe(e.node, safe_vars)) return false,
+                    .format_expr => |fe| if (!initExprIsSafe(fe.expr, safe_vars)) return false,
+                    .conv_expr => |ce| if (!initExprIsSafe(ce.expr, safe_vars)) return false,
+                    .literal => {},
+                }
+            }
+            return true;
+        },
+        .listcomp => |lc| {
+            if (!initExprIsSafe(lc.elt, safe_vars)) return false;
+            for (lc.generators) |gen| {
+                if (!initExprIsSafe(gen.iter, safe_vars)) return false;
+                for (gen.ifs) |cond| {
+                    if (!initExprIsSafeNode(cond, safe_vars)) return false;
+                }
+            }
+            return true;
+        },
+        .dictcomp => |dc| {
+            if (!initExprIsSafe(dc.key, safe_vars) or !initExprIsSafe(dc.value, safe_vars)) return false;
+            for (dc.generators) |gen| {
+                if (!initExprIsSafe(gen.iter, safe_vars)) return false;
+                for (gen.ifs) |cond| {
+                    if (!initExprIsSafeNode(cond, safe_vars)) return false;
+                }
+            }
+            return true;
+        },
+        .genexp => |ge| {
+            if (!initExprIsSafe(ge.elt, safe_vars)) return false;
+            for (ge.generators) |gen| {
+                if (!initExprIsSafe(gen.iter, safe_vars)) return false;
+                for (gen.ifs) |cond| {
+                    if (!initExprIsSafeNode(cond, safe_vars)) return false;
+                }
+            }
+            return true;
+        },
+        .lambda => |lam| initExprIsSafe(lam.body, safe_vars),
+        .starred => |st| initExprIsSafe(st.value, safe_vars),
         else => false,
     };
 }
