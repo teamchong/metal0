@@ -102,8 +102,17 @@ pub fn bigIntDivmod(a: anytype, b: anytype, allocator: std.mem.Allocator) struct
 /// BigInt comparison
 pub fn bigIntCompare(a: anytype, b: anytype, op: CompareOp) bool {
     const T = @TypeOf(a);
-    if (@typeInfo(T) == .@"struct" and @hasDecl(T, "compare")) {
-        const cmp = a.compare(b);
+    const U = @TypeOf(b);
+
+    // Get pointers to the BigInt values
+    const a_ptr = if (@typeInfo(T) == .pointer) a else &a;
+    const b_ptr = if (@typeInfo(U) == .pointer) b else &b;
+
+    const PtrT = @TypeOf(a_ptr);
+    const ChildT = if (@typeInfo(PtrT) == .pointer) @typeInfo(PtrT).pointer.child else PtrT;
+
+    if (@typeInfo(ChildT) == .@"struct" and @hasDecl(ChildT, "compare")) {
+        const cmp = a_ptr.compare(b_ptr);
         return switch (op) {
             .lt => cmp < 0,
             .le => cmp <= 0,

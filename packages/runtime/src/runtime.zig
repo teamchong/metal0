@@ -236,7 +236,10 @@ pub const PyFile = @import("Objects/fileobject.zig").PyFile;
 
 // Re-export numeric operations for codegen
 pub const addNum = @import("runtime/float_ops.zig").addNum;
+pub const subtractNum = @import("runtime/float_ops.zig").subtractNum;
 pub const intFromBytes = @import("runtime/int_ops.zig").intFromBytes;
+pub const parseIntToBigInt = @import("runtime/int_ops.zig").parseIntToBigInt;
+pub const bigIntCompare = @import("runtime/builtins/types.zig").bigIntCompare;
 pub const int__new__ = @import("runtime/int_ops.zig").int__new__;
 
 // Re-export class operations for codegen
