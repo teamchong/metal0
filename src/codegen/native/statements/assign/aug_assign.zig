@@ -855,15 +855,28 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // This prevents generating raw Zig operators for PyValue types which would cause type mismatches
     if (aug.target.* == .name) {
         const var_name = aug.target.name.id;
-        // Check if variable is tracked as PyValue in var_types
-        const is_pyvalue = if (self.type_inferrer.var_types.get(var_name)) |vt|
+        // Check actual inferred type (including scoped vars for parameters)
+        const inferred_type = self.type_inferrer.getScopedVar(var_name) orelse
+            self.type_inferrer.var_types.get(var_name);
+
+        // Use PyValue methods if:
+        // 1. Type is explicitly pyvalue/unknown, OR
+        // 2. Variable has uncertain confidence (Two-Flow system)
+        // But NOT for concrete certain types (float, int from literals/annotations)
+        const is_pyvalue_type = if (inferred_type) |vt|
             (vt == .pyvalue or vt == .unknown)
         else
             false;
-        // Also check if variable is uncertain via confidence tracking
-        const is_uncertain = is_pyvalue or self.isVarUncertain(var_name);
+        const is_uncertain = self.isVarUncertain(var_name);
+        // Use PyValue if type is explicitly pyvalue OR if uncertain (runtime-determined)
+        // Exception: if we have a concrete type from scoped vars (e.g., function params), trust it
+        const has_certain_scoped_type = if (self.type_inferrer.getScopedVar(var_name)) |vt| blk: {
+            const tag = @as(std.meta.Tag(@TypeOf(vt)), vt);
+            break :blk (tag == .float or tag == .int or tag == .bool) and self.isVarCertain(var_name);
+        } else false;
+        const needs_pyvalue = is_pyvalue_type or (is_uncertain and !has_certain_scoped_type);
 
-        if (is_uncertain) {
+        if (needs_pyvalue) {
             // PyValue method names for augmented assignment operations
             const PyValueAugMethods = std.StaticStringMap([]const u8).initComptime(.{
                 .{ "Add", "add" },
