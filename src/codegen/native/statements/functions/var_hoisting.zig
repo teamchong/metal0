@@ -90,11 +90,103 @@ fn exprContainsNameNode(node: ast.Node, var_name: []const u8) bool {
             for (c.args) |arg| {
                 if (exprContainsNameNode(arg, var_name)) return true;
             }
+            for (c.keyword_args) |kw| {
+                if (exprContainsNameNode(kw.value, var_name)) return true;
+            }
             return false;
         },
         .binop => |b| exprContainsName(b.left, var_name) or exprContainsName(b.right, var_name),
         .unaryop => |u| exprContainsName(u.operand, var_name),
-        .subscript => |s| exprContainsName(s.value, var_name),
+        .boolop => |bo| {
+            for (bo.values) |v| {
+                if (exprContainsNameNode(v, var_name)) return true;
+            }
+            return false;
+        },
+        .compare => |cmp| {
+            if (exprContainsName(cmp.left, var_name)) return true;
+            for (cmp.comparators) |c| {
+                if (exprContainsNameNode(c, var_name)) return true;
+            }
+            return false;
+        },
+        .subscript => |s| {
+            if (exprContainsName(s.value, var_name)) return true;
+            switch (s.slice) {
+                .index => |idx| return exprContainsName(idx, var_name),
+                .slice => |range| {
+                    if (range.lower) |l| if (exprContainsName(l, var_name)) return true;
+                    if (range.upper) |u| if (exprContainsName(u, var_name)) return true;
+                    if (range.step) |st| if (exprContainsName(st, var_name)) return true;
+                    return false;
+                },
+            }
+        },
+        .if_expr => |ie| exprContainsName(ie.condition, var_name) or exprContainsName(ie.body, var_name) or exprContainsName(ie.orelse_value, var_name),
+        .list => |l| {
+            for (l.elts) |e| {
+                if (exprContainsNameNode(e, var_name)) return true;
+            }
+            return false;
+        },
+        .tuple => |t| {
+            for (t.elts) |e| {
+                if (exprContainsNameNode(e, var_name)) return true;
+            }
+            return false;
+        },
+        .dict => |d| {
+            for (d.keys) |k| {
+                if (exprContainsNameNode(k, var_name)) return true;
+            }
+            for (d.values) |v| {
+                if (exprContainsNameNode(v, var_name)) return true;
+            }
+            return false;
+        },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (exprContainsName(e.node, var_name)) return true,
+                    .format_expr => |fe| if (exprContainsName(fe.expr, var_name)) return true,
+                    .conv_expr => |ce| if (exprContainsName(ce.expr, var_name)) return true,
+                    .literal => {},
+                }
+            }
+            return false;
+        },
+        .listcomp => |lc| {
+            if (exprContainsName(lc.elt, var_name)) return true;
+            for (lc.generators) |gen| {
+                if (exprContainsName(gen.iter, var_name)) return true;
+                for (gen.ifs) |cond| {
+                    if (exprContainsNameNode(cond, var_name)) return true;
+                }
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (exprContainsName(dc.key, var_name) or exprContainsName(dc.value, var_name)) return true;
+            for (dc.generators) |gen| {
+                if (exprContainsName(gen.iter, var_name)) return true;
+                for (gen.ifs) |cond| {
+                    if (exprContainsNameNode(cond, var_name)) return true;
+                }
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            if (exprContainsName(ge.elt, var_name)) return true;
+            for (ge.generators) |gen| {
+                if (exprContainsName(gen.iter, var_name)) return true;
+                for (gen.ifs) |cond| {
+                    if (exprContainsNameNode(cond, var_name)) return true;
+                }
+            }
+            return false;
+        },
+        .lambda => |lam| exprContainsName(lam.body, var_name),
+        .starred => |st| exprContainsName(st.value, var_name),
         .constant => false,
         else => false,
     };

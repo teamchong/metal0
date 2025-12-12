@@ -26,10 +26,26 @@ pub fn valueContainsName(node: ast.Node, name: []const u8) bool {
         .unaryop => |unary| {
             return valueContainsName(unary.operand.*, name);
         },
+        .boolop => |boolop| {
+            for (boolop.values) |v| {
+                if (valueContainsName(v, name)) return true;
+            }
+            return false;
+        },
+        .compare => |cmp| {
+            if (valueContainsName(cmp.left.*, name)) return true;
+            for (cmp.comparators) |c| {
+                if (valueContainsName(c, name)) return true;
+            }
+            return false;
+        },
         .call => |call| {
             if (valueContainsName(call.func.*, name)) return true;
             for (call.args) |arg| {
                 if (valueContainsName(arg, name)) return true;
+            }
+            for (call.keyword_args) |kw| {
+                if (valueContainsName(kw.value, name)) return true;
             }
             return false;
         },
@@ -54,6 +70,11 @@ pub fn valueContainsName(node: ast.Node, name: []const u8) bool {
                 },
             }
         },
+        .if_expr => |ie| {
+            return valueContainsName(ie.condition.*, name) or
+                valueContainsName(ie.body.*, name) or
+                valueContainsName(ie.orelse_value.*, name);
+        },
         .list => |list| {
             for (list.elts) |elt| {
                 if (valueContainsName(elt, name)) return true;
@@ -66,6 +87,58 @@ pub fn valueContainsName(node: ast.Node, name: []const u8) bool {
             }
             return false;
         },
+        .dict => |dict| {
+            for (dict.keys) |k| {
+                if (valueContainsName(k, name)) return true;
+            }
+            for (dict.values) |v| {
+                if (valueContainsName(v, name)) return true;
+            }
+            return false;
+        },
+        .fstring => |fstr| {
+            for (fstr.parts) |part| {
+                switch (part) {
+                    .expr => |e| if (valueContainsName(e.node.*, name)) return true,
+                    .format_expr => |fe| if (valueContainsName(fe.expr.*, name)) return true,
+                    .conv_expr => |ce| if (valueContainsName(ce.expr.*, name)) return true,
+                    .literal => {},
+                }
+            }
+            return false;
+        },
+        .listcomp => |lc| {
+            if (valueContainsName(lc.elt.*, name)) return true;
+            for (lc.generators) |gen| {
+                if (valueContainsName(gen.iter.*, name)) return true;
+                for (gen.ifs) |cond| {
+                    if (valueContainsName(cond, name)) return true;
+                }
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (valueContainsName(dc.key.*, name) or valueContainsName(dc.value.*, name)) return true;
+            for (dc.generators) |gen| {
+                if (valueContainsName(gen.iter.*, name)) return true;
+                for (gen.ifs) |cond| {
+                    if (valueContainsName(cond, name)) return true;
+                }
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            if (valueContainsName(ge.elt.*, name)) return true;
+            for (ge.generators) |gen| {
+                if (valueContainsName(gen.iter.*, name)) return true;
+                for (gen.ifs) |cond| {
+                    if (valueContainsName(cond, name)) return true;
+                }
+            }
+            return false;
+        },
+        .lambda => |lam| valueContainsName(lam.body.*, name),
+        .starred => |s| valueContainsName(s.value.*, name),
         else => return false,
     }
 }
