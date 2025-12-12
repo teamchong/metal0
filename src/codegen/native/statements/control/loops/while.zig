@@ -16,8 +16,9 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
 
     // Check condition type - need to handle non-boolean conditions
     const cond_type = self.type_inferrer.inferExpr(while_stmt.condition.*) catch .unknown;
-    if (type_traits.isUnknown(cond_type)) {
-        // Unknown type (PyObject) - use runtime truthiness check
+    // TWO-FLOW: Check for both .unknown and .pyvalue (uncertain types)
+    if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
+        // Unknown/PyValue type - use runtime truthiness check
         _ = try builder.write("runtime.pyTruthy(");
         try self.genExpr(while_stmt.condition.*);
         _ = try builder.write(")");

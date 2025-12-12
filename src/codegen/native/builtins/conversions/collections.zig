@@ -198,6 +198,14 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
     const is_dict_attr = args[0] == .attribute and std.mem.eql(u8, args[0].attribute.attr, "__dict__");
 
+    // TWO-FLOW: Handle uncertain types (PyValue) via runtime conversion
+    if (arg_type == .pyvalue) {
+        try self.emitFmt("runtime.listFromAny({s}, ", .{alloc_name});
+        try self.genExpr(args[0]);
+        try self.emit(")");
+        return;
+    }
+
     // Fast path: already a list type - just pass through
     if (container_traits.isList(arg_type)) {
         try self.genExpr(args[0]);
@@ -408,6 +416,17 @@ pub fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
+    // TWO-FLOW: Handle uncertain types (PyValue)
+    // Note: PyValue doesn't support dict directly, so we pass through
+    // and rely on runtime type dispatch. This may need a runtime helper
+    // if dict() is called on uncertain types.
+    if (arg_type == .pyvalue) {
+        // PyValue doesn't have .dict field - pass through and hope the
+        // underlying value is already a dict-compatible type
+        try self.genExpr(args[0]);
+        return;
+    }
+
     // Already a dict - just return it
     if (container_traits.isDict(arg_type)) {
         try self.genExpr(args[0]);
@@ -470,6 +489,26 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+
+    // TWO-FLOW: Handle uncertain types (PyValue)
+    // Note: PyValue doesn't support set directly, so for PyValue.list
+    // we can iterate and build a set from the elements.
+    if (arg_type == .pyvalue) {
+        const set_label = self.block_label_counter;
+        self.block_label_counter += 1;
+        // PyValue.list is []const PyValue - iterate and build set
+        try self.emitFmt("set_pyval_{d}: {{\n", .{set_label});
+        try self.emit("const __pyval_iter = ");
+        try self.genExpr(args[0]);
+        try self.emit(".list;\n"); // Extract list from PyValue
+        try self.emitFmt("var _set = std.AutoHashMap(runtime.PyValue, void).init({s});\n", .{alloc_name});
+        try self.emit("for (__pyval_iter) |_item| {\n");
+        try self.emit("try _set.put(_item, {});\n");
+        try self.emit("}\n");
+        try self.emitFmt("break :set_pyval_{d} _set;\n", .{set_label});
+        try self.emit("}");
+        return;
+    }
 
     // Already a set - just return it
     if (container_traits.isSet(arg_type)) {

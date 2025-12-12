@@ -1069,6 +1069,71 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         return;
     }
 
+    // TWO-FLOW: Handle PyValue iteration (uncertain types)
+    // PyValue.list is []const PyValue (a slice), not ArrayList
+    // So we iterate directly over the slice without .items accessor
+    if (iter_type == .pyvalue) {
+        // Generate: for (iter.list) |item| { ... } or runtime dispatch
+        const label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+
+        try self.emit("{\n");
+        self.indent();
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __pyval_{d} = ", .{label_id});
+        try self.genExpr(for_stmt.iter.*);
+        try self.emit(";\n");
+        try self.emitIndent();
+        // Use comptime type dispatch - PyValue.list is []const PyValue, ArrayList has .items
+        try self.output.writer(self.allocator).print(
+            "const __pyval_items_{d} = blk: {{ " ++
+                "const T = @TypeOf(__pyval_{d}); " ++
+                "const info = @typeInfo(T); " ++
+                "break :blk if (info == .pointer and info.pointer.size == .slice) __pyval_{d} " ++
+                "else if (info == .@\"struct\" and @hasField(T, \"list\")) __pyval_{d}.list " ++
+                "else if (info == .@\"struct\" and @hasField(T, \"items\")) __pyval_{d}.items " ++
+                "else __pyval_{d}; }};\n",
+            .{ label_id, label_id, label_id, label_id, label_id, label_id },
+        );
+
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("for (__pyval_items_{d}) |", .{label_id});
+        if (!tuple_var_used) {
+            try self.emit("_");
+        } else {
+            // Check if loop variable shadows a module-level function or imported module
+            const shadows_module_func = self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
+            if (shadows_module_func and !self.var_renames.contains(var_name)) {
+                const renamed = try self.name_gen.local(var_name);
+                try self.var_renames.put(var_name, renamed);
+            }
+            const actual_name = self.var_renames.get(var_name) orelse var_name;
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+        }
+        try self.emit("| {\n");
+
+        self.indent();
+        try self.pushScope();
+
+        // Register loop variable type as pyvalue (element of PyValue list)
+        try self.type_inferrer.putScopedVar(for_stmt.target.name.id, .pyvalue);
+
+        for (for_stmt.body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+
+        self.popScope();
+        self.dedent();
+
+        try self.emitIndent();
+        try self.emit("}\n");
+
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        return;
+    }
+
     // Handle PyObject iteration (e.g., from json.load() returning PyList)
     // Use while loop with runtime.PyList.getItem() since we can't use Zig for-each on PyObject
     if (type_traits.isUnknown(iter_type)) {
