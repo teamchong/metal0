@@ -1077,20 +1077,25 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
     // --prefix . means install to .metal0/ which is the cwd for the batch build
     // batch_build.zig then uses dest_dir override to place binaries in gen/tests/cpython/etc
     const cache_dir = try std.fmt.allocPrint(aa, "../{s}/.zig-cache", .{build_dirs.ROOT});
-    var argv = [_][]const u8{
+    const jobs_arg = try std.fmt.allocPrint(aa, "-j{d}", .{jobs});
+
+    // Get pre-built runtime archive path (HUGE speed boost - skips recompiling 236K LOC)
+    const runtime_path = try getRuntimeArchivePathResolved(aa);
+    const runtime_arg = try std.fmt.allocPrint(aa, "-Druntime-archive={s}", .{runtime_path});
+
+    const argv = [_][]const u8{
         "zig",
         "build",
-        undefined, // -j{jobs}
+        jobs_arg,
         "-Doptimize=ReleaseFast",
+        runtime_arg,
         "--cache-dir",
         cache_dir,
         "--prefix",
         ".", // Install to .metal0/ (the cwd)
     };
-    const jobs_arg = std.fmt.allocPrint(aa, "-j{d}", .{jobs}) catch "-j4";
-    argv[2] = jobs_arg;
 
-    std.debug.print("Running batch compilation: zig build -j{d} (timeout: 120s)...\n", .{jobs});
+    std.debug.print("Running batch compilation: zig build -j{d} (timeout: 600s)...\n", .{jobs});
 
     // Spawn batch build process with manual timeout
     var child = std.process.Child.init(&argv, aa);

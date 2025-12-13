@@ -15,6 +15,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Pre-built runtime archive path (skips recompiling 236K LOC runtime)
+    const runtime_archive = b.option([]const u8, "runtime-archive", "Path to pre-built libruntime.a");
+
     // ══════════════════════════════════════════════════════════════════════════
     // MODULE DEFINITIONS - mirrors src/compiler.zig MODULES exactly
     // ══════════════════════════════════════════════════════════════════════════
@@ -207,6 +210,11 @@ pub fn build(b: *std.Build) void {
 
         // Link libc
         exe.linkLibC();
+
+        // Link pre-built runtime archive if provided (HUGE speed boost)
+        if (runtime_archive) |archive_path| {
+            exe.addObjectFile(.{ .cwd_relative = archive_path });
+        }
 
         // Install to the correct relative path
         // e.g., bin_name="tests/cpython/test_bool" -> install to <prefix>/tests/cpython/test_bool
