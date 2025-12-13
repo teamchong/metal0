@@ -99,6 +99,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                     printWarn("Failed to load test group @{s}: {any}", .{ group_name, err });
                     continue;
                 };
+                defer allocator.free(group_patterns);
                 for (group_patterns) |pattern| {
                     try file_patterns.append(allocator, pattern);
                 }

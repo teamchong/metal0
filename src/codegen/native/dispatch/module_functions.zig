@@ -270,6 +270,8 @@ const _ast_mod = @import("../_ast_mod.zig");
 const _contextvars_mod = @import("../_contextvars_mod.zig");
 const _queue_mod = @import("../_queue_mod.zig");
 const _imp_mod = @import("../_imp_mod.zig");
+const _remote_debugging_mod = @import("../_remote_debugging_mod.zig");
+const _testinternalcapi_mod = @import("../_testinternalcapi_mod.zig");
 const _opcode_mod = @import("../_opcode_mod.zig");
 const _lsprof_mod = @import("../_lsprof_mod.zig");
 const _statistics_mod = @import("../_statistics_mod.zig");
@@ -716,6 +718,8 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "_contextvars", _contextvars_mod.Funcs },
     .{ "_queue", _queue_mod.Funcs },
     .{ "_imp", _imp_mod.Funcs },
+    .{ "_remote_debugging", _remote_debugging_mod.Funcs },
+    .{ "_testinternalcapi", _testinternalcapi_mod.Funcs },
     .{ "_opcode", _opcode_mod.Funcs },
     .{ "_lsprof", _lsprof_mod.Funcs },
     .{ "_statistics", _statistics_mod.Funcs },
