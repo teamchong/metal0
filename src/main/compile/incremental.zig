@@ -1094,23 +1094,51 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
 
     std.debug.print("Running batch compilation: zig build -j{d} (timeout: 120s)...\n", .{jobs});
 
-    // Run from output directory with timeout using std.process.Child.run
-    // Note: Zig's Child doesn't have waitWithTimeout, so we use run() which has built-in timeout
-    const result = std.process.Child.run(.{
-        .allocator = aa,
-        .argv = &argv,
-        .cwd = build_dirs.ROOT,
-        .max_output_bytes = 4 * 1024 * 1024,
-    }) catch |err| {
-        std.debug.print("[BATCH] Process failed: {any}\n", .{err});
+    // Spawn batch build process with manual timeout
+    var child = std.process.Child.init(&argv, aa);
+    child.cwd = build_dirs.ROOT;
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
+
+    child.spawn() catch |err| {
+        std.debug.print("[BATCH] Failed to spawn: {any}\n", .{err});
         return error.BatchCompileFailed;
     };
 
-    const stderr_content = result.stderr;
+    // Kill if timeout (120s)
+    var done = std.atomic.Value(bool).init(false);
+    const timeout_ns: u64 = 120 * std.time.ns_per_s;
+    const killer = std.Thread.spawn(.{}, struct {
+        fn kill(c: *std.process.Child, timeout: u64, d: *std.atomic.Value(bool)) void {
+            const poll_interval: u64 = 100 * std.time.ns_per_ms;
+            var elapsed: u64 = 0;
+            while (elapsed < timeout) {
+                if (d.load(.seq_cst)) return;
+                std.Thread.sleep(poll_interval);
+                elapsed += poll_interval;
+            }
+            if (d.load(.seq_cst)) return;
+            _ = c.kill() catch {};
+        }
+    }.kill, .{ &child, timeout_ns, &done }) catch null;
+    defer if (killer) |k| k.join();
+
+    // Wait for result
+    const result = child.wait() catch |err| {
+        done.store(true, .seq_cst);
+        std.debug.print("[BATCH] Wait failed: {any}\n", .{err});
+        return error.BatchCompileFailed;
+    };
+    done.store(true, .seq_cst);
+
+    // Read output
+    const stdout = child.stdout.?.readToEndAlloc(aa, 4 * 1024 * 1024) catch "";
+    const stderr_content = child.stderr.?.readToEndAlloc(aa, 4 * 1024 * 1024) catch "";
+    _ = stdout; // Unused for now
     const stderr_len = stderr_content.len;
 
     // Check exit code
-    const exit_code: u8 = switch (result.term) {
+    const exit_code: u8 = switch (result) {
         .Exited => |code| code,
         .Signal => |sig| blk: {
             std.debug.print("[BATCH] Killed by signal {d}\n", .{sig});
