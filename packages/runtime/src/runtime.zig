@@ -103,6 +103,11 @@ pub const glob_ops_mod = @import("runtime/glob_ops.zig");
 /// Tuple runtime operations (tupleConcat, tupleMultiply, tupleRepeat, sliceRepeatDynamic)
 pub const tuple_runtime = @import("runtime/tuple_runtime.zig");
 
+// Re-export tuple operations for direct codegen access
+pub const tupleConcat = tuple_runtime.tupleConcat;
+pub const tupleMultiply = tuple_runtime.tupleMultiply;
+pub const tupleRepeat = tuple_runtime.tupleRepeat;
+
 /// Type builtin stubs (boolBuiltin, intBuiltin, etc.)
 pub const type_builtins = @import("runtime/type_builtins.zig");
 
@@ -674,6 +679,18 @@ pub const pickleLoadsBool = pickle_marshal.pickleLoadsBool;
 pub const globMatch = glob_ops_mod.globMatch;
 pub const matchCharClass = glob_ops_mod.matchCharClass;
 pub const rglobCollect = glob_ops_mod.rglobCollect;
+
+/// Dynamic import for __import__() builtin
+/// In AOT compilation, returns a stub module object (Py_None)
+/// This enables code using __import__() to compile
+/// Note: True dynamic import is not supported in AOT compilation
+pub fn dynamic_import(allocator: std.mem.Allocator, module_name: []const u8) !*PyObject {
+    // For AOT compilation, we return Py_None as a stub
+    // The module_name is ignored - true dynamic import not supported
+    _ = allocator;
+    _ = module_name;
+    return Py_None;
+}
 
 test "reference counting" {
     const allocator = std.testing.allocator;
