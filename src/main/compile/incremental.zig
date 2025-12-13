@@ -1105,6 +1105,35 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
         return error.BatchCompileFailed;
     };
 
+    // Read output in background threads with shared result storage
+    const OutputBuffer = struct {
+        data: []const u8 = "",
+        mutex: std.Thread.Mutex = .{},
+    };
+    var stdout_buf = OutputBuffer{};
+    var stderr_buf = OutputBuffer{};
+
+    const stdout_reader = child.stdout.?;
+    const stderr_reader = child.stderr.?;
+
+    const stdout_thread = std.Thread.spawn(.{}, struct {
+        fn read(r: std.fs.File, a: std.mem.Allocator, buf: *OutputBuffer) void {
+            const data = r.readToEndAlloc(a, 4 * 1024 * 1024) catch "";
+            buf.mutex.lock();
+            defer buf.mutex.unlock();
+            buf.data = data;
+        }
+    }.read, .{ stdout_reader, aa, &stdout_buf }) catch null;
+
+    const stderr_thread = std.Thread.spawn(.{}, struct {
+        fn read(r: std.fs.File, a: std.mem.Allocator, buf: *OutputBuffer) void {
+            const data = r.readToEndAlloc(a, 4 * 1024 * 1024) catch "";
+            buf.mutex.lock();
+            defer buf.mutex.unlock();
+            buf.data = data;
+        }
+    }.read, .{ stderr_reader, aa, &stderr_buf }) catch null;
+
     // Kill if timeout (120s)
     var done = std.atomic.Value(bool).init(false);
     const timeout_ns: u64 = 120 * std.time.ns_per_s;
@@ -1117,8 +1146,10 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
                 std.Thread.sleep(poll_interval);
                 elapsed += poll_interval;
             }
-            if (d.load(.seq_cst)) return;
-            _ = c.kill() catch {};
+            // Double-check done flag before killing
+            if (!d.load(.seq_cst)) {
+                _ = c.kill() catch {};
+            }
         }
     }.kill, .{ &child, timeout_ns, &done }) catch null;
     defer if (killer) |k| k.join();
@@ -1131,9 +1162,12 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
     };
     done.store(true, .seq_cst);
 
-    // Read output
-    const stdout = child.stdout.?.readToEndAlloc(aa, 4 * 1024 * 1024) catch "";
-    const stderr_content = child.stderr.?.readToEndAlloc(aa, 4 * 1024 * 1024) catch "";
+    // Join output readers and get results
+    if (stdout_thread) |t| t.join();
+    if (stderr_thread) |t| t.join();
+
+    const stdout = stdout_buf.data;
+    const stderr_content = stderr_buf.data;
     _ = stdout; // Unused for now
     const stderr_len = stderr_content.len;
 
