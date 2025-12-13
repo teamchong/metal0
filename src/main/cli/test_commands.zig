@@ -2,10 +2,12 @@
 /// Usage: metal0 test [dir] [patterns...] [@group...]
 ///
 /// Supports @group syntax for platform-specific test groups:
-///   @core    - Platform-independent tests (no skip decorators)
-///   @linux   - Linux-specific tests
-///   @macos   - macOS-specific tests
-///   @windows - Windows-specific tests
+///   @core1   - Platform-independent tests A-F (96 tests)
+///   @core2   - Platform-independent tests G-P (96 tests)
+///   @core3   - Platform-independent tests Q-Z (96 tests)
+///   @linux   - Linux-specific tests (18 tests)
+///   @macos   - macOS-specific tests (25 tests)
+///   @windows - Windows-specific tests (93 tests)
 const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
 const CompileOptions = @import("../../main.zig").CompileOptions;
