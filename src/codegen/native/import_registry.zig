@@ -318,6 +318,8 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("_string", .zig_runtime, "std", null);
     try registry.register("_testcapi", .zig_runtime, null, null);
     try registry.register("_testbuffer", .zig_runtime, null, null);
+    try registry.register("_testinternalcapi", .zig_runtime, null, null);
+    try registry.register("_remote_debugging", .zig_runtime, null, null);
     try registry.register("shutil", .zig_runtime, "std", null);
     try registry.register("glob", .zig_runtime, "std", null);
     try registry.register("fnmatch", .zig_runtime, "std", null);
