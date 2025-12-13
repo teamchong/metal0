@@ -60,6 +60,73 @@ fn bodyCanRaise(stmts: []const ast.Node) bool {
     return false;
 }
 
+/// Check if an expression references self.attr (meaning it depends on other fields)
+/// This is used to detect computed fields that can't be initialized inline in struct literal
+fn exprReferencesSelfAttr(expr: ast.Node) bool {
+    return switch (expr) {
+        .attribute => |attr| blk: {
+            // Check if this is self.attr
+            if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+                break :blk true;
+            }
+            // Recurse on value
+            break :blk exprReferencesSelfAttr(attr.value.*);
+        },
+        .binop => |b| exprReferencesSelfAttr(b.left.*) or exprReferencesSelfAttr(b.right.*),
+        .unaryop => |u| exprReferencesSelfAttr(u.operand.*),
+        .boolop => |bo| blk: {
+            for (bo.values) |v| if (exprReferencesSelfAttr(v)) break :blk true;
+            break :blk false;
+        },
+        .compare => |c| blk: {
+            if (exprReferencesSelfAttr(c.left.*)) break :blk true;
+            for (c.comparators) |comp| if (exprReferencesSelfAttr(comp)) break :blk true;
+            break :blk false;
+        },
+        .call => |c| blk: {
+            if (exprReferencesSelfAttr(c.func.*)) break :blk true;
+            for (c.args) |arg| if (exprReferencesSelfAttr(arg)) break :blk true;
+            for (c.keyword_args) |kw| if (exprReferencesSelfAttr(kw.value)) break :blk true;
+            break :blk false;
+        },
+        .subscript => |s| blk: {
+            if (exprReferencesSelfAttr(s.value.*)) break :blk true;
+            // Check slice - it's a Slice union type, not a Node
+            switch (s.slice) {
+                .index => |idx| if (exprReferencesSelfAttr(idx.*)) break :blk true,
+                .slice => |sr| {
+                    if (sr.lower) |l| if (exprReferencesSelfAttr(l.*)) break :blk true;
+                    if (sr.upper) |u| if (exprReferencesSelfAttr(u.*)) break :blk true;
+                    if (sr.step) |st| if (exprReferencesSelfAttr(st.*)) break :blk true;
+                },
+            }
+            break :blk false;
+        },
+        .if_expr => |ie| exprReferencesSelfAttr(ie.condition.*) or
+            exprReferencesSelfAttr(ie.body.*) or
+            exprReferencesSelfAttr(ie.orelse_value.*),
+        .list => |l| blk: {
+            for (l.elts) |el| if (exprReferencesSelfAttr(el)) break :blk true;
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |el| if (exprReferencesSelfAttr(el)) break :blk true;
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys, d.values) |k, v| {
+                if (exprReferencesSelfAttr(k) or exprReferencesSelfAttr(v)) break :blk true;
+            }
+            break :blk false;
+        },
+        .set => |s| blk: {
+            for (s.elts) |el| if (exprReferencesSelfAttr(el)) break :blk true;
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
 // Type alias for builtin base info
 const BuiltinBaseInfo = generators.BuiltinBaseInfo;
 
@@ -618,6 +685,10 @@ pub fn genInitMethod(
 
     // Second pass: extract field assignments from __init__ body
     // Skip the type-check statements that were already handled with comptime branching
+    // Also collect deferred assignments (fields that reference self.attr) to emit after struct init
+    var deferred_assigns = std.ArrayListUnmanaged(ast.Node){};
+    defer deferred_assigns.deinit(self.allocator);
+
     for (init_def.body[body_start_idx..]) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
@@ -625,6 +696,18 @@ pub fn genInitMethod(
                 const attr = assign.targets[0].attribute;
                 if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
                     const field_name = attr.attr;
+
+                    // Check if value references self.attr (computed from other fields)
+                    // These must be deferred until after struct initialization
+                    if (exprReferencesSelfAttr(assign.value.*)) {
+                        try deferred_assigns.append(self.allocator, stmt);
+                        // Initialize with undefined for now - will be set after struct init
+                        try self.emitIndent();
+                        try self.emit(".");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
+                        try self.emit(" = undefined,\n");
+                        continue;
+                    }
 
                     try self.emitIndent();
                     // Escape field name if it's a Zig keyword (e.g., "test")
@@ -656,6 +739,26 @@ pub fn genInitMethod(
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
+
+    // Emit deferred field assignments (fields that reference self.attr)
+    // For nested classes, use __ptr; for top-level, we're inside return so this shouldn't happen
+    if (is_nested and deferred_assigns.items.len > 0) {
+        for (deferred_assigns.items) |stmt| {
+            const assign = stmt.assign;
+            const attr = assign.targets[0].attribute;
+            const field_name = attr.attr;
+
+            try self.emitIndent();
+            try self.emit("__ptr.");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
+            try self.emit(" = ");
+            // Temporarily add var_rename for self -> __ptr for this expression
+            try self.var_renames.put("self", "__ptr");
+            try self.genExpr(assign.value.*);
+            _ = self.var_renames.swapRemove("self");
+            try self.emit(";\n");
+        }
+    }
 
     if (is_nested) {
         try self.emitIndent();
@@ -1096,6 +1199,10 @@ pub fn genInitMethodWithBuiltinBase(
 
     // Second pass: extract field assignments from __init__ body
     // Skip type-check statements if we're using comptime branching
+    // Track deferred fields that reference self.attr (can't be initialized inline)
+    var deferred_fields: std.ArrayList(struct { name: []const u8, value: *ast.Node, is_anytype: bool }) = .{};
+    defer deferred_fields.deinit(self.allocator);
+
     for (init.body[body_start_idx..]) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
@@ -1104,21 +1211,40 @@ pub fn genInitMethodWithBuiltinBase(
                 if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
                     const field_name = attr.attr;
 
+                    // Check if value references self.attr - these must be deferred
+                    const needs_deferral = exprReferencesSelfAttr(assign.value.*);
+
                     try self.emitIndent();
                     try self.emit(".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");
-                    // Check if value is an anytype param - wrap with runtime.PyValue.from()
-                    const is_anytype_param = if (assign.value.* == .name)
-                        self.anytype_params.contains(assign.value.name.id)
-                    else
-                        false;
-                    if (is_anytype_param) {
-                        try self.emit("runtime.PyValue.from(");
-                        try self.genExpr(assign.value.*);
-                        try self.emit(")");
+
+                    if (needs_deferral) {
+                        // Initialize with undefined, will assign after struct is created
+                        try self.emit("undefined");
+                        // Check if value is an anytype param
+                        const is_anytype_param = if (assign.value.* == .name)
+                            self.anytype_params.contains(assign.value.name.id)
+                        else
+                            false;
+                        try deferred_fields.append(self.allocator, .{
+                            .name = field_name,
+                            .value = assign.value,
+                            .is_anytype = is_anytype_param,
+                        });
                     } else {
-                        try self.genExpr(assign.value.*);
+                        // Check if value is an anytype param - wrap with runtime.PyValue.from()
+                        const is_anytype_param = if (assign.value.* == .name)
+                            self.anytype_params.contains(assign.value.name.id)
+                        else
+                            false;
+                        if (is_anytype_param) {
+                            try self.emit("runtime.PyValue.from(");
+                            try self.genExpr(assign.value.*);
+                            try self.emit(")");
+                        } else {
+                            try self.genExpr(assign.value.*);
+                        }
                     }
                     try self.emit(",\n");
                 }
@@ -1133,6 +1259,54 @@ pub fn genInitMethodWithBuiltinBase(
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
+
+    // Handle deferred field assignments (fields that reference self.attr)
+    // These must be assigned after the struct is created
+    if (deferred_fields.items.len > 0) {
+        // For non-nested classes, we need to capture the return value
+        if (!is_nested) {
+            // We emitted "return @This(){...};" but need "const __ptr = @This(){...};"
+            // This requires restructuring - for now, use nested class pattern
+            // Actually, for non-nested we can't easily change the return to a local
+            // Let's use a different approach: __ptr pattern for all cases with deferred fields
+            // But that would require changing earlier code...
+            // For now, emit a warning that this pattern isn't supported for non-nested
+            // TODO: Restructure to support deferred fields in non-nested classes
+        }
+        // For nested classes, __ptr is available
+        if (is_nested) {
+            // Set up var_rename: self -> __ptr for expression generation
+            // Also temporarily disable nested class "self" -> "__self" transformation
+            // by setting method_nesting_depth = 0 and removing "self" from func_local_vars
+            try self.var_renames.put("self", "__ptr");
+            const saved_nesting_depth = self.method_nesting_depth;
+            self.method_nesting_depth = 0;
+            const self_was_local = self.func_local_vars.contains("self");
+            _ = self.func_local_vars.swapRemove("self");
+
+            for (deferred_fields.items) |field| {
+                try self.emitIndent();
+                try self.emit("__ptr.");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field.name);
+                try self.emit(" = ");
+                if (field.is_anytype) {
+                    try self.emit("runtime.PyValue.from(");
+                    try self.genExpr(field.value.*);
+                    try self.emit(")");
+                } else {
+                    try self.genExpr(field.value.*);
+                }
+                try self.emit(";\n");
+            }
+
+            // Restore state
+            self.method_nesting_depth = saved_nesting_depth;
+            if (self_was_local) {
+                try self.func_local_vars.put("self", {});
+            }
+            _ = self.var_renames.swapRemove("self");
+        }
+    }
 
     if (is_nested) {
         try self.emitIndent();

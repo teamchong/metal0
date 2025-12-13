@@ -1102,7 +1102,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // PyValue.list is *ArrayListUnmanaged(PyValue) - need .items to get slice
     // For iteration, extract items from the ArrayList pointer
     if (iter_type == .pyvalue) {
-        // Generate: for (iter.list) |item| { ... } or runtime dispatch
+        // Generate: for (iter.list.items) |item| { ... } or runtime dispatch
         const label_id = self.block_label_counter;
         self.block_label_counter += 1;
 

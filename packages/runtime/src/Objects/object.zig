@@ -337,7 +337,7 @@ pub const PyValue = union(enum) {
                 for (value, 0..) |item, i| {
                     result[i] = try fromAlloc(allocator, item);
                 }
-                return .{ .list = result };
+                return try PyValue.listFromSlice(allocator, result);
             }
             return .{ .ptr = @ptrCast(@constCast(value)) };
         } else if (@typeInfo(T) == .array) {
@@ -377,7 +377,7 @@ pub const PyValue = union(enum) {
                 for (items_slice, 0..) |item, i| {
                     result[i] = try fromAlloc(allocator, item);
                 }
-                return .{ .list = result };
+                return try PyValue.listFromSlice(allocator, result);
             }
             // Handle tuples
             if (info.is_tuple) {
