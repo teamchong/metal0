@@ -1128,11 +1128,12 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
         }
     }.read, .{ stderr_reader, aa, &stderr_buf }) catch null;
 
-    // Kill if timeout (120s)
+    // Kill if timeout (120s) - use PID instead of pointer to avoid race
     var done = std.atomic.Value(bool).init(false);
     const timeout_ns: u64 = 120 * std.time.ns_per_s;
+    const child_id = child.id;
     const killer = std.Thread.spawn(.{}, struct {
-        fn kill(c: *std.process.Child, timeout: u64, d: *std.atomic.Value(bool)) void {
+        fn kill(pid: std.process.Child.Id, timeout: u64, d: *std.atomic.Value(bool)) void {
             const poll_interval: u64 = 100 * std.time.ns_per_ms;
             var elapsed: u64 = 0;
             while (elapsed < timeout) {
@@ -1142,19 +1143,24 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
             }
             // Double-check done flag before killing
             if (!d.load(.seq_cst)) {
-                _ = c.kill() catch {};
+                // Kill by PID to avoid touching Child struct
+                const builtin = @import("builtin");
+                if (builtin.os.tag != .windows) {
+                    _ = std.posix.kill(pid, std.posix.SIG.TERM) catch {};
+                }
             }
         }
-    }.kill, .{ &child, timeout_ns, &done }) catch null;
-    defer if (killer) |k| k.join();
+    }.kill, .{ child_id, timeout_ns, &done }) catch null;
 
     // Wait for result
     const result = child.wait() catch |err| {
         done.store(true, .seq_cst);
+        if (killer) |k| k.join();
         std.debug.print("[BATCH] Wait failed: {any}\n", .{err});
         return error.BatchCompileFailed;
     };
     done.store(true, .seq_cst);
+    if (killer) |k| k.join();
 
     // Join output readers and get results
     if (stdout_thread) |t| t.join();
