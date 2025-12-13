@@ -125,17 +125,14 @@ fn addCSourceFiles(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8
     try args.append(allocator, "vendor/libdeflate");
 
     // C source files with compiler flags
-    // Note: -mno-evex512 disables 512-bit vector instructions (AVX512 evex encoding)
-    // Required because libdeflate uses AVX512 intrinsics that CI runners don't support
-    // Only applicable on x86/x86_64 - ARM64 doesn't support this flag
-    const builtin = @import("builtin");
-    const is_x86 = builtin.cpu.arch == .x86_64 or builtin.cpu.arch == .x86;
+    // Disable AVX-512 compilation via preprocessor macro (compile-time, not runtime)
+    // CI runners lack AVX-512 CPUs, so libdeflate's AVX-512 code fails to compile
+    // This macro tells libdeflate to skip AVX-512 implementations at preprocessor stage
+    // Performance: Still uses AVX2/SSE/scalar - only AVX-512 is disabled
     try args.append(allocator, "-cflags");
     try args.append(allocator, "-std=c99");
     try args.append(allocator, "-O3");
-    if (is_x86) {
-        try args.append(allocator, "-mno-evex512");
-    }
+    try args.append(allocator, "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI");
     try args.append(allocator, "--");
 
     const libdeflate_srcs = [_][]const u8{
