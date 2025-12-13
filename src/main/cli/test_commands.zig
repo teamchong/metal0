@@ -564,46 +564,149 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         if (!dots_mode) std.debug.print("  Compile: {d}/{d} (cached: {d})\n", .{ final_compile_ok + final_compile_cached, codegen_total, final_compile_cached });
     } // End of normal/fallback mode block
 
-    // Phase 3: Run binaries that exist
+    // Phase 3: Run binaries that exist (PARALLEL)
     if (!dots_mode) std.debug.print("Phase 3: Run... ({d} binaries to check)\n", .{bin_paths.items.len});
-    var run_ok: usize = 0;
-    var run_fail: usize = 0;
-    var run_timeout_count: usize = 0;
-    var compile_fail: usize = 0;
 
-    for (bin_paths.items, 0..) |bin_path, i| {
-        // Print progress for every test to identify hangs
-        const test_name = std.fs.path.stem(bin_path);
-        std.debug.print("[Phase 3] [{d}/{d}] Running: {s}\n", .{i + 1, bin_paths.items.len, test_name});
+    // Track failed/timeout test names for end summary
+    const TestResult = struct {
+        name: []const u8,
+        status: enum { failed, timeout, compile_fail },
+    };
+    var failed_tests_mutex = std.Thread.Mutex{};
+    var failed_tests = std.ArrayList(TestResult){};
+    defer {
+        for (failed_tests.items) |t| allocator.free(t.name);
+        failed_tests.deinit(allocator);
+    }
 
-        // Skip if binary doesn't exist (compile failed)
-        std.fs.cwd().access(bin_path, .{}) catch {
-            compile_fail += 1;
-            continue;
-        };
+    const RunContext = struct {
+        bin_paths: []const []const u8,
+        next_task: std.atomic.Value(usize),
+        run_ok: *std.atomic.Value(usize),
+        run_fail: *std.atomic.Value(usize),
+        run_timeout: *std.atomic.Value(usize),
+        compile_fail: *std.atomic.Value(usize),
+        timeout_ns: u64,
+        allocator: std.mem.Allocator,
+        bail_count: usize,
+        dots_mode: bool,
+        failed_tests: *std.ArrayList(TestResult),
+        failed_mutex: *std.Thread.Mutex,
 
-        const result = runBinaryWithTimeout(allocator, bin_path, run_timeout_ns);
-        switch (result) {
-            .ok => {
-                run_ok += 1;
-                if (dots_mode) std.debug.print(".", .{});
-            },
-            .timeout => {
-                run_timeout_count += 1;
-                if (dots_mode) std.debug.print("?", .{});
-            },
-            .failed => {
-                run_fail += 1;
-                if (dots_mode) std.debug.print("x", .{});
-            },
+        fn worker(ctx: *@This()) void {
+            while (true) {
+                // Check bail condition BEFORE fetching next task
+                if (ctx.bail_count > 0 and ctx.run_fail.load(.seq_cst) >= ctx.bail_count) {
+                    return;
+                }
+
+                const idx = ctx.next_task.fetchAdd(1, .seq_cst);
+                if (idx >= ctx.bin_paths.len) break;
+
+                const bin_path = ctx.bin_paths[idx];
+                const test_name = std.fs.path.stem(bin_path);
+
+                // Skip if binary doesn't exist
+                std.fs.cwd().access(bin_path, .{}) catch {
+                    _ = ctx.compile_fail.fetchAdd(1, .seq_cst);
+                    // Track compile failures
+                    ctx.failed_mutex.lock();
+                    defer ctx.failed_mutex.unlock();
+                    const name_copy = ctx.allocator.dupe(u8, test_name) catch continue;
+                    ctx.failed_tests.append(ctx.allocator, .{ .name = name_copy, .status = .compile_fail }) catch {};
+                    continue;
+                };
+
+                const result = runBinaryWithTimeout(ctx.allocator, bin_path, ctx.timeout_ns);
+                switch (result) {
+                    .ok => {
+                        _ = ctx.run_ok.fetchAdd(1, .seq_cst);
+                        if (ctx.dots_mode) std.debug.print(".", .{});
+                    },
+                    .timeout => {
+                        _ = ctx.run_timeout.fetchAdd(1, .seq_cst);
+                        if (ctx.dots_mode) std.debug.print("?", .{});
+                        // Track timeouts
+                        ctx.failed_mutex.lock();
+                        defer ctx.failed_mutex.unlock();
+                        const name_copy = ctx.allocator.dupe(u8, test_name) catch continue;
+                        ctx.failed_tests.append(ctx.allocator, .{ .name = name_copy, .status = .timeout }) catch {};
+                    },
+                    .failed => {
+                        _ = ctx.run_fail.fetchAdd(1, .seq_cst);
+                        if (ctx.dots_mode) std.debug.print("x", .{});
+                        // Track failures
+                        ctx.failed_mutex.lock();
+                        defer ctx.failed_mutex.unlock();
+                        const name_copy = ctx.allocator.dupe(u8, test_name) catch continue;
+                        ctx.failed_tests.append(ctx.allocator, .{ .name = name_copy, .status = .failed }) catch {};
+                    },
+                }
+            }
         }
+    };
 
-        // Bail on N failures
-        if (bail_count > 0 and run_fail >= bail_count) {
-            if (dots_mode) std.debug.print("\n", .{});
-            std.debug.print("\n{s}Bailed after {d} failures{s}\n", .{ Color.yellow, run_fail, Color.reset });
-            break;
+    // Initialize atomics
+    var run_ok_atomic = std.atomic.Value(usize).init(0);
+    var run_fail_atomic = std.atomic.Value(usize).init(0);
+    var run_timeout_atomic = std.atomic.Value(usize).init(0);
+    var compile_fail_atomic = std.atomic.Value(usize).init(0);
+
+    var run_ctx = RunContext{
+        .bin_paths = bin_paths.items,
+        .next_task = std.atomic.Value(usize).init(0),
+        .run_ok = &run_ok_atomic,
+        .run_fail = &run_fail_atomic,
+        .run_timeout = &run_timeout_atomic,
+        .compile_fail = &compile_fail_atomic,
+        .timeout_ns = run_timeout_ns,
+        .allocator = allocator,
+        .bail_count = bail_count,
+        .dots_mode = dots_mode,
+        .failed_tests = &failed_tests,
+        .failed_mutex = &failed_tests_mutex,
+    };
+
+    // Spawn worker threads (use same ncpu as Phase 1/2)
+    var threads: [32]std.Thread = undefined;
+    const num_workers = @min(ncpu, bin_paths.items.len);
+    const actual_threads = @min(num_workers, 32);
+
+    for (0..actual_threads) |ti| {
+        threads[ti] = std.Thread.spawn(.{}, RunContext.worker, .{&run_ctx}) catch continue;
+    }
+    for (0..actual_threads) |ti| {
+        threads[ti].join();
+    }
+
+    // Load final counts
+    const run_ok = run_ok_atomic.load(.seq_cst);
+    const run_fail = run_fail_atomic.load(.seq_cst);
+    const run_timeout_count = run_timeout_atomic.load(.seq_cst);
+    const compile_fail = compile_fail_atomic.load(.seq_cst);
+
+    // Print failed/timeout test names at the end (for debugging)
+    if (failed_tests.items.len > 0) {
+        std.debug.print("\n{s}Failed/Timeout Tests:{s}\n", .{ Color.bold, Color.reset });
+        for (failed_tests.items) |t| {
+            const status_str = switch (t.status) {
+                .failed => "FAIL",
+                .timeout => "TIMEOUT",
+                .compile_fail => "COMPILE",
+            };
+            const color = switch (t.status) {
+                .failed => Color.red,
+                .timeout => Color.yellow,
+                .compile_fail => Color.red,
+            };
+            std.debug.print("  {s}[{s}]{s} {s}\n", .{ color, status_str, Color.reset, t.name });
         }
+    }
+
+    // Bail message if applicable
+    if (bail_count > 0 and run_fail >= bail_count) {
+        if (dots_mode) std.debug.print("\n", .{});
+        std.debug.print("\n{s}Bailed after {d} failures{s}\n", .{ Color.yellow, run_fail, Color.reset });
     }
 
     // Summary - show all failure types
