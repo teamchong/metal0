@@ -564,6 +564,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         if (run_fail > 0) std.debug.print(" | {s}{d} runtime{s}", .{ Color.red, run_fail, Color.reset });
         if (run_timeout_count > 0) std.debug.print(" | {s}{d} timeout{s}", .{ Color.yellow, run_timeout_count, Color.reset });
         std.debug.print("\n", .{});
+        return error.TestsFailed;
     }
 }
 
