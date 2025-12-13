@@ -78,62 +78,30 @@ pub fn detectImports(ctx: *c_interop.ImportContext, node: ast.Node) !void {
 }
 
 /// Load and execute a shared library (.so/.dylib/.dll)
-/// Uses dlopen on POSIX, LoadLibraryA on Windows
+/// Uses std.DynLib for cross-platform support (Windows, Linux, macOS)
 pub fn runSharedLib(allocator: std.mem.Allocator, lib_path: []const u8) !void {
-    const builtin = @import("builtin");
-
-    // Get absolute path (need null-terminated string)
+    // Get absolute path
     const abs_path = try std.fs.cwd().realpathAlloc(allocator, lib_path);
     defer allocator.free(abs_path);
 
-    const abs_path_z = try allocator.dupeZ(u8, abs_path);
-    defer allocator.free(abs_path_z);
+    // std.DynLib works on Windows, Linux, and macOS
+    var lib = std.DynLib.open(abs_path) catch {
+        std.debug.print("Failed to load library: {s}\n", .{abs_path});
+        return error.DlopenFailed;
+    };
+    defer lib.close();
 
-    if (comptime builtin.os.tag == .windows) {
-        // Windows: use LoadLibraryA/GetProcAddress
-        const kernel32 = std.os.windows.kernel32;
-        const handle = kernel32.LoadLibraryA(abs_path_z.ptr) orelse {
-            std.debug.print("Failed to load library: {s}\n", .{abs_path});
-            return error.DlopenFailed;
-        };
-        defer _ = kernel32.FreeLibrary(handle);
+    // Look up the main function
+    const main_fn = lib.lookup(*const fn () callconv(.c) c_int, "main") orelse {
+        std.debug.print("Failed to find main\n", .{});
+        return error.DlsymFailed;
+    };
 
-        const main_symbol = kernel32.GetProcAddress(handle, "main") orelse {
-            std.debug.print("Failed to find main\n", .{});
-            return error.DlsymFailed;
-        };
-
-        const main_fn: *const fn () callconv(.c) c_int = @ptrCast(main_symbol);
-        const result = main_fn();
-
-        if (result != 0) {
-            std.debug.print("main returned non-zero: {d}\n", .{result});
-            return error.MainFailed;
-        }
-    } else {
-        // POSIX: use dlopen/dlsym
-        const handle = std.c.dlopen(abs_path_z.ptr, .{ .LAZY = true }) orelse {
-            const err = std.c.dlerror();
-            const err_str = if (err) |e| std.mem.span(e) else "unknown error";
-            std.debug.print("Failed to load library: {s}\n", .{err_str});
-            return error.DlopenFailed;
-        };
-        defer _ = std.c.dlclose(handle);
-
-        const main_symbol = std.c.dlsym(handle, "main") orelse {
-            const err = std.c.dlerror();
-            const err_str = if (err) |e| std.mem.span(e) else "main not found";
-            std.debug.print("Failed to find main: {s}\n", .{err_str});
-            return error.DlsymFailed;
-        };
-
-        const main_fn: *const fn () callconv(.c) c_int = @ptrCast(@alignCast(main_symbol));
-        const result = main_fn();
-
-        if (result != 0) {
-            std.debug.print("main returned non-zero: {d}\n", .{result});
-            return error.MainFailed;
-        }
+    // Call main
+    const result = main_fn();
+    if (result != 0) {
+        std.debug.print("main returned non-zero: {d}\n", .{result});
+        return error.MainFailed;
     }
 }
 
