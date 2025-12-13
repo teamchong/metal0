@@ -14,7 +14,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "unlink", h.wrap("blk: { const path = ", "; std.fs.cwd().deleteFile(path) catch {}; break :blk {}; }", "{}") },
     .{ "rename", h.wrap2("blk: { const src = ", "; const dst = ", "; std.fs.cwd().rename(src, dst) catch {}; break :blk {}; }", "{}") },
     .{ "stat", genStat }, .{ "lstat", genStat },
-    .{ "getenv", h.wrap("blk: { const path = ", "; break :blk std.posix.getenv(path); }", "@as(?[]const u8, null)") },
+    .{ "getenv", h.wrap("blk: { const path = ", "; _ = path; break :blk if (comptime @import(\"builtin\").os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv(path); }", "@as(?[]const u8, null)") },
     .{ "kill", h.wrap2("blk: { const pid = ", "; const sig = ", "; _ = std.c.kill(@intCast(pid), @intCast(sig)); break :blk {}; }", "{}") },
     .{ "open", h.wrap("blk: { const path = ", "; const file = std.fs.cwd().openFile(path, .{}) catch break :blk @as(i32, -1); break :blk @intCast(file.handle); }", "@as(i32, -1)") },
     .{ "close", h.wrap("blk: { const fd = ", "; std.posix.close(@intCast(fd)); break :blk {}; }", "{}") },

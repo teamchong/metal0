@@ -8,7 +8,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "USER_BASE", h.c("@as(?[]const u8, null)") },
     .{ "main", h.c("{}") }, .{ "addsitedir", h.c("hashmap_helper.StringHashMap(void).init(__global_allocator)") },
     .{ "getsitepackages", h.c("runtime.NativeList.init()") },
-    .{ "getuserbase", h.c("blk: { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(__global_allocator, \"{s}/.local\", .{home}) catch \"\"; }") },
-    .{ "getusersitepackages", h.c("blk: { const home = std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(__global_allocator, \"{s}/.local/lib/python3/site-packages\", .{home}) catch \"\"; }") },
+    .{ "getuserbase", h.c("blk: { const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\"); break :blk std.fmt.allocPrint(__global_allocator, \"{s}/.local\", .{home}) catch \"\"; }") },
+    .{ "getusersitepackages", h.c("blk: { const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\"); break :blk std.fmt.allocPrint(__global_allocator, \"{s}/.local/lib/python3/site-packages\", .{home}) catch \"\"; }") },
     .{ "removeduppaths", h.c("hashmap_helper.StringHashMap(void).init(__global_allocator)") },
 });

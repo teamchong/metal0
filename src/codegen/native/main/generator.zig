@@ -941,12 +941,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         break :blk "hashmap_helper.StringHashMap(i64)";
                     } else if (has_int_keys) blk: {
                         if (value_tag_str) |vtag| {
-                            if (std.mem.eql(u8, vtag, "string")) break :blk "std.AutoHashMap(i64, []const u8)";
-                            if (std.mem.eql(u8, vtag, "float")) break :blk "std.AutoHashMap(i64, f64)";
+                            if (std.mem.eql(u8, vtag, "string")) break :blk "std.AutoArrayHashMap(i64, []const u8)";
+                            if (std.mem.eql(u8, vtag, "float")) break :blk "std.AutoArrayHashMap(i64, f64)";
                         }
-                        if (std.mem.eql(u8, dict_value_type, "[]const u8")) break :blk "std.AutoHashMap(i64, []const u8)";
-                        if (std.mem.eql(u8, dict_value_type, "f64")) break :blk "std.AutoHashMap(i64, f64)";
-                        break :blk "std.AutoHashMap(i64, i64)";
+                        if (std.mem.eql(u8, dict_value_type, "[]const u8")) break :blk "std.AutoArrayHashMap(i64, []const u8)";
+                        if (std.mem.eql(u8, dict_value_type, "f64")) break :blk "std.AutoArrayHashMap(i64, f64)";
+                        break :blk "std.AutoArrayHashMap(i64, i64)";
                     } else "hashmap_helper.StringHashMap(i64)"; // Default for empty dict()
 
                     try self.emit("var ");
@@ -1135,8 +1135,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             if (src_has_int_keys and src_has_str_keys) {
                                 break :blk "hashmap_helper.StringHashMap(runtime.PyValue)";
                             } else if (src_has_int_keys) {
-                                // Inherit source dict's corrected type (AutoHashMap with int keys)
-                                break :blk "std.AutoHashMap(i64, i64)";
+                                // Inherit source dict's corrected type (AutoArrayHashMap with int keys)
+                                break :blk "std.AutoArrayHashMap(i64, i64)";
                             }
                         }
                     }
@@ -1154,18 +1154,18 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             // to match dict.zig codegen (d = {} with d[i] = x typically has int values)
                             const value_type = vt.dict.value.*;
                             if (type_traits.isIntegral(value_type)) {
-                                break :blk "std.AutoHashMap(i64, i64)";
+                                break :blk "std.AutoArrayHashMap(i64, i64)";
                             } else if (type_traits.isFloating(value_type)) {
-                                break :blk "std.AutoHashMap(i64, f64)";
+                                break :blk "std.AutoArrayHashMap(i64, f64)";
                             } else if (string_traits.isString(value_type)) {
-                                break :blk "std.AutoHashMap(i64, []const u8)";
+                                break :blk "std.AutoArrayHashMap(i64, []const u8)";
                             } else if (type_traits.isUnknown(value_type)) {
                                 // Empty dict with int keys defaults to i64 values
                                 // (matches dict.zig:61 behavior)
-                                break :blk "std.AutoHashMap(i64, i64)";
+                                break :blk "std.AutoArrayHashMap(i64, i64)";
                             } else {
                                 // Default to PyObject for complex values
-                                break :blk "std.AutoHashMap(i64, *runtime.PyObject)";
+                                break :blk "std.AutoArrayHashMap(i64, *runtime.PyObject)";
                             }
                         } else if (has_str_keys) {
                             // String keys with mutations - check value type

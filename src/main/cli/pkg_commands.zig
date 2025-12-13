@@ -1,6 +1,7 @@
 /// Package management commands (pip-compatible)
 /// Commands: install, uninstall, freeze, list, download, check, show, cache
 const std = @import("std");
+const builtin = @import("builtin");
 const pkg = @import("pkg");
 const Color = @import("common.zig").Color;
 const printSuccess = @import("common.zig").printSuccess;
@@ -119,7 +120,8 @@ pub fn cmdInstall(allocator: std.mem.Allocator, args: []const []const u8) !void 
     var client = pkg.pypi.PyPIClient.init(allocator);
     defer client.deinit();
 
-    const home = std.posix.getenv("HOME") orelse "/tmp";
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    const home = if (comptime builtin.os.tag == .windows) "C:\\Users\\Public" else (std.posix.getenv("HOME") orelse "/tmp");
     const cache_dir = try std.fmt.allocPrint(allocator, "{s}/.metal0/cache", .{home});
     defer allocator.free(cache_dir);
 
@@ -538,11 +540,11 @@ pub fn cmdCache(allocator: std.mem.Allocator, args: []const []const u8) !void {
     }
 
     const subcmd = args[0];
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    const home = if (comptime builtin.os.tag == .windows) "C:\\Users\\Public" else (std.posix.getenv("HOME") orelse "/tmp");
     if (std.mem.eql(u8, subcmd, "dir")) {
-        const home = std.posix.getenv("HOME") orelse "/tmp";
         std.debug.print("{s}/.metal0/cache\n", .{home});
     } else if (std.mem.eql(u8, subcmd, "purge")) {
-        const home = std.posix.getenv("HOME") orelse "/tmp";
         const cache_path = try std.fmt.allocPrint(allocator, "{s}/.metal0/cache", .{home});
         defer allocator.free(cache_path);
 

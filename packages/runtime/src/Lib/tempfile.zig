@@ -10,17 +10,15 @@ const builtin = @import("builtin");
 
 /// Default directory for temporary files
 pub fn gettempdir() []const u8 {
-    // Check environment variables in order
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    if (comptime builtin.os.tag == .windows) {
+        return "C:\\TEMP";
+    }
+    // Check environment variables in order (POSIX only)
     if (std.posix.getenv("TMPDIR")) |dir| return dir;
     if (std.posix.getenv("TEMP")) |dir| return dir;
     if (std.posix.getenv("TMP")) |dir| return dir;
-
-    // Platform defaults
-    if (builtin.os.tag == .windows) {
-        return "C:\\TEMP";
-    } else {
-        return "/tmp";
-    }
+    return "/tmp";
 }
 
 /// Generate a unique temporary filename

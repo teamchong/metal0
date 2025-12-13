@@ -156,15 +156,22 @@ fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // os.getenv() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
+    // Note: std.posix.getenv unavailable on Windows - use comptime check
     try self.emit("os_getenv_blk: { const _key = ");
     try self.genExpr(args[0]);
-    try self.emit("; break :os_getenv_blk std.posix.getenv(_key) orelse ");
+    try self.emit("; _ = _key; break :os_getenv_blk if (comptime @import(\"builtin\").os.tag == .windows) @as(?[]const u8, ");
+    if (args.len >= 2) {
+        try self.genExpr(args[1]);
+    } else {
+        try self.emit("null");
+    }
+    try self.emit(") else (std.posix.getenv(_key) orelse ");
     if (args.len >= 2) {
         try self.genExpr(args[1]);
     } else {
         try self.emit("\"\"");
     }
-    try self.emit("; }");
+    try self.emit("); }");
 }
 
 fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

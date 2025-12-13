@@ -117,9 +117,9 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
             // Convert all keys to strings at runtime
             try self.emit("hashmap_helper.StringHashMap(runtime.PyValue).init(");
         } else if (has_int_keys) {
-            // Use AutoHashMap for int keys
+            // Use AutoArrayHashMap for int keys (has .keys() and .values() like Python)
             // Also use i64 value type since d[i] = i typically has int value too
-            try self.emit("std.AutoHashMap(i64, i64).init(");
+            try self.emit("std.AutoArrayHashMap(i64, i64).init(");
         } else if (has_str_keys) {
             // String keys with mutations - use i64 value type for common pattern d['key'] = 1
             try self.emit("hashmap_helper.StringHashMap(i64).init(");
@@ -252,8 +252,8 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emitIndent();
     switch (key_classification) {
         .int => {
-            // Integer keys - use AutoHashMap with i64 key type
-            try self.emit("var _dict = std.AutoHashMap(i64, V).init(");
+            // Integer keys - use AutoArrayHashMap with i64 key type (has .keys() and .values())
+            try self.emit("var _dict = std.AutoArrayHashMap(i64, V).init(");
         },
         .string => {
             // String keys - use StringHashMap
@@ -440,10 +440,10 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     self.indent();
     try self.emitIndent();
     if (uses_int_keys) {
-        try self.emit("var map = std.AutoHashMap(i64, ");
+        try self.emit("var map = std.AutoArrayHashMap(i64, ");
     } else if (uses_float_keys) {
         // Floats can't be hashed directly in Zig, use u64 bit representation
-        try self.emit("var map = std.AutoHashMap(u64, ");
+        try self.emit("var map = std.AutoArrayHashMap(u64, ");
     } else {
         try self.emit("var map = hashmap_helper.StringHashMap(");
     }

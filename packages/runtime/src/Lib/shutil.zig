@@ -200,7 +200,8 @@ pub fn disk_usage(path: []const u8) !DiskUsage {
 
 /// Check if a command exists in PATH
 pub fn which(allocator: Allocator, cmd: []const u8) !?[]const u8 {
-    const path_env = std.posix.getenv("PATH") orelse return null;
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    const path_env = if (comptime builtin.os.tag == .windows) return null else (std.posix.getenv("PATH") orelse return null);
 
     var iter = std.mem.splitScalar(u8, path_env, ':');
     while (iter.next()) |dir| {

@@ -56,6 +56,9 @@ pub fn build(b: *std.Build) void {
     const zig_keywords = b.addModule("utils.zig_keywords", .{
         .root_source_file = b.path("src/utils/zig_keywords.zig"),
     });
+    const platform = b.addModule("utils.platform", .{
+        .root_source_file = b.path("src/utils/platform.zig"),
+    });
     const name_gen = b.addModule("codegen.name_gen", .{
         .root_source_file = b.path("src/codegen/native/name_gen.zig"),
     });
@@ -157,6 +160,7 @@ pub fn build(b: *std.Build) void {
     // Module dependencies
     runtime.addImport("utils.hashmap_helper", hashmap_helper);
     runtime.addImport("utils.allocator_helper", allocator_helper);
+    runtime.addImport("utils.platform", platform);
     runtime.addImport("json_simd", json_simd);
     runtime.addImport("json", json_mod); // Shared JSON library with primitives
     runtime.addImport("regex", regex_mod);
@@ -221,6 +225,7 @@ pub fn build(b: *std.Build) void {
     });
     exe.root_module.addImport("utils.hashmap_helper", hashmap_helper);
     exe.root_module.addImport("utils.allocator_helper", allocator_helper);
+    exe.root_module.addImport("utils.platform", platform);
     exe.root_module.addImport("runtime", runtime);
     exe.root_module.addImport("collections", collections);
     exe.root_module.addImport("utils.fnv_hash", fnv_hash);

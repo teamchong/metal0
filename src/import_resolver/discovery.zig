@@ -12,7 +12,8 @@ pub fn discoverSitePackages(allocator: std.mem.Allocator) ![][]const u8 {
     }
 
     // Check for virtual environment first (VIRTUAL_ENV env var)
-    if (std.posix.getenv("VIRTUAL_ENV")) |venv| {
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("VIRTUAL_ENV")) |venv| {
         var venv_version: u8 = 8;
         while (venv_version <= 13) : (venv_version += 1) {
             const venv_path = std.fmt.allocPrint(
@@ -127,14 +128,8 @@ pub fn discoverSitePackages(allocator: std.mem.Allocator) ![][]const u8 {
                 paths.append(allocator, sys_path) catch allocator.free(sys_path);
 
                 // AppData installation
-                if (std.posix.getenv("APPDATA")) |appdata| {
-                    const user_path = try std.fmt.allocPrint(
-                        allocator,
-                        "{s}\\Python\\Python3{d}\\site-packages",
-                        .{ appdata, version },
-                    );
-                    paths.append(allocator, user_path) catch allocator.free(user_path);
-                }
+                // Note: std.posix.getenv unavailable on Windows - skip user site-packages for now
+                // TODO: Use std.process.getEnvVarOwned or Windows API for WTF-16 env vars
             }
         },
         else => {
@@ -155,7 +150,8 @@ pub fn discoverStdlib(allocator: std.mem.Allocator) ![][]const u8 {
     }
 
     // Check for virtual environment first
-    if (std.posix.getenv("VIRTUAL_ENV")) |venv| {
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("VIRTUAL_ENV")) |venv| {
         var venv_version: u8 = 8;
         while (venv_version <= 13) : (venv_version += 1) {
             const venv_path = std.fmt.allocPrint(
@@ -235,14 +231,8 @@ pub fn discoverStdlib(allocator: std.mem.Allocator) ![][]const u8 {
                 );
                 paths.append(allocator, sys_path) catch allocator.free(sys_path);
 
-                if (std.posix.getenv("APPDATA")) |appdata| {
-                    const user_path = try std.fmt.allocPrint(
-                        allocator,
-                        "{s}\\Python\\Python3{d}\\Lib",
-                        .{ appdata, version },
-                    );
-                    paths.append(allocator, user_path) catch allocator.free(user_path);
-                }
+                // Note: std.posix.getenv unavailable on Windows - skip user paths for now
+                // TODO: Use std.process.getEnvVarOwned or Windows API for WTF-16 env vars
             }
         },
         else => {},

@@ -422,7 +422,8 @@ pub const PackageInfo = struct {
 /// Detect the best site-packages directory
 fn detectSitePackages(allocator: std.mem.Allocator) ![]const u8 {
     // Check for virtual environment first
-    if (std.posix.getenv("VIRTUAL_ENV")) |venv| {
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("VIRTUAL_ENV")) |venv| {
         const path = try std.fmt.allocPrint(
             allocator,
             "{s}/lib/python3.11/site-packages",
@@ -471,7 +472,8 @@ fn detectSitePackages(allocator: std.mem.Allocator) ![]const u8 {
     }
 
     // User site-packages
-    if (std.posix.getenv("HOME")) |home| {
+    // Note: std.posix.getenv unavailable on Windows
+    if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("HOME")) |home| {
         version = 13;
         while (version >= 8) : (version -= 1) {
             const user_path = if (builtin.os.tag == .macos)

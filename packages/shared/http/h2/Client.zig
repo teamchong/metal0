@@ -10,6 +10,7 @@
 //! - Connection pooling per host
 
 const std = @import("std");
+const builtin = @import("builtin");
 const hashmap_helper = @import("utils.hashmap_helper");
 const frame = @import("frame.zig");
 const hpack = @import("hpack.zig");
@@ -773,8 +774,8 @@ pub const Client = struct {
         ) catch return error.ConnectionFailed;
         errdefer std.posix.close(socket);
 
-        // Set non-blocking if async mode enabled
-        if (self.netpoller != null) {
+        // Set non-blocking if async mode enabled (not supported on Windows)
+        if (self.netpoller != null and comptime builtin.os.tag != .windows) {
             const flags = std.posix.fcntl(socket, std.posix.F.GETFL, 0) catch 0;
             _ = std.posix.fcntl(socket, std.posix.F.SETFL, flags | 0x0004) catch {}; // O_NONBLOCK = 0x0004 on macOS/BSD
         }

@@ -10,7 +10,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "basename", h.wrap("blk: { const path = ", "; break :blk std.fs.path.basename(path); }", "\"\"") },
     .{ "dirname", h.wrap("blk: { const path = ", "; break :blk std.fs.path.dirname(path) orelse \"\"; }", "\"\"") },
     .{ "exists", h.wrap("blk: { const path = ", "; _ = std.fs.cwd().statFile(path) catch break :blk false; break :blk true; }", "false") },
-    .{ "expanduser", h.wrap("blk: { const path = ", "; if (path.len > 0 and path[0] == '~') { const home = std.posix.getenv(\"USERPROFILE\") orelse std.posix.getenv(\"HOME\") orelse \"\"; break :blk std.fmt.allocPrint(__global_allocator, \"{s}{s}\", .{ home, path[1..] }) catch path; } break :blk path; }", "\"\"") },
+    .{ "expanduser", h.wrap("blk: { const path = ", "; if (path.len > 0 and path[0] == '~') { const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\"); break :blk std.fmt.allocPrint(__global_allocator, \"{s}{s}\", .{ home, path[1..] }) catch path; } break :blk path; }", "\"\"") },
     .{ "expandvars", h.pass("\"\"") },
     .{ "getsize", h.wrap("blk: { const path = ", "; const stat = std.fs.cwd().statFile(path) catch break :blk @as(i64, 0); break :blk @intCast(stat.size); }", "@as(i64, 0)") },
     .{ "isabs", h.wrap("blk: { const path = ", "; break :blk (path.len > 0 and path[0] == '/') or (path.len > 2 and path[1] == ':'); }", "false") },

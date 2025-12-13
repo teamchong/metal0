@@ -1387,7 +1387,7 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     try self.emitIndent();
     switch (key_classification) {
         .int => {
-            try self.output.writer(self.allocator).print("var __dict_result = std.AutoHashMap(i64, {s}).init(__global_allocator);\n", .{value_type_str});
+            try self.output.writer(self.allocator).print("var __dict_result = std.AutoArrayHashMap(i64, {s}).init(__global_allocator);\n", .{value_type_str});
         },
         .string => {
             try self.output.writer(self.allocator).print("var __dict_result = hashmap_helper.StringHashMap({s}).init(__global_allocator);\n", .{value_type_str});

@@ -1,5 +1,6 @@
 /// Core compilation functions
 const std = @import("std");
+const builtin = @import("builtin");
 const hashmap_helper = @import("utils.hashmap_helper");
 const ast = @import("analysis.ast");
 const lexer = @import("../lexer.zig");
@@ -346,8 +347,8 @@ fn emitBytecode(allocator: std.mem.Allocator, source: []const u8) !void {
     const bytes = try program.serialize(allocator);
     defer allocator.free(bytes);
 
-    // Write to stdout using posix
-    _ = try std.posix.write(std.posix.STDOUT_FILENO, bytes);
+    // Write to stdout using Zig 0.15+ cross-platform API
+    try std.fs.File.stdout().writeAll(bytes);
 }
 
 /// Fast codegen-only mode - produces just .zig file

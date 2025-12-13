@@ -100,7 +100,7 @@ pub const PathMethods = std.StaticStringMap(MH).initComptime(.{
     // Path manipulation
     .{ "absolute", methodBlock("path_abs", "const _cwd = std.process.getCwdAlloc(__global_allocator) catch break :path_abs_blk _p; break :path_abs_blk std.fs.path.join(__global_allocator, &.{_cwd, _p}) catch _p;") },
     .{ "resolve", methodBlock("path_resolve", "break :path_resolve_blk std.fs.cwd().realpathAlloc(__global_allocator, _p) catch _p;") },
-    .{ "expanduser", methodBlock("path_expand", "if (_p.len > 0 and _p[0] == '~') { const _h = std.posix.getenv(\"HOME\") orelse \"\"; break :path_expand_blk std.fs.path.join(__global_allocator, &.{_h, _p[1..]}) catch _p; } break :path_expand_blk _p;") },
+    .{ "expanduser", methodBlock("path_expand", "if (_p.len > 0 and _p[0] == '~') { const _h = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\"); break :path_expand_blk std.fs.path.join(__global_allocator, &.{_h, _p[1..]}) catch _p; } break :path_expand_blk _p;") },
     .{ "with_name", methodWithArg("path_wname", "const _d = std.fs.path.dirname(_p) orelse \"\"; break :path_wname_blk std.fs.path.join(__global_allocator, &.{_d, _arg}) catch _p;") },
     .{ "with_suffix", methodWithArg("path_wsuf", "const _ext = std.fs.path.extension(_p); const _stem = if (_ext.len > 0) _p[0.._p.len - _ext.len] else _p; break :path_wsuf_blk std.fmt.allocPrint(__global_allocator, \"{s}{s}\", .{_stem, _arg}) catch _p;") },
     .{ "with_stem", methodWithArg("path_wstem", "const _ext = std.fs.path.extension(_p); const _d = std.fs.path.dirname(_p) orelse \"\"; break :path_wstem_blk std.fmt.allocPrint(__global_allocator, \"{s}/{s}{s}\", .{_d, _arg, _ext}) catch _p;") },
