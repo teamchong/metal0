@@ -132,6 +132,10 @@ pub const io_mod = @import("builtins/io.zig");
 pub const input = io_mod.input;
 pub const breakpoint = io_mod.breakpoint;
 pub const print = io_mod.print;
+pub const printWithOptions = io_mod.printWithOptions;
+
+/// sys module for print() file parameter
+pub const sys = @import("../Lib/sys.zig");
 
 /// Introspection functions (callable, len, id, hash)
 pub const intro_mod = @import("builtins/introspection.zig");
@@ -248,13 +252,15 @@ pub const CompareOp = types_mod.CompareOp;
 pub const bigIntDivmod = types_mod.bigIntDivmod;
 pub const bigIntCompare = types_mod.bigIntCompare;
 
-/// Type constructor callables (list, tuple, set, frozenset, deque, complex)
+/// Type constructor callables (list, tuple, dict, set, frozenset, deque, defaultdict, complex)
 pub const cons_mod = @import("builtins/constructors.zig");
 pub const list = cons_mod.list;
 pub const tuple = cons_mod.tuple;
+pub const dict = cons_mod.dict;
 pub const set = cons_mod.set;
 pub const frozenset = cons_mod.frozenset;
 pub const deque = cons_mod.deque;
+pub const defaultdict = cons_mod.defaultdict;
 
 /// Complex number type constructor
 pub const pycomplex_mod = @import("pycomplex.zig");
@@ -417,91 +423,91 @@ pub fn pyListInsert(allocator: std.mem.Allocator, list_ptr: anytype, index: anyt
 
 /// Get list of keys from a dict (handles both HashMap and PyValue.dict)
 /// Two-Flow: runtime helper for uncertain dict types
-pub fn pyDictKeys(allocator: std.mem.Allocator, dict: anytype) std.ArrayListUnmanaged([]const u8) {
-    var keys: std.ArrayListUnmanaged([]const u8) = .{};
-    const T = @TypeOf(dict);
+pub fn pyDictKeys(allocator: std.mem.Allocator, d: anytype) std.ArrayListUnmanaged([]const u8) {
+    var result_keys: std.ArrayListUnmanaged([]const u8) = .{};
+    const T = @TypeOf(d);
     const info = @typeInfo(T);
 
     if (info == .@"struct" and @hasDecl(T, "keys")) {
         // HashMap-like with keys() method
-        for (dict.keys()) |key| {
-            keys.append(allocator, key) catch {};
+        for (d.keys()) |key| {
+            result_keys.append(allocator, key) catch {};
         }
     } else if (info == .@"struct" and @hasDecl(T, "iterator")) {
         // ArrayHashMap-like with iterator
-        var dict_iter = dict.iterator();
+        var dict_iter = d.iterator();
         while (dict_iter.next()) |entry| {
-            keys.append(allocator, entry.key_ptr.*) catch {};
+            result_keys.append(allocator, entry.key_ptr.*) catch {};
         }
     } else if (T == PyValue) {
         // PyValue.dict - extract from ptr
-        if (dict == .ptr) {
+        if (d == .ptr) {
             const hashmap_helper = @import("utils.hashmap_helper");
-            const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(dict.ptr));
+            const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(d.ptr));
             for (map_ptr.keys()) |key| {
-                keys.append(allocator, key) catch {};
+                result_keys.append(allocator, key) catch {};
             }
         }
     }
-    return keys;
+    return result_keys;
 }
 
 /// Get list of values from a dict (handles both HashMap and PyValue.dict)
 /// Two-Flow: runtime helper for uncertain dict types
-pub fn pyDictValues(allocator: std.mem.Allocator, dict: anytype) std.ArrayListUnmanaged(PyValue) {
-    var values: std.ArrayListUnmanaged(PyValue) = .{};
-    const T = @TypeOf(dict);
+pub fn pyDictValues(allocator: std.mem.Allocator, d: anytype) std.ArrayListUnmanaged(PyValue) {
+    var result_values: std.ArrayListUnmanaged(PyValue) = .{};
+    const T = @TypeOf(d);
     const info = @typeInfo(T);
 
     if (info == .@"struct" and @hasDecl(T, "values")) {
         // HashMap-like with values() method
-        for (dict.values()) |val| {
-            values.append(allocator, PyValue.from(val)) catch {};
+        for (d.values()) |val| {
+            result_values.append(allocator, PyValue.from(val)) catch {};
         }
     } else if (info == .@"struct" and @hasDecl(T, "iterator")) {
         // ArrayHashMap-like with iterator
-        var dict_iter = dict.iterator();
+        var dict_iter = d.iterator();
         while (dict_iter.next()) |entry| {
-            values.append(allocator, PyValue.from(entry.value_ptr.*)) catch {};
+            result_values.append(allocator, PyValue.from(entry.value_ptr.*)) catch {};
         }
     } else if (T == PyValue) {
         // PyValue.dict - extract from ptr
-        if (dict == .ptr) {
+        if (d == .ptr) {
             const hashmap_helper = @import("utils.hashmap_helper");
-            const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(dict.ptr));
+            const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(d.ptr));
             for (map_ptr.values()) |val| {
-                values.append(allocator, val) catch {};
+                result_values.append(allocator, val) catch {};
             }
         }
     }
-    return values;
+    return result_values;
 }
 
 /// Get list of (key, value) tuples from a dict (handles both HashMap and PyValue.dict)
 /// Two-Flow: runtime helper for uncertain dict types
-pub fn pyDictItems(allocator: std.mem.Allocator, dict: anytype) std.ArrayListUnmanaged(std.meta.Tuple(&[_]type{ []const u8, PyValue })) {
-    var items: std.ArrayListUnmanaged(std.meta.Tuple(&[_]type{ []const u8, PyValue })) = .{};
-    const T = @TypeOf(dict);
+pub fn pyDictItems(allocator: std.mem.Allocator, d: anytype) std.ArrayListUnmanaged(std.meta.Tuple(&[_]type{ []const u8, PyValue })) {
+    var result_items: std.ArrayListUnmanaged(std.meta.Tuple(&[_]type{ []const u8, PyValue })) = .{};
+    const T = @TypeOf(d);
     const info = @typeInfo(T);
 
     if (info == .@"struct" and @hasDecl(T, "iterator")) {
         // HashMap-like with iterator
-        var dict_iter = dict.iterator();
+        var dict_iter = d.iterator();
         while (dict_iter.next()) |entry| {
-            items.append(allocator, .{ entry.key_ptr.*, PyValue.from(entry.value_ptr.*) }) catch {};
+            result_items.append(allocator, .{ entry.key_ptr.*, PyValue.from(entry.value_ptr.*) }) catch {};
         }
     } else if (T == PyValue) {
         // PyValue.dict - extract from ptr
-        if (dict == .ptr) {
+        if (d == .ptr) {
             const hashmap_helper = @import("utils.hashmap_helper");
-            const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(dict.ptr));
+            const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(d.ptr));
             var map_iter = map_ptr.iterator();
             while (map_iter.next()) |entry| {
-                items.append(allocator, .{ entry.key_ptr.*, entry.value_ptr.* }) catch {};
+                result_items.append(allocator, .{ entry.key_ptr.*, entry.value_ptr.* }) catch {};
             }
         }
     }
-    return items;
+    return result_items;
 }
 
 /// Pop a key from dict and return its value (handles both HashMap and PyValue.dict)
@@ -567,20 +573,20 @@ pub fn pyDictClear(dict_ptr: anytype) void {
 
 /// Create shallow copy of dict (handles both HashMap and PyValue.dict)
 /// Two-Flow: runtime helper for uncertain dict types
-pub fn pyDictCopy(allocator: std.mem.Allocator, dict: anytype) @TypeOf(dict) {
-    const T = @TypeOf(dict);
+pub fn pyDictCopy(allocator: std.mem.Allocator, d: anytype) @TypeOf(d) {
+    const T = @TypeOf(d);
     const info = @typeInfo(T);
 
     if (info == .@"struct" and @hasDecl(T, "init") and @hasDecl(T, "put") and @hasDecl(T, "iterator")) {
         var copy = T.init(allocator);
-        var dict_iter = dict.iterator();
+        var dict_iter = d.iterator();
         while (dict_iter.next()) |entry| {
             copy.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
         }
         return copy;
     }
     // Fallback: return original (can't copy unknown type)
-    return dict;
+    return d;
 }
 
 /// Set default value for key if not present, return current value

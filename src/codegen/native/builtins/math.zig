@@ -302,53 +302,32 @@ pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for hash(obj)
 /// Returns integer hash of object
-/// Two-Flow: routes uncertain operands to PyValue.pyHash()
+/// Two-Flow: always uses runtime.pyHash() which handles all types (including PyValue, tuples, etc.)
 pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         try self.emit("(error.TypeError)");
         return;
     }
 
-    // Two-Flow: Check if argument is uncertain
-    if (isExprUncertain(self, args[0])) {
-        // Route to PyValue.pyHash() for runtime type safety
-        try self.genExpr(args[0]);
-        try self.emit(".pyHash()");
-        return;
-    }
-
     // Check the type of the argument to generate appropriate code
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
-    // float() now always returns f64 (uses catch 0.0 internally), not error union
-
     switch (arg_type) {
-        .int => {
-            // For integers: use runtime.pyHash to handle both i64 and IntResult (from int(large_float))
-            try self.emit("runtime.pyHash(");
-            try self.genExpr(args[0]);
-            try self.emit(")");
-        },
         .bool => {
-            // For bools: 1 for True, 0 for False
+            // For bools: 1 for True, 0 for False (fast path)
             try self.emit("@as(i64, if (");
             try self.genExpr(args[0]);
             try self.emit(") 1 else 0)");
         },
-        .float => {
-            // For floats: use Python's float hash algorithm (from runtime.pyHash)
-            try self.emit("runtime.pyHash(");
-            try self.genExpr(args[0]);
-            try self.emit(")");
-        },
         .string => {
-            // For strings: use std.hash.Wyhash
+            // For strings: use std.hash.Wyhash (fast path)
             try self.emit("@as(i64, @bitCast(std.hash.Wyhash.hash(0, ");
             try self.genExpr(args[0]);
             try self.emit(")))");
         },
         else => {
-            // For other types: use runtime.pyHash which handles PyObject
+            // For all other types (int, float, tuple, PyValue, unknown, etc.):
+            // use runtime.pyHash which handles all types including tuples and PyValue
             try self.emit("runtime.pyHash(");
             try self.genExpr(args[0]);
             try self.emit(")");

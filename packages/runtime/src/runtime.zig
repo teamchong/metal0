@@ -227,6 +227,15 @@ pub const objectBuiltin = type_builtins.objectBuiltin;
 pub const complexBuiltin = type_builtins.complexBuiltin;
 pub const hasattr_builtin = @import("runtime/dynamic_attrs.zig").hasattr_builtin;
 
+// Re-export pyDict helpers for Two-Flow runtime
+pub const pyDictKeys = builtins.pyDictKeys;
+pub const pyDictValues = builtins.pyDictValues;
+pub const pyDictItems = builtins.pyDictItems;
+pub const pyDictPop = builtins.pyDictPop;
+pub const pyDictUpdate = builtins.pyDictUpdate;
+pub const pyDictCopy = builtins.pyDictCopy;
+pub const pyDictSetdefault = builtins.pyDictSetdefault;
+
 // Re-export pickle for codegen (use actual pickle implementation with loads/dumps)
 pub const pickle = @import("Lib/pickle/pickle.zig");
 

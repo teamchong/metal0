@@ -175,6 +175,11 @@ pub const stderr = struct {
     pub fn flush() !void {}
 };
 
+/// Aliases for CPython compatibility (print uses sys.__stdout__, sys.__stderr__)
+/// For printWithOptions, null means use stdout/stderr
+pub const __stdout__: ?std.fs.File = null; // null = use stdout
+pub const __stderr__: ?std.fs.File = null; // null = use stderr
+
 // ============================================================================
 // Intentional Stubs (Not applicable to AOT compilation)
 // ============================================================================
