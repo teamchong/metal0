@@ -1618,7 +1618,6 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // PyValue dict assignment: pyval.pyDictPut(allocator, key, value)
                     // PyValue can contain a dict (wrapped as ptr to StringHashMap)
                     const index_type = try self.inferExprScoped(subscript.slice.index.*);
-                    std.debug.print("DEBUG pyvalue branch: index_type={}\n", .{index_type});
                     if (string_traits.isString(index_type) or index_type == .pyvalue or type_traits.isUnknown(index_type)) {
                         // String key (or PyValue containing string, or unknown) - treat as dict assignment
                         // For PyValue/unknown key, we need to unwrap it to string with .asString()

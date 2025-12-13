@@ -113,6 +113,32 @@ pub fn isIterable(t: NativeType) bool {
 }
 
 // ============================================================================
+// DICTIONARY KEY TYPE CLASSIFICATION
+// ============================================================================
+
+/// Dictionary key type classification for proper HashMap type selection
+pub const DictKeyType = enum {
+    int, // i64 keys -> std.AutoHashMap(i64, V)
+    string, // []const u8 keys -> hashmap_helper.StringHashMap(V)
+    pyvalue, // runtime.PyValue keys -> hashmap_helper.StringHashMap(PyValue)
+};
+
+/// Classify a NativeType for use as a dictionary key type
+/// Used by dict.zig and comprehensions.zig to select the correct HashMap type
+pub fn getDictKeyType(t: NativeType) DictKeyType {
+    const tag = @as(std.meta.Tag(@TypeOf(t)), t);
+    return switch (tag) {
+        // Integer types use AutoHashMap(i64, V)
+        .int, .bigint, .unified_int, .usize => .int,
+        // String types use StringHashMap(V) with []const u8 keys
+        .string, .bytes => .string,
+        // All other types (unknown, pyvalue, tuples, etc.) use StringHashMap(PyValue)
+        // This handles mixed key types and runtime-determined keys
+        else => .pyvalue,
+    };
+}
+
+// ============================================================================
 // INDEXING
 // ============================================================================
 

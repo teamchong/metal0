@@ -82,11 +82,17 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .name => |n| {
             // Resolve the name to use, with proper scoping rules:
             // 1. Check hoisted_local_classes first (locally-defined classes hoisted to struct level)
-            // 2. Don't apply var_renames to local variables/parameters - they take precedence
+            // 2. Check var_renames for comprehension loop variables (__comp_*) - these MUST shadow
+            //    local variables due to Python 3 comprehension scope isolation
+            // 3. Don't apply OTHER var_renames to local variables/parameters - they take precedence
             //    over class attribute lazy patterns from outer scopes
-            // 3. Check var_renames for transformed names (class attributes, shadows, etc.)
+            // 4. Check var_renames for transformed names (class attributes, shadows, etc.)
             const name_to_use = blk: {
                 if (self.hoisted_local_classes.get(n.id)) |hoisted| break :blk hoisted;
+                // Comprehension loop variables (__comp_*) MUST shadow local vars (Python 3 scope isolation)
+                if (self.var_renames.get(n.id)) |renamed| {
+                    if (std.mem.startsWith(u8, renamed, "__comp_")) break :blk renamed;
+                }
                 // Local vars/params take precedence - don't rename them with class attribute patterns
                 if (self.func_local_vars.contains(n.id)) break :blk n.id;
                 if (self.var_renames.get(n.id)) |renamed| break :blk renamed;

@@ -1363,7 +1363,7 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     // Now infer key and value types with loop vars visible
     // Use type inferrer to properly resolve function call return types
     const key_type = self.type_inferrer.inferExpr(dictcomp.key.*) catch .unknown;
-    const key_is_int = type_traits.isIntegral(key_type);
+    const key_classification = type_traits.getDictKeyType(key_type);
 
     // Check for target_dict_value_type context (set when assigning to widened dict variable)
     const value_type_str = if (self.target_dict_value_type) |target_type|
@@ -1383,11 +1383,19 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     self.indent();
 
     // Generate HashMap with properly inferred key/value types
+    // Use getDictKeyType to select correct HashMap type based on key type
     try self.emitIndent();
-    if (key_is_int) {
-        try self.output.writer(self.allocator).print("var __dict_result = std.AutoHashMap(i64, {s}).init(__global_allocator);\n", .{value_type_str});
-    } else {
-        try self.output.writer(self.allocator).print("var __dict_result = hashmap_helper.StringHashMap({s}).init(__global_allocator);\n", .{value_type_str});
+    switch (key_classification) {
+        .int => {
+            try self.output.writer(self.allocator).print("var __dict_result = std.AutoHashMap(i64, {s}).init(__global_allocator);\n", .{value_type_str});
+        },
+        .string => {
+            try self.output.writer(self.allocator).print("var __dict_result = hashmap_helper.StringHashMap({s}).init(__global_allocator);\n", .{value_type_str});
+        },
+        .pyvalue => {
+            // For unknown/mixed key types, use PyValue keys
+            try self.output.writer(self.allocator).print("var __dict_result = hashmap_helper.StringHashMap(runtime.PyValue).init(__global_allocator);\n", .{});
+        },
     }
 
     // Track variables renamed in this comprehension so we can restore them after

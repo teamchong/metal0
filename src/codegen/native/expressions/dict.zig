@@ -208,9 +208,9 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     const label = try std.fmt.allocPrint(self.allocator, "dict_{d}", .{@intFromPtr(dict.keys.ptr)});
     defer self.allocator.free(label);
 
-    // Infer key type from first key
+    // Infer key type from first key using getDictKeyType
     const key_type = try self.type_inferrer.inferExpr(dict.keys[0]);
-    const uses_int_keys = type_traits.isIntegral(key_type);
+    const key_classification = type_traits.getDictKeyType(key_type);
 
     try self.emit(label);
     try self.emit(": {\n");
@@ -248,13 +248,21 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
         try self.emit("const V = comptime runtime.InferDictValueType(@TypeOf(_kvs));\n");
     }
 
+    // Use getDictKeyType to select correct HashMap type based on key type
     try self.emitIndent();
-    if (uses_int_keys) {
-        // Integer keys - use AutoHashMap with i64 key type
-        try self.emit("var _dict = std.AutoHashMap(i64, V).init(");
-    } else {
-        // String keys - use StringHashMap
-        try self.emit("var _dict = hashmap_helper.StringHashMap(V).init(");
+    switch (key_classification) {
+        .int => {
+            // Integer keys - use AutoHashMap with i64 key type
+            try self.emit("var _dict = std.AutoHashMap(i64, V).init(");
+        },
+        .string => {
+            // String keys - use StringHashMap
+            try self.emit("var _dict = hashmap_helper.StringHashMap(V).init(");
+        },
+        .pyvalue => {
+            // Unknown/mixed key types - use StringHashMap with PyValue
+            try self.emit("var _dict = hashmap_helper.StringHashMap(runtime.PyValue).init(");
+        },
     }
     try self.emit(alloc_name);
     try self.emit(");\n");
@@ -340,11 +348,18 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emitIndent();
     try self.emit("} else kv[1];\n");
     try self.emitIndent();
-    if (uses_int_keys) {
-        // Cast comptime_int key to i64 for AutoHashMap
-        try self.emit("try _dict.put(@as(i64, kv[0]), cast_val);\n");
-    } else {
-        try self.emit("try _dict.put(kv[0], cast_val);\n");
+    switch (key_classification) {
+        .int => {
+            // Cast comptime_int key to i64 for AutoHashMap
+            try self.emit("try _dict.put(@as(i64, kv[0]), cast_val);\n");
+        },
+        .string => {
+            try self.emit("try _dict.put(kv[0], cast_val);\n");
+        },
+        .pyvalue => {
+            // Convert key to PyValue for mixed/unknown key types
+            try self.emit("try _dict.put(runtime.toPyValue(kv[0]), runtime.toPyValue(cast_val));\n");
+        },
     }
     self.dedent();
     try self.emitIndent();
