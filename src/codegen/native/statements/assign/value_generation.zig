@@ -179,6 +179,88 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                     try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
                 }
             }
+        } else if (target == .tuple) {
+            // Handle nested tuple unpacking: (x, y), (z, t) = sorted(v.items(), ...)
+            // First extract the i-th element into a temp, then unpack that
+            const nested_tmp = try std.fmt.allocPrint(self.allocator, "__nested_unpack_{d}", .{self.unpack_counter});
+            defer self.allocator.free(nested_tmp);
+            self.unpack_counter += 1;
+
+            // Generate: const __nested_unpack_N = __unpack_tmp_M[i];
+            try self.emitIndent();
+            try self.emit("const ");
+            try self.emit(nested_tmp);
+            if (is_list_type) {
+                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+            } else {
+                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
+            }
+
+            // Now unpack nested tuple elements
+            for (target.tuple.elts, 0..) |nested_target, j| {
+                if (nested_target == .name) {
+                    const var_name = nested_target.name.id;
+                    const is_unused = std.mem.eql(u8, var_name, "_") or self.isVarUnused(var_name);
+                    if (is_unused) {
+                        try self.emitIndent();
+                        try self.output.writer(self.allocator).print("_ = {s}.@\"{d}\";\n", .{ nested_tmp, j });
+                        continue;
+                    }
+
+                    const is_first_assignment = !self.isDeclared(var_name);
+                    try self.emitIndent();
+                    if (is_first_assignment) {
+                        try self.emit("const ");
+                        try self.declareVar(var_name);
+                    }
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                    // Nested elements are typically tuples themselves, use .@"N" indexing
+                    try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ nested_tmp, j });
+
+                    if (is_first_assignment) {
+                        try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, var_name));
+                    }
+                }
+            }
+        } else if (target == .list) {
+            // Handle nested list unpacking: [x, y], [z, t] = ...
+            const nested_tmp = try std.fmt.allocPrint(self.allocator, "__nested_unpack_{d}", .{self.unpack_counter});
+            defer self.allocator.free(nested_tmp);
+            self.unpack_counter += 1;
+
+            try self.emitIndent();
+            try self.emit("const ");
+            try self.emit(nested_tmp);
+            if (is_list_type) {
+                try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
+            } else {
+                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
+            }
+
+            for (target.list.elts, 0..) |nested_target, j| {
+                if (nested_target == .name) {
+                    const var_name = nested_target.name.id;
+                    const is_unused = std.mem.eql(u8, var_name, "_") or self.isVarUnused(var_name);
+                    if (is_unused) {
+                        try self.emitIndent();
+                        try self.output.writer(self.allocator).print("_ = {s}.@\"{d}\";\n", .{ nested_tmp, j });
+                        continue;
+                    }
+
+                    const is_first_assignment = !self.isDeclared(var_name);
+                    try self.emitIndent();
+                    if (is_first_assignment) {
+                        try self.emit("const ");
+                        try self.declareVar(var_name);
+                    }
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                    try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ nested_tmp, j });
+
+                    if (is_first_assignment) {
+                        try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, var_name));
+                    }
+                }
+            }
         }
     }
 
