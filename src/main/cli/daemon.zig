@@ -107,6 +107,9 @@ fn startDaemonBackground(allocator: std.mem.Allocator) !void {
 
 /// Get daemon PID if running
 pub fn getPid() ?std.process.Child.Id {
+    // On Windows, process IDs are different from handles - daemon feature not supported
+    if (comptime builtin.os.tag == .windows) return null;
+
     const file = std.fs.cwd().openFile(PID_FILE, .{}) catch return null;
     defer file.close();
     var buf: [32]u8 = undefined;
@@ -171,7 +174,16 @@ pub fn compileViaDaemon(allocator: std.mem.Allocator, opts: CompileOptions) ![]c
 /// Start the daemon process
 pub fn startDaemon(allocator: std.mem.Allocator) !void {
     if (isRunning()) {
-        std.debug.print("Daemon already running (pid: {?d})\n", .{getPid()});
+        const pid = getPid();
+        if (pid) |p| {
+            if (comptime builtin.os.tag == .windows) {
+                std.debug.print("Daemon already running (pid: {any})\n", .{p});
+            } else {
+                std.debug.print("Daemon already running (pid: {d})\n", .{p});
+            }
+        } else {
+            std.debug.print("Daemon already running\n", .{});
+        }
         return;
     }
 
@@ -182,7 +194,11 @@ pub fn startDaemon(allocator: std.mem.Allocator) !void {
     child.stderr_behavior = .Close;
 
     try child.spawn();
-    std.debug.print("Daemon started (pid: {d})\n", .{child.id});
+    if (comptime builtin.os.tag == .windows) {
+        std.debug.print("Daemon started (pid: {any})\n", .{child.id});
+    } else {
+        std.debug.print("Daemon started (pid: {d})\n", .{child.id});
+    }
 }
 
 /// Stop the daemon
