@@ -119,7 +119,7 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 }
 
 /// Generate code for dict.keys()
-/// Returns list of keys (always []const u8 for StringHashMap)
+/// Returns list of keys (type depends on dict key type - []const u8 or i64)
 /// Two-Flow: Certain dicts iterate HashMap.keys, uncertain use runtime.pyDictKeys
 pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // keys() takes no arguments
@@ -132,6 +132,14 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
         try self.emit(")");
         return;
     }
+
+    // Infer dict type to get key type
+    const dict_type = try self.type_inferrer.inferExpr(obj);
+    const type_traits = @import("../../../analysis/traits/type_traits.zig");
+    const has_int_keys = if (container_traits.isDict(dict_type))
+        type_traits.isIntegral(dict_type.dict.key.*)
+    else
+        false;
 
     const needs_temp = producesBlockExpression(obj);
 
@@ -153,7 +161,11 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     }
 
     try self.emitIndent();
-    try self.emit("var _keys_list = std.ArrayListUnmanaged([]const u8){};\n");
+    if (has_int_keys) {
+        try self.emit("var _keys_list = std.ArrayListUnmanaged(i64){};\n");
+    } else {
+        try self.emit("var _keys_list = std.ArrayListUnmanaged([]const u8){};\n");
+    }
 
     try self.emitIndent();
     try self.emit("for (");
