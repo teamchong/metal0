@@ -19,7 +19,7 @@ jobs:
   # CPython Compatibility Tests (Platform-specific)
   # =============================================================================
   test-cpython-core:
-    name: CPython @core (286 tests)
+    name: CPython @core (288 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
