@@ -564,13 +564,16 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     } // End of normal/fallback mode block
 
     // Phase 3: Run binaries that exist
-    if (!dots_mode) std.debug.print("Phase 3: Run...\n", .{});
+    if (!dots_mode) std.debug.print("Phase 3: Run... ({d} binaries to check)\n", .{bin_paths.items.len});
     var run_ok: usize = 0;
     var run_fail: usize = 0;
     var run_timeout_count: usize = 0;
     var compile_fail: usize = 0;
 
-    for (bin_paths.items) |bin_path| {
+    for (bin_paths.items, 0..) |bin_path, i| {
+        if (i % 10 == 0 and i > 0) {
+            std.debug.print("[Phase 3] Checking binary {d}/{d}...\n", .{i, bin_paths.items.len});
+        }
         // Skip if binary doesn't exist (compile failed)
         std.fs.cwd().access(bin_path, .{}) catch {
             compile_fail += 1;

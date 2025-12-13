@@ -1146,7 +1146,8 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
                 // Kill by PID to avoid touching Child struct
                 const builtin = @import("builtin");
                 if (builtin.os.tag != .windows) {
-                    _ = std.posix.kill(pid, std.posix.SIG.TERM) catch {};
+                    // SIGTERM = 15 on POSIX systems
+                    _ = std.posix.kill(pid, 15) catch {};
                 }
             }
         }
