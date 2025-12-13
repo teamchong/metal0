@@ -97,9 +97,17 @@ pub fn assertLess(a: anytype, b: anytype) !void {
     const BType = @TypeOf(b);
     const a_info = @typeInfo(AType);
     const b_info = @typeInfo(BType);
+    const PyValue = @import("../../../Objects/object.zig").PyValue;
 
     const is_less = blk: {
-        if ((a_info == .array or (a_info == .pointer and a_info.pointer.size == .slice)) and
+        // Handle PyValue (Two-Flow uncertain types)
+        if (AType == PyValue and BType == PyValue) {
+            break :blk a.lt(b);
+        } else if (AType == PyValue) {
+            break :blk a.lt(PyValue.from(b));
+        } else if (BType == PyValue) {
+            break :blk PyValue.from(a).lt(b);
+        } else if ((a_info == .array or (a_info == .pointer and a_info.pointer.size == .slice)) and
             (b_info == .array or (b_info == .pointer and b_info.pointer.size == .slice)))
         {
             const rt = @import("../../../runtime.zig");

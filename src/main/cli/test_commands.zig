@@ -18,12 +18,12 @@ const printSuccess = @import("common.zig").printSuccess;
 const printError = @import("common.zig").printError;
 const printWarn = @import("common.zig").printWarn;
 
-/// Load test patterns from a group file (.claude/test_groups/{group}.txt)
+/// Load test patterns from a group file (tests/groups/{group}.txt)
 /// Returns slice of test names (e.g., ["bool", "float", "int"])
 fn loadTestGroup(allocator: std.mem.Allocator, group_name: []const u8) ![]const []const u8 {
-    // Try .claude/test_groups/{group}.txt
+    // Try tests/groups/{group}.txt (committed to repo)
     var path_buf: [256]u8 = undefined;
-    const group_path = std.fmt.bufPrint(&path_buf, ".claude/test_groups/{s}.txt", .{group_name}) catch {
+    const group_path = std.fmt.bufPrint(&path_buf, "tests/groups/{s}.txt", .{group_name}) catch {
         return error.PathTooLong;
     };
 

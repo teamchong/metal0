@@ -148,6 +148,28 @@ pub fn minIterable(iterable: anytype) i64 {
             return min_val;
         }
     }
+    const PyValue = @import("../../Objects/object.zig").PyValue;
+    const IterType = @TypeOf(iterable);
+    const ElemType = std.meta.Elem(IterType);
+
+    // Handle PyValue slices
+    if (ElemType == PyValue) {
+        var min_val: ?PyValue = null;
+        for (iterable) |item| {
+            if (min_val) |mv| {
+                if (item.lt(mv)) {
+                    min_val = item;
+                }
+            } else {
+                min_val = item;
+            }
+        }
+        if (min_val) |mv| {
+            return mv.toInt() orelse 0;
+        }
+        return std.math.maxInt(i64);
+    }
+
     var min_val: i64 = std.math.maxInt(i64);
     for (iterable) |item| {
         if (item < min_val) {
@@ -185,7 +207,29 @@ pub fn maxIterable(iterable: anytype) i64 {
         }
     }
     const rt = @import("../../runtime.zig");
+    const PyValue = @import("../../Objects/object.zig").PyValue;
     const slice = rt.iterSlice(iterable);
+    const SliceType = @TypeOf(slice);
+    const ElemType = std.meta.Elem(SliceType);
+
+    // Handle PyValue slices
+    if (ElemType == PyValue) {
+        var max_val: ?PyValue = null;
+        for (slice) |item| {
+            if (max_val) |mv| {
+                if (item.gt(mv)) {
+                    max_val = item;
+                }
+            } else {
+                max_val = item;
+            }
+        }
+        if (max_val) |mv| {
+            return mv.toInt() orelse 0;
+        }
+        return std.math.minInt(i64);
+    }
+
     var max_val: i64 = std.math.minInt(i64);
     for (slice) |item| {
         if (item > max_val) {

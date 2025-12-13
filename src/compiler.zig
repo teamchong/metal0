@@ -297,15 +297,9 @@ fn killAfterTimeout(child: *std.process.Child, timeout_ns: u64, done: *std.atomi
         std.Thread.sleep(poll_interval);
         elapsed += poll_interval;
     }
-    // Timeout - kill the process
+    // Timeout - kill the process using cross-platform Child.kill()
     if (!done.load(.seq_cst)) {
-        if (comptime builtin.os.tag == .windows) {
-            // Windows: terminate process via Windows API
-            const handle: std.os.windows.HANDLE = @ptrFromInt(@as(usize, @intCast(child.id)));
-            std.os.windows.TerminateProcess(handle, 1) catch {};
-        } else {
-            _ = std.posix.kill(child.id, std.posix.SIG.KILL) catch {};
-        }
+        _ = child.kill() catch {};
     }
 }
 
