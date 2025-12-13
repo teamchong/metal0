@@ -136,20 +136,38 @@ fn dirExists(path: []const u8) bool {
 
 /// Get global cache directory path (~/.metal0/)
 pub fn globalCacheDir(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse "/tmp";
+    const builtin = @import("builtin");
+    const home = if (comptime builtin.os.tag == .windows)
+        std.process.getEnvVarOwned(allocator, "USERPROFILE") catch "C:\\Users\\Public"
+    else
+        std.posix.getenv("HOME") orelse "/tmp";
+
+    defer if (comptime builtin.os.tag == .windows) allocator.free(home);
     return std.fmt.allocPrint(allocator, "{s}/" ++ GLOBAL_CACHE, .{home});
 }
 
 /// Get global runtime directory (~/.metal0/runtime/)
 pub fn globalRuntimeDir(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse "/tmp";
+    const builtin = @import("builtin");
+    const home = if (comptime builtin.os.tag == .windows)
+        std.process.getEnvVarOwned(allocator, "USERPROFILE") catch "C:\\Users\\Public"
+    else
+        std.posix.getenv("HOME") orelse "/tmp";
+
+    defer if (comptime builtin.os.tag == .windows) allocator.free(home);
     return std.fmt.allocPrint(allocator, "{s}/" ++ GLOBAL_CACHE ++ "/runtime", .{home});
 }
 
 /// Get content-addressed runtime library path
 /// e.g., ~/.metal0/runtime/libruntime-{hash}.a
 pub fn globalRuntimePath(allocator: std.mem.Allocator, hash: []const u8) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse "/tmp";
+    const builtin = @import("builtin");
+    const home = if (comptime builtin.os.tag == .windows)
+        std.process.getEnvVarOwned(allocator, "USERPROFILE") catch "C:\\Users\\Public"
+    else
+        std.posix.getenv("HOME") orelse "/tmp";
+
+    defer if (comptime builtin.os.tag == .windows) allocator.free(home);
     return std.fmt.allocPrint(allocator, "{s}/" ++ GLOBAL_CACHE ++ "/runtime/libruntime-{s}.a", .{ home, hash });
 }
 

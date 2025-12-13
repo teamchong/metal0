@@ -73,7 +73,7 @@ fn stdprinter_repr(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject
 
     // Format as "<stdprinter(fd=N) object at 0xPTR>"
     var buf: [128]u8 = undefined;
-    const len = std.fmt.bufPrint(&buf, "<stdprinter(fd={d}) object at 0x{x}>", .{
+    const len = std.fmt.bufPrint(&buf, "<stdprinter(fd={any}) object at 0x{x}>", .{
         self.fd,
         @intFromPtr(self),
     }) catch return null;

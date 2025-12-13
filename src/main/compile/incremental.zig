@@ -40,8 +40,14 @@ pub fn hasRuntimeArchive() bool {
     // First check local symlink
     std.fs.cwd().access(RUNTIME_ARCHIVE_PATH, .{}) catch {
         // Check global cache
+        const builtin = @import("builtin");
         var buf: [512]u8 = undefined;
-        const home = std.posix.getenv("HOME") orelse return false;
+        const home = if (comptime builtin.os.tag == .windows)
+            std.process.getEnvVarOwned(std.heap.page_allocator, "USERPROFILE") catch return false
+        else
+            std.posix.getenv("HOME") orelse return false;
+
+        defer if (comptime builtin.os.tag == .windows) std.heap.page_allocator.free(home);
         const global_path = std.fmt.bufPrint(&buf, "{s}/.metal0/runtime/libruntime-latest.a", .{home}) catch return false;
         std.fs.cwd().access(global_path, .{}) catch return false;
         return true;
@@ -52,8 +58,14 @@ pub fn hasRuntimeArchive() bool {
 /// Get runtime archive mtime (for cache invalidation)
 pub fn getRuntimeArchiveMtime() i128 {
     // Check global cache first
+    const builtin = @import("builtin");
     var buf: [512]u8 = undefined;
-    const home = std.posix.getenv("HOME") orelse return 0;
+    const home = if (comptime builtin.os.tag == .windows)
+        std.process.getEnvVarOwned(std.heap.page_allocator, "USERPROFILE") catch return 0
+    else
+        std.posix.getenv("HOME") orelse return 0;
+
+    defer if (comptime builtin.os.tag == .windows) std.heap.page_allocator.free(home);
     const global_path = std.fmt.bufPrint(&buf, "{s}/.metal0/runtime/libruntime-latest.a", .{home}) catch return 0;
 
     const file = std.fs.cwd().openFile(global_path, .{}) catch {
