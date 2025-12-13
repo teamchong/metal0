@@ -3,6 +3,7 @@
 /// - Debug build (fast compile)
 /// - File watcher for auto-recompile
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const common = @import("common.zig");
 const compile_mod = @import("../compile.zig");
 const daemon = @import("daemon.zig");
@@ -118,7 +119,7 @@ fn watchFile(allocator: std.mem.Allocator, file_path: []const u8) !void {
 
 /// Watch directory for any .py file changes
 fn watchDirectory(allocator: std.mem.Allocator, dir_path: []const u8) !void {
-    var file_mtimes = std.StringHashMap(i128).init(allocator);
+    var file_mtimes = hashmap_helper.StringHashMap(i128).init(allocator);
     defer file_mtimes.deinit();
 
     while (true) {

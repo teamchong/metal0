@@ -107,6 +107,17 @@ pub fn hypot(x: f64, y: f64) f64 {
     return std.math.hypot(x, y);
 }
 
+/// Load exponent: x * 2^i (inverse of frexp)
+pub fn ldexp(x: f64, i: i32) f64 {
+    return std.math.ldexp(x, i);
+}
+
+/// Extract mantissa and exponent: returns (m, e) where x = m * 2^e
+pub fn frexp(x: f64) struct { significand: f64, exponent: i32 } {
+    const result = std.math.frexp(x);
+    return .{ .significand = result.significand, .exponent = result.exponent };
+}
+
 /// Rounding and absolute value
 pub fn ceil(x: f64) f64 {
     return @ceil(x);

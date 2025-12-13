@@ -10,6 +10,8 @@ const function_traits = @import("analysis.function_traits");
 const zig_keywords = @import("utils.zig_keywords");
 const generators = @import("../../generators.zig");
 const native_types = @import("../../../../../../analysis/native_types/core.zig");
+const type_traits = @import("../../../../../../analysis/traits/type_traits.zig");
+const string_traits = @import("../../../../../../analysis/traits/string_traits.zig");
 
 // Import from parent for methodMutatesSelf and genMethodBody
 const body = @import("../body.zig");
@@ -715,11 +717,60 @@ pub fn genInitMethod(
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");
                     // Check if value is an anytype param - wrap with runtime.PyValue.from()
+                    // BUT only if the field type is unknown (runtime.PyValue), not a primitive
                     const is_anytype_param = if (assign.value.* == .name)
                         self.anytype_params.contains(assign.value.name.id)
                     else
                         false;
-                    if (is_anytype_param) {
+
+                    // Infer the field type using same logic as class_fields.zig
+                    // For parameter references, look up constructor arg types
+                    const field_type = blk: {
+                        if (assign.value.* == .name) {
+                            const value_name = assign.value.name.id;
+                            // Check if it's a parameter reference
+                            for (init_def.args, 0..) |arg, param_idx| {
+                                if (std.mem.eql(u8, arg.name, value_name)) {
+                                    // Try type annotation first
+                                    var inferred = signature.pythonTypeToNativeType(arg.type_annotation);
+                                    std.debug.print("DEBUG class_methods: class={s} field={s} param={s} param_idx={d} annotation_type={}\n", .{ class_name, field_name, arg.name, param_idx, inferred });
+                                    // Try keyword arg lookup (stored as "ClassName.param_name")
+                                    if (type_traits.isUnknown(inferred)) {
+                                        var kwarg_key_buf: [256]u8 = undefined;
+                                        const kwarg_key = std.fmt.bufPrint(&kwarg_key_buf, "{s}.{s}", .{ class_name, arg.name }) catch null;
+                                        if (kwarg_key) |key| {
+                                            if (self.type_inferrer.var_types.get(key)) |kwarg_type| {
+                                                inferred = kwarg_type;
+                                                std.debug.print("DEBUG class_methods: found kwarg type key={s} type={}\n", .{ key, kwarg_type });
+                                            }
+                                        }
+                                    }
+                                    // Try positional constructor arg
+                                    if (type_traits.isUnknown(inferred)) {
+                                        if (self.type_inferrer.class_constructor_args.get(class_name)) |arg_types| {
+                                            const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
+                                            std.debug.print("DEBUG class_methods: found constructor_args arg_idx={d} len={d}\n", .{ arg_idx, arg_types.len });
+                                            if (arg_idx < arg_types.len) {
+                                                inferred = arg_types[arg_idx];
+                                                std.debug.print("DEBUG class_methods: using constructor_arg type={}\n", .{inferred});
+                                            }
+                                        } else {
+                                            std.debug.print("DEBUG class_methods: NO constructor_args for class={s}\n", .{class_name});
+                                        }
+                                    }
+                                    std.debug.print("DEBUG class_methods: final inferred={}\n", .{inferred});
+                                    break :blk inferred;
+                                }
+                            }
+                        }
+                        break :blk self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
+                    };
+                    const is_primitive_field = type_traits.isIntegral(field_type) or
+                        type_traits.isFloating(field_type) or
+                        field_type == .bool or
+                        string_traits.isString(field_type);
+
+                    if (is_anytype_param and !is_primitive_field) {
                         try self.emit("runtime.PyValue.from(");
                         try self.genExpr(assign.value.*);
                         try self.emit(")");
@@ -1234,11 +1285,20 @@ pub fn genInitMethodWithBuiltinBase(
                         });
                     } else {
                         // Check if value is an anytype param - wrap with runtime.PyValue.from()
+                        // BUT only if the field type is unknown (runtime.PyValue), not a primitive
                         const is_anytype_param = if (assign.value.* == .name)
                             self.anytype_params.contains(assign.value.name.id)
                         else
                             false;
-                        if (is_anytype_param) {
+
+                        // Infer the field type to determine if wrapping is needed
+                        const field_type = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
+                        const is_primitive_field = type_traits.isIntegral(field_type) or
+                            type_traits.isFloating(field_type) or
+                            field_type == .bool or
+                            string_traits.isString(field_type);
+
+                        if (is_anytype_param and !is_primitive_field) {
                             try self.emit("runtime.PyValue.from(");
                             try self.genExpr(assign.value.*);
                             try self.emit(")");
@@ -1624,11 +1684,20 @@ pub fn genInitMethodFromNew(
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     try self.emit(" = ");
                     // Check if value is an anytype param - wrap with runtime.PyValue.from()
+                    // BUT only if the field type is unknown (runtime.PyValue), not a primitive
                     const is_anytype_param = if (assign.value.* == .name)
                         self.anytype_params.contains(assign.value.name.id)
                     else
                         false;
-                    if (is_anytype_param) {
+
+                    // Infer the field type to determine if wrapping is needed
+                    const field_type = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
+                    const is_primitive_field = type_traits.isIntegral(field_type) or
+                        type_traits.isFloating(field_type) or
+                        field_type == .bool or
+                        string_traits.isString(field_type);
+
+                    if (is_anytype_param and !is_primitive_field) {
                         try self.emit("runtime.PyValue.from(");
                         try self.genExpr(assign.value.*);
                         try self.emit(")");

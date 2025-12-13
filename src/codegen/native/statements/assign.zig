@@ -505,6 +505,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 return;
             }
 
+            // Skip callable_global_vars assignments (includes tuples of callables like order_comparisons = le, lt, ge, gt)
+            // These are already emitted at module level as const in PHASE 5.7
+            if (self.callable_global_vars.contains(var_name) and self.isDeclared(var_name)) {
+                return;
+            }
+
             // Skip module constant assignments (e.g., maxsize = support.MAX_Py_ssize_t)
             // These are already emitted at module level as const with correct type
             if (assign.value.* == .attribute) {
@@ -1031,11 +1037,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // but since this reassignment creates a shadow (type change), the original
                     // is never actually mutated. Use _ = &var; to suppress the warning.
                     // Use the current (possibly already renamed) name, not the original name.
+                    // ONLY emit discard if variable actually exists (not just forward-declared/hoisted)
                     const current_name = self.var_renames.get(var_name) orelse var_name;
-                    try self.emit("_ = &");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), current_name);
-                    try self.emit(";\n");
-                    try self.emitIndent();
+                    if (self.isDeclared(current_name)) {
+                        try self.emit("_ = &");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), current_name);
+                        try self.emit(";\n");
+                        try self.emitIndent();
+                    }
 
                     // For nested class instances (heap-allocated), shadowing works normally
                     // since x is already a pointer (*ClassName), y = x copies the pointer

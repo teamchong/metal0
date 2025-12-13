@@ -24,7 +24,9 @@ pub fn shallowCopy(comptime T: type, allocator: std.mem.Allocator, src: T) CopyE
 
     // Structs with .items field (ArrayList-like)
     if (type_info == .@"struct" and @hasField(T, "items")) {
-        var copy = T.init(allocator);
+        // Zig 0.15: ArrayListUnmanaged has no .init(), use direct initialization
+        // ArrayList still has .init(allocator), use @hasDecl to distinguish
+        var copy: T = if (@hasDecl(T, "init")) T.init(allocator) else .{};
         copy.appendSlice(allocator, src.items) catch return CopyError.OutOfMemory;
         return copy;
     }
@@ -46,7 +48,8 @@ pub fn deepCopy(comptime T: type, allocator: std.mem.Allocator, src: T) CopyErro
 
     // Structs with .items field (ArrayList-like)
     if (type_info == .@"struct" and @hasField(T, "items")) {
-        var copy = T.init(allocator);
+        // Zig 0.15: ArrayListUnmanaged has no .init(), use direct initialization
+        var copy: T = if (@hasDecl(T, "init")) T.init(allocator) else .{};
         for (src.items) |item| {
             copy.append(allocator, item) catch continue;
         }

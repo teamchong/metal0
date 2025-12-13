@@ -17,6 +17,7 @@
 /// - Use build-obj + build-exe separately (not combined build-exe)
 /// - Enable function sections for better DCE
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const build_dirs = @import("../../build_dirs.zig");
 const compiler = @import("../../compiler.zig");
 
@@ -428,7 +429,7 @@ fn ensureObjDir(allocator: std.mem.Allocator, obj_path: []const u8) !void {
 }
 
 /// Recursively collect all dependencies (transitive closure)
-fn collectAllDeps(allocator: std.mem.Allocator, mod_name: []const u8, visited: *std.StringHashMap(void)) !void {
+fn collectAllDeps(allocator: std.mem.Allocator, mod_name: []const u8, visited: *hashmap_helper.StringHashMap(void)) !void {
     if (visited.contains(mod_name)) return;
     try visited.put(mod_name, {});
 
@@ -466,7 +467,7 @@ fn buildModuleObjectNew(allocator: std.mem.Allocator, mod: ModuleObject) !void {
     }
 
     // Collect ALL transitive dependencies
-    var all_deps = std.StringHashMap(void).init(aa);
+    var all_deps = hashmap_helper.StringHashMap(void).init(aa);
     for (mod.deps) |dep| {
         try collectAllDeps(aa, dep, &all_deps);
     }

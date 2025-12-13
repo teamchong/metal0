@@ -1,6 +1,7 @@
 /// Function traits analysis - re-exports all submodules
 /// Entry point for function analysis infrastructure
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 
 // Core types
 pub const types = @import("function_traits/types.zig");
@@ -235,7 +236,7 @@ pub fn getNonEscapingLocals(graph: *const CallGraph, func_name: []const u8) []co
         if (traits.all_locals.len == 0) return &.{};
         if (traits.escaping_locals.len == 0) return traits.all_locals;
 
-        var escaping_set = std.StringHashMap(void).init(graph.allocator);
+        var escaping_set = hashmap_helper.StringHashMap(void).init(graph.allocator);
         defer escaping_set.deinit();
 
         for (traits.escaping_locals) |local| {

@@ -727,7 +727,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         is_closure_list: bool,
         closure_type_idx: ?usize,  // Index for generating unique closure types at struct level
     };
-    var lazy_attrs = std.StringHashMap(LazyAttrInfo).init(self.allocator);
+    var lazy_attrs = hashmap_helper.StringHashMap(LazyAttrInfo).init(self.allocator);
     defer lazy_attrs.deinit();
 
     var next_closure_type_idx: usize = 0;

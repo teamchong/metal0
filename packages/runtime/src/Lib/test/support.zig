@@ -18,6 +18,10 @@ pub const script_helper = @import("support/script_helper.zig");
 pub const hashlib_helper = @import("support/hashlib_helper.zig");
 pub const numbers = @import("support/numbers.zig");
 
+// Self-reference for "from test.support import support" pattern
+// Python code often does: from test.support import support; support.verbose
+pub const support = @This();
+
 // ============================================================================
 // Test Skip/Require Decorators (Return true = run test, false = skip)
 // ============================================================================

@@ -7,6 +7,7 @@
 ///   @macos   - macOS-specific tests
 ///   @windows - Windows-specific tests
 const std = @import("std");
+const hashmap_helper = @import("utils.hashmap_helper");
 const CompileOptions = @import("../../main.zig").CompileOptions;
 const compile_mod = @import("../compile.zig");
 const compiler = @import("../../compiler.zig");
@@ -771,7 +772,7 @@ fn addRuntimeModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]co
 fn cleanStaleCache(allocator: std.mem.Allocator, test_files: []const []const u8) void {
     // Build set of valid test paths (full paths without extension)
     // e.g., "tests/cpython/test_bool" for "tests/cpython/test_bool.py"
-    var valid_paths = std.StringHashMap(void).init(allocator);
+    var valid_paths = hashmap_helper.StringHashMap(void).init(allocator);
     defer valid_paths.deinit();
 
     for (test_files) |test_path| {
@@ -788,7 +789,7 @@ fn cleanStaleCache(allocator: std.mem.Allocator, test_files: []const []const u8)
 }
 
 /// Recursively clean directory, removing files not in valid_paths
-fn cleanDirRecursive(allocator: std.mem.Allocator, dir_path: []const u8, valid_paths: *std.StringHashMap(void)) void {
+fn cleanDirRecursive(allocator: std.mem.Allocator, dir_path: []const u8, valid_paths: *hashmap_helper.StringHashMap(void)) void {
     var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch return;
     defer dir.close();
 

@@ -226,8 +226,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     // Prefer direct_import for DCE-friendly imports, fallback to zig_import
                     const import_path = info.direct_import orelse info.zig_import;
                     try self.emit("const ");
-                    // Use writeEscapedDottedIdent for consistency with lambda path
-                    try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                    // For dotted names (e.g., test.pickletester), use writeEscapedDottedIdent
+                    // For simple names that would shadow methods (e.g., copy), use writeLocalVarName
+                    if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
+                        try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                    } else {
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
+                    }
                     try self.emit(" = ");
                     if (import_path) |path| {
                         try self.emit(path);
@@ -258,7 +263,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (stdlib_gen.hasModule(mod_name)) {
                 // Generate import from runtime.Lib
                 try self.emit("const ");
-                try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                // For dotted names, use writeEscapedDottedIdent; for simple shadowing names, use writeLocalVarName
+                if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
+                    try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                } else {
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
+                }
                 try self.emit(" = runtime.Lib.");
                 // Replace dots with @"" for nested modules
                 try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
@@ -573,6 +583,79 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     try self.callable_global_vars.put(try self.allocator.dupe(u8, var_name), {});
                     continue;
                 }
+
+                // Tuples of callables (operator.le, operator.lt, etc.) need special handling:
+                // They can't be forward-declared because operator wrappers are bare fn ptrs,
+                // not PyCallable structs. Skip pre-declaration and emit as const at module level.
+                if (container_traits.isTuple(vt)) {
+                    var has_callable = false;
+                    for (vt.tuple) |t| {
+                        if (t == .callable) {
+                            has_callable = true;
+                            break;
+                        }
+                    }
+                    if (has_callable) {
+                        // Track as callable global - will be emitted as const at module level
+                        try self.markGlobalVar(var_name);
+                        try self.callable_global_vars.put(try self.allocator.dupe(u8, var_name), {});
+                        continue;
+                    }
+                }
+            }
+
+            // Also check if assignment is a BinOp combining callable tuples
+            // e.g., comparisons = order_comparisons + equality_comparisons
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            if (assign.value.* == .binop) {
+                                const binop = assign.value.binop;
+                                if (binop.op == .Add) {
+                                    // Check if both operands are callable tuples
+                                    const left_is_callable = blk: {
+                                        if (binop.left.* == .name) {
+                                            const left_type = self.type_inferrer.var_types.get(binop.left.name.id);
+                                            if (left_type) |lt| {
+                                                if (container_traits.isTuple(lt)) {
+                                                    for (lt.tuple) |t| {
+                                                        if (t == .callable) break :blk true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        break :blk false;
+                                    };
+                                    const right_is_callable = blk: {
+                                        if (binop.right.* == .name) {
+                                            const right_type = self.type_inferrer.var_types.get(binop.right.name.id);
+                                            if (right_type) |rt| {
+                                                if (container_traits.isTuple(rt)) {
+                                                    for (rt.tuple) |t| {
+                                                        if (t == .callable) break :blk true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        break :blk false;
+                                    };
+                                    if (left_is_callable or right_is_callable) {
+                                        // Track as callable global - will be emitted as const at module level
+                                        try self.markGlobalVar(var_name);
+                                        try self.callable_global_vars.put(try self.allocator.dupe(u8, var_name), {});
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Skip if already added to callable_global_vars
+            if (self.callable_global_vars.contains(var_name)) {
+                continue;
             }
 
             // Check if this variable is assigned from a closure factory (e.g., x = outer())
@@ -1408,8 +1491,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         // Prefer direct_import for DCE-friendly imports
                         const import_path = info.direct_import orelse info.zig_import;
                         try self.emit("const ");
-                        // Use writeEscapedDottedIdent for dotted module names like "test.support"
-                        try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                        // For dotted names, use writeEscapedDottedIdent; for simple shadowing names, use writeLocalVarName
+                        if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
+                            try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                        } else {
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
+                        }
                         try self.emit(" = ");
                         if (import_path) |path| {
                             try self.emit(path);
@@ -1427,7 +1514,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         // Prefer direct_import for DCE-friendly imports
                         const import_path = info.direct_import orelse info.zig_import;
                         try self.emit("const ");
-                        try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                        // For dotted names, use writeEscapedDottedIdent; for simple shadowing names, use writeLocalVarName
+                        if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
+                            try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                        } else {
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
+                        }
                         try self.emit(" = ");
                         if (import_path) |path| {
                             try self.emit(path);

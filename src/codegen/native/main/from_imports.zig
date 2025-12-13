@@ -75,6 +75,10 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
     var generated_symbols = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer generated_symbols.deinit();
 
+    // Track const declarations that need discards (not function definitions)
+    var const_symbols = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer const_symbols.deinit();
+
     for (self.from_imports.items) |from_imp| {
         // Skip relative imports (starting with .) - these are internal package imports
         // that don't make sense in standalone compiled modules
@@ -626,6 +630,8 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             try self.emit(name);
             try self.emit(";\n");
             try generated_symbols.put(symbol_name, {});
+            // Track const for discard emission (prevents "unused constant" errors)
+            try const_symbols.put(symbol_name, {});
 
             // Track for local import shadowing prevention
             try self.module_level_from_imports.put(symbol_name, {});
@@ -637,5 +643,20 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
 
     if (self.from_imports.items.len > 0) {
         try self.emit("\n");
+    }
+
+    // Emit discards for all const symbols to suppress "unused constant" errors
+    // This is needed because from-imports may not be used if they're only for type hints
+    // or the code path using them is conditionally compiled
+    // Note: Must use comptime block since module-level doesn't allow bare statements
+    if (const_symbols.count() > 0) {
+        try self.emit("comptime {\n");
+        var const_iter = const_symbols.iterator();
+        while (const_iter.next()) |entry| {
+            try self.emit("    _ = &");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.key_ptr.*);
+            try self.emit(";\n");
+        }
+        try self.emit("}\n");
     }
 }

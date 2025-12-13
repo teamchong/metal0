@@ -297,6 +297,12 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 try self.emit(".");
                 try self.emit(name);
                 try self.emit(";\n");
+                // Emit discard immediately to suppress "unused constant" error
+                // Local from-imports may not be used if they're only for type hints
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try self.emit(alias);
+                try self.emit(";\n");
             }
         } else {
             // Module uses inline codegen (e.g., random) - track symbols for dispatch
