@@ -96,8 +96,9 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                 // @group syntax - load patterns from group file
                 const group_name = arg[1..]; // Remove '@'
                 const group_patterns = loadTestGroup(allocator, group_name) catch |err| {
-                    printWarn("Failed to load test group @{s}: {any}", .{ group_name, err });
-                    continue;
+                    printError("Failed to load test group @{s}: {any}", .{ group_name, err });
+                    printError("Group file should be at: tests/groups/{s}.txt", .{group_name});
+                    return; // FATAL: Don't run all tests if group file fails to load
                 };
                 defer allocator.free(group_patterns);
                 for (group_patterns) |pattern| {

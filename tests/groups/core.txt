@@ -206,6 +206,7 @@ setcomps
 shelve
 shlex
 slice
+smtplib
 smtpnet
 socketserver
 sort
@@ -256,6 +257,7 @@ unpack
 unpack_ex
 unparse
 urllib2_localnet
+urllib2net
 urllib_response
 urllibnet
 urlparse
