@@ -12,7 +12,6 @@ downloads/
 eggs/
 .eggs/
 lib/
-!vendor/libdeflate/lib/
 lib64/
 parts/
 sdist/

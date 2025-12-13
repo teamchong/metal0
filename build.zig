@@ -4,17 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // libdeflate C flags - disable AVX512 on x86 to fix CI runners lacking evex512 support
-    const is_x86 = target.result.cpu.arch == .x86_64 or target.result.cpu.arch == .x86;
-    const libdeflate_flags: []const []const u8 = if (is_x86)
-        &.{ "-std=c99", "-O3", "-mno-avx512f" }
-    else
-        &.{ "-std=c99", "-O3" };
-    const libdeflate_flags_no_opt: []const []const u8 = if (is_x86)
-        &.{ "-std=c99", "-mno-avx512f" }
-    else
-        &.{"-std=c99"};
-
     // Shared modules - define ONCE, use everywhere
     // Namespaced: utils.hashmap_helper, utils.allocator_helper, etc.
     const hashmap_helper = b.addModule("utils.hashmap_helper", .{
@@ -43,7 +32,7 @@ pub fn build(b: *std.Build) void {
             "vendor/libdeflate/lib/arm/cpu_features.c",
             "vendor/libdeflate/lib/x86/cpu_features.c",
         },
-        .flags = libdeflate_flags,
+        .flags = &[_][]const u8{ "-std=c99", "-O3" },
     });
     const collections = b.addModule("collections", .{
         .root_source_file = b.path("packages/collections/collections.zig"),
@@ -521,7 +510,7 @@ pub fn build(b: *std.Build) void {
             "vendor/libdeflate/lib/arm/cpu_features.c",
             "vendor/libdeflate/lib/x86/cpu_features.c",
         },
-        .flags = libdeflate_flags_no_opt,
+        .flags = &.{"-std=c99"},
     });
 
     const run_gzip_tests = b.addRunArtifact(gzip_tests);
@@ -584,7 +573,7 @@ pub fn build(b: *std.Build) void {
             "vendor/libdeflate/lib/arm/cpu_features.c",
             "vendor/libdeflate/lib/x86/cpu_features.c",
         },
-        .flags = libdeflate_flags,
+        .flags = &[_][]const u8{ "-std=c99", "-O3" },
     });
     resolve_exe.linkLibC();
     b.installArtifact(resolve_exe);
