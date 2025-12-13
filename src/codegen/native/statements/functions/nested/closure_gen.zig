@@ -112,6 +112,24 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: b
         }
     }
 
+    // Case 5: If type is still unknown, use @TypeOf() to let Zig infer from the actual variable
+    // This handles captured variables from outer scopes where type lookup fails due to scope mismatch
+    // (e.g., inner function capturing outer function's typed parameter)
+    if (var_type == .unknown) {
+        if (is_mutated) {
+            try self.emit(": *@TypeOf(");
+        } else {
+            try self.emit(": @TypeOf(");
+        }
+        if (self.var_renames.get(var_name)) |renamed| {
+            try self.emit(renamed);
+        } else {
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        }
+        try self.emit(")");
+        return;
+    }
+
     // For mutated vars, wrap with pointer
     if (is_mutated) {
         const type_str = try self.nativeTypeToZigType(var_type);
