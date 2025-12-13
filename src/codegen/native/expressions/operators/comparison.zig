@@ -440,9 +440,15 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             };
 
             if (is_optional_param_check) {
+                // Check if this is a renamed parameter (e.g., __p_expected_3 from expected)
+                // Renamed parameters are anytype in function signature, so even if type is
+                // inferred as (tuple, int, etc.) at call site, we need @TypeOf check
+                const is_renamed_param = current_left == .name and
+                    self.var_renames.get(current_left.name.id) != null;
+
                 // For anytype parameters (used with None defaults), use comptime type check
                 // This handles cases like `expected=None` where expected can be tuple or null
-                if (type_traits.isUnknown(current_left_type)) {
+                if (type_traits.isUnknown(current_left_type) or is_renamed_param) {
                     // Emit comptime type check: @TypeOf(x) == @TypeOf(null)
                     if (op == .Is or op == .Eq) {
                         try self.emit("(@TypeOf(");
@@ -454,7 +460,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         try self.emit(") != @TypeOf(null))");
                     }
                 } else {
-                    // Generate: var == null (or != null for "is not None")
+                    // Known optional types can use direct null comparison
                     try genExpr(self, current_left);
                     if (op == .Is or op == .Eq) {
                         try self.emit(" == null");

@@ -43,7 +43,7 @@ fn waitForThreadShutdown() void {
     while (wait_count < 10) : (wait_count += 1) {
         const active = threading.activeCount();
         if (active <= 1) break;
-        std.time.sleep(10 * std.time.ns_per_ms);
+        std.Thread.sleep(10 * std.time.ns_per_ms);
     }
 }
 

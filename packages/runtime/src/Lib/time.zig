@@ -14,7 +14,7 @@ pub fn time() f64 {
 /// Sleep for the specified number of seconds
 pub fn sleep(secs: f64) void {
     const ns: u64 = @intFromFloat(secs * @as(f64, std.time.ns_per_s));
-    std.time.sleep(ns);
+    std.Thread.sleep(ns);
 }
 
 /// Get monotonic clock time

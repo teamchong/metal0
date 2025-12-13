@@ -87,7 +87,7 @@ pub const EventLoop = struct {
                 }
 
                 // Brief sleep to avoid busy-waiting
-                std.time.sleep(100); // 100ns
+                std.Thread.sleep(100); // 100ns
             } else {
                 // Reset idle counter when work is found
                 self.idle_iterations = 0;

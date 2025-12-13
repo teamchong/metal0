@@ -227,7 +227,7 @@ fn asyncConnect(sock: std.posix.fd_t, uri: *const std.Uri) !void {
         if (err == error.WouldBlock) {
             // For now, just sleep and retry (simplified)
             // In full implementation, this would register with poller and yield
-            std.time.sleep(10_000_000); // 10ms
+            std.Thread.sleep(10_000_000); // 10ms
 
             // Check if connect succeeded
             var err_code: i32 = undefined;
@@ -263,7 +263,7 @@ fn asyncWrite(sock: std.posix.fd_t, data: []const u8) !usize {
             if (err == error.WouldBlock) {
                 // Simplified: sleep and retry
                 // Full implementation would register with poller and yield
-                std.time.sleep(1_000_000); // 1ms
+                std.Thread.sleep(1_000_000); // 1ms
                 retries += 1;
             } else {
                 return err;
@@ -291,7 +291,7 @@ fn asyncRead(sock: std.posix.fd_t, buffer: []u8) !usize {
             if (err == error.WouldBlock) {
                 // Simplified: sleep and retry
                 // Full implementation would register with poller and yield
-                std.time.sleep(1_000_000); // 1ms
+                std.Thread.sleep(1_000_000); // 1ms
                 retries += 1;
             } else {
                 return err;

@@ -51,7 +51,7 @@ pub const Scheduler = struct {
     /// Default delay function (sleep for given milliseconds)
     fn defaultDelayfunc(delay: i64) void {
         if (delay > 0) {
-            std.time.sleep(@intCast(delay * std.time.ns_per_ms));
+            std.Thread.sleep(@intCast(delay * std.time.ns_per_ms));
         }
     }
 

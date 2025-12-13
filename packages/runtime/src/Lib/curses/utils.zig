@@ -29,6 +29,6 @@ pub fn beep() void {
 pub fn flash() void {
     const stdout = std.io.getStdOut().writer();
     stdout.writeAll("\x1b[?5h") catch {};
-    std.time.sleep(100 * std.time.ns_per_ms);
+    std.Thread.sleep(100 * std.time.ns_per_ms);
     stdout.writeAll("\x1b[?5l") catch {};
 }

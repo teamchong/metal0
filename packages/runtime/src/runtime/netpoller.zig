@@ -355,7 +355,7 @@ pub const Netpoller = struct {
                 self.pollEpoll();
             } else {
                 // Unsupported platform - just sleep
-                std.time.sleep(10 * std.time.ns_per_ms);
+                std.Thread.sleep(10 * std.time.ns_per_ms);
             }
         }
     }

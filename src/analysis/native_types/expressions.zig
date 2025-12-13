@@ -147,12 +147,22 @@ const OsConstMap = std.StaticStringMap(void).initComptime(.{
     .{ "pardir", {} },
 });
 
-const ModuleType = enum { sys, math, string, os };
+// test.support module integer constants (NHASHBITS, verbose, etc.)
+const SupportIntConstMap = std.StaticStringMap(void).initComptime(.{
+    .{ "NHASHBITS", {} },
+    .{ "verbose", {} },
+    .{ "HAVE_DOCSTRINGS", {} },
+    .{ "HAVE_GETTOTALREFCOUNT", {} },
+    .{ "is_jython", {} },
+});
+
+const ModuleType = enum { sys, math, string, os, support };
 const ModuleMap = std.StaticStringMap(ModuleType).initComptime(.{
     .{ "sys", .sys },
     .{ "math", .math },
     .{ "string", .string },
     .{ "os", .os },
+    .{ "support", .support },
 });
 
 /// Exception type names - when stored as values (e.g., in lists/tuples), treat as int
@@ -467,12 +477,27 @@ pub fn inferExprTyped(
 
         // Attribute access is uncertain unless we know the class
         .attribute => |attr| blk: {
-            // Module constants are certain (e.g., math.pi)
+            // Module constants are certain (e.g., math.pi, sys.maxsize, support.NHASHBITS)
+            // Long-term: Query module analysis for typed constants
+            // Current: Whitelist stdlib modules with known typed constants
             if (attr.value.* == .name) {
                 const obj_name = attr.value.name.id;
                 if (std.mem.eql(u8, obj_name, "math") or
                     std.mem.eql(u8, obj_name, "string") or
-                    std.mem.eql(u8, obj_name, "sys"))
+                    std.mem.eql(u8, obj_name, "sys") or
+                    std.mem.eql(u8, obj_name, "support") or // test.support (NHASHBITS, etc.)
+                    std.mem.eql(u8, obj_name, "test") or // test module
+                    std.mem.eql(u8, obj_name, "collections") or
+                    std.mem.eql(u8, obj_name, "random") or
+                    std.mem.eql(u8, obj_name, "os") or
+                    std.mem.eql(u8, obj_name, "errno") or
+                    std.mem.eql(u8, obj_name, "signal") or
+                    std.mem.eql(u8, obj_name, "socket") or
+                    std.mem.eql(u8, obj_name, "struct") or
+                    std.mem.eql(u8, obj_name, "hashlib") or
+                    std.mem.eql(u8, obj_name, "time") or
+                    std.mem.eql(u8, obj_name, "platform") or
+                    std.mem.eql(u8, obj_name, "re"))
                 {
                     break :blk .certain;
                 }
@@ -696,6 +721,12 @@ pub fn inferExprWithInferrer(
                             // os module constants return string literals
                             if (OsConstMap.has(a.attr)) {
                                 break :blk .{ .string = .literal };
+                            }
+                        },
+                        .support => {
+                            // test.support module constants (NHASHBITS, etc.) return ints
+                            if (SupportIntConstMap.has(a.attr)) {
+                                break :blk .{ .int = .bounded };
                             }
                         },
                     }

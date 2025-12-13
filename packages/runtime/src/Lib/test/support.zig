@@ -313,7 +313,7 @@ pub fn get_seed() u64 {
 /// Sleep for given seconds (for timing tests)
 pub fn sleep(seconds: f64) void {
     const ns: u64 = @intFromFloat(seconds * 1_000_000_000);
-    std.time.sleep(ns);
+    std.Thread.sleep(ns);
 }
 
 /// Get monotonic time in seconds

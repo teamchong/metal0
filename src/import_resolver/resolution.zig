@@ -157,8 +157,9 @@ fn resolveImportInternal(
 
     // Check metal0_SOURCE_DIR env var for runtime eval subprocess
     // This allows eval() subprocess to use same import paths as main compilation
+    // Note: std.posix.getenv is not available on Windows (uses WTF-16)
     const effective_source_dir: ?[]const u8 = source_file_dir orelse
-        std.posix.getenv("metal0_SOURCE_DIR");
+        if (comptime builtin.os.tag == .windows) null else std.posix.getenv("metal0_SOURCE_DIR");
 
     // Check compiled modules first (if enabled)
     if (check_compiled) {

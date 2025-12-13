@@ -27,10 +27,10 @@ pub const HAS_PARKED: u8 = 2;
 pub fn yield() void {
     if (builtin.os.tag == .windows) {
         // SwitchToThread equivalent
-        std.time.sleep(0);
+        std.Thread.sleep(0);
     } else {
         // sched_yield equivalent
-        std.time.sleep(0);
+        std.Thread.sleep(0);
     }
 }
 

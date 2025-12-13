@@ -252,7 +252,7 @@ test "Timer basic" {
     timer.start();
     try std.testing.expect(timer.running);
 
-    std.time.sleep(1_000_000); // 1ms
+    std.Thread.sleep(1_000_000); // 1ms
 
     timer.stop();
     try std.testing.expect(!timer.running);
@@ -262,7 +262,7 @@ test "Timer basic" {
 test "Timer reset" {
     var timer = Timer.init();
     timer.start();
-    std.time.sleep(1_000_000);
+    std.Thread.sleep(1_000_000);
     timer.stop();
 
     try std.testing.expect(timer.elapsed() > 0);
@@ -319,7 +319,7 @@ test "Profiler recordCall" {
 
 test "ProfileContext" {
     var ctx = ProfileContext.init("test");
-    std.time.sleep(1_000_000);
+    std.Thread.sleep(1_000_000);
     const elapsed = ctx.finish();
 
     try std.testing.expect(elapsed > 0);

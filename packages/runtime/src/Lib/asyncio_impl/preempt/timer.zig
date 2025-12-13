@@ -147,7 +147,7 @@ test "PreemptTimer basic operations" {
     defer timer.stop();
 
     // Let it run for a bit
-    std.time.sleep(50 * std.time.ns_per_ms);
+    std.Thread.sleep(50 * std.time.ns_per_ms);
 
     // Check stats
     const stats = timer.getStats();
@@ -176,7 +176,7 @@ test "PreemptTimer task preemption" {
     defer timer.stop();
 
     // Let timer check
-    std.time.sleep(15 * std.time.ns_per_ms);
+    std.Thread.sleep(15 * std.time.ns_per_ms);
 
     // Task should be marked for preemption
     try testing.expect(task.shouldPreempt());
@@ -208,7 +208,7 @@ test "PreemptTimer no preemption for short tasks" {
     defer timer.stop();
 
     // Let timer check
-    std.time.sleep(15 * std.time.ns_per_ms);
+    std.Thread.sleep(15 * std.time.ns_per_ms);
 
     // Task should NOT be marked for preemption (too short)
     // Note: This might fail if task runs longer than 10ms total

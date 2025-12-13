@@ -245,7 +245,7 @@ pub const Connection = struct {
                 p(rc, remaining, total);
             }
             if (rc == c.SQLITE_BUSY or rc == c.SQLITE_LOCKED) {
-                std.time.sleep(@intFromFloat(sleep_ms * std.time.ns_per_ms));
+                std.Thread.sleep(@intFromFloat(sleep_ms * std.time.ns_per_ms));
             }
         }
 

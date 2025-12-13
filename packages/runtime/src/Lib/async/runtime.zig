@@ -307,7 +307,7 @@ pub const Runtime = struct {
 
         // Workers will exit their loops when they see running=false
         // Give them a moment to finish current work
-        std.time.sleep(10 * std.time.ns_per_ms);
+        std.Thread.sleep(10 * std.time.ns_per_ms);
     }
 
     /// Get runtime statistics

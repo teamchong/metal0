@@ -352,7 +352,7 @@ pub fn pause() void {
     } else {
         // On Windows, use SleepEx with alertable=true to allow APC delivery
         // This is the closest equivalent to pause()
-        std.time.sleep(std.time.ns_per_s);
+        std.Thread.sleep(std.time.ns_per_s);
     }
 }
 

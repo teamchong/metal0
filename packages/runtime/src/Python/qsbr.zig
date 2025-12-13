@@ -218,7 +218,7 @@ pub const QSBRDomain = struct {
             }
 
             // Brief sleep to avoid busy waiting
-            std.time.sleep(100);
+            std.Thread.sleep(100);
         }
     }
 

@@ -7,7 +7,7 @@ const conversion = @import("conversion.zig");
 /// Sleep for given nanoseconds
 pub fn sleepNanos(nanos: i64) void {
     if (nanos <= 0) return;
-    std.time.sleep(@intCast(nanos));
+    std.Thread.sleep(@intCast(nanos));
 }
 
 /// Sleep for given seconds (float)

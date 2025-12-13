@@ -115,12 +115,12 @@ pub const PyMutex = struct {
         _ = self;
         // Simple sleep-based parking
         if (timeout_ns < 0) {
-            std.time.sleep(1000); // 1us
+            std.Thread.sleep(1000); // 1us
         } else {
             const elapsed = std.time.nanoTimestamp() - start;
             const remaining = timeout_ns - @as(i64, @intCast(@min(elapsed, std.math.maxInt(i64))));
             if (remaining > 0) {
-                std.time.sleep(@min(@as(u64, @intCast(remaining)), 1000));
+                std.Thread.sleep(@min(@as(u64, @intCast(remaining)), 1000));
             }
         }
     }

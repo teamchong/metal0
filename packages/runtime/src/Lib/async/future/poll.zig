@@ -91,7 +91,7 @@ pub fn awaitFutureTimeout(
                 current_task.state = .waiting;
                 current_task.recordYield();
 
-                std.time.sleep(1000);
+                std.Thread.sleep(1000);
                 spin_count = 0;
 
                 if (current_task.state == .runnable) {

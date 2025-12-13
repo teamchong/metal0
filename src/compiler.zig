@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const build_dirs = @import("build_dirs.zig");
 
 /// Get build directory - uses .metal0/cache structure
@@ -193,7 +194,6 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
     }
 
     // Add BLAS linking ONLY if explicitly needed
-    const builtin = @import("builtin");
     const needs_blas = c_libraries.len > 0;
     const has_blas = blk: {
         for (c_libraries) |lib| {
@@ -267,10 +267,14 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
             }
         },
         .Signal => |sig| {
-            if (sig == std.posix.SIG.KILL) {
-                std.debug.print("Zig compilation timed out (>{d}s)\n", .{timeout_ns / std.time.ns_per_s});
+            if (comptime builtin.os.tag != .windows) {
+                if (sig == std.posix.SIG.KILL) {
+                    std.debug.print("Zig compilation timed out (>{d}s)\n", .{timeout_ns / std.time.ns_per_s});
+                } else {
+                    std.debug.print("Zig compilation killed by signal {d}:\n{s}\n", .{ sig, stderr_list.items });
+                }
             } else {
-                std.debug.print("Zig compilation killed by signal {d}:\n{s}\n", .{ sig, stderr_list.items });
+                std.debug.print("Zig compilation terminated (signal {d}):\n{s}\n", .{ sig, stderr_list.items });
             }
             return error.ZigCompilationFailed;
         },
@@ -295,7 +299,13 @@ fn killAfterTimeout(child: *std.process.Child, timeout_ns: u64, done: *std.atomi
     }
     // Timeout - kill the process
     if (!done.load(.seq_cst)) {
-        _ = std.posix.kill(child.id, std.posix.SIG.KILL) catch {};
+        if (comptime builtin.os.tag == .windows) {
+            // Windows: terminate process via Windows API
+            const handle: std.os.windows.HANDLE = @ptrFromInt(@as(usize, @intCast(child.id)));
+            std.os.windows.TerminateProcess(handle, 1) catch {};
+        } else {
+            _ = std.posix.kill(child.id, std.posix.SIG.KILL) catch {};
+        }
     }
 }
 
@@ -342,7 +352,6 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     }
 
     // Add BLAS linking if needed
-    const builtin = @import("builtin");
     const needs_blas = c_libraries.len > 0;
     const has_blas = blk: {
         for (c_libraries) |lib| {

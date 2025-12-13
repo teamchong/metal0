@@ -181,7 +181,7 @@ pub fn run(self: *EventLoop) !void {
             // Sleep until next timer
             const sleep_ms = @divTrunc(delay, std.time.ns_per_ms);
             if (sleep_ms > 0) {
-                std.time.sleep(@intCast(sleep_ms * std.time.ns_per_ms));
+                std.Thread.sleep(@intCast(sleep_ms * std.time.ns_per_ms));
             }
         } else if (!has_tasks) {
             // No timers and no tasks - we're done
@@ -239,7 +239,7 @@ test "EventLoop timer" {
     try loop.scheduleTimer(10 * std.time.ns_per_ms, callback, &called);
 
     // Sleep a bit
-    std.time.sleep(20 * std.time.ns_per_ms);
+    std.Thread.sleep(20 * std.time.ns_per_ms);
 
     loop.processTimers();
     try std.testing.expect(called);

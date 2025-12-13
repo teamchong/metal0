@@ -178,7 +178,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8, options: stru
             }
 
             // Sleep briefly before polling again
-            std.time.sleep(10 * std.time.ns_per_ms);
+            std.Thread.sleep(10 * std.time.ns_per_ms);
         }
     }
 

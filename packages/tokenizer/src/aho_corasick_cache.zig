@@ -1,6 +1,7 @@
 /// Binary serialization for Aho-Corasick automaton
 /// Enables instant loading (43s → <0.1s) by caching pre-built automaton
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const AhoCorasick = @import("aho_corasick.zig").AhoCorasick;
 const State = @import("aho_corasick.zig").State;
@@ -262,15 +263,21 @@ pub fn loadUltra(allocator: Allocator, path: []const u8) ?UltraCache {
     if (stat.size < 28) return null; // Minimum header size
 
     // Use mmap instead of read for zero-copy loading
-    const buffer = std.posix.mmap(
-        null,
-        stat.size,
-        std.posix.PROT.READ,
-        .{ .TYPE = .PRIVATE },
-        file.handle,
-        0,
-    ) catch return null;
-    // Don't unmap - we'll reference this memory directly
+    // Note: mmap is not available on Windows, use file read instead
+    const buffer: []const u8 = if (comptime builtin.os.tag == .windows) blk: {
+        // Windows: read file into heap-allocated buffer
+        break :blk file.readToEndAlloc(allocator, @intCast(stat.size)) catch return null;
+    } else blk: {
+        break :blk std.posix.mmap(
+            null,
+            stat.size,
+            std.posix.PROT.READ,
+            .{ .TYPE = .PRIVATE },
+            file.handle,
+            0,
+        ) catch return null;
+    };
+    // Don't unmap/free - we'll reference this memory directly
 
     var pos: usize = 0;
 

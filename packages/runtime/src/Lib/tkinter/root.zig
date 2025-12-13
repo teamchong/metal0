@@ -69,7 +69,7 @@ pub const Tk = struct {
             }
 
             // Sleep briefly to avoid busy-waiting (16ms = ~60fps)
-            std.time.sleep(16 * std.time.ns_per_ms);
+            std.Thread.sleep(16 * std.time.ns_per_ms);
 
             // Check if quit was requested
             if (!self.running) break;

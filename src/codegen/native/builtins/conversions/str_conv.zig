@@ -141,22 +141,20 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Check if this might be a PyObject/PyValue (subscript on unknown type, function return, etc.)
-    // TWO-FLOW: Both .unknown and .pyvalue types need runtime handling
-    const is_possible_pyobject = blk: {
-        if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
-            // Subscript on unknown type is likely a PyList/PyDict access
+    // Check if this might be a C API PyObject (subscript on unknown type, function return, etc.)
+    // Note: PyValue is NOT PyObject - it's our tagged union for uncertain types
+    const is_c_pyobject = blk: {
+        if (type_traits.isUnknown(arg_type)) {
+            // Subscript on unknown type is likely a PyList/PyDict access from C API
             if (args[0] == .subscript) break :blk true;
-            // Call returning unknown might be a PyObject
+            // Call returning unknown might be a PyObject from C API
             if (args[0] == .call) break :blk true;
-            // PyValue type always needs runtime handling
-            if (arg_type == .pyvalue) break :blk true;
         }
         break :blk false;
     };
 
-    if (is_possible_pyobject) {
-        // Use runtime.pyObjToStr for PyObject types
+    if (is_c_pyobject) {
+        // Use runtime.pyObjToStr for C API PyObject types
         try self.emitFmt("(try runtime.pyObjToStr({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
         try self.emit("))");

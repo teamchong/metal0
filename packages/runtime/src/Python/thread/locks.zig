@@ -66,7 +66,7 @@ pub const Lock = struct {
             }
 
             // Brief sleep before retry
-            std.time.sleep(1000); // 1us
+            std.Thread.sleep(1000); // 1us
         }
     }
 
@@ -146,7 +146,7 @@ pub const RLock = struct {
                 return .timeout;
             }
 
-            std.time.sleep(1000);
+            std.Thread.sleep(1000);
         }
     }
 

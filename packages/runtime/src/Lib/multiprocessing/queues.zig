@@ -126,7 +126,7 @@ pub fn Queue(comptime T: type) type {
         /// Join queue (wait for all tasks to complete)
         pub fn joinQueue(self: *Self) void {
             while (!self.empty()) {
-                std.time.sleep(1_000_000); // 1ms
+                std.Thread.sleep(1_000_000); // 1ms
             }
         }
     };
@@ -181,7 +181,7 @@ pub fn JoinableQueue(comptime T: type) type {
                 const tasks = self.unfinished_tasks;
                 self.mutex.unlock();
                 if (tasks == 0) break;
-                std.time.sleep(1_000_000); // 1ms
+                std.Thread.sleep(1_000_000); // 1ms
             }
         }
     };
