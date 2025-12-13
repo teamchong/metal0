@@ -40,27 +40,22 @@ jobs:
         id: test-core
         run: |
           ./zig-out/bin/metal0 test tests/cpython @core 2>&1 | tee test_output.txt || true
-          # Parse results and write summary
-          if grep -q "passed" test_output.txt; then
-            PASSED=$(grep -oE '[0-9]+ passed' test_output.txt | grep -oE '[0-9]+' || echo "0")
-            FAILED=$(grep -oE '[0-9]+ failed' test_output.txt | grep -oE '[0-9]+' || echo "0")
-            TOTAL=$((PASSED + FAILED))
-            if [ "$TOTAL" -gt 0 ]; then
-              RATE=$(echo "scale=1; $PASSED * 100 / $TOTAL" | bc)
-            else
-              RATE="0"
-            fi
-            echo "## 📊 Test Results - @core" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-            echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-            echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          fi
-          # Exit with failure if tests failed
-          grep -q "failed" test_output.txt && grep -oE '[0-9]+ failed' test_output.txt | grep -qv "^0 " && exit 1 || true
+          # Parse results
+          PASSED=$(grep -oE '[0-9]+ passed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
+          FAILED=$(grep -oE '[0-9]+ failed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
+          TOTAL=$((PASSED + FAILED))
+          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
+          # Always write summary
+          echo "## 📊 Test Results - @core" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
+          # Exit with failure if any tests failed
+          [ "$FAILED" -gt 0 ] && exit 1 || true
         timeout-minutes: 60
 
   test-cpython-linux:
@@ -85,25 +80,22 @@ jobs:
         id: test-linux
         run: |
           ./zig-out/bin/metal0 test tests/cpython @linux 2>&1 | tee test_output.txt || true
-          if grep -q "passed" test_output.txt; then
-            PASSED=$(grep -oE '[0-9]+ passed' test_output.txt | grep -oE '[0-9]+' || echo "0")
-            FAILED=$(grep -oE '[0-9]+ failed' test_output.txt | grep -oE '[0-9]+' || echo "0")
-            TOTAL=$((PASSED + FAILED))
-            if [ "$TOTAL" -gt 0 ]; then
-              RATE=$(echo "scale=1; $PASSED * 100 / $TOTAL" | bc)
-            else
-              RATE="0"
-            fi
-            echo "## 📊 Test Results - @linux" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-            echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-            echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          fi
-          grep -q "failed" test_output.txt && grep -oE '[0-9]+ failed' test_output.txt | grep -qv "^0 " && exit 1 || true
+          # Parse results
+          PASSED=$(grep -oE '[0-9]+ passed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
+          FAILED=$(grep -oE '[0-9]+ failed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
+          TOTAL=$((PASSED + FAILED))
+          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
+          # Always write summary
+          echo "## 📊 Test Results - @linux" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
+          # Exit with failure if any tests failed
+          [ "$FAILED" -gt 0 ] && exit 1 || true
         timeout-minutes: 60
 
   test-cpython-macos:
@@ -128,25 +120,22 @@ jobs:
         id: test-macos
         run: |
           ./zig-out/bin/metal0 test tests/cpython @macos 2>&1 | tee test_output.txt || true
-          if grep -q "passed" test_output.txt; then
-            PASSED=$(grep -oE '[0-9]+ passed' test_output.txt | grep -oE '[0-9]+' || echo "0")
-            FAILED=$(grep -oE '[0-9]+ failed' test_output.txt | grep -oE '[0-9]+' || echo "0")
-            TOTAL=$((PASSED + FAILED))
-            if [ "$TOTAL" -gt 0 ]; then
-              RATE=$(echo "scale=1; $PASSED * 100 / $TOTAL" | bc)
-            else
-              RATE="0"
-            fi
-            echo "## 📊 Test Results - @macos" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-            echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-            echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          fi
-          grep -q "failed" test_output.txt && grep -oE '[0-9]+ failed' test_output.txt | grep -qv "^0 " && exit 1 || true
+          # Parse results
+          PASSED=$(grep -oE '[0-9]+ passed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
+          FAILED=$(grep -oE '[0-9]+ failed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
+          TOTAL=$((PASSED + FAILED))
+          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
+          # Always write summary
+          echo "## 📊 Test Results - @macos" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
+          # Exit with failure if any tests failed
+          [ "$FAILED" -gt 0 ] && exit 1 || true
         timeout-minutes: 60
 
   test-cpython-windows:
@@ -171,20 +160,20 @@ jobs:
         id: test-windows
         shell: pwsh
         run: |
-          $output = & .\zig-out\bin\metal0.exe test tests/cpython @windows 2>&1 | Tee-Object -Variable testOutput
-          $testOutput | Out-File -FilePath test_output.txt
-          Write-Output $testOutput
+          & .\zig-out\bin\metal0.exe test tests/cpython @windows 2>&1 | Tee-Object -FilePath test_output.txt
+          $exitCode = $LASTEXITCODE
 
-          # Parse results
-          $passedMatch = [regex]::Match($testOutput, '(\d+) passed')
-          $failedMatch = [regex]::Match($testOutput, '(\d+) failed')
+          # Parse results - always show summary
+          $content = Get-Content test_output.txt -Raw
+          $passedMatch = [regex]::Match($content, '(\d+) passed')
+          $failedMatch = [regex]::Match($content, '(\d+) failed')
 
           $passed = if ($passedMatch.Success) { [int]$passedMatch.Groups[1].Value } else { 0 }
           $failed = if ($failedMatch.Success) { [int]$failedMatch.Groups[1].Value } else { 0 }
           $total = $passed + $failed
           $rate = if ($total -gt 0) { [math]::Round(($passed / $total) * 100, 1) } else { 0 }
 
-          # Write summary
+          # Always write summary
           "## 📊 Test Results - @windows" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
           "" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
           "| Metric | Value |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
