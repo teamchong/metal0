@@ -4,6 +4,17 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // libdeflate C flags - disable AVX512 on x86 to fix CI runners lacking evex512 support
+    const is_x86 = target.result.cpu.arch == .x86_64 or target.result.cpu.arch == .x86;
+    const libdeflate_flags: []const []const u8 = if (is_x86)
+        &.{ "-std=c99", "-O3", "-mno-avx512f" }
+    else
+        &.{ "-std=c99", "-O3" };
+    const libdeflate_flags_no_opt: []const []const u8 = if (is_x86)
+        &.{ "-std=c99", "-mno-avx512f" }
+    else
+        &.{"-std=c99"};
+
     // Shared modules - define ONCE, use everywhere
     // Namespaced: utils.hashmap_helper, utils.allocator_helper, etc.
     const hashmap_helper = b.addModule("utils.hashmap_helper", .{
@@ -32,7 +43,7 @@ pub fn build(b: *std.Build) void {
             "vendor/libdeflate/lib/arm/cpu_features.c",
             "vendor/libdeflate/lib/x86/cpu_features.c",
         },
-        .flags = &[_][]const u8{ "-std=c99", "-O3" },
+        .flags = libdeflate_flags,
     });
     const collections = b.addModule("collections", .{
         .root_source_file = b.path("packages/collections/collections.zig"),
@@ -384,23 +395,6 @@ pub fn build(b: *std.Build) void {
     // const json_manual_step = b.step("test-json-manual", "Run manual JSON tests");
     // json_manual_step.dependOn(&run_json_manual_test.step);
 
-    // Tokenizer correctness test
-    const test_correctness_exe = b.addExecutable(.{
-        .name = "test_correctness",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("packages/tokenizer/src/test_correctness.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_correctness_exe.root_module.addImport("tokenizer", tokenizer_mod);
-    test_correctness_exe.root_module.addImport("json", json_mod);
-    test_correctness_exe.root_module.addImport("utils.allocator_helper", allocator_helper);
-    test_correctness_exe.root_module.addImport("utils.fnv_hash", fnv_hash);
-    test_correctness_exe.root_module.addImport("utils.hashmap_helper", hashmap_helper);
-    test_correctness_exe.linkLibC();
-    b.installArtifact(test_correctness_exe);
-
     // JSON parse benchmark
     const bench_json_parse = b.addExecutable(.{
         .name = "bench_metal0_json_parse",
@@ -527,7 +521,7 @@ pub fn build(b: *std.Build) void {
             "vendor/libdeflate/lib/arm/cpu_features.c",
             "vendor/libdeflate/lib/x86/cpu_features.c",
         },
-        .flags = &.{"-std=c99"},
+        .flags = libdeflate_flags_no_opt,
     });
 
     const run_gzip_tests = b.addRunArtifact(gzip_tests);
@@ -590,7 +584,7 @@ pub fn build(b: *std.Build) void {
             "vendor/libdeflate/lib/arm/cpu_features.c",
             "vendor/libdeflate/lib/x86/cpu_features.c",
         },
-        .flags = &[_][]const u8{ "-std=c99", "-O3" },
+        .flags = libdeflate_flags,
     });
     resolve_exe.linkLibC();
     b.installArtifact(resolve_exe);

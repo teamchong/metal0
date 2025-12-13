@@ -29,6 +29,8 @@ pub const pystring = @import("Objects/unicodeobject.zig");
 pub const PyString = pystring.PyString;
 const pytuple = @import("Objects/tupleobject.zig");
 const pyfile = @import("Objects/fileobject.zig");
+const pydict = @import("Objects/dictobject.zig");
+pub const PyDict = pydict.PyDict;
 
 /// BigInt for arbitrary precision integers (Python int semantics)
 pub const bigint = @import("bigint");
@@ -57,6 +59,9 @@ pub const tuple_ops = @import("runtime/tuple_ops.zig");
 
 /// Export copy operations for native codegen (fixes comptime explosion in copy/deepcopy)
 pub const copy_ops = @import("runtime/copy_ops.zig");
+
+/// Export copy module for Python's copy module (copy.Error, copy.error, etc.)
+pub const copy = @import("Lib/copy.zig");
 
 /// Export itertools operations for native codegen (fixes comptime explosion in itertools functions)
 pub const itertools_ops = @import("runtime/itertools_ops.zig");
