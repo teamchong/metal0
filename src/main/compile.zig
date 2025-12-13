@@ -87,11 +87,14 @@ fn extractStructBody(code: []const u8) []const u8 {
     return code;
 }
 
-pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, module_name: []const u8) !void {
+pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, _: []const u8) !void {
     // Use arena allocator for all intermediate allocations to avoid leaks on parse errors
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const aa = arena.allocator();
+
+    // Detect project root (walks up looking for pyproject.toml, setup.py, .git)
+    const project_root = try build_dirs.findProjectRoot(aa, module_path);
 
     // Read module source (handle absolute paths)
     const source = blk: {
@@ -104,22 +107,6 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
         }
     };
     // No defer needed - arena handles cleanup
-
-    // Use provided module_name if not empty, otherwise derive from path
-    const mod_name = if (module_name.len > 0) module_name else blk: {
-        const basename = std.fs.path.basename(module_path);
-        // For __init__.py, use parent directory name
-        if (std.mem.eql(u8, basename, "__init__.py")) {
-            if (std.fs.path.dirname(module_path)) |dir| {
-                break :blk std.fs.path.basename(dir);
-            }
-        }
-        // Regular module: strip .py extension
-        if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
-            break :blk basename[0..idx]
-        else
-            break :blk basename;
-    };
 
     // Generate Zig code for this module
     std.debug.print("  Generating Zig for module: {s}\n", .{module_path});
@@ -171,8 +158,12 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, modu
         return error.InvalidAST;
     // zig_code allocated by arena - no defer needed
 
-    // Save to cache/module_name.zig (use arena)
-    const output_path = try std.fmt.allocPrint(aa, build_dirs.CACHE ++ "/{s}.zig", .{mod_name});
+    // Save to project .metal0 directory (or source-relative if no project)
+    const output_path = if (project_root) |root|
+        try build_dirs.projectZigPath(aa, root.path, module_path)
+    else
+        try build_dirs.zigPath(aa, module_path);
+    try build_dirs.ensureParentDir(output_path);
     // output_path allocated by arena - no defer needed
 
     const file = try std.fs.cwd().createFile(output_path, .{});
@@ -358,6 +349,9 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
     defer arena.deinit();
     const aa = arena.allocator();
 
+    // Detect project root (walks up looking for pyproject.toml, setup.py, .git)
+    const project_root = try build_dirs.findProjectRoot(aa, input_file);
+
     // Read source file
     const source = try std.fs.cwd().readFileAlloc(aa, input_file, 10 * 1024 * 1024);
 
@@ -413,11 +407,12 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
     try native_gen.buildCallGraph(tree.module);
     const zig_code = try native_gen.generate(tree.module);
 
-    // Write .zig file to cache
-    try build_dirs.init();
-    const basename = std.fs.path.basename(input_file);
-    const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
-    const zig_path = try std.fmt.allocPrint(aa, build_dirs.CACHE ++ "/{s}.zig", .{stem});
+    // Write .zig file to project .metal0 directory (or source-relative if no project)
+    const zig_path = if (project_root) |root|
+        try build_dirs.projectZigPath(aa, root.path, input_file)
+    else
+        try build_dirs.zigPath(aa, input_file);
+    try build_dirs.ensureParentDir(zig_path);
     const file = try std.fs.cwd().createFile(zig_path, .{});
     defer file.close();
     try file.writeAll(zig_code);
@@ -603,9 +598,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                 continue;
             };
 
-            // Write compiled module to cache directory so generator.zig can @import it
+            // Write compiled module to source-relative .metal0 directory so generator.zig can @import it
             // Extract struct body and export functions at file level
-            const cache_path = try std.fmt.allocPrint(aa, build_dirs.CACHE ++ "/{s}.zig", .{module_name});
+            const module_source_path = try std.fmt.allocPrint(aa, "{s}/{s}.py", .{ source_file_dir orelse ".", module_name });
+            const cache_path = try build_dirs.zigPath(aa, module_source_path);
+            try build_dirs.ensureParentDir(cache_path);
             const cache_file = std.fs.cwd().createFile(cache_path, .{}) catch {
                 continue;
             };

@@ -22,26 +22,61 @@ const build_dirs = @import("../../build_dirs.zig");
 const compiler = @import("../../compiler.zig");
 
 /// Global Zig cache directory (shared across all compilations)
-pub const ZIG_CACHE_DIR = ".metal0/.zig-cache";
+pub const ZIG_CACHE_DIR = build_dirs.ROOT ++ "/.zig-cache";
 
-/// Path to precompiled runtime archive (release mode - DCE enabled)
+/// Path to local runtime archive (symlinks to global cache)
 pub const RUNTIME_ARCHIVE_PATH = build_dirs.LIB ++ "/libruntime.a";
 
 /// Path to precompiled runtime shared library (dev mode - fast linking)
 pub const RUNTIME_SO_PATH = build_dirs.LIB ++ "/libruntime.so";
 
-/// Check if runtime archive exists
+/// Get global runtime archive path (~/.metal0/runtime/libruntime.a)
+pub fn getGlobalRuntimePath(allocator: std.mem.Allocator) ![]const u8 {
+    return build_dirs.globalRuntimePath(allocator, "latest");
+}
+
+/// Check if runtime archive exists (checks global cache first, then local)
 pub fn hasRuntimeArchive() bool {
-    std.fs.cwd().access(RUNTIME_ARCHIVE_PATH, .{}) catch return false;
+    // First check local symlink
+    std.fs.cwd().access(RUNTIME_ARCHIVE_PATH, .{}) catch {
+        // Check global cache
+        var buf: [512]u8 = undefined;
+        const home = std.posix.getenv("HOME") orelse return false;
+        const global_path = std.fmt.bufPrint(&buf, "{s}/.metal0/runtime/libruntime-latest.a", .{home}) catch return false;
+        std.fs.cwd().access(global_path, .{}) catch return false;
+        return true;
+    };
     return true;
 }
 
 /// Get runtime archive mtime (for cache invalidation)
 pub fn getRuntimeArchiveMtime() i128 {
-    const file = std.fs.cwd().openFile(RUNTIME_ARCHIVE_PATH, .{}) catch return 0;
+    // Check global cache first
+    var buf: [512]u8 = undefined;
+    const home = std.posix.getenv("HOME") orelse return 0;
+    const global_path = std.fmt.bufPrint(&buf, "{s}/.metal0/runtime/libruntime-latest.a", .{home}) catch return 0;
+
+    const file = std.fs.cwd().openFile(global_path, .{}) catch {
+        // Fall back to local
+        const local_file = std.fs.cwd().openFile(RUNTIME_ARCHIVE_PATH, .{}) catch return 0;
+        defer local_file.close();
+        const stat = local_file.stat() catch return 0;
+        return stat.mtime;
+    };
     defer file.close();
     const stat = file.stat() catch return 0;
     return stat.mtime;
+}
+
+/// Get the actual runtime archive path to use (global if available, local fallback)
+pub fn getRuntimeArchivePathResolved(allocator: std.mem.Allocator) ![]const u8 {
+    // Try global cache first
+    const global_path = try getGlobalRuntimePath(allocator);
+    std.fs.cwd().access(global_path, .{}) catch {
+        allocator.free(global_path);
+        return allocator.dupe(u8, RUNTIME_ARCHIVE_PATH);
+    };
+    return global_path;
 }
 
 /// Module definition for -M flag (mirrors compiler.zig MODULES)
@@ -152,24 +187,30 @@ fn buildRuntimeModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]
 }
 
 /// Build runtime.zig to static archive (.a) for fast linking
-/// This is done ONCE and cached - massive speed improvement
+/// Builds to GLOBAL cache (~/.metal0/runtime/) for sharing across projects
+/// This is done ONCE per machine and shared - massive speed improvement
 pub fn buildRuntimeArchive(allocator: std.mem.Allocator) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const aa = arena.allocator();
 
-    // Ensure directories exist (no file copying needed with -M flags)
-    try build_dirs.init();
+    // Ensure global cache directories exist
+    try build_dirs.ensureGlobalCacheDir(allocator);
 
-    // Create lib directory
+    // Also ensure local directories for symlink
+    try build_dirs.init();
     std.fs.cwd().makeDir(build_dirs.LIB) catch |err| {
         if (err != error.PathAlreadyExists) return err;
     };
 
-    // Create zig cache dir
-    std.fs.cwd().makeDir(ZIG_CACHE_DIR) catch |err| {
+    // Create zig cache dir (use global cache for runtime)
+    const global_zig_cache = try std.fmt.allocPrint(aa, "{s}/.zig-cache", .{try build_dirs.globalCacheDir(aa)});
+    std.fs.cwd().makePath(global_zig_cache) catch |err| {
         if (err != error.PathAlreadyExists) return err;
     };
+
+    // Get global runtime path
+    const global_runtime_path = try getGlobalRuntimePath(aa);
 
     // Use source runtime.zig directly (no copying needed)
     const runtime_zig = "packages/runtime/src/runtime.zig";
@@ -183,9 +224,9 @@ pub fn buildRuntimeArchive(allocator: std.mem.Allocator) !void {
     // Add module flags (this is the key fix - runtime.zig needs -M flags for its imports)
     try buildRuntimeModuleFlags(aa, &args, runtime_zig);
 
-    // Use Zig's cache
+    // Use global Zig cache for runtime builds
     try args.append(aa, "--cache-dir");
-    try args.append(aa, ZIG_CACHE_DIR);
+    try args.append(aa, global_zig_cache);
 
     // Optimization flags
     try args.append(aa, "-OReleaseFast");
@@ -195,13 +236,13 @@ pub fn buildRuntimeArchive(allocator: std.mem.Allocator) !void {
     try args.append(aa, "-ffunction-sections");
     try args.append(aa, "-fdata-sections");
 
-    // Static library output - note: use -femit-bin for the .a file
-    try args.append(aa, try std.fmt.allocPrint(aa, "-femit-bin={s}", .{RUNTIME_ARCHIVE_PATH}));
+    // Static library output to GLOBAL cache
+    try args.append(aa, try std.fmt.allocPrint(aa, "-femit-bin={s}", .{global_runtime_path}));
 
     // Link with libc
     try args.append(aa, "-lc");
 
-    std.debug.print("Building runtime archive with {d} args...\n", .{args.items.len});
+    std.debug.print("Building runtime archive to global cache with {d} args...\n", .{args.items.len});
 
     const result = try std.process.Child.run(.{
         .allocator = aa,
@@ -221,25 +262,25 @@ pub fn buildRuntimeArchive(allocator: std.mem.Allocator) !void {
             return error.RuntimeArchiveBuildFailed;
         },
     }
+
 }
 
-/// Ensure runtime archive is up-to-date
+/// Ensure runtime archive is up-to-date in global cache
 /// Rebuilds if missing or if runtime.zig is newer
 pub fn ensureRuntimeArchive(allocator: std.mem.Allocator) !void {
-    // Check if archive exists
-    if (!hasRuntimeArchive()) {
-        std.debug.print("Building runtime archive (first time)...\n", .{});
-        try buildRuntimeArchive(allocator);
-        return;
-    }
+    // Get global runtime path
+    const global_path = try getGlobalRuntimePath(allocator);
+    defer allocator.free(global_path);
 
-    // Check if runtime.zig is newer than archive (use source path)
-    const runtime_stat = std.fs.cwd().statFile("packages/runtime/src/runtime.zig") catch {
+    // Check if archive exists in global cache
+    const archive_stat = std.fs.cwd().statFile(global_path) catch {
+        std.debug.print("Building runtime archive (first time)...\n", .{});
         try buildRuntimeArchive(allocator);
         return;
     };
 
-    const archive_stat = std.fs.cwd().statFile(RUNTIME_ARCHIVE_PATH) catch {
+    // Check if runtime.zig is newer than archive (use source path)
+    const runtime_stat = std.fs.cwd().statFile("packages/runtime/src/runtime.zig") catch {
         try buildRuntimeArchive(allocator);
         return;
     };
@@ -359,7 +400,7 @@ pub fn ensureRuntimeSo(allocator: std.mem.Allocator) !void {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// Directory for precompiled .o files (mirrors source structure)
-const OBJECTS_DIR = ".metal0/obj";
+const OBJECTS_DIR = build_dirs.ROOT ++ "/obj";
 
 /// Module object files with paths mirroring source structure
 const ModuleObject = struct {
@@ -547,8 +588,8 @@ fn buildModuleObjectNew(allocator: std.mem.Allocator, mod: ModuleObject) !void {
 
 /// Build all module .o files (call once, then link fast)
 /// Objects are organized mirroring source folder structure:
-///   .metal0/obj/src/utils/hashmap_helper.o
-///   .metal0/obj/packages/runtime/src/runtime.o
+///   <output>/obj/src/utils/hashmap_helper.o
+///   <output>/obj/packages/runtime/src/runtime.o
 ///   etc.
 pub fn buildAllModuleObjects(allocator: std.mem.Allocator) !void {
     // Ensure base directories exist
@@ -910,9 +951,10 @@ pub fn linkBinary(allocator: std.mem.Allocator, module_name: []const u8, output_
     try args.append(aa, "build-exe");
     try args.append(aa, obj_path);
 
-    // Link with precompiled runtime archive if available (HUGE speed boost)
+    // Link with precompiled runtime archive from global cache (HUGE speed boost)
     if (hasRuntimeArchive()) {
-        try args.append(aa, RUNTIME_ARCHIVE_PATH);
+        const runtime_path = try getRuntimeArchivePathResolved(aa);
+        try args.append(aa, runtime_path);
     }
 
     // Use cache for linking too
@@ -965,47 +1007,51 @@ pub fn build(allocator: std.mem.Allocator, zig_source: []const u8, module_name: 
 // This is THE key optimization: share runtime module analysis across all tests
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// Path to batch build.zig (in .metal0, copied from src at runtime)
-const BATCH_BUILD_ZIG = ".metal0/build.zig";
+/// Path to batch build.zig (in zig-out, copied from src at runtime)
+const BATCH_BUILD_ZIG = build_dirs.ROOT ++ "/build.zig";
 
 /// Source path for batch build.zig
 const BATCH_BUILD_ZIG_SRC = "src/main/compile/batch_build.zig";
 
 /// Path to test manifest (list of zig files to compile)
-const TEST_MANIFEST = ".metal0/test_manifest.txt";
+const TEST_MANIFEST = build_dirs.ROOT ++ "/test_manifest.txt";
 
 /// Generate test manifest file for batch compilation
-/// Format: each line is "relative_zig_path:binary_name"
+/// Format: each line is "relative_zig_path:binary_relative_path"
+/// e.g., "src/tests/cpython/test_bool.zig:src/tests/cpython/test_bool"
 pub fn generateTestManifest(allocator: std.mem.Allocator, zig_paths: []const []const u8) !void {
     _ = allocator;
 
-    // Ensure .metal0 directory exists
-    std.fs.cwd().makeDir(".metal0") catch |err| {
+    // Ensure output directory exists
+    std.fs.cwd().makeDir(build_dirs.ROOT) catch |err| {
         if (err != error.PathAlreadyExists) return err;
     };
 
     const file = try std.fs.cwd().createFile(TEST_MANIFEST, .{});
     defer file.close();
 
+    // Prefix to strip: ".metal0/"
+    const prefix = build_dirs.ROOT ++ "/";
+
     for (zig_paths) |zig_path| {
-        // Convert to relative path from .metal0/ directory
-        // e.g., ".metal0/cache/test_bool.zig" -> "cache/test_bool.zig"
-        const rel_path = if (std.mem.startsWith(u8, zig_path, ".metal0/"))
-            zig_path[8..] // Skip ".metal0/"
+        // Convert to relative path from output directory
+        // e.g., ".metal0/src/tests/cpython/test_bool.zig" -> "src/tests/cpython/test_bool.zig"
+        const rel_path = if (std.mem.startsWith(u8, zig_path, prefix))
+            zig_path[prefix.len..] // Skip .metal0/ prefix
         else
             zig_path;
 
-        // Extract binary name (test_bool.zig -> test_bool)
-        const basename = std.fs.path.basename(zig_path);
-        const bin_name = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
-            basename[0..idx]
+        // Extract binary relative path (src/tests/cpython/test_bool.zig -> src/tests/cpython/test_bool)
+        // This preserves the directory structure for output
+        const bin_rel_path = if (std.mem.lastIndexOf(u8, rel_path, ".zig")) |idx|
+            rel_path[0..idx]
         else
-            basename;
+            rel_path;
 
-        // Write line: relative_path:bin_name
+        // Write line: relative_path:bin_relative_path
         try file.writeAll(rel_path);
         try file.writeAll(":");
-        try file.writeAll(bin_name);
+        try file.writeAll(bin_rel_path);
         try file.writeAll("\n");
     }
 }
@@ -1017,30 +1063,31 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
     defer arena.deinit();
     const aa = arena.allocator();
 
-    // Run zig build from .metal0 directory
+    // Run zig build from output directory (.metal0/)
+    // --prefix . means install to .metal0/ which is the cwd for the batch build
+    // batch_build.zig then uses dest_dir override to place binaries in gen/tests/cpython/etc
+    const cache_dir = try std.fmt.allocPrint(aa, "../{s}/.zig-cache", .{build_dirs.ROOT});
     var argv = [_][]const u8{
         "zig",
         "build",
         undefined, // -j{jobs}
         "-Doptimize=ReleaseFast",
         "--cache-dir",
-        "../.metal0/.zig-cache",
+        cache_dir,
         "--prefix",
-        "..",
-        "--prefix-exe-dir",
-        ".metal0/bin",
+        ".", // Install to .metal0/ (the cwd)
     };
     const jobs_arg = std.fmt.allocPrint(aa, "-j{d}", .{jobs}) catch "-j4";
     argv[2] = jobs_arg;
 
     std.debug.print("Running batch compilation: zig build -j{d} (timeout: 120s)...\n", .{jobs});
 
-    // Run from .metal0 directory with timeout using std.process.Child.run
+    // Run from output directory with timeout using std.process.Child.run
     // Note: Zig's Child doesn't have waitWithTimeout, so we use run() which has built-in timeout
     const result = std.process.Child.run(.{
         .allocator = aa,
         .argv = &argv,
-        .cwd = ".metal0",
+        .cwd = build_dirs.ROOT,
         .max_output_bytes = 4 * 1024 * 1024,
     }) catch |err| {
         std.debug.print("[BATCH] Process failed: {any}\n", .{err});
@@ -1060,36 +1107,37 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
         else => 1,
     };
 
-    // Count successfully compiled binaries
+    // Count successfully compiled binaries by checking manifest paths
+    // Binaries are now at .metal0/gen/tests/cpython/test_foo (nested structure)
     var count: usize = 0;
-    if (std.fs.cwd().openDir(".metal0/bin", .{ .iterate = true })) |dir_val| {
-        var dir = dir_val;
-        defer dir.close();
-        var iter = dir.iterate();
-        while (iter.next() catch null) |entry| {
-            if (entry.kind == .file) count += 1;
-        }
-    } else |_| {
-        // No bin directory - that's a failure
-        if (stderr_len > 0) {
-            const max_err = @min(stderr_len, 2000);
-            std.debug.print("\n[BATCH] Compilation failed:\n{s}\n", .{stderr_content[0..max_err]});
-        }
-        return error.BatchCompileFailed;
-    }
-
-    // Get total from manifest
     var total: usize = 0;
-    if (std.fs.cwd().openFile(".metal0/test_manifest.txt", .{})) |file| {
+    if (std.fs.cwd().openFile(TEST_MANIFEST, .{})) |file| {
         defer file.close();
         var buf: [64 * 1024]u8 = undefined;
         const content_len = file.readAll(&buf) catch 0;
         var lines = std.mem.splitScalar(u8, buf[0..content_len], '\n');
         while (lines.next()) |line| {
-            if (line.len > 0) total += 1;
+            if (line.len == 0) continue;
+            total += 1;
+
+            // Parse line: "gen/tests/cpython/test_bool.zig:gen/tests/cpython/test_bool"
+            var parts = std.mem.splitScalar(u8, line, ':');
+            _ = parts.next(); // Skip zig path
+            const bin_rel = parts.next() orelse continue;
+
+            // Check if binary exists at .metal0/<bin_rel>
+            const bin_path = std.fmt.allocPrint(aa, "{s}/{s}", .{ build_dirs.ROOT, bin_rel }) catch continue;
+            if (std.fs.cwd().access(bin_path, .{})) |_| {
+                count += 1;
+            } else |_| {}
         }
     } else |_| {
-        total = count; // Fallback
+        // No manifest - report batch failure
+        if (stderr_len > 0) {
+            const max_err = @min(stderr_len, 2000);
+            std.debug.print("\n[BATCH] Compilation failed:\n{s}\n", .{stderr_content[0..max_err]});
+        }
+        return error.BatchCompileFailed;
     }
 
     // Report errors if any failures
@@ -1115,8 +1163,8 @@ pub fn hasBatchBuildZig() bool {
     // Check if source exists
     std.fs.cwd().access(BATCH_BUILD_ZIG_SRC, .{}) catch return false;
 
-    // Copy to .metal0/ if needed
-    std.fs.cwd().makeDir(".metal0") catch |err| {
+    // Copy to output directory if needed
+    std.fs.cwd().makeDir(build_dirs.ROOT) catch |err| {
         if (err != error.PathAlreadyExists) return false;
     };
 

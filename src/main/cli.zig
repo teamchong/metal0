@@ -104,6 +104,8 @@ pub fn main() !void {
         try daemon.cmdDaemon(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "dev")) {
         try dev_commands.cmdDev(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "clean")) {
+        try build_commands.cmdClean(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "version")) {
         python_compat.cmdVersion();
     } else if (std.mem.eql(u8, command, "help")) {

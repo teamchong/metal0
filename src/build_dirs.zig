@@ -49,15 +49,17 @@ pub const ProjectRoot = struct {
 
 /// Find project root by walking up from source file
 /// Checks markers in priority order: pyproject.toml > setup.py > setup.cfg > .git
+/// Returns relative path "." if project root is CWD, preserving relative path structure
 pub fn findProjectRoot(allocator: std.mem.Allocator, start_path: []const u8) !?ProjectRoot {
+    // Get CWD for comparison
+    const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+    defer allocator.free(cwd);
+
     // Get absolute path for the start location
     const abs_start = if (std.fs.path.isAbsolute(start_path))
         try allocator.dupe(u8, start_path)
-    else blk: {
-        const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
-        defer allocator.free(cwd);
-        break :blk try std.fs.path.join(allocator, &.{ cwd, start_path });
-    };
+    else
+        try std.fs.path.join(allocator, &.{ cwd, start_path });
 
     // Start from directory containing the file (or the directory itself)
     var current = try allocator.dupe(u8, std.fs.path.dirname(abs_start) orelse abs_start);
@@ -82,9 +84,19 @@ pub fn findProjectRoot(allocator: std.mem.Allocator, start_path: []const u8) !?P
                 fileExists(check_path);
 
             if (exists) {
-                // Return current as the project root (caller owns it)
+                // If project root is CWD, return "." for relative paths
+                const result_path = if (std.mem.eql(u8, current, cwd))
+                    try allocator.dupe(u8, ".")
+                else
+                    current;
+
+                // Free current if we're returning "."
+                if (std.mem.eql(u8, current, cwd)) {
+                    allocator.free(current);
+                }
+
                 return ProjectRoot{
-                    .path = current,
+                    .path = result_path,
                     .marker = m.marker,
                 };
             }
@@ -181,24 +193,42 @@ pub fn getRelativePath(allocator: std.mem.Allocator, project_root: []const u8, s
     return allocator.dupe(u8, source_path);
 }
 
+/// Subdirectory for generated code (avoids conflicts with cache/, lib/, etc.)
+/// Using "gen" is industry standard for generated files (Android, protobuf, etc.)
+pub const SRC_SUBDIR = "gen";
+
 /// Get path for generated Zig source (project-relative)
 /// e.g., project_root="myproject", source_path="myproject/src/app.py"
-///       -> "myproject/.metal0/src/app.zig"
+///       -> "myproject/.metal0/gen/src/app.zig"
+/// e.g., project_root=".", source_path="tests/cpython/test_bool.py"
+///       -> ".metal0/gen/tests/cpython/test_bool.zig"
 pub fn projectZigPath(allocator: std.mem.Allocator, project_root: []const u8, source_path: []const u8) ![]const u8 {
     const rel_path = try getRelativePath(allocator, project_root, source_path);
     defer allocator.free(rel_path);
     const stem = getPathNoExt(rel_path);
-    return std.fmt.allocPrint(allocator, "{s}/" ++ OUTPUT_DIR ++ "/{s}.zig", .{ project_root, stem });
+
+    // Handle "." project root - don't prefix with "./"
+    if (std.mem.eql(u8, project_root, ".")) {
+        return std.fmt.allocPrint(allocator, OUTPUT_DIR ++ "/" ++ SRC_SUBDIR ++ "/{s}.zig", .{stem});
+    }
+    return std.fmt.allocPrint(allocator, "{s}/" ++ OUTPUT_DIR ++ "/" ++ SRC_SUBDIR ++ "/{s}.zig", .{ project_root, stem });
 }
 
 /// Get path for binary (project-relative)
 /// e.g., project_root="myproject", source_path="myproject/src/app.py"
-///       -> "myproject/.metal0/src/app"
+///       -> "myproject/.metal0/gen/src/app"
+/// e.g., project_root=".", source_path="tests/cpython/test_bool.py"
+///       -> ".metal0/gen/tests/cpython/test_bool"
 pub fn projectBinaryPath(allocator: std.mem.Allocator, project_root: []const u8, source_path: []const u8) ![]const u8 {
     const rel_path = try getRelativePath(allocator, project_root, source_path);
     defer allocator.free(rel_path);
     const stem = getPathNoExt(rel_path);
-    return std.fmt.allocPrint(allocator, "{s}/" ++ OUTPUT_DIR ++ "/{s}", .{ project_root, stem });
+
+    // Handle "." project root - don't prefix with "./"
+    if (std.mem.eql(u8, project_root, ".")) {
+        return std.fmt.allocPrint(allocator, OUTPUT_DIR ++ "/" ++ SRC_SUBDIR ++ "/{s}", .{stem});
+    }
+    return std.fmt.allocPrint(allocator, "{s}/" ++ OUTPUT_DIR ++ "/" ++ SRC_SUBDIR ++ "/{s}", .{ project_root, stem });
 }
 
 /// Get path without extension (preserves directory structure)

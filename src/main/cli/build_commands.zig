@@ -160,12 +160,15 @@ pub fn cmdBuildRuntime(allocator: std.mem.Allocator) !void {
     const incr = @import("../compile/incremental.zig");
 
     std.debug.print("{s}=== Building Runtime Archive ==={s}\n", .{ Color.bold, Color.reset });
-    std.debug.print("Building .metal0/lib/libruntime.a (precompiled, cached)...\n", .{});
+    std.debug.print("Building to global cache (~/.metal0/runtime/)...\n", .{});
 
     try incr.buildRuntimeArchive(allocator);
 
-    printSuccess("Runtime archive built: {s}", .{incr.RUNTIME_ARCHIVE_PATH});
+    const global_path = try incr.getGlobalRuntimePath(allocator);
+    defer allocator.free(global_path);
+    printSuccess("Runtime archive built: {s}", .{global_path});
     std.debug.print("Future compilations will link against this archive (10x faster).\n", .{});
+    std.debug.print("Shared across all projects on this machine.\n", .{});
 }
 
 /// Build precompiled module objects (.o files) for ultra-fast linking
@@ -347,9 +350,7 @@ pub fn cmdBuildFast(allocator: std.mem.Allocator, args: []const []const u8) !voi
         codegen_ok += 1;
 
         // Get the generated .zig path - check if it exists
-        const basename = std.fs.path.basename(file_path);
-        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
-        const zig_path = try std.fmt.allocPrint(allocator, ".metal0/cache/{s}.zig", .{stem});
+        const zig_path = try build_dirs.zigPath(allocator, file_path);
 
         // Only add if file exists
         std.fs.cwd().access(zig_path, .{}) catch {
@@ -375,4 +376,33 @@ pub fn cmdBuildFast(allocator: std.mem.Allocator, args: []const []const u8) !voi
 
     printSuccess("Build complete! .o files in .metal0/cache/", .{});
     std.debug.print("  {s}Hint:{s} Run `metal0 <file.py>` to link and execute\n", .{ Color.dim, Color.reset });
+}
+
+/// Clean build artifacts - removes .metal0 directories recursively
+pub fn cmdClean(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    var path: []const u8 = ".";
+    var verbose = false;
+
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--verbose")) {
+            verbose = true;
+        } else if (!std.mem.startsWith(u8, arg, "-")) {
+            path = arg;
+        }
+    }
+
+    if (verbose) {
+        std.debug.print("Cleaning .metal0 directories under: {s}\n", .{path});
+    }
+
+    const count = build_dirs.cleanRecursive(allocator, path) catch |err| {
+        printError("Clean failed: {any}", .{err});
+        return;
+    };
+
+    if (count == 0) {
+        printInfo("No .metal0 directories found", .{});
+    } else {
+        printSuccess("Removed {d} .metal0 director{s}", .{ count, if (count == 1) "y" else "ies" });
+    }
 }

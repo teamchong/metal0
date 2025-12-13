@@ -127,8 +127,8 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     // Phase 0: Ensure cache dirs exist and runtime archive is built
     try build_dirs.init();
 
-    // Ensure bin output dir exists
-    std.fs.cwd().makeDir(".metal0/bin") catch |err| {
+    // Ensure output dir exists (for legacy compatibility)
+    std.fs.cwd().makeDir(build_dirs.ROOT) catch |err| {
         if (err != error.PathAlreadyExists) return err;
     };
 
@@ -219,10 +219,16 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var codegen_tasks = std.ArrayList(CodegenTask){};
     defer codegen_tasks.deinit(allocator);
 
+    // Detect project root once for all test files
+    const project_root = try build_dirs.findProjectRoot(allocator, test_dir);
+    defer if (project_root) |root| allocator.free(root.path);
+
     for (test_files.items) |file_path| {
-        const basename = std.fs.path.basename(file_path);
-        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
-        const zig_path = try std.fmt.allocPrint(allocator, "{s}/{s}.zig", .{ build_dirs.CACHE, stem });
+        // Use project-relative paths when project root is found
+        const zig_path = if (project_root) |root|
+            try build_dirs.projectZigPath(allocator, root.path, file_path)
+        else
+            try build_dirs.zigPath(allocator, file_path);
 
         // Check cache
         const needs_codegen = blk: {
@@ -365,9 +371,61 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     for (zig_files.items) |zig_path| {
         std.fs.cwd().access(zig_path, .{}) catch continue;
 
-        const basename = std.fs.path.basename(zig_path);
-        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
-        const bin_path = try std.fmt.allocPrint(allocator, ".metal0/bin/{s}", .{stem});
+        // Derive source path and binary path from zig_path
+        // Two cases:
+        // 1) Project-relative: <project>/.metal0/tests/cpython/test_bool.zig
+        // 2) Source-relative: tests/cpython/.metal0/test_bool.zig
+        const basename = std.fs.path.basename(zig_path); // test_bool.zig
+        const stem = if (std.mem.endsWith(u8, basename, ".zig"))
+            basename[0 .. basename.len - 4]
+        else
+            basename;
+
+        // Check if zig_path is under .metal0/gen/ at project root
+        const source_path = if (project_root) |root| blk: {
+            // Project-relative: <project>/.metal0/gen/tests/cpython/test_bool.zig
+            // Remove <project>/.metal0/gen/ prefix and add .py extension
+            // Handle "." root specially - don't prefix with "./"
+            const metal0_src_prefix = if (std.mem.eql(u8, root.path, "."))
+                build_dirs.OUTPUT_DIR ++ "/" ++ build_dirs.SRC_SUBDIR ++ "/"
+            else
+                try std.fmt.allocPrint(allocator, "{s}/" ++ build_dirs.OUTPUT_DIR ++ "/" ++ build_dirs.SRC_SUBDIR ++ "/", .{root.path});
+            defer if (!std.mem.eql(u8, root.path, ".")) allocator.free(metal0_src_prefix);
+
+            if (std.mem.startsWith(u8, zig_path, metal0_src_prefix)) {
+                // Get relative path under .metal0/gen (e.g., tests/cpython/test_bool.zig)
+                const rel_path = zig_path[metal0_src_prefix.len..];
+                const rel_dir = std.fs.path.dirname(rel_path);
+                // Construct source path: tests/cpython/test_bool.py
+                break :blk if (rel_dir) |rd|
+                    try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{ rd, stem })
+                else
+                    try std.fmt.allocPrint(allocator, "{s}.py", .{stem});
+            }
+            // Fallback to source-relative parsing
+            const zig_dir = std.fs.path.dirname(zig_path) orelse ".";
+            const parent_dir = std.fs.path.dirname(zig_dir);
+            break :blk if (parent_dir) |pd|
+                try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{ pd, stem })
+            else
+                try std.fmt.allocPrint(allocator, "{s}.py", .{stem});
+        } else blk: {
+            // Source-relative: tests/cpython/.metal0/test_bool.zig
+            const zig_dir = std.fs.path.dirname(zig_path) orelse ".";
+            const parent_dir = std.fs.path.dirname(zig_dir);
+            break :blk if (parent_dir) |pd|
+                try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{ pd, stem })
+            else
+                try std.fmt.allocPrint(allocator, "{s}.py", .{stem});
+        };
+
+        const bin_path = if (project_root) |root|
+            try build_dirs.projectBinaryPath(allocator, root.path, source_path)
+        else
+            try build_dirs.binaryPath(allocator, source_path);
+
+        // source_path only needed for bin_path derivation, free it now
+        allocator.free(source_path);
 
         const needs_compile = blk: {
             const zig_stat = std.fs.cwd().statFile(zig_path) catch break :blk true;
@@ -652,8 +710,9 @@ fn compileWithRuntimeArchive(allocator: std.mem.Allocator, zig_code: []const u8,
     // Note: The .a contains the compiled code, but we need the module definition for types
     try addRuntimeModuleFlags(aa, &args);
 
-    // Link against the precompiled runtime archive
-    try args.append(aa, incremental.RUNTIME_ARCHIVE_PATH);
+    // Link against the precompiled runtime archive from global cache
+    const runtime_path = try incremental.getRuntimeArchivePathResolved(aa);
+    try args.append(aa, runtime_path);
 
     // Use Zig's cache
     try args.append(aa, "--cache-dir");
@@ -771,26 +830,29 @@ fn addRuntimeModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]co
 /// Clean stale cache files that don't match current test set
 /// Prevents "Compile: 3/1" issues from orphaned .zig and binary files
 fn cleanStaleCache(allocator: std.mem.Allocator, test_files: []const []const u8) void {
-    // Build set of valid test paths (full paths without extension)
-    // e.g., "tests/cpython/test_bool" for "tests/cpython/test_bool.py"
-    var valid_paths = hashmap_helper.StringHashMap(void).init(allocator);
-    defer valid_paths.deinit();
+    // Build set of valid test base names
+    // e.g., "test_bool" for "tests/cpython/test_bool.py"
+    var valid_names = hashmap_helper.StringHashMap(void).init(allocator);
+    defer valid_names.deinit();
 
     for (test_files) |test_path| {
-        // Strip .py extension to get the base path
-        const path_no_ext = if (std.mem.endsWith(u8, test_path, ".py"))
-            test_path[0 .. test_path.len - 3]
+        // Get base name without extension
+        const basename = std.fs.path.basename(test_path);
+        const name = if (std.mem.lastIndexOf(u8, basename, ".")) |idx|
+            basename[0..idx]
         else
-            test_path;
-        valid_paths.put(path_no_ext, {}) catch continue;
+            basename;
+        valid_names.put(name, {}) catch continue;
     }
 
-    // Clean .metal0/bin/ recursively - remove files that don't match current tests
-    cleanDirRecursive(allocator, ".metal0/bin", &valid_paths);
+    // With project-level .metal0/, clean the gen/ directory
+    // Structure: .metal0/gen/tests/cpython/test_bool.zig
+    const gen_dir = build_dirs.OUTPUT_DIR ++ "/" ++ build_dirs.SRC_SUBDIR;
+    cleanDirRecursive(allocator, gen_dir, &valid_names);
 }
 
-/// Recursively clean directory, removing files not in valid_paths
-fn cleanDirRecursive(allocator: std.mem.Allocator, dir_path: []const u8, valid_paths: *hashmap_helper.StringHashMap(void)) void {
+/// Recursively clean directory, removing files not in valid_names
+fn cleanDirRecursive(allocator: std.mem.Allocator, dir_path: []const u8, valid_names: *hashmap_helper.StringHashMap(void)) void {
     var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch return;
     defer dir.close();
 
@@ -810,23 +872,25 @@ fn cleanDirRecursive(allocator: std.mem.Allocator, dir_path: []const u8, valid_p
         // Convert sentinel-terminated to regular slice
         const path: []const u8 = entry.path;
 
-        // Only clean test-related files (.so, .hash, binaries starting with test_)
-        const is_test_file = std.mem.indexOf(u8, path, "test_") != null;
+        // Only clean test-related files (.so, .hash, .zig, binaries starting with test_)
+        const basename = std.fs.path.basename(path);
+        const is_test_file = std.mem.startsWith(u8, basename, "test_");
         if (!is_test_file) continue;
 
-        // Get the base path (strip .so, .hash, .cpython-* suffixes)
-        var base_path: []const u8 = path;
-        if (std.mem.indexOf(u8, base_path, ".cpython-")) |idx| {
-            base_path = base_path[0..idx];
-        } else if (std.mem.endsWith(u8, base_path, ".hash")) {
-            base_path = base_path[0 .. base_path.len - 5];
-            if (std.mem.indexOf(u8, base_path, ".cpython-")) |idx| {
-                base_path = base_path[0..idx];
-            }
+        // Get the base name (strip .so, .hash, .zig, .cpython-* suffixes)
+        var base_name: []const u8 = basename;
+        if (std.mem.indexOf(u8, base_name, ".cpython-")) |idx| {
+            base_name = base_name[0..idx];
+        } else if (std.mem.endsWith(u8, base_name, ".hash")) {
+            base_name = base_name[0 .. base_name.len - 5];
+        } else if (std.mem.endsWith(u8, base_name, ".zig")) {
+            base_name = base_name[0 .. base_name.len - 4];
+        } else if (std.mem.endsWith(u8, base_name, ".o")) {
+            base_name = base_name[0 .. base_name.len - 2];
         }
 
-        // Check if this matches any valid test path
-        if (!valid_paths.contains(base_path)) {
+        // Check if this matches any valid test name
+        if (!valid_names.contains(base_name)) {
             const full_path = std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, path }) catch continue;
             to_delete.append(allocator, full_path) catch continue;
         }

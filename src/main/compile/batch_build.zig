@@ -179,8 +179,19 @@ pub fn build(b: *std.Build) void {
         // Create executable with root_module
         // NOTE: Must include all modules that runtime re-exports, since the generated
         // test code may directly reference types from these modules (e.g., BigInt)
+
+        // bin_name is like "tests/cpython/test_bool" - extract dir and name
+        const bin_dir = if (std.mem.lastIndexOf(u8, bin_name, "/")) |idx|
+            bin_name[0..idx]
+        else
+            "";
+        const exe_name = if (std.mem.lastIndexOf(u8, bin_name, "/")) |idx|
+            bin_name[idx + 1 ..]
+        else
+            bin_name;
+
         const exe = b.addExecutable(.{
-            .name = bin_name,
+            .name = exe_name,
             .root_module = b.createModule(.{
                 .root_source_file = b.path(zig_path_rel),
                 .target = target,
@@ -197,7 +208,14 @@ pub fn build(b: *std.Build) void {
         // Link libc
         exe.linkLibC();
 
-        // Install to bin/
-        b.installArtifact(exe);
+        // Install to the correct relative path
+        // e.g., bin_name="tests/cpython/test_bool" -> install to <prefix>/tests/cpython/test_bool
+        const install_step = b.addInstallArtifact(exe, .{
+            .dest_dir = if (bin_dir.len > 0)
+                .{ .override = .{ .custom = bin_dir } }
+            else
+                .{ .override = .bin },
+        });
+        b.default_step.dependOn(&install_step.step);
     }
 }

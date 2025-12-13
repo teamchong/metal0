@@ -4,6 +4,16 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Parallel build isolation: use repo name as subdirectory
+    // e.g., /path/to/metal0 -> zig-out/metal0/bin/metal0
+    //       /path/to/metal0-agent2 -> zig-out/metal0-agent2/bin/metal0
+    // This allows multiple checkouts/worktrees to build in parallel
+    if (b.build_root.path) |src_path| {
+        const repo_name = std.fs.path.basename(src_path);
+        const prefix = std.fmt.allocPrint(b.allocator, "zig-out/{s}", .{repo_name}) catch "zig-out";
+        b.install_prefix = prefix;
+    }
+
     // libdeflate C flags - disable AVX512 on x86 (CI runners lack evex512 support)
     // These macros disable AVX512 code paths in libdeflate (crc32 and adler32)
     const arch = target.result.cpu.arch;
