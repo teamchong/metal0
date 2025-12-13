@@ -1067,9 +1067,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
-    // Note: Class-level attributes (candidates = set1 + set2) are NOT generated as struct fields
-    // They are evaluated at class definition time in Python and stored in class.__dict__
-    // For now, we access them via instance.__dict__ with runtime type extraction
+    // Fix 35: Generate class-level attribute fields
+    // Class attributes like `all_comp_classes = (...)` become struct fields
+    try body.genClassAttributeFields(self, class.body);
 
     // Generate init() method from __init__, __new__, or inherit from parent
     // Priority: __init__ > __new__ > parent __init__ > default
