@@ -338,10 +338,11 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         std.debug.print("\n", .{});
     }
 
-    if (codegen_total == 0) {
-        printError("All codegen failed", .{});
-        return;
-    }
+    // Continue even if all codegen failed - we still want to show the full summary
+    // if (codegen_total == 0) {
+    //     printError("All codegen failed", .{});
+    //     return;
+    // }
 
     // Phase 2: Compile (.zig → binary)
     // Two modes:
