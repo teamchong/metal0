@@ -1351,6 +1351,25 @@ pub fn inferExprWithInferrer(
             // Return the wider type of body and orelse_value (they should match in Python)
             const body_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, ie.body.*, type_inferrer);
             const orelse_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, ie.orelse_value.*, type_inferrer);
+
+            // Fix 37: Handle None + T -> Optional[T] case
+            // When one branch is None and the other is a concrete type, create proper optional
+            const body_tag = @as(std.meta.Tag(NativeType), body_type);
+            const orelse_tag = @as(std.meta.Tag(NativeType), orelse_type);
+
+            if (body_tag == .none and orelse_tag != .none and orelse_tag != .pyvalue and orelse_tag != .unknown) {
+                // None | T -> ?T (e.g., None if cond else "hello" -> ?[]const u8)
+                const inner = try allocator.create(NativeType);
+                inner.* = orelse_type;
+                break :blk .{ .optional = inner };
+            }
+            if (orelse_tag == .none and body_tag != .none and body_tag != .pyvalue and body_tag != .unknown) {
+                // T | None -> ?T (e.g., "hello" if cond else None -> ?[]const u8)
+                const inner = try allocator.create(NativeType);
+                inner.* = body_type;
+                break :blk .{ .optional = inner };
+            }
+
             break :blk body_type.widen(orelse_type);
         },
         .lambda => |lam| blk: {

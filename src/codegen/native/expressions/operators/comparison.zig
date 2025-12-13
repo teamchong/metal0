@@ -423,6 +423,11 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     if (self.var_renames.get(var_name) != null) {
                         break :blk true;
                     }
+                    // Fix 37: Check if this is an anytype parameter (with =None default)
+                    // anytype params can be null at runtime, so we need @TypeOf check
+                    if (self.anytype_params.contains(var_name)) {
+                        break :blk true;
+                    }
                     // Also check if it's a method parameter with optional type
                     // (function_signatures tracks methods with defaults)
                     if (self.current_class_name) |class_name| {
@@ -446,9 +451,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 const is_renamed_param = current_left == .name and
                     self.var_renames.get(current_left.name.id) != null;
 
+                // Fix 37: Also check if this is an anytype parameter
+                const is_anytype_param = current_left == .name and
+                    self.anytype_params.contains(current_left.name.id);
+
                 // For anytype parameters (used with None defaults), use comptime type check
                 // This handles cases like `expected=None` where expected can be tuple or null
-                if (type_traits.isUnknown(current_left_type) or is_renamed_param) {
+                if (type_traits.isUnknown(current_left_type) or is_renamed_param or is_anytype_param) {
                     // Emit comptime type check: @TypeOf(x) == @TypeOf(null)
                     if (op == .Is or op == .Eq) {
                         try self.emit("(@TypeOf(");
