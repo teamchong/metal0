@@ -571,9 +571,10 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var compile_fail: usize = 0;
 
     for (bin_paths.items, 0..) |bin_path, i| {
-        if (i % 10 == 0 and i > 0) {
-            std.debug.print("[Phase 3] Checking binary {d}/{d}...\n", .{i, bin_paths.items.len});
-        }
+        // Print progress for every test to identify hangs
+        const test_name = std.fs.path.stem(bin_path);
+        std.debug.print("[Phase 3] [{d}/{d}] Running: {s}\n", .{i + 1, bin_paths.items.len, test_name});
+
         // Skip if binary doesn't exist (compile failed)
         std.fs.cwd().access(bin_path, .{}) catch {
             compile_fail += 1;
@@ -653,7 +654,17 @@ fn runBinaryWithTimeout(allocator: std.mem.Allocator, bin_path: []const u8, time
             else => .failed,
         };
     };
-    defer killer.join();
+    defer {
+        // Give killer thread 100ms to finish after timeout
+        const join_timeout_ns = 100 * std.time.ns_per_ms;
+        const start = std.time.nanoTimestamp();
+        while (std.time.nanoTimestamp() - start < join_timeout_ns) {
+            if (killer.tryJoin() catch null) |_| break;
+            std.Thread.sleep(10 * std.time.ns_per_ms);
+        }
+        // Force detach if still running (prevents deadlock)
+        killer.detach();
+    }
 
     const term = child.wait() catch return .failed;
     done.store(true, .seq_cst);
@@ -674,7 +685,11 @@ fn killAfterTimeout(child: *std.process.Child, timeout_ns: u64, done: *std.atomi
         elapsed += poll_interval;
     }
     if (done.load(.seq_cst)) return;
-    _ = child.kill() catch {};
+    child.kill() catch |err| {
+        std.debug.print("WARN: Failed to kill hung process: {}\n", .{err});
+    };
+    // Force-mark as done even if kill failed to unblock main thread
+    done.store(true, .seq_cst);
 }
 
 /// Compile a test file by linking against the precompiled runtime archive

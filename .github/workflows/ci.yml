@@ -126,9 +126,9 @@ jobs:
         timeout-minutes: 60
 
   test-cpython-macos:
-    name: CPython @macos (25 tests)
+    name: CPython @macos (22 tests)
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
