@@ -297,6 +297,7 @@ pub const Netpoller = struct {
             .write, .connect => std.os.linux.EPOLL.OUT,
             .timer => unreachable, // Handled above
         };
+
         var event: std.os.linux.epoll_event = .{
             .events = base_event | std.os.linux.EPOLL.ONESHOT,
             .data = .{ .fd = fd },
