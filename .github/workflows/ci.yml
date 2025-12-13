@@ -44,12 +44,15 @@ jobs:
           sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
           # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
           if grep -q "All.*tests passed" test_output_clean.txt; then
-            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' || echo "0")
+            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
+            PASSED=${PASSED:-0}
             FAILED=0
             TOTAL=$PASSED
           else
-            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1 || echo "0")
-            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
+            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
+            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
+            PASSED=${PASSED:-0}
+            TOTAL=${TOTAL:-0}
             FAILED=$((TOTAL - PASSED))
           fi
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
@@ -92,12 +95,15 @@ jobs:
           sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
           # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
           if grep -q "All.*tests passed" test_output_clean.txt; then
-            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' || echo "0")
+            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
+            PASSED=${PASSED:-0}
             FAILED=0
             TOTAL=$PASSED
           else
-            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1 || echo "0")
-            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
+            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
+            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
+            PASSED=${PASSED:-0}
+            TOTAL=${TOTAL:-0}
             FAILED=$((TOTAL - PASSED))
           fi
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
@@ -140,12 +146,15 @@ jobs:
           sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
           # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
           if grep -q "All.*tests passed" test_output_clean.txt; then
-            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' || echo "0")
+            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
+            PASSED=${PASSED:-0}
             FAILED=0
             TOTAL=$PASSED
           else
-            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1 || echo "0")
-            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
+            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
+            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
+            PASSED=${PASSED:-0}
+            TOTAL=${TOTAL:-0}
             FAILED=$((TOTAL - PASSED))
           fi
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
@@ -189,6 +198,7 @@ jobs:
 
           # Strip ANSI color codes for parsing (PowerShell regex)
           $content = Get-Content test_output.txt -Raw
+          if ($null -eq $content) { $content = "" }
           $content = $content -replace '\x1b\[[0-9;]*m', ''
 
           # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
