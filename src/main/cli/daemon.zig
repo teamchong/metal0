@@ -355,7 +355,12 @@ pub fn cmdDaemon(allocator: std.mem.Allocator, args: []const []const u8) !void {
         try stopDaemon();
     } else if (std.mem.eql(u8, subcmd, "status")) {
         if (isRunning()) {
-            std.debug.print("Daemon running (pid: {?d})\n", .{getPid()});
+            const pid = getPid();
+            if (comptime builtin.os.tag == .windows) {
+                std.debug.print("Daemon running (pid: {?any})\n", .{pid});
+            } else {
+                std.debug.print("Daemon running (pid: {?d})\n", .{pid});
+            }
         } else {
             std.debug.print("Daemon not running\n", .{});
         }
