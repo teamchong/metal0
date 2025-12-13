@@ -270,7 +270,7 @@ fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emit("; const _flags = @as(u32, @intCast(");
     try self.genExpr(args[1]);
-    try self.emit(")); _ = _flags; const _f = std.fs.cwd().openFile(_p, .{}) catch break :os_open_blk @as(i64, -1); break :os_open_blk @as(i64, @intCast(_f.handle)); }");
+    try self.emit(")); _ = _flags; const _f = std.fs.cwd().openFile(_p, .{}) catch break :os_open_blk @as(i64, -1); break :os_open_blk if (comptime @import(\"builtin\").os.tag == .windows) @as(i64, @intFromPtr(_f.handle)) else @as(i64, @intCast(_f.handle)); }");
 }
 
 fn genUrandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

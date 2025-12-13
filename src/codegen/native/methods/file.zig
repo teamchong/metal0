@@ -144,7 +144,7 @@ pub fn genFileSeekable(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 pub fn genFileFileno(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit("fileno_blk: { const _f = "); try self.genExpr(obj);
-    try self.emit("; break :fileno_blk @as(i64, @intCast(_f.file.handle)); }");
+    try self.emit("; break :fileno_blk if (comptime @import(\"builtin\").os.tag == .windows) @as(i64, @intFromPtr(_f.file.handle)) else @as(i64, @intCast(_f.file.handle)); }");
 }
 
 /// Generate code for file.isatty()
