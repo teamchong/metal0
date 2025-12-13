@@ -151,5 +151,5 @@ pub fn genFileFileno(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 pub fn genFileIsatty(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.emit("isatty_blk: { const _f = "); try self.genExpr(obj);
-    try self.emit("; break :isatty_blk std.posix.isatty(_f.file.handle); }");
+    try self.emit("; break :isatty_blk if (comptime @import(\"builtin\").os.tag == .windows) std.os.windows.GetFileType(_f.file.handle) == std.os.windows.FILE_TYPE_CHAR else std.posix.isatty(_f.file.handle); }");
 }

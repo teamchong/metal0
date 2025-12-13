@@ -99,7 +99,7 @@ pub const Funcs = std.StaticStringMap(H).initComptime(.{
     .{ "write", genWrite },
     .{ "open", genOpen },
     .{ "pipe", m.c("os_pipe_blk: { const _p = std.posix.pipe() catch break :os_pipe_blk .{ @as(i64, -1), @as(i64, -1) }; break :os_pipe_blk .{ @as(i64, @intCast(_p[0])), @as(i64, @intCast(_p[1])) }; }") },
-    .{ "fdopen", m.wrap("os_fdopen_blk: { const _fd = @as(std.posix.fd_t, @intCast(", ")); break :os_fdopen_blk std.fs.File{ .handle = _fd }; }", "std.fs.File{ .handle = 0 }") },
+    .{ "fdopen", m.wrap("os_fdopen_blk: { const _fd_int: i64 = ", "; const _builtin = @import(\"builtin\"); const _handle = if (comptime _builtin.os.tag == .windows) @as(*anyopaque, @ptrFromInt(@as(usize, @intCast(_fd_int)))) else @as(std.posix.fd_t, @intCast(_fd_int)); break :os_fdopen_blk std.fs.File{ .handle = _handle }; }", "std.io.getStdIn()") },
     .{ "fsync", m.wrap("std.posix.fsync(@intCast(", "))", "{}") },
     .{ "isatty", m.wrap("std.posix.isatty(@intCast(", "))", "false") },
     .{ "sync", m.c("{}") },
