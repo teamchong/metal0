@@ -726,8 +726,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             try genExpr(self, compare.comparators[i]);
             try self.emit("); if (__s1.count() != __s2.count()) break :set_cmp_");
             try self.output.writer(self.allocator).print("{d} false; ", .{set_label});
-            try self.emit("var __all_match = true; var __it = __s1.keyIterator(); ");
-            try self.emit("while (__it.next()) |k| { if (!__s2.contains(k.*)) { __all_match = false; break; } } ");
+            try self.emit("var __all_match = true; var __it = __s1.iterator(); ");
+            try self.emit("while (__it.next()) |entry| { if (!__s2.contains(entry.key_ptr.*)) { __all_match = false; break; } } ");
             try self.output.writer(self.allocator).print("break :set_cmp_{d} __all_match; }}", .{set_label});
         }
         // Handle dict comparisons (HashMaps don't support ==)

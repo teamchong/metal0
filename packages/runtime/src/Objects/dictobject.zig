@@ -107,9 +107,8 @@ pub const PyDict = struct {
         // Create list to hold keys
         const result = try runtime.PyList.create(allocator);
 
-        var iterator = map.keyIterator();
-        while (iterator.next()) |key| {
-            const key_obj = try runtime.PyString.create(allocator, key.*);
+        for (map.keys()) |key| {
+            const key_obj = try runtime.PyString.create(allocator, key);
             try runtime.PyList.append(result, key_obj);
         }
 
@@ -125,10 +124,9 @@ pub const PyDict = struct {
         // Create list to hold values
         const result = try runtime.PyList.create(allocator);
 
-        var iterator = map.valueIterator();
-        while (iterator.next()) |value| {
-            runtime.incref(value.*);
-            try runtime.PyList.append(result, value.*);
+        for (map.values()) |value| {
+            runtime.incref(value);
+            try runtime.PyList.append(result, value);
         }
 
         return result;

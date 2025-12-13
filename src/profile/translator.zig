@@ -212,9 +212,9 @@ pub const Translator = struct {
 
         var sample_counts = hashmap_helper.StringHashMap(u64).init(self.allocator);
         defer {
-            var iter = sample_counts.keyIterator();
-            while (iter.next()) |key| {
-                self.allocator.free(key.*);
+            var iter = sample_counts.iterator();
+            while (iter.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
             }
             sample_counts.deinit();
         }
