@@ -40,10 +40,16 @@ jobs:
         id: test-core
         run: |
           ./zig-out/bin/metal0 test tests/cpython @core 2>&1 | tee test_output.txt || true
-          # Parse results
-          PASSED=$(grep -oE '[0-9]+ passed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
-          FAILED=$(grep -oE '[0-9]+ failed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
-          TOTAL=$((PASSED + FAILED))
+          # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
+          if grep -q "All.*tests passed" test_output.txt; then
+            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output.txt | grep -oE '[0-9]+' || echo "0")
+            FAILED=0
+            TOTAL=$PASSED
+          else
+            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f1 || echo "0")
+            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
+            FAILED=$((TOTAL - PASSED))
+          fi
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
           # Always write summary
           echo "## 📊 Test Results - @core" >> $GITHUB_STEP_SUMMARY
@@ -80,10 +86,16 @@ jobs:
         id: test-linux
         run: |
           ./zig-out/bin/metal0 test tests/cpython @linux 2>&1 | tee test_output.txt || true
-          # Parse results
-          PASSED=$(grep -oE '[0-9]+ passed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
-          FAILED=$(grep -oE '[0-9]+ failed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
-          TOTAL=$((PASSED + FAILED))
+          # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
+          if grep -q "All.*tests passed" test_output.txt; then
+            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output.txt | grep -oE '[0-9]+' || echo "0")
+            FAILED=0
+            TOTAL=$PASSED
+          else
+            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f1 || echo "0")
+            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
+            FAILED=$((TOTAL - PASSED))
+          fi
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
           # Always write summary
           echo "## 📊 Test Results - @linux" >> $GITHUB_STEP_SUMMARY
@@ -120,10 +132,16 @@ jobs:
         id: test-macos
         run: |
           ./zig-out/bin/metal0 test tests/cpython @macos 2>&1 | tee test_output.txt || true
-          # Parse results
-          PASSED=$(grep -oE '[0-9]+ passed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
-          FAILED=$(grep -oE '[0-9]+ failed' test_output.txt | head -1 | grep -oE '[0-9]+' || echo "0")
-          TOTAL=$((PASSED + FAILED))
+          # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
+          if grep -q "All.*tests passed" test_output.txt; then
+            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output.txt | grep -oE '[0-9]+' || echo "0")
+            FAILED=0
+            TOTAL=$PASSED
+          else
+            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f1 || echo "0")
+            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
+            FAILED=$((TOTAL - PASSED))
+          fi
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
           # Always write summary
           echo "## 📊 Test Results - @macos" >> $GITHUB_STEP_SUMMARY
@@ -163,14 +181,21 @@ jobs:
           & .\zig-out\bin\metal0.exe test tests/cpython @windows 2>&1 | Tee-Object -FilePath test_output.txt
           $exitCode = $LASTEXITCODE
 
-          # Parse results - always show summary
+          # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
           $content = Get-Content test_output.txt -Raw
-          $passedMatch = [regex]::Match($content, '(\d+) passed')
-          $failedMatch = [regex]::Match($content, '(\d+) failed')
-
-          $passed = if ($passedMatch.Success) { [int]$passedMatch.Groups[1].Value } else { 0 }
-          $failed = if ($failedMatch.Success) { [int]$failedMatch.Groups[1].Value } else { 0 }
-          $total = $passed + $failed
+          if ($content -match 'All (\d+) tests passed') {
+            $passed = [int]$Matches[1]
+            $failed = 0
+            $total = $passed
+          } elseif ($content -match '(\d+)/(\d+) passed') {
+            $passed = [int]$Matches[1]
+            $total = [int]$Matches[2]
+            $failed = $total - $passed
+          } else {
+            $passed = 0
+            $failed = 0
+            $total = 0
+          }
           $rate = if ($total -gt 0) { [math]::Round(($passed / $total) * 100, 1) } else { 0 }
 
           # Always write summary
