@@ -125,19 +125,11 @@ fn addCSourceFiles(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8
     try args.append(allocator, "vendor/libdeflate");
 
     // C source files with compiler flags
-    // Note: Disable AVX512 code paths in libdeflate for compatibility with CI runners
-    // Use preprocessor macros that libdeflate checks internally (adler32_impl.h line 75)
-    // Only applicable on x86/x86_64 - ARM64 doesn't use these codepaths
-    const builtin = @import("builtin");
-    const is_x86 = builtin.cpu.arch == .x86_64 or builtin.cpu.arch == .x86;
+    // Let libdeflate compile all implementations (AVX-512, AVX2, SSE, scalar)
+    // Runtime will auto-detect best available via arch_select_adler32_func()
     try args.append(allocator, "-cflags");
     try args.append(allocator, "-std=c99");
     try args.append(allocator, "-O3");
-    if (is_x86) {
-        // Disable AVX512 intrinsics via preprocessor macros (required for older Intel CI runners)
-        try args.append(allocator, "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ");
-        try args.append(allocator, "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI");
-    }
     try args.append(allocator, "--");
 
     const libdeflate_srcs = [_][]const u8{
