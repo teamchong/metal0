@@ -277,32 +277,59 @@ pub fn genStandardClosure(
             try self.output.writer(self.allocator).print(", _: anytype", .{});
         }
     }
-    // Determine return type based on body analysis using function_traits:
-    // - Returns context manager -> use specific context manager type
-    // - Returns value -> infer type from expression
-    // - Can produce errors -> error union
-    // - Neither -> void
-    const closure_ret_type = function_traits.analyzeClosureReturnType(func.body);
-    if (closure_ret_type == .context_manager) {
-        // Context managers - find the specific return type from the body
-        const ctx_type = findContextManagerTypeInBody(func.body);
-        if (ctx_type) |cm_type| {
-            try self.output.writer(self.allocator).print(") {s} {{\n", .{cm_type});
+    // Determine return type:
+    // 1. Use explicit return type annotation if available (-> int, -> float, etc.)
+    // 2. Otherwise, analyze body for context managers, returns, etc.
+    if (func.return_type) |ret_type| {
+        // Map Python type annotations to Zig types
+        const zig_type = if (std.mem.eql(u8, ret_type, "int"))
+            "i64"
+        else if (std.mem.eql(u8, ret_type, "float"))
+            "f64"
+        else if (std.mem.eql(u8, ret_type, "str"))
+            "[]const u8"
+        else if (std.mem.eql(u8, ret_type, "bool"))
+            "bool"
+        else if (std.mem.eql(u8, ret_type, "None"))
+            "void"
+        else
+            // Unknown annotation - fall back to PyValue
+            "runtime.PyValue";
+
+        if (std.mem.eql(u8, zig_type, "void")) {
+            if (var_tracking.canProduceErrors(func.body)) {
+                try self.emit(") anyerror!void {\n");
+            } else {
+                try self.emit(") void {\n");
+            }
         } else {
-            // Fallback: use generic context manager type
-            try self.emit(") runtime.unittest.AssertRaisesContext {\n");
-        }
-    } else if (closure_ret_type == .void) {
-        if (var_tracking.canProduceErrors(func.body)) {
-            try self.emit(") anyerror!void {\n");
-        } else {
-            try self.emit(") void {\n");
+            // ALWAYS use error union since calls.zig wraps closure calls with `try`
+            try self.output.writer(self.allocator).print(") anyerror!{s} {{\n", .{zig_type});
         }
     } else {
-        // Has return with value - use inferred type
-        // ALWAYS use error union since calls.zig wraps closure calls with `try`
-        const zig_type = function_traits.closureReturnTypeToZig(closure_ret_type);
-        try self.output.writer(self.allocator).print(") anyerror!{s} {{\n", .{zig_type});
+        // No explicit return type - analyze body
+        const closure_ret_type = function_traits.analyzeClosureReturnType(func.body);
+        if (closure_ret_type == .context_manager) {
+            // Context managers - find the specific return type from the body
+            const ctx_type = findContextManagerTypeInBody(func.body);
+            if (ctx_type) |cm_type| {
+                try self.output.writer(self.allocator).print(") {s} {{\n", .{cm_type});
+            } else {
+                // Fallback: use generic context manager type
+                try self.emit(") runtime.unittest.AssertRaisesContext {\n");
+            }
+        } else if (closure_ret_type == .void) {
+            if (var_tracking.canProduceErrors(func.body)) {
+                try self.emit(") anyerror!void {\n");
+            } else {
+                try self.emit(") void {\n");
+            }
+        } else {
+            // Has return with value - use inferred type
+            // ALWAYS use error union since calls.zig wraps closure calls with `try`
+            const zig_type = function_traits.closureReturnTypeToZig(closure_ret_type);
+            try self.output.writer(self.allocator).print(") anyerror!{s} {{\n", .{zig_type});
+        }
     }
 
     // Generate body with captured vars renamed to capture_param.varname
@@ -927,8 +954,35 @@ pub fn genNestedFunctionWithOuterCapture(
             try self.output.writer(self.allocator).print(", _: anytype", .{});
         }
     }
-    // Determine return type based on body analysis
-    if (var_tracking.hasReturnWithValue(func.body)) {
+    // Determine return type:
+    // 1. Use explicit return type annotation if available (-> int, -> float, etc.)
+    // 2. Otherwise, analyze body
+    if (func.return_type) |ret_type| {
+        // Map Python type annotations to Zig types
+        const zig_type = if (std.mem.eql(u8, ret_type, "int"))
+            "i64"
+        else if (std.mem.eql(u8, ret_type, "float"))
+            "f64"
+        else if (std.mem.eql(u8, ret_type, "str"))
+            "[]const u8"
+        else if (std.mem.eql(u8, ret_type, "bool"))
+            "bool"
+        else if (std.mem.eql(u8, ret_type, "None"))
+            "void"
+        else
+            // Unknown annotation - fall back to PyValue
+            "runtime.PyValue";
+
+        if (std.mem.eql(u8, zig_type, "void")) {
+            if (var_tracking.canProduceErrors(func.body)) {
+                try self.emit(") anyerror!void {\n");
+            } else {
+                try self.emit(") void {\n");
+            }
+        } else {
+            try self.output.writer(self.allocator).print(") anyerror!{s} {{\n", .{zig_type});
+        }
+    } else if (var_tracking.hasReturnWithValue(func.body)) {
         try self.emit(") anyerror!i64 {\n");
     } else if (var_tracking.canProduceErrors(func.body)) {
         try self.emit(") anyerror!void {\n");

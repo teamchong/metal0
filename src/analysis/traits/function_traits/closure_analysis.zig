@@ -199,9 +199,22 @@ fn inferExprReturnType(expr: ast.Node) ClosureReturnType {
         },
         .lambda => .callable,
         .binop => |op| {
-            // Arithmetic ops typically return numeric
+            // Infer result type from operands
+            const left_type = inferExprReturnType(op.left.*);
+            const right_type = inferExprReturnType(op.right.*);
+
             return switch (op.op) {
-                .Add, .Sub, .Mult, .Div, .FloorDiv, .Mod, .Pow => .unknown, // Could be int or float
+                .Add, .Sub, .Mult, .Mod, .Pow, .FloorDiv => {
+                    // If both operands are integers, result is integer
+                    if (left_type == .integer and right_type == .integer) return .integer;
+                    // If either is float, result is float
+                    if (left_type == .float or right_type == .float) return .float;
+                    // Mixed numeric (int+float) → float
+                    if ((left_type == .integer and right_type == .float) or
+                        (left_type == .float and right_type == .integer)) return .float;
+                    return .unknown;
+                },
+                .Div => .float, // True division always returns float
                 .BitOr, .BitXor, .BitAnd, .LShift, .RShift => .integer,
                 else => .unknown,
             };
