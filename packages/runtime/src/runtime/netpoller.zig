@@ -292,12 +292,13 @@ pub const Netpoller = struct {
         // Timers use timerfd on Linux, not epoll directly
         if (op == .timer) return;
 
+        const base_event: u32 = switch (op) {
+            .read, .accept => std.os.linux.EPOLL.IN,
+            .write, .connect => std.os.linux.EPOLL.OUT,
+            .timer => unreachable, // Handled above
+        };
         var event: std.os.linux.epoll_event = .{
-            .events = switch (op) {
-                .read, .accept => std.os.linux.EPOLL.IN,
-                .write, .connect => std.os.linux.EPOLL.OUT,
-                .timer => unreachable, // Handled above
-            } | std.os.linux.EPOLL.ONESHOT,
+            .events = base_event | std.os.linux.EPOLL.ONESHOT,
             .data = .{ .fd = fd },
         };
 
