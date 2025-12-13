@@ -20,10 +20,6 @@ const compile_mod = @import("../compile.zig");
 const process_fmt = @import("../../utils/process_fmt.zig");
 const build_dirs = @import("../../build_dirs.zig");
 
-/// Format specifier for process IDs
-const PID_FMT = process_fmt.PID_FMT;
-const PID_FMT_OPT = process_fmt.PID_FMT_OPT;
-
 /// Socket path for daemon communication
 pub const SOCKET_PATH = "/tmp/metal0-daemon.sock";
 pub const PID_FILE = "/tmp/metal0-daemon.pid";
@@ -112,8 +108,8 @@ fn startDaemonBackground(allocator: std.mem.Allocator) !void {
 
 /// Get daemon PID if running
 pub fn getPid() ?std.process.Child.Id {
-    // On Windows, process IDs are different from handles - daemon feature not supported
-    if (comptime builtin.os.tag == .windows) return null;
+    // Daemon feature requires POSIX signals for process management
+    if (comptime !process_fmt.daemon_supported) return null;
 
     const file = std.fs.cwd().openFile(PID_FILE, .{}) catch return null;
     defer file.close();
@@ -179,7 +175,11 @@ pub fn compileViaDaemon(allocator: std.mem.Allocator, opts: CompileOptions) ![]c
 /// Start the daemon process
 pub fn startDaemon(allocator: std.mem.Allocator) !void {
     if (isRunning()) {
-        std.debug.print("Daemon already running (pid: " ++ PID_FMT_OPT ++ ")\n", .{getPid()});
+        if (getPid()) |pid| {
+            std.debug.print("Daemon already running (pid: {d})\n", .{process_fmt.getNumericPid(pid)});
+        } else {
+            std.debug.print("Daemon already running\n", .{});
+        }
         return;
     }
 
@@ -190,7 +190,7 @@ pub fn startDaemon(allocator: std.mem.Allocator) !void {
     child.stderr_behavior = .Close;
 
     try child.spawn();
-    std.debug.print("Daemon started (pid: " ++ PID_FMT ++ ")\n", .{child.id});
+    std.debug.print("Daemon started (pid: {d})\n", .{process_fmt.getNumericPid(child.id)});
 }
 
 /// Stop the daemon
@@ -223,12 +223,7 @@ pub fn runDaemon(allocator: std.mem.Allocator) !void {
         const pid_file = try std.fs.cwd().createFile(PID_FILE, .{});
         defer pid_file.close();
         var buf: [32]u8 = undefined;
-        const pid: i32 = if (builtin.os.tag == .linux)
-            std.os.linux.getpid()
-        else if (builtin.os.tag == .macos or builtin.os.tag == .freebsd)
-            std.c.getpid()
-        else
-            0;
+        const pid = process_fmt.getCurrentPid();
         const pid_str = std.fmt.bufPrint(&buf, "{d}", .{pid}) catch unreachable;
         try pid_file.writeAll(pid_str);
     }
@@ -347,7 +342,11 @@ pub fn cmdDaemon(allocator: std.mem.Allocator, args: []const []const u8) !void {
         try stopDaemon();
     } else if (std.mem.eql(u8, subcmd, "status")) {
         if (isRunning()) {
-            std.debug.print("Daemon running (pid: " ++ PID_FMT_OPT ++ ")\n", .{getPid()});
+            if (getPid()) |pid| {
+                std.debug.print("Daemon running (pid: {d})\n", .{process_fmt.getNumericPid(pid)});
+            } else {
+                std.debug.print("Daemon running\n", .{});
+            }
         } else {
             std.debug.print("Daemon not running\n", .{});
         }

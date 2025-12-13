@@ -200,7 +200,8 @@ pub const Lexer = struct {
             const c = self.peek() orelse break;
 
             // Skip whitespace (but not newlines)
-            if (c == ' ' or c == '\t') {
+            // Include \r (carriage return) to handle Windows CRLF line endings
+            if (c == ' ' or c == '\t' or c == '\r') {
                 _ = self.advance();
                 continue;
             }
@@ -321,13 +322,21 @@ pub const Lexer = struct {
                 continue;
             }
 
-            // Line continuation: backslash followed by newline
+            // Line continuation: backslash followed by newline (handles CRLF and LF)
             // Must check BEFORE tokenizeOperatorOrDelimiter which advances position
-            if (c == '\\' and self.peekAhead(1) == '\n') {
-                _ = self.advance(); // consume '\'
-                _ = self.advance(); // consume '\n'
-                // Don't set at_line_start - continuation means logical line continues
-                continue;
+            if (c == '\\') {
+                const next_char = self.peekAhead(1);
+                // Handle both \<LF> and \<CR><LF> (Windows line endings)
+                if (next_char == '\n') {
+                    _ = self.advance(); // consume '\'
+                    _ = self.advance(); // consume '\n'
+                    continue;
+                } else if (next_char == '\r' and self.peekAhead(2) == '\n') {
+                    _ = self.advance(); // consume '\'
+                    _ = self.advance(); // consume '\r'
+                    _ = self.advance(); // consume '\n'
+                    continue;
+                }
             }
 
             // Operators and delimiters

@@ -473,11 +473,10 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                 batch_succeeded = true;
                 if (!dots_mode) std.debug.print("  Batch compile: {d}/{d}\n", .{ result.success, result.total });
             } else |err| {
-                // Batch failed - DON'T fall back to individual compilation (too slow)
-                // Just report the failure and continue to Phase 3 with whatever binaries exist
+                // Batch failed - fall back to individual compilation
                 printError("Batch compilation failed: {any}", .{err});
-                printError("Skipping individual fallback (would be too slow for {d} tests)", .{needs_compile_paths.items.len});
-                batch_succeeded = true; // Mark as "done" to skip individual compilation
+                printError("Falling back to individual compilation for {d} tests", .{needs_compile_paths.items.len});
+                batch_succeeded = false; // Allow fallback to individual compilation
             }
         } else {
             // All cached, no need to compile

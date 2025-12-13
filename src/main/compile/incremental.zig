@@ -1139,6 +1139,8 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
     const timeout_ns: u64 = 600 * std.time.ns_per_s;
     const child_id = child.id;
     const killer = std.Thread.spawn(.{}, struct {
+        const process_utils = @import("../../utils/process_fmt.zig");
+
         fn kill(pid: std.process.Child.Id, timeout: u64, d: *std.atomic.Value(bool)) void {
             const poll_interval: u64 = 100 * std.time.ns_per_ms;
             var elapsed: u64 = 0;
@@ -1149,12 +1151,8 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
             }
             // Double-check done flag before killing
             if (!d.load(.seq_cst)) {
-                // Kill by PID to avoid touching Child struct
-                const builtin = @import("builtin");
-                if (builtin.os.tag != .windows) {
-                    // SIGTERM = 15 on POSIX systems
-                    _ = std.posix.kill(pid, 15) catch {};
-                }
+                // Cross-platform process termination
+                process_utils.terminateById(pid);
             }
         }
     }.kill, .{ child_id, timeout_ns, &done }) catch null;
