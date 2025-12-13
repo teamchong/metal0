@@ -402,7 +402,7 @@ pub const Netpoller = struct {
     fn pollEpoll(self: *Netpoller) void {
         var events: [64]std.os.linux.epoll_event = undefined;
 
-        const n = std.posix.epoll_wait(self.poll_fd, &events, 1) catch return; // 1ms timeout
+        const n = std.posix.epoll_wait(self.poll_fd, &events, 1); // 1ms timeout
 
         // Check timers - timerfd events will come through epoll, but we also
         // check deadlines as a fallback for timers created before timerfd support
