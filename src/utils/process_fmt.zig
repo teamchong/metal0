@@ -25,6 +25,18 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 // ============================================================================
+// Windows API declarations (not in Zig stdlib)
+// ============================================================================
+
+/// Windows kernel32 functions not exposed in std.os.windows.kernel32
+/// Declared here for cross-platform compatibility
+const windows_ext = if (builtin.os.tag == .windows) struct {
+    /// GetProcessId - retrieves the process identifier of the specified process
+    /// https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocessid
+    pub extern "kernel32" fn GetProcessId(Process: std.os.windows.HANDLE) callconv(std.os.windows.WINAPI) std.os.windows.DWORD;
+} else struct {};
+
+// ============================================================================
 // Numeric PID extraction (CPython-style)
 // ============================================================================
 
@@ -38,7 +50,7 @@ pub fn getNumericPid(child_id: std.process.Child.Id) u32 {
     if (comptime builtin.os.tag == .windows) {
         // Windows: Child.Id is HANDLE, call GetProcessId to get numeric PID
         const handle: std.os.windows.HANDLE = @ptrCast(child_id);
-        return std.os.windows.kernel32.GetProcessId(handle);
+        return windows_ext.GetProcessId(handle);
     } else {
         // POSIX: Child.Id is already pid_t (i32), cast to u32 for consistency
         return @intCast(child_id);
