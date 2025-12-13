@@ -212,8 +212,9 @@ pub fn build(b: *std.Build) void {
         exe.linkLibC();
 
         // Link pre-built runtime archive if provided (HUGE speed boost)
+        // Use .path for absolute paths (runtime archive is at ~/.metal0/runtime/)
         if (runtime_archive) |archive_path| {
-            exe.addObjectFile(.{ .cwd_relative = archive_path });
+            exe.addObjectFile(.{ .path = archive_path });
         }
 
         // Install to the correct relative path
