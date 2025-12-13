@@ -78,8 +78,8 @@ pub fn cmdRunModule(allocator: std.mem.Allocator, args: []const []const u8) !voi
 }
 
 pub fn cmdReadStdin(allocator: std.mem.Allocator) !void {
-    // Read Python code from stdin (file handle 0)
-    const stdin_file = std.fs.File{ .handle = 0 };
+    // Read Python code from stdin (cross-platform)
+    const stdin_file = std.fs.File.stdin();
     const code = try stdin_file.readToEndAlloc(allocator, 10 * 1024 * 1024); // 10MB max
     defer allocator.free(code);
 
