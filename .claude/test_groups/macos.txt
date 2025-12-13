@@ -7,12 +7,15 @@ decimal
 embed
 external_inspection
 fcntl
+kqueue
 locale
+logging
 math
 osx_env
 platform
 plistlib
 posixpath
+readline
 shutil
 site
 stat
