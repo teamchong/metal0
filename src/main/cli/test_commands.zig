@@ -655,15 +655,9 @@ fn runBinaryWithTimeout(allocator: std.mem.Allocator, bin_path: []const u8, time
         };
     };
     defer {
-        // Give killer thread 100ms to finish after timeout
-        const join_timeout_ns = 100 * std.time.ns_per_ms;
-        const start = std.time.nanoTimestamp();
-        while (std.time.nanoTimestamp() - start < join_timeout_ns) {
-            if (killer.tryJoin() catch null) |_| break;
-            std.Thread.sleep(10 * std.time.ns_per_ms);
-        }
-        // Force detach if still running (prevents deadlock)
-        killer.detach();
+        // Wait for killer thread to finish (it should be quick after done=true)
+        // If it hangs, the timeout mechanism in killAfterTimeout will handle it
+        killer.join();
     }
 
     const term = child.wait() catch return .failed;
@@ -685,10 +679,14 @@ fn killAfterTimeout(child: *std.process.Child, timeout_ns: u64, done: *std.atomi
         elapsed += poll_interval;
     }
     if (done.load(.seq_cst)) return;
-    child.kill() catch |err| {
-        std.debug.print("WARN: Failed to kill hung process: {}\n", .{err});
+    // Try to kill the hung process
+    const kill_result = child.kill() catch {
+        std.debug.print("WARN: Failed to kill hung process\n", .{});
+        done.store(true, .seq_cst);
+        return;
     };
-    // Force-mark as done even if kill failed to unblock main thread
+    _ = kill_result;
+    // Force-mark as done to unblock main thread
     done.store(true, .seq_cst);
 }
 
