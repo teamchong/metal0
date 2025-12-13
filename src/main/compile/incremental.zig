@@ -125,14 +125,15 @@ fn addCSourceFiles(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8
     try args.append(allocator, "vendor/libdeflate");
 
     // C source files with compiler flags
-    // Disable AVX-512 compilation via preprocessor macro (compile-time, not runtime)
+    // Disable AVX-512 compilation via preprocessor macros (compile-time, not runtime)
     // CI runners lack AVX-512 CPUs, so libdeflate's AVX-512 code fails to compile
-    // This macro tells libdeflate to skip AVX-512 implementations at preprocessor stage
+    // These macros tell libdeflate to skip AVX-512 implementations at preprocessor stage
     // Performance: Still uses AVX2/SSE/scalar - only AVX-512 is disabled
     try args.append(allocator, "-cflags");
     try args.append(allocator, "-std=c99");
     try args.append(allocator, "-O3");
     try args.append(allocator, "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI");
+    try args.append(allocator, "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ");
     try args.append(allocator, "--");
 
     const libdeflate_srcs = [_][]const u8{
