@@ -40,14 +40,16 @@ jobs:
         id: test-core
         run: |
           ./zig-out/bin/metal0 test tests/cpython @core 2>&1 | tee test_output.txt || true
+          # Strip ANSI color codes for parsing
+          sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
           # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
-          if grep -q "All.*tests passed" test_output.txt; then
-            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output.txt | grep -oE '[0-9]+' || echo "0")
+          if grep -q "All.*tests passed" test_output_clean.txt; then
+            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' || echo "0")
             FAILED=0
             TOTAL=$PASSED
           else
-            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f1 || echo "0")
-            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
+            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1 || echo "0")
+            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
             FAILED=$((TOTAL - PASSED))
           fi
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
@@ -86,14 +88,16 @@ jobs:
         id: test-linux
         run: |
           ./zig-out/bin/metal0 test tests/cpython @linux 2>&1 | tee test_output.txt || true
+          # Strip ANSI color codes for parsing
+          sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
           # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
-          if grep -q "All.*tests passed" test_output.txt; then
-            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output.txt | grep -oE '[0-9]+' || echo "0")
+          if grep -q "All.*tests passed" test_output_clean.txt; then
+            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' || echo "0")
             FAILED=0
             TOTAL=$PASSED
           else
-            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f1 || echo "0")
-            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
+            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1 || echo "0")
+            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
             FAILED=$((TOTAL - PASSED))
           fi
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
@@ -132,14 +136,16 @@ jobs:
         id: test-macos
         run: |
           ./zig-out/bin/metal0 test tests/cpython @macos 2>&1 | tee test_output.txt || true
+          # Strip ANSI color codes for parsing
+          sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
           # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
-          if grep -q "All.*tests passed" test_output.txt; then
-            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output.txt | grep -oE '[0-9]+' || echo "0")
+          if grep -q "All.*tests passed" test_output_clean.txt; then
+            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' || echo "0")
             FAILED=0
             TOTAL=$PASSED
           else
-            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f1 || echo "0")
-            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
+            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1 || echo "0")
+            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1 || echo "0")
             FAILED=$((TOTAL - PASSED))
           fi
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
@@ -181,8 +187,11 @@ jobs:
           & .\zig-out\bin\metal0.exe test tests/cpython @windows 2>&1 | Tee-Object -FilePath test_output.txt
           $exitCode = $LASTEXITCODE
 
-          # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
+          # Strip ANSI color codes for parsing (PowerShell regex)
           $content = Get-Content test_output.txt -Raw
+          $content = $content -replace '\x1b\[[0-9;]*m', ''
+
+          # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
           if ($content -match 'All (\d+) tests passed') {
             $passed = [int]$Matches[1]
             $failed = 0
