@@ -444,7 +444,8 @@ fn getSearchPaths() []const []const u8 {
     paths.append("./") catch {};
 
     // 1. Check PYTHONPATH environment variable
-    if (std.posix.getenv("PYTHONPATH")) |pythonpath| {
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    if (if (comptime std.builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("PYTHONPATH")) |pythonpath| {
         var it = std.mem.splitScalar(u8, pythonpath, ':');
         while (it.next()) |path| {
             if (path.len > 0) {
@@ -459,7 +460,8 @@ fn getSearchPaths() []const []const u8 {
     const python_versions = [_][]const u8{ "3.13", "3.12", "3.11", "3.10" };
 
     // Get HOME directory
-    const home = std.posix.getenv("HOME") orelse "/root";
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    const home = if (comptime std.builtin.os.tag == .windows) "C:\\Users\\Public" else (std.posix.getenv("HOME") orelse "/root");
 
     // mise/asdf python paths
     for (python_versions) |ver| {
@@ -509,7 +511,8 @@ fn getSearchPaths() []const []const u8 {
     }
 
     // Virtual environment paths
-    if (std.posix.getenv("VIRTUAL_ENV")) |venv| {
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    if (if (comptime std.builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("VIRTUAL_ENV")) |venv| {
         for (python_versions) |ver| {
             var buf: [512]u8 = undefined;
             const venv_path = std.fmt.bufPrint(&buf, "{s}/lib/python{s}/site-packages/", .{ venv, ver }) catch continue;

@@ -182,7 +182,8 @@ fn loadExtensionModule(name: []const u8) ?*cpython.PyObject {
     const builtin = @import("builtin");
 
     // Try VIRTUAL_ENV first (highest priority)
-    if (std.posix.getenv("VIRTUAL_ENV")) |venv| {
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("VIRTUAL_ENV")) |venv| {
         if (tryLoadVenvVersion(venv, name, 13)) |m| return m;
         if (tryLoadVenvVersion(venv, name, 12)) |m| return m;
         if (tryLoadVenvVersion(venv, name, 11)) |m| return m;
@@ -217,7 +218,8 @@ fn loadExtensionModule(name: []const u8) ?*cpython.PyObject {
         if (tryLoadExtension("/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/", name)) |m| return m;
 
         // mise installs
-        if (std.posix.getenv("HOME")) |home| {
+        // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+        if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("HOME")) |home| {
             if (tryLoadMiseInstall(home, name, 13)) |m| return m;
             if (tryLoadMiseInstall(home, name, 12)) |m| return m;
             if (tryLoadMiseInstall(home, name, 11)) |m| return m;
