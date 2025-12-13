@@ -408,3 +408,135 @@ fn isNestedClassInBody(body: []const ast.Node, class_name: []const u8) bool {
     }
     return false;
 }
+
+/// Check if a name is a Python builtin type (handled specially as methods)
+fn isBuiltinTypeName(name: []const u8) bool {
+    const builtin_types = [_][]const u8{
+        "int", "float", "str", "bool", "list", "tuple", "dict", "set",
+        "frozenset", "bytes", "bytearray", "object", "type", "complex",
+    };
+    for (builtin_types) |bt| {
+        if (std.mem.eql(u8, name, bt)) return true;
+    }
+    return false;
+}
+
+/// Fix 35: Generate struct fields for class-level attributes
+/// Class attributes are assignments at class body level (not inside methods)
+/// Example: `all_comp_classes = (CompNone, CompEq, ...)` becomes a struct field
+pub fn genClassAttributeFields(self: *NativeCodegen, class_body: []const ast.Node) CodegenError!void {
+    // Build set of method names and already-seen attributes to avoid duplicates
+    var seen_names = std.StringHashMap(void).init(self.allocator);
+    defer seen_names.deinit();
+    for (class_body) |stmt| {
+        if (stmt == .function_def) {
+            seen_names.put(stmt.function_def.name, {}) catch {};
+        }
+    }
+
+    for (class_body) |stmt| {
+        // Skip method definitions - only look at assignments
+        if (stmt == .function_def) continue;
+        if (stmt == .class_def) continue;
+        if (stmt == .expr_stmt) continue; // Skip docstrings
+
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            // Only handle simple name assignments (not attribute or subscript)
+            if (assign.targets.len == 1 and assign.targets[0] == .name) {
+                const attr_name = assign.targets[0].name.id;
+
+                // Skip __slots__ and similar special attributes
+                if (std.mem.startsWith(u8, attr_name, "__") and std.mem.endsWith(u8, attr_name, "__")) {
+                    continue;
+                }
+
+                // Skip if there's a method or already-seen attribute with the same name
+                if (seen_names.contains(attr_name)) {
+                    continue;
+                }
+
+                // Skip ALL name references (variable assignments like `localhost = some_var`)
+                // In generators.zig, .name values are considered "simple" (lines 768-769)
+                // and are emitted as `pub const name = value;` (lines 1523-1533)
+                // Generating struct fields here would cause duplicate member errors
+                if (assign.value.* == .name) {
+                    continue;
+                }
+
+                // Skip if the value is a call expression (like property(...))
+                // These are handled as lazy-computed attributes in generators.zig
+                if (assign.value.* == .call) {
+                    continue;
+                }
+
+                // Skip if the value is a tuple literal - these are generated as pub const
+                if (assign.value.* == .tuple) {
+                    continue;
+                }
+
+                // Skip binary operations (like candidates = set1 + set2)
+                // These are handled as lazy-computed attributes
+                if (assign.value.* == .binop) {
+                    continue;
+                }
+
+                // Skip list/set literals - they may be handled elsewhere
+                if (assign.value.* == .list or assign.value.* == .set) {
+                    continue;
+                }
+
+                // Skip constant literals (int, float, string, bool, None)
+                // These are already handled as `pub const` in generators.zig (lines 1523-1533)
+                // Generating struct fields here would cause "duplicate struct member" errors
+                if (assign.value.* == .constant) {
+                    continue;
+                }
+
+                // Mark this attribute as seen to avoid duplicates from multiple assignments
+                seen_names.put(attr_name, {}) catch {};
+
+                // Infer type from the value
+                const inferred_type = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
+
+                try self.emitIndent();
+                try self.emit("// Class attribute: ");
+                try self.emit(attr_name);
+                try self.emit("\n");
+                try self.emitIndent();
+
+                // Escape Zig keywords using @"..." syntax
+                if (zig_keywords.isZigKeyword(attr_name)) {
+                    try self.emit("@\"");
+                    try self.emit(attr_name);
+                    try self.emit("\"");
+                } else {
+                    try self.emit(attr_name);
+                }
+
+                // For tuples of class references, use anytype
+                // For other types, use inferred Zig type
+                const type_tag = @as(std.meta.Tag(@TypeOf(inferred_type)), inferred_type);
+                if (type_tag == .tuple or type_tag == .unknown or type_tag == .pyvalue) {
+                    // Use anytype for complex types - will be set in comptime init
+                    try self.emit(": @TypeOf(.{}) = .{},\n");
+                } else {
+                    const zig_type = self.nativeTypeToZigType(inferred_type) catch "i64";
+                    defer self.allocator.free(zig_type);
+                    try self.emit(": ");
+                    try self.emit(zig_type);
+                    try self.emit(" = ");
+                    // Generate default value based on type
+                    switch (type_tag) {
+                        .int, .usize => try self.emit("0"),
+                        .float => try self.emit("0.0"),
+                        .bool => try self.emit("false"),
+                        .string => try self.emit("\"\""),
+                        else => try self.emit(".{}"),
+                    }
+                    try self.emit(",\n");
+                }
+            }
+        }
+    }
+}
