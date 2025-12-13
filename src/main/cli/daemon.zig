@@ -17,7 +17,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 const CompileOptions = @import("../../main.zig").CompileOptions;
 const compile_mod = @import("../compile.zig");
+const process_fmt = @import("../../utils/process_fmt.zig");
 const build_dirs = @import("../../build_dirs.zig");
+
+/// Format specifier for process IDs
+const PID_FMT = process_fmt.PID_FMT;
+const PID_FMT_OPT = process_fmt.PID_FMT_OPT;
 
 /// Socket path for daemon communication
 pub const SOCKET_PATH = "/tmp/metal0-daemon.sock";
@@ -174,16 +179,7 @@ pub fn compileViaDaemon(allocator: std.mem.Allocator, opts: CompileOptions) ![]c
 /// Start the daemon process
 pub fn startDaemon(allocator: std.mem.Allocator) !void {
     if (isRunning()) {
-        const pid = getPid();
-        if (pid) |p| {
-            if (comptime builtin.os.tag == .windows) {
-                std.debug.print("Daemon already running (pid: {any})\n", .{p});
-            } else {
-                std.debug.print("Daemon already running (pid: {d})\n", .{p});
-            }
-        } else {
-            std.debug.print("Daemon already running\n", .{});
-        }
+        std.debug.print("Daemon already running (pid: " ++ PID_FMT_OPT ++ ")\n", .{getPid()});
         return;
     }
 
@@ -194,11 +190,7 @@ pub fn startDaemon(allocator: std.mem.Allocator) !void {
     child.stderr_behavior = .Close;
 
     try child.spawn();
-    if (comptime builtin.os.tag == .windows) {
-        std.debug.print("Daemon started (pid: {any})\n", .{child.id});
-    } else {
-        std.debug.print("Daemon started (pid: {d})\n", .{child.id});
-    }
+    std.debug.print("Daemon started (pid: " ++ PID_FMT ++ ")\n", .{child.id});
 }
 
 /// Stop the daemon
@@ -355,12 +347,7 @@ pub fn cmdDaemon(allocator: std.mem.Allocator, args: []const []const u8) !void {
         try stopDaemon();
     } else if (std.mem.eql(u8, subcmd, "status")) {
         if (isRunning()) {
-            const pid = getPid();
-            if (comptime builtin.os.tag == .windows) {
-                std.debug.print("Daemon running (pid: {?any})\n", .{pid});
-            } else {
-                std.debug.print("Daemon running (pid: {?d})\n", .{pid});
-            }
+            std.debug.print("Daemon running (pid: " ++ PID_FMT_OPT ++ ")\n", .{getPid()});
         } else {
             std.debug.print("Daemon not running\n", .{});
         }
