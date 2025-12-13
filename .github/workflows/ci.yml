@@ -160,22 +160,16 @@ jobs:
         id: test-windows
         shell: pwsh
         run: |
-          try {
-            & .\zig-out\bin\metal0.exe test tests/cpython @windows 2>&1 | Tee-Object -FilePath test_output.txt
-          } catch {
-            # Test command failed, but continue to show summary
-          }
+          & .\zig-out\bin\metal0.exe test tests/cpython @windows 2>&1 | Tee-Object -FilePath test_output.txt
+          $exitCode = $LASTEXITCODE
 
           # Parse results - always show summary
-          $passed = 0
-          $failed = 0
-          if (Test-Path test_output.txt) {
-            $content = Get-Content test_output.txt -Raw
-            $passedMatch = [regex]::Match($content, '(\d+) passed')
-            $failedMatch = [regex]::Match($content, '(\d+) failed')
-            $passed = if ($passedMatch.Success) { [int]$passedMatch.Groups[1].Value } else { 0 }
-            $failed = if ($failedMatch.Success) { [int]$failedMatch.Groups[1].Value } else { 0 }
-          }
+          $content = Get-Content test_output.txt -Raw
+          $passedMatch = [regex]::Match($content, '(\d+) passed')
+          $failedMatch = [regex]::Match($content, '(\d+) failed')
+
+          $passed = if ($passedMatch.Success) { [int]$passedMatch.Groups[1].Value } else { 0 }
+          $failed = if ($failedMatch.Success) { [int]$failedMatch.Groups[1].Value } else { 0 }
           $total = $passed + $failed
           $rate = if ($total -gt 0) { [math]::Round(($passed / $total) * 100, 1) } else { 0 }
 
