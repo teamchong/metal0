@@ -1132,9 +1132,11 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
         }
     }.read, .{ stderr_reader, aa, &stderr_buf }) catch null;
 
-    // Kill if timeout (120s) - use PID instead of pointer to avoid race
+    // Kill if timeout (10 min) - use PID instead of pointer to avoid race
+    // Batch compilation is MUCH faster than individual, so give it time to complete
+    // 288 tests × ~1s each = ~5 min, use 10 min for safety margin
     var done = std.atomic.Value(bool).init(false);
-    const timeout_ns: u64 = 120 * std.time.ns_per_s;
+    const timeout_ns: u64 = 600 * std.time.ns_per_s;
     const child_id = child.id;
     const killer = std.Thread.spawn(.{}, struct {
         fn kill(pid: std.process.Child.Id, timeout: u64, d: *std.atomic.Value(bool)) void {
