@@ -5,16 +5,16 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // libdeflate C flags - disable AVX512 on x86 (CI runners lack evex512 support)
-    // Use -U__AVX512F__ to prevent AVX512 code paths from being compiled
+    // LIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ disables AVX512 code paths in libdeflate
     const arch = target.result.cpu.arch;
     const is_x86 = arch == .x86_64 or arch == .x86;
     std.log.info("Build target arch: {s}, is_x86: {}", .{ @tagName(arch), is_x86 });
     const libdeflate_flags: []const []const u8 = if (is_x86)
-        &.{ "-std=c99", "-O3", "-U__AVX512F__", "-U__AVX512BW__", "-U__AVX512VL__" }
+        &.{ "-std=c99", "-O3", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ" }
     else
         &.{ "-std=c99", "-O3" };
     const libdeflate_flags_no_opt: []const []const u8 = if (is_x86)
-        &.{ "-std=c99", "-U__AVX512F__", "-U__AVX512BW__", "-U__AVX512VL__" }
+        &.{ "-std=c99", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ" }
     else
         &.{"-std=c99"};
 
