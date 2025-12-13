@@ -5,7 +5,9 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // libdeflate C flags - disable AVX512 on x86 (CI runners lack evex512 support)
-    const is_x86 = target.result.cpu.arch == .x86_64 or target.result.cpu.arch == .x86;
+    const arch = target.result.cpu.arch;
+    const is_x86 = arch == .x86_64 or arch == .x86;
+    std.log.info("Build target arch: {s}, is_x86: {}", .{ @tagName(arch), is_x86 });
     const libdeflate_flags: []const []const u8 = if (is_x86)
         &.{ "-std=c99", "-O3", "-mno-avx512f" }
     else
