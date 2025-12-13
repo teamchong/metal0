@@ -40,8 +40,12 @@ jobs:
         id: test-core
         run: |
           ./zig-out/bin/metal0 test tests/cpython @core 2>&1 | tee test_output.txt || true
+          echo "=== DEBUG: Last 20 lines of output ===" >&2
+          tail -20 test_output.txt >&2
           # Strip ANSI color codes for parsing
           sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
+          echo "=== DEBUG: Looking for Results/passed ===" >&2
+          grep -E "Results:|passed" test_output_clean.txt | tail -5 >&2 || echo "NO MATCH" >&2
           # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
           if grep -q "All.*tests passed" test_output_clean.txt; then
             PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
@@ -55,6 +59,7 @@ jobs:
             TOTAL=${TOTAL:-0}
             FAILED=$((TOTAL - PASSED))
           fi
+          echo "=== DEBUG: PASSED=$PASSED TOTAL=$TOTAL FAILED=$FAILED ===" >&2
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
           # Always write summary
           echo "## 📊 Test Results - @core" >> $GITHUB_STEP_SUMMARY
