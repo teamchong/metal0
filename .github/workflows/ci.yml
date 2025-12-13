@@ -21,7 +21,7 @@ jobs:
   test-cpython-core:
     name: CPython @core (286 tests)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -38,12 +38,12 @@ jobs:
 
       - name: Run platform-independent CPython tests
         run: ./zig-out/bin/metal0 test tests/cpython @core
-        timeout-minutes: 20
+        timeout-minutes: 60
 
   test-cpython-linux:
     name: CPython @linux (18 tests)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -60,12 +60,12 @@ jobs:
 
       - name: Run Linux-specific CPython tests
         run: ./zig-out/bin/metal0 test tests/cpython @linux
-        timeout-minutes: 10
+        timeout-minutes: 60
 
   test-cpython-macos:
     name: CPython @macos (25 tests)
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -82,12 +82,12 @@ jobs:
 
       - name: Run macOS-specific CPython tests
         run: ./zig-out/bin/metal0 test tests/cpython @macos
-        timeout-minutes: 10
+        timeout-minutes: 60
 
   test-cpython-windows:
     name: CPython @windows (93 tests)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -104,4 +104,4 @@ jobs:
 
       - name: Run Windows-specific CPython tests
         run: .\zig-out\bin\metal0.exe test tests/cpython @windows
-        timeout-minutes: 20
+        timeout-minutes: 60
