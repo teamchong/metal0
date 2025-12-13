@@ -50,6 +50,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     gzip.addIncludePath(b.path("../vendor/libdeflate"));
+    // -mno-evex512 disables AVX512 512-bit vector instructions (CI runners may not support evex encoding)
+    // Only applicable on x86/x86_64 - ARM64 doesn't support this flag
+    const arch = target.result.cpu.arch;
+    const is_x86 = arch == .x86_64 or arch == .x86;
+    const c_flags: []const []const u8 = if (is_x86)
+        &.{ "-std=c99", "-O3", "-mno-evex512" }
+    else
+        &.{ "-std=c99", "-O3" };
+
     gzip.addCSourceFiles(.{
         .files = &.{
             "../vendor/libdeflate/lib/deflate_compress.c",
@@ -64,8 +73,7 @@ pub fn build(b: *std.Build) void {
             "../vendor/libdeflate/lib/arm/cpu_features.c",
             "../vendor/libdeflate/lib/x86/cpu_features.c",
         },
-        // -mno-evex512 disables AVX512 512-bit vector instructions (CI runners may not support evex encoding)
-        .flags = &.{ "-std=c99", "-O3", "-mno-evex512" },
+        .flags = c_flags,
     });
 
     const regex = b.addModule("regex", .{
