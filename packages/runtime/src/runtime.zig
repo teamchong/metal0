@@ -718,6 +718,11 @@ pub const json = @import("Lib/json.zig");
 pub const jsonLoads = json.loads;
 pub const jsonDumps = json.dumps;
 
+// Re-export stdlib modules for codegen (runtime.re, runtime.sys, etc.)
+pub const re = @import("Lib/re.zig");
+pub const sys = @import("Lib/sys.zig");
+pub const time = @import("Lib/time.zig");
+
 // =============================================================================
 // DCE-Friendly Namespace Exports
 // =============================================================================

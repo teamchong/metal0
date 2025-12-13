@@ -615,11 +615,30 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                 \\const std = @import("std");
                 \\const runtime = @import("runtime");
                 \\
-                \\
             ;
             cache_file.writeAll(imports_header) catch {
                 continue;
             };
+
+            // Add imports for this module's own dependencies
+            // Look up the module in import_graph to get its imports list
+            const module_path = try import_resolver.resolveImportSource(module_name, source_file_dir, aa) orelse module_name;
+            if (import_graph.modules.get(module_path)) |mod_info| {
+                for (mod_info.imports) |dep_name| {
+                    // Skip stdlib/builtin modules - they use runtime.Lib.xxx
+                    if (import_resolver.isBuiltinModule(dep_name)) continue;
+                    if (registry2.lookup(dep_name)) |info| {
+                        if (info.strategy == .zig_runtime or info.strategy == .c_library) continue;
+                    }
+                    // Check if this dependency is also a local module (will be in cache)
+                    if (try import_resolver.resolveImportSource(dep_name, source_file_dir, aa)) |_| {
+                        // Generate import for this dependency
+                        const dep_import = try std.fmt.allocPrint(aa, "const {s} = @import(\"./{s}.zig\");\n", .{ dep_name, dep_name });
+                        cache_file.writeAll(dep_import) catch continue;
+                    }
+                }
+            }
+            cache_file.writeAll("\n") catch {};
 
             // Extract module-level declarations (e.g., __gpa, __global_allocator)
             // These must be written before the struct body since functions may reference them
