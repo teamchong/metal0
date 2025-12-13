@@ -24,7 +24,16 @@ pub fn inferModuleFunctionCall(
 ) InferError!NativeType {
     _ = var_types;
     _ = class_fields;
-    _ = func_return_types;
+
+    // Check if this is a user-defined imported module function
+    // func_return_types stores "module.function" -> return_type
+    var qualified_name_buf: [256]u8 = undefined;
+    const qualified_name = std.fmt.bufPrint(&qualified_name_buf, "{s}.{s}", .{ module_name, func_name }) catch null;
+    if (qualified_name) |qn| {
+        if (func_return_types.get(qn)) |return_type| {
+            return return_type;
+        }
+    }
     // Module function dispatch using hash for module name
     const module_hash = fnv_hash.hash(module_name);
     const JSON_HASH = comptime fnv_hash.hash("json");
