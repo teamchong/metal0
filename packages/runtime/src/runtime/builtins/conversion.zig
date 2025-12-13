@@ -364,3 +364,79 @@ pub fn pyRound(value: anytype) i64 {
     }
     return 0;
 }
+
+/// Python ord(c) - returns the Unicode code point of a single character
+/// Works with single-character strings or individual bytes
+pub fn ord(value: anytype) PythonError!i64 {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // Handle single integer (already a code point or byte)
+    if (info == .int or info == .comptime_int) {
+        return @intCast(value);
+    }
+
+    // Handle u8 (single byte)
+    if (T == u8) {
+        return @intCast(value);
+    }
+
+    // Handle strings (slices or pointers)
+    if ((T == []const u8 or T == []u8) or
+        (info == .pointer and (@typeInfo(info.pointer.child) == .array or info.pointer.child == u8)))
+    {
+        const str: []const u8 = if (T == []const u8 or T == []u8)
+            value
+        else if (info == .pointer and @typeInfo(info.pointer.child) == .array)
+            value[0..]
+        else
+            @as([*]const u8, @ptrCast(value))[0..1];
+
+        if (str.len == 0) {
+            return PythonError.TypeError; // Empty string
+        }
+
+        // Handle single ASCII byte
+        if (str.len == 1) {
+            return @intCast(str[0]);
+        }
+
+        // Handle UTF-8 encoded characters
+        const cp = std.unicode.utf8Decode(str) catch |err| {
+            // Try handling it as single byte if decode fails
+            switch (err) {
+                error.Truncated, error.InvalidStartByte, error.UnexpectedSecondByte => return PythonError.TypeError,
+            }
+        };
+        return @intCast(cp);
+    }
+
+    return PythonError.TypeError;
+}
+
+/// Python chr(i) - returns the character for a Unicode code point
+/// Returns a single-character string
+pub fn chr(allocator: std.mem.Allocator, value: anytype) PythonError![]const u8 {
+    const T = @TypeOf(value);
+    const int_val: u21 = blk: {
+        if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+            if (value < 0 or value > 0x10FFFF) {
+                return PythonError.ValueError;
+            }
+            break :blk @intCast(value);
+        }
+        return PythonError.TypeError;
+    };
+
+    // Encode the code point as UTF-8
+    var buf: [4]u8 = undefined;
+    const len = std.unicode.utf8Encode(int_val, &buf) catch {
+        return PythonError.ValueError;
+    };
+
+    const result = allocator.alloc(u8, len) catch {
+        return PythonError.MemoryError;
+    };
+    @memcpy(result, buf[0..len]);
+    return result;
+}

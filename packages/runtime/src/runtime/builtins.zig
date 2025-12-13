@@ -114,7 +114,7 @@ pub const sorted = agg_mod.sorted;
 pub const reversed = agg_mod.reversed;
 pub const filterTruthy = agg_mod.filterTruthy;
 
-/// Conversion functions (hex, oct, bin, int with base, round)
+/// Conversion functions (hex, oct, bin, int with base, round, ord, chr)
 pub const conv_mod = @import("builtins/conversion.zig");
 pub const hex = conv_mod.hex;
 pub const oct = conv_mod.oct;
@@ -124,6 +124,8 @@ pub const intWithBase = conv_mod.intWithBase;
 pub const round = conv_mod.round;
 pub const bankersRound = conv_mod.bankersRound;
 pub const pyRound = conv_mod.pyRound;
+pub const ord = conv_mod.ord;
+pub const chr = conv_mod.chr;
 
 /// I/O functions (print, input, breakpoint)
 pub const io_mod = @import("builtins/io.zig");

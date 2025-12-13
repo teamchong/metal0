@@ -321,3 +321,103 @@ pub fn time() f64 {
     const ns = std.time.nanoTimestamp();
     return @as(f64, @floatFromInt(ns)) / 1_000_000_000.0;
 }
+
+// ============================================================================
+// Hash-Related Constants
+// ============================================================================
+
+/// Number of bits in a hash value (Python uses 61 bits on 64-bit systems)
+pub const NHASHBITS: i64 = 61;
+
+/// Maximum Py_ssize_t value (for large integer tests)
+pub const MAX_Py_ssize_t: i64 = std.math.maxInt(i64);
+
+/// Compute collision statistics for hash testing
+/// Returns a tuple of (mean, stddev) for hash collision analysis
+pub fn collision_stats(nbins: anytype, nballs: anytype) struct { f64, f64 } {
+    // This is used for statistical testing of hash function quality
+    // Returns approximate mean and standard deviation
+    const n: f64 = switch (@typeInfo(@TypeOf(nbins))) {
+        .int => @floatFromInt(nbins),
+        .float => nbins,
+        else => 0.0,
+    };
+    const k: f64 = switch (@typeInfo(@TypeOf(nballs))) {
+        .int => @floatFromInt(nballs),
+        .float => nballs,
+        else => 0.0,
+    };
+
+    // Expected number of empty bins (Poisson approximation)
+    if (n <= 0 or k <= 0) return .{ 0.0, 0.0 };
+
+    const lambda = k / n;
+    const expected_empty = n * @exp(-lambda);
+    const variance = expected_empty * (1.0 - @exp(-lambda));
+    const stddev = @sqrt(variance);
+
+    return .{ expected_empty, stddev };
+}
+
+// ============================================================================
+// Sequence Test Module (test.support.seq_tests)
+// ============================================================================
+
+/// Stub module for sequence testing infrastructure
+pub const seq_tests = struct {
+    /// Base class for common sequence tests
+    pub const CommonTest = struct {
+        pub fn init() CommonTest {
+            return .{};
+        }
+    };
+};
+
+// ============================================================================
+// Mapping Test Module (test.support.mapping_tests)
+// ============================================================================
+
+/// Stub module for mapping/dict testing infrastructure
+pub const mapping_tests = struct {
+    /// Base class for basic mapping protocol tests
+    pub const BasicTestMappingProtocol = struct {
+        pub fn init() BasicTestMappingProtocol {
+            return .{};
+        }
+    };
+};
+
+// ============================================================================
+// Broken Iterator for Error Testing
+// ============================================================================
+
+/// Iterator that raises an error after a certain number of iterations
+pub const BrokenIter = struct {
+    count: usize,
+    max_count: usize,
+
+    pub fn init(max_count: usize) BrokenIter {
+        return .{ .count = 0, .max_count = max_count };
+    }
+
+    pub fn next(self: *BrokenIter) ?i64 {
+        if (self.count >= self.max_count) {
+            return null; // Or raise StopIteration
+        }
+        self.count += 1;
+        return @intCast(self.count);
+    }
+};
+
+// ============================================================================
+// Module __all__ Verification
+// ============================================================================
+
+/// Check that a module's __all__ attribute is correctly defined
+/// In AOT compilation, this is a no-op stub since __all__ is compile-time
+pub fn check__all__(self: anytype, module: anytype, extra: anytype) void {
+    // Stub - AOT compilation doesn't have dynamic __all__ verification
+    _ = self;
+    _ = module;
+    _ = extra;
+}

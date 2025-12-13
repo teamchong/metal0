@@ -291,6 +291,33 @@ fn frozensetReduce(args: anytype) ReduceResult {
 }
 
 // ============================================================================
+// _slotnames - Get slot names for a class (for pickling)
+// ============================================================================
+
+/// Global slot names cache
+var _slotnames_cache: ?hashmap_helper.StringHashMap([]const []const u8) = null;
+
+/// Get the slot names for a class
+/// Returns a list of slot names that need to be saved/restored during pickling
+/// In AOT compilation, classes don't have dynamic __slots__, so this returns
+/// an empty list for most classes
+pub fn _slotnames(allocator: std.mem.Allocator, cls: anytype) ![]const []const u8 {
+    _ = allocator;
+    // In AOT compilation, we don't have dynamic __slots__ introspection
+    // For now, return an empty list (no slots to pickle)
+    const T = @TypeOf(cls);
+
+    // Check if the type has a __slots__ declaration
+    if (@typeInfo(T) == .@"struct" and @hasDecl(T, "__slots__")) {
+        // Return the declared slots
+        return T.__slots__;
+    }
+
+    // Default: no slots
+    return &[_][]const u8{};
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
