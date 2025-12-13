@@ -42,11 +42,12 @@ pub fn genIsdigit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     _ = args;
 
     // SIMD-optimized digit validation using @Vector
-    try self.emit("blk: {\n");
+    const label = self.nextLabelId();
+    try self.emitFmt("isdigit_{d}: {{\n", .{label});
     try self.emit("    const _text = ");
     try emitStringExpr(self, obj);
     try self.emit(";\n");
-    try self.emit("    if (_text.len == 0) break :blk false;\n");
+    try self.emitFmt("    if (_text.len == 0) break :isdigit_{d} false;\n", .{label});
     try self.emit("    const vec_size = 16;\n");
     try self.emit("    const zero: @Vector(vec_size, u8) = @splat('0');\n");
     try self.emit("    const nine: @Vector(vec_size, u8) = @splat('9');\n");
@@ -56,12 +57,12 @@ pub fn genIsdigit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     try self.emit("        const ge_zero = chunk >= zero;\n");
     try self.emit("        const le_nine = chunk <= nine;\n");
     try self.emit("        const is_digit = ge_zero & le_nine;\n");
-    try self.emit("        if (!@reduce(.And, is_digit)) break :blk false;\n");
+    try self.emitFmt("        if (!@reduce(.And, is_digit)) break :isdigit_{d} false;\n", .{label});
     try self.emit("    }\n");
     try self.emit("    while (i < _text.len) : (i += 1) {\n");
-    try self.emit("        if (!std.ascii.isDigit(_text[i])) break :blk false;\n");
+    try self.emitFmt("        if (!std.ascii.isDigit(_text[i])) break :isdigit_{d} false;\n", .{label});
     try self.emit("    }\n");
-    try self.emit("    break :blk true;\n");
+    try self.emitFmt("    break :isdigit_{d} true;\n", .{label});
     try self.emit("}");
 }
 
@@ -71,15 +72,16 @@ pub fn genIsdigit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 pub fn genIsalpha(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.emit("blk: {\n");
+    const label = self.nextLabelId();
+    try self.emitFmt("isalpha_{d}: {{\n", .{label});
     try self.emit("    const _text = ");
     try emitStringExpr(self, obj);
     try self.emit(";\n");
-    try self.emit("    if (_text.len == 0) break :blk false;\n");
+    try self.emitFmt("    if (_text.len == 0) break :isalpha_{d} false;\n", .{label});
     try self.emit("    for (_text) |c| {\n");
-    try self.emit("        if (!std.ascii.isAlphabetic(c)) break :blk false;\n");
+    try self.emitFmt("        if (!std.ascii.isAlphabetic(c)) break :isalpha_{d} false;\n", .{label});
     try self.emit("    }\n");
-    try self.emit("    break :blk true;\n");
+    try self.emitFmt("    break :isalpha_{d} true;\n", .{label});
     try self.emit("}");
 }
 
@@ -89,15 +91,16 @@ pub fn genIsalpha(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 pub fn genIsalnum(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.emit("blk: {\n");
+    const label = self.nextLabelId();
+    try self.emitFmt("isalnum_{d}: {{\n", .{label});
     try self.emit("    const _text = ");
     try emitStringExpr(self, obj);
     try self.emit(";\n");
-    try self.emit("    if (_text.len == 0) break :blk false;\n");
+    try self.emitFmt("    if (_text.len == 0) break :isalnum_{d} false;\n", .{label});
     try self.emit("    for (_text) |c| {\n");
-    try self.emit("        if (!std.ascii.isAlphanumeric(c)) break :blk false;\n");
+    try self.emitFmt("        if (!std.ascii.isAlphanumeric(c)) break :isalnum_{d} false;\n", .{label});
     try self.emit("    }\n");
-    try self.emit("    break :blk true;\n");
+    try self.emitFmt("    break :isalnum_{d} true;\n", .{label});
     try self.emit("}");
 }
 
@@ -119,17 +122,18 @@ pub fn genIsspace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 pub fn genIslower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.emit("blk: {\n");
+    const label = self.nextLabelId();
+    try self.emitFmt("islower_{d}: {{\n", .{label});
     try self.emit("    const _text = ");
     try emitStringExpr(self, obj);
     try self.emit(";\n");
-    try self.emit("    if (_text.len == 0) break :blk false;\n");
+    try self.emitFmt("    if (_text.len == 0) break :islower_{d} false;\n", .{label});
     try self.emit("    var has_cased = false;\n");
     try self.emit("    for (_text) |c| {\n");
-    try self.emit("        if (std.ascii.isUpper(c)) break :blk false;\n");
+    try self.emitFmt("        if (std.ascii.isUpper(c)) break :islower_{d} false;\n", .{label});
     try self.emit("        if (std.ascii.isLower(c)) has_cased = true;\n");
     try self.emit("    }\n");
-    try self.emit("    break :blk has_cased;\n");
+    try self.emitFmt("    break :islower_{d} has_cased;\n", .{label});
     try self.emit("}");
 }
 
@@ -139,17 +143,18 @@ pub fn genIslower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 pub fn genIsupper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.emit("blk: {\n");
+    const label = self.nextLabelId();
+    try self.emitFmt("isupper_{d}: {{\n", .{label});
     try self.emit("    const _text = ");
     try emitStringExpr(self, obj);
     try self.emit(";\n");
-    try self.emit("    if (_text.len == 0) break :blk false;\n");
+    try self.emitFmt("    if (_text.len == 0) break :isupper_{d} false;\n", .{label});
     try self.emit("    var has_cased = false;\n");
     try self.emit("    for (_text) |c| {\n");
-    try self.emit("        if (std.ascii.isLower(c)) break :blk false;\n");
+    try self.emitFmt("        if (std.ascii.isLower(c)) break :isupper_{d} false;\n", .{label});
     try self.emit("        if (std.ascii.isUpper(c)) has_cased = true;\n");
     try self.emit("    }\n");
-    try self.emit("    break :blk has_cased;\n");
+    try self.emitFmt("    break :isupper_{d} has_cased;\n", .{label});
     try self.emit("}");
 }
 
@@ -159,15 +164,16 @@ pub fn genIsupper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 pub fn genIsascii(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.emit("blk: {\n");
+    const label = self.nextLabelId();
+    try self.emitFmt("isascii_{d}: {{\n", .{label});
     try self.emit("    const _text = ");
     try emitStringExpr(self, obj);
     try self.emit(";\n");
-    try self.emit("    if (_text.len == 0) break :blk true;\n");
+    try self.emitFmt("    if (_text.len == 0) break :isascii_{d} true;\n", .{label});
     try self.emit("    for (_text) |c| {\n");
-    try self.emit("        if (!std.ascii.isASCII(c)) break :blk false;\n");
+    try self.emitFmt("        if (!std.ascii.isASCII(c)) break :isascii_{d} false;\n", .{label});
     try self.emit("    }\n");
-    try self.emit("    break :blk true;\n");
+    try self.emitFmt("    break :isascii_{d} true;\n", .{label});
     try self.emit("}");
 }
 
@@ -177,27 +183,28 @@ pub fn genIsascii(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 pub fn genIstitle(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.emit("blk: {\n");
+    const label = self.nextLabelId();
+    try self.emitFmt("istitle_{d}: {{\n", .{label});
     try self.emit("    const _text = ");
     try emitStringExpr(self, obj);
     try self.emit(";\n");
-    try self.emit("    if (_text.len == 0) break :blk false;\n");
+    try self.emitFmt("    if (_text.len == 0) break :istitle_{d} false;\n", .{label});
     try self.emit("    var in_word = false;\n");
     try self.emit("    var has_title = false;\n");
     try self.emit("    for (_text) |c| {\n");
     try self.emit("        if (std.ascii.isAlphabetic(c)) {\n");
     try self.emit("            if (!in_word) {\n");
-    try self.emit("                if (!std.ascii.isUpper(c)) break :blk false;\n");
+    try self.emitFmt("                if (!std.ascii.isUpper(c)) break :istitle_{d} false;\n", .{label});
     try self.emit("                has_title = true;\n");
     try self.emit("                in_word = true;\n");
     try self.emit("            } else {\n");
-    try self.emit("                if (!std.ascii.isLower(c)) break :blk false;\n");
+    try self.emitFmt("                if (!std.ascii.isLower(c)) break :istitle_{d} false;\n", .{label});
     try self.emit("            }\n");
     try self.emit("        } else {\n");
     try self.emit("            in_word = false;\n");
     try self.emit("        }\n");
     try self.emit("    }\n");
-    try self.emit("    break :blk has_title;\n");
+    try self.emitFmt("    break :istitle_{d} has_title;\n", .{label});
     try self.emit("}");
 }
 
@@ -207,15 +214,16 @@ pub fn genIstitle(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 pub fn genIsprintable(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.emit("blk: {\n");
+    const label = self.nextLabelId();
+    try self.emitFmt("isprint_{d}: {{\n", .{label});
     try self.emit("    const _text = ");
     try emitStringExpr(self, obj);
     try self.emit(";\n");
-    try self.emit("    if (_text.len == 0) break :blk true;\n");
+    try self.emitFmt("    if (_text.len == 0) break :isprint_{d} true;\n", .{label});
     try self.emit("    for (_text) |c| {\n");
-    try self.emit("        if (!std.ascii.isPrint(c)) break :blk false;\n");
+    try self.emitFmt("        if (!std.ascii.isPrint(c)) break :isprint_{d} false;\n", .{label});
     try self.emit("    }\n");
-    try self.emit("    break :blk true;\n");
+    try self.emitFmt("    break :isprint_{d} true;\n", .{label});
     try self.emit("}");
 }
 
@@ -226,15 +234,16 @@ pub fn genIsprintable(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
 pub fn genIsdecimal(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.emit("blk: {\n");
+    const label = self.nextLabelId();
+    try self.emitFmt("isdec_{d}: {{\n", .{label});
     try self.emit("    const _text = ");
     try emitStringExpr(self, obj);
     try self.emit(";\n");
-    try self.emit("    if (_text.len == 0) break :blk false;\n");
+    try self.emitFmt("    if (_text.len == 0) break :isdec_{d} false;\n", .{label});
     try self.emit("    for (_text) |c| {\n");
-    try self.emit("        if (c < '0' or c > '9') break :blk false;\n");
+    try self.emitFmt("        if (c < '0' or c > '9') break :isdec_{d} false;\n", .{label});
     try self.emit("    }\n");
-    try self.emit("    break :blk true;\n");
+    try self.emitFmt("    break :isdec_{d} true;\n", .{label});
     try self.emit("}");
 }
 
@@ -245,14 +254,15 @@ pub fn genIsdecimal(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 pub fn genIsnumeric(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    try self.emit("blk: {\n");
+    const label = self.nextLabelId();
+    try self.emitFmt("isnum_{d}: {{\n", .{label});
     try self.emit("    const _text = ");
     try emitStringExpr(self, obj);
     try self.emit(";\n");
-    try self.emit("    if (_text.len == 0) break :blk false;\n");
+    try self.emitFmt("    if (_text.len == 0) break :isnum_{d} false;\n", .{label});
     try self.emit("    for (_text) |c| {\n");
-    try self.emit("        if (!std.ascii.isDigit(c)) break :blk false;\n");
+    try self.emitFmt("        if (!std.ascii.isDigit(c)) break :isnum_{d} false;\n", .{label});
     try self.emit("    }\n");
-    try self.emit("    break :blk true;\n");
+    try self.emitFmt("    break :isnum_{d} true;\n", .{label});
     try self.emit("}");
 }

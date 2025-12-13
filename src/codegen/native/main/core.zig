@@ -154,6 +154,7 @@ pub const NativeCodegen = struct {
     lambda_functions: std.ArrayList([]const u8),
 
     // Counter for unique block labels (avoids nested blk: redefinition)
+    // Use nextLabelId() or emitLabeledBlock() to get unique labels
     block_label_counter: usize,
 
     // Counter for unique shadow variable names (tuple += creates new const)
@@ -1406,6 +1407,34 @@ pub const NativeCodegen = struct {
 
     pub fn dedent(self: *NativeCodegen) void {
         self.indent_level -= 1;
+    }
+
+    /// Get next unique block label ID and increment the counter
+    /// This is the core API - returns the numeric ID for use in formatted emit calls
+    /// Usage pattern (existing code uses this):
+    ///   const id = self.nextLabelId();
+    ///   try self.emitFmt("blk_{d}: {{\n", .{id});
+    ///   // ... block body ...
+    ///   try self.emitFmt("break :blk_{d} result;\n", .{id});
+    ///   try self.emit("}");
+    pub fn nextLabelId(self: *NativeCodegen) usize {
+        const id = self.block_label_counter;
+        self.block_label_counter += 1;
+        return id;
+    }
+
+    /// Emit a labeled block start with unique ID
+    /// Returns the label ID for use in break statements
+    /// Usage: const id = try self.emitLabeledBlock("blk"); ... try self.emitBreakLabel("blk", id);
+    pub fn emitLabeledBlock(self: *NativeCodegen, prefix: []const u8) CodegenError!usize {
+        const id = self.nextLabelId();
+        try self.emitFmt("{s}_{d}: {{\n", .{ prefix, id });
+        return id;
+    }
+
+    /// Emit a break statement for a labeled block
+    pub fn emitBreakLabel(self: *NativeCodegen, prefix: []const u8, id: usize) CodegenError!void {
+        try self.emitFmt("break :{s}_{d}", .{ prefix, id });
     }
 
     /// Convert NativeType to Zig type string for code generation

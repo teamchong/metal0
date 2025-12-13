@@ -84,7 +84,8 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     }
 
     // split(separator) or split(separator, maxsplit)
-    try self.emit("blk: {\n");
+    const split_label = self.nextLabelId();
+    try self.emitFmt("split_{d}: {{\n", .{split_label});
     try self.emit("    var _split_result = std.ArrayListUnmanaged([]const u8){};\n");
     try self.emit("    var _split_iter = std.mem.splitSequence(u8, ");
     try self.genExpr(obj);
@@ -132,7 +133,7 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try self.emit("    }\n");
     }
 
-    try self.emit("    break :blk _split_result;\n");
+    try self.emitFmt("    break :split_{d} _split_result;\n", .{split_label});
     try self.emit("}");
 }
 
@@ -141,8 +142,9 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 pub fn genUpper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    // Generate block expression (use _idx to avoid shadowing user variables)
-    try self.emit("blk: {\n");
+    // Generate block expression with unique label (use _idx to avoid shadowing user variables)
+    const upper_label = self.nextLabelId();
+    try self.emitFmt("upper_{d}: {{\n", .{upper_label});
     try self.emit("    const _text = ");
     try self.genExpr(obj);
     try self.emit(";\n");
@@ -150,7 +152,7 @@ pub fn genUpper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit("    for (_text, 0..) |_c, _idx| {\n");
     try self.emit("        _result[_idx] = std.ascii.toUpper(_c);\n");
     try self.emit("    }\n");
-    try self.emit("    break :blk _result;\n");
+    try self.emitFmt("    break :upper_{d} _result;\n", .{upper_label});
     try self.emit("}");
 }
 
@@ -159,8 +161,9 @@ pub fn genUpper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 pub fn genLower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    // Generate block expression (use _idx to avoid shadowing user variables)
-    try self.emit("blk: {\n");
+    // Generate block expression with unique label (use _idx to avoid shadowing user variables)
+    const lower_label = self.nextLabelId();
+    try self.emitFmt("lower_{d}: {{\n", .{lower_label});
     try self.emit("    const _text = ");
     try self.genExpr(obj);
     try self.emit(";\n");
@@ -168,7 +171,7 @@ pub fn genLower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit("    for (_text, 0..) |_c, _idx| {\n");
     try self.emit("        _result[_idx] = std.ascii.toLower(_c);\n");
     try self.emit("    }\n");
-    try self.emit("    break :blk _result;\n");
+    try self.emitFmt("    break :lower_{d} _result;\n", .{lower_label});
     try self.emit("}");
 }
 
@@ -207,7 +210,8 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 
     if (args.len >= 3) {
         // replace(old, new, count) - limited replacement
-        try self.emit("blk: {\n");
+        const repl_label = self.nextLabelId();
+        try self.emitFmt("repl_{d}: {{\n", .{repl_label});
         try self.emit("    const _repl_text = ");
         try self.genExpr(obj);
         try self.emit(";\n");
@@ -220,7 +224,7 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
         try self.emit("    var _repl_count = @as(usize, @intCast(");
         try self.genExpr(args[2]);
         try self.emit("));\n");
-        try self.emit("    if (_repl_count == 0) break :blk _repl_text;\n");
+        try self.emitFmt("    if (_repl_count == 0) break :repl_{d} _repl_text;\n", .{repl_label});
         try self.emit("    var _repl_result = std.ArrayListUnmanaged(u8){};\n");
         try self.emit("    var _repl_pos: usize = 0;\n");
         try self.emit("    while (_repl_pos < _repl_text.len and _repl_count > 0) {\n");
@@ -232,7 +236,7 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
         try self.emit("        } else break;\n");
         try self.emit("    }\n");
         try self.emit("    try _repl_result.appendSlice(__global_allocator, _repl_text[_repl_pos..]);\n");
-        try self.emit("    break :blk _repl_result.items;\n");
+        try self.emitFmt("    break :repl_{d} _repl_result.items;\n", .{repl_label});
         try self.emit("}");
     } else {
         // replace(old, new) - replace all
@@ -256,9 +260,9 @@ pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     // Two-Flow: Check if separator is uncertain (PyValue)
     const is_uncertain = isStringUncertain(self, obj);
 
-    // Generate: blk: { break :blk try runtime.string_utils.pyJoin(allocator, separator, list); }
-    // Uses runtime.string_utils.pyJoin which handles PyValue, slices, arrays, and ArrayLists
-    try self.emit("blk: {\n");
+    // Generate unique labeled block for join operation
+    const join_label = self.nextLabelId();
+    try self.emitFmt("join_{d}: {{\n", .{join_label});
     try self.emit("const __join_sep = ");
     try self.genExpr(obj); // The separator string
     // Two-Flow: Extract string from PyValue if uncertain
@@ -269,7 +273,7 @@ pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     try self.emit("const __join_list = ");
     try self.genExpr(args[0]); // The list
     try self.emit(";\n");
-    try self.emit("break :blk try runtime.string_utils.pyJoin(__global_allocator, __join_sep, __join_list);\n");
+    try self.emitFmt("break :join_{d} try runtime.string_utils.pyJoin(__global_allocator, __join_sep, __join_list);\n", .{join_label});
     try self.emit("}");
 }
 
@@ -288,7 +292,8 @@ pub fn genStartswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
         try self.emit(")");
     } else {
         // s.startswith(prefix, start) or s.startswith(prefix, start, end)
-        try self.emit("blk: {\n");
+        const sw_label = self.nextLabelId();
+        try self.emitFmt("sw_{d}: {{\n", .{sw_label});
         try self.emit("    const __sw_text = ");
         try self.genExpr(obj);
         try self.emit(";\n");
@@ -307,8 +312,8 @@ pub fn genStartswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
             try self.emit("    const __sw_end = __sw_text.len;\n");
         }
 
-        try self.emit("    if (__sw_start >= __sw_end) break :blk false;\n");
-        try self.emit("    break :blk std.mem.startsWith(u8, __sw_text[__sw_start..__sw_end], __sw_prefix);\n");
+        try self.emitFmt("    if (__sw_start >= __sw_end) break :sw_{d} false;\n", .{sw_label});
+        try self.emitFmt("    break :sw_{d} std.mem.startsWith(u8, __sw_text[__sw_start..__sw_end], __sw_prefix);\n", .{sw_label});
         try self.emit("}");
     }
 }
@@ -328,7 +333,8 @@ pub fn genEndswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
         try self.emit(")");
     } else {
         // s.endswith(suffix, start) or s.endswith(suffix, start, end)
-        try self.emit("blk: {\n");
+        const ew_label = self.nextLabelId();
+        try self.emitFmt("ew_{d}: {{\n", .{ew_label});
         try self.emit("    const __ew_text = ");
         try self.genExpr(obj);
         try self.emit(";\n");
@@ -347,8 +353,8 @@ pub fn genEndswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
             try self.emit("    const __ew_end = __ew_text.len;\n");
         }
 
-        try self.emit("    if (__ew_start >= __ew_end) break :blk false;\n");
-        try self.emit("    break :blk std.mem.endsWith(u8, __ew_text[__ew_start..__ew_end], __ew_suffix);\n");
+        try self.emitFmt("    if (__ew_start >= __ew_end) break :ew_{d} false;\n", .{ew_label});
+        try self.emitFmt("    break :ew_{d} std.mem.endsWith(u8, __ew_text[__ew_start..__ew_end], __ew_suffix);\n", .{ew_label});
         try self.emit("}");
     }
 }
@@ -370,7 +376,8 @@ pub fn genFind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     } else {
         // s.find(sub, start) or s.find(sub, start, end)
         // Generate a block that slices the string and adjusts the result
-        try self.emit("blk: {\n");
+        const find_label = self.nextLabelId();
+        try self.emitFmt("find_{d}: {{\n", .{find_label});
         try self.emit("    const __find_text = ");
         try self.genExpr(obj);
         try self.emit(";\n");
@@ -389,9 +396,9 @@ pub fn genFind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
             try self.emit("    const __find_end = __find_text.len;\n");
         }
 
-        try self.emit("    if (__find_start >= __find_end) break :blk @as(i64, -1);\n");
+        try self.emitFmt("    if (__find_start >= __find_end) break :find_{d} @as(i64, -1);\n", .{find_label});
         try self.emit("    const __find_slice = __find_text[__find_start..__find_end];\n");
-        try self.emit("    break :blk if (std.mem.indexOf(u8, __find_slice, __find_sub)) |idx| @as(i64, @intCast(idx + __find_start)) else -1;\n");
+        try self.emitFmt("    break :find_{d} if (std.mem.indexOf(u8, __find_slice, __find_sub)) |idx| @as(i64, @intCast(idx + __find_start)) else -1;\n", .{find_label});
         try self.emit("}");
     }
 }
@@ -403,7 +410,8 @@ pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     if (args.len == 0) return error.UnsupportedSyntax;
 
     // Generate loop to count occurrences
-    try self.emit("blk: {\n");
+    const cnt_label = self.nextLabelId();
+    try self.emitFmt("cnt_{d}: {{\n", .{cnt_label});
     try self.emit("    const __cnt_text = ");
     try self.genExpr(obj);
     try self.emit(";\n");
@@ -427,7 +435,7 @@ pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try self.emit("    const __cnt_end = __cnt_text.len;\n");
     }
 
-    try self.emit("    if (__cnt_start >= __cnt_end) break :blk @as(i64, 0);\n");
+    try self.emitFmt("    if (__cnt_start >= __cnt_end) break :cnt_{d} @as(i64, 0);\n", .{cnt_label});
     try self.emit("    const __cnt_slice = __cnt_text[__cnt_start..__cnt_end];\n");
     try self.emit("    var __cnt_count: i64 = 0;\n");
     try self.emit("    var __cnt_pos: usize = 0;\n");
@@ -437,7 +445,7 @@ pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit("            __cnt_pos += idx + __cnt_needle.len;\n");
     try self.emit("        } else break;\n");
     try self.emit("    }\n");
-    try self.emit("    break :blk __cnt_count;\n");
+    try self.emitFmt("    break :cnt_{d} __cnt_count;\n", .{cnt_label});
     try self.emit("}");
 }
 
