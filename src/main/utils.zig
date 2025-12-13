@@ -78,7 +78,13 @@ pub fn detectImports(ctx: *c_interop.ImportContext, node: ast.Node) !void {
 }
 
 /// Load and execute a shared library (.so/.dylib)
+/// Note: Not supported on Windows (dlopen is POSIX-only)
 pub fn runSharedLib(allocator: std.mem.Allocator, lib_path: []const u8) !void {
+    const builtin = @import("builtin");
+    if (comptime builtin.os.tag == .windows) {
+        @compileError("Shared library loading not supported on Windows");
+    }
+
     // Get absolute path for dlopen (need null-terminated string)
     const abs_path = try std.fs.cwd().realpathAlloc(allocator, lib_path);
     defer allocator.free(abs_path);

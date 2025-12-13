@@ -64,7 +64,8 @@ pub fn build(b: *std.Build) void {
             "../vendor/libdeflate/lib/arm/cpu_features.c",
             "../vendor/libdeflate/lib/x86/cpu_features.c",
         },
-        .flags = &.{ "-std=c99", "-O3" },
+        // -mno-evex512 disables AVX512 512-bit vector instructions (CI runners may not support evex encoding)
+        .flags = &.{ "-std=c99", "-O3", "-mno-evex512" },
     });
 
     const regex = b.addModule("regex", .{

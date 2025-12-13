@@ -7,6 +7,7 @@
 //! Uses disk cache (~/.metal0/cache) for instant subsequent lookups.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const pkg = @import("pkg");
 const pep508 = pkg.pep508;
 const pep440 = pkg.pep440;
@@ -48,7 +49,8 @@ pub fn main() !void {
     std.debug.print("\n=== Resolving {} package(s) ===\n\n", .{deps.items.len});
 
     // Initialize disk cache at ~/.metal0/cache
-    const home = std.posix.getenv("HOME") orelse "/tmp";
+    // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
+    const home = if (comptime builtin.os.tag == .windows) "C:\\Temp" else std.posix.getenv("HOME") orelse "/tmp";
     const cache_dir = try std.fmt.allocPrint(allocator, "{s}/.metal0/cache", .{home});
     defer allocator.free(cache_dir);
 
