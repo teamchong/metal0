@@ -4,16 +4,13 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Conditionally disable AVX-512 based on target
-    // For native x86_64: let libdeflate use runtime CPU detection (may use AVX-512)
-    // For CI/generic: disable AVX-512 to avoid evex512 compile errors
-    const is_native_x86 = target.result.cpu.arch == .x86_64 and
-        target.query.cpu_model == .native;
-
-    const libdeflate_flags: []const []const u8 = if (is_native_x86)
-        &.{ "-std=c99", "-O3" } // Native: let runtime detect CPU features
-    else
-        &.{ "-std=c99", "-O3", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ" }; // Generic: disable AVX-512
+    // Always disable AVX-512 for maximum reliability across all platforms
+    const libdeflate_flags: []const []const u8 = &.{
+        "-std=c99",
+        "-O3",
+        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI",
+        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ",
+    };
 
     // Import runtime gzip module
     const runtime_gzip = b.addModule("gzip", .{
