@@ -33,7 +33,7 @@ const builtin = @import("builtin");
 const windows_ext = if (builtin.os.tag == .windows) struct {
     /// GetProcessId - retrieves the process identifier of the specified process
     /// https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocessid
-    pub extern "kernel32" fn GetProcessId(Process: std.os.windows.HANDLE) callconv(std.os.windows.WINAPI) std.os.windows.DWORD;
+    pub extern "kernel32" fn GetProcessId(Process: std.os.windows.HANDLE) callconv(.winapi) std.os.windows.DWORD;
 } else struct {};
 
 // ============================================================================
