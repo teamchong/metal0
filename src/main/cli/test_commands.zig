@@ -2,9 +2,9 @@
 /// Usage: metal0 test [dir] [patterns...] [@group...]
 ///
 /// Supports @group syntax for platform-specific test groups:
-///   @core1   - Platform-independent tests A-F (96 tests)
-///   @core2   - Platform-independent tests G-P (96 tests)
-///   @core3   - Platform-independent tests Q-Z (96 tests)
+///   @core1   - Platform-independent tests (__all__-float) (98 tests)
+///   @core2   - Platform-independent tests (flufl-quopri) (98 tests)
+///   @core3   - Platform-independent tests (raise-zstd) (98 tests)
 ///   @linux   - Linux-specific tests (18 tests)
 ///   @macos   - macOS-specific tests (25 tests)
 ///   @windows - Windows-specific tests (93 tests)

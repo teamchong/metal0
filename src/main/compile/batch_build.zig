@@ -1,13 +1,13 @@
 //! Batch test compilation build system
 //! Compiles all tests in a single Zig process, sharing runtime module analysis
 //!
-//! This is THE key optimization: instead of invoking `zig build-exe` 390 times
+//! This is THE key optimization: instead of invoking `zig build-exe` 397 times
 //! (each parsing 236K LOC runtime), we invoke `zig build` ONCE and compile
 //! all tests in parallel with shared module analysis.
 //!
 //! Expected performance:
-//!   Before: 390 tests × 2-3s = 13+ minutes
-//!   After:  1 × 60s (shared analysis) + 390 × 0.1s (parallel codegen) = ~100s
+//!   Before: 397 tests × 2-3s = 13+ minutes
+//!   After:  1 × 60s (shared analysis) + 397 × 0.1s (parallel codegen) = ~100s
 //!
 const std = @import("std");
 
