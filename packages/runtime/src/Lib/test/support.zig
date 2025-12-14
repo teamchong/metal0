@@ -31,6 +31,17 @@ pub fn is_cpython() bool {
     return false;
 }
 
+/// Check if running on Apple platform (macOS, iOS, etc.)
+pub const is_apple = builtin.os.tag == .macos or
+    builtin.os.tag == .ios or
+    builtin.os.tag == .tvos or
+    builtin.os.tag == .watchos;
+
+/// Check if running on Apple mobile platform
+pub const is_apple_mobile = builtin.os.tag == .ios or
+    builtin.os.tag == .tvos or
+    builtin.os.tag == .watchos;
+
 /// Check if IEEE 754 floating point is available (always true on modern hardware)
 pub fn requires_IEEE_754() bool {
     return true;
