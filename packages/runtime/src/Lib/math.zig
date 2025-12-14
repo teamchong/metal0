@@ -334,6 +334,25 @@ pub fn lgamma(x: f64) f64 {
     return @log(gamma(x));
 }
 
+/// Return the floating-point value the given number of steps after x towards y
+pub fn nextafter(x: f64, y: f64, steps: ?i64) f64 {
+    if (steps) |s| {
+        if (s == 0) return x;
+        if (s < 0) @panic("steps must be a non-negative integer");
+
+        var result = x;
+        var i: i64 = 0;
+        while (i < s) : (i += 1) {
+            result = std.math.nextAfter(result, y);
+            if (result == y) break;
+        }
+        return result;
+    } else {
+        // Default: 1 step
+        return std.math.nextAfter(x, y);
+    }
+}
+
 // Tests
 test "math constants" {
     try std.testing.expect(pi > 3.14 and pi < 3.15);

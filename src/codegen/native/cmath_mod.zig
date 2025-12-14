@@ -3,7 +3,7 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "sqrt", h.wrap("cmath_sqrt_blk: { const x = @as(f64, @floatFromInt(", ")); if (x >= 0) break :cmath_sqrt_blk .{ .re = @sqrt(x), .im = 0.0 }; break :cmath_sqrt_blk .{ .re = 0.0, .im = @sqrt(-x) }; }", ".{ .re = 0.0, .im = 0.0 }") },
+    .{ "sqrt", h.wrap("cmath_sqrt_blk: { const __x = @as(f64, @floatFromInt(", ")); if (__x >= 0) break :cmath_sqrt_blk .{ .re = @sqrt(__x), .im = 0.0 }; break :cmath_sqrt_blk .{ .re = 0.0, .im = @sqrt(-__x) }; }", ".{ .re = 0.0, .im = 0.0 }") },
     .{ "exp", h.complexBuiltin("@exp", "1.0") }, .{ "log", h.complexBuiltin("@log", "0.0") }, .{ "log10", h.complexBuiltin("@log10", "0.0") },
     .{ "sin", h.complexBuiltin("@sin", "0.0") }, .{ "cos", h.complexBuiltin("@cos", "1.0") }, .{ "tan", h.complexBuiltin("@tan", "0.0") },
     .{ "asin", h.complexStdMath("asin", "0.0") }, .{ "acos", h.complexStdMath("acos", "0.0") }, .{ "atan", h.complexStdMath("atan", "0.0") },
