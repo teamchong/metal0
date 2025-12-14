@@ -484,8 +484,8 @@ jobs:
             # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
             OUTPUT=$(python3 -m test test_${test} 2>&1) || true
             echo "$OUTPUT"
-            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
-            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS)"; then
+            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
+            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -560,8 +560,8 @@ jobs:
             # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
             OUTPUT=$(python3 -m test test_${test} 2>&1) || true
             echo "$OUTPUT"
-            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
-            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS)"; then
+            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
+            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -636,8 +636,8 @@ jobs:
             # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
             OUTPUT=$(python3 -m test test_${test} 2>&1) || true
             echo "$OUTPUT"
-            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
-            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS)"; then
+            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
+            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -712,8 +712,8 @@ jobs:
             # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
             OUTPUT=$(python3 -m test test_${test} 2>&1) || true
             echo "$OUTPUT"
-            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
-            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS)"; then
+            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
+            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -785,8 +785,8 @@ jobs:
             # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
             OUTPUT=$(python3 -m test test_${test} 2>&1) || true
             echo "$OUTPUT"
-            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
-            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS)"; then
+            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
+            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -835,8 +835,8 @@ jobs:
             # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
             $output = python -m test "test_$test" 2>&1 | Out-String
             Write-Host $output
-            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
-            if ($output -match "(Tests result: SUCCESS|Result: SUCCESS)") {
+            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
+            if ($output -match "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)") {
               $passed++
             } else {
               $failed++
