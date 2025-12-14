@@ -444,7 +444,16 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Checkout CPython test infrastructure
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git /tmp/cpython
+          cd /tmp/cpython
+          git checkout v3.14.2
+          git sparse-checkout set Lib/test
+
       - name: Run CPython tests (core1)
+        env:
+          PYTHONPATH: /tmp/cpython/Lib
         run: |
           cd tests/cpython
           PASSED=0; FAILED=0; TOTAL=0
@@ -484,7 +493,16 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Checkout CPython test infrastructure
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git /tmp/cpython
+          cd /tmp/cpython
+          git checkout v3.14.2
+          git sparse-checkout set Lib/test
+
       - name: Run CPython tests (core2)
+        env:
+          PYTHONPATH: /tmp/cpython/Lib
         run: |
           cd tests/cpython
           PASSED=0; FAILED=0; TOTAL=0
@@ -524,7 +542,16 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Checkout CPython test infrastructure
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git /tmp/cpython
+          cd /tmp/cpython
+          git checkout v3.14.2
+          git sparse-checkout set Lib/test
+
       - name: Run CPython tests (core3)
+        env:
+          PYTHONPATH: /tmp/cpython/Lib
         run: |
           cd tests/cpython
           PASSED=0; FAILED=0; TOTAL=0
@@ -564,7 +591,16 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Checkout CPython test infrastructure
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git /tmp/cpython
+          cd /tmp/cpython
+          git checkout v3.14.2
+          git sparse-checkout set Lib/test
+
       - name: Run CPython Linux-specific tests
+        env:
+          PYTHONPATH: /tmp/cpython/Lib
         run: |
           cd tests/cpython
           PASSED=0; FAILED=0; TOTAL=0
@@ -604,7 +640,16 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Checkout CPython test infrastructure
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git /tmp/cpython
+          cd /tmp/cpython
+          git checkout v3.14.2
+          git sparse-checkout set Lib/test
+
       - name: Run CPython macOS-specific tests
+        env:
+          PYTHONPATH: /tmp/cpython/Lib
         run: |
           cd tests/cpython
           PASSED=0; FAILED=0; TOTAL=0
@@ -644,8 +689,18 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Checkout CPython test infrastructure
+        shell: pwsh
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git C:\cpython
+          Set-Location C:\cpython
+          git checkout v3.14.2
+          git sparse-checkout set Lib/test
+
       - name: Run CPython Windows-specific tests
         shell: pwsh
+        env:
+          PYTHONPATH: C:\cpython\Lib
         run: |
           Set-Location tests/cpython
           $passed = 0; $failed = 0; $total = 0
