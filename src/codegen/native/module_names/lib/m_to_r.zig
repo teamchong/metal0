@@ -46,6 +46,7 @@ pub const names = [_][]const u8{
     "platform",
     "plistlib",
     "poplib",
+    "posix",
     "posixpath",
     "pprint",
     "profile",

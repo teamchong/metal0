@@ -343,13 +343,13 @@ pub fn nextafter(x: f64, y: f64, steps: ?i64) f64 {
         var result = x;
         var i: i64 = 0;
         while (i < s) : (i += 1) {
-            result = std.math.nextAfter(result, y);
+            result = std.math.nextAfter(f64, result, y);
             if (result == y) break;
         }
         return result;
     } else {
         // Default: 1 step
-        return std.math.nextAfter(x, y);
+        return std.math.nextAfter(f64, x, y);
     }
 }
 
