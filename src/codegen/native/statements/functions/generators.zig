@@ -13,6 +13,7 @@ const builtin_types = @import("generators/builtin_types.zig");
 const test_skip = @import("generators/test_skip.zig");
 const shared = @import("../../shared_maps.zig");
 const PyBuiltinTypes = shared.PythonBuiltinTypes;
+const PythonBuiltinNames = shared.PythonBuiltinNames;
 
 // Re-exports
 pub const analyzeModuleLevelMutations = body.analyzeModuleLevelMutations;
@@ -1121,18 +1122,20 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         try self.mutable_classes.put(class_name_copy, {});
     }
 
-    // Register class-level type attributes BEFORE generating methods
-    // so that self.int_class(...) can be detected and handled properly
+    // Register class-level callable builtin attributes BEFORE generating methods
+    // This includes type constructors (int, str) and functions (enumerate, len, range)
+    // so that self.enum(...) or self.int_class(...) can be detected and handled properly
     for (class.body) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
             if (assign.targets.len > 0 and assign.targets[0] == .name) {
                 const attr_name = assign.targets[0].name.id;
                 if (assign.value.* == .name) {
-                    const type_name = assign.value.name.id;
-                    if (PyBuiltinTypes.has(type_name)) {
+                    const builtin_name = assign.value.name.id;
+                    // Check if this is ANY builtin name (types + functions + constants)
+                    if (PythonBuiltinNames.has(builtin_name)) {
                         const key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, attr_name });
-                        try self.class_type_attrs.put(key, type_name);
+                        try self.class_type_attrs.put(key, builtin_name);
                     }
                 }
             }

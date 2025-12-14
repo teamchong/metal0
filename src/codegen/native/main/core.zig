@@ -450,8 +450,9 @@ pub const NativeCodegen = struct {
     // only for classes in nested_class_names but NOT in this map
     nested_class_zig_refs: FnvVoidMap,
 
-    // Track class-level type attributes (e.g., int_class = int)
-    // Maps "ClassName.attr_name" -> type_name (e.g., "IntStrDigitLimitsTests.int_class" -> "int")
+    // Track class-level callable builtin attributes (e.g., enum = enumerate, int_class = int)
+    // Maps "ClassName.attr_name" -> builtin_name for direct invocation via @This().attr_name(...)
+    // Includes type constructors (int, str, list) and functions (enumerate, len, range, zip, etc.)
     class_type_attrs: FnvStringMap,
 
     // Current class being generated (for super() support)
