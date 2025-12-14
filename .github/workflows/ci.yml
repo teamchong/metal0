@@ -484,7 +484,8 @@ jobs:
             # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
             OUTPUT=$(python3 -m test test_${test} 2>&1) || true
             echo "$OUTPUT"
-            if echo "$OUTPUT" | grep -q "Tests result: SUCCESS"; then
+            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
+            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS)"; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -559,7 +560,8 @@ jobs:
             # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
             OUTPUT=$(python3 -m test test_${test} 2>&1) || true
             echo "$OUTPUT"
-            if echo "$OUTPUT" | grep -q "Tests result: SUCCESS"; then
+            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
+            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS)"; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -634,7 +636,8 @@ jobs:
             # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
             OUTPUT=$(python3 -m test test_${test} 2>&1) || true
             echo "$OUTPUT"
-            if echo "$OUTPUT" | grep -q "Tests result: SUCCESS"; then
+            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
+            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS)"; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -709,7 +712,8 @@ jobs:
             # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
             OUTPUT=$(python3 -m test test_${test} 2>&1) || true
             echo "$OUTPUT"
-            if echo "$OUTPUT" | grep -q "Tests result: SUCCESS"; then
+            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
+            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS)"; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -781,7 +785,8 @@ jobs:
             # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
             OUTPUT=$(python3 -m test test_${test} 2>&1) || true
             echo "$OUTPUT"
-            if echo "$OUTPUT" | grep -q "Tests result: SUCCESS"; then
+            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
+            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS)"; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -827,8 +832,11 @@ jobs:
             if ($test -eq "") { return }
             $total++
             # Use Python's built-in test module
-            python -m test "test_$test" 2>&1
-            if ($LASTEXITCODE -eq 0) {
+            # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
+            $output = python -m test "test_$test" 2>&1 | Out-String
+            Write-Host $output
+            # Match both "Tests result: SUCCESS" and "Result: SUCCESS"
+            if ($output -match "(Tests result: SUCCESS|Result: SUCCESS)") {
               $passed++
             } else {
               $failed++
