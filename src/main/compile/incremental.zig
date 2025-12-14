@@ -1178,12 +1178,11 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
                     process_utils.killProcessGroup(pid, 9); // SIGKILL to group
                     process_utils.killByIdWithSignal(pid, 9); // Also SIGKILL to main process
 
-                    // Force exit after SIGKILL - don't wait forever
+                    // Force exit after SIGKILL - unconditionally exit
+                    // Main thread is blocked on child.wait() and cannot set done=true
                     std.Thread.sleep(2 * std.time.ns_per_s);
-                    if (!d.load(.seq_cst)) {
-                        std.debug.print("  [batch] Process still alive after SIGKILL - force exit\n", .{});
-                        std.process.exit(1);
-                    }
+                    std.debug.print("  [batch] Force exit after SIGKILL timeout\n", .{});
+                    std.process.exit(1);
                 }
             }
         }
