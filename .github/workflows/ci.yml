@@ -41,24 +41,50 @@ jobs:
 
       - name: Run Metal0 tests (core1)
         run: |
-          ./zig-out/bin/metal0 test tests/cpython @core1 2>&1 | tee test_output.txt || true
+          # Capture output AND preserve exit code
+          set +e
+          ./zig-out/bin/metal0 test tests/cpython @core1 2>&1 | tee test_output.txt
+          TEST_EXIT=$?
+          set -e
+
+          # Strip ANSI codes for parsing
           sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
+
+          # Parse test results
           if grep -q "All.*tests passed" test_output_clean.txt; then
             PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
-            FAILED=0; TOTAL=$PASSED
-          else
+            PASSED=${PASSED:-0}
+            FAILED=0
+            TOTAL=$PASSED
+          elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
             PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
             TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
-            FAILED=$((${TOTAL:-0} - ${PASSED:-0}))
+            PASSED=${PASSED:-0}
+            TOTAL=${TOTAL:-0}
+            FAILED=$((TOTAL - PASSED))
+          else
+            # Parsing failed - use test runner exit code as source of truth
+            echo "⚠️  Failed to parse test output, using test runner exit code: $TEST_EXIT"
+            PASSED=0
+            FAILED=1
+            TOTAL=1
+            exit $TEST_EXIT
           fi
-          RATE=$([ "${TOTAL:-0}" -gt 0 ] && echo "scale=1; ${PASSED:-0} * 100 / $TOTAL" | bc || echo "0")
+
+          # Generate summary report
+          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
           echo "## 📊 Metal0 Test Results - @core1" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | ${PASSED:-0} |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | ${FAILED:-0} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
           echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          [ "${FAILED:-0}" -gt 0 ] && exit 1 || true
+
+          # Exit with failure if any tests failed
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Tests failed: $FAILED/$TOTAL"
+            exit 1
+          fi
         timeout-minutes: 30
 
   test-metal0-core2:
@@ -81,24 +107,50 @@ jobs:
 
       - name: Run Metal0 tests (core2)
         run: |
-          ./zig-out/bin/metal0 test tests/cpython @core2 2>&1 | tee test_output.txt || true
+          # Capture output AND preserve exit code
+          set +e
+          ./zig-out/bin/metal0 test tests/cpython @core2 2>&1 | tee test_output.txt
+          TEST_EXIT=$?
+          set -e
+
+          # Strip ANSI codes for parsing
           sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
+
+          # Parse test results
           if grep -q "All.*tests passed" test_output_clean.txt; then
             PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
-            FAILED=0; TOTAL=$PASSED
-          else
+            PASSED=${PASSED:-0}
+            FAILED=0
+            TOTAL=$PASSED
+          elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
             PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
             TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
-            FAILED=$((${TOTAL:-0} - ${PASSED:-0}))
+            PASSED=${PASSED:-0}
+            TOTAL=${TOTAL:-0}
+            FAILED=$((TOTAL - PASSED))
+          else
+            # Parsing failed - use test runner exit code as source of truth
+            echo "⚠️  Failed to parse test output, using test runner exit code: $TEST_EXIT"
+            PASSED=0
+            FAILED=1
+            TOTAL=1
+            exit $TEST_EXIT
           fi
-          RATE=$([ "${TOTAL:-0}" -gt 0 ] && echo "scale=1; ${PASSED:-0} * 100 / $TOTAL" | bc || echo "0")
+
+          # Generate summary report
+          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
           echo "## 📊 Metal0 Test Results - @core2" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | ${PASSED:-0} |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | ${FAILED:-0} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
           echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          [ "${FAILED:-0}" -gt 0 ] && exit 1 || true
+
+          # Exit with failure if any tests failed
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Tests failed: $FAILED/$TOTAL"
+            exit 1
+          fi
         timeout-minutes: 30
 
   test-metal0-core3:
@@ -121,24 +173,50 @@ jobs:
 
       - name: Run Metal0 tests (core3)
         run: |
-          ./zig-out/bin/metal0 test tests/cpython @core3 2>&1 | tee test_output.txt || true
+          # Capture output AND preserve exit code
+          set +e
+          ./zig-out/bin/metal0 test tests/cpython @core3 2>&1 | tee test_output.txt
+          TEST_EXIT=$?
+          set -e
+
+          # Strip ANSI codes for parsing
           sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
+
+          # Parse test results
           if grep -q "All.*tests passed" test_output_clean.txt; then
             PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
-            FAILED=0; TOTAL=$PASSED
-          else
+            PASSED=${PASSED:-0}
+            FAILED=0
+            TOTAL=$PASSED
+          elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
             PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
             TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
-            FAILED=$((${TOTAL:-0} - ${PASSED:-0}))
+            PASSED=${PASSED:-0}
+            TOTAL=${TOTAL:-0}
+            FAILED=$((TOTAL - PASSED))
+          else
+            # Parsing failed - use test runner exit code as source of truth
+            echo "⚠️  Failed to parse test output, using test runner exit code: $TEST_EXIT"
+            PASSED=0
+            FAILED=1
+            TOTAL=1
+            exit $TEST_EXIT
           fi
-          RATE=$([ "${TOTAL:-0}" -gt 0 ] && echo "scale=1; ${PASSED:-0} * 100 / $TOTAL" | bc || echo "0")
+
+          # Generate summary report
+          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
           echo "## 📊 Metal0 Test Results - @core3" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | ${PASSED:-0} |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | ${FAILED:-0} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
           echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          [ "${FAILED:-0}" -gt 0 ] && exit 1 || true
+
+          # Exit with failure if any tests failed
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Tests failed: $FAILED/$TOTAL"
+            exit 1
+          fi
         timeout-minutes: 30
 
   test-metal0-linux:
@@ -162,20 +240,37 @@ jobs:
       - name: Run Metal0 Linux-specific tests
         id: test-linux
         run: |
-          ./zig-out/bin/metal0 test tests/cpython @linux 2>&1 | tee test_output.txt || true
+          # Capture output AND preserve exit code
+          set +e
+          ./zig-out/bin/metal0 test tests/cpython @linux 2>&1 | tee test_output.txt
+          TEST_EXIT=$?
+          set -e
+
+          # Strip ANSI codes for parsing
           sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
+
+          # Parse test results
           if grep -q "All.*tests passed" test_output_clean.txt; then
             PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
             PASSED=${PASSED:-0}
             FAILED=0
             TOTAL=$PASSED
-          else
+          elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
             PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
             TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
             PASSED=${PASSED:-0}
             TOTAL=${TOTAL:-0}
             FAILED=$((TOTAL - PASSED))
+          else
+            # Parsing failed - use test runner exit code as source of truth
+            echo "⚠️  Failed to parse test output, using test runner exit code: $TEST_EXIT"
+            PASSED=0
+            FAILED=1
+            TOTAL=1
+            exit $TEST_EXIT
           fi
+
+          # Generate summary report
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
           echo "## 📊 Metal0 Test Results - @linux" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -185,7 +280,12 @@ jobs:
           echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
           echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
           echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          [ "$FAILED" -gt 0 ] && exit 1 || true
+
+          # Exit with failure if any tests failed
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Tests failed: $FAILED/$TOTAL"
+            exit 1
+          fi
         timeout-minutes: 60
 
   test-metal0-macos:
@@ -209,20 +309,37 @@ jobs:
       - name: Run Metal0 macOS-specific tests
         id: test-macos
         run: |
-          ./zig-out/bin/metal0 test tests/cpython @macos 2>&1 | tee test_output.txt || true
+          # Capture output AND preserve exit code
+          set +e
+          ./zig-out/bin/metal0 test tests/cpython @macos 2>&1 | tee test_output.txt
+          TEST_EXIT=$?
+          set -e
+
+          # Strip ANSI codes for parsing
           sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
+
+          # Parse test results
           if grep -q "All.*tests passed" test_output_clean.txt; then
             PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
             PASSED=${PASSED:-0}
             FAILED=0
             TOTAL=$PASSED
-          else
+          elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
             PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
             TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
             PASSED=${PASSED:-0}
             TOTAL=${TOTAL:-0}
             FAILED=$((TOTAL - PASSED))
+          else
+            # Parsing failed - use test runner exit code as source of truth
+            echo "⚠️  Failed to parse test output, using test runner exit code: $TEST_EXIT"
+            PASSED=0
+            FAILED=1
+            TOTAL=1
+            exit $TEST_EXIT
           fi
+
+          # Generate summary report
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
           echo "## 📊 Metal0 Test Results - @macos" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -232,7 +349,12 @@ jobs:
           echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
           echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
           echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          [ "$FAILED" -gt 0 ] && exit 1 || true
+
+          # Exit with failure if any tests failed
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Tests failed: $FAILED/$TOTAL"
+            exit 1
+          fi
         timeout-minutes: 60
 
   test-metal0-windows:
@@ -257,15 +379,16 @@ jobs:
         id: test-windows
         shell: pwsh
         run: |
+          # Capture output AND exit code
           & .\zig-out\bin\metal0.exe test tests/cpython @windows 2>&1 | Tee-Object -FilePath test_output.txt
-          $exitCode = $LASTEXITCODE
+          $testExitCode = $LASTEXITCODE
 
-          # Strip ANSI color codes for parsing (PowerShell regex)
+          # Strip ANSI color codes for parsing
           $content = Get-Content test_output.txt -Raw
           if ($null -eq $content) { $content = "" }
           $content = $content -replace '\x1b\[[0-9;]*m', ''
 
-          # Parse results from "Results: X/Y passed (Z%)" or "All N tests passed!"
+          # Parse results from output
           if ($content -match 'All (\d+) tests passed') {
             $passed = [int]$Matches[1]
             $failed = 0
@@ -275,13 +398,17 @@ jobs:
             $total = [int]$Matches[2]
             $failed = $total - $passed
           } else {
+            # Parsing failed - use test exit code as source of truth
+            Write-Host "⚠️  Failed to parse test output, using test runner exit code: $testExitCode"
             $passed = 0
-            $failed = 0
-            $total = 0
+            $failed = 1
+            $total = 1
+            exit $testExitCode
           }
+
           $rate = if ($total -gt 0) { [math]::Round(($passed / $total) * 100, 1) } else { 0 }
 
-          # Always write summary
+          # Generate summary
           "## 📊 Metal0 Test Results - @windows" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
           "" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
           "| Metric | Value |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
@@ -291,8 +418,11 @@ jobs:
           "| 📋 Total | $total |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
           "| 📈 Pass Rate | ${rate}% |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
 
-          # Exit with failure if tests failed
-          if ($failed -gt 0) { exit 1 }
+          # Exit with failure if any tests failed
+          if ($failed -gt 0) {
+            Write-Host "❌ Tests failed: $failed/$total"
+            exit 1
+          }
         timeout-minutes: 60
 
   # =============================================================================
