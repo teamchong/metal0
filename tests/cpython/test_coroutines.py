@@ -1008,7 +1008,7 @@ class CoroutineTest(unittest.TestCase):
             return (await Awaitable())
 
         with self.assertRaisesRegex(
-            TypeError, "__await__.*must return an iterator, not"):
+            TypeError, "__await__.*returned non-iterator of type"):
 
             run_async(foo())
 
@@ -1106,7 +1106,7 @@ class CoroutineTest(unittest.TestCase):
             return await Awaitable()
 
         with self.assertRaisesRegex(
-                TypeError, r"__await__\(\) must return an iterator, not coroutine"):
+                TypeError, r"__await__\(\) returned a coroutine"):
             run_async(foo())
 
         c.close()
@@ -1120,7 +1120,7 @@ class CoroutineTest(unittest.TestCase):
             return await Awaitable()
 
         with self.assertRaisesRegex(
-            TypeError, "__await__.*must return an iterator, not"):
+            TypeError, "__await__.*returned non-iterator of type"):
 
             run_async(foo())
 
@@ -2265,6 +2265,36 @@ class CoroutineTest(unittest.TestCase):
         # before fixing, visible stack from throw would be shorter than from send.
         self.assertEqual(len_send, len_throw)
 
+    def test_call_aiter_once_in_comprehension(self):
+
+        class AsyncIterator:
+
+            def __init__(self):
+                self.val = 0
+
+            async def __anext__(self):
+                if self.val == 2:
+                    raise StopAsyncIteration
+                self.val += 1
+                return self.val
+
+            # No __aiter__ method
+
+        class C:
+
+            def __aiter__(self):
+                return AsyncIterator()
+
+        async def run_listcomp():
+            return [i async for i in C()]
+
+        async def run_asyncgen():
+            ag = (i async for i in C())
+            return [i async for i in ag]
+
+        self.assertEqual(run_async(run_listcomp()), ([], [1, 2]))
+        self.assertEqual(run_async(run_asyncgen()), ([], [1, 2]))
+
 
 @unittest.skipIf(
     support.is_emscripten or support.is_wasi,
@@ -2490,7 +2520,7 @@ class CAPITest(unittest.TestCase):
             return (await future)
 
         with self.assertRaisesRegex(
-                TypeError, "__await__.*must return an iterator, not int"):
+                TypeError, "__await__.*returned non-iterator of type 'int'"):
             self.assertEqual(foo().send(None), 1)
 
 

@@ -17,7 +17,7 @@ from dataclasses import Field
 from functools import partial, partialmethod, cached_property
 from graphlib import TopologicalSorter
 from logging import LoggerAdapter, StreamHandler
-from mailbox import Mailbox
+from mailbox import Mailbox, _PartialFile
 try:
     import ctypes
 except ImportError:
@@ -117,7 +117,7 @@ class BaseTest(unittest.TestCase):
                      Iterable, Iterator,
                      Reversible,
                      Container, Collection,
-                     Mailbox,
+                     Mailbox, _PartialFile,
                      ContextVar, Token,
                      Field,
                      Set, MutableSet,

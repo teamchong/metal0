@@ -1052,10 +1052,10 @@ class TestRecursion(unittest.TestCase):
             self.assertLess(lower_sp, this_sp)
             safe_margin = this_sp - lower_sp
         else:
-            self.assertGreater(lower_sp, this_sp)
+            self.assertLess(this_sp, lower_sp)
             safe_margin = lower_sp - this_sp
-        # Add an (arbitrary) extra 25% for safety
-        safe_margin = safe_margin * 5 / 4
+        # Add an (arbitrary) extra 20% for safety
+        safe_margin *= 6 / 5
         self.assertLess(safe_margin, _testinternalcapi.get_stack_margin())
 
     @skip_on_s390x

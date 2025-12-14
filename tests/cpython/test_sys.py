@@ -729,25 +729,15 @@ class SysModuleTest(unittest.TestCase):
         info = sys.thread_info
         self.assertEqual(len(info), 3)
         self.assertIn(info.name, ('nt', 'pthread', 'pthread-stubs', 'solaris', None))
-        self.assertIn(info.lock, ('pymutex', None))
-        if sys.platform.startswith(("linux", "android", "freebsd", "wasi")):
+        self.assertIn(info.lock, ('semaphore', 'mutex+cond', None))
+        if sys.platform.startswith(("linux", "android", "freebsd")):
             self.assertEqual(info.name, "pthread")
         elif sys.platform == "win32":
             self.assertEqual(info.name, "nt")
         elif sys.platform == "emscripten":
             self.assertIn(info.name, {"pthread", "pthread-stubs"})
-
-    def test_abi_info(self):
-        info = sys.abi_info
-        info_keys = {'pointer_bits', 'free_threaded', 'debug', 'byteorder'}
-        self.assertEqual(set(vars(info)), info_keys)
-        pointer_bits = 64 if sys.maxsize > 2**32 else 32
-        self.assertEqual(info.pointer_bits, pointer_bits)
-        self.assertEqual(info.free_threaded,
-                         bool(sysconfig.get_config_var('Py_GIL_DISABLED')))
-        self.assertEqual(info.debug,
-                         bool(sysconfig.get_config_var('Py_DEBUG')))
-        self.assertEqual(info.byteorder, sys.byteorder)
+        elif sys.platform == "wasi":
+            self.assertEqual(info.name, "pthread-stubs")
 
     @unittest.skipUnless(support.is_emscripten, "only available on Emscripten")
     def test_emscripten_info(self):
@@ -1303,7 +1293,6 @@ class SysModuleTest(unittest.TestCase):
         for name in sys.stdlib_module_names:
             self.assertIsInstance(name, str)
 
-    @unittest.skipUnless(hasattr(sys, '_stdlib_dir'), 'need sys._stdlib_dir')
     def test_stdlib_dir(self):
         os = import_helper.import_fresh_module('os')
         marker = getattr(os, '__file__', None)
@@ -1350,7 +1339,6 @@ class SysModuleTest(unittest.TestCase):
 
 
 @test.support.cpython_only
-@force_not_colorized
 class UnraisableHookTest(unittest.TestCase):
     def test_original_unraisablehook(self):
         _testcapi = import_helper.import_module('_testcapi')
@@ -1581,7 +1569,7 @@ class SizeofTest(unittest.TestCase):
         samples = [b'', b'u'*100000]
         for sample in samples:
             x = bytearray(sample)
-            check(x, vsize('n2PiP') + x.__alloc__())
+            check(x, vsize('n2Pi') + x.__alloc__())
         # bytearray_iterator
         check(iter(bytearray()), size('nP'))
         # bytes
@@ -1723,10 +1711,9 @@ class SizeofTest(unittest.TestCase):
         check(int(PyLong_BASE**2), vsize('') + 3*self.longdigit)
         # module
         if support.Py_GIL_DISABLED:
-            md_gil = '?'
+            check(unittest, size('PPPPPP'))
         else:
-            md_gil = ''
-        check(unittest, size('PPPP?' + md_gil + 'NPPPPP'))
+            check(unittest, size('PPPPP'))
         # None
         check(None, size(''))
         # NotImplementedType
@@ -2251,10 +2238,9 @@ class TestSysJIT(unittest.TestCase):
 
             def frame_3_jit() -> None:
                 # JITs just before the last loop:
-                # 1 extra iteration for tracing.
-                for i in range(_testinternalcapi.TIER2_THRESHOLD + 2):
+                for i in range(_testinternalcapi.TIER2_THRESHOLD + 1):
                     # Careful, doing this in the reverse order breaks tracing:
-                    expected = {enabled} and i >= _testinternalcapi.TIER2_THRESHOLD + 1
+                    expected = {enabled} and i == _testinternalcapi.TIER2_THRESHOLD
                     assert sys._jit.is_active() is expected
                     frame_2_jit(expected)
                     assert sys._jit.is_active() is expected

@@ -4573,6 +4573,22 @@ def bœr():
             ]))
             self.assertIn('break in bar', stdout)
 
+    def test_issue_59000(self):
+        script = """
+            def foo():
+                pass
+
+            class C:
+                def foo(self):
+                    pass
+        """
+        commands = """
+            break C.foo
+            quit
+        """
+        stdout, stderr = self.run_pdb_script(script, commands)
+        self.assertIn("The specified object 'C.foo' is not a function", stdout)
+
 
 class ChecklineTests(unittest.TestCase):
     def setUp(self):
@@ -4742,19 +4758,6 @@ class PdbTestInline(unittest.TestCase):
         commands = ""
         stdout, stderr = self._run_script(script, commands)
         self.assertNotIn("readline imported", stdout)
-        self.assertEqual(stderr, "")
-
-    def test_alternate_stdin(self):
-        script = textwrap.dedent("""
-            import pdb
-            import io
-
-            input_data = io.StringIO("p 40 + 2\\nc\\n")
-            pdb.Pdb(stdin=input_data).set_trace()
-        """)
-        commands = ""
-        stdout, stderr = self._run_script(script, commands)
-        self.assertIn("42", stdout)
         self.assertEqual(stderr, "")
 
 

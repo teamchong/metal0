@@ -590,7 +590,7 @@ def make_deferred_ref_count_obj():
 class TestRacesDoNotCrash(TestBase):
     # Careful with these. Bigger numbers have a higher chance of catching bugs,
     # but you can also burn through a *ton* of type/dict/function versions:
-    ITEMS = 1400
+    ITEMS = 1000
     LOOPS = 4
     WRITERS = 2
 
@@ -1341,21 +1341,6 @@ class TestSpecializer(TestBase):
         self.assert_specialized(binary_op_add_int, "BINARY_OP_ADD_INT")
         self.assert_no_opcode(binary_op_add_int, "BINARY_OP")
 
-        def binary_op_int_non_compact():
-            for _ in range(_testinternalcapi.SPECIALIZATION_THRESHOLD):
-                a, b = 10000000000, 1
-                c = a + b
-                self.assertEqual(c, 10000000001)
-                c = a - b
-                self.assertEqual(c, 9999999999)
-                c = a * b
-                self.assertEqual(c, 10000000000)
-
-        binary_op_int_non_compact()
-        self.assert_no_opcode(binary_op_int_non_compact, "BINARY_OP_ADD_INT")
-        self.assert_no_opcode(binary_op_int_non_compact, "BINARY_OP_SUBTRACT_INT")
-        self.assert_no_opcode(binary_op_int_non_compact, "BINARY_OP_MULTIPLY_INT")
-
         def binary_op_add_unicode():
             for _ in range(_testinternalcapi.SPECIALIZATION_THRESHOLD):
                 a, b = "foo", "bar"
@@ -1833,6 +1818,20 @@ class TestSpecializer(TestBase):
         self.assert_specialized(compare_op_str, "COMPARE_OP_STR")
         self.assert_no_opcode(compare_op_str, "COMPARE_OP")
 
+    @cpython_only
+    @requires_specialization_ft
+    def test_load_const(self):
+        def load_const():
+            def unused(): pass
+            # Currently, the empty tuple is immortal, and the otherwise
+            # unused nested function's code object is mortal. This test will
+            # have to use different values if either of that changes.
+            return ()
+
+        load_const()
+        self.assert_specialized(load_const, "LOAD_CONST_IMMORTAL")
+        self.assert_specialized(load_const, "LOAD_CONST_MORTAL")
+        self.assert_no_opcode(load_const, "LOAD_CONST")
 
     @cpython_only
     @requires_specialization_ft
@@ -1871,33 +1870,6 @@ class TestSpecializer(TestBase):
         for_iter_generator()
         self.assert_specialized(for_iter_generator, "FOR_ITER_GEN")
         self.assert_no_opcode(for_iter_generator, "FOR_ITER")
-
-    @cpython_only
-    @requires_specialization_ft
-    def test_call_list_append(self):
-        # gh-141367: only exact lists should use
-        # CALL_LIST_APPEND instruction after specialization.
-
-        r = range(_testinternalcapi.SPECIALIZATION_THRESHOLD)
-
-        def list_append(l):
-            for _ in r:
-                l.append(1)
-
-        list_append([])
-        self.assert_specialized(list_append, "CALL_LIST_APPEND")
-        self.assert_no_opcode(list_append, "CALL_METHOD_DESCRIPTOR_O")
-        self.assert_no_opcode(list_append, "CALL")
-
-        def my_list_append(l):
-            for _ in r:
-                l.append(1)
-
-        class MyList(list): pass
-        my_list_append(MyList())
-        self.assert_specialized(my_list_append, "CALL_METHOD_DESCRIPTOR_O")
-        self.assert_no_opcode(my_list_append, "CALL_LIST_APPEND")
-        self.assert_no_opcode(my_list_append, "CALL")
 
 
 if __name__ == "__main__":

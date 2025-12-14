@@ -252,16 +252,7 @@ class ExceptionTests(unittest.TestCase):
         check('[\nfile\nfor str(file)\nin\n[]\n]', 3, 5)
         check('[file for\n str(file) in []]', 2, 2)
         check("ages = {'Alice'=22, 'Bob'=23}", 1, 9)
-        check(dedent("""\
-          match ...:
-            case {**rest1, "after": after}:
-              ...
-        """), 2, 11)
-        check(dedent("""\
-          match ...:
-            case {"before": before, **rest2, "after": after}:
-              ...
-        """), 2, 29)
+        check('match ...:\n    case {**rest, "key": value}:\n        ...', 2, 19)
         check("[a b c d e f]", 1, 2)
         check("for x yfff:", 1, 7)
         check("f(a for a in b, c)", 1, 3, 1, 15)
@@ -2124,50 +2115,6 @@ class ImportErrorTests(unittest.TestCase):
                 self.assertEqual(exc.msg, 'test')
                 self.assertEqual(exc.name, orig.name)
                 self.assertEqual(exc.path, orig.path)
-
-    def test_repr(self):
-        exc = ImportError()
-        self.assertEqual(repr(exc), "ImportError()")
-
-        exc = ImportError('test')
-        self.assertEqual(repr(exc), "ImportError('test')")
-
-        exc = ImportError('test', 'case')
-        self.assertEqual(repr(exc), "ImportError('test', 'case')")
-
-        exc = ImportError(name='somemodule')
-        self.assertEqual(repr(exc), "ImportError(name='somemodule')")
-
-        exc = ImportError('test', name='somemodule')
-        self.assertEqual(repr(exc), "ImportError('test', name='somemodule')")
-
-        exc = ImportError(path='somepath')
-        self.assertEqual(repr(exc), "ImportError(path='somepath')")
-
-        exc = ImportError('test', path='somepath')
-        self.assertEqual(repr(exc), "ImportError('test', path='somepath')")
-
-        exc = ImportError(name='somename', path='somepath')
-        self.assertEqual(repr(exc),
-                "ImportError(name='somename', path='somepath')")
-
-        exc = ImportError('test', name='somename', path='somepath')
-        self.assertEqual(repr(exc),
-                "ImportError('test', name='somename', path='somepath')")
-
-        exc = ModuleNotFoundError('test', name='somename', path='somepath')
-        self.assertEqual(repr(exc),
-                "ModuleNotFoundError('test', name='somename', path='somepath')")
-
-    def test_ModuleNotFoundError_repr_with_failed_import(self):
-        with self.assertRaises(ModuleNotFoundError) as cm:
-            import does_not_exist  # type: ignore[import] # noqa: F401
-
-        self.assertEqual(cm.exception.name, "does_not_exist")
-        self.assertIsNone(cm.exception.path)
-
-        self.assertEqual(repr(cm.exception),
-            "ModuleNotFoundError(\"No module named 'does_not_exist'\", name='does_not_exist')")
 
 
 def run_script(source):

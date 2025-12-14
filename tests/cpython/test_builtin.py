@@ -31,7 +31,6 @@ from operator import neg
 from test import support
 from test.support import cpython_only, swap_attr
 from test.support import async_yield, run_yielding_async_fn
-from test.support import warnings_helper
 from test.support.import_helper import import_module
 from test.support.os_helper import (EnvironmentVarGuard, TESTFN, unlink)
 from test.support.script_helper import assert_python_ok
@@ -1087,29 +1086,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             three_freevars.__code__,
             three_freevars.__globals__,
             closure=my_closure)
-
-    def test_exec_filter_syntax_warnings_by_module(self):
-        filename = support.findfile('test_import/data/syntax_warnings.py')
-        with open(filename, 'rb') as f:
-            source = f.read()
-        with warnings.catch_warnings(record=True) as wlog:
-            warnings.simplefilter('error')
-            warnings.filterwarnings('always', module=r'<string>\z')
-            exec(source, {})
-        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10, 13, 14, 21])
-        for wm in wlog:
-            self.assertEqual(wm.filename, '<string>')
-            self.assertIs(wm.category, SyntaxWarning)
-
-        with warnings.catch_warnings(record=True) as wlog:
-            warnings.simplefilter('error')
-            warnings.filterwarnings('always', module=r'package.module\z')
-            warnings.filterwarnings('error', module=r'<string>')
-            exec(source, {'__name__': 'package.module', '__file__': filename})
-        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10, 13, 14, 21])
-        for wm in wlog:
-            self.assertEqual(wm.filename, '<string>')
-            self.assertIs(wm.category, SyntaxWarning)
 
 
     def test_filter(self):
@@ -2595,7 +2571,6 @@ class PtyTests(unittest.TestCase):
         finally:
             signal.signal(signal.SIGHUP, old_sighup)
 
-    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     def _run_child(self, child, terminal_input):
         r, w = os.pipe()  # Pipe test results from child back to parent
         try:

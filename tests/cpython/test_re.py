@@ -1639,24 +1639,6 @@ class ReTests(unittest.TestCase):
                          (['sum', 'op=', 3, 'op*', 'foo', 'op+', 312.5,
                            'op+', 'bar'], ''))
 
-    def test_bug_gh140797(self):
-        # gh140797: Capturing groups are not allowed in re.Scanner
-
-        msg = r"Cannot use capturing groups in re\.Scanner"
-        # Capturing group throws an error
-        with self.assertRaisesRegex(ValueError, msg):
-            Scanner([("(a)b", None)])
-
-        # Named Group
-        with self.assertRaisesRegex(ValueError, msg):
-            Scanner([("(?P<name>a)", None)])
-
-        # Non-capturing groups should pass normally
-        s = Scanner([("(?:a)b", lambda scanner, token: token)])
-        result, rem = s.scan("ab")
-        self.assertEqual(result,['ab'])
-        self.assertEqual(rem,'')
-
     def test_bug_448951(self):
         # bug 448951 (similar to 429357, but with single char match)
         # (Also test greedy matches.)
@@ -2949,6 +2931,33 @@ class ImplementationTest(unittest.TestCase):
         pat = re.compile("")
         check_disallow_instantiation(self, type(pat.scanner("")))
 
+    def test_deprecated_modules(self):
+        deprecated = {
+            'sre_compile': ['compile', 'error',
+                            'SRE_FLAG_IGNORECASE', 'SUBPATTERN',
+                            '_compile_info'],
+            'sre_constants': ['error', 'SRE_FLAG_IGNORECASE', 'SUBPATTERN',
+                              '_NamedIntConstant'],
+            'sre_parse': ['SubPattern', 'parse',
+                          'SRE_FLAG_IGNORECASE', 'SUBPATTERN',
+                          '_parse_sub'],
+        }
+        for name in deprecated:
+            with self.subTest(module=name):
+                sys.modules.pop(name, None)
+                with self.assertWarns(DeprecationWarning) as w:
+                    __import__(name)
+                self.assertEqual(str(w.warning),
+                                 f"module {name!r} is deprecated")
+                self.assertEqual(w.filename, __file__)
+                self.assertIn(name, sys.modules)
+                mod = sys.modules[name]
+                self.assertEqual(mod.__name__, name)
+                self.assertEqual(mod.__package__, '')
+                for attr in deprecated[name]:
+                    self.assertHasAttr(mod, attr)
+                del sys.modules[name]
+
     @cpython_only
     def test_case_helpers(self):
         import _sre
@@ -3132,16 +3141,6 @@ class ExternalTests(unittest.TestCase):
                 with self.subTest('unicode-sensitive match'):
                     obj = re.compile(pattern, re.UNICODE)
                     self.assertTrue(obj.search(s))
-
-
-class TestModule(unittest.TestCase):
-    def test_deprecated__version__(self):
-        with self.assertWarnsRegex(
-            DeprecationWarning,
-            "'__version__' is deprecated and slated for removal in Python 3.20",
-        ) as cm:
-            getattr(re, "__version__")
-        self.assertEqual(cm.filename, __file__)
 
 
 if __name__ == "__main__":

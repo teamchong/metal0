@@ -1,5 +1,5 @@
 import os
-import sysconfig
+import sys
 import unittest
 
 try:
@@ -7,14 +7,10 @@ try:
 except ImportError:
     raise unittest.SkipTest("requires _testinternalcapi")
 
-def supports_trampoline_profiling():
-    perf_trampoline = sysconfig.get_config_var("PY_HAVE_PERF_TRAMPOLINE")
-    if not perf_trampoline:
-        return False
-    return int(perf_trampoline) == 1
 
-if not supports_trampoline_profiling():
-    raise unittest.SkipTest("perf trampoline profiling not supported")
+if sys.platform != 'linux':
+    raise unittest.SkipTest('Linux only')
+
 
 class TestPerfMapWriting(unittest.TestCase):
     def test_write_perf_map_entry(self):

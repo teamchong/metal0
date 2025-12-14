@@ -12,7 +12,8 @@ import re
 import socket
 
 from test.support import verbose, run_with_tz, run_with_locale, cpython_only
-from test.support import hashlib_helper, threading_helper
+from test.support import hashlib_helper
+from test.support import threading_helper
 import unittest
 from unittest import mock
 from datetime import datetime, timezone, timedelta
@@ -470,12 +471,17 @@ class NewIMAPTestsMixin:
         ret, _ = client.login_cram_md5("tim", "tanstaaftanstaaf")
         self.assertEqual(ret, "OK")
 
-    @hashlib_helper.block_algorithm("md5")
     def test_login_cram_md5_blocked(self):
+        def side_effect(*a, **kw):
+            raise ValueError
+
         client, _ = self._setup(AuthHandler_CRAM_MD5)
         self.assertIn('AUTH=CRAM-MD5', client.capabilities)
         msg = re.escape("CRAM-MD5 authentication is not supported")
-        with self.assertRaisesRegex(imaplib.IMAP4.error, msg):
+        with (
+            mock.patch("hmac.HMAC", side_effect=side_effect),
+            self.assertRaisesRegex(imaplib.IMAP4.error, msg)
+        ):
             client.login_cram_md5("tim", b"tanstaaftanstaaf")
 
     def test_aborted_authentication(self):
@@ -1115,16 +1121,6 @@ class ThreadedNetworkedTestsSSL(ThreadedNetworkedTests):
             client = self.imap_class("localhost", server.server_address[1],
                                      ssl_context=ssl_context)
             client.shutdown()
-
-
-class TestModule(unittest.TestCase):
-    def test_deprecated__version__(self):
-        with self.assertWarnsRegex(
-            DeprecationWarning,
-            "'__version__' is deprecated and slated for removal in Python 3.20",
-        ) as cm:
-            getattr(imaplib, "__version__")
-        self.assertEqual(cm.filename, __file__)
 
 
 if __name__ == "__main__":

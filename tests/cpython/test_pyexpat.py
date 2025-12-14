@@ -13,10 +13,11 @@ import traceback
 from io import BytesIO
 from test import support
 from test.support import import_helper, os_helper
-from test.support import sortdict
-from unittest import mock
+
 from xml.parsers import expat
 from xml.parsers.expat import errors
+
+from test.support import sortdict
 
 
 class SetAttributeTest(unittest.TestCase):
@@ -439,19 +440,6 @@ class BufferTextTest(unittest.TestCase):
                           "<!--abc-->", "4", "<!--def-->", "5", "</a>"],
                          "buffered text not properly split")
 
-    def test_change_character_data_handler_in_callback(self):
-        # Test that xmlparse_handler_setter() properly handles
-        # the special case "parser.CharacterDataHandler = None".
-        def handler(*args):
-            parser.CharacterDataHandler = None
-
-        handler_wrapper = mock.Mock(wraps=handler)
-        parser = expat.ParserCreate()
-        parser.CharacterDataHandler = handler_wrapper
-        parser.Parse(b"<a>1<b/>2<c></c>3<!--abc-->4<!--def-->5</a> ", True)
-        handler_wrapper.assert_called_once()
-        self.assertIsNone(parser.CharacterDataHandler)
-
 
 # Test handling of exception from callback:
 class HandlerExceptionTest(unittest.TestCase):
@@ -611,7 +599,7 @@ class ChardataBufferTest(unittest.TestCase):
     def test_disabling_buffer(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><a>" + b'a' * 512
         xml2 = b'b' * 1024
-        xml3 = b'c' * 1024 + b'</a>'
+        xml3 = b'c' * 1024 + b'</a>';
         parser = expat.ParserCreate()
         parser.CharacterDataHandler = self.counting_handler
         parser.buffer_text = 1
@@ -1009,64 +997,6 @@ class AttackProtectionTestBase(abc.ABC):
         subparser = parser.ExternalEntityParserCreate(None)
         setter = functools.partial(self.set_maximum_amplification, subparser)
         self.assert_root_parser_failure(setter, 123.45)
-
-
-@unittest.skipIf(expat.version_info < (2, 4, 0), "requires Expat >= 2.4.0")
-class ExpansionProtectionTest(AttackProtectionTestBase, unittest.TestCase):
-
-    def assert_rejected(self, func, /, *args, **kwargs):
-        """Check that func(*args, **kwargs) hits the allocation limit."""
-        msg = (
-            r"limit on input amplification factor \(from DTD and entities\) "
-            r"breached: line \d+, column \d+"
-        )
-        self.assertRaisesRegex(expat.ExpatError, msg, func, *args, **kwargs)
-
-    def set_activation_threshold(self, parser, threshold):
-        return parser.SetBillionLaughsAttackProtectionActivationThreshold(threshold)
-
-    def set_maximum_amplification(self, parser, max_factor):
-        return parser.SetBillionLaughsAttackProtectionMaximumAmplification(max_factor)
-
-    def test_set_activation_threshold__threshold_reached(self):
-        parser = expat.ParserCreate()
-        # Choose a threshold expected to be always reached.
-        self.set_activation_threshold(parser, 3)
-        # Check that the threshold is reached by choosing a small factor
-        # and a payload whose peak amplification factor exceeds it.
-        self.assertIsNone(self.set_maximum_amplification(parser, 1.0))
-        payload = self.exponential_expansion_payload(ncols=10, nrows=4)
-        self.assert_rejected(parser.Parse, payload, True)
-
-    def test_set_activation_threshold__threshold_not_reached(self):
-        parser = expat.ParserCreate()
-        # Choose a threshold expected to be never reached.
-        self.set_activation_threshold(parser, pow(10, 5))
-        # Check that the threshold is reached by choosing a small factor
-        # and a payload whose peak amplification factor exceeds it.
-        self.assertIsNone(self.set_maximum_amplification(parser, 1.0))
-        payload = self.exponential_expansion_payload(ncols=10, nrows=4)
-        self.assertIsNotNone(parser.Parse(payload, True))
-
-    def test_set_maximum_amplification__amplification_exceeded(self):
-        parser = expat.ParserCreate()
-        # Unconditionally enable maximum activation factor.
-        self.set_activation_threshold(parser, 0)
-        # Choose a max amplification factor expected to always be exceeded.
-        self.assertIsNone(self.set_maximum_amplification(parser, 1.0))
-        # Craft a payload for which the peak amplification factor is > 1.0.
-        payload = self.exponential_expansion_payload(ncols=1, nrows=2)
-        self.assert_rejected(parser.Parse, payload, True)
-
-    def test_set_maximum_amplification__amplification_not_exceeded(self):
-        parser = expat.ParserCreate()
-        # Unconditionally enable maximum activation factor.
-        self.set_activation_threshold(parser, 0)
-        # Choose a max amplification factor expected to never be exceeded.
-        self.assertIsNone(self.set_maximum_amplification(parser, 1e4))
-        # Craft a payload for which the peak amplification factor is < 1e4.
-        payload = self.exponential_expansion_payload(ncols=1, nrows=2)
-        self.assertIsNotNone(parser.Parse(payload, True))
 
 
 @unittest.skipIf(expat.version_info < (2, 7, 2), "requires Expat >= 2.7.2")

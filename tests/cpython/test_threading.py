@@ -6,7 +6,7 @@ import test.support
 from test.support import threading_helper, requires_subprocess, requires_gil_enabled
 from test.support import verbose, cpython_only, os_helper
 from test.support.import_helper import ensure_lazy_imports, import_module
-from test.support.script_helper import assert_python_ok, assert_python_failure, spawn_python
+from test.support.script_helper import assert_python_ok, assert_python_failure
 from test.support import force_not_colorized
 
 import random
@@ -1247,68 +1247,13 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(err, b"")
         self.assertIn(b"all clear", out)
 
-    @support.subTests('lock_class_name', ['Lock', 'RLock'])
-    def test_acquire_daemon_thread_lock_in_finalization(self, lock_class_name):
-        # gh-123940: Py_Finalize() prevents other threads from running Python
-        # code (and so, releasing locks), so acquiring a locked lock can not
-        # succeed.
-        # We raise an exception rather than hang.
-        code = textwrap.dedent(f"""
-            import threading
-            import time
-
-            thread_started_event = threading.Event()
-
-            lock = threading.{lock_class_name}()
-            def loop():
-                if {lock_class_name!r} == 'RLock':
-                    lock.acquire()
-                with lock:
-                    thread_started_event.set()
-                    while True:
-                        time.sleep(1)
-
-            uncontested_lock = threading.{lock_class_name}()
-
-            class Cycle:
-                def __init__(self):
-                    self.self_ref = self
-                    self.thr = threading.Thread(
-                        target=loop, daemon=True)
-                    self.thr.start()
-                    thread_started_event.wait()
-
-                def __del__(self):
-                    assert self.thr.is_alive()
-
-                    # We *can* acquire an unlocked lock
-                    uncontested_lock.acquire()
-                    if {lock_class_name!r} == 'RLock':
-                        uncontested_lock.acquire()
-
-                    # Acquiring a locked one fails
-                    try:
-                        lock.acquire()
-                    except PythonFinalizationError:
-                        assert self.thr.is_alive()
-                        print('got the correct exception!')
-
-            # Cycle holds a reference to itself, which ensures it is
-            # cleaned up during the GC that runs after daemon threads
-            # have been forced to exit during finalization.
-            Cycle()
-        """)
-        rc, out, err = assert_python_ok("-c", code)
-        self.assertEqual(err, b"")
-        self.assertIn(b"got the correct exception", out)
-
     def test_start_new_thread_failed(self):
         # gh-109746: if Python fails to start newly created thread
         # due to failure of underlying PyThread_start_new_thread() call,
         # its state should be removed from interpreter' thread states list
         # to avoid its double cleanup
         try:
-            from resource import setrlimit, RLIMIT_NPROC  # noqa: F401
+            from resource import setrlimit, RLIMIT_NPROC
         except ImportError as err:
             self.skipTest(err)  # RLIMIT_NPROC is specific to Linux and BSD
         code = """if 1:
@@ -1339,6 +1284,12 @@ class ThreadTests(BaseTestCase):
 
     @cpython_only
     def test_finalize_daemon_thread_hang(self):
+        if support.check_sanitizer(thread=True, memory=True):
+            # the thread running `time.sleep(100)` below will still be alive
+            # at process exit
+            self.skipTest(
+                    "https://github.com/python/cpython/issues/124878 - Known"
+                    " race condition that TSAN identifies.")
         # gh-87135: tests that daemon threads hang during finalization
         script = textwrap.dedent('''
             import os
@@ -2084,32 +2035,6 @@ class ThreadingExceptionTests(BaseTestCase):
         self.assertEqual(out, b"")
         self.assertEqual(err, b"")
 
-    @requires_subprocess()
-    @unittest.skipIf(os.name == 'nt', "signals don't work well on windows")
-    def test_keyboard_interrupt_during_threading_shutdown(self):
-        import subprocess
-        source = f"""
-        from threading import Thread
-        import time
-        import os
-
-
-        def test():
-            print('a', flush=True, end='')
-            time.sleep(10)
-
-
-        for _ in range(3):
-            Thread(target=test).start()
-        """
-
-        with spawn_python("-c", source, stderr=subprocess.PIPE) as proc:
-            self.assertEqual(proc.stdout.read(3), b'aaa')
-            proc.send_signal(signal.SIGINT)
-            proc.stderr.flush()
-            error = proc.stderr.read()
-            self.assertIn(b"KeyboardInterrupt", error)
-
 
 class ThreadRunFail(threading.Thread):
     def run(self):
@@ -2283,7 +2208,8 @@ class CRLockTests(lock_tests.RLockTests):
         ]
         for args, kwargs in arg_types:
             with self.subTest(args=args, kwargs=kwargs):
-                self.assertRaises(TypeError, threading.RLock, *args, **kwargs)
+                with self.assertWarns(DeprecationWarning):
+                    threading.RLock(*args, **kwargs)
 
         # Subtypes with custom `__init__` are allowed (but, not recommended):
         class CustomRLock(self.locktype):
@@ -2300,9 +2226,6 @@ class EventTests(lock_tests.EventTests):
 class ConditionAsRLockTests(lock_tests.RLockTests):
     # Condition uses an RLock by default and exports its API.
     locktype = staticmethod(threading.Condition)
-
-    def test_constructor_noargs(self):
-        self.skipTest("Condition allows positional arguments")
 
     def test_recursion_count(self):
         self.skipTest("Condition does not expose _recursion_count()")
@@ -2553,7 +2476,6 @@ class AtexitTests(unittest.TestCase):
 
         self.assertFalse(err)
 
-    @force_not_colorized
     def test_atexit_after_shutdown(self):
         # The only way to do this is by registering an atexit within
         # an atexit, which is intended to raise an exception.

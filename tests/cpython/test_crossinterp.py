@@ -1,4 +1,6 @@
 import contextlib
+import importlib
+import importlib.util
 import itertools
 import sys
 import types

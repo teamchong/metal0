@@ -838,10 +838,8 @@ class TestSpecifics(unittest.TestCase):
             else:
                 return "unused"
 
-        if f.__doc__ is None:
-            self.assertEqual(f.__code__.co_consts, (True, "used"))
-        else:
-            self.assertEqual(f.__code__.co_consts, (f.__doc__, "used"))
+        self.assertEqual(f.__code__.co_consts,
+                         (f.__doc__, "used"))
 
     @support.cpython_only
     def test_remove_unused_consts_no_docstring(self):
@@ -886,11 +884,7 @@ class TestSpecifics(unittest.TestCase):
         def f1():
             "docstring"
             return 42
-
-        if f1.__doc__ is None:
-            self.assertEqual(f1.__code__.co_consts, (42,))
-        else:
-            self.assertEqual(f1.__code__.co_consts, (f1.__doc__,))
+        self.assertEqual(f1.__code__.co_consts, (f1.__doc__,))
 
     # This is a regression test for a CPython specific peephole optimizer
     # implementation bug present in a few releases.  It's assertion verifies
@@ -1630,17 +1624,6 @@ class TestSpecifics(unittest.TestCase):
         def f():
             a if (1 if b else c) else d
 
-    def test_lineno_propagation_empty_blocks(self):
-        # Smoke test. See gh-138714.
-        def f():
-            while name:
-                try:
-                    break
-                except:
-                    pass
-            else:
-                1 if 1 else 1
-
     def test_global_declaration_in_except_used_in_else(self):
         # See gh-111123
         code = textwrap.dedent("""\
@@ -1744,30 +1727,6 @@ class TestSpecifics(unittest.TestCase):
         for wm in caught:
             self.assertEqual(wm.category, SyntaxWarning)
             self.assertIn("\"is\" with 'int' literal", str(wm.message))
-
-    def test_filter_syntax_warnings_by_module(self):
-        filename = support.findfile('test_import/data/syntax_warnings.py')
-        with open(filename, 'rb') as f:
-            source = f.read()
-        module_re = r'test\.test_import\.data\.syntax_warnings\z'
-        with warnings.catch_warnings(record=True) as wlog:
-            warnings.simplefilter('error')
-            warnings.filterwarnings('always', module=module_re)
-            compile(source, filename, 'exec')
-        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10, 13, 14, 21])
-        for wm in wlog:
-            self.assertEqual(wm.filename, filename)
-            self.assertIs(wm.category, SyntaxWarning)
-
-        with warnings.catch_warnings(record=True) as wlog:
-            warnings.simplefilter('error')
-            warnings.filterwarnings('always', module=r'package\.module\z')
-            warnings.filterwarnings('error', module=module_re)
-            compile(source, filename, 'exec', module='package.module')
-        self.assertEqual(sorted(wm.lineno for wm in wlog), [4, 7, 10, 13, 14, 21])
-        for wm in wlog:
-            self.assertEqual(wm.filename, filename)
-            self.assertIs(wm.category, SyntaxWarning)
 
     @support.subTests('src', [
         textwrap.dedent("""

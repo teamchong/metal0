@@ -652,7 +652,6 @@ class ClassTests(unittest.TestCase):
         a = A(hash(A.f)^(-1))
         hash(a.f)
 
-    @cpython_only
     def testSetattrWrapperNameIntern(self):
         # Issue #25794: __setattr__ should intern the attribute name
         class A:
