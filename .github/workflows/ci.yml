@@ -8,7 +8,7 @@ on:
 
 env:
   ZIG_VERSION: "0.15.2"
-  PYTHON_VERSION: "3.12"
+  PYTHON_VERSION: "3.14"
 
 
 concurrency:
@@ -296,11 +296,11 @@ jobs:
         timeout-minutes: 60
 
   # =============================================================================
-  # CPython 3.12 Reference Tests (Run with Python interpreter directly)
+  # CPython Reference Tests (Run local test files with Python interpreter)
   # =============================================================================
 
-  test-cpython312-core1:
-    name: CPython 3.12 @core1 (96 tests)
+  test-cpython-core1:
+    name: CPython @core1 (96 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -309,7 +309,7 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Python 3.12
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -321,14 +321,14 @@ jobs:
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
-            if python -m test test_${test} 2>&1; then
+            if python test_${test}.py 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
             fi
           done < ../groups/core1.txt
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 CPython 3.12 Test Results - @core1" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 CPython Test Results - @core1" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -339,8 +339,8 @@ jobs:
           [ "$FAILED" -gt 0 ] && exit 1 || true
         timeout-minutes: 30
 
-  test-cpython312-core2:
-    name: CPython 3.12 @core2 (96 tests)
+  test-cpython-core2:
+    name: CPython @core2 (96 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -349,7 +349,7 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Python 3.12
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -361,14 +361,14 @@ jobs:
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
-            if python -m test test_${test} 2>&1; then
+            if python test_${test}.py 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
             fi
           done < ../groups/core2.txt
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 CPython 3.12 Test Results - @core2" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 CPython Test Results - @core2" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -379,8 +379,8 @@ jobs:
           [ "$FAILED" -gt 0 ] && exit 1 || true
         timeout-minutes: 30
 
-  test-cpython312-core3:
-    name: CPython 3.12 @core3 (96 tests)
+  test-cpython-core3:
+    name: CPython @core3 (96 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -389,7 +389,7 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Python 3.12
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -401,14 +401,14 @@ jobs:
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
-            if python -m test test_${test} 2>&1; then
+            if python test_${test}.py 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
             fi
           done < ../groups/core3.txt
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 CPython 3.12 Test Results - @core3" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 CPython Test Results - @core3" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -419,8 +419,8 @@ jobs:
           [ "$FAILED" -gt 0 ] && exit 1 || true
         timeout-minutes: 30
 
-  test-cpython312-linux:
-    name: CPython 3.12 @linux (18 tests)
+  test-cpython-linux:
+    name: CPython @linux (18 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -429,7 +429,7 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Python 3.12
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -441,14 +441,14 @@ jobs:
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
-            if python -m test test_${test} 2>&1; then
+            if python test_${test}.py 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
             fi
           done < ../groups/linux.txt
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 CPython 3.12 Test Results - @linux" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 CPython Test Results - @linux" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -459,8 +459,8 @@ jobs:
           [ "$FAILED" -gt 0 ] && exit 1 || true
         timeout-minutes: 60
 
-  test-cpython312-macos:
-    name: CPython 3.12 @macos (25 tests)
+  test-cpython-macos:
+    name: CPython @macos (25 tests)
     runs-on: macos-latest
     timeout-minutes: 30
 
@@ -469,7 +469,7 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Python 3.12
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -481,14 +481,14 @@ jobs:
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
-            if python -m test test_${test} 2>&1; then
+            if python test_${test}.py 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
             fi
           done < ../groups/macos.txt
           RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 CPython 3.12 Test Results - @macos" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 CPython Test Results - @macos" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -499,8 +499,8 @@ jobs:
           [ "$FAILED" -gt 0 ] && exit 1 || true
         timeout-minutes: 60
 
-  test-cpython312-windows:
-    name: CPython 3.12 @windows (93 tests)
+  test-cpython-windows:
+    name: CPython @windows (93 tests)
     runs-on: windows-latest
     timeout-minutes: 60
 
@@ -509,7 +509,7 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Python 3.12
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -523,7 +523,7 @@ jobs:
             $test = $_.Trim()
             if ($test -eq "") { return }
             $total++
-            $result = python -m test "test_$test" 2>&1
+            $result = python "test_$test.py" 2>&1
             if ($LASTEXITCODE -eq 0) {
               $passed++
             } else {
@@ -532,7 +532,7 @@ jobs:
           }
           $rate = if ($total -gt 0) { [math]::Round(($passed / $total) * 100, 1) } else { 0 }
 
-          "## 📊 CPython 3.12 Test Results - @windows" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+          "## 📊 CPython Test Results - @windows" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
           "" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
           "| Metric | Value |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
           "|--------|-------|" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
