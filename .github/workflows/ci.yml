@@ -439,14 +439,14 @@ jobs:
         with:
           submodules: true
 
-      - name: Cache Python 3.13.1 build
+      - name: Cache Python 3.13.11 build
         uses: actions/cache@v3
         id: python-cache
         with:
           path: /tmp/python-install
-          key: python-067145177975eadd61a0c907d0d177f7b6a5a3de-${{ runner.os }}
+          key: python-627894459a84be3488a1789919679c997056a03c-${{ runner.os }}
 
-      - name: Build Python 3.13.1 from source
+      - name: Build Python 3.13.11 from source
         if: steps.python-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
@@ -457,8 +457,8 @@ jobs:
 
           git clone --depth 1 https://github.com/python/cpython.git /tmp/cpython
           cd /tmp/cpython
-          git fetch --depth 1 origin 067145177975eadd61a0c907d0d177f7b6a5a3de
-          git checkout 067145177975eadd61a0c907d0d177f7b6a5a3de
+          git fetch --depth 1 origin 627894459a84be3488a1789919679c997056a03c
+          git checkout 627894459a84be3488a1789919679c997056a03c
 
           ./configure --prefix=/tmp/python-install --enable-optimizations
           make -j$(nproc)
@@ -471,7 +471,6 @@ jobs:
         run: |
           python3 --version
           python3 -c "import sys; print(f'Python {sys.version}')"
-          python3 -c "import sysconfig; print(f'Commit: {sysconfig.get_config_var(\"VERSION\")}')"
 
       - name: Run CPython tests (core1)
         run: |
@@ -518,14 +517,14 @@ jobs:
         with:
           submodules: true
 
-      - name: Cache Python 3.13.1 build
+      - name: Cache Python 3.13.11 build
         uses: actions/cache@v3
         id: python-cache
         with:
           path: /tmp/python-install
-          key: python-067145177975eadd61a0c907d0d177f7b6a5a3de-${{ runner.os }}
+          key: python-627894459a84be3488a1789919679c997056a03c-${{ runner.os }}
 
-      - name: Build Python 3.13.1 from source
+      - name: Build Python 3.13.11 from source
         if: steps.python-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
@@ -536,8 +535,8 @@ jobs:
 
           git clone --depth 1 https://github.com/python/cpython.git /tmp/cpython
           cd /tmp/cpython
-          git fetch --depth 1 origin 067145177975eadd61a0c907d0d177f7b6a5a3de
-          git checkout 067145177975eadd61a0c907d0d177f7b6a5a3de
+          git fetch --depth 1 origin 627894459a84be3488a1789919679c997056a03c
+          git checkout 627894459a84be3488a1789919679c997056a03c
 
           ./configure --prefix=/tmp/python-install --enable-optimizations
           make -j$(nproc)
@@ -596,14 +595,14 @@ jobs:
         with:
           submodules: true
 
-      - name: Cache Python 3.13.1 build
+      - name: Cache Python 3.13.11 build
         uses: actions/cache@v3
         id: python-cache
         with:
           path: /tmp/python-install
-          key: python-067145177975eadd61a0c907d0d177f7b6a5a3de-${{ runner.os }}
+          key: python-627894459a84be3488a1789919679c997056a03c-${{ runner.os }}
 
-      - name: Build Python 3.13.1 from source
+      - name: Build Python 3.13.11 from source
         if: steps.python-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
@@ -614,8 +613,8 @@ jobs:
 
           git clone --depth 1 https://github.com/python/cpython.git /tmp/cpython
           cd /tmp/cpython
-          git fetch --depth 1 origin 067145177975eadd61a0c907d0d177f7b6a5a3de
-          git checkout 067145177975eadd61a0c907d0d177f7b6a5a3de
+          git fetch --depth 1 origin 627894459a84be3488a1789919679c997056a03c
+          git checkout 627894459a84be3488a1789919679c997056a03c
 
           ./configure --prefix=/tmp/python-install --enable-optimizations
           make -j$(nproc)
@@ -674,14 +673,14 @@ jobs:
         with:
           submodules: true
 
-      - name: Cache Python 3.13.1 build
+      - name: Cache Python 3.13.11 build
         uses: actions/cache@v3
         id: python-cache
         with:
           path: /tmp/python-install
-          key: python-067145177975eadd61a0c907d0d177f7b6a5a3de-${{ runner.os }}
+          key: python-627894459a84be3488a1789919679c997056a03c-${{ runner.os }}
 
-      - name: Build Python 3.13.1 from source
+      - name: Build Python 3.13.11 from source
         if: steps.python-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
@@ -692,8 +691,8 @@ jobs:
 
           git clone --depth 1 https://github.com/python/cpython.git /tmp/cpython
           cd /tmp/cpython
-          git fetch --depth 1 origin 067145177975eadd61a0c907d0d177f7b6a5a3de
-          git checkout 067145177975eadd61a0c907d0d177f7b6a5a3de
+          git fetch --depth 1 origin 627894459a84be3488a1789919679c997056a03c
+          git checkout 627894459a84be3488a1789919679c997056a03c
 
           ./configure --prefix=/tmp/python-install --enable-optimizations
           make -j$(nproc)
@@ -752,22 +751,22 @@ jobs:
         with:
           submodules: true
 
-      - name: Cache Python 3.13.1 build
+      - name: Cache Python 3.13.11 build
         uses: actions/cache@v3
         id: python-cache
         with:
           path: /tmp/python-install
-          key: python-067145177975eadd61a0c907d0d177f7b6a5a3de-${{ runner.os }}
+          key: python-627894459a84be3488a1789919679c997056a03c-${{ runner.os }}
 
-      - name: Build Python 3.13.1 from source
+      - name: Build Python 3.13.11 from source
         if: steps.python-cache.outputs.cache-hit != 'true'
         run: |
           brew install openssl readline sqlite3 xz zlib tcl-tk
 
           git clone --depth 1 https://github.com/python/cpython.git /tmp/cpython
           cd /tmp/cpython
-          git fetch --depth 1 origin 067145177975eadd61a0c907d0d177f7b6a5a3de
-          git checkout 067145177975eadd61a0c907d0d177f7b6a5a3de
+          git fetch --depth 1 origin 627894459a84be3488a1789919679c997056a03c
+          git checkout 627894459a84be3488a1789919679c997056a03c
 
           ./configure --prefix=/tmp/python-install --enable-optimizations \
             --with-openssl=$(brew --prefix openssl)
@@ -827,10 +826,10 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Python 3.13.1 (Windows uses pre-built binary)
+      - name: Setup Python 3.13 (Windows uses pre-built binary)
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13.1"
+          python-version: "3.13"
 
       - name: Run CPython Windows-specific tests
         shell: pwsh
