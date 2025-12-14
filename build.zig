@@ -14,20 +14,16 @@ pub fn build(b: *std.Build) void {
         b.install_prefix = prefix;
     }
 
-    // libdeflate C flags - let it compile all CPU-specific implementations
-    // libdeflate has runtime CPU detection (arch_select_adler32_func) that picks best path
-    // This allows AVX-512 on modern CPUs, AVX2 on older, SSE as fallback
-    // Disable AVX-512 in libdeflate - CI runners don't support evex512
+    // libdeflate C flags - disable AVX-512 completely (CI runners don't support evex512)
+    // libdeflate will still use AVX2/SSE via runtime CPU detection for good performance
     const libdeflate_flags: []const []const u8 = &.{
         "-std=c99",
         "-O3",
-        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI",
-        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ",
+        "-DLIBDEFLATE_DISABLE_AVX512=1",
     };
     const libdeflate_flags_no_opt: []const []const u8 = &.{
         "-std=c99",
-        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI",
-        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ",
+        "-DLIBDEFLATE_DISABLE_AVX512=1",
     };
 
     // Shared modules - define ONCE, use everywhere
