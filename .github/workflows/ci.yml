@@ -432,17 +432,46 @@ jobs:
   test-cpython-core1:
     name: CPython @core1 (95 tests)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Cache Python 3.13.1 build
+        uses: actions/cache@v3
+        id: python-cache
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          path: /tmp/python-install
+          key: python-067145177975eadd61a0c907d0d177f7b6a5a3de-${{ runner.os }}
+
+      - name: Build Python 3.13.1 from source
+        if: steps.python-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gdb lcov pkg-config \
+            libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev liblzma-dev \
+            libncurses5-dev libreadline6-dev libsqlite3-dev libssl-dev \
+            lzma lzma-dev tk-dev uuid-dev zlib1g-dev
+
+          git clone --depth 1 https://github.com/python/cpython.git /tmp/cpython
+          cd /tmp/cpython
+          git fetch --depth 1 origin 067145177975eadd61a0c907d0d177f7b6a5a3de
+          git checkout 067145177975eadd61a0c907d0d177f7b6a5a3de
+
+          ./configure --prefix=/tmp/python-install --enable-optimizations
+          make -j$(nproc)
+          make install
+
+      - name: Add Python to PATH
+        run: echo "/tmp/python-install/bin" >> $GITHUB_PATH
+
+      - name: Verify Python version
+        run: |
+          python3 --version
+          python3 -c "import sys; print(f'Python {sys.version}')"
+          python3 -c "import sysconfig; print(f'Commit: {sysconfig.get_config_var(\"VERSION\")}')"
 
       - name: Run CPython tests (core1)
         run: |
@@ -476,17 +505,45 @@ jobs:
   test-cpython-core2:
     name: CPython @core2 (97 tests)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Cache Python 3.13.1 build
+        uses: actions/cache@v3
+        id: python-cache
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          path: /tmp/python-install
+          key: python-067145177975eadd61a0c907d0d177f7b6a5a3de-${{ runner.os }}
+
+      - name: Build Python 3.13.1 from source
+        if: steps.python-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gdb lcov pkg-config \
+            libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev liblzma-dev \
+            libncurses5-dev libreadline6-dev libsqlite3-dev libssl-dev \
+            lzma lzma-dev tk-dev uuid-dev zlib1g-dev
+
+          git clone --depth 1 https://github.com/python/cpython.git /tmp/cpython
+          cd /tmp/cpython
+          git fetch --depth 1 origin 067145177975eadd61a0c907d0d177f7b6a5a3de
+          git checkout 067145177975eadd61a0c907d0d177f7b6a5a3de
+
+          ./configure --prefix=/tmp/python-install --enable-optimizations
+          make -j$(nproc)
+          make install
+
+      - name: Add Python to PATH
+        run: echo "/tmp/python-install/bin" >> $GITHUB_PATH
+
+      - name: Verify Python version
+        run: |
+          python3 --version
+          python3 -c "import sys; print(f'Python {sys.version}')"
 
       - name: Run CPython tests (core2)
         run: |
@@ -520,17 +577,45 @@ jobs:
   test-cpython-core3:
     name: CPython @core3 (95 tests)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Cache Python 3.13.1 build
+        uses: actions/cache@v3
+        id: python-cache
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          path: /tmp/python-install
+          key: python-067145177975eadd61a0c907d0d177f7b6a5a3de-${{ runner.os }}
+
+      - name: Build Python 3.13.1 from source
+        if: steps.python-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gdb lcov pkg-config \
+            libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev liblzma-dev \
+            libncurses5-dev libreadline6-dev libsqlite3-dev libssl-dev \
+            lzma lzma-dev tk-dev uuid-dev zlib1g-dev
+
+          git clone --depth 1 https://github.com/python/cpython.git /tmp/cpython
+          cd /tmp/cpython
+          git fetch --depth 1 origin 067145177975eadd61a0c907d0d177f7b6a5a3de
+          git checkout 067145177975eadd61a0c907d0d177f7b6a5a3de
+
+          ./configure --prefix=/tmp/python-install --enable-optimizations
+          make -j$(nproc)
+          make install
+
+      - name: Add Python to PATH
+        run: echo "/tmp/python-install/bin" >> $GITHUB_PATH
+
+      - name: Verify Python version
+        run: |
+          python3 --version
+          python3 -c "import sys; print(f'Python {sys.version}')"
 
       - name: Run CPython tests (core3)
         run: |
@@ -564,17 +649,45 @@ jobs:
   test-cpython-linux:
     name: CPython @linux (17 tests)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Cache Python 3.13.1 build
+        uses: actions/cache@v3
+        id: python-cache
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          path: /tmp/python-install
+          key: python-067145177975eadd61a0c907d0d177f7b6a5a3de-${{ runner.os }}
+
+      - name: Build Python 3.13.1 from source
+        if: steps.python-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gdb lcov pkg-config \
+            libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev liblzma-dev \
+            libncurses5-dev libreadline6-dev libsqlite3-dev libssl-dev \
+            lzma lzma-dev tk-dev uuid-dev zlib1g-dev
+
+          git clone --depth 1 https://github.com/python/cpython.git /tmp/cpython
+          cd /tmp/cpython
+          git fetch --depth 1 origin 067145177975eadd61a0c907d0d177f7b6a5a3de
+          git checkout 067145177975eadd61a0c907d0d177f7b6a5a3de
+
+          ./configure --prefix=/tmp/python-install --enable-optimizations
+          make -j$(nproc)
+          make install
+
+      - name: Add Python to PATH
+        run: echo "/tmp/python-install/bin" >> $GITHUB_PATH
+
+      - name: Verify Python version
+        run: |
+          python3 --version
+          python3 -c "import sys; print(f'Python {sys.version}')"
 
       - name: Run CPython Linux-specific tests
         run: |
@@ -608,17 +721,42 @@ jobs:
   test-cpython-macos:
     name: CPython @macos (25 tests)
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Cache Python 3.13.1 build
+        uses: actions/cache@v3
+        id: python-cache
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          path: /tmp/python-install
+          key: python-067145177975eadd61a0c907d0d177f7b6a5a3de-${{ runner.os }}
+
+      - name: Build Python 3.13.1 from source
+        if: steps.python-cache.outputs.cache-hit != 'true'
+        run: |
+          brew install openssl readline sqlite3 xz zlib tcl-tk
+
+          git clone --depth 1 https://github.com/python/cpython.git /tmp/cpython
+          cd /tmp/cpython
+          git fetch --depth 1 origin 067145177975eadd61a0c907d0d177f7b6a5a3de
+          git checkout 067145177975eadd61a0c907d0d177f7b6a5a3de
+
+          ./configure --prefix=/tmp/python-install --enable-optimizations \
+            --with-openssl=$(brew --prefix openssl)
+          make -j$(sysctl -n hw.ncpu)
+          make install
+
+      - name: Add Python to PATH
+        run: echo "/tmp/python-install/bin" >> $GITHUB_PATH
+
+      - name: Verify Python version
+        run: |
+          python3 --version
+          python3 -c "import sys; print(f'Python {sys.version}')"
 
       - name: Run CPython macOS-specific tests
         run: |
@@ -659,10 +797,10 @@ jobs:
         with:
           submodules: true
 
-      - name: Setup Python
+      - name: Setup Python 3.13.1 (Windows uses pre-built binary)
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: "3.13.1"
 
       - name: Run CPython Windows-specific tests
         shell: pwsh
