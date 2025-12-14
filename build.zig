@@ -14,21 +14,18 @@ pub fn build(b: *std.Build) void {
         b.install_prefix = prefix;
     }
 
-    // libdeflate C flags - conditionally disable AVX-512
-    // For native x86_64 builds: let libdeflate use runtime CPU detection (may use AVX-512 if available)
-    // For generic/CI builds: disable AVX-512 to avoid evex512 compile errors
-    const is_native_x86 = target.result.cpu.arch == .x86_64 and
-        target.query.cpu_model == .native;
+    // libdeflate C flags - always disable AVX-512 to avoid evex512 compile errors
+    // libdeflate has runtime CPU detection and will use AVX2/SSE fallbacks automatically
+    const libdeflate_flags: []const []const u8 = &.{
+        "-std=c99",
+        "-O3",
+        "-DLIBDEFLATE_DISABLE_AVX512=1",
+    };
 
-    const libdeflate_flags: []const []const u8 = if (is_native_x86)
-        &.{ "-std=c99", "-O3" } // Native: let runtime detect CPU features
-    else
-        &.{ "-std=c99", "-O3", "-DLIBDEFLATE_DISABLE_AVX512=1" }; // Generic: disable AVX-512
-
-    const libdeflate_flags_no_opt: []const []const u8 = if (is_native_x86)
-        &.{"-std=c99"}
-    else
-        &.{ "-std=c99", "-DLIBDEFLATE_DISABLE_AVX512=1" };
+    const libdeflate_flags_no_opt: []const []const u8 = &.{
+        "-std=c99",
+        "-DLIBDEFLATE_DISABLE_AVX512=1",
+    };
 
     // Shared modules - define ONCE, use everywhere
     // Namespaced: utils.hashmap_helper, utils.allocator_helper, etc.
