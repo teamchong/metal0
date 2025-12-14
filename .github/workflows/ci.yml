@@ -481,7 +481,7 @@ jobs:
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
             # Use Python's built-in test module
-            if python -m test test_${test} 2>&1; then
+            if python3 -m test test_${test} 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -553,7 +553,7 @@ jobs:
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
             # Use Python's built-in test module
-            if python -m test test_${test} 2>&1; then
+            if python3 -m test test_${test} 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -625,7 +625,7 @@ jobs:
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
             # Use Python's built-in test module
-            if python -m test test_${test} 2>&1; then
+            if python3 -m test test_${test} 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -697,7 +697,7 @@ jobs:
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
             # Use Python's built-in test module
-            if python -m test test_${test} 2>&1; then
+            if python3 -m test test_${test} 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -766,7 +766,7 @@ jobs:
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
             # Use Python's built-in test module
-            if python -m test test_${test} 2>&1; then
+            if python3 -m test test_${test} 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
