@@ -22,7 +22,7 @@ jobs:
 
   # Core tests split into 3 parallel jobs for faster CI
   test-metal0-core1:
-    name: Metal0 @core1 (98 tests)
+    name: Metal0 @core1 (95 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -88,7 +88,7 @@ jobs:
         timeout-minutes: 30
 
   test-metal0-core2:
-    name: Metal0 @core2 (98 tests)
+    name: Metal0 @core2 (97 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -154,7 +154,7 @@ jobs:
         timeout-minutes: 30
 
   test-metal0-core3:
-    name: Metal0 @core3 (98 tests)
+    name: Metal0 @core3 (95 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -220,7 +220,7 @@ jobs:
         timeout-minutes: 30
 
   test-metal0-linux:
-    name: Metal0 @linux (18 tests)
+    name: Metal0 @linux (17 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -358,7 +358,7 @@ jobs:
         timeout-minutes: 60
 
   test-metal0-windows:
-    name: Metal0 @windows (93 tests)
+    name: Metal0 @windows (90 tests)
     runs-on: windows-latest
     timeout-minutes: 60
 
@@ -430,7 +430,7 @@ jobs:
   # =============================================================================
 
   test-cpython-core1:
-    name: CPython @core1 (98 tests)
+    name: CPython @core1 (95 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -474,7 +474,7 @@ jobs:
         timeout-minutes: 30
 
   test-cpython-core2:
-    name: CPython @core2 (98 tests)
+    name: CPython @core2 (97 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -518,7 +518,7 @@ jobs:
         timeout-minutes: 30
 
   test-cpython-core3:
-    name: CPython @core3 (98 tests)
+    name: CPython @core3 (95 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -562,7 +562,7 @@ jobs:
         timeout-minutes: 30
 
   test-cpython-linux:
-    name: CPython @linux (18 tests)
+    name: CPython @linux (17 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -650,7 +650,7 @@ jobs:
         timeout-minutes: 60
 
   test-cpython-windows:
-    name: CPython @windows (93 tests)
+    name: CPython @windows (90 tests)
     runs-on: windows-latest
     timeout-minutes: 60
 
