@@ -8,23 +8,21 @@ pub fn build(b: *std.Build) void {
     // In Zig 0.15, Build.LazyPath is a union without direct .path access
     // Using default zig-out directory for all builds
 
-    // libdeflate C flags - conditionally disable AVX-512
-    // For native x86_64 builds (NOT in CI): let libdeflate use runtime CPU detection (may use AVX-512 if available)
-    // For generic/CI builds: disable AVX-512 to avoid evex512 compile errors
-    const is_ci = std.process.hasEnvVarConstant("CI");
-    const is_native_x86 = target.result.cpu.arch == .x86_64 and
-        target.query.cpu_model == .native and
-        !is_ci; // Disable AVX-512 in CI even if target is native
+    // libdeflate C flags - always disable AVX-512 for reliability
+    // This ensures compilation works on all platforms (CI, macOS ARM, Linux x86_64)
+    // Falls back to AVX2/SSE implementations which are still very fast
+    const libdeflate_flags = &.{
+        "-std=c99",
+        "-O3",
+        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI",
+        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ",
+    };
 
-    const libdeflate_flags: []const []const u8 = if (is_native_x86)
-        &.{ "-std=c99", "-O3" } // Native (local): let runtime detect CPU features
-    else
-        &.{ "-std=c99", "-O3", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ" }; // Generic/CI: disable AVX-512
-
-    const libdeflate_flags_no_opt: []const []const u8 = if (is_native_x86)
-        &.{"-std=c99"}
-    else
-        &.{ "-std=c99", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ" };
+    const libdeflate_flags_no_opt = &.{
+        "-std=c99",
+        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI",
+        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ",
+    };
 
     // Shared modules - define ONCE, use everywhere
     // Namespaced: utils.hashmap_helper, utils.allocator_helper, etc.
