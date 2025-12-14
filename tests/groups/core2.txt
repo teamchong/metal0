@@ -1,6 +1,5 @@
 flufl
 fnmatch
-fork1
 format
 fractions
 frozen
@@ -18,7 +17,6 @@ gettext
 global
 grammar
 graphlib
-grp
 gzip
 hashlib
 heapq
@@ -62,7 +60,6 @@ netrc
 numeric_tower
 opcache
 opcodes
-openpty
 operator
 optparse
 ordered_dict
@@ -77,20 +74,16 @@ picklebuffer
 pickletools
 pkg
 pkgutil
-poll
 popen
 poplib
 positional_only_arg
-posix
 pow
 pprint
 print
 profile
 property
 pstats
-pty
 pulldom
-pwd
 pyclbr
 pyexpat
 queue

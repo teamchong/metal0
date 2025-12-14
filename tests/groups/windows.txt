@@ -1,7 +1,6 @@
 _colorize
 _interpchannels
 _locale
-_osx_support
 array
 audit
 builtin
@@ -13,16 +12,13 @@ codecs
 compile
 context
 csv
-curses
 dbm_sqlite3
 decimal
 embed
 enumerate
 exception_hierarchy
 exceptions
-external_inspection
 faulthandler
-fcntl
 frame
 functools
 gc
@@ -34,7 +30,6 @@ hash
 http_cookiejar
 httplib
 httpservers
-ioctl
 launcher
 locale
 logging
@@ -45,8 +40,6 @@ mmap
 msvcrt
 ntpath
 optimizer
-osx_env
-perf_profiler
 platform
 plistlib
 posixpath
@@ -86,5 +79,7 @@ webbrowser
 winconsoleio
 winreg
 winsound
+winapi
+wmi
 xml_etree_c
 zipapp

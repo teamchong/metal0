@@ -66,12 +66,12 @@ All `.metal0/` output goes under the detected project root.
 ./zig-out/bin/metal0 test tests/cpython bool float int
 
 # Use @group syntax for platform-specific tests
-./zig-out/bin/metal0 test tests/cpython @core1     # 95 platform-independent tests (__all__-float)
-./zig-out/bin/metal0 test tests/cpython @core2     # 97 platform-independent tests (flufl-quopri)
-./zig-out/bin/metal0 test tests/cpython @core3     # 95 platform-independent tests (raise-zstd)
-./zig-out/bin/metal0 test tests/cpython @linux     # 17 Linux-specific tests (epoll, ioctl, etc.)
+./zig-out/bin/metal0 test tests/cpython @core1     # 93 platform-independent tests (__all__-float)
+./zig-out/bin/metal0 test tests/cpython @core2     # 90 platform-independent tests (flufl-quopri)
+./zig-out/bin/metal0 test tests/cpython @core3     # 89 platform-independent tests (raise-zlib)
+./zig-out/bin/metal0 test tests/cpython @linux     # 28 Linux-specific tests (epoll, ioctl, posix, etc.)
 ./zig-out/bin/metal0 test tests/cpython @macos     # 25 macOS-specific tests (kqueue, osx_env, etc.)
-./zig-out/bin/metal0 test tests/cpython @windows   # 90 Windows-specific tests (winreg, msvcrt, etc.)
+./zig-out/bin/metal0 test tests/cpython @windows   # 85 Windows-specific tests (winreg, msvcrt, winapi, etc.)
 
 # Combine groups and patterns
 ./zig-out/bin/metal0 test tests/cpython @core1 @core2  # Multiple core groups
@@ -112,12 +112,12 @@ All `.metal0/` output goes under the detected project root.
 
 ```bash
 # Platform-specific test groups (use @group syntax)
-./zig-out/bin/metal0 test tests/cpython @core1     # 95 platform-independent tests (__all__-float)
-./zig-out/bin/metal0 test tests/cpython @core2     # 97 platform-independent tests (flufl-quopri)
-./zig-out/bin/metal0 test tests/cpython @core3     # 95 platform-independent tests (raise-zstd)
-./zig-out/bin/metal0 test tests/cpython @linux     # 17 Linux-specific tests
+./zig-out/bin/metal0 test tests/cpython @core1     # 93 platform-independent tests (__all__-float)
+./zig-out/bin/metal0 test tests/cpython @core2     # 90 platform-independent tests (flufl-quopri)
+./zig-out/bin/metal0 test tests/cpython @core3     # 89 platform-independent tests (raise-zlib)
+./zig-out/bin/metal0 test tests/cpython @linux     # 28 Linux-specific tests
 ./zig-out/bin/metal0 test tests/cpython @macos     # 25 macOS-specific tests
-./zig-out/bin/metal0 test tests/cpython @windows   # 90 Windows-specific tests
+./zig-out/bin/metal0 test tests/cpython @windows   # 85 Windows-specific tests
 
 # Combine groups
 ./zig-out/bin/metal0 test tests/cpython @core1 @core2  # Multiple core groups
@@ -159,17 +159,17 @@ jobs:
   test-cpython-core1:
     runs-on: ubuntu-latest
     steps:
-      - run: ./zig-out/bin/metal0 test tests/cpython @core1  # 95 tests (__all__-float)
+      - run: ./zig-out/bin/metal0 test tests/cpython @core1  # 93 tests (__all__-float)
 
   test-cpython-core2:
     runs-on: ubuntu-latest
     steps:
-      - run: ./zig-out/bin/metal0 test tests/cpython @core2  # 97 tests (flufl-quopri)
+      - run: ./zig-out/bin/metal0 test tests/cpython @core2  # 90 tests (flufl-quopri)
 
   test-cpython-core3:
     runs-on: ubuntu-latest
     steps:
-      - run: ./zig-out/bin/metal0 test tests/cpython @core3  # 95 tests (raise-zstd)
+      - run: ./zig-out/bin/metal0 test tests/cpython @core3  # 89 tests (raise-zlib)
 
   test-cpython-macos:
     runs-on: macos-latest
@@ -179,12 +179,12 @@ jobs:
   test-cpython-linux:
     runs-on: ubuntu-latest
     steps:
-      - run: ./zig-out/bin/metal0 test tests/cpython @linux  # 17 Linux tests
+      - run: ./zig-out/bin/metal0 test tests/cpython @linux  # 28 Linux tests
 
   test-cpython-windows:
     runs-on: windows-latest
     steps:
-      - run: ./zig-out/bin/metal0.exe test tests/cpython @windows  # 90 Windows tests
+      - run: ./zig-out/bin/metal0.exe test tests/cpython @windows  # 85 Windows tests
 ```
 
 ---

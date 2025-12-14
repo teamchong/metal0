@@ -36,7 +36,6 @@ symtable
 syntax
 sys_setprofile
 sys_settrace
-syslog
 tabnanny
 textwrap
 threadedtempfile
@@ -47,7 +46,6 @@ tokenize
 trace
 traceback
 ttk_textonly
-tty
 tuple
 turtle
 type_aliases
@@ -74,14 +72,10 @@ userdict
 userlist
 userstring
 utf8source
-wait3
-wait4
 wave
 weakref
 weakset
-winapi
 with
-wmi
 wsgiref
 xml_dom_minicompat
 xml_etree
