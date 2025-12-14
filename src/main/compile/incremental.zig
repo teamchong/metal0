@@ -1163,16 +1163,27 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
                 }
             }
 
-            // Timeout! Kill with escalation
+            // Timeout! Kill entire process group (zig build + all zig children)
             if (!d.load(.seq_cst)) {
-                std.debug.print("  [batch] TIMEOUT after {d}s - killing process\n", .{timeout / std.time.ns_per_s});
-                process_utils.terminateById(pid); // SIGTERM
+                std.debug.print("  [batch] TIMEOUT after {d}s - killing process group\n", .{timeout / std.time.ns_per_s});
+
+                // Kill process and its children
+                process_utils.killProcessGroup(pid, 15); // SIGTERM to group
+                process_utils.terminateById(pid); // Also SIGTERM to main process
 
                 // Wait 3s then SIGKILL if still alive
                 std.Thread.sleep(3 * std.time.ns_per_s);
                 if (!d.load(.seq_cst)) {
-                    std.debug.print("  [batch] Process didn't terminate - sending SIGKILL\n", .{});
-                    process_utils.killByIdWithSignal(pid, 9);
+                    std.debug.print("  [batch] Process group didn't terminate - sending SIGKILL\n", .{});
+                    process_utils.killProcessGroup(pid, 9); // SIGKILL to group
+                    process_utils.killByIdWithSignal(pid, 9); // Also SIGKILL to main process
+
+                    // Force exit after SIGKILL - don't wait forever
+                    std.Thread.sleep(2 * std.time.ns_per_s);
+                    if (!d.load(.seq_cst)) {
+                        std.debug.print("  [batch] Process still alive after SIGKILL - force exit\n", .{});
+                        std.process.exit(1);
+                    }
                 }
             }
         }

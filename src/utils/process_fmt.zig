@@ -100,6 +100,22 @@ pub fn terminateById(pid: std.process.Child.Id) void {
     killByIdWithSignal(pid, 15); // SIGTERM
 }
 
+/// Kill an entire process group (kills all children spawned by the process)
+/// On POSIX: sends signal to -pid (negative PID = process group)
+/// On Windows: just kills the single process (no process groups)
+pub fn killProcessGroup(pid: std.process.Child.Id, signal: u8) void {
+    if (comptime builtin.os.tag == .windows) {
+        // Windows: no process groups, just kill the process
+        const handle: std.os.windows.HANDLE = @ptrCast(pid);
+        _ = std.os.windows.kernel32.TerminateProcess(handle, 1);
+    } else {
+        // POSIX: kill process group by using negative PID
+        // This kills the process and all its children
+        const neg_pid: i32 = -pid;
+        _ = std.posix.kill(neg_pid, signal) catch {};
+    }
+}
+
 // ============================================================================
 // Platform detection helpers
 // ============================================================================
