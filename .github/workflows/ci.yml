@@ -446,9 +446,8 @@ jobs:
 
       - name: Checkout CPython test infrastructure
         run: |
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git /tmp/cpython
+          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git /tmp/cpython
           cd /tmp/cpython
-          git checkout v3.14.2
           git sparse-checkout set Lib/test
 
       - name: Run CPython tests (core1)
@@ -495,9 +494,8 @@ jobs:
 
       - name: Checkout CPython test infrastructure
         run: |
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git /tmp/cpython
+          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git /tmp/cpython
           cd /tmp/cpython
-          git checkout v3.14.2
           git sparse-checkout set Lib/test
 
       - name: Run CPython tests (core2)
@@ -544,9 +542,8 @@ jobs:
 
       - name: Checkout CPython test infrastructure
         run: |
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git /tmp/cpython
+          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git /tmp/cpython
           cd /tmp/cpython
-          git checkout v3.14.2
           git sparse-checkout set Lib/test
 
       - name: Run CPython tests (core3)
@@ -593,9 +590,8 @@ jobs:
 
       - name: Checkout CPython test infrastructure
         run: |
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git /tmp/cpython
+          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git /tmp/cpython
           cd /tmp/cpython
-          git checkout v3.14.2
           git sparse-checkout set Lib/test
 
       - name: Run CPython Linux-specific tests
@@ -642,9 +638,8 @@ jobs:
 
       - name: Checkout CPython test infrastructure
         run: |
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git /tmp/cpython
+          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git /tmp/cpython
           cd /tmp/cpython
-          git checkout v3.14.2
           git sparse-checkout set Lib/test
 
       - name: Run CPython macOS-specific tests
@@ -692,9 +687,8 @@ jobs:
       - name: Checkout CPython test infrastructure
         shell: pwsh
         run: |
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/python/cpython.git C:\cpython
+          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git C:\cpython
           Set-Location C:\cpython
-          git checkout v3.14.2
           git sparse-checkout set Lib/test
 
       - name: Run CPython Windows-specific tests
