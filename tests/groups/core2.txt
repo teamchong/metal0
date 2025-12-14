@@ -81,6 +81,7 @@ poll
 popen
 poplib
 positional_only_arg
+posix
 pow
 pprint
 print
