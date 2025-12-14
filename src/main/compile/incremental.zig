@@ -1095,7 +1095,7 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
         ".", // Install to .metal0/ (the cwd)
     };
 
-    std.debug.print("Running batch compilation: zig build -j{d} (timeout: 600s)...\n", .{jobs});
+    std.debug.print("Running batch compilation: zig build -j{d} (timeout: 120s)...\n", .{jobs});
 
     // Spawn batch build process with manual timeout
     var child = std.process.Child.init(&argv, aa);
@@ -1137,27 +1137,43 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
         }
     }.read, .{ stderr_reader, aa, &stderr_buf }) catch null;
 
-    // Kill if timeout (10 min) - use PID instead of pointer to avoid race
-    // Batch compilation is MUCH faster than individual, so give it time to complete
-    // 288 tests × ~1s each = ~5 min, use 10 min for safety margin
+    // Kill if timeout (2 min) - fail fast, fail loud
+    // Use PID instead of pointer to avoid race condition
     var done = std.atomic.Value(bool).init(false);
-    const timeout_ns: u64 = 600 * std.time.ns_per_s;
+    const timeout_ns: u64 = 120 * std.time.ns_per_s; // 2 min - fail fast
     const child_id = child.id;
     const killer = std.Thread.spawn(.{}, struct {
         const process_utils = @import("../../utils/process_fmt.zig");
 
         fn kill(pid: std.process.Child.Id, timeout: u64, d: *std.atomic.Value(bool)) void {
             const poll_interval: u64 = 100 * std.time.ns_per_ms;
+            const heartbeat_interval: u64 = 30 * std.time.ns_per_s;
             var elapsed: u64 = 0;
+            var last_heartbeat: u64 = 0;
+
             while (elapsed < timeout) {
                 if (d.load(.seq_cst)) return;
                 std.Thread.sleep(poll_interval);
                 elapsed += poll_interval;
+
+                // Heartbeat every 30s to show progress
+                if (elapsed - last_heartbeat >= heartbeat_interval) {
+                    std.debug.print("  [batch] compiling... ({d}s)\n", .{elapsed / std.time.ns_per_s});
+                    last_heartbeat = elapsed;
+                }
             }
-            // Double-check done flag before killing
+
+            // Timeout! Kill with escalation
             if (!d.load(.seq_cst)) {
-                // Cross-platform process termination
-                process_utils.terminateById(pid);
+                std.debug.print("  [batch] TIMEOUT after {d}s - killing process\n", .{timeout / std.time.ns_per_s});
+                process_utils.terminateById(pid); // SIGTERM
+
+                // Wait 3s then SIGKILL if still alive
+                std.Thread.sleep(3 * std.time.ns_per_s);
+                if (!d.load(.seq_cst)) {
+                    std.debug.print("  [batch] Process didn't terminate - sending SIGKILL\n", .{});
+                    process_utils.killByIdWithSignal(pid, 9);
+                }
             }
         }
     }.kill, .{ child_id, timeout_ns, &done }) catch null;
