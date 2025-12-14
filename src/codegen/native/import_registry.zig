@@ -399,6 +399,17 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("test.support.numbers", .zig_runtime, "runtime.test_support.numbers", null);
     try registry.register("test.list_tests", .zig_runtime, "runtime.list_tests", null);
 
+    // __future__ - Python 2/3 compatibility flags
+    try registry.register("__future__", .zig_runtime, "runtime.Lib.__future__", null);
+
+    // _compression - Base class for compression wrappers
+    try registry.register("_compression", .zig_runtime, "runtime.Lib._compression", null);
+
+    // sre_* - Regex internals (compile-time pattern compilation)
+    try registry.register("sre_constants", .zig_runtime, "runtime.Lib.sre_constants", null);
+    try registry.register("sre_compile", .zig_runtime, "runtime.Lib.sre_compile", null);
+    try registry.register("sre_parse", .zig_runtime, "runtime.Lib.sre_parse", null);
+
     // metal0 native libraries (Zig implementations exposed to Python)
     // Usage: from metal0 import tokenizer
     // Note: metal0 itself doesn't need a zig_import - only the submodules do

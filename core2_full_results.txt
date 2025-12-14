@@ -1,0 +1,173 @@
+=== metal0 test (tests/cpython) ===
+Patterns: flufl, fnmatch, fork1, format, fractions, frozen, fstring, ftplib, funcattrs, generator_stop, generators, genericalias, genericclass, genexps, getopt, getpass, gettext, global, grammar, graphlib, grp, gzip, hashlib, heapq, hmac, html, htmlparser, http_cookies, idle, imaplib, index, int, int_literal, io, ipaddress, isinstance, iter, iterlen, itertools, keyword, keywordonlyarg, largefile, linecache, list, listcomps, lltrace, long, longexp, lzma, mailbox, marshal, math_property, memoryio, metaclass, minidom, modulefinder, monitoring, multibytecodec, multiprocessing_main_handling, named_expressions, netrc, numeric_tower, opcache, opcodes, openpty, operator, optparse, ordered_dict, os, patma, pdb, peepholer, pep646_syntax, perfmaps, pickle, picklebuffer, pickletools, pkg, pkgutil, poll, popen, poplib, positional_only_arg, posix, pow, pprint, print, profile, property, pstats, pty, pulldom, pwd, pyclbr, pyexpat, queue, quopri
+Checking runtime archive...
+Found 130 tests, using 10 workers (timeout: 5s)
+
+Phase 1: Codegen (parallel)...
+[C Extension] Detected ssl → link ssl
+Warning: External module '_testconsole' not found, skipping import
+Warning: External module 'test.test_ftplib' not found, skipping import
+Warning: External module '_testexternalinspection' not found, skipping import
+comptime eval fallback for 'lambda: None': error.UnsupportedNode
+comptime eval fallback for 'lambda: None': error.UnsupportedNode
+comptime eval fallback for 'lambda a: a': error.UnsupportedNode
+comptime eval fallback for 'lambda a: a': error.UnsupportedNode
+comptime eval fallback for 'lambda a=1: a': error.UnsupportedNode
+comptime eval fallback for 'lambda a=1: a': error.UnsupportedNode
+comptime eval fallback for 'lambda: 0': error.UnsupportedNode
+comptime eval fallback for 'lambda: 1': error.UnsupportedNode
+comptime eval fallback for 'lambda: None': error.UnsupportedNode
+comptime eval fallback for 'lambda a: None': error.UnsupportedNode
+comptime eval fallback for 'lambda a: None': error.UnsupportedNode
+comptime eval fallback for 'lambda b: None': error.UnsupportedNode
+comptime eval fallback for 'lambda a: None': error.UnsupportedNode
+comptime eval fallback for 'lambda a=None: None': error.UnsupportedNode
+comptime eval fallback for 'lambda a=0: None': error.UnsupportedNode
+comptime eval fallback for 'lambda a=1: None': error.UnsupportedNode
+Warning: External module 'builtins' not found, skipping import
+Warning: External module 'test.test_importlib.util' not found, skipping import
+Warning: External module 'test.support.interpreters' not found, skipping import
+comptime eval fallback for 'f'\{6*7}'': error.UnsupportedNode
+comptime eval fallback for 'f'\g'': error.UnsupportedNode
+Warning: External module 'test.test__interpreters' not found, skipping import
+Expected Colon, got Eof at line 1:9
+comptime eval fallback for 'f'{+ lambda:None}'': error.UnexpectedToken
+comptime eval fallback for 'f'\{{'': error.UnsupportedNode
+comptime eval fallback for 'f"\\\n"': error.UnsupportedNode
+comptime eval fallback for 'f"\\\r"': error.UnsupportedNode
+Warning: External module 'marshal' not found, skipping import
+Warning: External module 'builtins' not found, skipping import
+Warning: External module '_interpreters' not found, skipping import
+Warning: External module 'builtins' not found, skipping import
+Warning: External module 'builtins' not found, skipping import
+Warning: External module 'builtins' not found, skipping import
+Warning: External module 'nt' not found, skipping import
+Warning: External module 'pwd' not found, skipping import
+comptime eval fallback for '1 if 1else 0': error.UnsupportedNode
+comptime eval fallback for '1 if 0else 0': error.UnsupportedNode
+comptime eval fallback for '1, 0 or 1': error.UnsupportedNode
+Warning: External module 'test.test_profile' not found, skipping import
+Warning: External module '_blake2' not found, skipping import
+Warning: External module 'resource' not found, skipping import
+Warning: External module '_winapi' not found, skipping import
+Warning: External module 'pwd' not found, skipping import
+Warning: External module '_io' not found, skipping import
+Warning: External module '_imp' not found, skipping import
+Warning: External module '_multibytecodec' not found, skipping import
+Warning: External module 'termios' not found, skipping import
+Warning: External module 'pwd' not found, skipping import
+Warning: External module '_io' not found, skipping import
+[C Extension] Detected ssl → link ssl
+comptime eval fallback for ''%s' % ()': error.UnsupportedNode
+Warning: External module 'pwd' not found, skipping import
+Warning: External module 'test.test_importlib' not found, skipping import
+Warning: External module 'test.test_grammar' not found, skipping import
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' 'x' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' '\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' '\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' '\x81' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' '\x81' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' '\u1881' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' '\u1881' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' '\U0001d120' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' '\U0001d120' ': error.UnexpectedToken
+UnexpectedCharacter at line 1, col 4: '\' (0x5c)
+comptime eval fallback for '''\n\\z''': error.UnexpectedCharacter
+UnexpectedCharacter at line 1, col 4: '\' (0x5c)
+comptime eval fallback for '''\n\\z''': error.UnexpectedCharacter
+UnexpectedCharacter at line 1, col 8: '$' (0x24)
+comptime eval fallback for ''\\e' $': error.UnexpectedCharacter
+UnexpectedCharacter at line 1, col 4: '\' (0x5c)
+comptime eval fallback for '''\n\\407''': error.UnexpectedCharacter
+UnexpectedCharacter at line 1, col 4: '\' (0x5c)
+comptime eval fallback for '''\n\\407''': error.UnexpectedCharacter
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' r'x' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' r'\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' r'\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' r'\x81' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' r'\x81' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' r'\u1881' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' r'\u1881' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' r'\U0001d120' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' r'\U0001d120' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' b'x' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' b'\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' b'\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' b'\x81' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' br'\u1881' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' br'\U0001d120' ': error.UnexpectedToken
+comptime eval fallback for 'b'''\n\\z'''': error.UnsupportedConstant
+comptime eval fallback for 'b'''\n\\z'''': error.UnsupportedConstant
+comptime eval fallback for 'b'''\n\\407'''': error.UnsupportedConstant
+comptime eval fallback for 'b'''\n\\407'''': error.UnsupportedConstant
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' br'x' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' rb'x' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' br'\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' rb'\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' br'\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' rb'\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' br'\x81' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' rb'\x81' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' br'\u1881' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' rb'\u1881' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' br'\U0001d120' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' rb'\U0001d120' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' u'x' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' U'\u00e4' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' u'\N{LATIN SMALL LETTER A WITH DIAERESIS}' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' B'x' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' R'\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' BR'\x01' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' F'{1+1}' ': error.UnexpectedToken
+Unexpected token in primary: Indent at line 1:1
+comptime eval fallback for ' U'\U0001d120' ': error.UnexpectedToken
+Warning: External module 'pyperf' not found, skipping import
+Warning: External module '_sha256' not found, skipping import
+comptime eval fallback for 'f'xx{value:{bad_format_spec}}yy'': error.UnsupportedNode
+[C Extension] Detected ssl → link ssl
+  Codegen: 111/130 (cached: 1) | [31m19 failed[0m
+Phase 2: Compile (batch)...
+Running batch compilation: zig build -j10 (timeout: 600s)...

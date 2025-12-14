@@ -9,6 +9,7 @@
 ///   @macos   - macOS-specific tests (25 tests)
 ///   @windows - Windows-specific tests (93 tests)
 const std = @import("std");
+const builtin = @import("builtin");
 const hashmap_helper = @import("utils.hashmap_helper");
 const CompileOptions = @import("../../main.zig").CompileOptions;
 const compile_mod = @import("../compile.zig");
@@ -68,6 +69,86 @@ fn loadTestGroup(allocator: std.mem.Allocator, group_name: []const u8) ![]const 
     return patterns[0..idx];
 }
 
+/// Load platform restrictions from tests/groups/multi.txt
+/// Returns HashMap: test_name → [supported_platforms]
+fn loadPlatformMap(allocator: std.mem.Allocator) !std.StringHashMap([]const []const u8) {
+    var map = std.StringHashMap([]const []const u8).init(allocator);
+
+    const multi_path = "tests/groups/multi.txt";
+    const content = std.fs.cwd().readFileAlloc(allocator, multi_path, 1024 * 1024) catch |err| {
+        // multi.txt is optional - if it doesn't exist, no restrictions
+        if (err == error.FileNotFound) return map;
+        return err;
+    };
+    defer allocator.free(content);
+
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+
+        // Skip empty lines and comments
+        if (trimmed.len == 0 or trimmed[0] == '#') continue;
+
+        // Parse format: test_name: platform1,platform2,...
+        var parts = std.mem.splitScalar(u8, trimmed, ':');
+        const test_name = parts.next() orelse continue;
+        const platforms_str = parts.next() orelse continue;
+
+        const test_key = std.mem.trim(u8, test_name, " \t");
+        const platforms_part = std.mem.trim(u8, platforms_str, " \t");
+
+        // Duplicate test_key since it's a slice into content buffer
+        const test_key_owned = try allocator.dupe(u8, test_key);
+
+        // Split platforms by comma
+        var platform_list: std.ArrayList([]const u8) = .{};
+        var platform_iter = std.mem.splitScalar(u8, platforms_part, ',');
+        while (platform_iter.next()) |platform| {
+            const platform_trimmed = std.mem.trim(u8, platform, " \t");
+            if (platform_trimmed.len > 0) {
+                // Duplicate platform string since it's a slice into content buffer
+                const platform_owned = try allocator.dupe(u8, platform_trimmed);
+                try platform_list.append(allocator, platform_owned);
+            }
+        }
+
+        try map.put(test_key_owned, try platform_list.toOwnedSlice(allocator));
+    }
+
+    return map;
+}
+
+/// Get current platform name as string
+fn getCurrentPlatformName() []const u8 {
+    return switch (builtin.os.tag) {
+        .linux => "linux",
+        .macos => "macos",
+        .windows => "windows",
+        .freebsd, .openbsd, .netbsd => "bsd",
+        .wasi => "wasi",
+        else => "unknown",
+    };
+}
+
+/// Check if test is supported on current platform
+/// Returns true if:
+/// - Test not in platform_map (no restrictions)
+/// - Current platform is in test's supported platforms list
+fn isTestSupportedOnCurrentPlatform(
+    test_name: []const u8,
+    platform_map: std.StringHashMap([]const []const u8),
+    current_platform: []const u8,
+) bool {
+    const supported_platforms = platform_map.get(test_name) orelse return true; // No restrictions
+
+    // Check if current platform is in supported list
+    for (supported_platforms) |platform| {
+        if (std.mem.eql(u8, platform, current_platform)) return true;
+    }
+
+    return false;
+}
+
 /// Zero-config test runner: metal0 test [dir] [patterns...]
 /// Fast by default. Fail fast. No flags needed.
 ///
@@ -102,9 +183,44 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                     printError("Group file should be at: tests/groups/{s}.txt", .{group_name});
                     return; // FATAL: Don't run all tests if group file fails to load
                 };
+                // Note: We don't free group_patterns strings since file_patterns reuses them
                 defer allocator.free(group_patterns);
+
+                // Load platform restrictions (if multi.txt exists)
+                var platform_map = loadPlatformMap(allocator) catch |err| {
+                    printWarn("Failed to load platform map: {any}", .{err});
+                    // Continue without platform filtering on error
+                    for (group_patterns) |pattern| {
+                        try file_patterns.append(allocator, pattern);
+                    }
+                    continue;
+                };
+                defer {
+                    // Free allocated strings and platform lists
+                    var iter = platform_map.iterator();
+                    while (iter.next()) |entry| {
+                        // Free each platform string in the list
+                        for (entry.value_ptr.*) |platform_str| {
+                            allocator.free(platform_str);
+                        }
+                        // Free the platform list itself
+                        allocator.free(entry.value_ptr.*);
+                        // Free the test_key string
+                        allocator.free(entry.key_ptr.*);
+                    }
+                    platform_map.deinit();
+                }
+
+                const current_platform = getCurrentPlatformName();
+
+                // Filter tests by platform
+                var skipped_count: usize = 0;
                 for (group_patterns) |pattern| {
-                    try file_patterns.append(allocator, pattern);
+                    if (isTestSupportedOnCurrentPlatform(pattern, platform_map, current_platform)) {
+                        try file_patterns.append(allocator, pattern);
+                    } else {
+                        skipped_count += 1;
+                    }
                 }
             } else {
                 try file_patterns.append(allocator, arg);

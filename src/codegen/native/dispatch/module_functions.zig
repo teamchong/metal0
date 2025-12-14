@@ -999,7 +999,14 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
     // O(1) module lookup, then O(1) function lookup
     if (ModuleMap.get(module_name)) |func_map| {
         if (func_map.get(func_name)) |handler| {
-            try handler(self, call.args);
+            // Try handler, but if it returns UnsupportedSyntax (e.g., needs kwargs),
+            // return false to let caller try runtime dispatch
+            handler(self, call.args) catch |err| {
+                if (err == error.UnsupportedSyntax) {
+                    return false; // Handler declined, try other options
+                }
+                return err; // Propagate other errors
+            };
             return true;
         }
     }

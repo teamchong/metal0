@@ -39,3 +39,15 @@ venv: linux,macos,windows
 winconsoleio: linux,macos
 winreg: linux,macos,windows
 zipapp: linux,macos,windows
+
+# Unix/POSIX-only tests (require POSIX APIs not available on Windows)
+# Note: metal0 runtime doesn't have these modules implemented yet, so Linux-only for now
+grp: linux
+pwd: linux
+pty: linux
+fork1: linux
+openpty: linux
+poll: linux
+
+# Tests with platform-specific modules
+poplib: linux

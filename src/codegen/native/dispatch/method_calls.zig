@@ -12,6 +12,7 @@ const unittest_mod = @import("../unittest/mod.zig");
 // Trait imports for type-aware dispatch
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
 
 /// Builtin types that support __new__ with value extraction
 const BuiltinNewTypes = std.StaticStringMap(void).initComptime(.{
@@ -378,10 +379,23 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         return true;
     }
 
-    // Try string methods first (most common)
+    // Try string methods - but only for string-typed objects
+    // This prevents collisions with thread.join(), file.read(), etc.
+    // Two-Flow: Skip string dispatch for PyValue/unknown to let them fall through to runtime
     if (StringMethods.get(method_name)) |handler| {
-        try handler(self, obj, call.args);
-        return true;
+        // Only dispatch string methods for certain string-like types
+        // Skip uncertain types (pyvalue/unknown) - they need runtime dispatch
+        if (string_traits.isStringLike(obj_type) and
+            obj_type != .pyvalue and
+            !type_traits.isUnknown(obj_type))
+        {
+            handler(self, obj, call.args) catch |err| {
+                if (err == error.UnsupportedSyntax) return false;
+                return err;
+            };
+            return true;
+        }
+        // Not a string type or uncertain - fall through to other handlers
     }
 
     // Try dict methods BEFORE list - dict and list share some method names (pop, clear, copy)
@@ -389,7 +403,10 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     if (DictMethods.get(method_name)) |handler| {
         // Only dispatch dict methods for dict-like types
         if (container_traits.isDict(obj_type) or obj_type == .counter) {
-            try handler(self, obj, call.args);
+            handler(self, obj, call.args) catch |err| {
+                if (err == error.UnsupportedSyntax) return false;
+                return err;
+            };
             return true;
         }
     }
@@ -402,7 +419,10 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         if (!container_traits.isDict(obj_type) and !container_traits.isSet(obj_type) and
             obj_type != .counter and obj_type != .pyvalue and !type_traits.isUnknown(obj_type))
         {
-            try handler(self, obj, call.args);
+            handler(self, obj, call.args) catch |err| {
+                if (err == error.UnsupportedSyntax) return false;
+                return err;
+            };
             return true;
         }
     }
@@ -411,7 +431,10 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // Two-Flow: Include .pyvalue for uncertain container method dispatch
     if (DictMethods.get(method_name)) |handler| {
         if ((type_traits.isUnknown(obj_type) or obj_type == .pyvalue) and !SetMethods.has(method_name)) {
-            try handler(self, obj, call.args);
+            handler(self, obj, call.args) catch |err| {
+                if (err == error.UnsupportedSyntax) return false;
+                return err;
+            };
             return true;
         }
     }
@@ -424,7 +447,10 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         if (container_traits.isSet(obj_type) or type_traits.isUnknown(obj_type) or
             obj_type == .pyvalue or type_traits.isClassInstance(obj_type))
         {
-            try handler(self, obj, call.args);
+            handler(self, obj, call.args) catch |err| {
+                if (err == error.UnsupportedSyntax) return false;
+                return err;
+            };
             return true;
         }
     }
@@ -437,7 +463,10 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // - Tuple field access: __tuple__.@"0".as_integer_ratio()
     // Since no other Python type has these methods, dispatching is always safe.
     if (FloatMethods.get(method_name)) |handler| {
-        try handler(self, obj, call.args);
+        handler(self, obj, call.args) catch |err| {
+            if (err == error.UnsupportedSyntax) return false;
+            return err;
+        };
         return true;
     }
 
@@ -453,7 +482,10 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             // File methods (PyFile) - only for actual file objects or unknown types
             // Skip if it's a known non-file type like sqlite_connection
             if (FileMethods.get(method_name)) |handler| {
-                try handler(self, obj, call.args);
+                handler(self, obj, call.args) catch |err| {
+                    if (err == error.UnsupportedSyntax) return false;
+                    return err;
+                };
                 return true;
             }
         }
@@ -514,7 +546,10 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             return true;
         }
         if (UnittestMethods.get(method_name)) |handler| {
-            try handler(self, obj, call.args);
+            handler(self, obj, call.args) catch |err| {
+                if (err == error.UnsupportedSyntax) return false;
+                return err;
+            };
             return true;
         }
     }

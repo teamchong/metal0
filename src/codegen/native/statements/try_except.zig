@@ -1403,9 +1403,56 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.emit("}\n");
         }
     } else {
+        // No exception handlers - just try/finally or try/else/finally
+        // When there's a finally block, use defer to ensure it runs even if try body returns
+        if (has_finally) {
+            // Generate finally code as defer BEFORE try body
+            // defer runs when scope exits (including on return), ensuring cleanup always happens
+            try self.emitIndent();
+            try self.emit("defer {\n");
+            self.indent();
+
+            // Check if finally block contains raise statements
+            // If it does, we need to handle them specially
+            const finally_has_raise = containsRaise(try_node.finalbody);
+            if (finally_has_raise) {
+                // Finally block with raise needs special handling
+                // We can't use simple defer, need to capture exceptions
+                try self.emitIndent();
+                try self.emit("// TODO: Handle raise in finally block\n");
+            }
+
+            // Generate finally body inline in the defer
+            for (try_node.finalbody) |stmt| {
+                // Temporarily disable finally block markers since we're using defer
+                const saved_inside_finally = self.inside_finally_block;
+                const saved_finally_id = self.current_finally_id;
+                const saved_inside_defer = self.inside_defer;
+                self.inside_finally_block = false;  // Don't use break :__finally_blk pattern
+                self.inside_defer = true;
+                self.current_finally_id = @intCast(helper_id);
+
+                try self.generateStmt(stmt);
+
+                self.inside_finally_block = saved_inside_finally;
+                self.current_finally_id = saved_finally_id;
+                self.inside_defer = saved_inside_defer;
+            }
+
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+        }
+
+        // Generate try body
+        const saved_inside_try_body = self.inside_try_body;
+        self.inside_try_body = true;
+
         for (try_node.body) |stmt| {
             try self.generateStmt(stmt);
         }
+
+        self.inside_try_body = saved_inside_try_body;
 
         // Also handle else_body when there are no exception handlers
         // (try/else/finally without except)
@@ -1414,11 +1461,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 try self.generateStmt(stmt);
             }
         }
+
     }
 
     // Generate finally block (always executes after try/except/else)
     // Uses a labeled block to allow raise statements to break out with an error
-    if (has_finally) {
+    // SKIP this if we already generated it as defer (no exception handlers case)
+    const skip_finally_generation = try_node.handlers.len == 0 and has_finally;
+    if (has_finally and !skip_finally_generation) {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __finally_err_{d}: ?anyerror = __finally_blk_{d}: {{\n", .{ helper_id, helper_id });
         self.indent();

@@ -741,6 +741,13 @@ pub const time = @import("Lib/time.zig");
 
 /// Lib/ directory modules - Python standard library implementations
 pub const Lib = struct {
+    // Python stdlib modules (alphabetical, underscores first)
+    pub const __future__ = @import("Lib/__future__.zig");
+    pub const _compression = @import("Lib/_compression.zig");
+    pub const sre_constants = @import("Lib/sre_constants.zig");
+    pub const sre_compile = @import("Lib/sre_compile.zig");
+    pub const sre_parse = @import("Lib/sre_parse.zig");
+
     pub const json = @import("Lib/json.zig");
     pub const re = @import("Lib/re.zig");
     pub const sys = @import("Lib/sys.zig");
@@ -807,4 +814,10 @@ pub const Modules = struct {
     pub const _struct = @import("Modules/_struct.zig");
     pub const _random = @import("Modules/_random.zig");
     pub const _pickle = @import("Modules/_pickle.zig");
+};
+
+/// Python/ directory - CPython internal modules
+pub const Python = struct {
+    pub const ast_opt = @import("Python/ast_opt.zig");
+    pub const formatter_unicode = @import("Python/formatter_unicode.zig");
 };
