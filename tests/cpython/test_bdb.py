@@ -1046,9 +1046,8 @@ class RunTestCase(BaseTestCase):
                 ('return', 1, '<module>'), ('quit', ),
             ]
             import test_module_for_bdb
-            ns = {'test_module_for_bdb': test_module_for_bdb}
             with TracerRun(self) as tracer:
-                tracer.runeval('test_module_for_bdb.main()', ns, ns)
+                tracer.runeval('test_module_for_bdb.main()', globals(), locals())
 
 class IssuesTestCase(BaseTestCase):
     """Test fixed bdb issues."""

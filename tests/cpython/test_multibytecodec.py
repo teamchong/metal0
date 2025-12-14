@@ -314,8 +314,7 @@ class Test_StreamReader(unittest.TestCase):
                 f.write(b'\xa1')
             finally:
                 f.close()
-            with self.assertWarns(DeprecationWarning):
-                f = codecs.open(TESTFN, encoding='cp949')
+            f = codecs.open(TESTFN, encoding='cp949')
             try:
                 self.assertRaises(UnicodeDecodeError, f.read, 2)
             finally:

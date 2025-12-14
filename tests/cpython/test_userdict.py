@@ -1,6 +1,6 @@
 # Check every path through every method of UserDict
 
-from test import mapping_tests
+from test import mapping_tests, support
 import unittest
 import collections
 
@@ -166,7 +166,7 @@ class UserDictTest(mapping_tests.TestHashMappingProtocol):
 
     def test_missing(self):
         # Make sure UserDict doesn't have a __missing__ method
-        self.assertNotHasAttr(collections.UserDict, "__missing__")
+        self.assertEqual(hasattr(collections.UserDict, "__missing__"), False)
         # Test several cases:
         # (D) subclass defines __missing__ method returning a value
         # (E) subclass defines __missing__ method raising RuntimeError
@@ -213,7 +213,11 @@ class UserDictTest(mapping_tests.TestHashMappingProtocol):
         else:
             self.fail("g[42] didn't raise KeyError")
 
-    test_repr_deep = mapping_tests.TestHashMappingProtocol.test_repr_deep
+    # Decorate existing test with recursion limit, because
+    # the test is for C structure, but `UserDict` is a Python structure.
+    test_repr_deep = support.infinite_recursion(25)(
+        mapping_tests.TestHashMappingProtocol.test_repr_deep,
+    )
 
 
 if __name__ == "__main__":

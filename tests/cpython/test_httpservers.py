@@ -4,11 +4,10 @@ Written by Cody A.W. Somerville <cody-somerville@ubuntu.com>,
 Josip Dzolonga, and Michael Otteneder for the 2007/08 GHOP contest.
 """
 from collections import OrderedDict
-from http.server import BaseHTTPRequestHandler, HTTPServer, HTTPSServer, \
+from http.server import BaseHTTPRequestHandler, HTTPServer, \
      SimpleHTTPRequestHandler, CGIHTTPRequestHandler
 from http import server, HTTPStatus
 
-import contextlib
 import os
 import socket
 import sys
@@ -32,13 +31,8 @@ from io import BytesIO, StringIO
 import unittest
 from test import support
 from test.support import (
-    is_apple, import_helper, os_helper, requires_subprocess, threading_helper
+    is_apple, os_helper, requires_subprocess, threading_helper
 )
-
-try:
-    import ssl
-except ImportError:
-    ssl = None
 
 support.requires_working_socket(module=True)
 
@@ -51,49 +45,14 @@ class NoLogRequestHandler:
         return ''
 
 
-class DummyRequestHandler(NoLogRequestHandler, SimpleHTTPRequestHandler):
-    pass
-
-
-def create_https_server(
-    certfile,
-    keyfile=None,
-    password=None,
-    *,
-    address=('localhost', 0),
-    request_handler=DummyRequestHandler,
-):
-    return HTTPSServer(
-        address, request_handler,
-        certfile=certfile, keyfile=keyfile, password=password
-    )
-
-
-class TestSSLDisabled(unittest.TestCase):
-    def test_https_server_raises_runtime_error(self):
-        with import_helper.isolated_modules():
-            sys.modules['ssl'] = None
-            certfile = certdata_file("keycert.pem")
-            with self.assertRaises(RuntimeError):
-                create_https_server(certfile)
-
-
 class TestServerThread(threading.Thread):
-    def __init__(self, test_object, request_handler, tls=None):
+    def __init__(self, test_object, request_handler):
         threading.Thread.__init__(self)
         self.request_handler = request_handler
         self.test_object = test_object
-        self.tls = tls
 
     def run(self):
-        if self.tls:
-            certfile, keyfile, password = self.tls
-            self.server = create_https_server(
-                certfile, keyfile, password,
-                request_handler=self.request_handler,
-            )
-        else:
-            self.server = HTTPServer(('localhost', 0), self.request_handler)
+        self.server = HTTPServer(('localhost', 0), self.request_handler)
         self.test_object.HOST, self.test_object.PORT = self.server.socket.getsockname()
         self.test_object.server_started.set()
         self.test_object = None
@@ -108,15 +67,11 @@ class TestServerThread(threading.Thread):
 
 
 class BaseTestCase(unittest.TestCase):
-
-    # Optional tuple (certfile, keyfile, password) to use for HTTPS servers.
-    tls = None
-
     def setUp(self):
         self._threads = threading_helper.threading_setup()
         os.environ = os_helper.EnvironmentVarGuard()
         self.server_started = threading.Event()
-        self.thread = TestServerThread(self, self.request_handler, self.tls)
+        self.thread = TestServerThread(self, self.request_handler)
         self.thread.start()
         self.server_started.wait()
 
@@ -360,112 +315,6 @@ class BaseHTTPServerTestCase(BaseTestCase):
             self.assertEqual(b'', data)
 
 
-class HTTP09ServerTestCase(BaseTestCase):
-
-    class request_handler(NoLogRequestHandler, BaseHTTPRequestHandler):
-        """Request handler for HTTP/0.9 server."""
-
-        def do_GET(self):
-            self.wfile.write(f'OK: here is {self.path}\r\n'.encode())
-
-    def setUp(self):
-        super().setUp()
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock = self.enterContext(self.sock)
-        self.sock.connect((self.HOST, self.PORT))
-
-    def test_simple_get(self):
-        self.sock.send(b'GET /index.html\r\n')
-        res = self.sock.recv(1024)
-        self.assertEqual(res, b"OK: here is /index.html\r\n")
-
-    def test_invalid_request(self):
-        self.sock.send(b'POST /index.html\r\n')
-        res = self.sock.recv(1024)
-        self.assertIn(b"Bad HTTP/0.9 request type ('POST')", res)
-
-    def test_single_request(self):
-        self.sock.send(b'GET /foo.html\r\n')
-        res = self.sock.recv(1024)
-        self.assertEqual(res, b"OK: here is /foo.html\r\n")
-
-        # Ignore errors if the connection is already closed,
-        # as this is the expected behavior of HTTP/0.9.
-        with contextlib.suppress(OSError):
-            self.sock.send(b'GET /bar.html\r\n')
-            res = self.sock.recv(1024)
-            # The server should not process our request.
-            self.assertEqual(res, b'')
-
-
-def certdata_file(*path):
-    return os.path.join(os.path.dirname(__file__), "certdata", *path)
-
-
-@unittest.skipIf(ssl is None, "requires ssl")
-class BaseHTTPSServerTestCase(BaseTestCase):
-    CERTFILE = certdata_file("keycert.pem")
-    ONLYCERT = certdata_file("ssl_cert.pem")
-    ONLYKEY = certdata_file("ssl_key.pem")
-    CERTFILE_PROTECTED = certdata_file("keycert.passwd.pem")
-    ONLYKEY_PROTECTED = certdata_file("ssl_key.passwd.pem")
-    EMPTYCERT = certdata_file("nullcert.pem")
-    BADCERT = certdata_file("badcert.pem")
-    KEY_PASSWORD = "somepass"
-    BADPASSWORD = "badpass"
-
-    tls = (ONLYCERT, ONLYKEY, None)  # values by default
-
-    request_handler = DummyRequestHandler
-
-    def test_get(self):
-        response = self.request('/')
-        self.assertEqual(response.status, HTTPStatus.OK)
-
-    def request(self, uri, method='GET', body=None, headers={}):
-        context = ssl._create_unverified_context()
-        self.connection = http.client.HTTPSConnection(
-            self.HOST, self.PORT, context=context
-        )
-        self.connection.request(method, uri, body, headers)
-        return self.connection.getresponse()
-
-    def test_valid_certdata(self):
-        valid_certdata= [
-            (self.CERTFILE, None, None),
-            (self.CERTFILE, self.CERTFILE, None),
-            (self.CERTFILE_PROTECTED, None, self.KEY_PASSWORD),
-            (self.ONLYCERT, self.ONLYKEY_PROTECTED, self.KEY_PASSWORD),
-        ]
-        for certfile, keyfile, password in valid_certdata:
-            with self.subTest(
-                certfile=certfile, keyfile=keyfile, password=password
-            ):
-                server = create_https_server(certfile, keyfile, password)
-                self.assertIsInstance(server, HTTPSServer)
-                server.server_close()
-
-    def test_invalid_certdata(self):
-        invalid_certdata = [
-            (self.BADCERT, None, None),
-            (self.EMPTYCERT, None, None),
-            (self.ONLYCERT, None, None),
-            (self.ONLYKEY, None, None),
-            (self.ONLYKEY, self.ONLYCERT, None),
-            (self.CERTFILE_PROTECTED, None, self.BADPASSWORD),
-            # TODO: test the next case and add same case to test_ssl (We
-            # specify a cert and a password-protected file, but no password):
-            # (self.CERTFILE_PROTECTED, None, None),
-            # see issue #132102
-        ]
-        for certfile, keyfile, password in invalid_certdata:
-            with self.subTest(
-                certfile=certfile, keyfile=keyfile, password=password
-            ):
-                with self.assertRaises(ssl.SSLError):
-                    create_https_server(certfile, keyfile, password)
-
-
 class RequestHandlerLoggingTestCase(BaseTestCase):
     class request_handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
@@ -486,7 +335,8 @@ class RequestHandlerLoggingTestCase(BaseTestCase):
             self.con.request('GET', '/')
             self.con.getresponse()
 
-        self.assertEndsWith(err.getvalue(), '"GET / HTTP/1.1" 200 -\n')
+        self.assertTrue(
+            err.getvalue().endswith('"GET / HTTP/1.1" 200 -\n'))
 
     def test_err(self):
         self.con = http.client.HTTPConnection(self.HOST, self.PORT)
@@ -497,8 +347,8 @@ class RequestHandlerLoggingTestCase(BaseTestCase):
             self.con.getresponse()
 
         lines = err.getvalue().split('\n')
-        self.assertEndsWith(lines[0], 'code 404, message File not found')
-        self.assertEndsWith(lines[1], '"ERROR / HTTP/1.1" 404 -')
+        self.assertTrue(lines[0].endswith('code 404, message File not found'))
+        self.assertTrue(lines[1].endswith('"ERROR / HTTP/1.1" 404 -'))
 
 
 class SimpleHTTPServerTestCase(BaseTestCase):
@@ -561,120 +411,42 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         reader.close()
         return body
 
-    def check_list_dir_dirname(self, dirname, quotedname=None):
-        fullpath = os.path.join(self.tempdir, dirname)
-        try:
-            os.mkdir(os.path.join(self.tempdir, dirname))
-        except (OSError, UnicodeEncodeError):
-            self.skipTest(f'Can not create directory {dirname!a} '
-                          f'on current file system')
-
-        if quotedname is None:
-            quotedname = urllib.parse.quote(dirname, errors='surrogatepass')
-        response = self.request(self.base_url + '/' + quotedname + '/')
-        body = self.check_status_and_reason(response, HTTPStatus.OK)
-        displaypath = html.escape(f'{self.base_url}/{dirname}/', quote=False)
+    @unittest.skipIf(is_apple,
+                     'undecodable name cannot always be decoded on Apple platforms')
+    @unittest.skipIf(sys.platform == 'win32',
+                     'undecodable name cannot be decoded on win32')
+    @unittest.skipUnless(os_helper.TESTFN_UNDECODABLE,
+                         'need os_helper.TESTFN_UNDECODABLE')
+    def test_undecodable_filename(self):
         enc = sys.getfilesystemencoding()
-        prefix = f'listing for {displaypath}</'.encode(enc, 'surrogateescape')
-        self.assertIn(prefix + b'title>', body)
-        self.assertIn(prefix + b'h1>', body)
-
-    def check_list_dir_filename(self, filename):
-        fullpath = os.path.join(self.tempdir, filename)
-        content = ascii(fullpath).encode() + (os_helper.TESTFN_UNDECODABLE or b'\xff')
-        try:
-            with open(fullpath, 'wb') as f:
-                f.write(content)
-        except OSError:
-            self.skipTest(f'Can not create file {filename!a} '
-                          f'on current file system')
-
+        filename = os.fsdecode(os_helper.TESTFN_UNDECODABLE) + '.txt'
+        with open(os.path.join(self.tempdir, filename), 'wb') as f:
+            f.write(os_helper.TESTFN_UNDECODABLE)
         response = self.request(self.base_url + '/')
+        if is_apple:
+            # On Apple platforms the HFS+ filesystem replaces bytes that
+            # aren't valid UTF-8 into a percent-encoded value.
+            for name in os.listdir(self.tempdir):
+                if name != 'test':  # Ignore a filename created in setUp().
+                    filename = name
+                    break
         body = self.check_status_and_reason(response, HTTPStatus.OK)
         quotedname = urllib.parse.quote(filename, errors='surrogatepass')
-        enc = response.headers.get_content_charset()
-        self.assertIsNotNone(enc)
-        self.assertIn((f'href="{quotedname}"').encode('ascii'), body)
-        displayname = html.escape(filename, quote=False)
-        self.assertIn(f'>{displayname}<'.encode(enc, 'surrogateescape'), body)
-
+        self.assertIn(('href="%s"' % quotedname)
+                      .encode(enc, 'surrogateescape'), body)
+        self.assertIn(('>%s<' % html.escape(filename, quote=False))
+                      .encode(enc, 'surrogateescape'), body)
         response = self.request(self.base_url + '/' + quotedname)
-        self.check_status_and_reason(response, HTTPStatus.OK, data=content)
+        self.check_status_and_reason(response, HTTPStatus.OK,
+                                     data=os_helper.TESTFN_UNDECODABLE)
 
-    @unittest.skipUnless(os_helper.TESTFN_NONASCII,
-                         'need os_helper.TESTFN_NONASCII')
-    def test_list_dir_nonascii_dirname(self):
-        dirname = os_helper.TESTFN_NONASCII + '.dir'
-        self.check_list_dir_dirname(dirname)
-
-    @unittest.skipUnless(os_helper.TESTFN_NONASCII,
-                         'need os_helper.TESTFN_NONASCII')
-    def test_list_dir_nonascii_filename(self):
-        filename = os_helper.TESTFN_NONASCII + '.txt'
-        self.check_list_dir_filename(filename)
-
-    @unittest.skipIf(is_apple,
-                     'undecodable name cannot always be decoded on Apple platforms')
-    @unittest.skipIf(sys.platform == 'win32',
-                     'undecodable name cannot be decoded on win32')
-    @unittest.skipUnless(os_helper.TESTFN_UNDECODABLE,
-                         'need os_helper.TESTFN_UNDECODABLE')
-    def test_list_dir_undecodable_dirname(self):
-        dirname = os.fsdecode(os_helper.TESTFN_UNDECODABLE) + '.dir'
-        self.check_list_dir_dirname(dirname)
-
-    @unittest.skipIf(is_apple,
-                     'undecodable name cannot always be decoded on Apple platforms')
-    @unittest.skipIf(sys.platform == 'win32',
-                     'undecodable name cannot be decoded on win32')
-    @unittest.skipUnless(os_helper.TESTFN_UNDECODABLE,
-                         'need os_helper.TESTFN_UNDECODABLE')
-    def test_list_dir_undecodable_filename(self):
-        filename = os.fsdecode(os_helper.TESTFN_UNDECODABLE) + '.txt'
-        self.check_list_dir_filename(filename)
-
-    def test_list_dir_undecodable_dirname2(self):
-        dirname = '\ufffd.dir'
-        self.check_list_dir_dirname(dirname, quotedname='%ff.dir')
-
-    @unittest.skipUnless(os_helper.TESTFN_UNENCODABLE,
-                         'need os_helper.TESTFN_UNENCODABLE')
-    def test_list_dir_unencodable_dirname(self):
-        dirname = os_helper.TESTFN_UNENCODABLE + '.dir'
-        self.check_list_dir_dirname(dirname)
-
-    @unittest.skipUnless(os_helper.TESTFN_UNENCODABLE,
-                         'need os_helper.TESTFN_UNENCODABLE')
-    def test_list_dir_unencodable_filename(self):
-        filename = os_helper.TESTFN_UNENCODABLE + '.txt'
-        self.check_list_dir_filename(filename)
-
-    def test_list_dir_escape_dirname(self):
-        # Characters that need special treating in URL or HTML.
-        for name in ('q?', 'f#', '&amp;', '&amp', '<i>', '"dq"', "'sq'",
-                     '%A4', '%E2%82%AC'):
-            with self.subTest(name=name):
-                dirname = name + '.dir'
-                self.check_list_dir_dirname(dirname,
-                        quotedname=urllib.parse.quote(dirname, safe='&<>\'"'))
-
-    def test_list_dir_escape_filename(self):
-        # Characters that need special treating in URL or HTML.
-        for name in ('q?', 'f#', '&amp;', '&amp', '<i>', '"dq"', "'sq'",
-                     '%A4', '%E2%82%AC'):
-            with self.subTest(name=name):
-                filename = name + '.txt'
-                self.check_list_dir_filename(filename)
-                os_helper.unlink(os.path.join(self.tempdir, filename))
-
-    def test_list_dir_with_query_and_fragment(self):
-        prefix = f'listing for {self.base_url}/</'.encode('latin1')
-        response = self.request(self.base_url + '/#123').read()
-        self.assertIn(prefix + b'title>', response)
-        self.assertIn(prefix + b'h1>', response)
+    def test_undecodable_parameter(self):
+        # sanity check using a valid parameter
         response = self.request(self.base_url + '/?x=123').read()
-        self.assertIn(prefix + b'title>', response)
-        self.assertIn(prefix + b'h1>', response)
+        self.assertRegex(response, rf'listing for {self.base_url}/\?x=123'.encode('latin1'))
+        # now the bogus encoding
+        response = self.request(self.base_url + '/?x=%bb').read()
+        self.assertRegex(response, rf'listing for {self.base_url}/\?x=\xef\xbf\xbd'.encode('latin1'))
 
     def test_get_dir_redirect_location_domain_injection_bug(self):
         """Ensure //evil.co/..%2f../../X does not put //evil.co/ in Location.
@@ -700,7 +472,7 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         response = self.request(attack_url)
         self.check_status_and_reason(response, HTTPStatus.MOVED_PERMANENTLY)
         location = response.getheader('Location')
-        self.assertNotStartsWith(location, '//')
+        self.assertFalse(location.startswith('//'), msg=location)
         self.assertEqual(location, expected_location,
                 msg='Expected Location header to start with a single / and '
                 'end with a / as this is a directory redirect.')
@@ -723,7 +495,7 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         # We're just ensuring that the scheme and domain make it through, if
         # there are or aren't multiple slashes at the start of the path that
         # follows that isn't important in this Location: header.
-        self.assertStartsWith(location, 'https://pypi.org/')
+        self.assertTrue(location.startswith('https://pypi.org/'), msg=location)
 
     def test_get(self):
         #constructs the path relative to the root directory of the HTTPServer
@@ -732,19 +504,10 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         # check for trailing "/" which should return 404. See Issue17324
         response = self.request(self.base_url + '/test/')
         self.check_status_and_reason(response, HTTPStatus.NOT_FOUND)
-        response = self.request(self.base_url + '/test%2f')
-        self.check_status_and_reason(response, HTTPStatus.NOT_FOUND)
-        response = self.request(self.base_url + '/test%2F')
-        self.check_status_and_reason(response, HTTPStatus.NOT_FOUND)
         response = self.request(self.base_url + '/')
-        self.check_status_and_reason(response, HTTPStatus.OK)
-        response = self.request(self.base_url + '%2f')
-        self.check_status_and_reason(response, HTTPStatus.OK)
-        response = self.request(self.base_url + '%2F')
         self.check_status_and_reason(response, HTTPStatus.OK)
         response = self.request(self.base_url)
         self.check_status_and_reason(response, HTTPStatus.MOVED_PERMANENTLY)
-        self.assertEqual(response.getheader("Location"), self.base_url + "/")
         self.assertEqual(response.getheader("Content-Length"), "0")
         response = self.request(self.base_url + '/?hi=2')
         self.check_status_and_reason(response, HTTPStatus.OK)
@@ -850,14 +613,33 @@ class SimpleHTTPServerTestCase(BaseTestCase):
         self.check_status_and_reason(response, HTTPStatus.OK)
         response = self.request(self.tempdir_name)
         self.check_status_and_reason(response, HTTPStatus.MOVED_PERMANENTLY)
-        self.assertEqual(response.getheader("Location"),
-                         self.tempdir_name + "/")
         response = self.request(self.tempdir_name + '/?hi=2')
         self.check_status_and_reason(response, HTTPStatus.OK)
         response = self.request(self.tempdir_name + '?hi=1')
         self.check_status_and_reason(response, HTTPStatus.MOVED_PERMANENTLY)
         self.assertEqual(response.getheader("Location"),
                          self.tempdir_name + "/?hi=1")
+
+    def test_html_escape_filename(self):
+        filename = '<test&>.txt'
+        fullpath = os.path.join(self.tempdir, filename)
+
+        try:
+            open(fullpath, 'wb').close()
+        except OSError:
+            raise unittest.SkipTest('Can not create file %s on current file '
+                                    'system' % filename)
+
+        try:
+            response = self.request(self.base_url + '/')
+            body = self.check_status_and_reason(response, HTTPStatus.OK)
+            enc = response.headers.get_content_charset()
+        finally:
+            os.unlink(fullpath)  # avoid affecting test_undecodable_filename
+
+        self.assertIsNotNone(enc)
+        html_text = '>%s<' % html.escape(filename, quote=False)
+        self.assertIn(html_text.encode(enc), body)
 
 
 cgi_file1 = """\
@@ -913,20 +695,6 @@ for k, v in os.environ.items():
 print("</pre>")
 """
 
-cgi_file7 = """\
-#!%s
-import os
-import sys
-
-print("Content-type: text/plain")
-print()
-
-content_length = int(os.environ["CONTENT_LENGTH"])
-body = sys.stdin.buffer.read(content_length)
-
-print(f"{content_length} {len(body)}")
-"""
-
 
 @unittest.skipIf(hasattr(os, 'geteuid') and os.geteuid() == 0,
         "This test can't be run reliably as root (issue #13308).")
@@ -966,8 +734,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
         self.file3_path = None
         self.file4_path = None
         self.file5_path = None
-        self.file6_path = None
-        self.file7_path = None
 
         # The shebang line should be pure ASCII: use symlink if possible.
         # See issue #7668.
@@ -1022,11 +788,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
             file6.write(cgi_file6 % self.pythonexe)
         os.chmod(self.file6_path, 0o777)
 
-        self.file7_path = os.path.join(self.cgi_dir, 'file7.py')
-        with open(self.file7_path, 'w', encoding='utf-8') as file7:
-            file7.write(cgi_file7 % self.pythonexe)
-        os.chmod(self.file7_path, 0o777)
-
         os.chdir(self.parent_dir)
 
     def tearDown(self):
@@ -1049,8 +810,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
                 os.remove(self.file5_path)
             if self.file6_path:
                 os.remove(self.file6_path)
-            if self.file7_path:
-                os.remove(self.file7_path)
             os.rmdir(self.cgi_child_dir)
             os.rmdir(self.cgi_dir)
             os.rmdir(self.cgi_dir_in_sub_dir)
@@ -1122,22 +881,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
         res = self.request('/cgi-bin/file2.py', 'POST', params, headers)
 
         self.assertEqual(res.read(), b'1, python, 123456' + self.linesep)
-
-    def test_large_content_length(self):
-        for w in range(15, 25):
-            size = 1 << w
-            body = b'X' * size
-            headers = {'Content-Length' : str(size)}
-            res = self.request('/cgi-bin/file7.py', 'POST', body, headers)
-            self.assertEqual(res.read(), b'%d %d' % (size, size) + self.linesep)
-
-    def test_large_content_length_truncated(self):
-        with support.swap_attr(self.request_handler, 'timeout', 0.001):
-            for w in range(18, 65):
-                size = 1 << w
-                headers = {'Content-Length' : str(size)}
-                res = self.request('/cgi-bin/file1.py', 'POST', b'x', headers)
-                self.assertEqual(res.read(), b'Hello World' + self.linesep)
 
     def test_invaliduri(self):
         res = self.request('/cgi-bin/invalid')
@@ -1351,7 +1094,7 @@ class BaseHTTPRequestHandlerTestCase(unittest.TestCase):
             b'Host: dummy\r\n'
             b'\r\n'
         )
-        self.assertStartsWith(result[0], b'HTTP/1.1 400 ')
+        self.assertTrue(result[0].startswith(b'HTTP/1.1 400 '))
         self.verify_expected_headers(result[1:result.index(b'\r\n')])
         self.assertFalse(self.handler.get_called)
 

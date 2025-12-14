@@ -1,13 +1,10 @@
-import contextlib
 import errno
-import sysconfig
 import unittest
-from unittest import mock
 from test import support
 from test.support import os_helper
 from test.support import socket_helper
 from test.support import ResourceDenied
-from test.support.warnings_helper import check_no_resource_warning
+from test.test_urllib2 import sanepathname2url
 
 import os
 import socket
@@ -147,43 +144,6 @@ class OtherNetworkTests(unittest.TestCase):
             ]
         self._test_urls(urls, self._extra_handlers())
 
-    @support.requires_resource('walltime')
-    @unittest.skipIf(sysconfig.get_platform() == 'linux-ppc64le',
-                     'leaks on PPC64LE (gh-140691)')
-    def test_ftp_no_leak(self):
-        # gh-140691: When the data connection (but not control connection)
-        # cannot be made established, we shouldn't leave an open socket object.
-
-        class MockError(OSError):
-            pass
-
-        orig_create_connection = socket.create_connection
-        def patched_create_connection(address, *args, **kwargs):
-            """Simulate REJECTing connections to ports other than 21"""
-            host, port = address
-            if port != 21:
-                raise MockError()
-            return orig_create_connection(address, *args, **kwargs)
-
-        url = 'ftp://www.pythontest.net/README'
-        entry = url, None, urllib.error.URLError
-        no_cache_handlers = [urllib.request.FTPHandler()]
-        cache_handlers = self._extra_handlers()
-        with mock.patch('socket.create_connection', patched_create_connection):
-            with check_no_resource_warning(self):
-                # Try without CacheFTPHandler
-                self._test_urls([entry], handlers=no_cache_handlers,
-                                retry=False)
-            with check_no_resource_warning(self):
-                # Try with CacheFTPHandler (uncached)
-                self._test_urls([entry], cache_handlers, retry=False)
-            with check_no_resource_warning(self):
-                # Try with CacheFTPHandler (cached)
-                self._test_urls([entry], cache_handlers, retry=False)
-        # Try without the mock: the handler should not use a closed connection
-        with check_no_resource_warning(self):
-            self._test_urls([url], cache_handlers, retry=False)
-
     def test_file(self):
         TESTFN = os_helper.TESTFN
         f = open(TESTFN, 'w')
@@ -191,7 +151,7 @@ class OtherNetworkTests(unittest.TestCase):
             f.write('hi there\n')
             f.close()
             urls = [
-                urllib.request.pathname2url(os.path.abspath(TESTFN), add_scheme=True),
+                'file:' + sanepathname2url(os.path.abspath(TESTFN)),
                 ('file:///nonsensename/etc/passwd', None,
                  urllib.error.URLError),
                 ]
@@ -296,16 +256,18 @@ class OtherNetworkTests(unittest.TestCase):
                 else:
                     req = expected_err = None
 
-                if expected_err:
-                    context = self.assertRaises(expected_err)
-                else:
-                    context = contextlib.nullcontext()
-
                 with socket_helper.transient_internet(url):
-                    f = None
-                    with context:
+                    try:
                         f = urlopen(url, req, support.INTERNET_TIMEOUT)
-                    if f is not None:
+                    # urllib.error.URLError is a subclass of OSError
+                    except OSError as err:
+                        if expected_err:
+                            msg = ("Didn't get expected error(s) %s for %s %s, got %s: %s" %
+                                   (expected_err, url, req, type(err), err))
+                            self.assertIsInstance(err, expected_err, msg)
+                        else:
+                            raise
+                    else:
                         try:
                             with time_out, \
                                  socket_peer_reset, \

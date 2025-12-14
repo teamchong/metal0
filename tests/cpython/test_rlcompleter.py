@@ -54,26 +54,11 @@ class TestRlcompleter(unittest.TestCase):
                          ['str.{}('.format(x) for x in dir(str)
                           if x.startswith('s')])
         self.assertEqual(self.stdcompleter.attr_matches('tuple.foospamegg'), [])
-
-        def create_expected_for_none():
-            if not MISSING_C_DOCSTRINGS:
-                parentheses = ('__init_subclass__', '__class__')
-            else:
-                # When `--without-doc-strings` is used, `__class__`
-                # won't have a known signature.
-                parentheses = ('__init_subclass__',)
-
-            items = set()
-            for x in dir(None):
-                if x in parentheses:
-                    items.add(f'None.{x}()')
-                elif x == '__doc__':
-                    items.add(f'None.{x}')
-                else:
-                    items.add(f'None.{x}(')
-            return sorted(items)
-
-        expected = create_expected_for_none()
+        expected = sorted({'None.%s%s' % (x,
+                                          '()' if x in ('__init_subclass__', '__class__')
+                                          else '' if x == '__doc__'
+                                          else '(')
+                           for x in dir(None)})
         self.assertEqual(self.stdcompleter.attr_matches('None.'), expected)
         self.assertEqual(self.stdcompleter.attr_matches('None._'), expected)
         self.assertEqual(self.stdcompleter.attr_matches('None.__'), expected)
@@ -88,7 +73,7 @@ class TestRlcompleter(unittest.TestCase):
                          ['CompleteMe._ham'])
         matches = self.completer.attr_matches('CompleteMe.__')
         for x in matches:
-            self.assertStartsWith(x, 'CompleteMe.__')
+            self.assertTrue(x.startswith('CompleteMe.__'), x)
         self.assertIn('CompleteMe.__name__', matches)
         self.assertIn('CompleteMe.__new__(', matches)
 

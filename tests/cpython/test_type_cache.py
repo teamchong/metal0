@@ -1,9 +1,8 @@
 """ Tests for the internal type cache in CPython. """
-import dis
 import unittest
-import warnings
+import dis
 from test import support
-from test.support import import_helper, requires_specialization, requires_specialization_ft
+from test.support import import_helper, requires_specialization
 try:
     from sys import _clear_type_cache
 except ImportError:
@@ -11,16 +10,11 @@ except ImportError:
 
 # Skip this test if the _testcapi module isn't available.
 _testcapi = import_helper.import_module("_testcapi")
-_testinternalcapi = import_helper.import_module("_testinternalcapi")
 type_get_version = _testcapi.type_get_version
-type_assign_specific_version_unsafe = _testinternalcapi.type_assign_specific_version_unsafe
+type_assign_specific_version_unsafe = _testcapi.type_assign_specific_version_unsafe
 type_assign_version = _testcapi.type_assign_version
 type_modified = _testcapi.type_modified
 
-def clear_type_cache():
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        _clear_type_cache()
 
 @support.cpython_only
 @unittest.skipIf(_clear_type_cache is None, "requires sys._clear_type_cache")
@@ -43,7 +37,7 @@ class TypeCacheTests(unittest.TestCase):
         append_result = all_version_tags.append
         assertNotEqual = self.assertNotEqual
         for _ in range(30):
-            clear_type_cache()
+            _clear_type_cache()
             X = type('Y', (), {})
             X.x = 1
             X.x
@@ -83,7 +77,7 @@ class TypeCacheTests(unittest.TestCase):
         new_version = type_get_version(C)
         self.assertEqual(new_version, orig_version + 5)
 
-        clear_type_cache()
+        _clear_type_cache()
 
     def test_per_class_limit(self):
         class C:
@@ -115,9 +109,10 @@ class TypeCacheTests(unittest.TestCase):
             HolderSub.value
 
 @support.cpython_only
+@requires_specialization
 class TypeCacheWithSpecializationTests(unittest.TestCase):
     def tearDown(self):
-        clear_type_cache()
+        _clear_type_cache()
 
     def _assign_valid_version_or_skip(self, type_):
         type_modified(type_)
@@ -136,7 +131,7 @@ class TypeCacheWithSpecializationTests(unittest.TestCase):
         return set(instr.opname for instr in dis.Bytecode(func, adaptive=True))
 
     def _check_specialization(self, func, arg, opname, *, should_specialize):
-        for _ in range(_testinternalcapi.SPECIALIZATION_THRESHOLD):
+        for _ in range(100):
             func(arg)
 
         if should_specialize:
@@ -144,7 +139,6 @@ class TypeCacheWithSpecializationTests(unittest.TestCase):
         else:
             self.assertIn(opname, self._all_opnames(func))
 
-    @requires_specialization
     def test_class_load_attr_specialization_user_type(self):
         class A:
             def foo(self):
@@ -165,7 +159,6 @@ class TypeCacheWithSpecializationTests(unittest.TestCase):
 
         self._check_specialization(load_foo_2, A, "LOAD_ATTR", should_specialize=False)
 
-    @requires_specialization
     def test_class_load_attr_specialization_static_type(self):
         self.assertNotEqual(type_get_version(str), 0)
         self.assertNotEqual(type_get_version(bytes), 0)
@@ -177,7 +170,6 @@ class TypeCacheWithSpecializationTests(unittest.TestCase):
         self.assertEqual(get_capitalize_1(str)('hello'), 'Hello')
         self.assertEqual(get_capitalize_1(bytes)(b'hello'), b'Hello')
 
-    @requires_specialization
     def test_property_load_attr_specialization_user_type(self):
         class G:
             @property
@@ -199,7 +191,6 @@ class TypeCacheWithSpecializationTests(unittest.TestCase):
 
         self._check_specialization(load_x_2, G(), "LOAD_ATTR", should_specialize=False)
 
-    @requires_specialization
     def test_store_attr_specialization_user_type(self):
         class B:
             __slots__ = ("bar",)
@@ -219,7 +210,6 @@ class TypeCacheWithSpecializationTests(unittest.TestCase):
 
         self._check_specialization(store_bar_2, B(), "STORE_ATTR", should_specialize=False)
 
-    @requires_specialization_ft
     def test_class_call_specialization_user_type(self):
         class F:
             def __init__(self):
@@ -240,7 +230,6 @@ class TypeCacheWithSpecializationTests(unittest.TestCase):
 
         self._check_specialization(call_class_2, F, "CALL", should_specialize=False)
 
-    @requires_specialization
     def test_to_bool_specialization_user_type(self):
         class H:
             pass

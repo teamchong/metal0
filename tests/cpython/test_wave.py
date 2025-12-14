@@ -2,7 +2,6 @@ import unittest
 from test import audiotests
 from test import support
 import io
-import os
 import struct
 import sys
 import wave
@@ -222,14 +221,6 @@ class WaveLowLevelTest(unittest.TestCase):
         b += b'data' + struct.pack('<L', 0)
         with self.assertRaisesRegex(wave.Error, 'bad sample width'):
             wave.open(io.BytesIO(b))
-
-    def test_open_in_write_raises(self):
-        # gh-136523: Wave_write.__del__ should not throw
-        with support.catch_unraisable_exception() as cm:
-            with self.assertRaises(OSError):
-                wave.open(os.curdir, "wb")
-            support.gc_collect()
-            self.assertIsNone(cm.unraisable)
 
 
 if __name__ == '__main__':

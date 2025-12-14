@@ -222,8 +222,8 @@ class TestTimeit(unittest.TestCase):
     def assert_exc_string(self, exc_string, expected_exc_name):
         exc_lines = exc_string.splitlines()
         self.assertGreater(len(exc_lines), 2)
-        self.assertStartsWith(exc_lines[0], 'Traceback')
-        self.assertStartsWith(exc_lines[-1], expected_exc_name)
+        self.assertTrue(exc_lines[0].startswith('Traceback'))
+        self.assertTrue(exc_lines[-1].startswith(expected_exc_name))
 
     def test_print_exc(self):
         s = io.StringIO()
@@ -297,7 +297,9 @@ class TestTimeit(unittest.TestCase):
     @unittest.skipIf(sys.flags.optimize >= 2, "need __doc__")
     def test_main_help(self):
         s = self.run_main(switches=['-h'])
-        self.assertEqual(s, timeit.__doc__)
+        # Note: It's not clear that the trailing space was intended as part of
+        # the help text, but since it's there, check for it.
+        self.assertEqual(s, timeit.__doc__ + ' ')
 
     def test_main_verbose(self):
         s = self.run_main(switches=['-v'])

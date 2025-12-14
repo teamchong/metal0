@@ -28,7 +28,7 @@ class BufferSizeTest:
             f.write(b"\n")
             f.write(s)
             f.close()
-            f = self.open(os_helper.TESTFN, "rb")
+            f = open(os_helper.TESTFN, "rb")
             line = f.readline()
             self.assertEqual(line, s + b"\n")
             line = f.readline()

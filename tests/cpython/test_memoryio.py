@@ -54,12 +54,6 @@ class MemorySeekTestMixin:
         self.assertEqual(buf[3:], bytesIo.read())
         self.assertRaises(TypeError, bytesIo.seek, 0.0)
 
-        self.assertEqual(sys.maxsize, bytesIo.seek(sys.maxsize))
-        self.assertEqual(self.EOF, bytesIo.read(4))
-
-        self.assertEqual(sys.maxsize - 2, bytesIo.seek(sys.maxsize - 2))
-        self.assertEqual(self.EOF, bytesIo.read(4))
-
     def testTell(self):
         buf = self.buftype("1234567890")
         bytesIo = self.ioclass(buf)
@@ -271,8 +265,8 @@ class MemoryTestMixin:
         memio = self.ioclass(buf * 10)
 
         self.assertEqual(iter(memio), memio)
-        self.assertHasAttr(memio, '__iter__')
-        self.assertHasAttr(memio, '__next__')
+        self.assertTrue(hasattr(memio, '__iter__'))
+        self.assertTrue(hasattr(memio, '__next__'))
         i = 0
         for line in memio:
             self.assertEqual(line, buf)
@@ -557,14 +551,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         memio.seek(0)
         memio.seek(1, 1)
         self.assertEqual(memio.read(), buf[1:])
-
-    def test_issue141311(self):
-        memio = self.ioclass()
-        # Seek allows PY_SSIZE_T_MAX, read should handle that.
-        # Past end of buffer read should always return 0 (EOF).
-        self.assertEqual(sys.maxsize, memio.seek(sys.maxsize))
-        buf = bytearray(2)
-        self.assertEqual(0, memio.readinto(buf))
 
     def test_unicode(self):
         memio = self.ioclass()

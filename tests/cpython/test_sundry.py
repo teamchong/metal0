@@ -18,11 +18,10 @@ class TestUntestedModules(unittest.TestCase):
                     self.fail('{} has tests even though test_sundry claims '
                               'otherwise'.format(name))
 
-            import html.entities  # noqa: F401
+            import html.entities
 
             try:
-                # Not available on Windows
-                import tty  # noqa: F401
+                import tty  # Not available on Windows
             except ImportError:
                 if support.verbose:
                     print("skipping tty")

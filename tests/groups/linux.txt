@@ -3,7 +3,6 @@ epoll
 external_inspection
 ioctl
 mmap
-remote_pdb
 resource
 selectors
 socket

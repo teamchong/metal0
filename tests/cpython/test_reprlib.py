@@ -3,7 +3,6 @@
   Nick Mathewson
 """
 
-import annotationlib
 import sys
 import os
 import shutil
@@ -12,7 +11,7 @@ import importlib.util
 import unittest
 import textwrap
 
-from test.support import verbose, EqualToForwardRef
+from test.support import verbose
 from test.support.os_helper import create_empty_file
 from reprlib import repr as r # Don't shadow builtin repr
 from reprlib import Repr
@@ -151,38 +150,14 @@ class ReprTests(unittest.TestCase):
         eq(r(frozenset({1, 2, 3, 4, 5, 6, 7})), "frozenset({1, 2, 3, 4, 5, 6, ...})")
 
     def test_numbers(self):
-        for x in [123, 1.0 / 3]:
-            self.assertEqual(r(x), repr(x))
+        eq = self.assertEqual
+        eq(r(123), repr(123))
+        eq(r(123), repr(123))
+        eq(r(1.0/3), repr(1.0/3))
 
-        max_digits = sys.get_int_max_str_digits()
-        for k in [100, max_digits - 1]:
-            with self.subTest(f'10 ** {k}', k=k):
-                n = 10 ** k
-                expected = repr(n)[:18] + "..." + repr(n)[-19:]
-                self.assertEqual(r(n), expected)
-
-        def re_msg(n, d):
-            return (rf'<{n.__class__.__name__} instance with roughly {d} '
-                    rf'digits \(limit at {max_digits}\) at 0x[a-f0-9]+>')
-
-        k = max_digits
-        with self.subTest(f'10 ** {k}', k=k):
-            n = 10 ** k
-            self.assertRaises(ValueError, repr, n)
-            self.assertRegex(r(n), re_msg(n, k + 1))
-
-        for k in [max_digits + 1, 2 * max_digits]:
-            self.assertGreater(k, 100)
-            with self.subTest(f'10 ** {k}', k=k):
-                n = 10 ** k
-                self.assertRaises(ValueError, repr, n)
-                self.assertRegex(r(n), re_msg(n, k + 1))
-            with self.subTest(f'10 ** {k} - 1', k=k):
-                n = 10 ** k - 1
-                # Here, since math.log10(n) == math.log10(n-1),
-                # the number of digits of n - 1 is overestimated.
-                self.assertRaises(ValueError, repr, n)
-                self.assertRegex(r(n), re_msg(n, k + 1))
+        n = 10**100
+        expected = repr(n)[:18] + "..." + repr(n)[-19:]
+        eq(r(n), expected)
 
     def test_instance(self):
         eq = self.assertEqual
@@ -197,13 +172,13 @@ class ReprTests(unittest.TestCase):
         eq(r(i3), ("<ClassWithFailingRepr instance at %#x>"%id(i3)))
 
         s = r(ClassWithFailingRepr)
-        self.assertStartsWith(s, "<class ")
-        self.assertEndsWith(s, ">")
+        self.assertTrue(s.startswith("<class "))
+        self.assertTrue(s.endswith(">"))
         self.assertIn(s.find("..."), [12, 13])
 
     def test_lambda(self):
         r = repr(lambda x: x)
-        self.assertStartsWith(r, "<function ReprTests.test_lambda.<locals>.<lambda")
+        self.assertTrue(r.startswith("<function ReprTests.test_lambda.<locals>.<lambda"), r)
         # XXX anonymous functions?  see func_repr
 
     def test_builtin_function(self):
@@ -211,8 +186,8 @@ class ReprTests(unittest.TestCase):
         # Functions
         eq(repr(hash), '<built-in function hash>')
         # Methods
-        self.assertStartsWith(repr(''.split),
-            '<built-in method split of str object at 0x')
+        self.assertTrue(repr(''.split).startswith(
+            '<built-in method split of str object at 0x'))
 
     def test_range(self):
         eq = self.assertEqual
@@ -397,20 +372,20 @@ class ReprTests(unittest.TestCase):
                 'object': {
                     1: 'two',
                     b'three': [
-                        (4.5, 6.25),
+                        (4.5, 6.7),
                         [set((8, 9)), frozenset((10, 11))],
                     ],
                 },
                 'tests': (
                     (dict(indent=None), '''\
-                        {1: 'two', b'three': [(4.5, 6.25), [{8, 9}, frozenset({10, 11})]]}'''),
+                        {1: 'two', b'three': [(4.5, 6.7), [{8, 9}, frozenset({10, 11})]]}'''),
                     (dict(indent=False), '''\
                         {
                         1: 'two',
                         b'three': [
                         (
                         4.5,
-                        6.25,
+                        6.7,
                         ),
                         [
                         {
@@ -430,7 +405,7 @@ class ReprTests(unittest.TestCase):
                          b'three': [
                           (
                            4.5,
-                           6.25,
+                           6.7,
                           ),
                           [
                            {
@@ -450,7 +425,7 @@ class ReprTests(unittest.TestCase):
                         b'three': [
                         (
                         4.5,
-                        6.25,
+                        6.7,
                         ),
                         [
                         {
@@ -470,7 +445,7 @@ class ReprTests(unittest.TestCase):
                          b'three': [
                           (
                            4.5,
-                           6.25,
+                           6.7,
                           ),
                           [
                            {
@@ -490,7 +465,7 @@ class ReprTests(unittest.TestCase):
                             b'three': [
                                 (
                                     4.5,
-                                    6.25,
+                                    6.7,
                                 ),
                                 [
                                     {
@@ -518,7 +493,7 @@ class ReprTests(unittest.TestCase):
                         b'three': [
                         (
                         4.5,
-                        6.25,
+                        6.7,
                         ),
                         [
                         {
@@ -538,7 +513,7 @@ class ReprTests(unittest.TestCase):
                         -->b'three': [
                         -->-->(
                         -->-->-->4.5,
-                        -->-->-->6.25,
+                        -->-->-->6.7,
                         -->-->),
                         -->-->[
                         -->-->-->{
@@ -558,7 +533,7 @@ class ReprTests(unittest.TestCase):
                         ....b'three': [
                         ........(
                         ............4.5,
-                        ............6.25,
+                        ............6.7,
                         ........),
                         ........[
                         ............{
@@ -754,8 +729,8 @@ class baz:
         importlib.invalidate_caches()
         from areallylongpackageandmodulenametotestreprtruncation.areallylongpackageandmodulenametotestreprtruncation import baz
         ibaz = baz.baz()
-        self.assertStartsWith(repr(ibaz),
-            "<%s.baz object at 0x" % baz.__name__)
+        self.assertTrue(repr(ibaz).startswith(
+            "<%s.baz object at 0x" % baz.__name__))
 
     def test_method(self):
         self._check_path_limitations('qux')
@@ -768,13 +743,13 @@ class aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         from areallylongpackageandmodulenametotestreprtruncation.areallylongpackageandmodulenametotestreprtruncation import qux
         # Unbound methods first
         r = repr(qux.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.amethod)
-        self.assertStartsWith(r, '<function aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.amethod')
+        self.assertTrue(r.startswith('<function aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.amethod'), r)
         # Bound method next
         iqux = qux.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa()
         r = repr(iqux.amethod)
-        self.assertStartsWith(r,
+        self.assertTrue(r.startswith(
             '<bound method aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.amethod of <%s.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa object at 0x' \
-            % (qux.__name__,) )
+            % (qux.__name__,) ), r)
 
     @unittest.skip('needs a built-in function with a really long name')
     def test_builtin_function(self):
@@ -853,20 +828,6 @@ class TestRecursiveRepr(unittest.TestCase):
         self.assertEqual(len(type_params), 1)
         self.assertEqual(type_params[0].__name__, 'T')
         self.assertEqual(type_params[0].__bound__, str)
-
-    def test_annotations(self):
-        class My:
-            @recursive_repr()
-            def __repr__(self, default: undefined = ...):
-                return default
-
-        annotations = annotationlib.get_annotations(
-            My.__repr__, format=annotationlib.Format.FORWARDREF
-        )
-        self.assertEqual(
-            annotations,
-            {'default': EqualToForwardRef("undefined", owner=My.__repr__)}
-        )
 
 if __name__ == "__main__":
     unittest.main()

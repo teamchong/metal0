@@ -84,7 +84,7 @@ class IsolatedAssembleTests(AssemblerTestCase):
                 return x
             return inner() % 2
 
-        inner_code = mod_two.__code__.co_consts[0]
+        inner_code = mod_two.__code__.co_consts[1]
         assert isinstance(inner_code, types.CodeType)
 
         metadata = {
@@ -125,15 +125,13 @@ class IsolatedAssembleTests(AssemblerTestCase):
         # code for "try: pass\n except: pass"
         insts = [
             ('RESUME', 0),
-            ('SETUP_FINALLY', 4),
-            ('LOAD_CONST', 0),
-            ('RETURN_VALUE', None),
-            ('SETUP_CLEANUP', 10),
+            ('SETUP_FINALLY', 3),
+            ('RETURN_CONST', 0),
+            ('SETUP_CLEANUP', 8),
             ('PUSH_EXC_INFO', None),
             ('POP_TOP', None),
             ('POP_EXCEPT', None),
-            ('LOAD_CONST', 0),
-            ('RETURN_VALUE', None),
+            ('RETURN_CONST', 0),
             ('COPY', 3),
             ('POP_EXCEPT', None),
             ('RERAISE', 1),
@@ -146,4 +144,4 @@ class IsolatedAssembleTests(AssemblerTestCase):
                                          L1 to L2 -> L2 [0]
                                          L2 to L3 -> L3 [1] lasti
                                     """)
-        self.assertEndsWith(output.getvalue(), exc_table)
+        self.assertTrue(output.getvalue().endswith(exc_table))

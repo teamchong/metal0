@@ -645,7 +645,7 @@ class TestNumericTestCase(unittest.TestCase):
 
     def test_numerictestcase_is_testcase(self):
         # Ensure that NumericTestCase actually is a TestCase.
-        self.assertIsSubclass(NumericTestCase, unittest.TestCase)
+        self.assertTrue(issubclass(NumericTestCase, unittest.TestCase))
 
     def test_error_msg_numeric(self):
         # Test the error message generated for numeric comparisons.
@@ -683,23 +683,32 @@ class GlobalsTest(unittest.TestCase):
     def test_meta(self):
         # Test for the existence of metadata.
         for meta in self.expected_metadata:
-            self.assertHasAttr(self.module, meta)
+            self.assertTrue(hasattr(self.module, meta),
+                            "%s not present" % meta)
 
     def test_check_all(self):
         # Check everything in __all__ exists and is public.
         module = self.module
         for name in module.__all__:
             # No private names in __all__:
-            self.assertNotStartsWith(name, "_",
+            self.assertFalse(name.startswith("_"),
                              'private name "%s" in __all__' % name)
             # And anything in __all__ must exist:
-            self.assertHasAttr(module, name)
+            self.assertTrue(hasattr(module, name),
+                            'missing name "%s" in __all__' % name)
 
 
 class StatisticsErrorTest(unittest.TestCase):
     def test_has_exception(self):
-        self.assertHasAttr(statistics, 'StatisticsError')
-        self.assertIsSubclass(statistics.StatisticsError, ValueError)
+        errmsg = (
+                "Expected StatisticsError to be a ValueError, but got a"
+                " subclass of %r instead."
+                )
+        self.assertTrue(hasattr(statistics, 'StatisticsError'))
+        self.assertTrue(
+                issubclass(statistics.StatisticsError, ValueError),
+                errmsg % statistics.StatisticsError.__base__
+                )
 
 
 # === Tests for private utility functions ===
@@ -2005,6 +2014,7 @@ class VarianceStdevMixin(UnivariateCommonMixin):
         expected = self.func(data)
         self.assertEqual(self.func(iter(data)), expected)
 
+
 class TestPVariance(VarianceStdevMixin, NumericTestCase, UnivariateTypeMixin):
     # Tests for population variance.
     def setUp(self):
@@ -2111,14 +2121,6 @@ class TestPStdev(VarianceStdevMixin, NumericTestCase):
         data = (3, 6, 7, 10)
         self.assertEqual(self.func(data), 2.5)
         self.assertEqual(self.func(data, mu=0.5), 6.5)
-
-    def test_gh_140938(self):
-        # Inputs with inf/nan should raise a ValueError
-        with self.assertRaises(ValueError):
-            self.func([1.0, math.inf])
-        with self.assertRaises(ValueError):
-            self.func([1.0, math.nan])
-
 
 class TestSqrtHelpers(unittest.TestCase):
 
@@ -2353,7 +2355,6 @@ class TestGeometricMean(unittest.TestCase):
 
 class TestKDE(unittest.TestCase):
 
-    @support.requires_resource('cpu')
     def test_kde(self):
         kde = statistics.kde
         StatisticsError = statistics.StatisticsError
@@ -2433,22 +2434,17 @@ class TestKDE(unittest.TestCase):
         data.append(100)
         self.assertGreater(f_hat(100), 0.0)
 
-    def test_kde_kernel_specs(self):
-        # White-box test for the kernel formulas in isolation from
-        # their downstream use in kde() and kde_random()
-        kernel_specs = statistics._kernel_specs
+    def test_kde_kernel_invcdfs(self):
+        kernel_invcdfs = statistics._kernel_invcdfs
+        kde = statistics.kde
 
         # Verify that cdf / invcdf will round trip
         xarr = [i/100 for i in range(-100, 101)]
-        parr = [i/1000 + 5/10000 for i in range(1000)]
-        for kernel, spec in kernel_specs.items():
-            cdf = spec['cdf']
-            invcdf = spec['invcdf']
+        for kernel, invcdf in kernel_invcdfs.items():
             with self.subTest(kernel=kernel):
+                cdf = kde([0.0], h=1.0, kernel=kernel, cumulative=True)
                 for x in xarr:
-                    self.assertAlmostEqual(invcdf(cdf(x)), x, places=6)
-                for p in parr:
-                    self.assertAlmostEqual(cdf(invcdf(p)), p, places=11)
+                    self.assertAlmostEqual(invcdf(cdf(x)), x, places=5)
 
     @support.requires_resource('cpu')
     def test_kde_random(self):
@@ -2798,7 +2794,7 @@ class TestCorrelationAndCovariance(unittest.TestCase):
     @requires_IEEE_754
     @unittest.skipIf(HAVE_DOUBLE_ROUNDING,
                      "accuracy not guaranteed on machines with double rounding")
-    @support.cpython_only    # Allow for a weaker sumprod() implementation
+    @support.cpython_only    # Allow for a weaker sumprod() implmentation
     def test_sqrtprod_helper_function_improved_accuracy(self):
         # Test a known example where accuracy is improved
         x, y, target = 0.8035720646477457, 0.7957468097636939, 0.7996498651651661
@@ -3326,8 +3322,7 @@ class TestNormalDistC(unittest.TestCase, TestNormalDist):
 def load_tests(loader, tests, ignore):
     """Used for doctest/unittest integration."""
     tests.addTests(doctest.DocTestSuite())
-    if sys.float_repr_style == 'short':
-        tests.addTests(doctest.DocTestSuite(statistics))
+    tests.addTests(doctest.DocTestSuite(statistics))
     return tests
 
 

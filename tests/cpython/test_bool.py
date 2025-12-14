@@ -383,10 +383,6 @@ class BoolTest(unittest.TestCase):
             __bool__ = None
         self.assertRaises(TypeError, bool, B())
 
-        class C:
-            __len__ = None
-        self.assertRaises(TypeError, bool, C())
-
     def test_real_and_imag(self):
         self.assertEqual(True.real, 1)
         self.assertEqual(True.imag, 0)

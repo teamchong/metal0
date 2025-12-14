@@ -4,8 +4,6 @@ _opcode
 abc
 abstract_numbers
 android
-annotationlib
-apple
 argparse
 asdl_parser
 asyncgen
@@ -58,7 +56,6 @@ copy
 copyreg
 coroutines
 cprofile
-crossinterp
 datetime
 dbm
 dbm_dumb

@@ -12,7 +12,7 @@ import unittest
 import weakref
 from collections.abc import MutableMapping
 from test import mapping_tests, support
-from test.support import import_helper
+from test.support import import_helper, suppress_immortalization
 
 
 py_coll = import_helper.import_fresh_module('collections',
@@ -147,7 +147,7 @@ class OrderedDictTests:
     def test_abc(self):
         OrderedDict = self.OrderedDict
         self.assertIsInstance(OrderedDict(), MutableMapping)
-        self.assertIsSubclass(OrderedDict, MutableMapping)
+        self.assertTrue(issubclass(OrderedDict, MutableMapping))
 
     def test_clear(self):
         OrderedDict = self.OrderedDict
@@ -314,14 +314,14 @@ class OrderedDictTests:
         check(dup)
         self.assertIs(dup.x, od.x)
         self.assertIs(dup.z, od.z)
-        self.assertNotHasAttr(dup, 'y')
+        self.assertFalse(hasattr(dup, 'y'))
         dup = copy.deepcopy(od)
         check(dup)
         self.assertEqual(dup.x, od.x)
         self.assertIsNot(dup.x, od.x)
         self.assertEqual(dup.z, od.z)
         self.assertIsNot(dup.z, od.z)
-        self.assertNotHasAttr(dup, 'y')
+        self.assertFalse(hasattr(dup, 'y'))
         # pickle directly pulls the module, so we have to fake it
         with replaced_module('collections', self.module):
             for proto in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -330,7 +330,7 @@ class OrderedDictTests:
                     check(dup)
                     self.assertEqual(dup.x, od.x)
                     self.assertEqual(dup.z, od.z)
-                    self.assertNotHasAttr(dup, 'y')
+                    self.assertFalse(hasattr(dup, 'y'))
         check(eval(repr(od)))
         update_test = OrderedDict()
         update_test.update(od)
@@ -669,6 +669,7 @@ class OrderedDictTests:
         dict.update(od, [('spam', 1)])
         self.assertNotIn('NULL', repr(od))
 
+    @suppress_immortalization()
     def test_reference_loop(self):
         # Issue 25935
         OrderedDict = self.OrderedDict

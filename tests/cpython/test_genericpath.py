@@ -7,9 +7,9 @@ import os
 import sys
 import unittest
 import warnings
-from test import support
-from test.support import os_helper
-from test.support import warnings_helper
+from test.support import (
+    is_apple, is_emscripten, os_helper, warnings_helper
+)
 from test.support.script_helper import assert_python_ok
 from test.support.os_helper import FakePath
 
@@ -92,8 +92,8 @@ class GenericTest:
         for s1 in testlist:
             for s2 in testlist:
                 p = commonprefix([s1, s2])
-                self.assertStartsWith(s1, p)
-                self.assertStartsWith(s2, p)
+                self.assertTrue(s1.startswith(p))
+                self.assertTrue(s2.startswith(p))
                 if s1 != s2:
                     n = len(p)
                     self.assertNotEqual(s1[n:n+1], s2[n:n+1])
@@ -161,6 +161,7 @@ class GenericTest:
         self.assertIs(self.pathmodule.lexists(path=filename), True)
 
     @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
+    @unittest.skipIf(is_emscripten, "Emscripten pipe fds have no stat")
     def test_exists_fd(self):
         r, w = os.pipe()
         try:
@@ -445,19 +446,6 @@ class CommonTest(GenericTest):
                   os.fsencode('$bar%s bar' % nonascii))
             check(b'$spam}bar', os.fsencode('%s}bar' % nonascii))
 
-    @support.requires_resource('cpu')
-    def test_expandvars_large(self):
-        expandvars = self.pathmodule.expandvars
-        with os_helper.EnvironmentVarGuard() as env:
-            env.clear()
-            env["A"] = "B"
-            n = 100_000
-            self.assertEqual(expandvars('$A'*n), 'B'*n)
-            self.assertEqual(expandvars('${A}'*n), 'B'*n)
-            self.assertEqual(expandvars('$A!'*n), 'B!'*n)
-            self.assertEqual(expandvars('${A}A'*n), 'BA'*n)
-            self.assertEqual(expandvars('${'*10*n), '${'*10*n)
-
     def test_abspath(self):
         self.assertIn("foo", self.pathmodule.abspath("foo"))
         with warnings.catch_warnings():
@@ -515,7 +503,7 @@ class CommonTest(GenericTest):
             # directory (when the bytes name is used).
             and sys.platform not in {
                 "win32", "emscripten", "wasi"
-            } and not support.is_apple
+            } and not is_apple
         ):
             name = os_helper.TESTFN_UNDECODABLE
         elif os_helper.TESTFN_NONASCII:

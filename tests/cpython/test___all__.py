@@ -3,6 +3,7 @@ from test import support
 from test.support import warnings_helper
 import os
 import sys
+import types
 
 
 if support.check_sanitizer(address=True, memory=True):
@@ -37,7 +38,6 @@ class AllTest(unittest.TestCase):
             (".* (module|package)", DeprecationWarning),
             (".* (module|package)", PendingDeprecationWarning),
             ("", ResourceWarning),
-            ("", SyntaxWarning),
             quiet=True):
             try:
                 exec("import %s" % modname, names)
@@ -53,7 +53,6 @@ class AllTest(unittest.TestCase):
             with warnings_helper.check_warnings(
                 ("", DeprecationWarning),
                 ("", ResourceWarning),
-                ("", SyntaxWarning),
                 quiet=True):
                 try:
                     exec("from %s import *" % modname, names)
@@ -72,8 +71,6 @@ class AllTest(unittest.TestCase):
                 all_set = set(all_list)
                 self.assertCountEqual(all_set, all_list, "in module {}".format(modname))
                 self.assertEqual(keys, all_set, "in module {}".format(modname))
-                # Verify __dir__ is non-empty and doesn't produce an error
-                self.assertTrue(dir(sys.modules[modname]))
 
     def walk_modules(self, basedir, modpath):
         for fn in sorted(os.listdir(basedir)):
@@ -107,7 +104,7 @@ class AllTest(unittest.TestCase):
         # In case _socket fails to build, make this test fail more gracefully
         # than an AttributeError somewhere deep in concurrent.futures, email
         # or unittest.
-        import _socket  # noqa: F401
+        import _socket
 
         ignored = []
         failed_imports = []

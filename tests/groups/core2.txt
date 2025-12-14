@@ -59,7 +59,6 @@ multibytecodec
 multiprocessing_main_handling
 named_expressions
 netrc
-nturl2path
 numeric_tower
 opcache
 opcodes

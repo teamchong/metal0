@@ -2,7 +2,6 @@
 
 import dis
 import pickle
-import types
 import unittest
 
 from test.support import check_syntax_error
@@ -441,9 +440,7 @@ class PositionalOnlyTestCase(unittest.TestCase):
         # without constant folding we end up with
         # COMPARE_OP(is), IS_OP (0)
         # with constant folding we should expect a IS_OP (1)
-        code_obj = next(const for const in g.__code__.co_consts
-                        if isinstance(const, types.CodeType) and const.co_name == "__annotate__")
-        codes = [(i.opname, i.argval) for i in dis.get_instructions(code_obj)]
+        codes = [(i.opname, i.argval) for i in dis.get_instructions(g)]
         self.assertNotIn(('UNARY_NOT', None), codes)
         self.assertIn(('IS_OP', 1), codes)
 

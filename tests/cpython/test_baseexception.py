@@ -10,11 +10,13 @@ class ExceptionClassTests(unittest.TestCase):
     inheritance hierarchy)"""
 
     def test_builtins_new_style(self):
-        self.assertIsSubclass(Exception, object)
+        self.assertTrue(issubclass(Exception, object))
 
     def verify_instance_interface(self, ins):
         for attr in ("args", "__str__", "__repr__"):
-            self.assertHasAttr(ins, attr)
+            self.assertTrue(hasattr(ins, attr),
+                    "%s missing %s attribute" %
+                        (ins.__class__.__name__, attr))
 
     def test_inheritance(self):
         # Make sure the inheritance hierarchy matches the documentation
@@ -63,7 +65,7 @@ class ExceptionClassTests(unittest.TestCase):
                 elif last_depth > depth:
                     while superclasses[-1][0] >= depth:
                         superclasses.pop()
-                self.assertIsSubclass(exc, superclasses[-1][1],
+                self.assertTrue(issubclass(exc, superclasses[-1][1]),
                 "%s is not a subclass of %s" % (exc.__name__,
                     superclasses[-1][1].__name__))
                 try:  # Some exceptions require arguments; just skip them

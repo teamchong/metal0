@@ -6,7 +6,6 @@ import enum
 import inspect
 import sys
 import unittest
-from test import support
 
 
 @dataclasses.dataclass
@@ -3016,13 +3015,6 @@ class TestSyntaxErrors(unittest.TestCase):
                 pass
         """)
 
-    def test_multiple_assignments_to_name_in_pattern_6(self):
-        self.assert_syntax_error("""
-        match ...:
-            case a as a + 1:  # NAME and expression with no ()
-                pass
-        """)
-
     def test_multiple_starred_names_in_sequence_pattern_0(self):
         self.assert_syntax_error("""
         match ...:
@@ -3499,7 +3491,6 @@ class TestTracing(unittest.TestCase):
         self.assertListEqual(self._trace(f, 1), [1, 2, 3])
         self.assertListEqual(self._trace(f, 0), [1, 2, 5, 6])
 
-    @support.skip_wasi_stack_overflow()
     def test_parser_deeply_nested_patterns(self):
         # Deeply nested patterns can cause exponential backtracking when parsing.
         # See gh-93671 for more information.

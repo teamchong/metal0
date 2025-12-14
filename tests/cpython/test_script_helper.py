@@ -74,7 +74,8 @@ class TestScriptHelperEnvironment(unittest.TestCase):
     """Code coverage for interpreter_requires_environment()."""
 
     def setUp(self):
-        self.assertHasAttr(script_helper, '__cached_interp_requires_environment')
+        self.assertTrue(
+            hasattr(script_helper, '__cached_interp_requires_environment'))
         # Reset the private cached state.
         script_helper.__dict__['__cached_interp_requires_environment'] = None
 

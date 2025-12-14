@@ -19,7 +19,7 @@ strtod_parser = re.compile(r"""    # A numeric string consists of:
     (?P<int>\d*)             # having a (possibly empty) integer part
     (?:\.(?P<frac>\d*))?     # followed by an optional fractional part
     (?:E(?P<exp>[-+]?\d+))?  # and an optional exponent
-    \z
+    \Z
 """, re.VERBOSE | re.IGNORECASE).match
 
 # Pure Python version of correctly rounded string->float conversion.

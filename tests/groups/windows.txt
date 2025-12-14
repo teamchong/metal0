@@ -4,7 +4,6 @@ _locale
 _osx_support
 array
 audit
-build_details
 builtin
 calendar
 cmd_line
@@ -53,7 +52,6 @@ plistlib
 posixpath
 py_compile
 regrtest
-remote_pdb
 repl
 runpy
 select
@@ -74,7 +72,6 @@ tarfile
 tcl
 tempfile
 thread
-thread_local_bytecode
 threading
 time
 tracemalloc

@@ -2,7 +2,6 @@
 
 import copy
 import pickle
-import time
 import io
 from test import support
 import unittest
@@ -58,7 +57,7 @@ class MinidomTest(unittest.TestCase):
 
     def checkWholeText(self, node, s):
         t = node.wholeText
-        self.assertEqual(t, s, "looking for %r, found %r" % (s, t))
+        self.confirm(t == s, "looking for %r, found %r" % (s, t))
 
     def testDocumentAsyncAttr(self):
         doc = Document()
@@ -69,13 +68,13 @@ class MinidomTest(unittest.TestCase):
         with open(tstfile, 'rb') as file:
             dom = parse(file)
             dom.unlink()
-            self.assertIsInstance(dom, Document)
+            self.confirm(isinstance(dom, Document))
 
     def testParseFromTextFile(self):
         with open(tstfile, 'r', encoding='iso-8859-1') as file:
             dom = parse(file)
             dom.unlink()
-            self.assertIsInstance(dom, Document)
+            self.confirm(isinstance(dom, Document))
 
     def testAttrModeSetsParamsAsAttrs(self):
         attr = Attr("qName", "namespaceURI", "localName", "prefix")
@@ -93,7 +92,7 @@ class MinidomTest(unittest.TestCase):
 
     def testGetElementsByTagName(self):
         dom = parse(tstfile)
-        self.assertEqual(dom.getElementsByTagName("LI"),
+        self.confirm(dom.getElementsByTagName("LI") == \
                 dom.documentElement.getElementsByTagName("LI"))
         dom.unlink()
 
@@ -103,38 +102,41 @@ class MinidomTest(unittest.TestCase):
         elem = root.childNodes[0]
         nelem = dom.createElement("element")
         root.insertBefore(nelem, elem)
-        self.assertEqual(len(root.childNodes), 2)
-        self.assertEqual(root.childNodes.length, 2)
-        self.assertIs(root.childNodes[0], nelem)
-        self.assertIs(root.childNodes.item(0), nelem)
-        self.assertIs(root.childNodes[1], elem)
-        self.assertIs(root.childNodes.item(1), elem)
-        self.assertIs(root.firstChild, nelem)
-        self.assertIs(root.lastChild, elem)
-        self.assertEqual(root.toxml(), "<doc><element/><foo/></doc>")
+        self.confirm(len(root.childNodes) == 2
+                and root.childNodes.length == 2
+                and root.childNodes[0] is nelem
+                and root.childNodes.item(0) is nelem
+                and root.childNodes[1] is elem
+                and root.childNodes.item(1) is elem
+                and root.firstChild is nelem
+                and root.lastChild is elem
+                and root.toxml() == "<doc><element/><foo/></doc>"
+                , "testInsertBefore -- node properly placed in tree")
         nelem = dom.createElement("element")
         root.insertBefore(nelem, None)
-        self.assertEqual(len(root.childNodes), 3)
-        self.assertEqual(root.childNodes.length, 3)
-        self.assertIs(root.childNodes[1], elem)
-        self.assertIs(root.childNodes.item(1), elem)
-        self.assertIs(root.childNodes[2], nelem)
-        self.assertIs(root.childNodes.item(2), nelem)
-        self.assertIs(root.lastChild, nelem)
-        self.assertIs(nelem.previousSibling, elem)
-        self.assertEqual(root.toxml(), "<doc><element/><foo/><element/></doc>")
+        self.confirm(len(root.childNodes) == 3
+                and root.childNodes.length == 3
+                and root.childNodes[1] is elem
+                and root.childNodes.item(1) is elem
+                and root.childNodes[2] is nelem
+                and root.childNodes.item(2) is nelem
+                and root.lastChild is nelem
+                and nelem.previousSibling is elem
+                and root.toxml() == "<doc><element/><foo/><element/></doc>"
+                , "testInsertBefore -- node properly placed in tree")
         nelem2 = dom.createElement("bar")
         root.insertBefore(nelem2, nelem)
-        self.assertEqual(len(root.childNodes), 4)
-        self.assertEqual(root.childNodes.length, 4)
-        self.assertIs(root.childNodes[2], nelem2)
-        self.assertIs(root.childNodes.item(2), nelem2)
-        self.assertIs(root.childNodes[3], nelem)
-        self.assertIs(root.childNodes.item(3), nelem)
-        self.assertIs(nelem2.nextSibling, nelem)
-        self.assertIs(nelem.previousSibling, nelem2)
-        self.assertEqual(root.toxml(),
-                         "<doc><element/><foo/><bar/><element/></doc>")
+        self.confirm(len(root.childNodes) == 4
+                and root.childNodes.length == 4
+                and root.childNodes[2] is nelem2
+                and root.childNodes.item(2) is nelem2
+                and root.childNodes[3] is nelem
+                and root.childNodes.item(3) is nelem
+                and nelem2.nextSibling is nelem
+                and nelem.previousSibling is nelem2
+                and root.toxml() ==
+                "<doc><element/><foo/><bar/><element/></doc>"
+                , "testInsertBefore -- node properly placed in tree")
         dom.unlink()
 
     def _create_fragment_test_nodes(self):
@@ -153,7 +155,7 @@ class MinidomTest(unittest.TestCase):
     def testInsertBeforeFragment(self):
         dom, orig, c1, c2, c3, frag = self._create_fragment_test_nodes()
         dom.documentElement.insertBefore(frag, None)
-        self.assertTupleEqual(tuple(dom.documentElement.childNodes),
+        self.confirm(tuple(dom.documentElement.childNodes) ==
                      (orig, c1, c2, c3),
                      "insertBefore(<fragment>, None)")
         frag.unlink()
@@ -161,7 +163,7 @@ class MinidomTest(unittest.TestCase):
 
         dom, orig, c1, c2, c3, frag = self._create_fragment_test_nodes()
         dom.documentElement.insertBefore(frag, orig)
-        self.assertTupleEqual(tuple(dom.documentElement.childNodes),
+        self.confirm(tuple(dom.documentElement.childNodes) ==
                      (c1, c2, c3, orig),
                      "insertBefore(<fragment>, orig)")
         frag.unlink()
@@ -170,31 +172,14 @@ class MinidomTest(unittest.TestCase):
     def testAppendChild(self):
         dom = parse(tstfile)
         dom.documentElement.appendChild(dom.createComment("Hello"))
-        self.assertEqual(dom.documentElement.childNodes[-1].nodeName, "#comment")
-        self.assertEqual(dom.documentElement.childNodes[-1].data, "Hello")
+        self.confirm(dom.documentElement.childNodes[-1].nodeName == "#comment")
+        self.confirm(dom.documentElement.childNodes[-1].data == "Hello")
         dom.unlink()
-
-    def testAppendChildNoQuadraticComplexity(self):
-        impl = getDOMImplementation()
-
-        newdoc = impl.createDocument(None, "some_tag", None)
-        top_element = newdoc.documentElement
-        children = [newdoc.createElement(f"child-{i}") for i in range(1, 2 ** 15 + 1)]
-        element = top_element
-
-        start = time.time()
-        for child in children:
-            element.appendChild(child)
-            element = child
-        end = time.time()
-
-        # This example used to take at least 30 seconds.
-        self.assertLess(end - start, 1)
 
     def testAppendChildFragment(self):
         dom, orig, c1, c2, c3, frag = self._create_fragment_test_nodes()
         dom.documentElement.appendChild(frag)
-        self.assertTupleEqual(tuple(dom.documentElement.childNodes),
+        self.confirm(tuple(dom.documentElement.childNodes) ==
                      (orig, c1, c2, c3),
                      "appendChild(<fragment>)")
         frag.unlink()
@@ -204,7 +189,7 @@ class MinidomTest(unittest.TestCase):
         dom, orig, c1, c2, c3, frag = self._create_fragment_test_nodes()
         dom.documentElement.replaceChild(frag, orig)
         orig.unlink()
-        self.assertTupleEqual(tuple(dom.documentElement.childNodes), (c1, c2, c3),
+        self.confirm(tuple(dom.documentElement.childNodes) == (c1, c2, c3),
                 "replaceChild(<fragment>)")
         frag.unlink()
         dom.unlink()
@@ -236,22 +221,22 @@ class MinidomTest(unittest.TestCase):
         attrs = elem.attributes
         attrs["foo"] = "bar"
         a = attrs.item(0)
-        self.assertIs(a.ownerDocument, dom,
+        self.confirm(a.ownerDocument is dom,
                 "NamedNodeMap.__setitem__() sets ownerDocument")
-        self.assertIs(a.ownerElement, elem,
+        self.confirm(a.ownerElement is elem,
                 "NamedNodeMap.__setitem__() sets ownerElement")
-        self.assertEqual(a.value, "bar",
+        self.confirm(a.value == "bar",
                 "NamedNodeMap.__setitem__() sets value")
-        self.assertEqual(a.nodeValue, "bar",
+        self.confirm(a.nodeValue == "bar",
                 "NamedNodeMap.__setitem__() sets nodeValue")
         elem.unlink()
         dom.unlink()
 
     def testNonZero(self):
         dom = parse(tstfile)
-        self.assertTrue(dom)  # should not be zero
+        self.confirm(dom)# should not be zero
         dom.appendChild(dom.createComment("foo"))
-        self.assertFalse(dom.childNodes[-1].childNodes)
+        self.confirm(not dom.childNodes[-1].childNodes)
         dom.unlink()
 
     def testUnlink(self):
@@ -268,18 +253,18 @@ class MinidomTest(unittest.TestCase):
     def testElement(self):
         dom = Document()
         dom.appendChild(dom.createElement("abc"))
-        self.assertTrue(dom.documentElement)
+        self.confirm(dom.documentElement)
         dom.unlink()
 
     def testAAA(self):
         dom = parseString("<abc/>")
         el = dom.documentElement
         el.setAttribute("spam", "jam2")
-        self.assertEqual(el.toxml(), '<abc spam="jam2"/>', "testAAA")
+        self.confirm(el.toxml() == '<abc spam="jam2"/>', "testAAA")
         a = el.getAttributeNode("spam")
-        self.assertIs(a.ownerDocument, dom,
+        self.confirm(a.ownerDocument is dom,
                 "setAttribute() sets ownerDocument")
-        self.assertIs(a.ownerElement, dom.documentElement,
+        self.confirm(a.ownerElement is dom.documentElement,
                 "setAttribute() sets ownerElement")
         dom.unlink()
 
@@ -288,7 +273,7 @@ class MinidomTest(unittest.TestCase):
         el = dom.documentElement
         el.setAttribute("spam", "jam")
         el.setAttribute("spam", "jam2")
-        self.assertEqual(el.toxml(), '<abc spam="jam2"/>', "testAAB")
+        self.confirm(el.toxml() == '<abc spam="jam2"/>', "testAAB")
         dom.unlink()
 
     def testAddAttr(self):
@@ -296,31 +281,31 @@ class MinidomTest(unittest.TestCase):
         child = dom.appendChild(dom.createElement("abc"))
 
         child.setAttribute("def", "ghi")
-        self.assertEqual(child.getAttribute("def"), "ghi")
-        self.assertEqual(child.attributes["def"].value, "ghi")
+        self.confirm(child.getAttribute("def") == "ghi")
+        self.confirm(child.attributes["def"].value == "ghi")
 
         child.setAttribute("jkl", "mno")
-        self.assertEqual(child.getAttribute("jkl"), "mno")
-        self.assertEqual(child.attributes["jkl"].value, "mno")
+        self.confirm(child.getAttribute("jkl") == "mno")
+        self.confirm(child.attributes["jkl"].value == "mno")
 
-        self.assertEqual(len(child.attributes), 2)
+        self.confirm(len(child.attributes) == 2)
 
         child.setAttribute("def", "newval")
-        self.assertEqual(child.getAttribute("def"), "newval")
-        self.assertEqual(child.attributes["def"].value, "newval")
+        self.confirm(child.getAttribute("def") == "newval")
+        self.confirm(child.attributes["def"].value == "newval")
 
-        self.assertEqual(len(child.attributes), 2)
+        self.confirm(len(child.attributes) == 2)
         dom.unlink()
 
     def testDeleteAttr(self):
         dom = Document()
         child = dom.appendChild(dom.createElement("abc"))
 
-        self.assertEqual(len(child.attributes), 0)
+        self.confirm(len(child.attributes) == 0)
         child.setAttribute("def", "ghi")
-        self.assertEqual(len(child.attributes), 1)
+        self.confirm(len(child.attributes) == 1)
         del child.attributes["def"]
-        self.assertEqual(len(child.attributes), 0)
+        self.confirm(len(child.attributes) == 0)
         dom.unlink()
 
     def testRemoveAttr(self):
@@ -328,10 +313,10 @@ class MinidomTest(unittest.TestCase):
         child = dom.appendChild(dom.createElement("abc"))
 
         child.setAttribute("def", "ghi")
-        self.assertEqual(len(child.attributes), 1)
+        self.confirm(len(child.attributes) == 1)
         self.assertRaises(xml.dom.NotFoundErr, child.removeAttribute, "foo")
         child.removeAttribute("def")
-        self.assertEqual(len(child.attributes), 0)
+        self.confirm(len(child.attributes) == 0)
         dom.unlink()
 
     def testRemoveAttrNS(self):
@@ -343,22 +328,22 @@ class MinidomTest(unittest.TestCase):
         child.setAttributeNS("http://www.python.org", "python:abcattr", "foo")
         self.assertRaises(xml.dom.NotFoundErr, child.removeAttributeNS,
             "foo", "http://www.python.org")
-        self.assertEqual(len(child.attributes), 2)
+        self.confirm(len(child.attributes) == 2)
         child.removeAttributeNS("http://www.python.org", "abcattr")
-        self.assertEqual(len(child.attributes), 1)
+        self.confirm(len(child.attributes) == 1)
         dom.unlink()
 
     def testRemoveAttributeNode(self):
         dom = Document()
         child = dom.appendChild(dom.createElement("foo"))
         child.setAttribute("spam", "jam")
-        self.assertEqual(len(child.attributes), 1)
+        self.confirm(len(child.attributes) == 1)
         node = child.getAttributeNode("spam")
         self.assertRaises(xml.dom.NotFoundErr, child.removeAttributeNode,
             None)
         self.assertIs(node, child.removeAttributeNode(node))
-        self.assertEqual(len(child.attributes), 0)
-        self.assertIsNone(child.getAttributeNode("spam"))
+        self.confirm(len(child.attributes) == 0
+                and child.getAttributeNode("spam") is None)
         dom2 = Document()
         child2 = dom2.appendChild(dom2.createElement("foo"))
         node2 = child2.getAttributeNode("spam")
@@ -370,70 +355,54 @@ class MinidomTest(unittest.TestCase):
         dom = Document()
         child = dom.appendChild(dom.createElement("foo"))
         child.setAttribute("spam", "jam")
-        self.assertTrue(child.hasAttribute("spam"))
+        self.confirm(child.hasAttribute("spam"))
 
     def testChangeAttr(self):
         dom = parseString("<abc/>")
         el = dom.documentElement
         el.setAttribute("spam", "jam")
-        self.assertEqual(len(el.attributes), 1)
+        self.confirm(len(el.attributes) == 1)
         el.setAttribute("spam", "bam")
         # Set this attribute to be an ID and make sure that doesn't change
         # when changing the value:
         el.setIdAttribute("spam")
-        self.assertEqual(len(el.attributes), 1)
-        self.assertEqual(el.attributes["spam"].value, "bam")
-        self.assertEqual(el.attributes["spam"].nodeValue, "bam")
-        self.assertEqual(el.getAttribute("spam"), "bam")
-        self.assertTrue(el.getAttributeNode("spam").isId)
+        self.confirm(len(el.attributes) == 1
+                and el.attributes["spam"].value == "bam"
+                and el.attributes["spam"].nodeValue == "bam"
+                and el.getAttribute("spam") == "bam"
+                and el.getAttributeNode("spam").isId)
         el.attributes["spam"] = "ham"
-        self.assertEqual(len(el.attributes), 1)
-        self.assertEqual(el.attributes["spam"].value, "ham")
-        self.assertEqual(el.attributes["spam"].nodeValue, "ham")
-        self.assertEqual(el.getAttribute("spam"), "ham")
-        self.assertTrue(el.attributes["spam"].isId)
+        self.confirm(len(el.attributes) == 1
+                and el.attributes["spam"].value == "ham"
+                and el.attributes["spam"].nodeValue == "ham"
+                and el.getAttribute("spam") == "ham"
+                and el.attributes["spam"].isId)
         el.setAttribute("spam2", "bam")
-        self.assertEqual(len(el.attributes), 2)
-        self.assertEqual(el.attributes["spam"].value, "ham")
-        self.assertEqual(el.attributes["spam"].nodeValue, "ham")
-        self.assertEqual(el.getAttribute("spam"), "ham")
-        self.assertEqual(el.attributes["spam2"].value, "bam")
-        self.assertEqual(el.attributes["spam2"].nodeValue, "bam")
-        self.assertEqual(el.getAttribute("spam2"), "bam")
+        self.confirm(len(el.attributes) == 2
+                and el.attributes["spam"].value == "ham"
+                and el.attributes["spam"].nodeValue == "ham"
+                and el.getAttribute("spam") == "ham"
+                and el.attributes["spam2"].value == "bam"
+                and el.attributes["spam2"].nodeValue == "bam"
+                and el.getAttribute("spam2") == "bam")
         el.attributes["spam2"] = "bam2"
-
-        self.assertEqual(len(el.attributes), 2)
-        self.assertEqual(el.attributes["spam"].value, "ham")
-        self.assertEqual(el.attributes["spam"].nodeValue, "ham")
-        self.assertEqual(el.getAttribute("spam"), "ham")
-        self.assertEqual(el.attributes["spam2"].value, "bam2")
-        self.assertEqual(el.attributes["spam2"].nodeValue, "bam2")
-        self.assertEqual(el.getAttribute("spam2"), "bam2")
+        self.confirm(len(el.attributes) == 2
+                and el.attributes["spam"].value == "ham"
+                and el.attributes["spam"].nodeValue == "ham"
+                and el.getAttribute("spam") == "ham"
+                and el.attributes["spam2"].value == "bam2"
+                and el.attributes["spam2"].nodeValue == "bam2"
+                and el.getAttribute("spam2") == "bam2")
         dom.unlink()
 
     def testGetAttrList(self):
-        dom = parseString("<abc/>")
-        self.addCleanup(dom.unlink)
-        el = dom.documentElement
-        el.setAttribute("spam", "jam")
-        self.assertEqual(len(el.attributes.items()), 1)
-        el.setAttribute("foo", "bar")
-        items = el.attributes.items()
-        self.assertEqual(len(items), 2)
-        self.assertIn(('spam', 'jam'), items)
-        self.assertIn(('foo', 'bar'), items)
+        pass
 
     def testGetAttrValues(self):
-        dom = parseString("<abc/>")
-        self.addCleanup(dom.unlink)
-        el = dom.documentElement
-        el.setAttribute("spam", "jam")
-        values = [x.value for x in el.attributes.values()]
-        self.assertIn("jam", values)
-        el.setAttribute("foo", "bar")
-        values = [x.value for x in el.attributes.values()]
-        self.assertIn("bar", values)
-        self.assertIn("jam", values)
+        pass
+
+    def testGetAttrLength(self):
+        pass
 
     def testGetAttribute(self):
         dom = Document()
@@ -464,18 +433,18 @@ class MinidomTest(unittest.TestCase):
         dom = parseString(d)
         elems = dom.getElementsByTagNameNS("http://pyxml.sf.net/minidom",
                                            "myelem")
-        self.assertEqual(len(elems), 1)
-        self.assertEqual(elems[0].namespaceURI, "http://pyxml.sf.net/minidom")
-        self.assertEqual(elems[0].localName, "myelem")
-        self.assertEqual(elems[0].prefix, "minidom")
-        self.assertEqual(elems[0].tagName, "minidom:myelem")
-        self.assertEqual(elems[0].nodeName, "minidom:myelem")
+        self.confirm(len(elems) == 1
+                and elems[0].namespaceURI == "http://pyxml.sf.net/minidom"
+                and elems[0].localName == "myelem"
+                and elems[0].prefix == "minidom"
+                and elems[0].tagName == "minidom:myelem"
+                and elems[0].nodeName == "minidom:myelem")
         dom.unlink()
 
     def get_empty_nodelist_from_elements_by_tagName_ns_helper(self, doc, nsuri,
                                                               lname):
         nodelist = doc.getElementsByTagNameNS(nsuri, lname)
-        self.assertEqual(len(nodelist), 0)
+        self.confirm(len(nodelist) == 0)
 
     def testGetEmptyNodeListFromElementsByTagNameNS(self):
         doc = parseString('<doc/>')
@@ -499,7 +468,7 @@ class MinidomTest(unittest.TestCase):
         el = dom.appendChild(dom.createElement("abc"))
         string1 = repr(el)
         string2 = str(el)
-        self.assertEqual(string1, string2)
+        self.confirm(string1 == string2)
         dom.unlink()
 
     def testElementReprAndStrUnicode(self):
@@ -507,7 +476,7 @@ class MinidomTest(unittest.TestCase):
         el = dom.appendChild(dom.createElement("abc"))
         string1 = repr(el)
         string2 = str(el)
-        self.assertEqual(string1, string2)
+        self.confirm(string1 == string2)
         dom.unlink()
 
     def testElementReprAndStrUnicodeNS(self):
@@ -516,23 +485,25 @@ class MinidomTest(unittest.TestCase):
             dom.createElementNS("http://www.slashdot.org", "slash:abc"))
         string1 = repr(el)
         string2 = str(el)
-        self.assertEqual(string1, string2)
-        self.assertIn("slash:abc", string1)
+        self.confirm(string1 == string2)
+        self.confirm("slash:abc" in string1)
         dom.unlink()
 
     def testAttributeRepr(self):
         dom = Document()
         el = dom.appendChild(dom.createElement("abc"))
         node = el.setAttribute("abc", "def")
-        self.assertEqual(str(node), repr(node))
+        self.confirm(str(node) == repr(node))
         dom.unlink()
+
+    def testTextNodeRepr(self): pass
 
     def testWriteXML(self):
         str = '<?xml version="1.0" ?><a b="c"/>'
         dom = parseString(str)
         domstr = dom.toxml()
         dom.unlink()
-        self.assertEqual(str, domstr)
+        self.confirm(str == domstr)
 
     def test_toxml_quote_text(self):
         dom = Document()
@@ -579,7 +550,7 @@ class MinidomTest(unittest.TestCase):
         dom = parseString(str)
         domstr = dom.toprettyxml(newl="\r\n")
         dom.unlink()
-        self.assertEqual(domstr, str.replace("\n", "\r\n"))
+        self.confirm(domstr == str.replace("\n", "\r\n"))
 
     def test_toprettyxml_with_text_nodes(self):
         # see issue #4147, text nodes are not indented
@@ -618,31 +589,21 @@ class MinidomTest(unittest.TestCase):
     def testProcessingInstruction(self):
         dom = parseString('<e><?mypi \t\n data \t\n ?></e>')
         pi = dom.documentElement.firstChild
-        self.assertEqual(pi.target, "mypi")
-        self.assertEqual(pi.data, "data \t\n ")
-        self.assertEqual(pi.nodeName, "mypi")
-        self.assertEqual(pi.nodeType, Node.PROCESSING_INSTRUCTION_NODE)
-        self.assertIsNone(pi.attributes)
-        self.assertFalse(pi.hasChildNodes())
-        self.assertEqual(len(pi.childNodes), 0)
-        self.assertIsNone(pi.firstChild)
-        self.assertIsNone(pi.lastChild)
-        self.assertIsNone(pi.localName)
-        self.assertEqual(pi.namespaceURI, xml.dom.EMPTY_NAMESPACE)
+        self.confirm(pi.target == "mypi"
+                and pi.data == "data \t\n "
+                and pi.nodeName == "mypi"
+                and pi.nodeType == Node.PROCESSING_INSTRUCTION_NODE
+                and pi.attributes is None
+                and not pi.hasChildNodes()
+                and len(pi.childNodes) == 0
+                and pi.firstChild is None
+                and pi.lastChild is None
+                and pi.localName is None
+                and pi.namespaceURI == xml.dom.EMPTY_NAMESPACE)
 
-    def testProcessingInstructionRepr(self):
-        dom = parseString('<e><?mypi \t\n data \t\n ?></e>')
-        pi = dom.documentElement.firstChild
-        self.assertEqual(str(pi.nodeType), repr(pi.nodeType))
+    def testProcessingInstructionRepr(self): pass
 
-    def testTextRepr(self):
-        dom = Document()
-        self.addCleanup(dom.unlink)
-        elem = dom.createElement("elem")
-        elem.appendChild(dom.createTextNode("foo"))
-        el = elem.firstChild
-        self.assertEqual(str(el), repr(el))
-        self.assertEqual('<DOM Text node "\'foo\'">', str(el))
+    def testTextRepr(self): pass
 
     def testWriteText(self): pass
 
@@ -682,7 +643,7 @@ class MinidomTest(unittest.TestCase):
         attrs = e.attributes
         a1 = e.getAttributeNode("a")
         a2 = attrs.removeNamedItem("a")
-        self.assertTrue(a1.isSameNode(a2))
+        self.confirm(a1.isSameNode(a2))
         self.assertRaises(xml.dom.NotFoundErr, attrs.removeNamedItem, "a")
 
     def testRemoveNamedItemNS(self):
@@ -691,7 +652,7 @@ class MinidomTest(unittest.TestCase):
         attrs = e.attributes
         a1 = e.getAttributeNodeNS("http://xml.python.org/", "b")
         a2 = attrs.removeNamedItemNS("http://xml.python.org/", "b")
-        self.assertTrue(a1.isSameNode(a2))
+        self.confirm(a1.isSameNode(a2))
         self.assertRaises(xml.dom.NotFoundErr, attrs.removeNamedItemNS,
                           "http://xml.python.org/", "b")
 
@@ -734,16 +695,18 @@ class MinidomTest(unittest.TestCase):
         keys2 = list(attrs2.keys())
         keys1.sort()
         keys2.sort()
-        self.assertEqual(keys1, keys2)
+        self.confirm(keys1 == keys2, "clone of element has same attribute keys")
         for i in range(len(keys1)):
             a1 = attrs1.item(i)
             a2 = attrs2.item(i)
-            self.assertIsNot(a1, a2)
-            self.assertEqual(a1.value, a2.value)
-            self.assertEqual(a1.nodeValue, a2.nodeValue)
-            self.assertEqual(a1.namespaceURI,a2.namespaceURI)
-            self.assertEqual(a1.localName, a2.localName)
-            self.assertIs(a2.ownerElement, e2)
+            self.confirm(a1 is not a2
+                    and a1.value == a2.value
+                    and a1.nodeValue == a2.nodeValue
+                    and a1.namespaceURI == a2.namespaceURI
+                    and a1.localName == a2.localName
+                    , "clone of attribute node has proper attribute values")
+            self.confirm(a2.ownerElement is e2,
+                    "clone of attribute node correctly owned")
 
     def _setupCloneElement(self, deep):
         dom = parseString("<doc attr='value'><foo/></doc>")
@@ -759,19 +722,20 @@ class MinidomTest(unittest.TestCase):
 
     def testCloneElementShallow(self):
         dom, clone = self._setupCloneElement(0)
-        self.assertEqual(len(clone.childNodes), 0)
-        self.assertEqual(clone.childNodes.length, 0)
-        self.assertIsNone(clone.parentNode)
-        self.assertEqual(clone.toxml(), '<doc attr="value"/>')
-
+        self.confirm(len(clone.childNodes) == 0
+                and clone.childNodes.length == 0
+                and clone.parentNode is None
+                and clone.toxml() == '<doc attr="value"/>'
+                , "testCloneElementShallow")
         dom.unlink()
 
     def testCloneElementDeep(self):
         dom, clone = self._setupCloneElement(1)
-        self.assertEqual(len(clone.childNodes), 1)
-        self.assertEqual(clone.childNodes.length, 1)
-        self.assertIsNone(clone.parentNode)
-        self.assertTrue(clone.toxml(), '<doc attr="value"><foo/></doc>')
+        self.confirm(len(clone.childNodes) == 1
+                and clone.childNodes.length == 1
+                and clone.parentNode is None
+                and clone.toxml() == '<doc attr="value"><foo/></doc>'
+                , "testCloneElementDeep")
         dom.unlink()
 
     def testCloneDocumentShallow(self):
@@ -782,7 +746,7 @@ class MinidomTest(unittest.TestCase):
                     "]>\n"
                     "<doc attr='value'/>")
         doc2 = doc.cloneNode(0)
-        self.assertIsNone(doc2,
+        self.confirm(doc2 is None,
                 "testCloneDocumentShallow:"
                 " shallow cloning of documents makes no sense!")
 
@@ -794,22 +758,22 @@ class MinidomTest(unittest.TestCase):
                     "]>\n"
                     "<doc attr='value'/>")
         doc2 = doc.cloneNode(1)
-        self.assertFalse((doc.isSameNode(doc2) or doc2.isSameNode(doc)),
+        self.confirm(not (doc.isSameNode(doc2) or doc2.isSameNode(doc)),
                 "testCloneDocumentDeep: document objects not distinct")
-        self.assertEqual(len(doc.childNodes), len(doc2.childNodes),
+        self.confirm(len(doc.childNodes) == len(doc2.childNodes),
                 "testCloneDocumentDeep: wrong number of Document children")
-        self.assertEqual(doc2.documentElement.nodeType, Node.ELEMENT_NODE,
+        self.confirm(doc2.documentElement.nodeType == Node.ELEMENT_NODE,
                 "testCloneDocumentDeep: documentElement not an ELEMENT_NODE")
-        self.assertTrue(doc2.documentElement.ownerDocument.isSameNode(doc2),
+        self.confirm(doc2.documentElement.ownerDocument.isSameNode(doc2),
             "testCloneDocumentDeep: documentElement owner is not new document")
-        self.assertFalse(doc.documentElement.isSameNode(doc2.documentElement),
+        self.confirm(not doc.documentElement.isSameNode(doc2.documentElement),
                 "testCloneDocumentDeep: documentElement should not be shared")
         if doc.doctype is not None:
             # check the doctype iff the original DOM maintained it
-            self.assertEqual(doc2.doctype.nodeType, Node.DOCUMENT_TYPE_NODE,
+            self.confirm(doc2.doctype.nodeType == Node.DOCUMENT_TYPE_NODE,
                     "testCloneDocumentDeep: doctype not a DOCUMENT_TYPE_NODE")
-            self.assertTrue(doc2.doctype.ownerDocument.isSameNode(doc2))
-            self.assertFalse(doc.doctype.isSameNode(doc2.doctype))
+            self.confirm(doc2.doctype.ownerDocument.isSameNode(doc2))
+            self.confirm(not doc.doctype.isSameNode(doc2.doctype))
 
     def testCloneDocumentTypeDeepOk(self):
         doctype = create_nonempty_doctype()
@@ -848,7 +812,7 @@ class MinidomTest(unittest.TestCase):
     def testCloneDocumentTypeDeepNotOk(self):
         doc = create_doc_with_doctype()
         clone = doc.doctype.cloneNode(1)
-        self.assertIsNone(clone)
+        self.confirm(clone is None, "testCloneDocumentTypeDeepNotOk")
 
     def testCloneDocumentTypeShallowOk(self):
         doctype = create_nonempty_doctype()
@@ -867,7 +831,7 @@ class MinidomTest(unittest.TestCase):
     def testCloneDocumentTypeShallowNotOk(self):
         doc = create_doc_with_doctype()
         clone = doc.doctype.cloneNode(0)
-        self.assertIsNone(clone)
+        self.confirm(clone is None, "testCloneDocumentTypeShallowNotOk")
 
     def check_import_document(self, deep, testName):
         doc1 = parseString("<doc/>")
@@ -897,11 +861,11 @@ class MinidomTest(unittest.TestCase):
     def check_clone_attribute(self, deep, testName):
         doc = parseString("<doc attr='value'/>")
         attr = doc.documentElement.getAttributeNode("attr")
-        self.assertIsNotNone(attr)
+        self.assertNotEqual(attr, None)
         clone = attr.cloneNode(deep)
-        self.assertFalse(clone.isSameNode(attr))
-        self.assertFalse(attr.isSameNode(clone))
-        self.assertIsNone(clone.ownerElement,
+        self.confirm(not clone.isSameNode(attr))
+        self.confirm(not attr.isSameNode(clone))
+        self.confirm(clone.ownerElement is None,
                 testName + ": ownerElement should be None")
         self.confirm(clone.ownerDocument.isSameNode(attr.ownerDocument),
                 testName + ": ownerDocument does not match")
@@ -1178,7 +1142,7 @@ class MinidomTest(unittest.TestCase):
         node = doc.documentElement
         node.childNodes[1].nodeValue = ""
         node.normalize()
-        self.assertIsNone(node.childNodes[-1].nextSibling,
+        self.confirm(node.childNodes[-1].nextSibling is None,
                      "Final child's .nextSibling should be None")
 
     def testSiblings(self):
@@ -1271,16 +1235,16 @@ class MinidomTest(unittest.TestCase):
     def testUserData(self):
         dom = Document()
         n = dom.createElement('e')
-        self.assertIsNone(n.getUserData("foo"))
+        self.confirm(n.getUserData("foo") is None)
         n.setUserData("foo", None, None)
-        self.assertIsNone(n.getUserData("foo"))
+        self.confirm(n.getUserData("foo") is None)
         n.setUserData("foo", 12, 12)
         n.setUserData("bar", 13, 13)
-        self.assertEqual(n.getUserData("foo"), 12)
-        self.assertEqual(n.getUserData("bar"), 13)
+        self.confirm(n.getUserData("foo") == 12)
+        self.confirm(n.getUserData("bar") == 13)
         n.setUserData("foo", None, None)
-        self.assertIsNone(n.getUserData("foo"))
-        self.assertEqual(n.getUserData("bar"), 13)
+        self.confirm(n.getUserData("foo") is None)
+        self.confirm(n.getUserData("bar") == 13)
 
         handler = self.UserDataHandler()
         n.setUserData("bar", 12, handler)
@@ -1470,10 +1434,10 @@ class MinidomTest(unittest.TestCase):
         doc = parseString("<doc><e/></doc>")
         elem = doc.documentElement
         e = elem.firstChild
-        self.assertIs(e.parentNode, elem, "Before replaceChild()")
+        self.confirm(e.parentNode is elem, "Before replaceChild()")
         # Check that replacing a child with itself leaves the tree unchanged
         elem.replaceChild(e, e)
-        self.assertIs(e.parentNode, elem, "After replaceChild()")
+        self.confirm(e.parentNode is elem, "After replaceChild()")
 
     def testReplaceWholeText(self):
         def setup():
@@ -1490,13 +1454,13 @@ class MinidomTest(unittest.TestCase):
         text = text1.replaceWholeText("new content")
         self.checkWholeText(text, "new content")
         self.checkWholeText(text2, "d")
-        self.assertEqual(len(elem.childNodes), 3)
+        self.confirm(len(elem.childNodes) == 3)
 
         doc, elem, text1, splitter, text2 = setup()
         text = text2.replaceWholeText("new content")
         self.checkWholeText(text, "new content")
         self.checkWholeText(text1, "cab")
-        self.assertEqual(len(elem.childNodes), 5)
+        self.confirm(len(elem.childNodes) == 5)
 
         doc, elem, text1, splitter, text2 = setup()
         text = text1.replaceWholeText("")
@@ -1594,11 +1558,11 @@ class MinidomTest(unittest.TestCase):
         a3 = doc.createAttributeNS(NS1, "a1")
         a3.value = "v"
         e.setAttributeNode(a3)
-        self.assertTrue(e.isSameNode(doc.getElementById("w")))
-        self.assertFalse(a1.isId)
-        self.assertTrue(a2.isId)
-        self.assertFalse(a3.isId)
-        self.assertIsNone(doc.getElementById("v"))
+        self.confirm(e.isSameNode(doc.getElementById("w")))
+        self.confirm(not a1.isId)
+        self.confirm(a2.isId)
+        self.confirm(not a3.isId)
+        self.confirm(doc.getElementById("v") is None)
         # renaming an attribute should not affect its ID-ness:
         doc.renameNode(a2, xml.dom.EMPTY_NAMESPACE, "an")
         self.confirm(e.isSameNode(doc.getElementById("w"))
@@ -1630,11 +1594,11 @@ class MinidomTest(unittest.TestCase):
         a3 = doc.createAttributeNS(NS1, "a1")
         a3.value = "v"
         e.setAttributeNode(a3)
-        self.assertTrue(e.isSameNode(doc.getElementById("w")))
-        self.assertFalse(a1.isId)
-        self.assertTrue(a2.isId)
-        self.assertFalse(a3.isId)
-        self.assertIsNone(doc.getElementById("v"))
+        self.confirm(e.isSameNode(doc.getElementById("w")))
+        self.confirm(not a1.isId)
+        self.confirm(a2.isId)
+        self.confirm(not a3.isId)
+        self.confirm(doc.getElementById("v") is None)
         # renaming an attribute should not affect its ID-ness:
         doc.renameNode(a2, xml.dom.EMPTY_NAMESPACE, "an")
         self.confirm(e.isSameNode(doc.getElementById("w"))
@@ -1699,7 +1663,7 @@ class MinidomTest(unittest.TestCase):
         doc = parseString("<element xmlns=''>\n"
                           "<foo/>\n</element>")
         doc2 = parseString(doc.toxml())
-        self.assertEqual(doc2.namespaceURI, xml.dom.EMPTY_NAMESPACE)
+        self.confirm(doc2.namespaceURI == xml.dom.EMPTY_NAMESPACE)
 
     def testExceptionOnSpacesInXMLNSValue(self):
         with self.assertRaises((ValueError, ExpatError)):
@@ -1715,7 +1679,7 @@ class MinidomTest(unittest.TestCase):
         num_children_before = len(doc.childNodes)
         doc.removeChild(doc.childNodes[0])
         num_children_after = len(doc.childNodes)
-        self.assertEqual(num_children_after, num_children_before - 1)
+        self.assertTrue(num_children_after == num_children_before - 1)
 
     def testProcessingInstructionNameError(self):
         # wrong variable in .nodeValue property will
