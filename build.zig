@@ -9,15 +9,17 @@ pub fn build(b: *std.Build) void {
     // Using default zig-out directory for all builds
 
     // libdeflate C flags - conditionally disable AVX-512
-    // For native x86_64 builds: let libdeflate use runtime CPU detection (may use AVX-512 if available)
+    // For native x86_64 builds (NOT in CI): let libdeflate use runtime CPU detection (may use AVX-512 if available)
     // For generic/CI builds: disable AVX-512 to avoid evex512 compile errors
+    const is_ci = std.process.hasEnvVarConstant("CI");
     const is_native_x86 = target.result.cpu.arch == .x86_64 and
-        target.query.cpu_model == .native;
+        target.query.cpu_model == .native and
+        !is_ci; // Disable AVX-512 in CI even if target is native
 
     const libdeflate_flags: []const []const u8 = if (is_native_x86)
-        &.{ "-std=c99", "-O3" } // Native: let runtime detect CPU features
+        &.{ "-std=c99", "-O3" } // Native (local): let runtime detect CPU features
     else
-        &.{ "-std=c99", "-O3", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ" }; // Generic: disable AVX-512
+        &.{ "-std=c99", "-O3", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ" }; // Generic/CI: disable AVX-512
 
     const libdeflate_flags_no_opt: []const []const u8 = if (is_native_x86)
         &.{"-std=c99"}
