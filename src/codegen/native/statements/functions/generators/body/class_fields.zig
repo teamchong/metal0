@@ -493,6 +493,13 @@ pub fn genClassAttributeFields(self: *NativeCodegen, class_body: []const ast.Nod
                     continue;
                 }
 
+                // Skip module attribute references (e.g., filename = os_helper.TESTFN)
+                // These are handled as lazy-computed methods in generators.zig
+                // because they require runtime evaluation of module.attribute
+                if (assign.value.* == .attribute) {
+                    continue;
+                }
+
                 // Mark this attribute as seen to avoid duplicates from multiple assignments
                 seen_names.put(attr_name, {}) catch {};
 

@@ -13,6 +13,31 @@ const string_traits = @import("../../../../../analysis/traits/string_traits.zig"
 const container_traits = @import("../../../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../../../analysis/traits/type_traits.zig");
 
+/// Check if an expression is a lazy class attribute access (self.ATTR where ATTR is lazy)
+/// Returns the attribute name if it is, null otherwise
+fn isLazyClassAttrAccess(self: *NativeCodegen, expr: ast.Node) ?[]const u8 {
+    // Check if it's an attribute access on 'self'
+    if (expr != .attribute) return null;
+    const attr = expr.attribute;
+
+    // Must be accessing self
+    if (attr.value.* != .name) return null;
+    if (!std.mem.eql(u8, attr.value.name.id, "self")) return null;
+
+    // Check if we're in a class and this attribute is registered as lazy
+    const class_name = self.current_class_name orelse return null;
+    var lazy_key_buf: [256]u8 = undefined;
+    const lazy_key = std.fmt.bufPrint(&lazy_key_buf, "{s}.{s}", .{ class_name, attr.attr }) catch return null;
+
+    // Check if it's in class_type_attrs with "__lazy__" value
+    if (self.class_type_attrs.get(lazy_key)) |attr_type| {
+        if (std.mem.eql(u8, attr_type, "__lazy__")) {
+            return attr.attr;
+        }
+    }
+    return null;
+}
+
 /// Sanitize Python variable name for Zig (e.g., "_" -> "_unused")
 fn sanitizeVarName(name: []const u8) []const u8 {
     if (std.mem.eql(u8, name, "_")) return "_unused";
@@ -395,9 +420,28 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
         try self.emit("// Note: Nested tuple unpacking - inner tuples accessed via indices\n");
     }
 
+    // Check if this is a lazy class attribute access (e.g., self.STRINGS where STRINGS is lazy)
+    // If so, we need to wrap in a block to capture the runtime value first
+    const lazy_attr_name = isLazyClassAttrAccess(self, iter);
+    const needs_lazy_wrapper = lazy_attr_name != null;
+    const lazy_iter_id = self.block_label_counter;
+    if (needs_lazy_wrapper) {
+        self.block_label_counter += 1;
+        try self.emitIndent();
+        try self.emit("{\n");
+        self.indent();
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __lazy_iter_{d} = try @This().{s}(__global_allocator);\n", .{ lazy_iter_id, lazy_attr_name.? });
+    }
+
     // Generate for loop over iterable
     try self.emitIndent();
-    try self.emit("for (");
+    // Lazy iterators may return tuples, which require inline for
+    if (needs_lazy_wrapper) {
+        try self.emit("inline for (");
+    } else {
+        try self.emit("for (");
+    }
 
     // Check if we need to add .items for ArrayList
     const iter_type = try self.type_inferrer.inferExpr(iter);
@@ -405,8 +449,10 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     // Check if this is a method call like dict.items()
     const is_method_call = iter == .call and iter.call.func.* == .attribute;
 
-    // If iterating over list (including method calls that return lists), add .items
-    if (container_traits.isList(iter_type)) {
+    // If using lazy wrapper, iterate over the captured variable
+    if (needs_lazy_wrapper) {
+        try self.output.writer(self.allocator).print("__lazy_iter_{d}", .{lazy_iter_id});
+    } else if (container_traits.isList(iter_type)) {
         // Check if this is a slice subscript - slices return []T directly, not ArrayList
         const is_slice = if (iter == .subscript) blk: {
             const sub = iter.subscript;
@@ -521,6 +567,13 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
     try self.emitIndent();
     try self.emit("}\n");
+
+    // Close lazy wrapper block if we opened one
+    if (needs_lazy_wrapper) {
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
 }
 
 /// Generate for loop

@@ -365,10 +365,20 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         if (self.current_class_name) |class_name| {
             const type_attr_key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, attr.attr }) catch null;
             if (type_attr_key) |key| {
-                if (self.class_type_attrs.get(key)) |_| {
-                    // Return a reference to the static function: @This().attr_name
-                    try self.emit("@This().");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+                if (self.class_type_attrs.get(key)) |attr_type| {
+                    // Check if this is a lazy attribute (needs function call) or regular type attr
+                    if (std.mem.eql(u8, attr_type, "__lazy__")) {
+                        // Lazy attribute: call it with allocator
+                        // (try @This().attr_name(__global_allocator))
+                        // Use __global_allocator since method may have unnamed allocator param
+                        try self.emit("(try @This().");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+                        try self.emit("(__global_allocator))");
+                    } else {
+                        // Return a reference to the static function: @This().attr_name
+                        try self.emit("@This().");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+                    }
                     return;
                 }
             }

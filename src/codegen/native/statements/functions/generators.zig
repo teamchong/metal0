@@ -816,6 +816,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     const lazy_key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, attr_name });
                     try self.lazy_class_attrs.put(lazy_key, {});
 
+                    // Also register in class_type_attrs so self.attr becomes @This().attr(__alloc)
+                    try self.class_type_attrs.put(lazy_key, "__lazy__");
+
                     // Add to var_renames so subsequent attributes can reference via method call
                     // e.g., `items` becomes `try items(__alloc)` when referenced
                     if (!is_closure_list) {
