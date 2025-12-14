@@ -253,6 +253,14 @@ const ZlibFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
     .{ "decompress", FunctionMeta{ .no_alloc = true, .returns_error = true } },
 });
 
+/// unittest module: test decorators (pure functions, no allocator needed)
+const UnittestFuncMeta = std.StaticStringMap(FunctionMeta).initComptime(.{
+    .{ "skip", FunctionMeta{ .no_alloc = true, .returns_error = false } },
+    .{ "skipIf", FunctionMeta{ .no_alloc = true, .returns_error = false } },
+    .{ "skipUnless", FunctionMeta{ .no_alloc = true, .returns_error = false } },
+    .{ "expectedFailure", FunctionMeta{ .no_alloc = true, .returns_error = false } },
+});
+
 // ============================================================================
 // Registry initialization
 // ============================================================================
@@ -273,7 +281,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.registerFull("sys", .zig_runtime, "runtime.sys", "runtime.Lib.sys", null, false, &SysFuncMeta);
     try registry.registerFull("time", .zig_runtime, "runtime.time", "runtime.Lib.time", null, false, &TimeFuncMeta);
     try registry.registerFull("math", .zig_runtime, "runtime.math", "runtime.Lib.math", null, false, &MathFuncMeta);
-    try registry.registerDirect("unittest", .zig_runtime, "runtime.unittest", "runtime.Lib.unittest", null);
+    try registry.registerFull("unittest", .zig_runtime, "runtime.unittest", "runtime.Lib.unittest", null, false, &UnittestFuncMeta);
 
     // Tier 2: C library wrappers (CPython stdlib modules only)
     // c_interop modules use c_interop.modules.xxx namespace for DCE

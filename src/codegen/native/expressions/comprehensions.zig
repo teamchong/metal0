@@ -388,6 +388,12 @@ fn genExprWithSubs(
                 self.dedent();
                 try self.emitIndent();
                 try self.emit("}");
+            } else if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "bytearray") and c.args.len > 0) {
+                // bytearray(n) in comprehension - allocates n zero-filled bytes
+                // Generate: blk_ba: { const _n: usize = @intCast(<arg>); const _buf = try __global_allocator.alloc(u8, _n); @memset(_buf, 0); break :blk_ba _buf; }
+                try self.emit("blk_ba: { const _n: usize = @intCast(");
+                try genExprWithSubs(self, c.args[0], subs);
+                try self.emit("); const _buf = try __global_allocator.alloc(u8, _n); @memset(_buf, 0); break :blk_ba _buf; }");
             } else {
                 // Generic builtin/call handling with substitutions
                 // Generate the call using dispatch but with substituted arguments

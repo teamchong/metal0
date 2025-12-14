@@ -189,7 +189,7 @@ fn genStat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
     try self.emit("os_stat_blk: { const _path = ");
     try self.genExpr(args[0]);
-    try self.emit("; const _stat = std.fs.cwd().statFile(_path) catch break :os_stat_blk struct { st_size: i64 = 0, st_mode: u32 = 0, st_ino: u64 = 0, st_mtime: i64 = 0, st_atime: i64 = 0, st_ctime: i64 = 0 }{}; break :os_stat_blk .{ .st_size = @intCast(_stat.size), .st_mode = @intCast(_stat.mode), .st_ino = _stat.inode, .st_mtime = @intCast(@divFloor(_stat.mtime, 1_000_000_000)), .st_atime = @intCast(@divFloor(_stat.atime, 1_000_000_000)), .st_ctime = @intCast(@divFloor(_stat.ctime, 1_000_000_000)) }; }");
+    try self.emit("; const _stat = std.fs.cwd().statFile(_path) catch break :os_stat_blk struct { st_size: i64 = 0, st_mode: u32 = 0, st_ino: u64 = 0, st_mtime: i64 = 0, st_atime: i64 = 0, st_ctime: i64 = 0 }{}; break :os_stat_blk .{ .st_size = @as(i64, @intCast(_stat.size)), .st_mode = @as(u32, @intCast(_stat.mode)), .st_ino = _stat.inode, .st_mtime = @as(i64, @intCast(@divFloor(_stat.mtime, 1_000_000_000))), .st_atime = @as(i64, @intCast(@divFloor(_stat.atime, 1_000_000_000))), .st_ctime = @as(i64, @intCast(@divFloor(_stat.ctime, 1_000_000_000))) }; }");
 }
 
 fn genChmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
