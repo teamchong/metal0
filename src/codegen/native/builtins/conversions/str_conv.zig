@@ -196,13 +196,15 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (type_traits.isIntegral(arg_type)) {
         // bytes(n) creates a bytes object of n null bytes
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-        try self.emit("blk: {\n");
+        const bytes_label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("bytes_{d}: {{\n", .{bytes_label_id});
         try self.emitFmt("const _len: usize = @intCast(", .{});
         try self.genExpr(args[0]);
         try self.emit(");\n");
         try self.emitFmt("const _buf = try {s}.alloc(u8, _len);\n", .{alloc_name});
         try self.emit("@memset(_buf, 0);\n");
-        try self.emit("break :blk _buf;\n");
+        try self.emitFmt("break :bytes_{d} _buf;\n", .{bytes_label_id});
         try self.emit("}");
         return;
     }
@@ -248,13 +250,15 @@ pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (type_traits.isIntegral(arg_type)) {
         // bytearray(n) creates a bytearray of n null bytes
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-        try self.emit("blk: {\n");
+        const bytearray_label_id = self.block_label_counter;
+        self.block_label_counter += 1;
+        try self.emitFmt("bytearray_{d}: {{\n", .{bytearray_label_id});
         try self.emitFmt("const _len: usize = @intCast(", .{});
         try self.genExpr(args[0]);
         try self.emit(");\n");
         try self.emitFmt("const _buf = {s}.alloc(u8, _len) catch unreachable;\n", .{alloc_name});
         try self.emit("@memset(_buf, 0);\n");
-        try self.emit("break :blk _buf;\n");
+        try self.emitFmt("break :bytearray_{d} _buf;\n", .{bytearray_label_id});
         try self.emit("}");
         return;
     }

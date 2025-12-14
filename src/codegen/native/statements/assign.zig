@@ -308,17 +308,27 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 const target = assign.targets[i];
                 if (target == .name) {
                     const var_name = target.name.id;
-                    const is_first_assignment = !self.isDeclared(var_name);
 
-                    try self.emitIndent();
-                    if (is_first_assignment) {
-                        try self.emit("const ");
-                        try self.declareVar(var_name);
+                    // Handle underscore discard variable (like tuple unpacking does)
+                    const is_discard = std.mem.eql(u8, var_name, "_");
+                    if (is_discard) {
+                        try self.emitIndent();
+                        try self.emit("_ = ");
+                        try self.emit(tmp_name);
+                        try self.emit(";\n");
+                    } else {
+                        const is_first_assignment = !self.isDeclared(var_name);
+
+                        try self.emitIndent();
+                        if (is_first_assignment) {
+                            try self.emit("const ");
+                            try self.declareVar(var_name);
+                        }
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                        try self.emit(" = ");
+                        try self.emit(tmp_name);
+                        try self.emit(";\n");
                     }
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-                    try self.emit(" = ");
-                    try self.emit(tmp_name);
-                    try self.emit(";\n");
                 } else if (target == .tuple) {
                     // Unpack tuple elements
                     for (target.tuple.elts, 0..) |elem, j| {

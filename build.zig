@@ -4,15 +4,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Parallel build isolation: use repo name as subdirectory
-    // e.g., /path/to/metal0 -> zig-out/metal0/bin/metal0
-    //       /path/to/metal0-agent2 -> zig-out/metal0-agent2/bin/metal0
-    // This allows multiple checkouts/worktrees to build in parallel
-    if (b.build_root.path) |src_path| {
-        const repo_name = std.fs.path.basename(src_path);
-        const prefix = std.fmt.allocPrint(b.allocator, "zig-out/{s}", .{repo_name}) catch "zig-out";
-        b.install_prefix = prefix;
-    }
+    // Note: Parallel build isolation removed for Zig 0.15 compatibility
+    // In Zig 0.15, Build.LazyPath is a union without direct .path access
+    // Using default zig-out directory for all builds
 
     // libdeflate C flags - conditionally disable AVX-512
     // For native x86_64 builds: let libdeflate use runtime CPU detection (may use AVX-512 if available)
