@@ -14,21 +14,21 @@ pub fn build(b: *std.Build) void {
         b.install_prefix = prefix;
     }
 
-    // libdeflate C flags - disable AVX-512 via actual preprocessor checks
-    // libdeflate checks these flags in lib/x86/adler32_impl.h and crc32_impl.h
-    // This prevents evex512 compile errors on CI while allowing AVX2/SSE fallbacks
-    const libdeflate_flags: []const []const u8 = &.{
-        "-std=c99",
-        "-O3",
-        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI",
-        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ",
-    };
+    // libdeflate C flags - conditionally disable AVX-512
+    // For native x86_64 builds: let libdeflate use runtime CPU detection (may use AVX-512 if available)
+    // For generic/CI builds: disable AVX-512 to avoid evex512 compile errors
+    const is_native_x86 = target.result.cpu.arch == .x86_64 and
+        target.query.cpu_model == .native;
 
-    const libdeflate_flags_no_opt: []const []const u8 = &.{
-        "-std=c99",
-        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI",
-        "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ",
-    };
+    const libdeflate_flags: []const []const u8 = if (is_native_x86)
+        &.{ "-std=c99", "-O3" } // Native: let runtime detect CPU features
+    else
+        &.{ "-std=c99", "-O3", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ" }; // Generic: disable AVX-512
+
+    const libdeflate_flags_no_opt: []const []const u8 = if (is_native_x86)
+        &.{"-std=c99"}
+    else
+        &.{ "-std=c99", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI", "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ" };
 
     // Shared modules - define ONCE, use everywhere
     // Namespaced: utils.hashmap_helper, utils.allocator_helper, etc.

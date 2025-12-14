@@ -120,20 +120,30 @@ const RUNTIME_MODULES = [_]ModuleDef{
 
 /// Add C source files for libdeflate (used by gzip module)
 fn addCSourceFiles(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8)) !void {
+    const builtin = @import("builtin");
+
+    // Check if native x86_64 build (allow AVX-512)
+    // Since incremental builds always target native, use builtin.cpu.arch
+    const is_native_x86 = builtin.cpu.arch == .x86_64;
+
     // Include path for @cImport in gzip module
     try args.append(allocator, "-I");
     try args.append(allocator, "vendor/libdeflate");
 
     // C source files with compiler flags
-    // Disable AVX-512 compilation via preprocessor macros (compile-time, not runtime)
-    // CI runners lack AVX-512 CPUs, so libdeflate's AVX-512 code fails to compile
-    // These macros tell libdeflate to skip AVX-512 implementations at preprocessor stage
-    // Performance: Still uses AVX2/SSE/scalar - only AVX-512 is disabled
+    // Conditionally disable AVX-512 based on target
+    // For native x86_64: let libdeflate use runtime CPU detection (may use AVX-512)
+    // For CI/generic: disable AVX-512 to avoid evex512 compile errors
     try args.append(allocator, "-cflags");
     try args.append(allocator, "-std=c99");
     try args.append(allocator, "-O3");
-    try args.append(allocator, "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI");
-    try args.append(allocator, "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ");
+
+    if (!is_native_x86) {
+        // Only disable AVX-512 for non-x86_64 architectures
+        try args.append(allocator, "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI");
+        try args.append(allocator, "-DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ");
+    }
+
     try args.append(allocator, "--");
 
     const libdeflate_srcs = [_][]const u8{
