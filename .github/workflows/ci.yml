@@ -444,22 +444,15 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Checkout CPython test infrastructure
-        run: |
-          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git /tmp/cpython
-          cd /tmp/cpython
-          git sparse-checkout set Lib/test
-
       - name: Run CPython tests (core1)
-        env:
-          PYTHONPATH: /tmp/cpython/Lib
         run: |
           cd tests/cpython
           PASSED=0; FAILED=0; TOTAL=0
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
-            if python test_${test}.py 2>&1; then
+            # Use Python's built-in test module
+            if python -m test test_${test} 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -474,7 +467,10 @@ jobs:
           echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
           echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
           echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          [ "$FAILED" -gt 0 ] && exit 1 || true
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Tests failed: $FAILED/$TOTAL"
+            exit 1
+          fi
         timeout-minutes: 30
 
   test-cpython-core2:
@@ -492,22 +488,15 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Checkout CPython test infrastructure
-        run: |
-          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git /tmp/cpython
-          cd /tmp/cpython
-          git sparse-checkout set Lib/test
-
       - name: Run CPython tests (core2)
-        env:
-          PYTHONPATH: /tmp/cpython/Lib
         run: |
           cd tests/cpython
           PASSED=0; FAILED=0; TOTAL=0
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
-            if python test_${test}.py 2>&1; then
+            # Use Python's built-in test module
+            if python -m test test_${test} 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -522,7 +511,10 @@ jobs:
           echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
           echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
           echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          [ "$FAILED" -gt 0 ] && exit 1 || true
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Tests failed: $FAILED/$TOTAL"
+            exit 1
+          fi
         timeout-minutes: 30
 
   test-cpython-core3:
@@ -540,22 +532,15 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Checkout CPython test infrastructure
-        run: |
-          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git /tmp/cpython
-          cd /tmp/cpython
-          git sparse-checkout set Lib/test
-
       - name: Run CPython tests (core3)
-        env:
-          PYTHONPATH: /tmp/cpython/Lib
         run: |
           cd tests/cpython
           PASSED=0; FAILED=0; TOTAL=0
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
-            if python test_${test}.py 2>&1; then
+            # Use Python's built-in test module
+            if python -m test test_${test} 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -570,7 +555,10 @@ jobs:
           echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
           echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
           echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          [ "$FAILED" -gt 0 ] && exit 1 || true
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Tests failed: $FAILED/$TOTAL"
+            exit 1
+          fi
         timeout-minutes: 30
 
   test-cpython-linux:
@@ -588,22 +576,15 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Checkout CPython test infrastructure
-        run: |
-          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git /tmp/cpython
-          cd /tmp/cpython
-          git sparse-checkout set Lib/test
-
       - name: Run CPython Linux-specific tests
-        env:
-          PYTHONPATH: /tmp/cpython/Lib
         run: |
           cd tests/cpython
           PASSED=0; FAILED=0; TOTAL=0
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
-            if python test_${test}.py 2>&1; then
+            # Use Python's built-in test module
+            if python -m test test_${test} 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -618,7 +599,10 @@ jobs:
           echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
           echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
           echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          [ "$FAILED" -gt 0 ] && exit 1 || true
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Tests failed: $FAILED/$TOTAL"
+            exit 1
+          fi
         timeout-minutes: 60
 
   test-cpython-macos:
@@ -636,22 +620,15 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Checkout CPython test infrastructure
-        run: |
-          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git /tmp/cpython
-          cd /tmp/cpython
-          git sparse-checkout set Lib/test
-
       - name: Run CPython macOS-specific tests
-        env:
-          PYTHONPATH: /tmp/cpython/Lib
         run: |
           cd tests/cpython
           PASSED=0; FAILED=0; TOTAL=0
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
-            if python test_${test}.py 2>&1; then
+            # Use Python's built-in test module
+            if python -m test test_${test} 2>&1; then
               PASSED=$((PASSED + 1))
             else
               FAILED=$((FAILED + 1))
@@ -666,7 +643,10 @@ jobs:
           echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
           echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
           echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          [ "$FAILED" -gt 0 ] && exit 1 || true
+          if [ "$FAILED" -gt 0 ]; then
+            echo "❌ Tests failed: $FAILED/$TOTAL"
+            exit 1
+          fi
         timeout-minutes: 60
 
   test-cpython-windows:
@@ -684,17 +664,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Checkout CPython test infrastructure
-        shell: pwsh
-        run: |
-          git clone --depth 1 --filter=blob:none --sparse --branch v3.14.2 https://github.com/python/cpython.git C:\cpython
-          Set-Location C:\cpython
-          git sparse-checkout set Lib/test
-
       - name: Run CPython Windows-specific tests
         shell: pwsh
-        env:
-          PYTHONPATH: C:\cpython\Lib
         run: |
           Set-Location tests/cpython
           $passed = 0; $failed = 0; $total = 0
@@ -702,7 +673,8 @@ jobs:
             $test = $_.Trim()
             if ($test -eq "") { return }
             $total++
-            $result = python "test_$test.py" 2>&1
+            # Use Python's built-in test module
+            python -m test "test_$test" 2>&1
             if ($LASTEXITCODE -eq 0) {
               $passed++
             } else {
