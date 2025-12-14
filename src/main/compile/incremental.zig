@@ -1095,7 +1095,7 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
         ".", // Install to .metal0/ (the cwd)
     };
 
-    std.debug.print("Running batch compilation: zig build -j{d} (timeout: 120s)...\n", .{jobs});
+    std.debug.print("Running batch compilation: zig build -j{d} (timeout: 300s)...\n", .{jobs});
 
     // Spawn batch build process with manual timeout
     var child = std.process.Child.init(&argv, aa);
@@ -1137,10 +1137,10 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
         }
     }.read, .{ stderr_reader, aa, &stderr_buf }) catch null;
 
-    // Kill if timeout (2 min) - fail fast, fail loud
+    // Kill if timeout (5 min) - fail fast, fail loud
     // Use PID instead of pointer to avoid race condition
     var done = std.atomic.Value(bool).init(false);
-    const timeout_ns: u64 = 120 * std.time.ns_per_s; // 2 min - fail fast
+    const timeout_ns: u64 = 300 * std.time.ns_per_s; // 5 min - enough for ~130 tests on CI
     const child_id = child.id;
     const killer = std.Thread.spawn(.{}, struct {
         const process_utils = @import("../../utils/process_fmt.zig");
@@ -1197,12 +1197,13 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
     _ = stdout; // Unused for now
     const stderr_len = stderr_content.len;
 
-    // Check exit code
+    // Check exit code - detect timeout (killed by signal)
     const exit_code: u8 = switch (result) {
         .Exited => |code| code,
-        .Signal => |sig| blk: {
-            std.debug.print("[BATCH] Killed by signal {d}\n", .{sig});
-            break :blk @truncate(128 + sig);
+        .Signal => |sig| {
+            std.debug.print("[BATCH] Killed by signal {d} - TIMEOUT, failing fast\n", .{sig});
+            // Return BatchTimeout error to prevent fallback to individual compilation
+            return error.BatchTimeout;
         },
         else => 1,
     };

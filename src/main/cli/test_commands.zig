@@ -591,7 +591,13 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                 batch_succeeded = true;
                 if (!dots_mode) std.debug.print("  Batch compile: {d}/{d}\n", .{ result.success, result.total });
             } else |err| {
-                // Batch failed - fall back to individual compilation
+                // Check if this was a timeout - fail fast, don't fall back
+                if (err == error.BatchTimeout) {
+                    printError("Batch compilation TIMEOUT - failing fast (no fallback)", .{});
+                    printError("Consider reducing number of tests or increasing timeout", .{});
+                    std.process.exit(1);
+                }
+                // Other batch failures - fall back to individual compilation
                 printError("Batch compilation failed: {any}", .{err});
                 printError("Falling back to individual compilation for {d} tests", .{needs_compile_paths.items.len});
                 batch_succeeded = false; // Allow fallback to individual compilation
