@@ -22,7 +22,7 @@ jobs:
 
   # Core tests split into 3 parallel jobs for faster CI
   test-metal0-core1:
-    name: Metal0 @core1 (95 tests)
+    name: Metal0 @core1 (93 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -88,7 +88,7 @@ jobs:
         timeout-minutes: 30
 
   test-metal0-core2:
-    name: Metal0 @core2 (97 tests)
+    name: Metal0 @core2 (90 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -154,7 +154,7 @@ jobs:
         timeout-minutes: 30
 
   test-metal0-core3:
-    name: Metal0 @core3 (95 tests)
+    name: Metal0 @core3 (89 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -220,7 +220,7 @@ jobs:
         timeout-minutes: 30
 
   test-metal0-linux:
-    name: Metal0 @linux (17 tests)
+    name: Metal0 @linux (28 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -358,7 +358,7 @@ jobs:
         timeout-minutes: 60
 
   test-metal0-windows:
-    name: Metal0 @windows (90 tests)
+    name: Metal0 @windows (85 tests)
     runs-on: windows-latest
     timeout-minutes: 60
 
@@ -430,7 +430,7 @@ jobs:
   # =============================================================================
 
   test-cpython-core1:
-    name: CPython @core1 (95 tests)
+    name: CPython @core1 (93 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -476,6 +476,8 @@ jobs:
       - name: Run CPython tests (core1)
         run: |
           cd tests/cpython
+          # Set locale to C to avoid locale-dependent test failures (e.g., test_datetime %c format)
+          export LC_ALL=C
           PASSED=0; FAILED=0; TOTAL=0
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
@@ -507,7 +509,7 @@ jobs:
         timeout-minutes: 30
 
   test-cpython-core2:
-    name: CPython @core2 (97 tests)
+    name: CPython @core2 (90 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -552,6 +554,8 @@ jobs:
       - name: Run CPython tests (core2)
         run: |
           cd tests/cpython
+          # Set locale to C to avoid locale-dependent test failures (e.g., test_datetime %c format)
+          export LC_ALL=C
           PASSED=0; FAILED=0; TOTAL=0
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
@@ -583,7 +587,7 @@ jobs:
         timeout-minutes: 30
 
   test-cpython-core3:
-    name: CPython @core3 (95 tests)
+    name: CPython @core3 (89 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -628,6 +632,8 @@ jobs:
       - name: Run CPython tests (core3)
         run: |
           cd tests/cpython
+          # Set locale to C to avoid locale-dependent test failures (e.g., test_datetime %c format)
+          export LC_ALL=C
           PASSED=0; FAILED=0; TOTAL=0
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
@@ -659,7 +665,7 @@ jobs:
         timeout-minutes: 30
 
   test-cpython-linux:
-    name: CPython @linux (17 tests)
+    name: CPython @linux (28 tests)
     runs-on: ubuntu-latest
     timeout-minutes: 75
 
@@ -704,6 +710,8 @@ jobs:
       - name: Run CPython Linux-specific tests
         run: |
           cd tests/cpython
+          # Set locale to C to avoid locale-dependent test failures (e.g., test_datetime %c format)
+          export LC_ALL=C
           PASSED=0; FAILED=0; TOTAL=0
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
@@ -777,6 +785,8 @@ jobs:
       - name: Run CPython macOS-specific tests
         run: |
           cd tests/cpython
+          # Set locale to C to avoid locale-dependent test failures (e.g., test_datetime %c format)
+          export LC_ALL=C
           PASSED=0; FAILED=0; TOTAL=0
           while IFS= read -r test || [ -n "$test" ]; do
             [ -z "$test" ] && continue
@@ -808,7 +818,7 @@ jobs:
         timeout-minutes: 60
 
   test-cpython-windows:
-    name: CPython @windows (90 tests)
+    name: CPython @windows (85 tests)
     runs-on: windows-latest
     timeout-minutes: 60
 
