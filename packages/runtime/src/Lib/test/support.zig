@@ -16,6 +16,7 @@ pub const threading_helper = @import("support/threading_helper.zig");
 pub const socket_helper = @import("support/socket_helper.zig");
 pub const script_helper = @import("support/script_helper.zig");
 pub const hashlib_helper = @import("support/hashlib_helper.zig");
+pub const hypothesis_helper = @import("support/hypothesis_helper.zig");
 pub const numbers = @import("support/numbers.zig");
 
 // Self-reference for "from test.support import support" pattern
