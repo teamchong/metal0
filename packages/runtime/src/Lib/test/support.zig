@@ -335,6 +335,25 @@ pub fn time() f64 {
 }
 
 // ============================================================================
+// Test File Location and Subprocess Support
+// ============================================================================
+
+/// Find a test support file in the CPython test directory
+/// For AOT compilation, returns the filename as-is
+/// The test runner resolves paths relative to project root
+pub fn findfile(filename: []const u8) []const u8 {
+    return filename;
+}
+
+/// Indicates whether subprocess support is available on this platform
+/// True for POSIX systems and Windows, false for WASM/embedded
+pub const has_subprocess_support = switch (builtin.os.tag) {
+    .linux, .macos, .freebsd, .netbsd, .openbsd, .dragonfly, .windows => true,
+    .wasi, .freestanding => false,
+    else => true, // Assume POSIX-like by default
+};
+
+// ============================================================================
 // Hash-Related Constants
 // ============================================================================
 

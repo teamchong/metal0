@@ -510,6 +510,39 @@ pub fn pyDictItems(allocator: std.mem.Allocator, d: anytype) std.ArrayListUnmana
     return result_items;
 }
 
+/// List.extend() helper for custom iterables with __iter__ method
+/// Handles extending ArrayListUnmanaged with items from any iterable
+pub fn listExtendIterable(allocator: std.mem.Allocator, arr_list: anytype, iterable: anytype) !void {
+    const IterType = @TypeOf(iterable);
+
+    // Check if iterable has __iter__ method (custom Python class)
+    if (@hasDecl(IterType, "__iter__")) {
+        // Call __iter__ to get iterator result
+        const iter_result = try iterable.__iter__();
+        const IterResultType = @TypeOf(iter_result);
+
+        // Check if result is a slice
+        const result_info = @typeInfo(IterResultType);
+        if (result_info == .pointer and result_info.pointer.size == .slice) {
+            // It's a slice - use appendSlice
+            try arr_list.appendSlice(allocator, iter_result);
+        } else {
+            // Try to iterate it
+            for (iter_result) |item| {
+                try arr_list.append(allocator, item);
+            }
+        }
+    } else if (@hasField(IterType, "items")) {
+        // Has .items field (ArrayList-like)
+        try arr_list.appendSlice(allocator, iterable.items);
+    } else {
+        // Try direct iteration (slice, array, tuple)
+        for (iterable) |item| {
+            try arr_list.append(allocator, item);
+        }
+    }
+}
+
 /// Pop a key from dict and return its value (handles both HashMap and PyValue.dict)
 /// Two-Flow: runtime helper for uncertain dict types
 pub fn pyDictPop(allocator: std.mem.Allocator, dict_ptr: anytype, key: []const u8) ?PyValue {

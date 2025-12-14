@@ -55,6 +55,40 @@ pub const PyBytes = struct {
     pub fn iterator(self: PyBytes) []const u8 {
         return self.data;
     }
+
+    /// Extend bytearray with bytes from iterable (mutates in place)
+    /// Note: For bytearray compatibility only (bytes are immutable in Python)
+    pub fn extend(self: *PyBytes, allocator: std.mem.Allocator, iterable: anytype) !void {
+        const IterType = @TypeOf(iterable);
+
+        // Collect bytes to append
+        var to_append = std.ArrayList(u8).init(allocator);
+        defer to_append.deinit();
+
+        if (@hasDecl(IterType, "__iter__")) {
+            // Custom iterable with __iter__
+            const iter_result = try iterable.__iter__();
+            for (iter_result) |item| {
+                try to_append.append(@intCast(item));
+            }
+        } else if (@hasField(IterType, "data")) {
+            // Another PyBytes
+            try to_append.appendSlice(iterable.data);
+        } else {
+            // Direct iteration
+            for (iterable) |item| {
+                try to_append.append(@intCast(item));
+            }
+        }
+
+        // Allocate new buffer with combined data
+        const new_data = try allocator.alloc(u8, self.data.len + to_append.items.len);
+        @memcpy(new_data[0..self.data.len], self.data);
+        @memcpy(new_data[self.data.len..], to_append.items);
+
+        // Update self.data
+        self.data = new_data;
+    }
 };
 
 /// Create a bytes literal - preserves Python bytes type for repr()

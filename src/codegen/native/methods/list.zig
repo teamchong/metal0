@@ -171,13 +171,45 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try emitObjExpr(self, obj);
         try self.emit(".appendSlice(__global_allocator, __list_temp.items); }");
     } else {
-        // Assume ArrayList variable - use .items
-        // Generate: try list.appendSlice(__global_allocator, other.items)
-        try self.emit("try ");
-        try emitObjExpr(self, obj);
-        try self.emit(".appendSlice(__global_allocator, ");
-        try self.genExpr(arg);
-        try self.emit(".items)");
+        // Check if argument might have __iter__ instead of .items
+        const might_have_iter = blk: {
+            // Check if it's a class instance call like BadLen()
+            if (arg == .call and arg.call.func.* == .name) {
+                const func_name = arg.call.func.name.id;
+                // Class constructors start with uppercase
+                if (func_name.len > 0 and func_name[0] >= 'A' and func_name[0] <= 'Z') {
+                    break :blk true;
+                }
+            }
+            // Check if it's a variable that's a class instance
+            else if (arg == .name) {
+                const var_name = arg.name.id;
+                if (self.getVarType(var_name)) |vt| {
+                    const type_traits = @import("../../../analysis/traits/type_traits.zig");
+                    if (type_traits.isClassInstance(vt)) {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        };
+
+        if (might_have_iter) {
+            // Use runtime helper for custom iterables
+            // Generate: try runtime.listExtendIterable(__global_allocator, &list, iterable)
+            try self.emit("try runtime.listExtendIterable(__global_allocator, &");
+            try emitObjExpr(self, obj);
+            try self.emit(", ");
+            try self.genExpr(arg);
+            try self.emit(")");
+        } else {
+            // Assume ArrayList variable - use .items
+            try self.emit("try ");
+            try emitObjExpr(self, obj);
+            try self.emit(".appendSlice(__global_allocator, ");
+            try self.genExpr(arg);
+            try self.emit(".items)");
+        }
     }
 }
 
