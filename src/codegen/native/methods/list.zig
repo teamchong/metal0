@@ -63,13 +63,12 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if list is uncertain (PyValue.list is *ArrayListUnmanaged - mutable)
     // For uncertain lists, we need runtime helpers that can handle type dynamically
     if (isListUncertain(self, obj)) {
-        // Route to runtime helper that handles both ArrayList and PyValue.list
-        // For now, use runtime.pyListAppend (allocator-aware mutation)
-        try self.emit("runtime.pyListAppend(__global_allocator, &");
+        // Route to PyValue-First API that compiles ONCE (no monomorphization)
+        try self.emit("try runtime.pyListAppendPV(__global_allocator, &");
         try emitObjExpr(self, obj);
-        try self.emit(", ");
+        try self.emit(", runtime.PyValue.from(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emit("))");
         return;
     }
 
@@ -171,12 +170,12 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Two-Flow: Check if list is uncertain
     if (isListUncertain(self, obj)) {
-        // Route to runtime helper that handles both ArrayList and PyValue.list
-        try self.emit("runtime.pyListExtend(__global_allocator, &");
+        // Route to PyValue-First API that compiles ONCE (no monomorphization)
+        try self.emit("try runtime.pyListExtendPV(__global_allocator, &");
         try emitObjExpr(self, obj);
-        try self.emit(", ");
+        try self.emit(", runtime.PyValue.from(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emit("))");
         return;
     }
 
@@ -280,14 +279,14 @@ pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Two-Flow: Check if list is uncertain
     if (isListUncertain(self, obj)) {
-        // Route to runtime helper that handles both ArrayList and PyValue.list
-        try self.emit("runtime.pyListInsert(__global_allocator, &");
+        // Route to PyValue-First API that compiles ONCE (no monomorphization)
+        try self.emit("try runtime.pyListInsertPV(__global_allocator, &");
         try emitObjExpr(self, obj);
         try self.emit(", ");
         try self.genExpr(args[0]);
-        try self.emit(", ");
+        try self.emit(", runtime.PyValue.from(");
         try self.genExpr(args[1]);
-        try self.emit(")");
+        try self.emit("))");
         return;
     }
 
