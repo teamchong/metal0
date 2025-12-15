@@ -247,6 +247,11 @@ pub const ImportGraph = struct {
                 std.debug.print("  Skipped import (c_extension): {s}\n", .{import_name});
                 continue;
             }
+            // Skip 'builtins' module - it's Python's special module for built-in functions
+            // These are handled directly in dispatch via tryDispatchByName
+            if (std.mem.eql(u8, import_name, "builtins")) {
+                continue;
+            }
             if (try import_resolver.resolveImportSource(import_name, dir, self.allocator)) |resolved| {
                 std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, resolved });
                 defer self.allocator.free(resolved);

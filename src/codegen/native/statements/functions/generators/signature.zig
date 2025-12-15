@@ -915,14 +915,15 @@ pub fn genFunctionSignature(
                 try self.emit("?");
             }
             try self.emit(zig_type);
-        } else if (arg.default) |default_expr| blk: {
-            // No annotation but has default - infer type from default value FIRST
-            const default_type = self.type_inferrer.inferExpr(default_expr.*) catch break :blk;
+        } else if (arg.default) |default_expr| {
+            // No annotation but has default - infer type from default value
+            const default_type = self.type_inferrer.inferExpr(default_expr.*) catch .unknown;
             const default_tag = @as(std.meta.Tag(@TypeOf(default_type)), default_type);
-            // Skip .unknown and .none (None) - let other inference methods handle
-            if (default_tag == .unknown) break :blk;
-            // For None defaults, use ?i64 (most common case)
-            if (default_tag == .none) {
+            if (default_tag == .unknown) {
+                // Two-Flow: Unknown type with default = uncertain, use PyValue fallback
+                try self.emit("?runtime.PyValue");
+            } else if (default_tag == .none) {
+                // For None defaults, use ?i64 (most common case)
                 try self.emit("?i64");
             } else {
                 try self.emit("?");

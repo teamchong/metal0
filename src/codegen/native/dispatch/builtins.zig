@@ -340,6 +340,49 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     return false;
 }
 
+/// Try to dispatch a builtin call by function name directly
+/// Used when builtins module is explicitly imported: builtins.len(x) -> len(x)
+/// This allows `import builtins; builtins.len(x)` to work correctly
+pub fn tryDispatchByName(self: *NativeCodegen, func_name: []const u8, args: []ast.Node, keyword_args: []const ast.Node.KeywordArg) CodegenError!bool {
+    // Special handling for int() with base keyword argument
+    if (std.mem.eql(u8, func_name, "int") and keyword_args.len > 0) {
+        var combined_args: std.ArrayListUnmanaged(ast.Node) = .empty;
+        defer combined_args.deinit(self.allocator);
+
+        // Start with positional args
+        for (args) |arg| {
+            try combined_args.append(self.allocator, arg);
+        }
+
+        // Find x keyword arg (first positional)
+        for (keyword_args) |kwarg| {
+            if (std.mem.eql(u8, kwarg.name, "x")) {
+                try combined_args.append(self.allocator, kwarg.value);
+                break;
+            }
+        }
+
+        // Find and add 'base' keyword arg as second positional
+        for (keyword_args) |kwarg| {
+            if (std.mem.eql(u8, kwarg.name, "base")) {
+                try combined_args.append(self.allocator, kwarg.value);
+                break;
+            }
+        }
+
+        try builtins.genInt(self, combined_args.items);
+        return true;
+    }
+
+    // O(1) lookup for all standard builtins
+    if (BuiltinMap.get(func_name)) |handler| {
+        try handler(self, args);
+        return true;
+    }
+
+    return false;
+}
+
 /// Generate dict from keyword arguments: dict(key="value", ...) -> StringHashMap
 /// This is used when dict() is called with keyword args instead of an iterable
 fn genDictFromKwargs(self: *NativeCodegen, kwargs: []const ast.Node.KeywordArg) CodegenError!void {

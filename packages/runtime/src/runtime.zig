@@ -282,6 +282,7 @@ pub const addNum = @import("runtime/float_ops.zig").addNum;
 pub const subtractNum = @import("runtime/float_ops.zig").subtractNum;
 pub const intFromBytes = @import("runtime/int_ops.zig").intFromBytes;
 pub const parseIntToBigInt = @import("runtime/int_ops.zig").parseIntToBigInt;
+pub const parseIntUnicode = @import("runtime/int_ops.zig").parseIntUnicode;
 pub const bigIntCompare = @import("runtime/builtins/types.zig").bigIntCompare;
 pub const int__new__ = @import("runtime/int_ops.zig").int__new__;
 

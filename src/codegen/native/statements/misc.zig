@@ -193,6 +193,13 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
     const module_name = import.module;
     const alias = import.asname orelse module_name;
 
+    // Special handling for 'builtins' module
+    // Python's builtins module provides access to built-in functions (len, str, int, etc.)
+    // These are already available globally - dispatch handles builtins.func() calls directly
+    if (std.mem.eql(u8, module_name, "builtins")) {
+        return; // No import needed - dispatch handles this
+    }
+
     // Check if module was marked as unavailable (e.g., winreg on Mac)
     // Generate code that raises ModuleNotFoundError like Python does
     if (self.isSkippedModule(module_name)) {

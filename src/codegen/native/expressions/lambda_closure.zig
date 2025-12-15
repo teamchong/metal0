@@ -18,6 +18,16 @@ const ClosureError = error{
     NotAClosure,
 } || CodegenError;
 
+/// Check if generated code needs a trailing semicolon.
+/// Returns false if code already ends with ';' or '}' (after trimming whitespace).
+/// Empty code returns true (needs semicolon for valid Zig syntax).
+fn needsTrailingSemicolon(code: []const u8) bool {
+    const trimmed = std.mem.trimRight(u8, code, " \t\n\r");
+    if (trimmed.len == 0) return true;
+    const last = trimmed[trimmed.len - 1];
+    return last != ';' and last != '}';
+}
+
 /// Check if lambda body is itself a lambda (closure case)
 fn isClosureLambda(body: ast.Node) bool {
     return body == .lambda;
@@ -149,9 +159,8 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
 
     try writer.writeAll(body_code);
 
-    // Don't add semicolon if body already ends with } or ; (block expressions or return statements)
-    const needs_semicolon = body_code.len == 0 or
-        (body_code[body_code.len - 1] != '}' and body_code[body_code.len - 1] != ';');
+    // Check before freeing
+    const needs_semicolon = needsTrailingSemicolon(body_code);
     self.allocator.free(body_code);
 
     if (needs_semicolon) {
@@ -380,9 +389,8 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
 
     try writer.writeAll(body_code);
 
-    // Don't add semicolon if body already ends with } or ; (block expressions or return statements)
-    const needs_semicolon = body_code.len == 0 or
-        (body_code[body_code.len - 1] != '}' and body_code[body_code.len - 1] != ';');
+    // Check before freeing
+    const needs_semicolon = needsTrailingSemicolon(body_code);
     self.allocator.free(body_code);
 
     if (needs_semicolon) {
@@ -469,9 +477,8 @@ fn genInlineSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, c
     // Generate body with captured vars prefixed with __cl. (inline closure param name)
     try genExprWithCapturePrefix(self, lambda.body.*, captured_vars, "__cl");
 
-    // Don't add semicolon if body already ends with } or ; (block expressions or return statements)
-    const last_char = if (self.output.items.len > 0) self.output.items[self.output.items.len - 1] else 0;
-    const needs_semicolon = last_char != '}' and last_char != ';';
+    // Check if trailing semicolon needed
+    const needs_semicolon = needsTrailingSemicolon(self.output.items);
     if (needs_semicolon) {
         try self.emit(";\n    }\n}){ ");
     } else {

@@ -210,6 +210,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 3.7: Emit module assignments for registry modules
     // Note: Compiled user/stdlib modules already emitted via @import above
     for (imported_modules.items) |mod_name| {
+        // Skip 'builtins' module - it's handled specially in dispatch
+        // builtins.func() calls are dispatched to built-in function handlers directly
+        if (std.mem.eql(u8, mod_name, "builtins")) {
+            continue;
+        }
+
         // Track this module name for call site handling
         const mod_copy = try self.allocator.dupe(u8, mod_name);
         try self.imported_modules.put(mod_copy, {});

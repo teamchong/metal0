@@ -457,6 +457,14 @@ pub fn collectImports(
                 continue;
             }
 
+            // Special handling for 'builtins' module
+            // This is Python's module that exposes built-in functions (len, str, int, etc.)
+            // These are already available globally, so no import needed - just continue
+            if (std.mem.eql(u8, python_module, "builtins")) {
+                // builtins module is handled specially in dispatch - no file needed
+                continue;
+            }
+
             // Check if it's in the auto-generated stdlib module list
             // These modules have Zig implementations but aren't in the dynamic registry
             const stdlib_gen = @import("../stdlib_modules_gen.zig");

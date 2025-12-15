@@ -780,6 +780,16 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
 /// Try to dispatch module function call (e.g., json.loads, os.getcwd)
 /// Returns true if dispatched successfully
 pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []const u8, call: ast.Node.Call) CodegenError!bool {
+    // Handle builtins module - delegate to builtin dispatch
+    // builtins.len(x) -> len(x), builtins.str(x) -> str(x), etc.
+    // This is a special Python module that provides access to built-in functions
+    if (std.mem.eql(u8, module_name, "builtins")) {
+        const builtin_dispatch = @import("builtins.zig");
+        if (try builtin_dispatch.tryDispatchByName(self, func_name, call.args, call.keyword_args)) {
+            return true;
+        }
+    }
+
     // Handle importlib.import_module() - resolve at compile time for static module names
     if (std.mem.eql(u8, module_name, "importlib") and
         std.mem.eql(u8, func_name, "import_module"))
