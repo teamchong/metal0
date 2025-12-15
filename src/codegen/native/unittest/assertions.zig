@@ -227,6 +227,20 @@ fn emitCallableInvocation(
         }
 
         // Complex expression attribute (e.g., {}.update, some_call().method)
+        // Check for list methods that need special handling in assertRaises context
+        if (std.mem.eql(u8, attr.attr, "extend")) {
+            // List.extend() in assertRaises context - use runtime helper
+            // Generate: __ar_obj_blk: { var __ar_list = <list_expr>; try runtime.listExtendIterable(__global_allocator, &__ar_list, <arg>); break :__ar_obj_blk {}; }
+            try self.emit("__ar_obj_blk: { var __ar_list = ");
+            try parent.genExpr(self, attr.value.*);
+            try self.emit("; try runtime.listExtendIterable(__global_allocator, &__ar_list, ");
+            if (call_args.len > 0) {
+                try parent.genExpr(self, call_args[0]);
+            }
+            try self.emit("); break :__ar_obj_blk {}; }");
+            return;
+        }
+
         // Check for float methods that need runtime dispatch (as_integer_ratio, __floor__, etc.)
         if (FloatMethods.get(attr.attr)) |info| {
             try self.emit("__ar_obj_blk: { const __ar_obj = ");

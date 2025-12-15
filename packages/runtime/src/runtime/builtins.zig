@@ -518,7 +518,16 @@ pub fn listExtendIterable(allocator: std.mem.Allocator, arr_list: anytype, itera
     // Check if iterable has __iter__ method (custom Python class)
     if (@hasDecl(IterType, "__iter__")) {
         // Call __iter__ to get iterator result
-        const iter_result = try iterable.__iter__();
+        // Handle both error-returning and non-error-returning __iter__ methods
+        const iter_result = blk: {
+            const iter_fn_info = @typeInfo(@TypeOf(IterType.__iter__));
+            const return_type = iter_fn_info.@"fn".return_type.?;
+            if (@typeInfo(return_type) == .error_union) {
+                break :blk try iterable.__iter__();
+            } else {
+                break :blk iterable.__iter__();
+            }
+        };
         const IterResultType = @TypeOf(iter_result);
 
         // Check if result is a slice

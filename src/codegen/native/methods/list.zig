@@ -242,15 +242,21 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
         if (might_have_iter) {
             // Use runtime helper for custom iterables
-            // Note: Cannot use temp variable for obj here (can't take address of temporary)
             if (obj_needs_temp) {
-                return error.UnsupportedSyntax; // Rare edge case: [].extend(CustomIterable())
+                // List literal with custom iterable: [].extend(BadLen())
+                // Create a temp list variable first, then extend it
+                try self.emit("{ var __list_temp = ");
+                try self.genExpr(obj);
+                try self.emit("; try runtime.listExtendIterable(__global_allocator, &__list_temp, ");
+                try self.genExpr(arg);
+                try self.emit("); }");
+            } else {
+                try self.emit("try runtime.listExtendIterable(__global_allocator, &");
+                try emitObjExpr(self, obj);
+                try self.emit(", ");
+                try self.genExpr(arg);
+                try self.emit(")");
             }
-            try self.emit("try runtime.listExtendIterable(__global_allocator, &");
-            try emitObjExpr(self, obj);
-            try self.emit(", ");
-            try self.genExpr(arg);
-            try self.emit(")");
         } else {
             // Assume ArrayList variable - use .items
             if (obj_needs_temp) {

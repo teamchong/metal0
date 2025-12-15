@@ -526,6 +526,42 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         return true;
     }
 
+    // Try primitive int methods (__index__, __int__, __hash__, etc.)
+    // These methods are called on int literals (6).__index__() or int variables x.__index__()
+    // Zig primitive types don't have methods, so we emit the equivalent expression directly
+    if (type_traits.isIntegral(obj_type) or type_traits.isBoolean(obj_type) or
+        type_traits.isUnknown(obj_type))
+    {
+        if (std.mem.eql(u8, method_name, "__index__")) {
+            // int.__index__() returns self - just emit the value
+            // For bool: True.__index__() -> 1, False.__index__() -> 0
+            if (type_traits.isBoolean(obj_type)) {
+                try self.emit("@as(i64, @intFromBool(");
+                try self.genExpr(obj);
+                try self.emit("))");
+            } else {
+                try self.genExpr(obj);
+            }
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "__int__")) {
+            // int.__int__() returns self
+            if (type_traits.isBoolean(obj_type)) {
+                try self.emit("@as(i64, @intFromBool(");
+                try self.genExpr(obj);
+                try self.emit("))");
+            } else {
+                try self.genExpr(obj);
+            }
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "__hash__")) {
+            // int.__hash__() returns self for integers
+            try self.genExpr(obj);
+            return true;
+        }
+    }
+
     // Try file/stream methods with type-aware dispatch
     if (FileMethods.has(method_name) or StreamMethods.has(method_name)) {
         // Use already-inferred object type

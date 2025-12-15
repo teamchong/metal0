@@ -66,6 +66,9 @@ pub const copy = @import("Lib/copy.zig");
 /// Export itertools operations for native codegen (fixes comptime explosion in itertools functions)
 pub const itertools_ops = @import("runtime/itertools_ops.zig");
 
+/// Export list operations for native codegen (fixes comptime explosion in list literal casting)
+pub const list_ops = @import("runtime/list_ops.zig");
+
 // =============================================================================
 // Modular submodules (split from runtime.zig for organization)
 // These are available as separate imports for new code:
@@ -750,6 +753,7 @@ pub const pyListRemovePV = builtins.pyListRemovePV;
 pub const pyListClearPV = builtins.pyListClearPV;
 pub const pyListReversePV = builtins.pyListReversePV;
 pub const pyListSortPV = builtins.pyListSortPV;
+pub const listExtendIterable = builtins.listExtendIterable;
 
 // Generic container operations
 pub const pyLenPV = builtins.pyLenPV;
