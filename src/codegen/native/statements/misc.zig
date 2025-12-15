@@ -1202,8 +1202,16 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     self.indent();
                     try self.emitIndent();
                     try self.emit("const __ar_val = ");
+                    const before_expr = self.output.items.len;
                     try self.genExpr(stmt.expr_stmt.value.*);
-                    try self.emit(";\n");
+                    // Check if the generated expression already ends with semicolon (e.g., if statements)
+                    // If so, don't add another semicolon
+                    const generated = self.output.items[before_expr..];
+                    if (generated.len == 0 or generated[generated.len - 1] != ';') {
+                        try self.emit(";\n");
+                    } else {
+                        try self.emit("\n");
+                    }
                     try self.emitIndent();
                     try self.emit("const __T = @typeInfo(@TypeOf(__ar_val));\n");
                     try self.emitIndent();

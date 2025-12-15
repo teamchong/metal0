@@ -182,3 +182,94 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
 
     return list;
 }
+
+/// Compare an iterator/iterable with a list/array for equality
+/// Used by assertEqual(list(iter), expected) optimization
+/// Returns true if all elements match, false otherwise
+/// This is more efficient than converting to list first (listFromAny) and then comparing
+pub fn listEquals(allocator: std.mem.Allocator, iterable: anytype, expected: anytype) bool {
+    const T = @TypeOf(iterable);
+    const E = @TypeOf(expected);
+    const info_t = @typeInfo(T);
+    const info_e = @typeInfo(E);
+    const equality = @import("equality.zig");
+
+    // Get expected items slice
+    const expected_items = blk: {
+        if (info_e == .@"struct" and @hasField(E, "items")) {
+            break :blk expected.items;
+        } else if (info_e == .pointer and info_e.pointer.size == .slice) {
+            break :blk expected;
+        } else if (info_e == .array) {
+            break :blk &expected;
+        } else {
+            break :blk expected;
+        }
+    };
+
+    // Handle iterators with next() method
+    if (info_t == .@"struct" and @hasDecl(T, "next")) {
+        var iter = iterable;
+        var i: usize = 0;
+        while (true) {
+            const next_val = iter.next() catch |err| {
+                if (err == error.StopIteration) break;
+                return false;
+            };
+            if (i >= expected_items.len) return false; // More items than expected
+            if (!equality.pyAnyEql(next_val, expected_items[i])) return false;
+            i += 1;
+        }
+        return i == expected_items.len; // All items matched
+    }
+
+    // Handle pointer to iterator
+    if (info_t == .pointer and info_t.pointer.size == .one) {
+        const child_info = @typeInfo(info_t.pointer.child);
+        if (child_info == .@"struct" and @hasDecl(info_t.pointer.child, "next")) {
+            var iter = iterable;
+            var i: usize = 0;
+            while (true) {
+                const next_val = iter.next() catch |err| {
+                    if (err == error.StopIteration) break;
+                    return false;
+                };
+                if (i >= expected_items.len) return false;
+                if (!equality.pyAnyEql(next_val, expected_items[i])) return false;
+                i += 1;
+            }
+            return i == expected_items.len;
+        }
+    }
+
+    // Handle slices directly
+    if (info_t == .pointer and info_t.pointer.size == .slice) {
+        if (iterable.len != expected_items.len) return false;
+        for (iterable, 0..) |item, i| {
+            if (!equality.pyAnyEql(item, expected_items[i])) return false;
+        }
+        return true;
+    }
+
+    // Handle arrays
+    if (info_t == .array) {
+        if (iterable.len != expected_items.len) return false;
+        for (iterable, 0..) |item, i| {
+            if (!equality.pyAnyEql(item, expected_items[i])) return false;
+        }
+        return true;
+    }
+
+    // Handle ArrayListUnmanaged
+    if (info_t == .@"struct" and @hasField(T, "items")) {
+        if (iterable.items.len != expected_items.len) return false;
+        for (iterable.items, 0..) |item, i| {
+            if (!equality.pyAnyEql(item, expected_items[i])) return false;
+        }
+        return true;
+    }
+
+    // Fallback: convert to list and compare
+    _ = allocator;
+    return false;
+}

@@ -479,6 +479,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
 }
 
 /// Emit variable declaration with const/var decision
+/// Returns true if PyValue.from() wrapper was opened and needs to be closed by caller
 pub fn emitVarDeclaration(
     self: *NativeCodegen,
     var_name: []const u8,
@@ -488,7 +489,7 @@ pub fn emitVarDeclaration(
     is_mutable_class_instance: bool,
     is_listcomp: bool,
     is_iterator: bool,
-) CodegenError!void {
+) CodegenError!bool {
     // Note: Module-level constant assignments (__name__, __file__) are now handled in assign.zig
     // They're skipped before reaching this function
 
@@ -501,7 +502,7 @@ pub fn emitVarDeclaration(
         const actual_name = self.var_renames.get(var_name) orelse var_name;
         try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
         try self.emit(" = ");
-        return;
+        return false; // No wrapper opened
     }
 
     // Check if var_name would shadow a module-level import, function, or global var
@@ -556,7 +557,7 @@ pub fn emitVarDeclaration(
     if (std.mem.endsWith(u8, actual_name, ".*")) {
         try self.emit(actual_name);
         try self.emit(" = ");
-        return;
+        return false; // No wrapper opened
     }
 
     // Check if variable is mutated (reassigned later)
@@ -616,7 +617,7 @@ pub fn emitVarDeclaration(
     // BigInt needs explicit type annotation to declare variable as BigInt even if first value is a small int
     if (is_bigint) {
         try self.emit(": runtime.BigInt = ");
-        return;
+        return false; // No wrapper opened
     }
 
     // TWO-FLOW TYPE SYSTEM: Check if variable has uncertain confidence
@@ -638,7 +639,7 @@ pub fn emitVarDeclaration(
         (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type));
     if (needs_pyvalue_wrap) {
         try self.emit(": runtime.PyValue = runtime.PyValue.from(");
-        return; // Caller will emit value and close paren
+        return true; // Wrapper opened - caller must close with ")"
     }
 
     // For functions (lambdas) and callables, never emit type annotation
@@ -650,6 +651,7 @@ pub fn emitVarDeclaration(
     }
 
     try self.emit(" = ");
+    return false; // No wrapper opened
 }
 
 /// Generate ArrayList initialization from list literal

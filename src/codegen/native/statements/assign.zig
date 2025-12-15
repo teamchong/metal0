@@ -839,6 +839,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 continue;
             }
 
+            // Track if PyValue.from() wrapper was opened and needs closing
+            // Declared at higher scope so early return paths can access it
+            var wrapper_opened: bool = false;
+
             if (is_first_assignment) {
                 // Special handling for y = x where x is ArrayList
                 // In Python, y = x makes y an alias (reference) to the same list
@@ -903,7 +907,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
 
                 // First assignment: emit var/const declaration with type annotation
-                try valueGen.emitVarDeclaration(
+                // wrapper_opened indicates if PyValue.from() wrapper was opened and needs closing
+                wrapper_opened = try valueGen.emitVarDeclaration(
                     self,
                     var_name,
                     value_type,
@@ -1139,6 +1144,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 const right_type = try self.inferExprScoped(assign.value.binop.right.*);
                 if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
                     try valueGen.genStringConcat(self, assign, var_name, is_first_assignment);
+                    // Close PyValue wrapper if it was opened (string concat doesn't need it)
+                    if (is_first_assignment and wrapper_opened) {
+                        try self.emit(")");
+                    }
                     return;
                 }
             }
@@ -1160,6 +1169,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     is_allocated_string,
                     assign.value.*,
                 );
+                // Close PyValue wrapper if it was opened (ArrayList init doesn't need it)
+                if (is_first_assignment and wrapper_opened) {
+                    try self.emit(");\n");
+                }
                 return;
             }
 
@@ -1188,7 +1201,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                                 // int(float) -> use BigInt.fromFloat
                                 try self.emit("(runtime.BigInt.fromFloat(__global_allocator, ");
                                 try self.genExpr(int_call.args[0]);
-                                try self.emit(") catch unreachable);\n");
+                                try self.emit(") catch unreachable)");
                             } else {
                                 // int(string) or int(string, base) -> use parseIntToBigInt
                                 try self.emit("(try runtime.parseIntToBigInt(__global_allocator, ");
@@ -1201,8 +1214,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                                 } else {
                                     try self.emit("10");
                                 }
-                                try self.emit("));\n");
+                                try self.emit("))");
                             }
+
+                            // Close PyValue wrapper if it was opened
+                            if (is_first_assignment and wrapper_opened) {
+                                try self.emit(")");
+                            }
+                            try self.emit(";\n");
 
                             // Track variable metadata
                             try valueGen.trackVariableMetadata(
@@ -1226,20 +1245,24 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     if (assign.value.* == .constant and assign.value.constant.value == .bigint) {
                         // Already a bigint literal - genExpr will produce BigInt directly
                         try self.genExpr(assign.value.*);
-                        try self.emit(";\n");
                     } else if (assign.value.* == .constant) {
                         try self.emit("(runtime.BigInt.fromInt(__global_allocator, ");
                         try self.genExpr(assign.value.*);
-                        try self.emit(") catch unreachable);\n");
+                        try self.emit(") catch unreachable)");
                     } else if (isBigIntExpression(assign.value.*)) {
                         // Expression already produces BigInt (e.g., 2**100, bigint ops)
                         try self.genExpr(assign.value.*);
-                        try self.emit(";\n");
                     } else {
                         try self.emit("(runtime.BigInt.fromInt128(__global_allocator, ");
                         try self.genExpr(assign.value.*);
-                        try self.emit(") catch unreachable);\n");
+                        try self.emit(") catch unreachable)");
                     }
+
+                    // Close PyValue wrapper if it was opened
+                    if (is_first_assignment and wrapper_opened) {
+                        try self.emit(")");
+                    }
+                    try self.emit(";\n");
 
                     // Track variable metadata
                     try valueGen.trackVariableMetadata(

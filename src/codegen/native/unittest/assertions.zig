@@ -507,6 +507,53 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         return;
     }
 
+    // === SPECIAL CASE: assertEqual(type(x), type(y)) ===
+    // Optimize to @TypeOf comparison at comptime instead of comparing string type names
+    // This avoids pyTypeName monomorphization explosion
+    if (args[0] == .call and args[1] == .call) {
+        const call_a = args[0].call;
+        const call_b = args[1].call;
+        if (call_a.func.* == .name and call_b.func.* == .name) {
+            const func_a = call_a.func.name.id;
+            const func_b = call_b.func.name.id;
+            if (std.mem.eql(u8, func_a, "type") and std.mem.eql(u8, func_b, "type")) {
+                if (call_a.args.len >= 1 and call_b.args.len >= 1) {
+                    // Generate: if (@TypeOf(x) != @TypeOf(y)) return error.AssertionFailed;
+                    try self.emit("if (@TypeOf(");
+                    try parent.genExpr(self, call_a.args[0]);
+                    try self.emit(") != @TypeOf(");
+                    try parent.genExpr(self, call_b.args[0]);
+                    try self.emit(")) return error.AssertionFailed;");
+                    return;
+                }
+            }
+        }
+    }
+
+    // === SPECIAL CASE: assertEqual(list(x), y) or assertEqual(x, list(y)) ===
+    // Optimize list() conversion by using runtime.listEquals helper
+    // This avoids listFromAny anytype monomorphization
+    if (args[0] == .call and args[0].call.func.* == .name and
+        std.mem.eql(u8, args[0].call.func.name.id, "list") and args[0].call.args.len >= 1)
+    {
+        try self.emit("if (!runtime.listEquals(__global_allocator, ");
+        try parent.genExpr(self, args[0].call.args[0]); // The iterator/iterable
+        try self.emit(", ");
+        try parent.genExpr(self, args[1]); // The expected list/array
+        try self.emit(")) return error.AssertionFailed;");
+        return;
+    }
+    if (args[1] == .call and args[1].call.func.* == .name and
+        std.mem.eql(u8, args[1].call.func.name.id, "list") and args[1].call.args.len >= 1)
+    {
+        try self.emit("if (!runtime.listEquals(__global_allocator, ");
+        try parent.genExpr(self, args[1].call.args[0]); // The iterator/iterable
+        try self.emit(", ");
+        try parent.genExpr(self, args[0]); // The expected list/array
+        try self.emit(")) return error.AssertionFailed;");
+        return;
+    }
+
     // Infer types for type-specific code generation
     const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
     const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
