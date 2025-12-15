@@ -454,8 +454,8 @@ jobs:
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
             # Use Python's built-in test module
-            # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
-            OUTPUT=$(python3 -m test test_${test} 2>&1) || true
+            # Run each test with 'script' to provide a proper PTY (CI runners lack controlling terminal)
+            OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null 2>&1) || true
             echo "$OUTPUT"
             # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
             if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
@@ -504,8 +504,8 @@ jobs:
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
             # Use Python's built-in test module
-            # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
-            OUTPUT=$(python3 -m test test_${test} 2>&1) || true
+            # Run each test with 'script' to provide a proper PTY (CI runners lack controlling terminal)
+            OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null 2>&1) || true
             echo "$OUTPUT"
             # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
             if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
@@ -554,8 +554,8 @@ jobs:
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
             # Use Python's built-in test module
-            # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
-            OUTPUT=$(python3 -m test test_${test} 2>&1) || true
+            # Run each test with 'script' to provide a proper PTY (CI runners lack controlling terminal)
+            OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null 2>&1) || true
             echo "$OUTPUT"
             # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
             if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
@@ -604,8 +604,8 @@ jobs:
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
             # Use Python's built-in test module
-            # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
-            OUTPUT=$(python3 -m test test_${test} 2>&1) || true
+            # Run each test with 'script' to provide a proper PTY (CI runners lack controlling terminal)
+            OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null 2>&1) || true
             echo "$OUTPUT"
             # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
             if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
@@ -654,8 +654,9 @@ jobs:
             [ -z "$test" ] && continue
             TOTAL=$((TOTAL + 1))
             # Use Python's built-in test module
-            # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
-            OUTPUT=$(python3 -m test test_${test} 2>&1) || true
+            # Run each test with 'script' to provide a proper PTY (CI runners lack controlling terminal)
+            # macOS script syntax: script -q /dev/null command (different from Linux)
+            OUTPUT=$(script -q /dev/null python3 -m test test_${test} 2>&1) || true
             echo "$OUTPUT"
             # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
             if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
