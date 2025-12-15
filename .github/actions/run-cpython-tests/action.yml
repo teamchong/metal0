@@ -51,12 +51,19 @@ runs:
       run: |
         cd tests/cpython
         export LC_ALL=C
+
+        # Fix 1: Resolve /var -> /private/var symlink for test_sysconfig
+        export TMPDIR=$(python3 -c "import os; print(os.path.realpath(os.environ.get('TMPDIR', '/tmp')))")
+
+        # Fix 2: Get actual Python binary (not framework stub) for test_sys
+        PYTHON_BIN=$(python3 -c "import sys; print(sys.orig_argv[0] if sys.orig_argv else sys.executable)")
+
         PASSED=0; FAILED=0; TOTAL=0
         while IFS= read -r test || [ -n "$test" ]; do
           [ -z "$test" ] && continue
           TOTAL=$((TOTAL + 1))
-          # Run with 'script' to provide proper PTY (macOS syntax)
-          OUTPUT=$(script -q /dev/null python3 -m test test_${test} 2>&1) || true
+          # Run with 'script' to provide proper PTY, using actual binary
+          OUTPUT=$(script -q /dev/null $PYTHON_BIN -m test test_${test} 2>&1) || true
           echo "$OUTPUT"
           if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
             PASSED=$((PASSED + 1))

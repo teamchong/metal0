@@ -60,6 +60,9 @@ runs:
       if: inputs.os == 'macos'
       shell: bash
       run: |
+        # Fix: Resolve /var -> /private/var symlink for consistent paths
+        export TMPDIR=$(python3 -c "import os; print(os.path.realpath(os.environ.get('TMPDIR', '/tmp')))")
+
         # Run with 'script' to provide proper PTY (macOS syntax)
         set +e
         script -q /dev/null ./zig-out/bin/metal0 test tests/cpython ${{ inputs.group }} 2>&1 | tee test_output.txt
