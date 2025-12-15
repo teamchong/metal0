@@ -1,0 +1,127 @@
+name: 'Run Metal0 Tests'
+description: 'Run Metal0 compiled tests with proper PTY environment'
+inputs:
+  group:
+    description: 'Test group to run (e.g., @core1, @linux)'
+    required: true
+  label:
+    description: 'Label for summary (e.g., core1, linux)'
+    required: true
+  os:
+    description: 'Operating system (linux, macos, windows)'
+    required: true
+    default: 'linux'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run Metal0 tests (Linux)
+      if: inputs.os == 'linux'
+      shell: bash
+      run: |
+        # Run with 'script' to provide proper PTY (same env as CPython tests)
+        set +e
+        script -q -c "./zig-out/bin/metal0 test tests/cpython ${{ inputs.group }}" /dev/null 2>&1 | tee test_output.txt
+        TEST_EXIT=$?
+        set -e
+
+        # Strip ANSI codes for parsing
+        sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
+
+        # Parse test results
+        if grep -q "All.*tests passed" test_output_clean.txt; then
+          PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
+          PASSED=${PASSED:-0}
+          FAILED=0
+          TOTAL=$PASSED
+        elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
+          PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
+          TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
+          PASSED=${PASSED:-0}
+          TOTAL=${TOTAL:-0}
+          FAILED=$((TOTAL - PASSED))
+        else
+          echo "Failed to parse test output, using exit code: $TEST_EXIT"
+          exit $TEST_EXIT
+        fi
+
+        # Generate summary
+        RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
+        echo "## Metal0 Test Results - @${{ inputs.label }}" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+        echo "| Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+        echo "| Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
+
+        [ "$FAILED" -gt 0 ] && exit 1 || exit 0
+
+    - name: Run Metal0 tests (macOS)
+      if: inputs.os == 'macos'
+      shell: bash
+      run: |
+        # Run with 'script' to provide proper PTY (macOS syntax)
+        set +e
+        script -q /dev/null ./zig-out/bin/metal0 test tests/cpython ${{ inputs.group }} 2>&1 | tee test_output.txt
+        TEST_EXIT=$?
+        set -e
+
+        # Strip ANSI codes for parsing
+        sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
+
+        # Parse test results
+        if grep -q "All.*tests passed" test_output_clean.txt; then
+          PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
+          PASSED=${PASSED:-0}
+          FAILED=0
+          TOTAL=$PASSED
+        elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
+          PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
+          TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
+          PASSED=${PASSED:-0}
+          TOTAL=${TOTAL:-0}
+          FAILED=$((TOTAL - PASSED))
+        else
+          echo "Failed to parse test output, using exit code: $TEST_EXIT"
+          exit $TEST_EXIT
+        fi
+
+        # Generate summary
+        RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
+        echo "## Metal0 Test Results - @${{ inputs.label }}" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+        echo "| Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+        echo "| Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
+
+        [ "$FAILED" -gt 0 ] && exit 1 || exit 0
+
+    - name: Run Metal0 tests (Windows)
+      if: inputs.os == 'windows'
+      shell: pwsh
+      run: |
+        & .\zig-out\bin\metal0.exe test tests/cpython ${{ inputs.group }} 2>&1 | Tee-Object -FilePath test_output.txt
+        $testExitCode = $LASTEXITCODE
+
+        $content = Get-Content test_output.txt -Raw
+        if ($null -eq $content) { $content = "" }
+        $content = $content -replace '\x1b\[[0-9;]*m', ''
+
+        if ($content -match 'All (\d+) tests passed') {
+          $passed = [int]$Matches[1]; $failed = 0; $total = $passed
+        } elseif ($content -match '(\d+)/(\d+) passed') {
+          $passed = [int]$Matches[1]; $total = [int]$Matches[2]; $failed = $total - $passed
+        } else {
+          exit $testExitCode
+        }
+
+        $rate = if ($total -gt 0) { [math]::Round(($passed / $total) * 100, 1) } else { 0 }
+        "## Metal0 Test Results - @${{ inputs.label }}" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        "| Metric | Value |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        "|--------|-------|" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        "| Passed | $passed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        "| Failed | $failed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        "| Pass Rate | ${rate}% |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+
+        if ($failed -gt 0) { exit 1 }

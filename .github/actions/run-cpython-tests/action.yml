@@ -1,0 +1,105 @@
+name: 'Run CPython Tests'
+description: 'Run CPython reference tests with proper PTY environment'
+inputs:
+  group:
+    description: 'Test group file (e.g., core1, linux)'
+    required: true
+  label:
+    description: 'Label for summary'
+    required: true
+  os:
+    description: 'Operating system (linux, macos, windows)'
+    required: true
+    default: 'linux'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run CPython tests (Linux)
+      if: inputs.os == 'linux'
+      shell: bash
+      run: |
+        cd tests/cpython
+        export LC_ALL=C
+        PASSED=0; FAILED=0; TOTAL=0
+        while IFS= read -r test || [ -n "$test" ]; do
+          [ -z "$test" ] && continue
+          TOTAL=$((TOTAL + 1))
+          # Run with 'script' to provide proper PTY (same env as Metal0 tests)
+          OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null 2>&1) || true
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
+            PASSED=$((PASSED + 1))
+          else
+            FAILED=$((FAILED + 1))
+          fi
+        done < ../groups/${{ inputs.group }}.txt
+
+        RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
+        echo "## CPython Test Results - @${{ inputs.label }}" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+        echo "| Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+        echo "| Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
+
+        [ "$FAILED" -gt 0 ] && exit 1 || exit 0
+
+    - name: Run CPython tests (macOS)
+      if: inputs.os == 'macos'
+      shell: bash
+      run: |
+        cd tests/cpython
+        export LC_ALL=C
+        PASSED=0; FAILED=0; TOTAL=0
+        while IFS= read -r test || [ -n "$test" ]; do
+          [ -z "$test" ] && continue
+          TOTAL=$((TOTAL + 1))
+          # Run with 'script' to provide proper PTY (macOS syntax)
+          OUTPUT=$(script -q /dev/null python3 -m test test_${test} 2>&1) || true
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
+            PASSED=$((PASSED + 1))
+          else
+            FAILED=$((FAILED + 1))
+          fi
+        done < ../groups/${{ inputs.group }}.txt
+
+        RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
+        echo "## CPython Test Results - @${{ inputs.label }}" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+        echo "| Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+        echo "| Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
+
+        [ "$FAILED" -gt 0 ] && exit 1 || exit 0
+
+    - name: Run CPython tests (Windows)
+      if: inputs.os == 'windows'
+      shell: pwsh
+      run: |
+        Set-Location tests/cpython
+        $passed = 0; $failed = 0; $total = 0
+        Get-Content ../groups/${{ inputs.group }}.txt | ForEach-Object {
+          $test = $_.Trim()
+          if ($test -eq "") { return }
+          $total++
+          $output = python -m test "test_$test" 2>&1 | Out-String
+          Write-Host $output
+          if ($output -match "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)") {
+            $passed++
+          } else {
+            $failed++
+          }
+        }
+
+        $rate = if ($total -gt 0) { [math]::Round(($passed / $total) * 100, 1) } else { 0 }
+        "## CPython Test Results - @${{ inputs.label }}" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        "| Metric | Value |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        "|--------|-------|" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        "| Passed | $passed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        "| Failed | $failed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        "| Pass Rate | ${rate}% |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+
+        if ($failed -gt 0) { exit 1 }

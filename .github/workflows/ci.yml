@@ -8,8 +8,6 @@ on:
 
 env:
   ZIG_VERSION: "0.15.2"
-  PYTHON_VERSION: "3.13"
-
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,711 +18,228 @@ jobs:
   # Metal0 Compiled Tests (Python -> Zig -> Native Binary)
   # =============================================================================
 
-  # Core tests split into 3 parallel jobs for faster CI
   test-metal0-core1:
     name: Metal0 @core1 (93 tests)
-    runs-on: ubuntu-22.04  # Pin to 22.04 - ubuntu-24.04 has 4-5x slowdown (actions/runner-images#11790)
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
+      - uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Build
-        run: zig build
-
-      - name: Run Metal0 tests (core1)
-        run: |
-          # Capture output AND preserve exit code
-          set +e
-          ./zig-out/bin/metal0 test tests/cpython @core1 2>&1 | tee test_output.txt
-          TEST_EXIT=$?
-          set -e
-
-          # Strip ANSI codes for parsing
-          sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
-
-          # Parse test results
-          if grep -q "All.*tests passed" test_output_clean.txt; then
-            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
-            PASSED=${PASSED:-0}
-            FAILED=0
-            TOTAL=$PASSED
-          elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
-            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
-            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
-            PASSED=${PASSED:-0}
-            TOTAL=${TOTAL:-0}
-            FAILED=$((TOTAL - PASSED))
-          else
-            # Parsing failed - use test runner exit code as source of truth
-            echo "⚠️  Failed to parse test output, using test runner exit code: $TEST_EXIT"
-            PASSED=0
-            FAILED=1
-            TOTAL=1
-            exit $TEST_EXIT
-          fi
-
-          # Generate summary report
-          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 Metal0 Test Results - @core1" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-
-          # Exit with failure if any tests failed
-          if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Tests failed: $FAILED/$TOTAL"
-            exit 1
-          fi
+      - run: zig build
+      - uses: ./.github/actions/run-metal0-tests
+        with:
+          group: "@core1"
+          label: "core1"
+          os: "linux"
         timeout-minutes: 30
 
   test-metal0-core2:
     name: Metal0 @core2 (90 tests)
-    runs-on: ubuntu-22.04  # Pin to 22.04 - ubuntu-24.04 has 4-5x slowdown (actions/runner-images#11790)
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
+      - uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Build
-        run: zig build
-
-      - name: Run Metal0 tests (core2)
-        run: |
-          # Capture output AND preserve exit code
-          set +e
-          ./zig-out/bin/metal0 test tests/cpython @core2 2>&1 | tee test_output.txt
-          TEST_EXIT=$?
-          set -e
-
-          # Strip ANSI codes for parsing
-          sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
-
-          # Parse test results
-          if grep -q "All.*tests passed" test_output_clean.txt; then
-            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
-            PASSED=${PASSED:-0}
-            FAILED=0
-            TOTAL=$PASSED
-          elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
-            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
-            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
-            PASSED=${PASSED:-0}
-            TOTAL=${TOTAL:-0}
-            FAILED=$((TOTAL - PASSED))
-          else
-            # Parsing failed - use test runner exit code as source of truth
-            echo "⚠️  Failed to parse test output, using test runner exit code: $TEST_EXIT"
-            PASSED=0
-            FAILED=1
-            TOTAL=1
-            exit $TEST_EXIT
-          fi
-
-          # Generate summary report
-          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 Metal0 Test Results - @core2" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-
-          # Exit with failure if any tests failed
-          if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Tests failed: $FAILED/$TOTAL"
-            exit 1
-          fi
+      - run: zig build
+      - uses: ./.github/actions/run-metal0-tests
+        with:
+          group: "@core2"
+          label: "core2"
+          os: "linux"
         timeout-minutes: 30
 
   test-metal0-core3:
     name: Metal0 @core3 (89 tests)
-    runs-on: ubuntu-22.04  # Pin to 22.04 - ubuntu-24.04 has 4-5x slowdown (actions/runner-images#11790)
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
+      - uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Build
-        run: zig build
-
-      - name: Run Metal0 tests (core3)
-        run: |
-          # Capture output AND preserve exit code
-          set +e
-          ./zig-out/bin/metal0 test tests/cpython @core3 2>&1 | tee test_output.txt
-          TEST_EXIT=$?
-          set -e
-
-          # Strip ANSI codes for parsing
-          sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
-
-          # Parse test results
-          if grep -q "All.*tests passed" test_output_clean.txt; then
-            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
-            PASSED=${PASSED:-0}
-            FAILED=0
-            TOTAL=$PASSED
-          elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
-            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
-            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
-            PASSED=${PASSED:-0}
-            TOTAL=${TOTAL:-0}
-            FAILED=$((TOTAL - PASSED))
-          else
-            # Parsing failed - use test runner exit code as source of truth
-            echo "⚠️  Failed to parse test output, using test runner exit code: $TEST_EXIT"
-            PASSED=0
-            FAILED=1
-            TOTAL=1
-            exit $TEST_EXIT
-          fi
-
-          # Generate summary report
-          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 Metal0 Test Results - @core3" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-
-          # Exit with failure if any tests failed
-          if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Tests failed: $FAILED/$TOTAL"
-            exit 1
-          fi
+      - run: zig build
+      - uses: ./.github/actions/run-metal0-tests
+        with:
+          group: "@core3"
+          label: "core3"
+          os: "linux"
         timeout-minutes: 30
 
   test-metal0-linux:
     name: Metal0 @linux (28 tests)
-    runs-on: ubuntu-22.04  # Pin to 22.04 - ubuntu-24.04 has 4-5x slowdown (actions/runner-images#11790)
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
+      - uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Build
-        run: zig build
-
-      - name: Run Metal0 Linux-specific tests
-        id: test-linux
-        run: |
-          # Capture output AND preserve exit code
-          set +e
-          ./zig-out/bin/metal0 test tests/cpython @linux 2>&1 | tee test_output.txt
-          TEST_EXIT=$?
-          set -e
-
-          # Strip ANSI codes for parsing
-          sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
-
-          # Parse test results
-          if grep -q "All.*tests passed" test_output_clean.txt; then
-            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
-            PASSED=${PASSED:-0}
-            FAILED=0
-            TOTAL=$PASSED
-          elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
-            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
-            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
-            PASSED=${PASSED:-0}
-            TOTAL=${TOTAL:-0}
-            FAILED=$((TOTAL - PASSED))
-          else
-            # Parsing failed - use test runner exit code as source of truth
-            echo "⚠️  Failed to parse test output, using test runner exit code: $TEST_EXIT"
-            PASSED=0
-            FAILED=1
-            TOTAL=1
-            exit $TEST_EXIT
-          fi
-
-          # Generate summary report
-          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 Metal0 Test Results - @linux" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-
-          # Exit with failure if any tests failed
-          if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Tests failed: $FAILED/$TOTAL"
-            exit 1
-          fi
+      - run: zig build
+      - uses: ./.github/actions/run-metal0-tests
+        with:
+          group: "@linux"
+          label: "linux"
+          os: "linux"
         timeout-minutes: 60
 
   test-metal0-macos:
     name: Metal0 @macos (25 tests)
     runs-on: macos-latest
     timeout-minutes: 30
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
+      - uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Build
-        run: zig build
-
-      - name: Run Metal0 macOS-specific tests
-        id: test-macos
-        run: |
-          # Capture output AND preserve exit code
-          set +e
-          ./zig-out/bin/metal0 test tests/cpython @macos 2>&1 | tee test_output.txt
-          TEST_EXIT=$?
-          set -e
-
-          # Strip ANSI codes for parsing
-          sed 's/\x1b\[[0-9;]*m//g' test_output.txt > test_output_clean.txt
-
-          # Parse test results
-          if grep -q "All.*tests passed" test_output_clean.txt; then
-            PASSED=$(grep -oE 'All [0-9]+ tests passed' test_output_clean.txt | grep -oE '[0-9]+' | head -1)
-            PASSED=${PASSED:-0}
-            FAILED=0
-            TOTAL=$PASSED
-          elif grep -q '[0-9]\+/[0-9]\+ passed' test_output_clean.txt; then
-            PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f1)
-            TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' test_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
-            PASSED=${PASSED:-0}
-            TOTAL=${TOTAL:-0}
-            FAILED=$((TOTAL - PASSED))
-          else
-            # Parsing failed - use test runner exit code as source of truth
-            echo "⚠️  Failed to parse test output, using test runner exit code: $TEST_EXIT"
-            PASSED=0
-            FAILED=1
-            TOTAL=1
-            exit $TEST_EXIT
-          fi
-
-          # Generate summary report
-          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 Metal0 Test Results - @macos" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-
-          # Exit with failure if any tests failed
-          if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Tests failed: $FAILED/$TOTAL"
-            exit 1
-          fi
+      - run: zig build
+      - uses: ./.github/actions/run-metal0-tests
+        with:
+          group: "@macos"
+          label: "macos"
+          os: "macos"
         timeout-minutes: 60
 
   test-metal0-windows:
     name: Metal0 @windows (85 tests)
     runs-on: windows-latest
     timeout-minutes: 60
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
+      - uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Build
-        run: zig build -freference-trace=20
-
-      - name: Run Metal0 Windows-specific tests
-        id: test-windows
-        shell: pwsh
-        run: |
-          # Capture output AND exit code
-          & .\zig-out\bin\metal0.exe test tests/cpython @windows 2>&1 | Tee-Object -FilePath test_output.txt
-          $testExitCode = $LASTEXITCODE
-
-          # Strip ANSI color codes for parsing
-          $content = Get-Content test_output.txt -Raw
-          if ($null -eq $content) { $content = "" }
-          $content = $content -replace '\x1b\[[0-9;]*m', ''
-
-          # Parse results from output
-          if ($content -match 'All (\d+) tests passed') {
-            $passed = [int]$Matches[1]
-            $failed = 0
-            $total = $passed
-          } elseif ($content -match '(\d+)/(\d+) passed') {
-            $passed = [int]$Matches[1]
-            $total = [int]$Matches[2]
-            $failed = $total - $passed
-          } else {
-            # Parsing failed - use test exit code as source of truth
-            Write-Host "⚠️  Failed to parse test output, using test runner exit code: $testExitCode"
-            $passed = 0
-            $failed = 1
-            $total = 1
-            exit $testExitCode
-          }
-
-          $rate = if ($total -gt 0) { [math]::Round(($passed / $total) * 100, 1) } else { 0 }
-
-          # Generate summary
-          "## 📊 Metal0 Test Results - @windows" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "| Metric | Value |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "|--------|-------|" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "| ✅ Passed | $passed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "| ❌ Failed | $failed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "| 📋 Total | $total |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "| 📈 Pass Rate | ${rate}% |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-
-          # Exit with failure if any tests failed
-          if ($failed -gt 0) {
-            Write-Host "❌ Tests failed: $failed/$total"
-            exit 1
-          }
+      - run: zig build -freference-trace=20
+      - uses: ./.github/actions/run-metal0-tests
+        with:
+          group: "@windows"
+          label: "windows"
+          os: "windows"
         timeout-minutes: 60
 
   # =============================================================================
-  # CPython Reference Tests (Run local test files with Python interpreter)
+  # CPython Reference Tests (Run test files with Python interpreter)
   # =============================================================================
 
   test-cpython-core1:
     name: CPython @core1 (93 tests)
     runs-on: ubuntu-22.04
     timeout-minutes: 45
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Python 3.13.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13.11"
-
-      - name: Run CPython tests (core1)
-        run: |
-          cd tests/cpython
-          # Set locale to C to avoid locale-dependent test failures (e.g., test_datetime %c format)
-          export LC_ALL=C
-          PASSED=0; FAILED=0; TOTAL=0
-          while IFS= read -r test || [ -n "$test" ]; do
-            [ -z "$test" ] && continue
-            TOTAL=$((TOTAL + 1))
-            # Use Python's built-in test module
-            # Run each test with 'script' to provide a proper PTY (CI runners lack controlling terminal)
-            OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null 2>&1) || true
-            echo "$OUTPUT"
-            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
-            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
-              PASSED=$((PASSED + 1))
-            else
-              FAILED=$((FAILED + 1))
-            fi
-          done < ../groups/core1.txt
-          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 CPython Test Results - @core1" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Tests failed: $FAILED/$TOTAL"
-            exit 1
-          fi
+      - uses: ./.github/actions/run-cpython-tests
+        with:
+          group: "core1"
+          label: "core1"
+          os: "linux"
         timeout-minutes: 30
 
   test-cpython-core2:
     name: CPython @core2 (90 tests)
     runs-on: ubuntu-22.04
     timeout-minutes: 45
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Python 3.13.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13.11"
-
-      - name: Run CPython tests (core2)
-        run: |
-          cd tests/cpython
-          # Set locale to C to avoid locale-dependent test failures (e.g., test_datetime %c format)
-          export LC_ALL=C
-          PASSED=0; FAILED=0; TOTAL=0
-          while IFS= read -r test || [ -n "$test" ]; do
-            [ -z "$test" ] && continue
-            TOTAL=$((TOTAL + 1))
-            # Use Python's built-in test module
-            # Run each test with 'script' to provide a proper PTY (CI runners lack controlling terminal)
-            OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null 2>&1) || true
-            echo "$OUTPUT"
-            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
-            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
-              PASSED=$((PASSED + 1))
-            else
-              FAILED=$((FAILED + 1))
-            fi
-          done < ../groups/core2.txt
-          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 CPython Test Results - @core2" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Tests failed: $FAILED/$TOTAL"
-            exit 1
-          fi
+      - uses: ./.github/actions/run-cpython-tests
+        with:
+          group: "core2"
+          label: "core2"
+          os: "linux"
         timeout-minutes: 30
 
   test-cpython-core3:
     name: CPython @core3 (89 tests)
     runs-on: ubuntu-22.04
     timeout-minutes: 45
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Python 3.13.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13.11"
-
-      - name: Run CPython tests (core3)
-        run: |
-          cd tests/cpython
-          # Set locale to C to avoid locale-dependent test failures (e.g., test_datetime %c format)
-          export LC_ALL=C
-          PASSED=0; FAILED=0; TOTAL=0
-          while IFS= read -r test || [ -n "$test" ]; do
-            [ -z "$test" ] && continue
-            TOTAL=$((TOTAL + 1))
-            # Use Python's built-in test module
-            # Run each test with 'script' to provide a proper PTY (CI runners lack controlling terminal)
-            OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null 2>&1) || true
-            echo "$OUTPUT"
-            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
-            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
-              PASSED=$((PASSED + 1))
-            else
-              FAILED=$((FAILED + 1))
-            fi
-          done < ../groups/core3.txt
-          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 CPython Test Results - @core3" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Tests failed: $FAILED/$TOTAL"
-            exit 1
-          fi
+      - uses: ./.github/actions/run-cpython-tests
+        with:
+          group: "core3"
+          label: "core3"
+          os: "linux"
         timeout-minutes: 30
 
   test-cpython-linux:
     name: CPython @linux (28 tests)
     runs-on: ubuntu-22.04
     timeout-minutes: 75
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Python 3.13.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13.11"
-
-      - name: Run CPython Linux-specific tests
-        run: |
-          cd tests/cpython
-          # Set locale to C to avoid locale-dependent test failures (e.g., test_datetime %c format)
-          export LC_ALL=C
-          PASSED=0; FAILED=0; TOTAL=0
-          while IFS= read -r test || [ -n "$test" ]; do
-            [ -z "$test" ] && continue
-            TOTAL=$((TOTAL + 1))
-            # Use Python's built-in test module
-            # Run each test with 'script' to provide a proper PTY (CI runners lack controlling terminal)
-            OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null 2>&1) || true
-            echo "$OUTPUT"
-            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
-            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
-              PASSED=$((PASSED + 1))
-            else
-              FAILED=$((FAILED + 1))
-            fi
-          done < ../groups/linux.txt
-          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 CPython Test Results - @linux" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Tests failed: $FAILED/$TOTAL"
-            exit 1
-          fi
+      - uses: ./.github/actions/run-cpython-tests
+        with:
+          group: "linux"
+          label: "linux"
+          os: "linux"
         timeout-minutes: 60
 
   test-cpython-macos:
     name: CPython @macos (25 tests)
     runs-on: macos-latest
     timeout-minutes: 45
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Python 3.13.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13.11"
-
-      - name: Run CPython macOS-specific tests
-        run: |
-          cd tests/cpython
-          # Set locale to C to avoid locale-dependent test failures (e.g., test_datetime %c format)
-          export LC_ALL=C
-          PASSED=0; FAILED=0; TOTAL=0
-          while IFS= read -r test || [ -n "$test" ]; do
-            [ -z "$test" ] && continue
-            TOTAL=$((TOTAL + 1))
-            # Use Python's built-in test module
-            # Run each test with 'script' to provide a proper PTY (CI runners lack controlling terminal)
-            # macOS script syntax: script -q /dev/null command (different from Linux)
-            OUTPUT=$(script -q /dev/null python3 -m test test_${test} 2>&1) || true
-            echo "$OUTPUT"
-            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
-            if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
-              PASSED=$((PASSED + 1))
-            else
-              FAILED=$((FAILED + 1))
-            fi
-          done < ../groups/macos.txt
-          RATE=$([ "$TOTAL" -gt 0 ] && echo "scale=1; $PASSED * 100 / $TOTAL" | bc || echo "0")
-          echo "## 📊 CPython Test Results - @macos" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📋 Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📈 Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
-          if [ "$FAILED" -gt 0 ]; then
-            echo "❌ Tests failed: $FAILED/$TOTAL"
-            exit 1
-          fi
+      - uses: ./.github/actions/run-cpython-tests
+        with:
+          group: "macos"
+          label: "macos"
+          os: "macos"
         timeout-minutes: 60
 
   test-cpython-windows:
     name: CPython @windows (85 tests)
     runs-on: windows-latest
     timeout-minutes: 60
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Setup Python 3.13.11 (Windows uses pre-built binary)
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13.11"
-
-      - name: Run CPython Windows-specific tests
-        shell: pwsh
-        run: |
-          Set-Location tests/cpython
-          $passed = 0; $failed = 0; $total = 0
-          Get-Content ../groups/windows.txt | ForEach-Object {
-            $test = $_.Trim()
-            if ($test -eq "") { return }
-            $total++
-            # Use Python's built-in test module
-            # Check output for SUCCESS instead of exit code (some tests return non-zero even when passing)
-            $output = python -m test "test_$test" 2>&1 | Out-String
-            Write-Host $output
-            # Match SUCCESS or NO TESTS RAN (skipped tests are not failures)
-            if ($output -match "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)") {
-              $passed++
-            } else {
-              $failed++
-            }
-          }
-          $rate = if ($total -gt 0) { [math]::Round(($passed / $total) * 100, 1) } else { 0 }
-
-          "## 📊 CPython Test Results - @windows" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "| Metric | Value |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "|--------|-------|" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "| ✅ Passed | $passed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "| ❌ Failed | $failed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "| 📋 Total | $total |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-          "| 📈 Pass Rate | ${rate}% |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
-
-          if ($failed -gt 0) { exit 1 }
+      - uses: ./.github/actions/run-cpython-tests
+        with:
+          group: "windows"
+          label: "windows"
+          os: "windows"
         timeout-minutes: 60
