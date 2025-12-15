@@ -79,6 +79,12 @@ fn collectConcatParts(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayLis
 }
 
 /// Generate BigInt binary operations using method calls
+///
+/// IMPORTANT: All BigInt operations wrap the result in parens to support method chaining.
+/// Pattern: (left.method(&right, allocator) catch @panic("OOM"))
+///
+/// For operations that might be chained (shift, pow, div), use double parens:
+/// ((left.method(...)) catch @panic("OOM")) to ensure proper precedence.
 fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
     const alloc_name = "__global_allocator";
 
@@ -160,8 +166,11 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
     }.emit;
 
     // Standard BigInt operations: left.method(&right, allocator)
+    // Use CONSISTENT double-paren wrapping for ALL operations to support chaining:
+    // Pattern: ((left.method(...)) catch @panic("OOM"))
     const op_name = @tagName(binop.op);
     if (BigIntStdMethods.get(op_name)) |method| {
+        try self.emit("((");
         try emitLeftOperand(self, left_type, binop.left, alloc_name);
         try self.emit(".");
         try self.emit(method);
@@ -169,49 +178,53 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
         try emitRightOperand(self, right_type, binop.right, alloc_name);
         try self.emit(", ");
         try self.emit(alloc_name);
-        try self.emit(") catch @panic(\"OOM\")");
+        try self.emit(")) catch @panic(\"OOM\"))");
         return;
     }
 
     switch (binop.op) {
         .RShift => {
             // bigint.shr(shift_amount, allocator)
-            try self.emit("(");
+            // Wrap in extra parens to support method chaining: ((x).shr(...) catch @panic("OOM")).method()
+            try self.emit("((");
             try emitLeftOperand(self, left_type, binop.left, alloc_name);
             try self.emit(".shr(@as(usize, @intCast(");
             try genExpr(self, binop.right.*);
             try self.emit(")), ");
             try self.emit(alloc_name);
-            try self.emit(") catch @panic(\"OOM\"))");
+            try self.emit(")) catch @panic(\"OOM\"))");
         },
         .LShift => {
-            try self.emit("(");
+            // Wrap in extra parens to support method chaining: ((x).shl(...) catch @panic("OOM")).method()
+            try self.emit("((");
             try emitLeftOperand(self, left_type, binop.left, alloc_name);
             try self.emit(".shl(@as(usize, @intCast(");
             try genExpr(self, binop.right.*);
             try self.emit(")), ");
             try self.emit(alloc_name);
-            try self.emit(") catch @panic(\"OOM\"))");
+            try self.emit(")) catch @panic(\"OOM\"))");
         },
         .Pow => {
             // bigint.pow(exp, allocator) - exp must be u32
-            try self.emit("(");
+            // Wrap in extra parens to support method chaining: ((x).pow(...) catch @panic("OOM")).method()
+            try self.emit("((");
             try emitLeftOperand(self, left_type, binop.left, alloc_name);
             try self.emit(".pow(@as(u32, @intCast(");
             try genExpr(self, binop.right.*);
             try self.emit(")), ");
             try self.emit(alloc_name);
-            try self.emit(") catch @panic(\"OOM\"))");
+            try self.emit(")) catch @panic(\"OOM\"))");
         },
         .Div => {
             // BigInt division - use floorDiv for integer result
-            try self.emit("(");
+            // Wrap in extra parens to support method chaining: ((x).floorDiv(...) catch @panic("OOM")).method()
+            try self.emit("((");
             try emitLeftOperand(self, left_type, binop.left, alloc_name);
             try self.emit(".floorDiv(");
             try emitRightOperand(self, right_type, binop.right, alloc_name);
             try self.emit(", ");
             try self.emit(alloc_name);
-            try self.emit(") catch @panic(\"OOM\"))");
+            try self.emit(")) catch @panic(\"OOM\"))");
         },
         else => {
             // Unsupported BigInt op - fall back to error

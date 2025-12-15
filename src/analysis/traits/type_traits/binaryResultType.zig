@@ -26,7 +26,6 @@ pub const OperationHints = struct {
 
 /// Get result type with optional hints for AST-level information
 pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType, hints: OperationHints) NativeType {
-    if (isUnknown(left) or isUnknown(right)) return .unknown;
     const left_tag = @as(std.meta.Tag(@TypeOf(left)), left);
     const right_tag = @as(std.meta.Tag(@TypeOf(right)), right);
 
@@ -35,6 +34,23 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
         (left_tag == .int and left.int.needsBigInt());
     const right_needs_bigint = right_tag == .bigint or
         (right_tag == .int and right.int.needsBigInt());
+
+    // SPECIAL CASE: For bitwise operations (BitAnd, BitOr, BitXor), if ONE operand is BigInt
+    // and the other is unknown, we should return BigInt (since unknown could be any int-like value)
+    // This handles: hibit:BigInt | getrandbits():unknown → BigInt
+    const is_bitwise = op == .BitAnd or op == .BitOr or op == .BitXor;
+    if (is_bitwise) {
+        const one_unknown = isUnknown(left) != isUnknown(right); // XOR: exactly one is unknown
+        if (one_unknown and (left_needs_bigint or right_needs_bigint)) {
+            return .bigint;
+        }
+    }
+
+    // General rule: if both operands are unknown, return unknown
+    if (isUnknown(left) and isUnknown(right)) return .unknown;
+
+    // If ONE operand is unknown but the other isn't BigInt, return unknown
+    if (isUnknown(left) or isUnknown(right)) return .unknown;
 
     // Check if either operand is unified_int
     const left_is_unified = left_tag == .unified_int;

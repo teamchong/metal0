@@ -20,7 +20,16 @@ pub const genExprStmt = @import("assign/expr_stmt.zig").genExprStmt;
 
 /// Check if an expression results in a BigInt
 /// This detects expressions that produce BigInt values at runtime
-fn isBigIntExpression(expr: ast.Node) bool {
+fn isBigIntExpression(self: *NativeCodegen, expr: ast.Node) bool {
+    // Name expression - check if variable is typed as BigInt
+    if (expr == .name) {
+        const var_name = expr.name.id;
+        if (self.getVarType(var_name)) |var_type| {
+            return var_type == .bigint or (var_type == .int and var_type.int.needsBigInt());
+        }
+        return false;
+    }
+
     // Left shift with non-comptime RHS produces BigInt
     if (expr == .binop and expr.binop.op == .LShift) {
         const rhs = expr.binop.right.*;
@@ -68,12 +77,12 @@ fn isBigIntExpression(expr: ast.Node) bool {
         const is_bitwise = expr.binop.op == .BitOr or expr.binop.op == .BitAnd or expr.binop.op == .BitXor;
         if (is_bitwise) {
             // If either operand requires BigInt, the result is BigInt
-            if (isBigIntExpression(expr.binop.left.*)) return true;
-            if (isBigIntExpression(expr.binop.right.*)) return true;
+            if (isBigIntExpression(self, expr.binop.left.*)) return true;
+            if (isBigIntExpression(self, expr.binop.right.*)) return true;
         } else {
             // For other binops, recurse
-            if (isBigIntExpression(expr.binop.left.*)) return true;
-            if (isBigIntExpression(expr.binop.right.*)) return true;
+            if (isBigIntExpression(self, expr.binop.left.*)) return true;
+            if (isBigIntExpression(self, expr.binop.right.*)) return true;
         }
     }
     return false;
@@ -190,7 +199,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
     // Track variables assigned from BigInt expressions
     // This handles cases like: hibit = 1 << (bits - 1) where bits is not comptime
     // We need to know hibit is BigInt for subsequent operations like hibit | x
-    if (isBigIntExpression(assign.value.*)) {
+    if (isBigIntExpression(self, assign.value.*)) {
         for (assign.targets) |target| {
             if (target == .name) {
                 try self.bigint_vars.put(target.name.id, {});
@@ -1199,14 +1208,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // BUT: if current value is already BigInt type OR produces BigInt, emit directly without wrapping
                 const produces_bigint = current_value_type == .bigint or
                     (current_value_type == .int and current_value_type.int.needsBigInt()) or
-                    isBigIntExpression(assign.value.*);
+                    isBigIntExpression(self, assign.value.*);
                 if (produces_bigint) {
                     // Expression already produces BigInt (e.g., bigint ops: bitOr, bitAnd, 2**100, etc.)
                     try self.genExpr(assign.value.*);
-                    if (is_first_assignment and wrapper_opened) {
-                        try self.emit(")");
-                    }
-                    try self.emit(";\n");
+                    // DON'T close PyValue wrapper for BigInt expressions - they're never wrapped
+                    // (BigInt variables have explicit `: runtime.BigInt =` type annotation, no wrapper)
+                    try self.emit("; // BIGINT_PRODUCES\n");
                     try valueGen.trackVariableMetadata(
                         self,
                         var_name,
@@ -1279,7 +1287,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         try self.emit("(runtime.BigInt.fromInt(__global_allocator, ");
                         try self.genExpr(assign.value.*);
                         try self.emit(") catch unreachable)");
-                    } else if (isBigIntExpression(assign.value.*)) {
+                    } else if (isBigIntExpression(self, assign.value.*)) {
                         // Expression already produces BigInt (e.g., 2**100, bigint ops)
                         try self.genExpr(assign.value.*);
                     } else {
@@ -1349,8 +1357,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     type_traits.isNone(value_type);
                 // Match the opening condition from value_generation.zig
                 // Only close PyValue wrapper if value_type is unknown OR (primitive AND var uncertain AND not string)
-                const needs_pyvalue_close = type_traits.isUnknown(value_type) or
-                    (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type));
+                // IMPORTANT: DON'T close wrapper if expression produces BigInt (even if variable type isn't BigInt yet)
+                const expr_is_bigint = isBigIntExpression(self, assign.value.*);
+                const needs_pyvalue_close = !expr_is_bigint and (type_traits.isUnknown(value_type) or
+                    (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type)));
                 if (is_first_assignment and needs_pyvalue_close) {
                     try self.emit(")");
                     // Update var_types to mark this variable as PyValue so that subsequent
