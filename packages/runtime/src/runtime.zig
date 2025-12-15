@@ -75,6 +75,10 @@ pub const equality_ops = @import("runtime/equality_ops.zig");
 /// Export operator operations for reducing operator callable monomorphization
 pub const operator_ops = @import("runtime/operator_ops.zig");
 
+/// Export comparison operations for reducing comparison monomorphization
+/// Use comparison_ops.eqI64, ltF64, etc. instead of operator.eq with anytype
+pub const comparison_ops = @import("runtime/comparison_ops.zig");
+
 // =============================================================================
 // Modular submodules (split from runtime.zig for organization)
 // These are available as separate imports for new code:

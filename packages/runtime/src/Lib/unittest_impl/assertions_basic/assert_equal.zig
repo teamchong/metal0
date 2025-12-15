@@ -133,6 +133,96 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
         return try assertEqual(a, unwrapped);
     }
 
+    // =========================================================================
+    // FAST PATHS for common concrete types (reduces monomorphization)
+    // These dispatch to comparison_ops which compile ONCE, not per call site
+    // =========================================================================
+    const comparison_ops = runtime.comparison_ops;
+
+    // Fast path: PyValue == PyValue (most common for uncertain types)
+    if (A == runtime.PyValue and B == runtime.PyValue) {
+        if (comparison_ops.eqPyValue(a, b)) {
+            if (runner.global_result) |result| result.addPass();
+            return;
+        }
+        std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
+        if (runner.global_result) |result| result.addFail("assertEqual failed") catch {};
+        return error.AssertionFailed;
+    }
+
+    // Fast path: i64 == i64
+    if (A == i64 and B == i64) {
+        if (comparison_ops.eqI64(a, b)) {
+            if (runner.global_result) |result| result.addPass();
+            return;
+        }
+        std.debug.print("AssertionError: {d} != {d}\n", .{ a, b });
+        if (runner.global_result) |result| result.addFail("assertEqual failed") catch {};
+        return error.AssertionFailed;
+    }
+
+    // Fast path: f64 == f64 (with tolerance)
+    if (A == f64 and B == f64) {
+        const equal = blk: {
+            if (std.math.isInf(a) and std.math.isInf(b)) break :blk (a > 0) == (b > 0);
+            if (std.math.isNan(a) or std.math.isNan(b)) break :blk false;
+            break :blk @abs(a - b) < 0.0001;
+        };
+        if (equal) {
+            if (runner.global_result) |result| result.addPass();
+            return;
+        }
+        std.debug.print("AssertionError: {d} != {d}\n", .{ a, b });
+        if (runner.global_result) |result| result.addFail("assertEqual failed") catch {};
+        return error.AssertionFailed;
+    }
+
+    // Fast path: bool == bool
+    if (A == bool and B == bool) {
+        if (comparison_ops.eqBool(a, b)) {
+            if (runner.global_result) |result| result.addPass();
+            return;
+        }
+        std.debug.print("AssertionError: {} != {}\n", .{ a, b });
+        if (runner.global_result) |result| result.addFail("assertEqual failed") catch {};
+        return error.AssertionFailed;
+    }
+
+    // Fast path: []const u8 == []const u8 (strings)
+    if (A == []const u8 and B == []const u8) {
+        if (comparison_ops.eqStr(a, b)) {
+            if (runner.global_result) |result| result.addPass();
+            return;
+        }
+        std.debug.print("AssertionError: {s} != {s}\n", .{ a, b });
+        if (runner.global_result) |result| result.addFail("assertEqual failed") catch {};
+        return error.AssertionFailed;
+    }
+
+    // Fast path: i64 == f64 (cross-type numeric)
+    if (A == i64 and B == f64) {
+        if (comparison_ops.eqI64F64(a, b)) {
+            if (runner.global_result) |result| result.addPass();
+            return;
+        }
+        std.debug.print("AssertionError: {d} != {d}\n", .{ a, b });
+        if (runner.global_result) |result| result.addFail("assertEqual failed") catch {};
+        return error.AssertionFailed;
+    }
+    if (A == f64 and B == i64) {
+        if (comparison_ops.eqF64I64(a, b)) {
+            if (runner.global_result) |result| result.addPass();
+            return;
+        }
+        std.debug.print("AssertionError: {d} != {d}\n", .{ a, b });
+        if (runner.global_result) |result| result.addFail("assertEqual failed") catch {};
+        return error.AssertionFailed;
+    }
+
+    // =========================================================================
+    // End of fast paths - continue with complex type handling
+    // =========================================================================
+
     // Unwrap PyObject pointers before comparison
     if (A == *runtime.PyObject) {
         const py_val = runtime.pyObjectToValue(a);

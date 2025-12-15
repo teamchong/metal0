@@ -4,40 +4,81 @@
 //! These are useful for functional programming and with functions like map/reduce.
 //!
 //! Mirrors: CPython Lib/operator.py
+//!
+//! NOTE: Comparison operations dispatch to comparison_ops.zig for common types
+//! to reduce monomorphization. Use runtime.comparison_ops.eqI64 etc. directly
+//! in generated code for known concrete types.
 
 const std = @import("std");
+const comparison_ops = @import("runtime").comparison_ops;
+const PyValue = @import("runtime").PyValue;
 
 // ============================================================================
 // Comparison Operations
+// Dispatch to concrete implementations to reduce monomorphization
 // ============================================================================
 
 /// Less than: a < b
 pub fn lt(a: anytype, b: @TypeOf(a)) bool {
+    const T = @TypeOf(a);
+    // Fast paths for common concrete types (compile once)
+    if (T == i64) return comparison_ops.ltI64(a, b);
+    if (T == f64) return comparison_ops.ltF64(a, b);
+    if (T == PyValue) return comparison_ops.ltPyValue(a, b);
+    if (T == []const u8) return comparison_ops.ltStr(a, b);
+    // Fallback for other types (still monomorphizes, but rare)
     return a < b;
 }
 
 /// Less than or equal: a <= b
 pub fn le(a: anytype, b: @TypeOf(a)) bool {
+    const T = @TypeOf(a);
+    if (T == i64) return comparison_ops.leI64(a, b);
+    if (T == f64) return comparison_ops.leF64(a, b);
+    if (T == PyValue) return comparison_ops.lePyValue(a, b);
+    if (T == []const u8) return comparison_ops.leStr(a, b);
     return a <= b;
 }
 
 /// Equal: a == b
 pub fn eq(a: anytype, b: @TypeOf(a)) bool {
+    const T = @TypeOf(a);
+    if (T == i64) return comparison_ops.eqI64(a, b);
+    if (T == f64) return comparison_ops.eqF64(a, b);
+    if (T == bool) return comparison_ops.eqBool(a, b);
+    if (T == PyValue) return comparison_ops.eqPyValue(a, b);
+    if (T == []const u8) return comparison_ops.eqStr(a, b);
     return a == b;
 }
 
 /// Not equal: a != b
 pub fn ne(a: anytype, b: @TypeOf(a)) bool {
+    const T = @TypeOf(a);
+    if (T == i64) return comparison_ops.neI64(a, b);
+    if (T == f64) return comparison_ops.neF64(a, b);
+    if (T == bool) return comparison_ops.neBool(a, b);
+    if (T == PyValue) return comparison_ops.nePyValue(a, b);
+    if (T == []const u8) return comparison_ops.neStr(a, b);
     return a != b;
 }
 
 /// Greater than or equal: a >= b
 pub fn ge(a: anytype, b: @TypeOf(a)) bool {
+    const T = @TypeOf(a);
+    if (T == i64) return comparison_ops.geI64(a, b);
+    if (T == f64) return comparison_ops.geF64(a, b);
+    if (T == PyValue) return comparison_ops.gePyValue(a, b);
+    if (T == []const u8) return comparison_ops.geStr(a, b);
     return a >= b;
 }
 
 /// Greater than: a > b
 pub fn gt(a: anytype, b: @TypeOf(a)) bool {
+    const T = @TypeOf(a);
+    if (T == i64) return comparison_ops.gtI64(a, b);
+    if (T == f64) return comparison_ops.gtF64(a, b);
+    if (T == PyValue) return comparison_ops.gtPyValue(a, b);
+    if (T == []const u8) return comparison_ops.gtStr(a, b);
     return a > b;
 }
 
