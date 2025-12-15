@@ -647,20 +647,13 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         try parent.genExpr(self, args[0]);
         try self.emit("; const __ae_raw_b = ");
         try parent.genExpr(self, args[1]);
-        // Extract slice with comptime type check - handles arrays, slices, ArrayListUnmanaged
+        // Extract slice using container_dispatch helper - avoids inline @typeInfo monomorphization
         try self.emit("; const __ae_slice_a: ");
         try self.emit(slice_type.?);
-        try self.emit(" = __ae_get_slice_blk: { const __T = @typeInfo(@TypeOf(__ae_raw_a)); ");
-        try self.emit("break :__ae_get_slice_blk if (__T == .@\"struct\" and @hasField(@TypeOf(__ae_raw_a), \"items\")) __ae_raw_a.items ");
-        try self.emit("else if (__T == .pointer and __T.pointer.size == .slice) __ae_raw_a ");
-        try self.emit("else if (__T == .array) &__ae_raw_a else __ae_raw_a; };");
-        // Same for b
+        try self.emit(" = runtime.container_dispatch.getSlice(@TypeOf(__ae_raw_a), __ae_raw_a);");
         try self.emit(" const __ae_slice_b: ");
         try self.emit(slice_type.?);
-        try self.emit(" = __ae_get_slice_blk2: { const __T2 = @typeInfo(@TypeOf(__ae_raw_b)); ");
-        try self.emit("break :__ae_get_slice_blk2 if (__T2 == .@\"struct\" and @hasField(@TypeOf(__ae_raw_b), \"items\")) __ae_raw_b.items ");
-        try self.emit("else if (__T2 == .pointer and __T2.pointer.size == .slice) __ae_raw_b ");
-        try self.emit("else if (__T2 == .array) &__ae_raw_b else __ae_raw_b; };");
+        try self.emit(" = runtime.container_dispatch.getSlice(@TypeOf(__ae_raw_b), __ae_raw_b);");
         // Compare with concrete type
         try self.emit(" break :__ae_blk !std.mem.eql(");
         try self.emit(elem_type.?);

@@ -1862,16 +1862,17 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         try self.emit(");\n");
 
                         try self.emitIndent();
-                        try self.emit("const __target_len = if (@hasField(@TypeOf(__slice_target.*), \"items\")) __slice_target.items.len else __slice_target.len;\n");
+                        // Use container_dispatch helpers - avoids inline @hasField monomorphization
+                        try self.emit("const __target_len = runtime.container_dispatch.getPtrLen(@TypeOf(__slice_target), __slice_target);\n");
                         try self.emitIndent();
-                        try self.emit("const __src_data = if (@hasField(@TypeOf(__slice_src), \"items\")) __slice_src.items else &__slice_src;\n");
+                        try self.emit("const __src_data = runtime.container_dispatch.getSlice(@TypeOf(__slice_src), __slice_src);\n");
                         try self.emitIndent();
                         try self.emit("var __src_idx: usize = 0;\n");
                         try self.emitIndent();
                         try self.emit("while (__idx < __target_len and __src_idx < __src_data.len) {\n");
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("if (@hasField(@TypeOf(__slice_target.*), \"items\")) { __slice_target.items[__idx] = __src_data[__src_idx]; } else { __slice_target.*[__idx] = __src_data[__src_idx]; }\n");
+                        try self.emit("runtime.container_dispatch.setPtrAt(@TypeOf(__slice_target), @TypeOf(__src_data[0]), __slice_target, __idx, __src_data[__src_idx]);\n");
                         try self.emitIndent();
                         try self.emit("__idx += __step;\n");
                         try self.emitIndent();
@@ -1896,18 +1897,17 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             try self.genExpr(upper.*);
                             try self.emit(");\n");
                         } else {
-                            // Use comptime check to handle both fixed arrays and ArrayListUnmanaged
-                            try self.emit("const __slice_end: usize = if (@hasField(@TypeOf(__slice_target.*), \"items\")) __slice_target.items.len else __slice_target.len;\n");
+                            // Use container_dispatch helper - avoids inline @hasField monomorphization
+                            try self.emit("const __slice_end: usize = runtime.container_dispatch.getPtrLen(@TypeOf(__slice_target), __slice_target);\n");
                         }
 
                         try self.emitIndent();
-                        // Use comptime check for source length too
-                        try self.emit("const __copy_len = @min(__slice_end - __slice_start, if (@hasField(@TypeOf(__slice_src), \"items\")) __slice_src.items.len else __slice_src.len);\n");
+                        // Use container_dispatch helpers - avoids inline @hasField monomorphization
+                        try self.emit("const __copy_len = @min(__slice_end - __slice_start, runtime.container_dispatch.getLen(@TypeOf(__slice_src), __slice_src));\n");
                         try self.emitIndent();
-                        // Use comptime check to access the right slice
-                        try self.emit("const __target_slice = if (@hasField(@TypeOf(__slice_target.*), \"items\")) __slice_target.items else __slice_target.*;\n");
+                        try self.emit("const __target_slice = runtime.container_dispatch.getMutSlice(@TypeOf(__slice_target.*), __slice_target);\n");
                         try self.emitIndent();
-                        try self.emit("const __src_slice = if (@hasField(@TypeOf(__slice_src), \"items\")) __slice_src.items else &__slice_src;\n");
+                        try self.emit("const __src_slice = runtime.container_dispatch.getSlice(@TypeOf(__slice_src), __slice_src);\n");
                         try self.emitIndent();
                         try self.emit("@memcpy(__target_slice[__slice_start..][0..__copy_len], __src_slice[0..__copy_len]);\n");
                     }

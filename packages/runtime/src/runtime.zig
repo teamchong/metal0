@@ -700,6 +700,51 @@ pub const globMatch = glob_ops_mod.globMatch;
 pub const matchCharClass = glob_ops_mod.matchCharClass;
 pub const rglobCollect = glob_ops_mod.rglobCollect;
 
+// =============================================================================
+// Additional runtime exports for codegen (systematic addition)
+// =============================================================================
+
+// Operator functions from builtins
+pub const operatorEq = builtins.operatorEq;
+pub const operatorNe = builtins.operatorNe;
+pub const operatorLe = builtins.operatorLe;
+pub const bigIntDivmod = builtins.bigIntDivmod;
+
+// Set operations from builtins
+pub const pySetAdd = builtins.pySetAdd;
+pub const pySetRemove = builtins.pySetRemove;
+pub const pySetClear = builtins.pySetClear;
+pub const pySetPop = builtins.pySetPop;
+
+// Additional float operations
+pub const floatHex = @import("runtime/float_ops.zig").floatHex;
+
+// Additional int operations
+pub const pyIntFromAny = @import("runtime/int_ops.zig").pyIntFromAny;
+
+// String concat from misc_utils
+pub const concat = misc_utils.concat;
+
+// Dynamic attribute operations
+pub const dir_builtin = dynamic_attrs.dir_builtin;
+pub const getattr_builtin = dynamic_attrs.getattr_builtin;
+
+// Container operations - setEqual already exported via container_ops
+// Additional setEqual export for backward compat
+pub const setEqual = container_ops.setEqual;
+
+// Hashlib re-export for direct access (runtime.hashlib)
+pub const hashlib = @import("Modules/_hashlib.zig");
+
+// Datetime direct exports for runtime.datetime.Date, etc.
+pub const datetime = @import("Lib/datetime.zig");
+
+// Importlib direct export
+pub const importlib = @import("Lib/importlib.zig");
+
+// Inspect module direct export with generator state constants
+pub const inspect = @import("Lib/inspect.zig");
+
 /// Dynamic import for __import__() builtin
 /// In AOT compilation, returns a stub module object (Py_None)
 /// This enables code using __import__() to compile
@@ -810,6 +855,43 @@ pub const Lib = struct {
     pub const http = if (is_freestanding) void else @import("Lib/http.zig");
     pub const websocket = if (is_freestanding) void else @import("Lib/websocket.zig");
     pub const asyncio = if (is_freestanding) void else @import("Lib/asyncio.zig");
+
+    // Additional modules for comprehensive coverage (vetted modules only)
+    pub const genericpath = @import("Lib/genericpath.zig");
+    pub const filecmp = @import("Lib/filecmp.zig");
+    pub const graphlib = @import("Lib/graphlib.zig");
+    pub const sysconfig = @import("Lib/sysconfig.zig");
+    pub const hashlib = @import("Lib/hashlib.zig");
+    pub const fnmatch = @import("Lib/fnmatch.zig");
+    pub const glob = @import("Lib/glob.zig");
+    pub const bz2 = @import("Lib/bz2.zig");
+    pub const lzma = @import("Lib/lzma.zig");
+    pub const tarfile = @import("Lib/tarfile.zig");
+    pub const zipfile = @import("Lib/zipfile.zig");
+    pub const posixpath = @import("Lib/posixpath.zig");
+    pub const ntpath = @import("Lib/ntpath.zig");
+    pub const locale = @import("Lib/locale.zig");
+    pub const bisect = @import("Lib/bisect.zig");
+    pub const hmac = @import("Lib/hmac.zig");
+    pub const uuid = @import("Lib/uuid.zig");
+    pub const ipaddress = @import("Lib/ipaddress.zig");
+    pub const quopri = @import("Lib/quopri.zig");
+    pub const _hashlib = @import("Modules/_hashlib.zig");
+    pub const traceback = @import("Lib/traceback.zig");
+    pub const linecache = @import("Lib/linecache.zig");
+    pub const keyword = @import("Lib/keyword.zig");
+    pub const token = @import("Lib/token.zig");
+    pub const tokenize = @import("Lib/tokenize.zig");
+    pub const opcode = @import("Lib/opcode.zig");
+    pub const symtable = @import("Lib/symtable.zig");
+    pub const codeop = @import("Lib/codeop.zig");
+    pub const profile = @import("Lib/profile.zig");
+    pub const timeit = @import("Lib/timeit.zig");
+    pub const trace = @import("Lib/trace.zig");
+    pub const socket = if (is_freestanding) void else @import("Lib/socket.zig");
+    pub const threading = if (is_freestanding) void else @import("Lib/threading.zig");
+    pub const queue = @import("Lib/queue.zig");
+    pub const test_ = @import("Lib/test/support.zig"); // test is reserved, use test_
 };
 
 /// Modules/ directory - C extension module implementations

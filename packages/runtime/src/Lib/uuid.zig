@@ -344,23 +344,23 @@ test "uuid4" {
 }
 
 test "uuid3" {
-    const u = uuid3(NAMESPACE_DNS, "python.org");
-    try std.testing.expectEqual(@as(u4, 3), u.version());
-    try std.testing.expectEqual(Variant.RFC_4122, u.variant());
+    const uuid_val = uuid3(NAMESPACE_DNS, "python.org");
+    try std.testing.expectEqual(@as(u4, 3), uuid_val.version());
+    try std.testing.expectEqual(Variant.RFC_4122, uuid_val.variant());
 
     // Same input should produce same UUID
-    const u2 = uuid3(NAMESPACE_DNS, "python.org");
-    try std.testing.expect(u.eql(u2));
+    const uuid_val2 = uuid3(NAMESPACE_DNS, "python.org");
+    try std.testing.expect(uuid_val.eql(uuid_val2));
 }
 
 test "uuid5" {
-    const u = uuid5(NAMESPACE_DNS, "python.org");
-    try std.testing.expectEqual(@as(u4, 5), u.version());
-    try std.testing.expectEqual(Variant.RFC_4122, u.variant());
+    const uuid_val = uuid5(NAMESPACE_DNS, "python.org");
+    try std.testing.expectEqual(@as(u4, 5), uuid_val.version());
+    try std.testing.expectEqual(Variant.RFC_4122, uuid_val.variant());
 
     // Same input should produce same UUID
-    const u2 = uuid5(NAMESPACE_DNS, "python.org");
-    try std.testing.expect(u.eql(u2));
+    const uuid_val2 = uuid5(NAMESPACE_DNS, "python.org");
+    try std.testing.expect(uuid_val.eql(uuid_val2));
 }
 
 test "uuid1" {
@@ -405,9 +405,9 @@ test "UUID.urn" {
 }
 
 test "UUID.compare" {
-    const u1 = try UUID.fromString("00000000-0000-0000-0000-000000000001");
-    const u2 = try UUID.fromString("00000000-0000-0000-0000-000000000002");
-    try std.testing.expectEqual(std.math.Order.lt, u1.compare(u2));
-    try std.testing.expectEqual(std.math.Order.gt, u2.compare(u1));
-    try std.testing.expectEqual(std.math.Order.eq, u1.compare(u1));
+    const uuid_a = try UUID.fromString("00000000-0000-0000-0000-000000000001");
+    const uuid_b = try UUID.fromString("00000000-0000-0000-0000-000000000002");
+    try std.testing.expectEqual(std.math.Order.lt, uuid_a.compare(uuid_b));
+    try std.testing.expectEqual(std.math.Order.gt, uuid_b.compare(uuid_a));
+    try std.testing.expectEqual(std.math.Order.eq, uuid_a.compare(uuid_a));
 }

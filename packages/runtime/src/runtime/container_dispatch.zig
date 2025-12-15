@@ -4,12 +4,15 @@
 const std = @import("std");
 
 /// Extract slice from any container type
-/// Handles: ArrayList (has .items), fixed arrays, slices
+/// Handles: ArrayList (has .items), PyBytes (has .data), fixed arrays, slices
 /// Returns const slice for read operations
 pub fn getSlice(comptime T: type, container: T) GetSliceType(T) {
     const info = @typeInfo(T);
     if (info == .@"struct" and @hasField(T, "items")) {
         return container.items;
+    } else if (info == .@"struct" and @hasField(T, "data")) {
+        // PyBytes-like types use .data field
+        return container.data;
     } else if (info == .pointer and info.pointer.size == .slice) {
         return container;
     } else if (info == .array) {
@@ -68,6 +71,9 @@ pub fn GetElementType(comptime T: type) type {
     const info = @typeInfo(T);
     if (info == .@"struct" and @hasField(T, "items")) {
         return std.meta.Elem(@TypeOf(@as(T, undefined).items));
+    } else if (info == .@"struct" and @hasField(T, "data")) {
+        // PyBytes-like types use .data field
+        return std.meta.Elem(@TypeOf(@as(T, undefined).data));
     } else if (info == .pointer and info.pointer.size == .slice) {
         return info.pointer.child;
     } else if (info == .array) {
@@ -81,6 +87,9 @@ fn GetSliceType(comptime T: type) type {
     const info = @typeInfo(T);
     if (info == .@"struct" and @hasField(T, "items")) {
         return @TypeOf(@as(T, undefined).items);
+    } else if (info == .@"struct" and @hasField(T, "data")) {
+        // PyBytes-like types use .data field
+        return @TypeOf(@as(T, undefined).data);
     } else if (info == .pointer and info.pointer.size == .slice) {
         return T;
     } else if (info == .array) {
@@ -99,4 +108,62 @@ fn GetMutSliceType(comptime T: type) type {
         return []info.array.child;
     }
     return []void;
+}
+
+/// Check if a type is an error union - used by assertRaises
+/// Single comptime dispatch point replaces inline @typeInfo checks
+pub fn isErrorUnion(comptime T: type) bool {
+    return @typeInfo(T) == .error_union;
+}
+
+/// Set element at index in any container - for slice assignment
+/// Handles: ArrayList (.items), arrays, slices
+pub fn setAt(comptime T: type, container: *T, index: usize, value: GetElementType(T)) void {
+    const info = @typeInfo(T);
+    if (info == .@"struct" and @hasField(T, "items")) {
+        container.items[index] = value;
+    } else if (info == .array) {
+        container[index] = value;
+    } else if (info == .pointer and info.pointer.size == .one) {
+        // Pointer to array or slice
+        container.*[index] = value;
+    } else {
+        // Slice or other
+        container[index] = value;
+    }
+}
+
+/// Get length of deref'd container pointer - for slice assignment target
+/// Handles: *ArrayList, *array, *slice
+pub fn getPtrLen(comptime T: type, container: T) usize {
+    const info = @typeInfo(T);
+    if (info == .pointer and info.pointer.size == .one) {
+        const child = info.pointer.child;
+        const child_info = @typeInfo(child);
+        if (child_info == .@"struct" and @hasField(child, "items")) {
+            return container.items.len;
+        } else if (child_info == .array) {
+            return child_info.array.len;
+        } else if (child_info == .pointer and child_info.pointer.size == .slice) {
+            return container.*.len;
+        }
+    }
+    return 0;
+}
+
+/// Set element at index in dereferenced container pointer - for slice assignment target
+/// Handles: *ArrayList, *array, *slice
+pub fn setPtrAt(comptime T: type, comptime E: type, container: T, index: usize, value: E) void {
+    const info = @typeInfo(T);
+    if (info == .pointer and info.pointer.size == .one) {
+        const child = info.pointer.child;
+        const child_info = @typeInfo(child);
+        if (child_info == .@"struct" and @hasField(child, "items")) {
+            container.items[index] = value;
+        } else if (child_info == .array) {
+            container[index] = value;
+        } else {
+            container.*[index] = value;
+        }
+    }
 }

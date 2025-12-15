@@ -53,7 +53,7 @@ pub const Timer = struct {
 
     /// Repeat timing and return list of times
     pub fn repeat(self: *const Timer, repeat_count: usize, number: u64) ![]f64 {
-        var times = try self.allocator.alloc(f64, repeat_count);
+        const times = try self.allocator.alloc(f64, repeat_count);
         for (times, 0..) |*t, i| {
             _ = i;
             t.* = self.timeit(number);

@@ -477,13 +477,8 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("const _rev_input = ");
     try self.genExpr(args[0]);
     try self.emit(";\n");
-    // Handle PyBytes struct (has .data field), arrays, and slices
-    try self.emit("const _rev_slice = blk2: {\n");
-    try self.emit("    const T = @TypeOf(_rev_input);\n");
-    try self.emit("    if (@typeInfo(T) == .@\"struct\" and @hasField(T, \"data\")) break :blk2 _rev_input.data\n");
-    try self.emit("    else if (@typeInfo(T) == .array) break :blk2 @as([]const @typeInfo(T).array.child, &_rev_input)\n");
-    try self.emit("    else break :blk2 _rev_input;\n");
-    try self.emit("};\n");
+    // Use container_dispatch helper - handles PyBytes (.data), ArrayList (.items), arrays, slices
+    try self.emit("const _rev_slice = runtime.container_dispatch.getSlice(@TypeOf(_rev_input), _rev_input);\n");
     try self.emitFmt("const __reversed_copy = {s}{s}.dupe({s}, _rev_slice){s};\n", .{ try_prefix, alloc_name, elem_zig_type, catch_suffix });
     try self.emitFmt("std.mem.reverse({s}, __reversed_copy);\n", .{elem_zig_type});
     if (is_bytes) {
