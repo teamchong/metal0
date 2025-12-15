@@ -1484,7 +1484,9 @@ fn inferBinOpWithInferrer(
     // Class instances with dunder methods may return class type, not standard result
     // E.g., Rat.__truediv__ returns Rat, not float - must be handled before trait
     if (left_tag == .class_instance or right_tag == .class_instance) {
-        if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult or binop.op == .Div) {
+        if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult or binop.op == .Div or
+            binop.op == .FloorDiv or binop.op == .Mod)
+        {
             // If both operands are the SAME class type, assume result is also that class
             // This handles common patterns like: Rat + Rat -> Rat
             if (left_tag == .class_instance and right_tag == .class_instance) {
@@ -1493,6 +1495,16 @@ fn inferBinOpWithInferrer(
                 if (std.mem.eql(u8, left_class, right_class)) {
                     return left_type; // Same class, return same type
                 }
+            }
+            // If one operand is a class and the other is unknown,
+            // the class's reverse dunder will be called (e.g., __rtruediv__)
+            // which returns the class type. Same if class operand has the dunder.
+            // E.g., other/self where self is Rat -> Rat.__rtruediv__ returns Rat
+            if (left_tag == .class_instance and right_tag == .unknown) {
+                return left_type;
+            }
+            if (right_tag == .class_instance and left_tag == .unknown) {
+                return right_type;
             }
             // Mixed class types or class + primitive: fall back to unknown
             return .unknown;

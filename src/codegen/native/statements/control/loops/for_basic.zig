@@ -1221,6 +1221,78 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         return;
     }
 
+    // Handle vararg parameter iteration (e.g., for c in *classes)
+    // Varargs are passed as &.{...} (pointer to tuple) at call sites
+    // Must dereference and use inline for to iterate over fields at comptime
+    // This is necessary because tuple elements can be different types (class types)
+    if (for_stmt.iter.* == .name) {
+        const iter_name = for_stmt.iter.name.id;
+        if (self.vararg_params.contains(iter_name)) {
+            // Generate comptime iteration over tuple fields:
+            // First check if it's a pointer type (call site passes &.{...})
+            // const __vararg_val = if (@typeInfo(@TypeOf(vararg)) == .pointer) vararg.* else vararg;
+            // inline for (@typeInfo(@TypeOf(__vararg_val)).@"struct".fields) |field| {
+            //     const c = @field(__vararg_val, field.name);
+            //     ...body...
+            // }
+            try self.emit("{\n");
+            self.indent();
+            try self.emitIndent();
+            // Handle both pointer and direct tuple types
+            try self.output.writer(self.allocator).print(
+                "const __vararg_val_{s} = if (@typeInfo(@TypeOf({s})) == .pointer) {s}.* else {s};\n",
+                .{ iter_name, iter_name, iter_name, iter_name },
+            );
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print(
+                "inline for (@typeInfo(@TypeOf(__vararg_val_{s})).@\"struct\".fields) |__tuple_field| {{\n",
+                .{iter_name},
+            );
+            self.indent();
+            try self.pushScope();
+
+            try self.emitIndent();
+            // Check if loop variable shadows a module-level function or imported module
+            const shadows_module_func_vararg = self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
+            if (shadows_module_func_vararg and !self.var_renames.contains(var_name)) {
+                const renamed = try self.name_gen.local(var_name);
+                try self.var_renames.put(var_name, renamed);
+            }
+            const actual_name_vararg = self.var_renames.get(var_name) orelse var_name;
+
+            try self.emit("const ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name_vararg);
+            try self.output.writer(self.allocator).print(
+                " = @field(__vararg_val_{s}, __tuple_field.name);\n",
+                .{iter_name},
+            );
+
+            // Register loop variable type as unknown (comptime types can vary)
+            try self.type_inferrer.putScopedVar(for_stmt.target.name.id, .unknown);
+
+            // Track this variable as coming from vararg iteration
+            // Used by call codegen to generate c.init(...) instead of c(...)
+            try self.vararg_loop_vars.put(actual_name_vararg, {});
+
+            for (for_stmt.body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+
+            // Remove tracking after loop body
+            _ = self.vararg_loop_vars.swapRemove(actual_name_vararg);
+
+            self.popScope();
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            return;
+        }
+    }
+
     // Handle PyObject/PyValue iteration (e.g., from json.load() returning PyList)
     // Two-Flow: Include .pyvalue for uncertain iterable types
     // Use while loop with runtime.PyList.getItem() since we can't use Zig for-each on PyObject

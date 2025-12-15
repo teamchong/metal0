@@ -1447,6 +1447,21 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
         }
 
+        // Handle vararg loop variable calls: c(arg) where c is from "for c in *classes"
+        // Vararg loop variables are types (structs) at comptime, need .init() to instantiate
+        // Generate: try c.init(allocator, args...)
+        if (self.vararg_loop_vars.contains(raw_func_name)) {
+            try self.emit("try ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
+            try self.emit(".init(__global_allocator");
+            for (call.args) |arg| {
+                try self.emit(", ");
+                try genExpr(self, arg);
+            }
+            try self.emit(")");
+            return;
+        }
+
         // Fallback: regular function call
         // Use raw_func_name for registry lookups (original Python name)
         // Check if this is a user-defined function that needs allocator

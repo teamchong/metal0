@@ -57,15 +57,26 @@ fn isBigIntExpression(self: *NativeCodegen, expr: ast.Node) bool {
             return true;
         }
     }
-    // int() call with non-literal argument could produce BigInt
-    // e.g., int(s) where s is a string variable (could be from file/input)
+    // int() call MAY produce BigInt, but only in specific cases:
+    // - int(string_var) - parsing large number strings
+    // - int(bigint_var) - returns the BigInt as-is
+    // NOT BigInt-producing:
+    // - int(class_instance) - calls __int__() which returns i64
+    // - int(float_var) - truncates to i64 (may overflow but genInt handles it)
     if (expr == .call and expr.call.func.* == .name) {
         if (std.mem.eql(u8, expr.call.func.name.id, "int")) {
             if (expr.call.args.len >= 1) {
                 const arg = expr.call.args[0];
-                // If argument is not a literal, it's runtime and could be large
-                if (arg != .constant) {
-                    return true;
+                // Only string variables could parse into BigInt
+                if (arg == .name) {
+                    const arg_name = arg.name.id;
+                    if (self.getVarType(arg_name)) |arg_type| {
+                        // String argument: int("12345...") could be BigInt
+                        if (string_traits.isString(arg_type)) return true;
+                        // BigInt argument: int(bigint_var) returns BigInt
+                        if (arg_type == .bigint) return true;
+                        if (arg_type == .int and arg_type.int.needsBigInt()) return true;
+                    }
                 }
             }
         }
@@ -1201,6 +1212,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             const needs_bigint = value_type == .bigint or
                 (value_type == .int and value_type.int.needsBigInt());
             if (needs_bigint) {
+                // BigInt variables have explicit `: runtime.BigInt =` type annotation
+                // They NEVER use PyValue wrapper, so clear the flag to prevent double-closing
+                wrapper_opened = false;
+
                 // Infer the type of the current value expression
                 const current_value_type = try self.inferExprScoped(assign.value.*);
 
@@ -1212,9 +1227,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 if (produces_bigint) {
                     // Expression already produces BigInt (e.g., bigint ops: bitOr, bitAnd, 2**100, etc.)
                     try self.genExpr(assign.value.*);
-                    // DON'T close PyValue wrapper for BigInt expressions - they're never wrapped
-                    // (BigInt variables have explicit `: runtime.BigInt =` type annotation, no wrapper)
-                    try self.emit("; // BIGINT_PRODUCES\n");
+                    try self.emit(";\n");
                     try valueGen.trackVariableMetadata(
                         self,
                         var_name,

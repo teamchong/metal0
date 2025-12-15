@@ -430,6 +430,38 @@ const SafeBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "abs", {} },
 });
 
+/// Check if an int() call on this expression might produce BigInt.
+/// This happens when:
+/// 1. int(string_literal) where string_literal.len >= 19 (uses parseBigIntUnicode)
+/// 2. int(string_variable) - always uses parseBigIntUnicode for safety
+/// Returns true if the expression is an int() call that might produce BigInt.
+fn intCallMightProduceBigInt(node: ast.Node) bool {
+    if (node != .call) return false;
+    const call = node.call;
+    if (call.func.* != .name) return false;
+    if (!std.mem.eql(u8, call.func.name.id, "int")) return false;
+    if (call.args.len == 0) return false;
+
+    const arg = call.args[0];
+    // Check if argument is a string literal with >= 19 chars (source representation)
+    if (arg == .constant and arg.constant.value == .string) {
+        const str_val = arg.constant.value.string;
+        return str_val.len >= 19;
+    }
+    // Check if argument is a variable (could be a string variable)
+    // String variables always use parseBigIntUnicode for safety
+    // We can't statically determine if a variable is a string, so we're conservative
+    // and check if this is an int(name) pattern - if it's an int(int_var), codegen
+    // will use a different path anyway
+    if (arg == .name) {
+        // Name argument - could be string variable, which would use BigInt
+        // Return true to be safe (may produce false positives, but that's fine -
+        // PyValue comparison works for all types)
+        return true;
+    }
+    return false;
+}
+
 /// Check if an expression has a simple, predictable type at codegen time.
 /// Function calls may return complex types (IntResult, error unions) that don't match
 /// the simple types (i64, f64) inferred by the type inferrer.
@@ -573,6 +605,22 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
     const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
     const tag_a: std.meta.Tag(NativeType) = type_a;
     const tag_b: std.meta.Tag(NativeType) = type_b;
+
+    // === SPECIAL CASE: int(string) might produce BigInt ===
+    // When int() is called on a string with >= 19 chars (source representation) or
+    // on a string variable, codegen uses parseBigIntUnicode which returns BigInt.
+    // In this case, direct comparison won't work - use PyValue comparison.
+    const a_might_be_bigint = intCallMightProduceBigInt(args[0]);
+    const b_might_be_bigint = intCallMightProduceBigInt(args[1]);
+    if (a_might_be_bigint or b_might_be_bigint or tag_a == .bigint or tag_b == .bigint) {
+        // BigInt comparison - use PyValue.eql() which handles BigInt correctly
+        try self.emit("if (!runtime.PyValue.from(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(").eql(runtime.PyValue.from(");
+        try parent.genExpr(self, args[1]);
+        try self.emit("))) return error.AssertionFailed;");
+        return;
+    }
 
     // === PRIMITIVE TYPES: Direct comparison ===
     // For known primitive types, use optimized inline comparisons (no monomorphization)

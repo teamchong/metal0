@@ -312,6 +312,10 @@ pub const NativeCodegen = struct {
     // Used for type inference: iterating over vararg gives i64
     vararg_params: FnvVoidMap,
 
+    // Track loop variables from vararg iteration (e.g., "c" in "for c in classes" where classes is vararg)
+    // These variables may be types at comptime, requiring .init() call instead of direct call
+    vararg_loop_vars: FnvVoidMap,
+
     // Track methods with varargs (*args)
     // Maps "ClassName.method_name" -> vararg_start_index (number of regular params before *args, not counting self)
     // e.g., "OperationLogger.log_operation" -> 0 for def log_operation(self, *args)
@@ -771,6 +775,7 @@ pub const NativeCodegen = struct {
             .async_function_defs = FnvFuncDefMap.init(aa),
             .vararg_functions = hashmap_helper.StringHashMap(usize).init(aa),
             .vararg_params = FnvVoidMap.init(aa),
+            .vararg_loop_vars = FnvVoidMap.init(aa),
             .vararg_methods = hashmap_helper.StringHashMap(usize).init(aa),
             .kwarg_functions = FnvVoidMap.init(aa),
             .kwarg_params = FnvVoidMap.init(aa),

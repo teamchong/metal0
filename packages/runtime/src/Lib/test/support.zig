@@ -157,6 +157,70 @@ pub fn rmtree(dir_path: []const u8) void {
 }
 
 // ============================================================================
+// Special Comparison Singletons
+// ============================================================================
+
+/// ALWAYS_EQ - A sentinel that compares equal to everything
+/// Used in CPython tests to verify comparison behavior
+pub const ALWAYS_EQ = struct {
+    const Self = @This();
+
+    pub fn __eq__(_: Self, _: anytype) bool {
+        return true;
+    }
+
+    pub fn __ne__(_: Self, _: anytype) bool {
+        return false;
+    }
+
+    pub fn __lt__(_: Self, _: anytype) bool {
+        return false;
+    }
+
+    pub fn __le__(_: Self, _: anytype) bool {
+        return true;
+    }
+
+    pub fn __gt__(_: Self, _: anytype) bool {
+        return false;
+    }
+
+    pub fn __ge__(_: Self, _: anytype) bool {
+        return true;
+    }
+
+    pub fn __hash__(_: Self) i64 {
+        return 0;
+    }
+
+    pub fn __repr__(_: Self) []const u8 {
+        return "ALWAYS_EQ";
+    }
+}{};
+
+/// NEVER_EQ - A sentinel that compares equal to nothing (not even itself)
+/// Used in CPython tests to verify comparison behavior
+pub const NEVER_EQ = struct {
+    const Self = @This();
+
+    pub fn __eq__(_: Self, _: anytype) bool {
+        return false;
+    }
+
+    pub fn __ne__(_: Self, _: anytype) bool {
+        return true;
+    }
+
+    pub fn __hash__(_: Self) i64 {
+        return 0;
+    }
+
+    pub fn __repr__(_: Self) []const u8 {
+        return "NEVER_EQ";
+    }
+}{};
+
+// ============================================================================
 // Assertion Helpers
 // ============================================================================
 
