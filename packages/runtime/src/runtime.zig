@@ -69,6 +69,9 @@ pub const itertools_ops = @import("runtime/itertools_ops.zig");
 /// Export list operations for native codegen (fixes comptime explosion in list literal casting)
 pub const list_ops = @import("runtime/list_ops.zig");
 
+/// Export equality operations for reducing assertion monomorphization
+pub const equality_ops = @import("runtime/equality_ops.zig");
+
 // =============================================================================
 // Modular submodules (split from runtime.zig for organization)
 // These are available as separate imports for new code:

@@ -246,6 +246,7 @@ pub fn equalWithBaseValue(a: anytype, b: anytype) bool {
 }
 
 /// Deep equality for union types
+/// Uses PyValue comparison to avoid O(n²) monomorphization from inline for over fields
 pub fn deepEqualUnion(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
@@ -254,47 +255,19 @@ pub fn deepEqualUnion(a: anytype, b: anytype) bool {
     const info = @typeInfo(A);
     if (info != .@"union") return false;
 
+    // Quick check: different tags means not equal
     const a_tag = std.meta.activeTag(a);
     const b_tag = std.meta.activeTag(b);
     if (a_tag != b_tag) return false;
 
-    // Compare payload based on active tag
-    inline for (info.@"union".fields) |field| {
-        if (a_tag == @field(std.meta.Tag(A), field.name)) {
-            const a_payload = @field(a, field.name);
-            const b_payload = @field(b, field.name);
-            const PayloadType = @TypeOf(a_payload);
-            const payload_info = @typeInfo(PayloadType);
-
-            // Handle slices specially - compare contents not pointers
-            if (payload_info == .pointer and payload_info.pointer.size == .slice) {
-                if (a_payload.len != b_payload.len) return false;
-                const ChildType = payload_info.pointer.child;
-                const child_info = @typeInfo(ChildType);
-                // For slices of unions (like []const PyValue), recursively compare
-                if (child_info == .@"union") {
-                    for (a_payload, b_payload) |a_item, b_item| {
-                        if (!deepEqualUnion(a_item, b_item)) return false;
-                    }
-                    return true;
-                }
-                // For simple slices, use mem.eql
-                if (ChildType == u8) {
-                    return std.mem.eql(u8, a_payload, b_payload);
-                }
-                // For other types, compare element by element
-                for (a_payload, b_payload) |a_item, b_item| {
-                    if (!runtime.pyAnyEql(a_item, b_item)) return false;
-                }
-                return true;
-            }
-            return runtime.pyAnyEql(a_payload, b_payload);
-        }
-    }
-    return false;
+    // Use PyValue comparison to reduce monomorphization
+    // Instead of inline for over union fields, delegate to PyValue.eql
+    const allocator = @import("utils.allocator_helper").fast_allocator;
+    return runtime.equality_ops.equalViaPyValue(allocator, a, b);
 }
 
 /// Helper to compare two tuple structs
+/// Uses PyValue comparison to avoid O(n²) monomorphization from inline for + @field
 pub fn equalTuples(a: anytype, b: anytype) bool {
     const A = @TypeOf(a);
     const B = @TypeOf(b);
@@ -308,77 +281,10 @@ pub fn equalTuples(a: anytype, b: anytype) bool {
 
     if (a_fields.len != b_fields.len) return false;
 
-    inline for (0..a_fields.len) |i| {
-        const a_field = @field(a, a_fields[i].name);
-        const b_field = @field(b, b_fields[i].name);
-
-        const FA = @TypeOf(a_field);
-        const FB = @TypeOf(b_field);
-        const fa_info = @typeInfo(FA);
-        const fb_info = @typeInfo(FB);
-
-        // Handle optional types - use comptime if for type-based decisions
-        const field_equal = comptime if (fa_info == .optional and fb_info == .optional) blk: {
-            // Both optional
-            break :blk true;
-        } else if (fa_info == .optional) blk: {
-            // a optional, b not
-            break :blk false;
-        } else if (fb_info == .optional) blk: {
-            // b optional, a not
-            break :blk false;
-        } else blk: {
-            // Neither optional
-            break :blk false;
-        };
-
-        _ = field_equal; // silence unused
-
-        // Runtime comparison
-        // Handle bare null type (@Type(.null).null) - it's always null
-        const a_is_bare_null = comptime fa_info == .null;
-        const b_is_bare_null = comptime fb_info == .null;
-
-        if (comptime fa_info == .optional and fb_info == .optional) {
-            // Both optional
-            const a_null = a_field == null;
-            const b_null = b_field == null;
-            if (a_null and b_null) {
-                // Both null, this field matches, check next
-            } else if (a_null or b_null) {
-                return false;
-            } else {
-                // Both non-null, compare inner values
-                if (!equalValues(a_field.?, b_field.?)) return false;
-            }
-        } else if (comptime fa_info == .optional and b_is_bare_null) {
-            // a is optional, b is bare null - a must be null to match
-            if (a_field != null) return false;
-        } else if (comptime a_is_bare_null and fb_info == .optional) {
-            // a is bare null, b is optional - b must be null to match
-            if (b_field != null) return false;
-        } else if (comptime a_is_bare_null and b_is_bare_null) {
-            // Both are bare null - they match
-        } else if (comptime fa_info == .optional) {
-            // a is optional, b is not - check if a is null or if values match
-            if (a_field) |a_val| {
-                if (!equalValues(a_val, b_field)) return false;
-            } else {
-                return false;
-            }
-        } else if (comptime fb_info == .optional) {
-            // b is optional, a is not
-            if (b_field) |b_val| {
-                if (!equalValues(a_field, b_val)) return false;
-            } else {
-                return false;
-            }
-        } else {
-            // For non-optional fields, use equalValues which handles string type coercion
-            if (!equalValues(a_field, b_field)) return false;
-        }
-    }
-    return true;
+    // Use PyValue comparison to reduce monomorphization
+    // O(n) conversions + O(1) comparison instead of O(n²) inline field iteration
+    const allocator = @import("utils.allocator_helper").fast_allocator;
+    return runtime.equality_ops.equalViaPyValue(allocator, a, b);
 }
 
 /// Check if a type is a string-like type (slice or string literal pointer)
@@ -509,24 +415,15 @@ pub fn equalValues(a: anytype, b: anytype) bool {
         }
     }
 
-    // Tuple comparison - compare element by element with type coercion
+    // Tuple/struct comparison - use PyValue to avoid O(n²) inline for monomorphization
     // Handles (BigInt, BigInt) vs (i64, i64) and similar cases
     if (comptime a_info == .@"struct" and b_info == .@"struct") {
         const a_fields = a_info.@"struct".fields;
         const b_fields = b_info.@"struct".fields;
-        // Check if both are tuple-like (anonymous structs with @"0", @"1", etc. fields)
-        if (a_fields.len == b_fields.len and a_fields.len > 0) {
-            const is_a_tuple = comptime a_fields[0].name[0] == '0' or (a_fields[0].name.len > 0 and std.mem.eql(u8, a_fields[0].name, "0"));
-            const is_b_tuple = comptime b_fields[0].name[0] == '0' or (b_fields[0].name.len > 0 and std.mem.eql(u8, b_fields[0].name, "0"));
-            if (is_a_tuple and is_b_tuple) {
-                // Both are tuples, compare element by element
-                inline for (0..a_fields.len) |i| {
-                    const a_val = @field(a, a_fields[i].name);
-                    const b_val = @field(b, b_fields[i].name);
-                    if (!equalValues(a_val, b_val)) return false;
-                }
-                return true;
-            }
+        if (a_fields.len == b_fields.len) {
+            // Use PyValue comparison instead of inline for over fields
+            const allocator = @import("utils.allocator_helper").fast_allocator;
+            return runtime.equality_ops.equalViaPyValue(allocator, a, b);
         }
     }
 
