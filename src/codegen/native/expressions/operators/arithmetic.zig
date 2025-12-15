@@ -86,10 +86,8 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
     const emitLeftOperand = struct {
         fn emit(s: *NativeCodegen, ltype: NativeType, left: *const ast.Node, aname: []const u8) CodegenError!void {
             if (ltype == .bigint) {
-                // Already BigInt - wrap in parens for method call
-                try s.emit("(");
+                // Already BigInt - no wrapping needed, line 161 provides outer parens
                 try genExpr(s, left.*);
-                try s.emit(")");
             } else if (ltype == .int) {
                 // Check if unbounded (could be i128) vs bounded (i64)
                 if (ltype.int.needsBigInt()) {
@@ -109,11 +107,15 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
                 }
             } else {
                 // Unknown - try to convert as i64
+                // Wrap genExpr in parens to handle block expressions
+                // Opens: ( = A, fromInt( = B, @as( = D, ( = C (4 opens)
+                // Closes: ) = C, ) = D, ) = B + catch, ) = A (4 closes)
+                // Pattern: (fromInt(alloc, @as(i64, (expr))) catch @panic("OOM"))
                 try s.emit("(runtime.BigInt.fromInt(");
                 try s.emit(aname);
-                try s.emit(", @as(i64, ");
+                try s.emit(", @as(i64, (");
                 try genExpr(s, left.*);
-                try s.emit(")) catch @panic(\"OOM\"))");
+                try s.emit("))) catch @panic(\"OOM\"))");
             }
         }
     }.emit;
@@ -144,11 +146,15 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
                 }
             } else {
                 // Unknown - try to convert as i64
+                // Wrap genExpr in parens to handle block expressions
+                // Opens: &( = A, fromInt( = B, @as( = D, ( = C (4 opens)
+                // Closes: ) = C, ) = D, ) = B + catch, ) = A (4 closes)
+                // Pattern: &(fromInt(alloc, @as(i64, (expr))) catch @panic("OOM"))
                 try s.emit("&(runtime.BigInt.fromInt(");
                 try s.emit(aname);
-                try s.emit(", @as(i64, ");
+                try s.emit(", @as(i64, (");
                 try genExpr(s, right.*);
-                try s.emit(")) catch @panic(\"OOM\"))");
+                try s.emit("))) catch @panic(\"OOM\"))");
             }
         }
     }.emit;
@@ -156,7 +162,6 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
     // Standard BigInt operations: left.method(&right, allocator)
     const op_name = @tagName(binop.op);
     if (BigIntStdMethods.get(op_name)) |method| {
-        try self.emit("(");
         try emitLeftOperand(self, left_type, binop.left, alloc_name);
         try self.emit(".");
         try self.emit(method);
@@ -164,7 +169,7 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
         try emitRightOperand(self, right_type, binop.right, alloc_name);
         try self.emit(", ");
         try self.emit(alloc_name);
-        try self.emit(") catch @panic(\"OOM\"))");
+        try self.emit(") catch @panic(\"OOM\")");
         return;
     }
 
@@ -237,11 +242,12 @@ fn genBigIntBinOpRightBig(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
                 try s.emit(") catch @panic(\"OOM\"))");
             } else {
                 // Unknown - try to convert as i64
+                // Wrap genExpr in parens to handle block expressions
                 try s.emit("(runtime.BigInt.fromInt(");
                 try s.emit(aname);
-                try s.emit(", @as(i64, ");
+                try s.emit(", @as(i64, (");
                 try genExpr(s, left.*);
-                try s.emit(")) catch @panic(\"OOM\"))");
+                try s.emit(")))) catch @panic(\"OOM\"))");
             }
         }
     }.emit;
@@ -273,11 +279,12 @@ fn genBigIntBinOpRightBig(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
                 }
             } else {
                 // Unknown - try to convert as i64
+                // Wrap genExpr in parens to handle block expressions
                 try s.emit("&(runtime.BigInt.fromInt(");
                 try s.emit(aname);
-                try s.emit(", @as(i64, ");
+                try s.emit(", @as(i64, (");
                 try genExpr(s, right.*);
-                try s.emit(")) catch @panic(\"OOM\"))");
+                try s.emit("))) catch @panic(\"OOM\")");
             }
         }
     }.emit;
@@ -576,20 +583,37 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         }
     }
 
+    // IMPORTANT: For Mod operator with string/bytes left operand, this is string formatting
+    // NOT BigInt modulo. Skip BigInt handling to let the string formatting handler at line ~1039 handle it.
+    const is_string_formatting = blk: {
+        if (binop.op != .Mod) break :blk false;
+        // Check if left operand is a string/bytes literal
+        if (binop.left.* == .constant) {
+            if (binop.left.constant.value == .string) break :blk true;
+            if (binop.left.constant.value == .bytes) break :blk true;
+        }
+        // Check inferred type
+        if (string_traits.isString(bigint_left_type) or string_traits.isBytes(bigint_left_type)) break :blk true;
+        break :blk false;
+    };
+
     // If left operand needs BigInt (explicit bigint or unbounded int), use BigInt method calls
-    if (needsBigInt(bigint_left_type)) {
+    // BUT NOT for string formatting operations
+    if (needsBigInt(bigint_left_type) and !is_string_formatting) {
         try genBigIntBinOp(self, binop, bigint_left_type, bigint_right_type);
         return;
     }
 
     // If right operand needs BigInt (e.g., 0 - bigint), convert left to BigInt and use BigInt ops
-    if (needsBigInt(bigint_right_type)) {
+    // BUT NOT for string formatting operations
+    if (needsBigInt(bigint_right_type) and !is_string_formatting) {
         try genBigIntBinOpRightBig(self, binop, bigint_left_type, bigint_right_type);
         return;
     }
 
     // If either operand is UnifiedInt, use UnifiedInt method calls
-    if (isUnifiedInt(bigint_left_type) or isUnifiedInt(bigint_right_type)) {
+    // BUT NOT for string formatting operations
+    if ((isUnifiedInt(bigint_left_type) or isUnifiedInt(bigint_right_type)) and !is_string_formatting) {
         try genUnifiedIntBinOp(self, binop, bigint_left_type, bigint_right_type);
         return;
     }

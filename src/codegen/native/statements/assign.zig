@@ -61,10 +61,20 @@ fn isBigIntExpression(expr: ast.Node) bool {
             }
         }
     }
-    // Recursively check nested expressions
+    // BigInt binary operations (bitOr, bitAnd, etc.) produce BigInt
+    // when either operand is BigInt or needs BigInt (unbounded int)
     if (expr == .binop) {
-        if (isBigIntExpression(expr.binop.left.*)) return true;
-        if (isBigIntExpression(expr.binop.right.*)) return true;
+        // BitOr, BitAnd, BitXor operations with BigInt operands produce BigInt
+        const is_bitwise = expr.binop.op == .BitOr or expr.binop.op == .BitAnd or expr.binop.op == .BitXor;
+        if (is_bitwise) {
+            // If either operand requires BigInt, the result is BigInt
+            if (isBigIntExpression(expr.binop.left.*)) return true;
+            if (isBigIntExpression(expr.binop.right.*)) return true;
+        } else {
+            // For other binops, recurse
+            if (isBigIntExpression(expr.binop.left.*)) return true;
+            if (isBigIntExpression(expr.binop.right.*)) return true;
+        }
     }
     return false;
 }
@@ -1186,7 +1196,27 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 const current_value_type = try self.inferExprScoped(assign.value.*);
 
                 // If current value is int-typed, convert to BigInt
-                if (type_traits.isIntegral(current_value_type)) {
+                // BUT: if current value is already BigInt type OR produces BigInt, emit directly without wrapping
+                const produces_bigint = current_value_type == .bigint or
+                    (current_value_type == .int and current_value_type.int.needsBigInt()) or
+                    isBigIntExpression(assign.value.*);
+                if (produces_bigint) {
+                    // Expression already produces BigInt (e.g., bigint ops: bitOr, bitAnd, 2**100, etc.)
+                    try self.genExpr(assign.value.*);
+                    if (is_first_assignment and wrapper_opened) {
+                        try self.emit(")");
+                    }
+                    try self.emit(";\n");
+                    try valueGen.trackVariableMetadata(
+                        self,
+                        var_name,
+                        is_first_assignment,
+                        is_constant_array,
+                        typeHandling.isArraySlice(self, assign.value.*),
+                        assign,
+                    );
+                    return;
+                } else if (type_traits.isIntegral(current_value_type)) {
                     // Check if this is an int() call - handle based on argument type
                     // to avoid overflow when parsing very large strings like int('1' * 600)
                     // or converting large floats like int(1e100)

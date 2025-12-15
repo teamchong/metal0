@@ -737,6 +737,22 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
+    // Check if argument is a call to range() - returns *PyObject which is a PyList
+    if (args[0] == .call) {
+        const call = args[0].call;
+        if (call.func.* == .name) {
+            const func_name = call.func.name.id;
+            if (std.mem.eql(u8, func_name, "range")) {
+                // iter(range(...)) - range returns *PyObject (PyList)
+                // Wrap in PyValue.from to match __iter__ return type
+                try self.emit("runtime.PyValue.from(");
+                try self.genExpr(args[0]);
+                try self.emit(")");
+                return;
+            }
+        }
+    }
+
     // For unknown types, use container_dispatch helper to reduce monomorphization
     // Replaces inline @typeInfo/@hasField checks with centralized helper
     try self.emit("runtime.container_dispatch.toIterSlice(@TypeOf(");
