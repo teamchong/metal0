@@ -662,11 +662,25 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
     }
 
     // === TUPLE COMPARISON ===
-    // Use runtime.pyEqual for Python-semantic comparison (handles cross-type like BigInt vs i64)
+    // Use PyValue.from().eql() for tuple comparison - compiles once, not per type
     if (tag_a == .tuple and tag_b == .tuple) {
-        try self.emit("if (!(try runtime.pyEqual(__global_allocator, ");
+        try self.emit("if (!runtime.PyValue.from(");
         try parent.genExpr(self, args[0]);
-        try self.emit(", ");
+        try self.emit(").eql(runtime.PyValue.from(");
+        try parent.genExpr(self, args[1]);
+        try self.emit("))) return error.AssertionFailed;");
+        return;
+    }
+
+    // === PyValue COMPARISON (for uncertain types) ===
+    // When either type is unknown/pyvalue, use PyValue.eql() directly
+    // This compiles ONCE instead of monomorphizing for each type combination
+    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
+        type_b == .pyvalue or type_b == .unknown);
+    if (is_uncertain) {
+        try self.emit("if (!runtime.PyValue.from(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(").eql(runtime.PyValue.from(");
         try parent.genExpr(self, args[1]);
         try self.emit("))) return error.AssertionFailed;");
         return;

@@ -282,6 +282,9 @@ pub const isStringAllWhitespace = @import("runtime/whitespace.zig").isStringAllW
 // Re-export file operations for codegen
 pub const PyFile = @import("Objects/fileobject.zig").PyFile;
 
+// Re-export Fraction type for codegen (reduces monomorphization from inline struct)
+pub const Fraction = @import("Objects/fraction.zig").Fraction;
+
 // Re-export numeric operations for codegen
 pub const addNum = @import("runtime/float_ops.zig").addNum;
 pub const subtractNum = @import("runtime/float_ops.zig").subtractNum;
