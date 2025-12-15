@@ -619,14 +619,12 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // Only call if the class actually implements the reverse dunder method
     if (type_traits.isClassInstance(bigint_right_type) and !right_is_anytype and !type_traits.isClassInstance(bigint_left_type)) {
         if (ReverseDunders.get(@tagName(binop.op))) |rdunder_method| {
-            // Generate comptime check for method existence
+            // Generate comptime check for method existence using container_dispatch helper
+            // Reduces monomorphization by centralizing @typeInfo/@hasDecl checks
             // If method exists, call it; otherwise raise TypeError at runtime
-            // For builtin subclasses (e.g. class T(tuple)), the method may not exist
             try self.emit("radd_blk: { const _rhs = ");
             try genExpr(self, binop.right.*);
-            try self.emit("; const _RhsType = @TypeOf(_rhs); const _PtrInfo = @typeInfo(_RhsType); ");
-            try self.emit("if (_PtrInfo != .pointer) { return error.TypeError; } ");
-            try self.output.writer(self.allocator).print("if (@hasDecl(_PtrInfo.pointer.child, \"{s}\")) {{ break :radd_blk try _rhs.{s}(__global_allocator, ", .{ rdunder_method, rdunder_method });
+            try self.output.writer(self.allocator).print("; if (runtime.container_dispatch.hasPtrChildDecl(@TypeOf(_rhs), \"{s}\")) {{ break :radd_blk try _rhs.{s}(__global_allocator, ", .{ rdunder_method, rdunder_method });
             try genExpr(self, binop.left.*);
             try self.emit("); } else { return error.TypeError; } }");
             return;
@@ -1500,11 +1498,13 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
             // TWO-FLOW TYPE SYSTEM: Check if operand is a PyValue variable
             // If so, use PyValue.neg() method instead of Zig's negation operator
             // Check scoped vars first (for loop variables, function params)
+            // Only use .neg() for explicit PyValue types, not unknown (which may be i64)
+            // Unknown types fall through to lines 1535-1544 with proper runtime dispatch
             const is_pyvalue = if (unaryop.operand.* == .name) blk: {
                 const name = unaryop.operand.name.id;
                 const vt = self.type_inferrer.getScopedVar(name) orelse
                     self.type_inferrer.var_types.get(name);
-                break :blk if (vt) |v| (v == .pyvalue or v == .unknown) else false;
+                break :blk if (vt) |v| (v == .pyvalue) else false;
             } else false;
             if (is_pyvalue) {
                 try self.emit("(");
@@ -1569,11 +1569,12 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
 
             // TWO-FLOW TYPE SYSTEM: Check if operand is a PyValue variable
             // If so, use PyValue.pyInvert() method instead of Zig's invert operator
+            // Only use .pyInvert() for explicit PyValue types, not unknown (which may be i64)
             const is_pyvalue = if (unaryop.operand.* == .name) blk: {
                 const name = unaryop.operand.name.id;
                 const vt = self.type_inferrer.getScopedVar(name) orelse
                     self.type_inferrer.var_types.get(name);
-                break :blk if (vt) |v| (v == .pyvalue or v == .unknown) else false;
+                break :blk if (vt) |v| (v == .pyvalue) else false;
             } else false;
             if (is_pyvalue) {
                 try self.emit("(");

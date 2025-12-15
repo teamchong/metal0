@@ -415,9 +415,9 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // Two-Flow: Skip list dispatch for PyValue/unknown to let them fall through to runtime
     if (ListMethods.get(method_name)) |handler| {
         // Skip list dispatch for dict/set types to avoid list.pop() on dicts
-        // Also skip for uncertain types (pyvalue/unknown) - they need runtime dispatch
+        // Keep unknown types - they may be empty list literals like [] which need list methods
         if (!container_traits.isDict(obj_type) and !container_traits.isSet(obj_type) and
-            obj_type != .counter and obj_type != .pyvalue and !type_traits.isUnknown(obj_type))
+            obj_type != .counter and obj_type != .pyvalue)
         {
             handler(self, obj, call.args) catch |err| {
                 if (err == error.UnsupportedSyntax) return false;

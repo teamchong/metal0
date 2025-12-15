@@ -773,9 +773,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                     // String literals have length in type - use []const u8 for flexibility
                     try self.emit(": []const u8 = undefined;\n");
                 } else {
-                    try self.emit(": @TypeOf(");
+                    // Use std.meta.Elem to safely extract element type (works on empty arrays)
+                    try self.emit(": std.meta.Elem(@TypeOf(");
                     try self.genExpr(for_stmt.iter.*);
-                    try self.emit("[0]) = undefined;\n");
+                    try self.emit(")) = undefined;\n");
                 }
             } else {
                 // Empty tuple - use i64 as default

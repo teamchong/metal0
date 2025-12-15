@@ -1020,12 +1020,15 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
                             // Not in type context - try @TypeOf if safe, else fallback
                             const iter_safe = initExprIsSafe(iter_expr, &safe_vars);
                             if (iter_safe) {
-                                try self.emit(": @TypeOf((");
-                                try self.genExpr(iter_expr.*);
+                                // Use std.meta.Elem to safely get element type (handles empty arrays)
                                 if (container_traits.isList(iter_type)) {
-                                    try self.emit(").items[0])");
+                                    try self.emit(": std.meta.Elem(@TypeOf((");
+                                    try self.genExpr(iter_expr.*);
+                                    try self.emit(").items))");
                                 } else {
-                                    try self.emit(")[0])");
+                                    try self.emit(": std.meta.Elem(@TypeOf(");
+                                    try self.genExpr(iter_expr.*);
+                                    try self.emit("))");
                                 }
                             } else {
                                 try self.emit(": runtime.PyValue");
@@ -1035,12 +1038,15 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
                         // Non-name iterator - try @TypeOf if safe
                         const iter_safe = initExprIsSafe(iter_expr, &safe_vars);
                         if (iter_safe) {
-                            try self.emit(": @TypeOf((");
-                            try self.genExpr(iter_expr.*);
+                            // Use std.meta.Elem to safely get element type (handles empty arrays)
                             if (container_traits.isList(iter_type)) {
-                                try self.emit(").items[0])");
+                                try self.emit(": std.meta.Elem(@TypeOf((");
+                                try self.genExpr(iter_expr.*);
+                                try self.emit(").items))");
                             } else {
-                                try self.emit(")[0])");
+                                try self.emit(": std.meta.Elem(@TypeOf(");
+                                try self.genExpr(iter_expr.*);
+                                try self.emit("))");
                             }
                         } else {
                             try self.emit(": runtime.PyValue");
