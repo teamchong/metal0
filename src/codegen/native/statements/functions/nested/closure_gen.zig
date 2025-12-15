@@ -634,7 +634,7 @@ pub fn genStandardClosure(
     }
 
     // Store function signature for default parameter handling during calls
-    const func_sig_name = try self.allocator.dupe(u8, func.name);
+    const func_sig_name = try self.arena.allocator().dupe(u8, func.name);
     try self.function_signatures.put(func_sig_name, .{
         .total_params = total_params,
         .required_params = required_params,
@@ -653,7 +653,7 @@ pub fn genStandardClosure(
     const alias_name = if (shadows_import or is_redefinition)
         try self.name_gen.closure(func.name)
     else
-        try self.allocator.dupe(u8, func.name);
+        try self.arena.allocator().dupe(u8, func.name);
     defer self.allocator.free(alias_name);
 
     // Create closure variable name
@@ -668,23 +668,23 @@ pub fn genStandardClosure(
     if (forward_ref_vars.items.len > 0) {
         // Defer instantiation - store info to instantiate later when variables are available
         // Make persistent copies of names for deferred use
-        const closure_var_name_copy = try self.allocator.dupe(u8, closure_var_name);
-        const capture_type_name_copy = try self.allocator.dupe(u8, capture_type_name);
-        const closure_impl_name_copy = try self.allocator.dupe(u8, closure_impl_name);
-        const impl_fn_name_copy = try self.allocator.dupe(u8, impl_fn_name);
-        const alias_name_copy = try self.allocator.dupe(u8, alias_name);
-        const func_name_copy = try self.allocator.dupe(u8, func.name);
+        const closure_var_name_copy = try self.arena.allocator().dupe(u8, closure_var_name);
+        const capture_type_name_copy = try self.arena.allocator().dupe(u8, capture_type_name);
+        const closure_impl_name_copy = try self.arena.allocator().dupe(u8, closure_impl_name);
+        const impl_fn_name_copy = try self.arena.allocator().dupe(u8, impl_fn_name);
+        const alias_name_copy = try self.arena.allocator().dupe(u8, alias_name);
+        const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
 
         // Copy captured vars
         var captured_vars_copy = try self.allocator.alloc([]const u8, captured_vars.len);
         for (captured_vars, 0..) |v, i| {
-            captured_vars_copy[i] = try self.allocator.dupe(u8, v);
+            captured_vars_copy[i] = try self.arena.allocator().dupe(u8, v);
         }
 
         // Copy forward ref vars
         var forward_ref_copy = try self.allocator.alloc([]const u8, forward_ref_vars.items.len);
         for (forward_ref_vars.items, 0..) |v, i| {
-            forward_ref_copy[i] = try self.allocator.dupe(u8, v);
+            forward_ref_copy[i] = try self.arena.allocator().dupe(u8, v);
         }
 
         const deferred_info = DeferredClosureInfo{
@@ -828,7 +828,7 @@ pub fn genStandardClosure(
 
         // If we renamed the function, also add a var_rename so calls use the prefixed name
         if (shadows_import or is_redefinition) {
-            const alias_copy = try self.allocator.dupe(u8, alias_name);
+            const alias_copy = try self.arena.allocator().dupe(u8, alias_name);
             try self.var_renames.put(func.name, alias_copy);
         }
 
@@ -836,7 +836,7 @@ pub fn genStandardClosure(
         try self.declareVar(alias_name);
 
         // Mark this variable as a closure so calls use .call() syntax
-        const func_name_copy = try self.allocator.dupe(u8, func.name);
+        const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
         try self.closure_vars.put(func_name_copy, {});
     }
 }
@@ -917,7 +917,7 @@ pub fn emitClosureInstantiation(
     try self.declareVar(info.alias_name);
 
     // Mark this variable as a closure so calls use .call() syntax
-    const func_name_copy = try self.allocator.dupe(u8, info.func_name);
+    const func_name_copy = try self.arena.allocator().dupe(u8, info.func_name);
     try self.closure_vars.put(func_name_copy, {});
 }
 
@@ -1325,7 +1325,7 @@ pub fn genNestedFunctionWithOuterCapture(
     const alias_name2 = if (shadows_import2 or is_redefinition2)
         try self.name_gen.closure(func.name)
     else
-        try self.allocator.dupe(u8, func.name);
+        try self.arena.allocator().dupe(u8, func.name);
     defer self.allocator.free(alias_name2);
 
     try self.emitIndent();
@@ -1335,7 +1335,7 @@ pub fn genNestedFunctionWithOuterCapture(
 
     // If we renamed the function, also add a var_rename so calls use the prefixed name
     if (shadows_import2 or is_redefinition2) {
-        const alias_copy2 = try self.allocator.dupe(u8, alias_name2);
+        const alias_copy2 = try self.arena.allocator().dupe(u8, alias_name2);
         try self.var_renames.put(func.name, alias_copy2);
     }
 
@@ -1343,6 +1343,6 @@ pub fn genNestedFunctionWithOuterCapture(
     try self.declareVar(alias_name2);
 
     // Mark this variable as a closure so calls use .call() syntax
-    const func_name_copy = try self.allocator.dupe(u8, func.name);
+    const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
     try self.closure_vars.put(func_name_copy, {});
 }

@@ -576,7 +576,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 const class_name = vt.class_instance;
                 if (self.var_renames.get(class_name)) |renamed| {
                     self.allocator.free(zig_type);
-                    zig_type = try self.allocator.dupe(u8, renamed);
+                    zig_type = try self.arena.allocator().dupe(u8, renamed);
                 }
             }
         }
@@ -906,7 +906,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (self.var_renames.get(var_name)) |existing_rename| {
                 try saved_read_only_renames.append(self.allocator, .{
                     .name = var_name,
-                    .rename = try self.allocator.dupe(u8, existing_rename),
+                    .rename = try self.arena.allocator().dupe(u8, existing_rename),
                 });
             }
         }
@@ -950,7 +950,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (self.var_renames.get(var_name)) |existing_rename| {
                 try saved_written_outer_renames.append(self.allocator, .{
                     .name = var_name,
-                    .rename = try self.allocator.dupe(u8, existing_rename),
+                    .rename = try self.arena.allocator().dupe(u8, existing_rename),
                 });
             }
         }
@@ -1009,7 +1009,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 if (!std.mem.startsWith(u8, existing_rename, "p_")) {
                     try saved_hoisted_renames.append(self.allocator, .{
                         .name = hoisted.name,
-                        .rename = try self.allocator.dupe(u8, existing_rename),
+                        .rename = try self.arena.allocator().dupe(u8, existing_rename),
                     });
                 }
             }

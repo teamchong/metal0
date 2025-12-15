@@ -236,6 +236,6 @@ pub fn genRecursiveClosure(
     }
 
     // Mark inner as a closure for .call() syntax
-    const inner_name_copy = try self.allocator.dupe(u8, func.name);
+    const inner_name_copy = try self.arena.allocator().dupe(u8, func.name);
     try self.closure_vars.put(inner_name_copy, {});
 }

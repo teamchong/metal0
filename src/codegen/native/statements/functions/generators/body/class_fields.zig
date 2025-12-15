@@ -154,9 +154,9 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     // For unknown types, use runtime.PyValue for dynamic typing
                     // For self-referential, use *@This() (pointer to self)
                     const field_type_str = if (is_self_referential)
-                        try self.allocator.dupe(u8, "*@This()")
+                        try self.arena.allocator().dupe(u8, "*@This()")
                     else if (type_traits.isUnknown(inferred))
-                        try self.allocator.dupe(u8, "runtime.PyValue")
+                        try self.arena.allocator().dupe(u8, "runtime.PyValue")
                     else
                         try self.nativeTypeToZigType(inferred);
                     defer self.allocator.free(field_type_str);
@@ -223,7 +223,7 @@ pub fn genClassLevelFields(self: *NativeCodegen, class_body: []const ast.Node) C
                 // Use nativeTypeToZigType for proper type conversion
                 // For unknown types, use runtime.PyValue for dynamic dispatch
                 const field_type_str = if (type_traits.isUnknown(inferred))
-                    try self.allocator.dupe(u8, "runtime.PyValue")
+                    try self.arena.allocator().dupe(u8, "runtime.PyValue")
                 else
                     try self.nativeTypeToZigType(inferred);
                 defer self.allocator.free(field_type_str);
@@ -296,7 +296,7 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
     // Check if parameter has runtime type checking - use anytype to accept any value
     // Pattern: if not isinstance(param, int): raise TypeError(...)
     if (hasRuntimeTypeCheck(init, param_name)) {
-        return try self.allocator.dupe(u8, "anytype");
+        return try self.arena.allocator().dupe(u8, "anytype");
     }
 
     // Method 1: Try widened keyword arg type FIRST (authoritative, stored as "ClassName.param_name")
@@ -307,7 +307,7 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
         if (self.type_inferrer.var_types.get(key)) |kwarg_type| {
             // Widened type is authoritative - if .unknown, use anytype for params
             if (type_traits.isUnknown(kwarg_type)) {
-                return try self.allocator.dupe(u8, "anytype");
+                return try self.arena.allocator().dupe(u8, "anytype");
             }
             return try self.nativeTypeToZigType(kwarg_type);
         }
@@ -332,7 +332,7 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
             const inferred = arg_types[param_idx];
             // For unknown types, use anytype to accept any value
             if (type_traits.isUnknown(inferred)) {
-                return try self.allocator.dupe(u8, "anytype");
+                return try self.arena.allocator().dupe(u8, "anytype");
             }
             return try self.nativeTypeToZigType(inferred);
         }
@@ -347,14 +347,14 @@ pub fn inferParamType(self: *NativeCodegen, class_name: []const u8, init: ast.No
                 const inferred = try self.type_inferrer.inferExpr(assign.value.*);
                 // For unknown types, use anytype to accept any value
                 if (type_traits.isUnknown(inferred)) {
-                    return try self.allocator.dupe(u8, "anytype");
+                    return try self.arena.allocator().dupe(u8, "anytype");
                 }
                 return try self.nativeTypeToZigType(inferred);
             }
         }
     }
     // Fallback: use anytype for maximum flexibility (must allocate since caller frees)
-    return try self.allocator.dupe(u8, "anytype");
+    return try self.arena.allocator().dupe(u8, "anytype");
 }
 
 /// Check if a class with given name is defined inside the method body

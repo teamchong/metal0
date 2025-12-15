@@ -544,7 +544,7 @@ pub fn analyzeFunctionLocalMutations(self: *NativeCodegen, func: ast.Node.Functi
         if (entry.value_ptr.* > 1) {
             // Only store the scoped key for scope-aware queries
             // DO NOT add bare var_name - that would wrongly trigger aug_assign detection in other scopes
-            try self.func_local_mutations.put(try self.allocator.dupe(u8, entry.key_ptr.*), {});
+            try self.func_local_mutations.put(try self.arena.allocator().dupe(u8, entry.key_ptr.*), {});
         }
     }
 }
@@ -587,7 +587,7 @@ pub fn analyzeModuleLevelMutations(self: *NativeCodegen, module_body: []const as
         if (entry.value_ptr.* > 1) {
             // Only store the scoped key for scope-aware queries
             // DO NOT add bare var_name - that would wrongly trigger aug_assign detection in other scopes
-            try self.func_local_mutations.put(try self.allocator.dupe(u8, entry.key_ptr.*), {});
+            try self.func_local_mutations.put(try self.arena.allocator().dupe(u8, entry.key_ptr.*), {});
         }
     }
 }

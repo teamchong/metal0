@@ -234,7 +234,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 for (assign.targets) |target| {
                     if (target == .name) {
                         // Track as pyobject for method call dispatch
-                        const key = try self.allocator.dupe(u8, target.name.id);
+                        const key = try self.arena.allocator().dupe(u8, target.name.id);
                         try self.type_inferrer.putScopedVar(key, .{ .pyobject = module_name });
                     }
                 }
@@ -257,12 +257,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         const func_name = attr_val.attr;
                         // Create ctypes function info with default types
                         const info = @import("../main/core.zig").CTypesFuncInfo{
-                            .library_var = try self.allocator.dupe(u8, lib_var),
-                            .func_name = try self.allocator.dupe(u8, func_name),
+                            .library_var = try self.arena.allocator().dupe(u8, lib_var),
+                            .func_name = try self.arena.allocator().dupe(u8, func_name),
                             .argtypes = &[_][]const u8{},
-                            .restype = try self.allocator.dupe(u8, "c_int"), // Default return type
+                            .restype = try self.arena.allocator().dupe(u8, "c_int"), // Default return type
                         };
-                        const key = try self.allocator.dupe(u8, var_name);
+                        const key = try self.arena.allocator().dupe(u8, var_name);
                         try self.ctypes_functions.put(key, info);
                     }
                 }
@@ -597,7 +597,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         if (!is_declared) {
                             try self.declareVar(var_name);
                             // Mark as csv iterator for proper for-loop handling
-                            try self.csv_iterators.put(try self.allocator.dupe(u8, var_name), {});
+                            try self.csv_iterators.put(try self.arena.allocator().dupe(u8, var_name), {});
                             // Add suppression for "never mutated" warning (csv types use var for internal state)
                             try self.emitIndent();
                             try self.emit("_ = &");
@@ -618,11 +618,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     if (std.mem.eql(u8, module_name, "operator")) {
                         if (std.mem.eql(u8, attr_val.attr, "mod") or std.mem.eql(u8, attr_val.attr, "pow")) {
                             // Register as callable variable so calls use .call() syntax
-                            const owned_name = try self.allocator.dupe(u8, var_name);
+                            const owned_name = try self.arena.allocator().dupe(u8, var_name);
                             try self.callable_vars.put(owned_name, {});
                             // operator.pow returns error union for ZeroDivisionError
                             if (std.mem.eql(u8, attr_val.attr, "pow")) {
-                                const owned_name2 = try self.allocator.dupe(u8, var_name);
+                                const owned_name2 = try self.arena.allocator().dupe(u8, var_name);
                                 try self.error_callable_vars.put(owned_name2, {});
                             }
                         }
@@ -808,7 +808,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Even comptime-evaluated variables need discard tracking for unused var suppression
                     if (is_first_assignment) {
                         const suppress_name = self.var_renames.get(var_name) orelse var_name;
-                        try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, suppress_name));
+                        try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, suppress_name));
                     }
 
                     return;
@@ -874,8 +874,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     const is_rhs_arraylist = is_rhs_list_type and (self.isArrayListVar(rhs_name) or self.arraylist_aliases.contains(rhs_name));
                     if (is_rhs_arraylist) {
                         // Track y as an alias pointing to x
-                        const var_name_copy = try self.allocator.dupe(u8, var_name);
-                        const rhs_name_copy = try self.allocator.dupe(u8, rhs_name);
+                        const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
+                        const rhs_name_copy = try self.arena.allocator().dupe(u8, rhs_name);
                         try self.arraylist_aliases.put(var_name_copy, rhs_name_copy);
 
                         // Generate const pointer assignment: const y = &x
@@ -944,7 +944,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Track array slice vars
                 const is_array_slice = typeHandling.isArraySlice(self, assign.value.*);
                 if (is_array_slice) {
-                    const var_name_copy = try self.allocator.dupe(u8, var_name);
+                    const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
                     try self.array_slice_vars.put(var_name_copy, {});
                 }
 
@@ -1049,8 +1049,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             try self.emit(";\n");
 
                             // Update alias tracking and renames
-                            const unique_name_copy = try self.allocator.dupe(u8, unique_name);
-                            const rhs_name_copy = try self.allocator.dupe(u8, rhs_name);
+                            const unique_name_copy = try self.arena.allocator().dupe(u8, unique_name);
+                            const rhs_name_copy = try self.arena.allocator().dupe(u8, rhs_name);
                             try self.arraylist_aliases.put(unique_name_copy, rhs_name_copy);
                             try self.var_renames.put(var_name, unique_name);
                             try self.declareVarWithType(var_name, new_type);
@@ -1110,8 +1110,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         const is_rhs_arraylist = is_rhs_list_type and (self.isArrayListVar(rhs_name) or self.arraylist_aliases.contains(rhs_name));
                         if (is_rhs_arraylist) {
                             // Update alias to point to new target
-                            const var_name_copy = try self.allocator.dupe(u8, var_name);
-                            const rhs_name_copy = try self.allocator.dupe(u8, rhs_name);
+                            const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
+                            const rhs_name_copy = try self.arena.allocator().dupe(u8, rhs_name);
                             try self.arraylist_aliases.put(var_name_copy, rhs_name_copy);
 
                             // Generate pointer reassignment: y = &x
@@ -1383,7 +1383,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Track the shadow variable for unused suppression
                 // Shadow variables might not be used after declaration (type-changing reassignment
                 // at end of function), so they need _ = &shadow_var; if unused
-                try self.pending_discards.put(try self.allocator.dupe(u8, rename.old_name), try self.allocator.dupe(u8, rename.new_name));
+                try self.pending_discards.put(try self.arena.allocator().dupe(u8, rename.old_name), try self.arena.allocator().dupe(u8, rename.new_name));
                 // Remove from func_local_vars so var_renames lookup is used in expressions.zig
                 // This is critical for type-changing reassignments: subsequent uses of the old name
                 // must resolve to the new shadow name (e.g., x -> x__15914 for dict operations)
@@ -1430,7 +1430,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (is_first_assignment) {
                 const suppress_name = self.var_renames.get(var_name) orelse var_name;
                 // Record both the original name and the emitted name for later discard check
-                try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, suppress_name));
+                try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, suppress_name));
             }
 
             // Track variable metadata (ArrayList vars, closures, etc.)
@@ -1493,7 +1493,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             for (assign.value.list.elts) |elem| {
                                 if (elem == .attribute and elem.attribute.value.* == .name) {
                                     if (std.mem.eql(u8, elem.attribute.value.name.id, "ctypes")) {
-                                        try argtypes_list.append(self.allocator, try self.allocator.dupe(u8, elem.attribute.attr));
+                                        try argtypes_list.append(self.allocator, try self.arena.allocator().dupe(u8, elem.attribute.attr));
                                     }
                                 }
                             }
@@ -1523,7 +1523,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             .library_var = existing_info.library_var,
                             .func_name = existing_info.func_name,
                             .argtypes = existing_info.argtypes,
-                            .restype = try self.allocator.dupe(u8, restype_name),
+                            .restype = try self.arena.allocator().dupe(u8, restype_name),
                         };
                         try self.ctypes_functions.put(var_name, new_info);
                         // restype assignment is a no-op in generated code

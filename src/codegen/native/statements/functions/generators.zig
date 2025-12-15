@@ -49,13 +49,13 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     // Track this function if it needs allocator (for call site generation)
     if (needs_allocator) {
-        const func_name_copy = try self.allocator.dupe(u8, func.name);
+        const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
         try self.functions_needing_allocator.put(func_name_copy, {});
     }
 
     // Track async functions (for calling with _async suffix)
     if (func.is_async) {
-        const func_name_copy = try self.allocator.dupe(u8, func.name);
+        const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
         try self.async_functions.put(func_name_copy, {});
     }
 
@@ -79,19 +79,19 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     // Track functions with varargs (for call site generation)
     // Store the vararg start index (number of regular params before *args)
     if (func.vararg) |vararg_name| {
-        const func_name_copy = try self.allocator.dupe(u8, func.name);
+        const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
         try self.vararg_functions.put(func_name_copy, func.args.len);
         // Also track the parameter name (e.g., "args") for type inference
-        const vararg_param_copy = try self.allocator.dupe(u8, vararg_name);
+        const vararg_param_copy = try self.arena.allocator().dupe(u8, vararg_name);
         try self.vararg_params.put(vararg_param_copy, {});
     }
 
     // Track functions with kwargs (for call site generation)
     if (func.kwarg) |kwarg_name| {
-        const func_name_copy = try self.allocator.dupe(u8, func.name);
+        const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
         try self.kwarg_functions.put(func_name_copy, {});
         // Also track the parameter name (e.g., "kwargs") for len() builtin
-        const kwarg_param_copy = try self.allocator.dupe(u8, kwarg_name);
+        const kwarg_param_copy = try self.arena.allocator().dupe(u8, kwarg_name);
         try self.kwarg_params.put(kwarg_param_copy, {});
     }
 
@@ -105,7 +105,7 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     for (func.args, 0..) |arg, i| {
         param_names[i] = arg.name;
     }
-    const func_name_sig = try self.allocator.dupe(u8, func.name);
+    const func_name_sig = try self.arena.allocator().dupe(u8, func.name);
     try self.function_signatures.put(func_name_sig, .{
         .total_params = func.args.len,
         .required_params = required_count,
@@ -1126,7 +1126,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
     if (has_mutating_method) {
-        const class_name_copy = try self.allocator.dupe(u8, class.name);
+        const class_name_copy = try self.arena.allocator().dupe(u8, class.name);
         try self.mutable_classes.put(class_name_copy, {});
     }
 

@@ -476,8 +476,8 @@ pub fn collectImports(
                 // Track the alias mapping for codegen
                 if (!std.mem.eql(u8, python_module, impl_path)) {
                     try self.module_alias_map.put(
-                        try self.allocator.dupe(u8, python_module),
-                        try self.allocator.dupe(u8, impl_path),
+                        try self.arena.allocator().dupe(u8, python_module),
+                        try self.arena.allocator().dupe(u8, impl_path),
                     );
                 }
                 continue;

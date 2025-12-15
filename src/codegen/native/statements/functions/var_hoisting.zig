@@ -905,7 +905,7 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
         var actual_name = escaped.name;
         if (self.module_level_vars.contains(escaped.name)) {
             const shadow_name = try self.name_gen.hoisted(escaped.name);
-            try self.var_renames.put(try self.allocator.dupe(u8, escaped.name), shadow_name);
+            try self.var_renames.put(try self.arena.allocator().dupe(u8, escaped.name), shadow_name);
             actual_name = shadow_name;
         }
 

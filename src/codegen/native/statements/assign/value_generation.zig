@@ -125,7 +125,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
 
             // Track for potential discard emission (avoid unused variable errors in Zig)
             if (is_first_assignment and !is_pointer_deref) {
-                try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, decl_name));
+                try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, decl_name));
             }
         } else if (target == .subscript) {
             // Handle subscript targets: rshape[n], lslices[n] = big, small
@@ -218,7 +218,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                     try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ nested_tmp, j });
 
                     if (is_first_assignment) {
-                        try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, var_name));
+                        try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, var_name));
                     }
                 }
             }
@@ -257,7 +257,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                     try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ nested_tmp, j });
 
                     if (is_first_assignment) {
-                        try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, var_name));
+                        try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, var_name));
                     }
                 }
             }
@@ -393,7 +393,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
 
             // Track for potential discard emission (avoid unused variable errors in Zig)
             if (is_first_assignment and !is_pointer_deref) {
-                try self.pending_discards.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, decl_name2));
+                try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, decl_name2));
             }
         } else if (target == .subscript) {
             // Handle subscript targets: rshape[n], lslices[n] = big, small
@@ -685,7 +685,7 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
                 var type_buf = std.ArrayListUnmanaged(u8){};
                 defer type_buf.deinit(self.allocator);
                 try vt.array.element_type.toZigType(self.allocator, &type_buf);
-                break :blk try self.allocator.dupe(u8, type_buf.items);
+                break :blk try self.arena.allocator().dupe(u8, type_buf.items);
             }
             break :blk "i64";
         } else "i64";
@@ -788,7 +788,7 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
     }
 
     // Track this variable as ArrayList for len() generation
-    const var_name_copy = try self.allocator.dupe(u8, var_name);
+    const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
     try self.arraylist_vars.put(var_name_copy, {});
 }
 
@@ -898,13 +898,13 @@ pub fn trackVariableMetadata(
 
     // Track if this variable holds a constant array
     if (is_constant_array) {
-        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
         try self.array_vars.put(var_name_copy, {});
     }
 
     // Track if this variable holds an array slice (subscript of constant array)
     if (is_array_slice) {
-        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
         try self.array_slice_vars.put(var_name_copy, {});
     }
 
@@ -918,7 +918,7 @@ pub fn trackVariableMetadata(
                 std.mem.eql(u8, attr.attr, "split"))
             {
                 // dict.values(), dict.keys(), str.split() return ArrayList
-                const var_name_copy = try self.allocator.dupe(u8, var_name);
+                const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
                 try self.arraylist_vars.put(var_name_copy, {});
             }
         }
@@ -926,32 +926,32 @@ pub fn trackVariableMetadata(
 
     // Track list comprehension variables (generates ArrayList)
     if (is_first_assignment and assign.value.* == .listcomp) {
-        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
         try self.arraylist_vars.put(var_name_copy, {});
     }
 
     // Track list() builtin calls (generates ArrayList)
     const type_handling = @import("type_handling.zig");
     if (is_first_assignment and type_handling.isListBuiltinCall(assign.value.*)) {
-        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
         try self.arraylist_vars.put(var_name_copy, {});
     }
 
     // Track dict comprehension variables (generates HashMap)
     if (is_first_assignment and assign.value.* == .dictcomp) {
-        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
         try self.dict_vars.put(var_name_copy, {});
     }
 
     // Track dict literal variables (generates HashMap)
     if (is_first_assignment and assign.value.* == .dict) {
-        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
         try self.dict_vars.put(var_name_copy, {});
     }
 
     // Track dict-like calls: dict(), Counter(), defaultdict(), OrderedDict(), etc.
     if (is_first_assignment and type_handling.isDictLikeCall(assign.value.*)) {
-        const var_name_copy = try self.allocator.dupe(u8, var_name);
+        const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
         try self.dict_vars.put(var_name_copy, {});
     }
 
@@ -975,7 +975,7 @@ pub fn trackVariableMetadata(
             }
         } else {
             // Simple lambda (no captures) - track as function pointer
-            const key = try self.allocator.dupe(u8, var_name);
+            const key = try self.arena.allocator().dupe(u8, var_name);
             try self.lambda_vars.put(key, {});
 
             // Register lambda return type for type inference

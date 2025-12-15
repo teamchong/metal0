@@ -905,7 +905,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // This enables .call() syntax for calls like pow_op(a, b) -> pow_op.call(a, b)
             // where the tuple is (pow, operator.pow) - both callable structs
             if (type_traits.isCallable(elem_type)) {
-                const owned_name = try self.allocator.dupe(u8, var_name);
+                const owned_name = try self.arena.allocator().dupe(u8, var_name);
                 try self.callable_vars.put(owned_name, {});
             }
         }
@@ -922,7 +922,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                     const name = elt.name.id;
                     if (std.mem.eql(u8, name, "pow")) {
                         // Loop variable iterates over callable structs
-                        const owned_name = try self.allocator.dupe(u8, var_name);
+                        const owned_name = try self.arena.allocator().dupe(u8, var_name);
                         try self.callable_vars.put(owned_name, {});
                         has_pow = true;
                         break;
@@ -934,7 +934,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                         if (std.mem.eql(u8, mod_name, "operator")) {
                             if (std.mem.eql(u8, attr.attr, "pow") or std.mem.eql(u8, attr.attr, "mod")) {
                                 // Loop variable iterates over callable structs
-                                const owned_name = try self.allocator.dupe(u8, var_name);
+                                const owned_name = try self.arena.allocator().dupe(u8, var_name);
                                 try self.callable_vars.put(owned_name, {});
                                 if (std.mem.eql(u8, attr.attr, "pow")) {
                                     has_pow = true;
@@ -947,7 +947,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             }
             // pow returns error union for ZeroDivisionError
             if (has_pow) {
-                const owned_name2 = try self.allocator.dupe(u8, var_name);
+                const owned_name2 = try self.arena.allocator().dupe(u8, var_name);
                 try self.error_callable_vars.put(owned_name2, {});
             }
         }
@@ -1517,7 +1517,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     if (container_traits.isList(iter_type)) {
         if (type_traits.isCallable(iter_type.list.*)) {
             // Register loop variable as callable for .call() generation
-            const owned_name = try self.allocator.dupe(u8, var_name);
+            const owned_name = try self.arena.allocator().dupe(u8, var_name);
             try self.callable_vars.put(owned_name, {});
             // Register in var_types for type inference
             // Use .unknown since we can't know the return type of arbitrary callables in a list

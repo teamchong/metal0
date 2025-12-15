@@ -261,7 +261,7 @@ pub fn genZeroCaptureClosure(
 
     // Mark as closure BEFORE generating body so recursive calls use .call() syntax
     // We'll add it again at the end (duplicate put is OK for the hashmap)
-    const func_name_copy_early = try self.allocator.dupe(u8, func.name);
+    const func_name_copy_early = try self.arena.allocator().dupe(u8, func.name);
     try self.closure_vars.put(func_name_copy_early, {});
 
     // Check if this is a generator function (contains yield)
@@ -486,7 +486,7 @@ pub fn genZeroCaptureClosure(
         const alias_name = if (shadows_import or is_redefinition)
             try self.name_gen.closure(func.name)
         else
-            try self.allocator.dupe(u8, func.name);
+            try self.arena.allocator().dupe(u8, func.name);
         defer self.allocator.free(alias_name);
 
         try self.emitIndent();
@@ -505,7 +505,7 @@ pub fn genZeroCaptureClosure(
 
         // If we renamed the function, also add a var_rename so calls use the prefixed name
         if (shadows_import or is_redefinition) {
-            const alias_copy = try self.allocator.dupe(u8, alias_name);
+            const alias_copy = try self.arena.allocator().dupe(u8, alias_name);
             try self.var_renames.put(func.name, alias_copy);
         }
 
@@ -519,7 +519,7 @@ pub fn genZeroCaptureClosure(
         try self.emit(";\n");
 
         // Mark as closure so calls use .call() syntax
-        const func_name_copy = try self.allocator.dupe(u8, func.name);
+        const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
         try self.closure_vars.put(func_name_copy, {});
     }
 }
@@ -734,6 +734,6 @@ pub fn genModuleLevelZeroCaptureClosure(
     try self.emit("};\n\n");
 
     // Mark the function as a closure
-    const func_name_copy = try self.allocator.dupe(u8, func.name);
+    const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
     try self.closure_vars.put(func_name_copy, {});
 }

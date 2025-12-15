@@ -127,7 +127,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // Register function name to detect parameter shadowing
             try self.module_level_funcs.put(func.name, {});
             if (func.is_async) {
-                const func_name_copy = try self.allocator.dupe(u8, func.name);
+                const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
                 try self.async_function_defs.put(func_name_copy, func);
             }
         } else if (stmt == .class_def) {
@@ -217,7 +217,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
 
         // Track this module name for call site handling
-        const mod_copy = try self.allocator.dupe(u8, mod_name);
+        const mod_copy = try self.arena.allocator().dupe(u8, mod_name);
         try self.imported_modules.put(mod_copy, {});
 
         // NOTE: Do NOT skip module imports even if from-import has same symbol name.
@@ -586,7 +586,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 if (type_traits.isCallable(vt)) {
                     // Track as callable global - will be emitted as const at module level in statements
                     try self.markGlobalVar(var_name);
-                    try self.callable_global_vars.put(try self.allocator.dupe(u8, var_name), {});
+                    try self.callable_global_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
                     continue;
                 }
 
@@ -604,7 +604,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     if (has_callable) {
                         // Track as callable global - will be emitted as const at module level
                         try self.markGlobalVar(var_name);
-                        try self.callable_global_vars.put(try self.allocator.dupe(u8, var_name), {});
+                        try self.callable_global_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
                         continue;
                     }
                 }
@@ -650,7 +650,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                                     if (left_is_callable or right_is_callable) {
                                         // Track as callable global - will be emitted as const at module level
                                         try self.markGlobalVar(var_name);
-                                        try self.callable_global_vars.put(try self.allocator.dupe(u8, var_name), {});
+                                        try self.callable_global_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
                                         break;
                                     }
                                 }
@@ -828,13 +828,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
             // Skip pre-declaring import_module results - they're compile-time type refs
             if (is_import_module_call) {
-                try self.import_module_vars.put(try self.allocator.dupe(u8, var_name), {});
+                try self.import_module_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
                 continue;
             }
 
             // Skip pre-declaring get_feature_macros results - they're compile-time struct refs
             if (is_feature_macros_call) {
-                try self.import_module_vars.put(try self.allocator.dupe(u8, var_name), {});
+                try self.import_module_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
                 continue;
             }
 
@@ -963,7 +963,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     try self.symbol_table.declare(var_name, .unknown, true);
                     try self.markGlobalVar(var_name);
                     // Track for assignment handling - skip assignment, will be initialized in main
-                    try self.dict_builtin_vars.put(try self.allocator.dupe(u8, var_name), {});
+                    try self.dict_builtin_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
                     continue;
                 }
             }
@@ -997,7 +997,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
             // Skip pre-declaring type aliases - they'll be emitted as const at assignment
             if (is_type_alias) {
-                try self.type_alias_vars.put(try self.allocator.dupe(u8, var_name), {});
+                try self.type_alias_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
                 continue;
             }
 
@@ -1739,11 +1739,11 @@ fn genClosureWrapperTypes(self: *NativeCodegen, module: ast.Node.Module) !void {
 
                         // Store the type name for later reference in signature.zig
                         // Key is the nested function name, value is the pre-generated type name
-                        const nested_name_copy = try self.allocator.dupe(u8, nested_func_name);
+                        const nested_name_copy = try self.arena.allocator().dupe(u8, nested_func_name);
                         try self.pending_closure_types.put(nested_name_copy, type_name);
 
                         // Also mark this function as a closure factory (caller in outer function)
-                        const func_name_copy = try self.allocator.dupe(u8, func.name);
+                        const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
                         try self.closure_factories.put(func_name_copy, {});
 
                         // Generate the entire zero-capture closure at module level
@@ -1870,7 +1870,7 @@ fn analyzeTestFactories(self: *NativeCodegen, module: ast.Node.Module) !void {
         }
 
         if (test_classes.items.len > 0) {
-            const func_name_copy = try self.allocator.dupe(u8, func.name);
+            const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
             try self.test_factories.put(func_name_copy, core.TestFactoryInfo{
                 .returned_classes = try test_classes.toOwnedSlice(self.allocator),
             });

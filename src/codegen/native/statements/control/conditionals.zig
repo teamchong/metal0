@@ -380,10 +380,10 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             );
             try self.declareVar(func_name);
             // Mark as closure so calls use .call() syntax
-            const func_copy = try self.allocator.dupe(u8, func_name);
+            const func_copy = try self.arena.allocator().dupe(u8, func_name);
             try self.closure_vars.put(func_copy, {});
             // Also mark as hoisted DynamicClosure so zero_capture.zig knows to assign, not declare
-            const func_copy2 = try self.allocator.dupe(u8, func_name);
+            const func_copy2 = try self.arena.allocator().dupe(u8, func_name);
             try self.hoisted_dynamic_closures.put(func_copy2, {});
         }
 

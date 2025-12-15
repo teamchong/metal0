@@ -645,7 +645,7 @@ pub fn genFunctionBody(
         if (shadows_module_level) {
             // Rename to avoid shadowing using NameGen for consistent naming
             const renamed = try self.name_gen.local(fwd_var);
-            try self.var_renames.put(try self.allocator.dupe(u8, fwd_var), renamed);
+            try self.var_renames.put(try self.arena.allocator().dupe(u8, fwd_var), renamed);
             actual_fwd_var = renamed;
         }
         try self.emitIndent();
@@ -1514,7 +1514,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             self.isGlobalVar(fwd_var);
         if (shadows_module_level) {
             const renamed = try self.name_gen.local(fwd_var);
-            try self.var_renames.put(try self.allocator.dupe(u8, fwd_var), renamed);
+            try self.var_renames.put(try self.arena.allocator().dupe(u8, fwd_var), renamed);
             actual_fwd_var = renamed;
         }
         try self.emitIndent();

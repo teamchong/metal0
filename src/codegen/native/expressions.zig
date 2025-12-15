@@ -445,7 +445,7 @@ fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!v
                 defer type_buf.deinit(self.allocator);
                 ret_type.toZigType(self.allocator, &type_buf) catch {};
                 if (type_buf.items.len > 0) {
-                    result_type = self.allocator.dupe(u8, type_buf.items) catch "i64";
+                    result_type = self.arena.allocator().dupe(u8, type_buf.items) catch "i64";
                 }
             }
         }

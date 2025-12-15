@@ -114,6 +114,7 @@ pub const DeferredClosureInfo = struct {
 
 pub const NativeCodegen = struct {
     allocator: std.mem.Allocator,
+    arena: *std.heap.ArenaAllocator, // Arena for internal string allocations (deinit frees all at once)
     output: std.ArrayList(u8),
     type_inferrer: *TypeInferrer,
     semantic_info: *SemanticInfo,
@@ -677,26 +678,33 @@ pub const NativeCodegen = struct {
     name_gen: name_gen_mod.NameGen,
 
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
+        // Create arena for internal string allocations (keys, duped strings)
+        // Arena allocator allows O(1) cleanup via single deinit() call
+        const arena = try allocator.create(std.heap.ArenaAllocator);
+        arena.* = std.heap.ArenaAllocator.init(allocator);
+        const aa = arena.allocator();
+
         const self = try allocator.create(NativeCodegen);
 
-        // Create and initialize symbol table
+        // Create and initialize symbol table (uses backing allocator - has own cleanup)
         const sym_table = try allocator.create(SymbolTable);
         sym_table.* = try SymbolTable.init(allocator);
 
-        // Create and initialize class registry
+        // Create and initialize class registry (uses backing allocator - has own cleanup)
         const cls_registry = try allocator.create(ClassRegistry);
         cls_registry.* = ClassRegistry.init(allocator);
 
-        // Create and initialize import registry
+        // Create and initialize import registry (uses backing allocator - has own cleanup)
         const registry = try allocator.create(import_registry.ImportRegistry);
         registry.* = try import_registry.createDefaultRegistry(allocator);
 
-        // Create and initialize module registry
+        // Create and initialize module registry (uses backing allocator - has own cleanup)
         const mod_registry = try allocator.create(module_traits.ModuleRegistry);
         mod_registry.* = module_traits.ModuleRegistry.init(allocator);
 
         self.* = .{
             .allocator = allocator,
+            .arena = arena,
             .output = std.ArrayList(u8){},
             .type_inferrer = type_inferrer,
             .semantic_info = semantic_info,
@@ -714,86 +722,87 @@ pub const NativeCodegen = struct {
             .lambda_functions = std.ArrayList([]const u8){},
             .block_label_counter = 0,
             .shadow_counter = 0,
-            .closure_vars = FnvVoidMap.init(allocator),
-            .hoisted_dynamic_closures = FnvVoidMap.init(allocator),
-            .void_closure_vars = FnvVoidMap.init(allocator),
-            .callable_vars = FnvVoidMap.init(allocator),
-            .error_callable_vars = FnvVoidMap.init(allocator),
-            .recursive_closure_vars = hashmap_helper.StringHashMap([][]const u8).init(allocator),
-            .closure_factories = FnvVoidMap.init(allocator),
-            .pending_closure_types = FnvStringMap.init(allocator),
-            .deferred_closure_instantiations = hashmap_helper.StringHashMap(std.ArrayList(DeferredClosureInfo)).init(allocator),
-            .closure_returning_methods = FnvVoidMap.init(allocator),
-            .lambda_vars = FnvVoidMap.init(allocator),
+            // All maps use arena allocator - keys are freed automatically via arena.deinit()
+            .closure_vars = FnvVoidMap.init(aa),
+            .hoisted_dynamic_closures = FnvVoidMap.init(aa),
+            .void_closure_vars = FnvVoidMap.init(aa),
+            .callable_vars = FnvVoidMap.init(aa),
+            .error_callable_vars = FnvVoidMap.init(aa),
+            .recursive_closure_vars = hashmap_helper.StringHashMap([][]const u8).init(aa),
+            .closure_factories = FnvVoidMap.init(aa),
+            .pending_closure_types = FnvStringMap.init(aa),
+            .deferred_closure_instantiations = hashmap_helper.StringHashMap(std.ArrayList(DeferredClosureInfo)).init(aa),
+            .closure_returning_methods = FnvVoidMap.init(aa),
+            .lambda_vars = FnvVoidMap.init(aa),
             .callable_context_param_type = null,
-            .var_renames = FnvStringMap.init(allocator),
-            .hoisted_vars = FnvVoidMap.init(allocator),
-            .pending_discards = FnvStringMap.init(allocator),
+            .var_renames = FnvStringMap.init(aa),
+            .hoisted_vars = FnvVoidMap.init(aa),
+            .pending_discards = FnvStringMap.init(aa),
             .function_start_pos = 0,
-            .array_vars = FnvVoidMap.init(allocator),
-            .array_slice_vars = FnvVoidMap.init(allocator),
-            .closure_list_vars = FnvVoidMap.init(allocator),
-            .lazy_class_attrs = FnvVoidMap.init(allocator),
-            .arraylist_vars = FnvVoidMap.init(allocator),
-            .arraylist_aliases = FnvStringMap.init(allocator),
-            .class_instance_aliases = FnvStringMap.init(allocator),
-            .dict_vars = FnvVoidMap.init(allocator),
+            .array_vars = FnvVoidMap.init(aa),
+            .array_slice_vars = FnvVoidMap.init(aa),
+            .closure_list_vars = FnvVoidMap.init(aa),
+            .lazy_class_attrs = FnvVoidMap.init(aa),
+            .arraylist_vars = FnvVoidMap.init(aa),
+            .arraylist_aliases = FnvStringMap.init(aa),
+            .class_instance_aliases = FnvStringMap.init(aa),
+            .dict_vars = FnvVoidMap.init(aa),
             .target_dict_value_type = null,
-            .anytype_params = FnvVoidMap.init(allocator),
-            .mutable_classes = FnvVoidMap.init(allocator),
-            .error_init_classes = FnvVoidMap.init(allocator),
+            .anytype_params = FnvVoidMap.init(aa),
+            .mutable_classes = FnvVoidMap.init(aa),
+            .error_init_classes = FnvVoidMap.init(aa),
             .unittest_classes = std.ArrayList(TestClassInfo){},
-            .test_factories = hashmap_helper.StringHashMap(TestFactoryInfo).init(allocator),
-            .comptime_evaluator = comptime_eval.ComptimeEvaluator.init(allocator),
+            .test_factories = hashmap_helper.StringHashMap(TestFactoryInfo).init(aa),
+            .comptime_evaluator = comptime_eval.ComptimeEvaluator.init(allocator), // Own cleanup
             .import_ctx = null,
             .source_file_path = null,
             .decorated_functions = std.ArrayList(DecoratedFunction){},
             .import_registry = registry,
             .module_registry = mod_registry,
             .from_imports = std.ArrayList(FromImportInfo){},
-            .from_import_needs_allocator = FnvVoidMap.init(allocator),
-            .functions_needing_allocator = FnvVoidMap.init(allocator),
-            .async_functions = FnvVoidMap.init(allocator),
-            .async_function_defs = FnvFuncDefMap.init(allocator),
-            .vararg_functions = hashmap_helper.StringHashMap(usize).init(allocator),
-            .vararg_params = FnvVoidMap.init(allocator),
-            .vararg_methods = hashmap_helper.StringHashMap(usize).init(allocator),
-            .kwarg_functions = FnvVoidMap.init(allocator),
-            .kwarg_params = FnvVoidMap.init(allocator),
-            .dict_builtin_vars = FnvVoidMap.init(allocator),
-            .function_signatures = FnvFuncSigMap.init(allocator),
-            .imported_modules = FnvVoidMap.init(allocator),
-            .import_aliases = FnvStringMap.init(allocator),
-            .module_alias_map = FnvStringMap.init(allocator),
-            .module_level_from_imports = FnvVoidMap.init(allocator),
+            .from_import_needs_allocator = FnvVoidMap.init(aa),
+            .functions_needing_allocator = FnvVoidMap.init(aa),
+            .async_functions = FnvVoidMap.init(aa),
+            .async_function_defs = FnvFuncDefMap.init(aa),
+            .vararg_functions = hashmap_helper.StringHashMap(usize).init(aa),
+            .vararg_params = FnvVoidMap.init(aa),
+            .vararg_methods = hashmap_helper.StringHashMap(usize).init(aa),
+            .kwarg_functions = FnvVoidMap.init(aa),
+            .kwarg_params = FnvVoidMap.init(aa),
+            .dict_builtin_vars = FnvVoidMap.init(aa),
+            .function_signatures = FnvFuncSigMap.init(aa),
+            .imported_modules = FnvVoidMap.init(aa),
+            .import_aliases = FnvStringMap.init(aa),
+            .module_alias_map = FnvStringMap.init(aa),
+            .module_level_from_imports = FnvVoidMap.init(aa),
             .mutation_info = null,
             .in_assert_raises_context = false,
             .assert_raises_block_id = 0,
             .current_assert_raises_block_id = 0,
             .control_flow_terminated = false,
             .c_libraries = std.ArrayList([]const u8){},
-            .comptime_evals = FnvVoidMap.init(allocator),
-            .interned_strings = hashmap_helper.StringHashMap(usize).init(allocator),
+            .comptime_evals = FnvVoidMap.init(aa),
+            .interned_strings = hashmap_helper.StringHashMap(usize).init(aa),
             .intern_list = std.ArrayList([]const u8){},
             .intern_counter = 0,
-            .func_local_mutations = FnvVoidMap.init(allocator),
-            .func_local_aug_assigns = FnvVoidMap.init(allocator),
-            .func_local_uses = FnvVoidMap.init(allocator),
-            .global_vars = FnvVoidMap.init(allocator),
-            .module_level_funcs = FnvVoidMap.init(allocator),
-            .module_level_vars = FnvVoidMap.init(allocator),
-            .func_local_vars = FnvVoidMap.init(allocator),
-            .nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(allocator),
-            .mutated_captures = FnvVoidMap.init(allocator),
-            .nested_class_instances = hashmap_helper.StringHashMap([]const u8).init(allocator),
-            .nested_class_names = FnvVoidMap.init(allocator),
-            .hoisted_local_classes = FnvStringMap.init(allocator),
-            .bigint_vars = FnvVoidMap.init(allocator),
-            .nested_class_bases = FnvStringMap.init(allocator),
-            .nested_class_defs = FnvClassDefMap.init(allocator),
-            .nested_class_method_needs_alloc = FnvVoidMap.init(allocator),
-            .nested_class_zig_refs = FnvVoidMap.init(allocator),
-            .class_type_attrs = FnvStringMap.init(allocator),
+            .func_local_mutations = FnvVoidMap.init(aa),
+            .func_local_aug_assigns = FnvVoidMap.init(aa),
+            .func_local_uses = FnvVoidMap.init(aa),
+            .global_vars = FnvVoidMap.init(aa),
+            .module_level_funcs = FnvVoidMap.init(aa),
+            .module_level_vars = FnvVoidMap.init(aa),
+            .func_local_vars = FnvVoidMap.init(aa),
+            .nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(aa),
+            .mutated_captures = FnvVoidMap.init(aa),
+            .nested_class_instances = hashmap_helper.StringHashMap([]const u8).init(aa),
+            .nested_class_names = FnvVoidMap.init(aa),
+            .hoisted_local_classes = FnvStringMap.init(aa),
+            .bigint_vars = FnvVoidMap.init(aa),
+            .nested_class_bases = FnvStringMap.init(aa),
+            .nested_class_defs = FnvClassDefMap.init(aa),
+            .nested_class_method_needs_alloc = FnvVoidMap.init(aa),
+            .nested_class_zig_refs = FnvVoidMap.init(aa),
+            .class_type_attrs = FnvStringMap.init(aa),
             .current_class_name = null,
             .current_class_body = null,
             .current_assign_target = null,
@@ -820,22 +829,22 @@ pub const NativeCodegen = struct {
             .current_function_returns_pyvalue = false,
             .inside_try_body = false,
             .target_wasm_browser = false,
-            .skipped_modules = FnvVoidMap.init(allocator),
-            .skipped_functions = FnvVoidMap.init(allocator),
-            .c_extension_modules = FnvStringMap.init(allocator),
-            .local_var_types = hashmap_helper.StringHashMap(NativeType).init(allocator),
-            .local_from_imports = FnvStringMap.init(allocator),
-            .loop_capture_vars = FnvVoidMap.init(allocator),
-            .callable_global_vars = FnvVoidMap.init(allocator),
-            .import_module_vars = FnvVoidMap.init(allocator),
-            .csv_iterators = FnvVoidMap.init(allocator),
-            .type_alias_vars = FnvVoidMap.init(allocator),
-            .hoisted_branch_funcs = FnvVoidMap.init(allocator),
-            .forward_declared_vars = FnvVoidMap.init(allocator),
+            .skipped_modules = FnvVoidMap.init(aa),
+            .skipped_functions = FnvVoidMap.init(aa),
+            .c_extension_modules = FnvStringMap.init(aa),
+            .local_var_types = hashmap_helper.StringHashMap(NativeType).init(aa),
+            .local_from_imports = FnvStringMap.init(aa),
+            .loop_capture_vars = FnvVoidMap.init(aa),
+            .callable_global_vars = FnvVoidMap.init(aa),
+            .import_module_vars = FnvVoidMap.init(aa),
+            .csv_iterators = FnvVoidMap.init(aa),
+            .type_alias_vars = FnvVoidMap.init(aa),
+            .hoisted_branch_funcs = FnvVoidMap.init(aa),
+            .forward_declared_vars = FnvVoidMap.init(aa),
             .call_graph = null,
-            .generic_type_params = FnvVoidMap.init(allocator),
-            .generic_classes = hashmap_helper.StringHashMap(usize).init(allocator),
-            .ctypes_functions = hashmap_helper.StringHashMap(CTypesFuncInfo).init(allocator),
+            .generic_type_params = FnvVoidMap.init(aa),
+            .generic_classes = hashmap_helper.StringHashMap(usize).init(aa),
+            .ctypes_functions = hashmap_helper.StringHashMap(CTypesFuncInfo).init(aa),
             .debug_writer = null,
             .zig_line_counter = 1,
             .tokens = null,
@@ -957,7 +966,7 @@ pub const NativeCodegen = struct {
 
         // Add new interned string
         const idx = self.intern_counter;
-        const duped = try self.allocator.dupe(u8, content);
+        const duped = try self.arena.allocator().dupe(u8, content);
         try self.interned_strings.put(duped, idx);
         try self.intern_list.append(self.allocator, duped);
         self.intern_counter += 1;
@@ -1714,7 +1723,7 @@ pub const NativeCodegen = struct {
 
     /// Mark a variable as 'global' (references outer scope)
     pub fn markGlobalVar(self: *NativeCodegen, var_name: []const u8) !void {
-        const name_copy = try self.allocator.dupe(u8, var_name);
+        const name_copy = try self.arena.allocator().dupe(u8, var_name);
         try self.global_vars.put(name_copy, {});
     }
 
@@ -1735,7 +1744,7 @@ pub const NativeCodegen = struct {
 
     /// Mark a module as skipped (external module not found)
     pub fn markSkippedModule(self: *NativeCodegen, module_name: []const u8) !void {
-        const name_copy = try self.allocator.dupe(u8, module_name);
+        const name_copy = try self.arena.allocator().dupe(u8, module_name);
         try self.skipped_modules.put(name_copy, {});
     }
 
@@ -1746,7 +1755,7 @@ pub const NativeCodegen = struct {
 
     /// Mark a function as skipped (references skipped modules)
     pub fn markSkippedFunction(self: *NativeCodegen, func_name: []const u8) !void {
-        const name_copy = try self.allocator.dupe(u8, func_name);
+        const name_copy = try self.arena.allocator().dupe(u8, func_name);
         try self.skipped_functions.put(name_copy, {});
     }
 
@@ -1758,13 +1767,13 @@ pub const NativeCodegen = struct {
     /// Mark a module as C extension (loaded via PyImport_ImportModule at runtime)
     /// Maps both module_name -> module_name and alias -> module_name
     pub fn markCExtensionModule(self: *NativeCodegen, module_name: []const u8, alias: []const u8) !void {
-        const name_copy = try self.allocator.dupe(u8, module_name);
+        const name_copy = try self.arena.allocator().dupe(u8, module_name);
         // Map module_name -> module_name
         try self.c_extension_modules.put(name_copy, name_copy);
         // Also map alias -> module_name (e.g., np -> numpy)
         if (!std.mem.eql(u8, module_name, alias)) {
-            const alias_copy = try self.allocator.dupe(u8, alias);
-            const name_copy2 = try self.allocator.dupe(u8, module_name);
+            const alias_copy = try self.arena.allocator().dupe(u8, alias);
+            const name_copy2 = try self.arena.allocator().dupe(u8, module_name);
             try self.c_extension_modules.put(alias_copy, name_copy2);
         }
     }

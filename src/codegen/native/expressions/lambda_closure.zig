@@ -268,19 +268,19 @@ fn genInlineClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda, c
 
 /// Mark a variable as holding a closure (so we generate .call())
 pub fn markAsClosure(self: *NativeCodegen, var_name: []const u8) !void {
-    const owned_name = try self.allocator.dupe(u8, var_name);
+    const owned_name = try self.arena.allocator().dupe(u8, var_name);
     try self.closure_vars.put(owned_name, {});
 }
 
 /// Mark a variable as holding a void-returning closure (no catch needed)
 pub fn markAsVoidClosure(self: *NativeCodegen, var_name: []const u8) !void {
-    const owned_name = try self.allocator.dupe(u8, var_name);
+    const owned_name = try self.arena.allocator().dupe(u8, var_name);
     try self.void_closure_vars.put(owned_name, {});
 }
 
 /// Mark a variable as a closure factory (returns closures)
 pub fn markAsClosureFactory(self: *NativeCodegen, var_name: []const u8) !void {
-    const owned_name = try self.allocator.dupe(u8, var_name);
+    const owned_name = try self.arena.allocator().dupe(u8, var_name);
     try self.closure_factories.put(owned_name, {});
 }
 

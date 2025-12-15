@@ -18,7 +18,7 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
 
     // Register this source string as a comptime eval candidate
     if (!self.comptime_evals.contains(eval_source)) {
-        const source_copy = try self.allocator.dupe(u8, eval_source);
+        const source_copy = try self.arena.allocator().dupe(u8, eval_source);
         try self.comptime_evals.put(source_copy, {});
     }
 
