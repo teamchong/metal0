@@ -118,6 +118,72 @@ pub fn pyTupleEql(a: anytype, b: @TypeOf(a)) bool {
     return pyAnyEql(a, b);
 }
 
+// =============================================================================
+// PyValue-Only Equality Functions (NO MONOMORPHIZATION)
+// =============================================================================
+// These functions compile ONCE regardless of how many call sites exist.
+// Use these for uncertain types where compile time is critical.
+
+/// Typed fast path: integer equality (single copy)
+pub fn intEql(a: i64, b: i64) bool {
+    return a == b;
+}
+
+/// Typed fast path: float equality with bit-level NaN identity (single copy)
+pub fn floatEql(a: f64, b: f64) bool {
+    return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
+}
+
+/// Typed fast path: string equality (single copy)
+pub fn stringEql(a: []const u8, b: []const u8) bool {
+    return std.mem.eql(u8, a, b);
+}
+
+/// Typed fast path: boolean equality (single copy)
+pub fn boolEql(a: bool, b: bool) bool {
+    return a == b;
+}
+
+/// PyValue-only equality - compiles ONCE, handles all types at runtime
+/// Use this for uncertain types to avoid monomorphization explosion
+pub fn pyValueEql(a: PyValue, b: PyValue) bool {
+    // Different tags = not equal (fast path)
+    if (@as(std.meta.Tag(PyValue), a) != @as(std.meta.Tag(PyValue), b)) return false;
+
+    return switch (a) {
+        .int => |ai| ai == b.int,
+        .float => |af| @as(u64, @bitCast(af)) == @as(u64, @bitCast(b.float)),
+        .string => |as| std.mem.eql(u8, as, b.string),
+        .bool => |ab| ab == b.bool,
+        .none => true,
+        .tuple => |at| pyValueTupleEql(at, b.tuple),
+        .list => |al| pyValueListEql(al.items, b.list.items),
+        else => false, // Other types not yet supported
+    };
+}
+
+/// PyValue tuple equality helper
+fn pyValueTupleEql(a: []const PyValue, b: []const PyValue) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |ai, bi| {
+        if (!pyValueEql(ai, bi)) return false;
+    }
+    return true;
+}
+
+/// PyValue list equality helper
+fn pyValueListEql(a: []const PyValue, b: []const PyValue) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |ai, bi| {
+        if (!pyValueEql(ai, bi)) return false;
+    }
+    return true;
+}
+
+// =============================================================================
+// Anytype Equality Functions (MONOMORPHIZES - use sparingly)
+// =============================================================================
+
 /// Python-style generic equality for any two types
 /// SIMPLIFIED VERSION: Avoids recursive calls to prevent comptime explosion
 /// For complex types, use type-specific comparisons at codegen time instead

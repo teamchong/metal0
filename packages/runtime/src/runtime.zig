@@ -132,8 +132,9 @@ pub const pickle_marshal = @import("runtime/pickle_marshal.zig");
 /// String runtime operations
 pub const string_runtime = @import("runtime/string_runtime.zig");
 
-// Re-export strRepeat for codegen
+// Re-export string operations for codegen
 pub const strRepeat = string_runtime.strRepeat;
+pub const stringSplitWhitespace = string_runtime.stringSplitWhitespace;
 
 /// Bltinmodule sequences (len, all, any, etc.)
 const bltinmodule_sequences = @import("Python/bltinmodule/sequences.zig");
@@ -474,6 +475,12 @@ pub const pyTupleEql = equality_mod.pyTupleEql;
 pub const pyAnyEql = equality_mod.pyAnyEql;
 const pyAnyEqlSameType = equality_mod.pyAnyEqlSameType;
 pub const iterSlice = equality_mod.iterSlice;
+// PyValue-only equality (no monomorphization) - use for uncertain types
+pub const pyValueEql = equality_mod.pyValueEql;
+pub const intEql = equality_mod.intEql;
+pub const floatEql = equality_mod.floatEql;
+pub const stringEql = equality_mod.stringEql;
+pub const boolEql = equality_mod.boolEql;
 
 // Bool operations - re-exported from bool_ops.zig
 pub const toBool = bool_ops.toBool;
