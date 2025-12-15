@@ -501,9 +501,61 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
 
     // Check condition type - need to handle PyObject truthiness
     const cond_type = self.type_inferrer.inferExpr(if_stmt.condition.*) catch .unknown;
+
+    // Check if condition is a class comparison that needs .__bool__() wrapper
+    // Class comparison methods like __gt__ may return non-bool types (e.g., SymbolicBool)
+    const is_class_comparison = blk: {
+        if (if_stmt.condition.* == .compare) {
+            const compare = if_stmt.condition.compare;
+            const left_type = self.type_inferrer.inferExpr(compare.left.*) catch .unknown;
+            if (type_traits.isClassInstance(left_type)) {
+                break :blk true;
+            }
+            // Also check comparators for class instances (e.g., 0 < x where x is class)
+            for (compare.comparators) |comp| {
+                const comp_type = self.type_inferrer.inferExpr(comp) catch .unknown;
+                if (type_traits.isClassInstance(comp_type)) {
+                    break :blk true;
+                }
+            }
+        }
+        break :blk false;
+    };
+
     if (is_feature_macros_subscript) {
         // FeatureMacros subscript returns comptime bool - use directly
         try self.genExpr(if_stmt.condition.*);
+    } else if (is_class_comparison) {
+        // Class comparison - wrap with .__bool__() since dunder may return non-bool
+        // The comparison result (e.g., SymbolicBool) is not an error union, but __bool__() returns !bool
+        // Note: Line 553 adds the closing ) for the if(, so we don't include it here
+        // genCompare wraps its output in (), so if we want: try (comparison).__bool__()
+        // we write: "try (" + genCompare("(x.__gt__(0))") + ").__bool__()"
+        // = "try ((x.__gt__(0)))).__bool__()" - WRONG, too many parens
+        // Actually genCompare writes ( at start and ) at end, so:
+        // "try " + genCompare("(x.__gt__(0))") + ".__bool__()"
+        // = "try (x.__gt__(0))).__bool__()" - need to wrap in () for try
+        // Final: "try (" + genCompare + ")).__bool__()" gives try ((x.__gt__(0)))).__bool__() - extra )
+        // Just use: genCompare + ".__bool__()" with try/catch at right place
+        if (self.inside_try_body) {
+            // Inside try: use try to unwrap both the comparison error and __bool__() error
+            // Class comparison like x.__gt__(0) returns !*SymbolicBool (error union)
+            // Then .__bool__() on *SymbolicBool returns !bool
+            // Pattern: try (try comparison).__bool__()
+            // genCompare outputs (comparison), so: try (try (x.__gt__(0))).__bool__()
+            // prefix: "try (try " = 1 open
+            // genCompare: "(x.__gt__(0))" = 1 open, 1 close (net 0)
+            // suffix: ").__bool__()" = 1 close (to match my 1 open)
+            _ = try builder.write("try (try ");
+            try self.genExpr(if_stmt.condition.*);
+            _ = try builder.write(").__bool__()");
+        } else {
+            // Outside try: use catch to handle errors
+            // Pattern: ((comparison) catch unreachable).__bool__() catch false
+            _ = try builder.write("((");
+            try self.genExpr(if_stmt.condition.*);
+            _ = try builder.write(") catch unreachable).__bool__() catch false");
+        }
     } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
         // Two-Flow: Unknown/PyValue type - use runtime truthiness check
         _ = try builder.write("runtime.pyTruthy(");
