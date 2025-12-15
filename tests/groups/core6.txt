@@ -1,3 +1,10 @@
+android
+annotationlib
+apple
+crossinterp
+devpoll
+nturl2path
+tstring
 ttk_textonly
 tuple
 turtle
@@ -31,6 +38,7 @@ weakset
 with
 wsgiref
 xml_dom_minicompat
+xml_dom_xmlbuilder
 xml_etree
 xmlrpc
 xxlimited
@@ -40,3 +48,4 @@ zipfile64
 zipimport
 zipimport_support
 zlib
+zstd
