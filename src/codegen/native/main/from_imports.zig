@@ -494,6 +494,27 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 continue;
             }
         } else {
+            // Check if this is a stub module - generate empty array placeholders
+            // These are safer than null because they can be iterated over without errors
+            const module_aliases = @import("../module_aliases.zig");
+            if (module_aliases.isStubModule(from_imp.module)) {
+                for (from_imp.names, 0..) |name, i| {
+                    if (std.mem.eql(u8, name, "*")) continue;
+                    const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                        from_imp.asnames[i].?
+                    else
+                        name;
+                    if (generated_symbols.contains(symbol_name)) continue;
+                    // Generate: const symbol_name = &[_][]const u8{}; for stub module imports
+                    // Empty array is safer than null - can be iterated without type errors
+                    try self.emit("const ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                    try self.emit(": []const []const u8 = &[_][]const u8{};\n");
+                    try generated_symbols.put(symbol_name, {});
+                }
+                continue;
+            }
+
             // Module not in registry - generate null placeholders for optional imports
             // This handles try/except ImportError patterns like: from numpy import ndarray as numpy_array
             for (from_imp.names, 0..) |name, i| {

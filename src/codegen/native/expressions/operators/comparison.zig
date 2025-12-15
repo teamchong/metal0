@@ -904,10 +904,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try self.emit(").items");
             } else {
                 // ArrayList variable or call returning ArrayList OR slice variable
-                // Use comptime check: if struct with .items field -> ArrayList, else slice/array
-                try self.emit("(blk_cmp_l: { const __v = ");
+                // Use container_dispatch helper to reduce monomorphization
+                try self.emit("runtime.container_dispatch.getSlice(@TypeOf(");
                 try genExpr(self, current_left);
-                try self.emit("; const __T = @typeInfo(@TypeOf(__v)); break :blk_cmp_l if (__T == .@\"struct\" and @hasField(@TypeOf(__v), \"items\")) __v.items else __v; })");
+                try self.emit("), ");
+                try genExpr(self, current_left);
+                try self.emit(")");
             }
             try self.emit(", ");
 
@@ -927,10 +929,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try self.emit(").items");
             } else {
                 // ArrayList variable or call returning ArrayList OR slice variable
-                // Use comptime check: if struct with .items field -> ArrayList, else slice/array
-                try self.emit("(blk_cmp_r: { const __v = ");
+                // Use container_dispatch helper to reduce monomorphization
+                try self.emit("runtime.container_dispatch.getSlice(@TypeOf(");
                 try genExpr(self, compare.comparators[i]);
-                try self.emit("; const __T = @typeInfo(@TypeOf(__v)); break :blk_cmp_r if (__T == .@\"struct\" and @hasField(@TypeOf(__v), \"items\")) __v.items else __v; })");
+                try self.emit("), ");
+                try genExpr(self, compare.comparators[i]);
+                try self.emit(")");
             }
             try self.emit(")");
             }

@@ -463,8 +463,8 @@ pub fn collectImports(
 
             // Check if it's a stub module (test-only, no implementation needed)
             if (module_aliases.isStubModule(python_module)) {
-                // Stub module - mark as skipped but don't warn (expected behavior)
-                try self.markSkippedModule(python_module);
+                // Stub module - silently skip without marking as skipped
+                // (skipped modules cause compileError, stubs are intentionally ignored)
                 continue;
             }
 

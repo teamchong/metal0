@@ -60,10 +60,17 @@ pub const stub_modules = std.StaticStringMap(void).initComptime(.{
     .{ "_testinternalcapi", {} }, // Internal C API tests
     .{ "_xxsubinterpreters", {} }, // Subinterpreter tests
     .{ "_xxinterpchannels", {} }, // Interpreter channel tests
-    // Test-to-test imports (tests importing other tests)
-    .{ "test.test_grammar", {} }, // Grammar tests
-    .{ "test.test_support", {} }, // Support utilities (use test.support instead)
+    .{ "_testsinglephase", {} }, // Single-phase init test module
+    .{ "_testmultiphase", {} }, // Multi-phase init test module
+    .{ "_testclinic", {} }, // Argument clinic test module
+    .{ "_xxtestfuzz", {} }, // Fuzz testing module
 });
+
+/// Check if module is a test-to-test import (test.test_* pattern)
+/// These are tests importing from other tests - always stub them
+fn isTestToTestImport(python_name: []const u8) bool {
+    return std.mem.startsWith(u8, python_name, "test.test_");
+}
 
 /// Resolve a Python module name to its Zig implementation name
 /// Returns the resolved name or null if not found
@@ -84,8 +91,13 @@ pub fn resolveAlias(python_name: []const u8) ?[]const u8 {
 }
 
 /// Check if a module is a known stub (test-only module)
+/// Includes both explicit stubs and pattern-based test.test_* imports
 pub fn isStubModule(python_name: []const u8) bool {
-    return stub_modules.has(python_name);
+    // Check explicit stub list first
+    if (stub_modules.has(python_name)) return true;
+    // Check test-to-test import pattern (test.test_*)
+    if (isTestToTestImport(python_name)) return true;
+    return false;
 }
 
 /// Check if a module can be resolved (either via alias, direct, or stub)

@@ -117,6 +117,9 @@ pub const whitespace = @import("runtime/whitespace.zig");
 /// Container operations (setEqual, arrayLessThan)
 pub const container_ops = @import("runtime/container_ops.zig");
 
+/// Container dispatch helpers (getSlice, getLen, toIterSlice) - reduces monomorphization
+pub const container_dispatch = @import("runtime/container_dispatch.zig");
+
 /// Format operations (formatInt, FormatMode)
 pub const format_ops = @import("runtime/format_ops.zig");
 

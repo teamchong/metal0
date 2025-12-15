@@ -732,28 +732,23 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.genExpr(args[0]);
             try self.emit(".items)");
         } else {
-            // Use runtime check to handle both ArrayList and fixed array
-            try self.emit("iter_list_blk: { const __iterable = ");
+            // Use container_dispatch helper to reduce monomorphization
+            try self.emit("runtime.iterators.iter(i64, runtime.container_dispatch.toIterSlice(@TypeOf(");
             try self.genExpr(args[0]);
-            try self.emit("; break :iter_list_blk runtime.iterators.iter(i64, if (@hasField(@TypeOf(__iterable), \"items\")) __iterable.items else __iterable); }");
+            try self.emit("), ");
+            try self.genExpr(args[0]);
+            try self.emit("))");
         }
         return;
     }
 
-    // For unknown types, return the underlying iterable directly
-    // This handles cases where the type can't be inferred at compile time
-    // Note: iter() in for-loops just returns the iterable; Zig's for can iterate it
-    // For explicit next() usage, users should use while loops with .next() calls
-    try self.emit("iter_blk: { const _iterable = ");
+    // For unknown types, use container_dispatch helper to reduce monomorphization
+    // Replaces inline @typeInfo/@hasField checks with centralized helper
+    try self.emit("runtime.container_dispatch.toIterSlice(@TypeOf(");
     try self.genExpr(args[0]);
-    try self.emit("; const _iter_type = @typeInfo(@TypeOf(_iterable)); ");
-    // Return slice directly for for-loop compatibility
-    try self.emit("break :iter_blk if (_iter_type == .pointer and _iter_type.pointer.size == .slice) _iterable ");
-    // Return pointer to array for arrays
-    try self.emit("else if (_iter_type == .array) &_iterable ");
-    // For ArrayListUnmanaged (struct with items field), return .items slice
-    try self.emit("else if (_iter_type == .@\"struct\" and @hasField(@TypeOf(_iterable), \"items\")) _iterable.items ");
-    try self.emit("else _iterable; }");
+    try self.emit("), ");
+    try self.genExpr(args[0]);
+    try self.emit(")");
 }
 
 /// Generate code for next(iterator, [default])

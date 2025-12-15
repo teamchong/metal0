@@ -258,13 +258,14 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 
 /// Generate comptime-optimized list literal
 fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
-    // Generate unique block label and list variable name
-    const list_id = @intFromPtr(list.elts.ptr);
-    const label = try std.fmt.allocPrint(self.allocator, "list_{d}", .{list_id});
+    // Generate unique block label using block_label_counter (not pointer addresses)
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    const label = try std.fmt.allocPrint(self.allocator, "__list_blk_{d}", .{label_id});
     defer self.allocator.free(label);
-    const list_var = try std.fmt.allocPrint(self.allocator, "_list_{d}", .{list_id});
+    const list_var = try std.fmt.allocPrint(self.allocator, "__list_{d}", .{label_id});
     defer self.allocator.free(list_var);
-    const values_var = try std.fmt.allocPrint(self.allocator, "_values_{d}", .{list_id});
+    const values_var = try std.fmt.allocPrint(self.allocator, "__values_{d}", .{label_id});
     defer self.allocator.free(values_var);
 
     try self.emit(label);
@@ -392,10 +393,12 @@ fn widenTupleTypes(allocator: std.mem.Allocator, t1: NativeType, t2: NativeType)
 
 /// Generate runtime list literal (fallback path)
 fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
-    const list_id = @intFromPtr(list.elts.ptr);
-    const runtime_label = try std.fmt.allocPrint(self.allocator, "list_{d}", .{list_id});
+    // Generate unique block label using block_label_counter (not pointer addresses)
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    const runtime_label = try std.fmt.allocPrint(self.allocator, "__list_rt_{d}", .{label_id});
     defer self.allocator.free(runtime_label);
-    const list_var = try std.fmt.allocPrint(self.allocator, "_list_{d}", .{list_id});
+    const list_var = try std.fmt.allocPrint(self.allocator, "__list_var_{d}", .{label_id});
     defer self.allocator.free(list_var);
 
     try self.emit(runtime_label);
@@ -464,8 +467,10 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
         return;
     }
 
-    // Generate unique block label
-    const label = try std.fmt.allocPrint(self.allocator, "set_{d}", .{@intFromPtr(set_node.elts.ptr)});
+    // Generate unique block label using block_label_counter (not pointer addresses)
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+    const label = try std.fmt.allocPrint(self.allocator, "__set_blk_{d}", .{label_id});
     defer self.allocator.free(label);
 
     try self.emit(label);

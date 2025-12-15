@@ -480,12 +480,13 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             try self.emit(".items");
         }
     } else if (iter == .name) {
-        // Variable with unknown type - use comptime check for .items field
-        // This handles cases where type inference doesn't return .list but codegen
-        // produced ArrayList (e.g., large string lists in methods)
-        try self.emit("blk_iter: { const __iter_val = ");
+        // Variable with unknown type - use container_dispatch helper to reduce monomorphization
+        // Replaces inline @typeInfo/@hasField check with centralized helper
+        try self.emit("runtime.container_dispatch.toIterSlice(@TypeOf(");
         try self.genExpr(iter);
-        try self.emit("; break :blk_iter if (@typeInfo(@TypeOf(__iter_val)) == .@\"struct\" and @hasField(@TypeOf(__iter_val), \"items\")) __iter_val.items else __iter_val; }");
+        try self.emit("), ");
+        try self.genExpr(iter);
+        try self.emit(")");
     } else {
         // Not a list type - iterate directly
         try self.genExpr(iter);
@@ -1427,12 +1428,13 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 try self.emit(".items");
             }
         } else if (for_stmt.iter.* == .name) {
-            // Variable with unknown type - use comptime check for .items field
-            // This handles cases where type inference doesn't return .list but codegen
-            // produced ArrayList (e.g., large string lists in methods)
-            try self.emit("blk_iter: { const __iter_val = ");
+            // Variable with unknown type - use container_dispatch helper to reduce monomorphization
+            // Replaces inline @typeInfo/@hasField check with centralized helper
+            try self.emit("runtime.container_dispatch.toIterSlice(@TypeOf(");
             try self.genExpr(for_stmt.iter.*);
-            try self.emit("; break :blk_iter if (@typeInfo(@TypeOf(__iter_val)) == .@\"struct\" and @hasField(@TypeOf(__iter_val), \"items\")) __iter_val.items else __iter_val; }");
+            try self.emit("), ");
+            try self.genExpr(for_stmt.iter.*);
+            try self.emit(")");
         } else {
             try self.genExpr(for_stmt.iter.*);
         }
