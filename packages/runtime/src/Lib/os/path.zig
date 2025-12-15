@@ -173,6 +173,61 @@ pub fn normpath(allocator: std.mem.Allocator, p: []const u8) ![]const u8 {
     return result.toOwnedSlice(allocator);
 }
 
+/// Normalize case of a path
+/// On Unix/Mac, this returns the path unchanged (case-sensitive filesystem)
+/// On Windows, this converts to lowercase and replaces forward slashes with backslashes
+/// Note: Takes optional allocator for API consistency (not used on POSIX)
+pub fn normcase(_: std.mem.Allocator, p: []const u8) ![]const u8 {
+    // On POSIX systems (Unix, Mac, Linux), normcase is an identity function
+    // The filesystem is case-sensitive, so we don't modify the path
+    // This matches CPython's os.path.normcase behavior
+    if (builtin.os.tag != .windows) {
+        return p;
+    }
+    // On Windows, would need to lowercase and normalize slashes
+    // For now, return as-is (most metal0 users are on Unix/Mac)
+    return p;
+}
+
+/// Get the real path (resolve symlinks)
+pub fn realpath(allocator: std.mem.Allocator, p: []const u8) ![]const u8 {
+    // Use std.fs to resolve the real path
+    const absolute = try abspath(allocator, p);
+    defer allocator.free(absolute);
+
+    // Try to resolve symlinks using std.fs
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.cwd().realpathZ(absolute.ptr, &path_buf)) |resolved| {
+        return try allocator.dupe(u8, resolved);
+    } else |_| {
+        // If realpath fails (e.g., path doesn't exist), return absolute path
+        return try allocator.dupe(u8, absolute);
+    }
+}
+
+/// Get common prefix of a list of paths
+pub fn commonprefix(paths: []const []const u8) []const u8 {
+    if (paths.len == 0) return "";
+    if (paths.len == 1) return paths[0];
+
+    // Find minimum length
+    var min_len = paths[0].len;
+    for (paths[1..]) |p| {
+        if (p.len < min_len) min_len = p.len;
+    }
+
+    // Find common prefix
+    var i: usize = 0;
+    outer: while (i < min_len) : (i += 1) {
+        const c = paths[0][i];
+        for (paths[1..]) |p| {
+            if (p[i] != c) break :outer;
+        }
+    }
+
+    return paths[0][0..i];
+}
+
 // ============================================================================
 // Tests
 // ============================================================================

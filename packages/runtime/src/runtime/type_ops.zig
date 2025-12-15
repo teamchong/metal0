@@ -109,3 +109,55 @@ pub fn isSubclassMulti(cls: anytype, bases: anytype) bool {
     // Single base - delegate to isSubclass
     return isSubclass(cls, bases);
 }
+
+/// Safely extract element type from arrays/slices without indexing
+/// This handles empty arrays which would fail with @TypeOf(array[0])
+/// Used for: stub module imports that may be empty arrays
+///
+/// Example:
+/// ```
+/// const arr: []const []const u8 = &[_][]const u8{};
+/// const ElemType = ElementType(@TypeOf(arr)); // []const u8, not compile error
+/// ```
+pub fn ElementType(comptime T: type) type {
+    const info = @typeInfo(T);
+
+    // Handle slices: []T -> T
+    if (info == .pointer and info.pointer.size == .slice) {
+        return info.pointer.child;
+    }
+
+    // Handle arrays: [N]T -> T
+    if (info == .array) {
+        return info.array.child;
+    }
+
+    // Handle pointer to array: *[N]T -> T
+    if (info == .pointer and info.pointer.size == .one) {
+        const child_info = @typeInfo(info.pointer.child);
+        if (child_info == .array) {
+            return child_info.array.child;
+        }
+    }
+
+    // Handle ArrayListUnmanaged: has .items field
+    if (info == .@"struct" and @hasField(T, "items")) {
+        const items_type = @TypeOf(@as(T, undefined).items);
+        const items_info = @typeInfo(items_type);
+        if (items_info == .pointer and items_info.pointer.size == .slice) {
+            return items_info.pointer.child;
+        }
+    }
+
+    // Fallback: return the type itself (can't extract element)
+    return T;
+}
+
+/// Check if a type is iterable (has element type that can be extracted)
+pub fn isIterable(comptime T: type) bool {
+    const info = @typeInfo(T);
+    return (info == .pointer and info.pointer.size == .slice) or
+        info == .array or
+        (info == .pointer and info.pointer.size == .one and @typeInfo(info.pointer.child) == .array) or
+        (info == .@"struct" and @hasField(T, "items"));
+}

@@ -198,3 +198,16 @@ pub fn intern(s: []const u8) []const u8 {
 pub fn getsizeof(_: anytype) i64 {
     return 0; // Size not trackable at runtime in AOT
 }
+
+/// Get current exception being handled (Python 3.11+)
+/// Returns null when not in an exception handler
+/// In AOT compilation, we don't have a global exception state
+pub fn exception() ?*anyopaque {
+    return null; // No exception state in AOT
+}
+
+/// Get exception info tuple (type, value, traceback)
+/// Returns (None, None, None) equivalent when not in exception handler
+pub fn exc_info() struct { type: ?*anyopaque, value: ?*anyopaque, traceback: ?*anyopaque } {
+    return .{ .type = null, .value = null, .traceback = null };
+}
