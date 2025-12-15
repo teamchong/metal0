@@ -33,11 +33,11 @@ fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("runtime.pickle.PickleValue{ .none = {} }");
         return;
     }
-    // Use the full pickle implementation - returns PickleValue
-    // Handle PyBytes → []const u8 unwrap: bytesLiteral returns PyBytes struct
-    try self.emit("pickle_loads_blk: { const _raw_data = ");
+    // Use the compile-once helper to avoid @TypeOf introspection at each call site
+    // This prevents comptime explosion when pickle.loads is called in loops
+    try self.emit("runtime.pickle.loadsAny(");
     try self.genExpr(args[0]);
-    try self.emit("; const _data = if (@TypeOf(_raw_data) == runtime.builtins.PyBytes) _raw_data.data else _raw_data; break :pickle_loads_blk (runtime.pickle.loads(_data, __global_allocator) catch runtime.pickle.PickleValue{ .none = {} }); }");
+    try self.emit(", __global_allocator)");
 }
 
 fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

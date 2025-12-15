@@ -248,7 +248,6 @@ pub fn writeLocalVarName(writer: anytype, name: []const u8) !void {
         try writer.writeAll("@\"_\"");
     } else if (isZigKeyword(name) or containsNonAscii(name)) {
         // Unicode identifiers and keywords need @"name" syntax
-        // DEBUG: std.debug.print("writeLocalVarName escaping keyword: '{s}'\n", .{name});
         try writer.print("@\"{s}\"", .{name});
     } else if (wouldShadowMethod(name)) {
         // Rename to avoid shadowing method names in struct scope

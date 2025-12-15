@@ -923,7 +923,7 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                     if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
                         try self.emitIndent();
                         try self.emit("var ");
-                        try self.emit(var_name);
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                         // Determine type from first tuple element
                         const tuple_elts = for_s.iter.tuple.elts;
                         if (tuple_elts.len > 0 and tuple_elts[0] == .constant) {
@@ -990,7 +990,7 @@ fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *cons
 
         try self.emitIndent();
         try self.emit("var ");
-        try self.emit(actual_name);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
 
         if (!has_self_reference and var_hoisting.initExprIsSafe(init_expr, &safe_vars)) {
             // Safe to use @TypeOf - no forward references and no self-references
@@ -1016,7 +1016,7 @@ fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *cons
 fn hoistVarWithExprDirect(self: *NativeCodegen, actual_name: []const u8, init_expr: *const ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("var ");
-    try self.emit(actual_name);
+    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
     try self.emit(": @TypeOf(");
     try self.genExpr(init_expr.*);
     try self.emit(") = undefined;\n");
@@ -1125,11 +1125,11 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         if (needs_decl) {
                             try self.emit("const ");
                         }
-                        try self.emit(var_name);
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                         try self.emit(" = runtime.unittest.ContextManager{};\n");
                         try self.emitIndent();
                         try self.emit("_ = &");
-                        try self.emit(var_name);
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                         try self.emit(";\n");
                     } else {
                         // Emit actual context manager (e.g., support.Stopwatch())
@@ -1137,13 +1137,13 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         if (needs_decl) {
                             try self.emit("var ");
                         }
-                        try self.emit(var_name);
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                         try self.emit(" = ");
                         try self.genExpr(cm_expr);
                         try self.emit(";\n");
                         try self.emitIndent();
                         try self.emit("defer ");
-                        try self.emit(var_name);
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                         try self.emit(".close();\n");
                     }
                     if (needs_decl) {

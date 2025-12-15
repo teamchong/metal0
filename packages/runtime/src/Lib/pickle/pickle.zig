@@ -64,6 +64,23 @@ pub fn load(file: anytype, allocator: std.mem.Allocator) !PickleValue {
     return try loads(data, allocator);
 }
 
+/// Generic loads that handles both PyBytes and raw byte slices
+/// This is a compile-once helper to avoid repeated @TypeOf introspection in generated code
+pub fn loadsAny(data: anytype, allocator: std.mem.Allocator) PickleValue {
+    const T = @TypeOf(data);
+    // Import builtins at comptime to check for PyBytes type
+    const builtins = @import("../../runtime/builtins.zig");
+    const bytes: []const u8 = if (T == builtins.PyBytes)
+        data.data
+    else if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.child == u8)
+        data
+    else if (@typeInfo(T) == .@"struct" and @hasField(T, "data"))
+        data.data
+    else
+        data;
+    return loads(bytes, allocator) catch PickleValue{ .none = {} };
+}
+
 // ============================================================================
 // Tests
 // ============================================================================

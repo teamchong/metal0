@@ -73,6 +73,69 @@ pub fn TupleOps(comptime T: type) type {
 // Pre-instantiated for common tuple types to avoid repeated monomorphization
 // These are rarely used directly - the generic version handles most cases
 
+// ============================================================================
+// Generic field access for tuple unpacking (compile-once helpers)
+// ============================================================================
+
+/// Get a field from a value at a comptime-known index.
+/// Handles both PyValue (with .tuple array) and Zig tuples/structs (with numeric field names).
+/// This is a compile-once helper to avoid repeated @TypeOf introspection in generated code.
+pub fn getField(value: anytype, comptime index: usize) GetFieldType(@TypeOf(value), index) {
+    const T = @TypeOf(value);
+    const PyValue = @import("../Objects/object.zig").PyValue;
+
+    if (T == PyValue) {
+        // PyValue uses .tuple array for tuple values
+        return value.tuple[index];
+    } else if (@typeInfo(T) == .@"struct") {
+        // Zig tuple/struct: access by numeric field name
+        const field_name = comptime std.fmt.comptimePrint("{d}", .{index});
+        return @field(value, field_name);
+    } else {
+        // Fallback for other types that might have array-like access
+        return value[index];
+    }
+}
+
+/// Helper type to determine the return type of getField
+fn GetFieldType(comptime T: type, comptime index: usize) type {
+    const PyValue = @import("../Objects/object.zig").PyValue;
+
+    if (T == PyValue) {
+        return PyValue; // PyValue.tuple elements are PyValue
+    } else if (@typeInfo(T) == .@"struct") {
+        const fields = std.meta.fields(T);
+        if (index < fields.len) {
+            return fields[index].type;
+        }
+        return void; // Out of bounds
+    } else {
+        // Array or slice
+        const info = @typeInfo(T);
+        if (info == .array) return info.array.child;
+        if (info == .pointer) return info.pointer.child;
+        return void;
+    }
+}
+
+/// Get a field with runtime index (slower, but handles dynamic indices)
+pub fn getFieldRuntime(value: anytype, index: usize) GetFieldType(@TypeOf(value), 0) {
+    const T = @TypeOf(value);
+    const PyValue = @import("../Objects/object.zig").PyValue;
+
+    if (T == PyValue) {
+        return value.tuple[index];
+    } else if (@typeInfo(T) == .@"struct") {
+        const fields = std.meta.fields(T);
+        inline for (fields, 0..) |f, fi| {
+            if (fi == index) return @field(value, f.name);
+        }
+        unreachable;
+    } else {
+        return value[index];
+    }
+}
+
 // Tests
 test "TupleOps.get" {
     const tuple = .{ @as(i64, 10), @as(i64, 20), @as(i64, 30) };

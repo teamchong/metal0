@@ -334,6 +334,11 @@ pub const NativeCodegen = struct {
     // Maps alias name -> module name (e.g., "support" -> "test.support")
     import_aliases: FnvStringMap,
 
+    // Track module alias mappings (Python import name -> Zig implementation name)
+    // Maps Python module name -> Zig impl path (e.g., "_io" -> "_pyio", "_collections" -> "_collections._collections")
+    // Used during codegen to generate correct runtime.Lib.X references
+    module_alias_map: FnvStringMap,
+
     // Track module-level from-import symbols (from X import Y)
     // Maps symbol name -> void (e.g., "import_helper" -> {})
     // Used to skip duplicate local imports that would shadow module-level ones
@@ -752,6 +757,7 @@ pub const NativeCodegen = struct {
             .function_signatures = FnvFuncSigMap.init(allocator),
             .imported_modules = FnvVoidMap.init(allocator),
             .import_aliases = FnvStringMap.init(allocator),
+            .module_alias_map = FnvStringMap.init(allocator),
             .module_level_from_imports = FnvVoidMap.init(allocator),
             .mutation_info = null,
             .in_assert_raises_context = false,

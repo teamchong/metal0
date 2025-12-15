@@ -52,8 +52,8 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 if (is_list_type) {
                     try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, i });
                 } else {
-                    // Use comptime type dispatch for PyValue from generators
-                    try self.output.writer(self.allocator).print("_ = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
+                    // Use runtime helper to avoid comptime explosion in loops
+                    try self.output.writer(self.allocator).print("_ = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
                 }
                 continue;
             }
@@ -120,7 +120,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
                 // Use comptime type dispatch for PyValue from generators
-                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
+                try self.output.writer(self.allocator).print(" = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
             }
 
             // Track for potential discard emission (avoid unused variable errors in Zig)
@@ -136,7 +136,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
                 // Use comptime type dispatch for PyValue from generators
-                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
+                try self.output.writer(self.allocator).print(" = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
             }
         } else if (target == .attribute) {
             // Handle attribute targets: self.x, self.y = 1, 2, 3
@@ -193,7 +193,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             if (is_list_type) {
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
-                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
+                try self.output.writer(self.allocator).print(" = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
             }
 
             // Now unpack nested tuple elements
@@ -234,7 +234,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             if (is_list_type) {
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
-                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
+                try self.output.writer(self.allocator).print(" = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
             }
 
             for (target.list.elts, 0..) |nested_target, j| {
@@ -331,8 +331,8 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 if (is_list_type) {
                     try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, i });
                 } else {
-                    // Use comptime type dispatch for PyValue from generators
-                    try self.output.writer(self.allocator).print("_ = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
+                    // Use runtime helper to avoid comptime explosion in loops
+                    try self.output.writer(self.allocator).print("_ = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
                 }
                 continue;
             }
@@ -388,7 +388,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
                 // Use comptime type dispatch for PyValue from generators
-                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
+                try self.output.writer(self.allocator).print(" = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
             }
 
             // Track for potential discard emission (avoid unused variable errors in Zig)
@@ -403,7 +403,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
                 // Use comptime type dispatch for PyValue from generators
-                try self.output.writer(self.allocator).print(" = if (@TypeOf({s}) == runtime.PyValue) {s}.tuple[{d}] else {s}.@\"{d}\";\n", .{ tmp_name, tmp_name, i, tmp_name, i });
+                try self.output.writer(self.allocator).print(" = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
             }
         } else if (target == .attribute) {
             // Handle attribute targets: self.x, self.y = 1, 2, 3

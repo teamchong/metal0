@@ -465,8 +465,33 @@ pub fn collectImports(
                 continue;
             }
 
-            // Check if it's in the auto-generated stdlib module list
-            // These modules have Zig implementations but aren't in the dynamic registry
+            // Use module alias system to resolve Python import names to Zig implementations
+            // This handles cases like `_io` -> `_pyio` where import name differs from file name
+            const module_aliases = @import("../module_aliases.zig");
+
+            // Check if it's a stub module (test-only, no implementation needed)
+            if (module_aliases.isStubModule(python_module)) {
+                // Stub module - mark as skipped but don't warn (expected behavior)
+                try self.markSkippedModule(python_module);
+                continue;
+            }
+
+            // Try to resolve via alias system (handles both aliases and direct matches)
+            if (module_aliases.getImplementationPath(python_module)) |impl_path| {
+                // Module found - add the resolved path to imports list
+                // Store both the original name (for dispatch) and resolved path (for import)
+                try imports.append(self.allocator, impl_path);
+                // Track the alias mapping for codegen
+                if (!std.mem.eql(u8, python_module, impl_path)) {
+                    try self.module_alias_map.put(
+                        try self.allocator.dupe(u8, python_module),
+                        try self.allocator.dupe(u8, impl_path),
+                    );
+                }
+                continue;
+            }
+
+            // Fallback: Check stdlib_modules_gen directly (for modules not in alias system)
             const stdlib_gen = @import("../stdlib_modules_gen.zig");
             if (stdlib_gen.hasModule(python_module)) {
                 // Module exists in runtime.Lib - add to imports list

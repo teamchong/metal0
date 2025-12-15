@@ -650,14 +650,14 @@ pub fn genFunctionBody(
         }
         try self.emitIndent();
         try self.emit("var ");
-        try self.emit(actual_fwd_var);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_fwd_var);
         // Use i64 as the default type for forward-declared captured variables
         // This matches the capture struct type in closure_gen.zig which uses i64 for non-self captures
         try self.emit(": i64 = undefined;\n");
         // Suppress unused variable warning (forward-declared but might not be used in all paths)
         try self.emitIndent();
         try self.emit("_ = &");
-        try self.emit(actual_fwd_var);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_fwd_var);
         try self.emit(";\n");
         // Mark as forward-declared so assignment doesn't re-declare
         try self.forward_declared_vars.put(actual_fwd_var, {});
@@ -1519,14 +1519,14 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         }
         try self.emitIndent();
         try self.emit("var ");
-        try self.emit(actual_fwd_var);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_fwd_var);
         // Use i64 as the default type for forward-declared captured variables
         // This matches the capture struct type in closure_gen.zig which uses i64 for non-self captures
         try self.emit(": i64 = undefined;\n");
         // Suppress unused variable warning (forward-declared but might not be used in all paths)
         try self.emitIndent();
         try self.emit("_ = &");
-        try self.emit(actual_fwd_var);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_fwd_var);
         try self.emit(";\n");
         // Mark as forward-declared so assignment doesn't re-declare
         try self.forward_declared_vars.put(actual_fwd_var, {});

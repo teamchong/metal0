@@ -6,6 +6,7 @@ const CodegenError = @import("../../main.zig").CodegenError;
 const CodeBuilder = @import("../../code_builder.zig").CodeBuilder;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const bool_conv = @import("../../helpers/bool_conv.zig");
+const zig_keywords = @import("utils.zig_keywords");
 
 /// Information about a variable to be hoisted
 const HoistedVar = struct {
@@ -144,7 +145,7 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
 
                     try self.emitIndent();
                     try self.emit("var ");
-                    try self.emit(var_name);
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                     try self.emit(": ");
 
                     if (is_uncertain) {
@@ -437,7 +438,7 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
 
             try self.emitIndent();
             try self.emit("var ");
-            try self.emit(v.name);
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), v.name);
             try self.emit(": ");
             try self.emit(type_buf.items);
             try self.emit(" = undefined;\n");

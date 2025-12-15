@@ -224,12 +224,32 @@ pub fn is_linux() bool {
     return builtin.os.tag == .linux;
 }
 
-/// Verbose mode flag
-pub var verbose: bool = false;
+/// Verbose mode flag (0 = quiet, 1 = normal, 2 = verbose)
+pub var verbose: i64 = 0;
 
 /// Set verbose mode
-pub fn set_verbose(v: bool) void {
+pub fn set_verbose(v: i64) void {
     verbose = v;
+}
+
+/// Debug mode flag (Py_DEBUG equivalent)
+pub const Py_DEBUG: bool = false;
+
+/// Get C recursion limit (default Python limit)
+pub fn get_c_recursion_limit() i64 {
+    return 1000;
+}
+
+/// Force garbage collection (no-op in AOT)
+pub fn gc_collect() void {
+    // No-op - AOT uses Zig's memory management
+}
+
+/// Check implementation detail (returns false - no impl details in AOT)
+pub fn check_impl_detail(guard: anytype, msg: anytype) bool {
+    _ = guard;
+    _ = msg;
+    return false;
 }
 
 // ============================================================================
