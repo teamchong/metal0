@@ -310,10 +310,10 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("hmac", .zig_runtime, "std", null);
     try registry.register("socket", .zig_runtime, "std", null);
     try registry.register("random", .zig_runtime, null, null);
-    // collections uses inline codegen for Counter (type inference issues with runtime call)
-    try registry.register("collections", .zig_runtime, null, null);
+    // collections module with UserString, UserList, Counter, etc.
+    try registry.registerDirect("collections", .zig_runtime, "runtime.Lib.collections", "runtime.Lib.collections", null);
     // collections.abc - ABC marker types for isinstance() checks
-    try registry.registerDirect("collections.abc", .zig_runtime, null, "runtime.Lib.collections.abc", null);
+    try registry.registerDirect("collections.abc", .zig_runtime, "runtime.Lib.collections.abc", "runtime.Lib.collections.abc", null);
     try registry.register("functools", .zig_runtime, "std", null);
     try registry.register("logging", .zig_runtime, "std", null);
     try registry.register("threading", .zig_runtime, "std", null);
