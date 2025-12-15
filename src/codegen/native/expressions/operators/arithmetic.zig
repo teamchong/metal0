@@ -1495,18 +1495,12 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
             // In Python, -bool converts to int first: -True = -1, -False = 0
             const operand_type = try self.inferExprScoped(unaryop.operand.*);
 
-            // TWO-FLOW TYPE SYSTEM: Check if operand is a PyValue variable
+            // TWO-FLOW TYPE SYSTEM: Check if operand is a PyValue
             // If so, use PyValue.neg() method instead of Zig's negation operator
-            // Check scoped vars first (for loop variables, function params)
+            // Use inferred type which handles: local vars, scoped vars, module constants, expressions
             // Only use .neg() for explicit PyValue types, not unknown (which may be i64)
             // Unknown types fall through to lines 1535-1544 with proper runtime dispatch
-            const is_pyvalue = if (unaryop.operand.* == .name) blk: {
-                const name = unaryop.operand.name.id;
-                const vt = self.type_inferrer.getScopedVar(name) orelse
-                    self.type_inferrer.var_types.get(name);
-                break :blk if (vt) |v| (v == .pyvalue) else false;
-            } else false;
-            if (is_pyvalue) {
+            if (operand_type == .pyvalue) {
                 try self.emit("(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit(").neg()");
