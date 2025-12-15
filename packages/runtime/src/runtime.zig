@@ -252,6 +252,7 @@ pub const PyComplex = @import("runtime/pycomplex.zig").PyComplex;
 // Re-export type_ops for codegen
 pub const isCallable = @import("runtime/type_ops.zig").isCallable;
 pub const isSubclass = @import("runtime/type_ops.zig").isSubclass;
+pub const isSubclassMulti = @import("runtime/type_ops.zig").isSubclassMulti;
 
 // Re-export float_ops for codegen
 pub const divideFloat = @import("runtime/float_ops.zig").divideFloat;
@@ -485,6 +486,13 @@ pub const floatEql = equality_mod.floatEql;
 pub const stringEql = equality_mod.stringEql;
 pub const boolEql = equality_mod.boolEql;
 
+// PyValue-First comparison operators (compile ONCE - no monomorphization)
+pub const pyValueLt = equality_mod.pyValueLt;
+pub const pyValueLe = equality_mod.pyValueLe;
+pub const pyValueGt = equality_mod.pyValueGt;
+pub const pyValueGe = equality_mod.pyValueGe;
+pub const pyValueNe = equality_mod.pyValueNe;
+
 // Bool operations - re-exported from bool_ops.zig
 pub const toBool = bool_ops.toBool;
 pub const toBoolWithError = bool_ops.toBoolWithError;
@@ -715,6 +723,46 @@ pub const pySetAdd = builtins.pySetAdd;
 pub const pySetRemove = builtins.pySetRemove;
 pub const pySetClear = builtins.pySetClear;
 pub const pySetPop = builtins.pySetPop;
+
+// =============================================================================
+// PyValue-First Container Operations (compile ONCE - no monomorphization)
+// Use these for uncertain types to prevent compile explosion
+// =============================================================================
+
+// List operations
+pub const pyListAppendPV = builtins.pyListAppendPV;
+pub const pyListExtendPV = builtins.pyListExtendPV;
+pub const pyListInsertPV = builtins.pyListInsertPV;
+pub const pyListPopPV = builtins.pyListPopPV;
+pub const pyListRemovePV = builtins.pyListRemovePV;
+pub const pyListClearPV = builtins.pyListClearPV;
+pub const pyListReversePV = builtins.pyListReversePV;
+pub const pyListSortPV = builtins.pyListSortPV;
+
+// Generic container operations
+pub const pyLenPV = builtins.pyLenPV;
+pub const pyContainsPV = builtins.pyContainsPV;
+pub const pyGetItemPV = builtins.pyGetItemPV;
+pub const pySetItemPV = builtins.pySetItemPV;
+
+// Dict operations
+pub const pyDictGetPV = builtins.pyDictGetPV;
+pub const pyDictSetPV = builtins.pyDictSetPV;
+pub const pyDictPopPV = builtins.pyDictPopPV;
+pub const pyDictUpdatePV = builtins.pyDictUpdatePV;
+pub const pyDictKeysPV = builtins.pyDictKeysPV;
+pub const pyDictValuesPV = builtins.pyDictValuesPV;
+pub const pyDictItemsPV = builtins.pyDictItemsPV;
+pub const pyDictClearPV = builtins.pyDictClearPV;
+pub const pyDictContainsPV = builtins.pyDictContainsPV;
+
+// Set operations
+pub const pySetAddPV = builtins.pySetAddPV;
+pub const pySetRemovePV = builtins.pySetRemovePV;
+pub const pySetDiscardPV = builtins.pySetDiscardPV;
+pub const pySetPopPVFunc = builtins.pySetPopPVFunc;
+pub const pySetClearPV = builtins.pySetClearPV;
+pub const pySetContainsPV = builtins.pySetContainsPV;
 
 // Additional float operations
 pub const floatHex = @import("runtime/float_ops.zig").floatHex;

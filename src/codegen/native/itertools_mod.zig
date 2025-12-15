@@ -104,7 +104,11 @@ pub fn genChain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 pub fn genRepeat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) return error.UnsupportedSyntax;
+    // repeat() with no arguments raises TypeError - generate error for assertRaises
+    if (args.len == 0) {
+        try self.emit("return error.TypeError");
+        return;
+    }
     try self.emit("repeat_blk: { var _result = std.ArrayListUnmanaged(i64){}; ");
     if (args.len > 1) {
         try self.emit("var _i: usize = 0; while (_i < @as(usize, @intCast("); try self.genExpr(args[1]);

@@ -1167,16 +1167,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.genExpr(for_stmt.iter.*);
         try self.emit(";\n");
         try self.emitIndent();
-        // Use comptime type dispatch - PyValue.list is *ArrayListUnmanaged(PyValue), ArrayList has .items
+        // Use runtime.container_dispatch.toIterSlice() - compiles ONCE per type, not per call site
         try self.output.writer(self.allocator).print(
-            "const __pyval_items_{d} = blk: {{ " ++
-                "const T = @TypeOf(__pyval_{d}); " ++
-                "const info = @typeInfo(T); " ++
-                "break :blk if (info == .pointer and info.pointer.size == .slice) __pyval_{d} " ++
-                "else if (info == .@\"struct\" and @hasField(T, \"list\")) __pyval_{d}.list.items " ++
-                "else if (info == .@\"struct\" and @hasField(T, \"items\")) __pyval_{d}.items " ++
-                "else __pyval_{d}; }};\n",
-            .{ label_id, label_id, label_id, label_id, label_id, label_id },
+            "const __pyval_items_{d} = runtime.container_dispatch.toIterSlice(@TypeOf(__pyval_{d}), __pyval_{d});\n",
+            .{ label_id, label_id, label_id },
         );
 
         // Check if loop variable would shadow an outer scope variable
@@ -1242,23 +1236,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.genExpr(for_stmt.iter.*);
         try self.emit(";\n");
         try self.emitIndent();
-        // Use comptime type dispatch for len() - works with Zig slices, arrays, ArrayLists, and PyObjects
-        // Slices ([]T): pointer with .size == .slice -> .len
-        // Pointers to arrays (*[N]T): pointer with array child -> child.len
-        // Arrays ([N]T): .array type -> .len
-        // Structs with items field (ArrayList): .items.len
-        // PyObject: runtime.pyLen()
+        // Use runtime.container_dispatch.getLen() - compiles ONCE per type, not per call site
+        // Handles: slices, arrays, ArrayLists, PyBytes, and PyObject
         try self.output.writer(self.allocator).print(
-            "const __pylist_len_{d} = blk: {{ " ++
-                "const __obj = __pylist_{d}; " ++
-                "const T = @TypeOf(__obj); " ++
-                "const info = @typeInfo(T); " ++
-                "break :blk if (info == .pointer and info.pointer.size == .slice) __obj.len " ++
-                "else if (info == .pointer and @typeInfo(info.pointer.child) == .array) @typeInfo(info.pointer.child).array.len " ++
-                "else if (info == .array) info.array.len " ++
-                "else if (info == .@\"struct\" and @hasField(T, \"items\")) __obj.items.len " ++
-                "else runtime.pyLen(__obj); }};\n",
-            .{ label_id, label_id },
+            "const __pylist_len_{d} = runtime.container_dispatch.getLen(@TypeOf(__pylist_{d}), __pylist_{d});\n",
+            .{ label_id, label_id, label_id },
         );
         try self.emitIndent();
         try self.output.writer(self.allocator).print("var __pylist_i_{d}: usize = 0;\n", .{label_id});
@@ -1268,24 +1250,12 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.indent();
         try self.pushScope();
 
-        // Get item using comptime type dispatch - works with Zig slices, arrays, ArrayLists, and PyObjects
-        // Slices ([]T) and pointers to arrays (*[N]T): __obj[__idx]
-        // Arrays ([N]T): __obj[__idx]
-        // Structs with items field (ArrayList): .items[__idx]
-        // PyObject: runtime.PyList.getItem()
+        // Use runtime.container_dispatch.getAt() - compiles ONCE per type, not per call site
+        // Handles: slices, arrays, ArrayLists, PyBytes, and PyObject
         try self.emitIndent();
-        const get_item_expr =
-            "blk: {{ " ++
-            "const __obj = __pylist_{d}; " ++
-            "const __idx = __pylist_i_{d}; " ++
-            "const T = @TypeOf(__obj); " ++
-            "const info = @typeInfo(T); " ++
-            "break :blk if (info == .pointer and (info.pointer.size == .slice or @typeInfo(info.pointer.child) == .array)) __obj[__idx] " ++
-            "else if (info == .array) __obj[__idx] " ++
-            "else if (info == .@\"struct\" and @hasField(T, \"items\")) __obj.items[__idx] " ++
-            "else runtime.PyList.getItem(__obj, __idx) catch undefined; }}";
+        const get_item_expr = "runtime.container_dispatch.getAt(@TypeOf(__pylist_{d}), __pylist_{d}, __pylist_i_{d})";
         if (!tuple_var_used) {
-            try self.output.writer(self.allocator).print("_ = " ++ get_item_expr ++ ";\n", .{ label_id, label_id });
+            try self.output.writer(self.allocator).print("_ = " ++ get_item_expr ++ ";\n", .{ label_id, label_id, label_id });
         } else {
             // Check if loop variable shadows a module-level function or imported module
             const shadows_module_func = self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
@@ -1313,11 +1283,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // Check if variable is hoisted (used after loop) - use assignment not const
             if (self.hoisted_vars.contains(var_name)) {
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
-                try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id });
+                try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id, label_id });
             } else {
                 try self.emit("const ");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
-                try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id });
+                try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id, label_id });
             }
         }
 

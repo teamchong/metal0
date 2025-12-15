@@ -27,12 +27,45 @@ const PathProperties = std.StaticStringMap(void).initComptime(.{
 /// Generate tuple literal as Zig anonymous struct
 /// Always uses anonymous tuple syntax (.{ elem1, elem2 }) for type compatibility
 /// This matches the type inference which generates struct types for tuples
+/// Check if an expression is a call to a unittest assertion method (returns void)
+fn isVoidAssertionCall(elem: ast.Node) bool {
+    if (elem != .call) return false;
+    const call = elem.call;
+    if (call.func.* != .attribute) return false;
+    const attr = call.func.attribute;
+    // Check for self.assert* pattern
+    if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+        return UnittestAssertions.has(attr.attr);
+    }
+    return false;
+}
+
 pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
     const genExpr = expressions_mod.genExpr;
 
     // Empty tuples become empty struct
     if (tuple.elts.len == 0) {
         try self.emit(".{}");
+        return;
+    }
+
+    // Check if ALL elements are void assertion calls - if so, emit as statements, not tuple
+    // This handles Python patterns like: self.assertEqual(x, y),  # trailing comma
+    var all_void_assertions = true;
+    for (tuple.elts) |elem| {
+        if (!isVoidAssertionCall(elem)) {
+            all_void_assertions = false;
+            break;
+        }
+    }
+
+    if (all_void_assertions) {
+        // Emit each assertion as a statement followed by newline
+        // Don't wrap in tuple literal - assertions generate if-statements
+        for (tuple.elts, 0..) |elem, i| {
+            if (i > 0) try self.emit("\n");
+            try genExpr(self, elem);
+        }
         return;
     }
 
@@ -43,6 +76,16 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
     try self.emit(".{ ");
     for (tuple.elts, 0..) |elem, i| {
         if (i > 0) try self.emit(", ");
+
+        // Handle void assertion calls inside mixed tuples by emitting {}
+        if (isVoidAssertionCall(elem)) {
+            // Emit the assertion as a statement block that produces void
+            try self.emit("blk: { ");
+            try genExpr(self, elem);
+            try self.emit(" break :blk {}; }");
+            continue;
+        }
+
         // Wrap integer constants to avoid comptime_int at runtime
         if (elem == .constant and elem.constant.value == .int) {
             try self.emit("@as(i64, ");

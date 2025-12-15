@@ -274,6 +274,17 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             // Check for common label patterns
             if (std.mem.indexOf(u8, generated, "blk: {") != null) break :blk true;
             if (std.mem.indexOf(u8, generated, "__asyncio_run: {") != null) break :blk true;
+            // Assertion-related labeled blocks
+            if (std.mem.indexOf(u8, generated, "__ar_obj_blk: {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "__ar_noarg_blk: {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "__ar_blk: {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "ar_closure_blk: {") != null) break :blk true;
+            // Collection and iterator labeled blocks
+            if (std.mem.indexOf(u8, generated, "list_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "mcall_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "tuple_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "iter_blk: {") != null) break :blk true;
+            if (std.mem.indexOf(u8, generated, "cast_blk: {") != null) break :blk true;
             if (std.mem.indexOf(u8, generated, "sub_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
             if (std.mem.indexOf(u8, generated, "slice_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
             if (std.mem.indexOf(u8, generated, "comp_") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;

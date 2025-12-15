@@ -4,11 +4,14 @@
 const std = @import("std");
 
 /// Extract slice from any container type
-/// Handles: ArrayList (has .items), PyBytes (has .data), fixed arrays, slices
+/// Handles: ArrayList (has .items), PyBytes (has .data), PyValue.list (has .list.items), fixed arrays, slices
 /// Returns const slice for read operations
 pub fn getSlice(comptime T: type, container: T) GetSliceType(T) {
     const info = @typeInfo(T);
-    if (info == .@"struct" and @hasField(T, "items")) {
+    if (info == .@"struct" and @hasField(T, "list")) {
+        // PyValue.list types - .list is *ArrayListUnmanaged, access .items
+        return container.list.items;
+    } else if (info == .@"struct" and @hasField(T, "items")) {
         return container.items;
     } else if (info == .@"struct" and @hasField(T, "data")) {
         // PyBytes-like types use .data field
@@ -44,7 +47,10 @@ pub fn getMutSlice(comptime T: type, container: *T) GetMutSliceType(T) {
 /// Get container length
 pub fn getLen(comptime T: type, container: T) usize {
     const info = @typeInfo(T);
-    if (info == .@"struct" and @hasField(T, "items")) {
+    if (info == .@"struct" and @hasField(T, "list")) {
+        // PyValue.list types - .list is *ArrayListUnmanaged
+        return container.list.items.len;
+    } else if (info == .@"struct" and @hasField(T, "items")) {
         return container.items.len;
     } else if (info == .pointer and info.pointer.size == .slice) {
         return container.len;
@@ -69,7 +75,10 @@ pub fn toIterSlice(comptime T: type, container: T) GetSliceType(T) {
 /// Helper to determine element type of a container
 pub fn GetElementType(comptime T: type) type {
     const info = @typeInfo(T);
-    if (info == .@"struct" and @hasField(T, "items")) {
+    if (info == .@"struct" and @hasField(T, "list")) {
+        // PyValue.list types - .list is *ArrayListUnmanaged
+        return std.meta.Elem(@TypeOf(@as(T, undefined).list.items));
+    } else if (info == .@"struct" and @hasField(T, "items")) {
         return std.meta.Elem(@TypeOf(@as(T, undefined).items));
     } else if (info == .@"struct" and @hasField(T, "data")) {
         // PyBytes-like types use .data field
@@ -85,7 +94,10 @@ pub fn GetElementType(comptime T: type) type {
 /// Helper to determine slice type for getSlice return
 fn GetSliceType(comptime T: type) type {
     const info = @typeInfo(T);
-    if (info == .@"struct" and @hasField(T, "items")) {
+    if (info == .@"struct" and @hasField(T, "list")) {
+        // PyValue.list types - .list is *ArrayListUnmanaged
+        return @TypeOf(@as(T, undefined).list.items);
+    } else if (info == .@"struct" and @hasField(T, "items")) {
         return @TypeOf(@as(T, undefined).items);
     } else if (info == .@"struct" and @hasField(T, "data")) {
         // PyBytes-like types use .data field

@@ -785,3 +785,369 @@ pub fn pySetPop(allocator: std.mem.Allocator, set_ptr: anytype) !PyValue {
     }
     return error.KeyError;
 }
+
+// =============================================================================
+// PyValue-First List Operations (compile ONCE - no monomorphization)
+// These replace anytype versions for uncertain types to prevent compile explosion
+// =============================================================================
+
+/// Append item to PyValue list - compiles ONCE
+pub fn pyListAppendPV(allocator: std.mem.Allocator, py_list: *PyValue, item: PyValue) !void {
+    switch (py_list.*) {
+        .list => |al| try al.append(allocator, item),
+        else => return error.TypeError,
+    }
+}
+
+/// Extend PyValue list with items from another PyValue - compiles ONCE
+pub fn pyListExtendPV(allocator: std.mem.Allocator, py_list: *PyValue, items: PyValue) !void {
+    switch (py_list.*) {
+        .list => |al| {
+            switch (items) {
+                .list => |other_al| try al.appendSlice(allocator, other_al.items),
+                .tuple => |tup| try al.appendSlice(allocator, tup),
+                else => return error.TypeError,
+            }
+        },
+        else => return error.TypeError,
+    }
+}
+
+/// Insert item at index in PyValue list - compiles ONCE
+pub fn pyListInsertPV(allocator: std.mem.Allocator, py_list: *PyValue, index: i64, item: PyValue) !void {
+    switch (py_list.*) {
+        .list => |al| {
+            const list_len = al.items.len;
+            // Python semantics: negative index counts from end, clamp to bounds
+            const idx: usize = if (index < 0)
+                @intCast(@max(0, @as(i64, @intCast(list_len)) + index))
+            else
+                @min(@as(usize, @intCast(index)), list_len);
+            try al.insert(allocator, idx, item);
+        },
+        else => return error.TypeError,
+    }
+}
+
+/// Pop item from PyValue list at index (default -1) - compiles ONCE
+pub fn pyListPopPV(py_list: *PyValue, index: ?i64) !PyValue {
+    switch (py_list.*) {
+        .list => |al| {
+            const list_len = al.items.len;
+            if (list_len == 0) return error.IndexError;
+
+            const idx_raw = index orelse -1;
+            // Python semantics: negative index counts from end
+            const idx: usize = if (idx_raw < 0)
+                @intCast(@as(i64, @intCast(list_len)) + idx_raw)
+            else
+                @intCast(idx_raw);
+
+            if (idx >= list_len) return error.IndexError;
+            return al.orderedRemove(idx);
+        },
+        else => return error.TypeError,
+    }
+}
+
+/// Remove first occurrence of item from PyValue list - compiles ONCE
+pub fn pyListRemovePV(py_list: *PyValue, item: PyValue) !void {
+    const equality = @import("equality.zig");
+    switch (py_list.*) {
+        .list => |al| {
+            for (al.items, 0..) |elem, i| {
+                if (equality.pyValueEql(elem, item)) {
+                    _ = al.orderedRemove(i);
+                    return;
+                }
+            }
+            return error.ValueError;
+        },
+        else => return error.TypeError,
+    }
+}
+
+/// Clear PyValue list - compiles ONCE
+pub fn pyListClearPV(py_list: *PyValue) void {
+    switch (py_list.*) {
+        .list => |al| al.clearRetainingCapacity(),
+        else => {},
+    }
+}
+
+/// Reverse PyValue list in place - compiles ONCE
+pub fn pyListReversePV(py_list: *PyValue) void {
+    switch (py_list.*) {
+        .list => |al| std.mem.reverse(PyValue, al.items),
+        else => {},
+    }
+}
+
+/// Sort PyValue list in place - compiles ONCE
+pub fn pyListSortPV(py_list: *PyValue) !void {
+    const equality = @import("equality.zig");
+    switch (py_list.*) {
+        .list => |al| {
+            std.mem.sort(PyValue, al.items, {}, struct {
+                fn lessThan(_: void, a: PyValue, b: PyValue) bool {
+                    return equality.pyValueLt(a, b);
+                }
+            }.lessThan);
+        },
+        else => return error.TypeError,
+    }
+}
+
+/// Get length of PyValue container - compiles ONCE
+pub fn pyLenPV(value: PyValue) !usize {
+    return switch (value) {
+        .list => |al| al.items.len,
+        .tuple => |t| t.len,
+        .string => |s| s.len,
+        .bytes => |b| b.data.len,
+        else => error.TypeError,
+    };
+}
+
+/// Check if item is in PyValue container - compiles ONCE
+pub fn pyContainsPV(container: PyValue, item: PyValue) bool {
+    const equality = @import("equality.zig");
+    return switch (container) {
+        .list => |al| {
+            for (al.items) |elem| {
+                if (equality.pyValueEql(elem, item)) return true;
+            }
+            return false;
+        },
+        .tuple => |tup| {
+            for (tup) |elem| {
+                if (equality.pyValueEql(elem, item)) return true;
+            }
+            return false;
+        },
+        .string => |s| blk: {
+            if (item != .string) break :blk false;
+            break :blk std.mem.indexOf(u8, s, item.string) != null;
+        },
+        else => false,
+    };
+}
+
+/// Get item at index from PyValue container - compiles ONCE
+pub fn pyGetItemPV(container: PyValue, index: i64) !PyValue {
+    return switch (container) {
+        .list => |al| {
+            const list_len = al.items.len;
+            if (list_len == 0) return error.IndexError;
+            const idx: usize = if (index < 0)
+                @intCast(@as(i64, @intCast(list_len)) + index)
+            else
+                @intCast(index);
+            if (idx >= list_len) return error.IndexError;
+            return al.items[idx];
+        },
+        .tuple => |tup| {
+            const tup_len = tup.len;
+            if (tup_len == 0) return error.IndexError;
+            const idx: usize = if (index < 0)
+                @intCast(@as(i64, @intCast(tup_len)) + index)
+            else
+                @intCast(index);
+            if (idx >= tup_len) return error.IndexError;
+            return tup[idx];
+        },
+        else => error.TypeError,
+    };
+}
+
+/// Set item at index in PyValue container - compiles ONCE
+pub fn pySetItemPV(container: *PyValue, index: i64, value: PyValue) !void {
+    switch (container.*) {
+        .list => |al| {
+            const list_len = al.items.len;
+            if (list_len == 0) return error.IndexError;
+            const idx: usize = if (index < 0)
+                @intCast(@as(i64, @intCast(list_len)) + index)
+            else
+                @intCast(index);
+            if (idx >= list_len) return error.IndexError;
+            al.items[idx] = value;
+        },
+        else => return error.TypeError,
+    }
+}
+
+// =============================================================================
+// PyValue-First Dict Operations (compile ONCE - no monomorphization)
+// Note: PyValue dicts are stored as .ptr -> *StringHashMap(PyValue)
+// =============================================================================
+
+const hm_helper = @import("utils.hashmap_helper");
+
+/// Get value from PyValue dict by key - compiles ONCE
+pub fn pyDictGetPV(py_dict: PyValue, key: []const u8) ?PyValue {
+    if (py_dict != .ptr) return null;
+    const map_ptr: *hm_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(py_dict.ptr));
+    return map_ptr.get(key);
+}
+
+/// Set value in PyValue dict - compiles ONCE
+pub fn pyDictSetPV(allocator: std.mem.Allocator, py_dict: *PyValue, key: []const u8, value: PyValue) !void {
+    if (py_dict.* != .ptr) return error.TypeError;
+    const map_ptr: *hm_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(py_dict.ptr));
+    try map_ptr.put(allocator, key, value);
+}
+
+/// Pop and return value from PyValue dict - compiles ONCE
+pub fn pyDictPopPV(py_dict: *PyValue, key: []const u8) ?PyValue {
+    if (py_dict.* != .ptr) return null;
+    const map_ptr: *hm_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(py_dict.ptr));
+    if (map_ptr.fetchSwapRemove(key)) |kv| {
+        return kv.value;
+    }
+    return null;
+}
+
+/// Update PyValue dict with another dict - compiles ONCE
+pub fn pyDictUpdatePV(allocator: std.mem.Allocator, py_dict: *PyValue, other: PyValue) !void {
+    if (py_dict.* != .ptr or other != .ptr) return error.TypeError;
+    const map_ptr: *hm_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(py_dict.ptr));
+    const other_ptr: *hm_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(other.ptr));
+    var it = other_ptr.iterator();
+    while (it.next()) |entry| {
+        try map_ptr.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+    }
+}
+
+/// Get keys from PyValue dict as list - compiles ONCE
+pub fn pyDictKeysPV(allocator: std.mem.Allocator, py_dict: PyValue) !PyValue {
+    if (py_dict != .ptr) return error.TypeError;
+    const map_ptr: *hm_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(py_dict.ptr));
+    const al = try allocator.create(std.ArrayListUnmanaged(PyValue));
+    al.* = .{};
+    for (map_ptr.keys()) |key| {
+        try al.append(allocator, .{ .string = key });
+    }
+    return .{ .list = al };
+}
+
+/// Get values from PyValue dict as list - compiles ONCE
+pub fn pyDictValuesPV(allocator: std.mem.Allocator, py_dict: PyValue) !PyValue {
+    if (py_dict != .ptr) return error.TypeError;
+    const map_ptr: *hm_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(py_dict.ptr));
+    const al = try allocator.create(std.ArrayListUnmanaged(PyValue));
+    al.* = .{};
+    for (map_ptr.values()) |val| {
+        try al.append(allocator, val);
+    }
+    return .{ .list = al };
+}
+
+/// Get items from PyValue dict as list of tuples - compiles ONCE
+pub fn pyDictItemsPV(allocator: std.mem.Allocator, py_dict: PyValue) !PyValue {
+    if (py_dict != .ptr) return error.TypeError;
+    const map_ptr: *hm_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(py_dict.ptr));
+    const al = try allocator.create(std.ArrayListUnmanaged(PyValue));
+    al.* = .{};
+    var it = map_ptr.iterator();
+    while (it.next()) |entry| {
+        const pair = try allocator.alloc(PyValue, 2);
+        pair[0] = .{ .string = entry.key_ptr.* };
+        pair[1] = entry.value_ptr.*;
+        try al.append(allocator, .{ .tuple = pair });
+    }
+    return .{ .list = al };
+}
+
+/// Clear PyValue dict - compiles ONCE
+pub fn pyDictClearPV(py_dict: *PyValue) void {
+    if (py_dict.* != .ptr) return;
+    const map_ptr: *hm_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(py_dict.ptr));
+    map_ptr.clearRetainingCapacity();
+}
+
+/// Check if key is in PyValue dict - compiles ONCE
+pub fn pyDictContainsPV(py_dict: PyValue, key: []const u8) bool {
+    if (py_dict != .ptr) return false;
+    const map_ptr: *hm_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(py_dict.ptr));
+    return map_ptr.contains(key);
+}
+
+// =============================================================================
+// PyValue-First Set Operations (compile ONCE - no monomorphization)
+// Note: PyValue sets are stored as .ptr -> *StringHashMap(void)
+// =============================================================================
+
+/// Add item to PyValue set - compiles ONCE
+pub fn pySetAddPV(allocator: std.mem.Allocator, py_set: *PyValue, item: PyValue) !void {
+    if (py_set.* != .ptr) return error.TypeError;
+    const map_ptr: *hm_helper.StringHashMap(void) = @ptrCast(@alignCast(py_set.ptr));
+    const key = switch (item) {
+        .string => |s| s,
+        .int => |i| blk: {
+            // Convert int to string key
+            var buf: [32]u8 = undefined;
+            const str_len = std.fmt.formatIntBuf(&buf, i, 10, .lower, .{});
+            const key_copy = try allocator.alloc(u8, str_len);
+            @memcpy(key_copy, buf[0..str_len]);
+            break :blk key_copy;
+        },
+        else => return error.TypeError,
+    };
+    try map_ptr.put(allocator, key, {});
+}
+
+/// Remove item from PyValue set (raises KeyError if not found) - compiles ONCE
+pub fn pySetRemovePV(py_set: *PyValue, item: PyValue) !void {
+    if (py_set.* != .ptr) return error.TypeError;
+    const map_ptr: *hm_helper.StringHashMap(void) = @ptrCast(@alignCast(py_set.ptr));
+    const key = switch (item) {
+        .string => |s| s,
+        else => return error.TypeError,
+    };
+    if (!map_ptr.swapRemove(key)) {
+        return error.KeyError;
+    }
+}
+
+/// Discard item from PyValue set (no error if not found) - compiles ONCE
+pub fn pySetDiscardPV(py_set: *PyValue, item: PyValue) void {
+    if (py_set.* != .ptr) return;
+    const map_ptr: *hm_helper.StringHashMap(void) = @ptrCast(@alignCast(py_set.ptr));
+    const key = switch (item) {
+        .string => |s| s,
+        else => return,
+    };
+    _ = map_ptr.swapRemove(key);
+}
+
+/// Pop arbitrary item from PyValue set - compiles ONCE
+pub fn pySetPopPVFunc(py_set: *PyValue) !PyValue {
+    if (py_set.* != .ptr) return error.TypeError;
+    const map_ptr: *hm_helper.StringHashMap(void) = @ptrCast(@alignCast(py_set.ptr));
+    var it = map_ptr.iterator();
+    if (it.next()) |entry| {
+        const key = entry.key_ptr.*;
+        _ = map_ptr.swapRemove(key);
+        return .{ .string = key };
+    }
+    return error.KeyError;
+}
+
+/// Clear PyValue set - compiles ONCE
+pub fn pySetClearPV(py_set: *PyValue) void {
+    if (py_set.* != .ptr) return;
+    const map_ptr: *hm_helper.StringHashMap(void) = @ptrCast(@alignCast(py_set.ptr));
+    map_ptr.clearRetainingCapacity();
+}
+
+/// Check if item is in PyValue set - compiles ONCE
+pub fn pySetContainsPV(py_set: PyValue, item: PyValue) bool {
+    if (py_set != .ptr) return false;
+    const map_ptr: *hm_helper.StringHashMap(void) = @ptrCast(@alignCast(py_set.ptr));
+    const key = switch (item) {
+        .string => |s| s,
+        else => return false,
+    };
+    return map_ptr.contains(key);
+}

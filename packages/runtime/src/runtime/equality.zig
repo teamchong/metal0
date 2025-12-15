@@ -181,6 +181,74 @@ fn pyValueListEql(a: []const PyValue, b: []const PyValue) bool {
 }
 
 // =============================================================================
+// PyValue-First Comparison Operators (compile ONCE - no monomorphization)
+// =============================================================================
+
+/// PyValue less-than comparison - compiles ONCE
+pub fn pyValueLt(a: PyValue, b: PyValue) bool {
+    return switch (a) {
+        .int => |ai| switch (b) {
+            .int => |bi| ai < bi,
+            .float => |bf| @as(f64, @floatFromInt(ai)) < bf,
+            else => false,
+        },
+        .float => |af| switch (b) {
+            .int => |bi| af < @as(f64, @floatFromInt(bi)),
+            .float => |bf| af < bf,
+            else => false,
+        },
+        .string => |as| switch (b) {
+            .string => |bs| std.mem.order(u8, as, bs) == .lt,
+            else => false,
+        },
+        .bool => |ab| switch (b) {
+            .bool => |bb| !ab and bb, // false < true
+            else => false,
+        },
+        .tuple => |at| switch (b) {
+            .tuple => |bt| pyValueTupleLt(at, bt),
+            else => false,
+        },
+        .list => |al| switch (b) {
+            .list => |bl| pyValueTupleLt(al.items, bl.items),
+            else => false,
+        },
+        else => false,
+    };
+}
+
+/// PyValue less-than-or-equal comparison - compiles ONCE
+pub fn pyValueLe(a: PyValue, b: PyValue) bool {
+    return pyValueLt(a, b) or pyValueEql(a, b);
+}
+
+/// PyValue greater-than comparison - compiles ONCE
+pub fn pyValueGt(a: PyValue, b: PyValue) bool {
+    return pyValueLt(b, a);
+}
+
+/// PyValue greater-than-or-equal comparison - compiles ONCE
+pub fn pyValueGe(a: PyValue, b: PyValue) bool {
+    return pyValueLe(b, a);
+}
+
+/// PyValue not-equal comparison - compiles ONCE
+pub fn pyValueNe(a: PyValue, b: PyValue) bool {
+    return !pyValueEql(a, b);
+}
+
+/// PyValue tuple/list lexicographic less-than helper
+fn pyValueTupleLt(a: []const PyValue, b: []const PyValue) bool {
+    const min_len = @min(a.len, b.len);
+    for (0..min_len) |i| {
+        if (pyValueLt(a[i], b[i])) return true;
+        if (pyValueLt(b[i], a[i])) return false;
+    }
+    // Equal prefix - shorter is less
+    return a.len < b.len;
+}
+
+// =============================================================================
 // Anytype Equality Functions (MONOMORPHIZES - use sparingly)
 // =============================================================================
 
