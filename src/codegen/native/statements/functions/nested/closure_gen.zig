@@ -249,11 +249,15 @@ pub fn genStandardClosure(
     // This reduces monomorphization: one closure signature instead of per-call-site
     var param_types = try self.allocator.alloc([]const u8, func.args.len);
     defer self.allocator.free(param_types);
+    var all_params_typed = true; // Track if all params have concrete types (not anytype)
 
     for (func.args, 0..) |arg, idx| {
         // Get Zig type from Python annotation, or "anytype" if unknown
         const zig_type = pythonTypeToZig(arg.type_annotation);
         param_types[idx] = zig_type;
+        if (std.mem.eql(u8, zig_type, "anytype")) {
+            all_params_typed = false;
+        }
 
         // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
         const is_used = var_tracking.isParamUsedInStmts(arg.name, func.body);
@@ -272,6 +276,7 @@ pub fn genStandardClosure(
     }
     // Handle *args (vararg) parameter - always anytype (tuple of varying types)
     if (func.vararg) |vararg_name| {
+        all_params_typed = false; // varargs prevent TypedClosure
         const is_used = var_tracking.isParamUsedInStmts(vararg_name, func.body);
         if (is_used) {
             const unique_param_name = try std.fmt.allocPrint(
@@ -287,6 +292,7 @@ pub fn genStandardClosure(
     }
     // Handle **kwargs (kwarg) parameter - always anytype (dict of varying types)
     if (func.kwarg) |kwarg_name| {
+        all_params_typed = false; // kwargs prevent TypedClosure
         const is_used = var_tracking.isParamUsedInStmts(kwarg_name, func.body);
         if (is_used) {
             const unique_param_name = try std.fmt.allocPrint(
@@ -300,9 +306,12 @@ pub fn genStandardClosure(
             try self.output.writer(self.allocator).print(", _: anytype", .{});
         }
     }
-    // Determine return type:
+    // Determine return type and track for TypedClosure
     // 1. Use explicit return type annotation if available (-> int, -> float, etc.)
     // 2. Otherwise, analyze body for context managers, returns, etc.
+    var return_type_str: []const u8 = "anyerror!i64"; // default for TypedClosure
+    var use_typed_closure = all_params_typed; // Can use TypedClosure if all params typed
+
     if (func.return_type) |ret_type| {
         // Map Python type annotations to Zig types
         const zig_type = if (std.mem.eql(u8, ret_type, "int"))
@@ -322,12 +331,26 @@ pub fn genStandardClosure(
         if (std.mem.eql(u8, zig_type, "void")) {
             if (var_tracking.canProduceErrors(func.body)) {
                 try self.emit(") anyerror!void {\n");
+                return_type_str = "anyerror!void";
             } else {
                 try self.emit(") void {\n");
+                return_type_str = "void";
             }
         } else {
             // ALWAYS use error union since calls.zig wraps closure calls with `try`
             try self.output.writer(self.allocator).print(") anyerror!{s} {{\n", .{zig_type});
+            // Map to static strings for TypedClosure
+            if (std.mem.eql(u8, zig_type, "i64")) {
+                return_type_str = "anyerror!i64";
+            } else if (std.mem.eql(u8, zig_type, "f64")) {
+                return_type_str = "anyerror!f64";
+            } else if (std.mem.eql(u8, zig_type, "bool")) {
+                return_type_str = "anyerror!bool";
+            } else if (std.mem.eql(u8, zig_type, "[]const u8")) {
+                return_type_str = "anyerror![]const u8";
+            } else {
+                use_typed_closure = false; // Unknown return type, use AnyClosure
+            }
         }
     } else {
         // No explicit return type - analyze body
@@ -341,19 +364,31 @@ pub fn genStandardClosure(
                 // Fallback: use generic context manager type
                 try self.emit(") runtime.unittest.AssertRaisesContext {\n");
             }
+            use_typed_closure = false; // Context managers don't use TypedClosure
         } else if (closure_ret_type == .void) {
             if (var_tracking.canProduceErrors(func.body)) {
                 try self.emit(") anyerror!void {\n");
+                return_type_str = "anyerror!void";
             } else {
                 try self.emit(") void {\n");
+                return_type_str = "void";
             }
         } else {
             // Has return with value - use inferred type
             // ALWAYS use error union since calls.zig wraps closure calls with `try`
             const zig_type = function_traits.closureReturnTypeToZig(closure_ret_type);
             try self.output.writer(self.allocator).print(") anyerror!{s} {{\n", .{zig_type});
+            // Map to static strings for TypedClosure
+            if (std.mem.eql(u8, zig_type, "i64")) {
+                return_type_str = "anyerror!i64";
+            } else if (std.mem.eql(u8, zig_type, "f64")) {
+                return_type_str = "anyerror!f64";
+            } else {
+                return_type_str = "anyerror!i64"; // default for inferred
+            }
         }
     }
+    // Now we have: param_types, use_typed_closure, return_type_str for closure instantiation
 
     // Generate body with captured vars renamed to capture_param.varname
     self.indent();
@@ -686,59 +721,81 @@ pub fn genStandardClosure(
 
         try self.emitIndent();
 
-        if (total_params == 0) {
+        // Use TypedClosure when possible to reduce monomorphization:
+        // - 0-param closures: always use TypedClosure0 (no argument type issues)
+        // - With typed params: use TypedClosure1-7 with explicit types
+        // - Otherwise: fall back to AnyClosure (anytype params)
+        if (total_params == 0 or (use_typed_closure and total_params <= 7)) {
+            // Emit TypedClosure with explicit type parameters
             try self.output.writer(self.allocator).print(
-                "const {s} = runtime.AnyClosure0({s}, ",
-                .{ closure_var_name, capture_type_name },
+                "const {s} = runtime.TypedClosure{d}({s}, ",
+                .{ closure_var_name, total_params, capture_type_name },
             );
-        } else if (total_params == 1) {
+            // Emit argument types
+            for (param_types) |pt| {
+                try self.output.writer(self.allocator).print("{s}, ", .{pt});
+            }
+            // Emit return type and function
             try self.output.writer(self.allocator).print(
-                "const {s} = runtime.AnyClosure1({s}, ",
-                .{ closure_var_name, capture_type_name },
-            );
-        } else if (total_params == 2) {
-            try self.output.writer(self.allocator).print(
-                "const {s} = runtime.AnyClosure2({s}, ",
-                .{ closure_var_name, capture_type_name },
-            );
-        } else if (total_params == 3) {
-            try self.output.writer(self.allocator).print(
-                "const {s} = runtime.AnyClosure3({s}, ",
-                .{ closure_var_name, capture_type_name },
-            );
-        } else if (total_params == 4) {
-            try self.output.writer(self.allocator).print(
-                "const {s} = runtime.AnyClosure4({s}, ",
-                .{ closure_var_name, capture_type_name },
-            );
-        } else if (total_params == 5) {
-            try self.output.writer(self.allocator).print(
-                "const {s} = runtime.AnyClosure5({s}, ",
-                .{ closure_var_name, capture_type_name },
-            );
-        } else if (total_params == 6) {
-            try self.output.writer(self.allocator).print(
-                "const {s} = runtime.AnyClosure6({s}, ",
-                .{ closure_var_name, capture_type_name },
-            );
-        } else if (total_params == 7) {
-            try self.output.writer(self.allocator).print(
-                "const {s} = runtime.AnyClosure7({s}, ",
-                .{ closure_var_name, capture_type_name },
+                "{s}, {s}.{s}){{ .captures = .{{",
+                .{ return_type_str, closure_impl_name, impl_fn_name },
             );
         } else {
-            // For functions with more than 7 params, fall back to AnyClosure7
-            // This is rare in practice; most closures have few parameters
+            // Fall back to AnyClosure (anytype params)
+            if (total_params == 0) {
+                try self.output.writer(self.allocator).print(
+                    "const {s} = runtime.AnyClosure0({s}, ",
+                    .{ closure_var_name, capture_type_name },
+                );
+            } else if (total_params == 1) {
+                try self.output.writer(self.allocator).print(
+                    "const {s} = runtime.AnyClosure1({s}, ",
+                    .{ closure_var_name, capture_type_name },
+                );
+            } else if (total_params == 2) {
+                try self.output.writer(self.allocator).print(
+                    "const {s} = runtime.AnyClosure2({s}, ",
+                    .{ closure_var_name, capture_type_name },
+                );
+            } else if (total_params == 3) {
+                try self.output.writer(self.allocator).print(
+                    "const {s} = runtime.AnyClosure3({s}, ",
+                    .{ closure_var_name, capture_type_name },
+                );
+            } else if (total_params == 4) {
+                try self.output.writer(self.allocator).print(
+                    "const {s} = runtime.AnyClosure4({s}, ",
+                    .{ closure_var_name, capture_type_name },
+                );
+            } else if (total_params == 5) {
+                try self.output.writer(self.allocator).print(
+                    "const {s} = runtime.AnyClosure5({s}, ",
+                    .{ closure_var_name, capture_type_name },
+                );
+            } else if (total_params == 6) {
+                try self.output.writer(self.allocator).print(
+                    "const {s} = runtime.AnyClosure6({s}, ",
+                    .{ closure_var_name, capture_type_name },
+                );
+            } else if (total_params == 7) {
+                try self.output.writer(self.allocator).print(
+                    "const {s} = runtime.AnyClosure7({s}, ",
+                    .{ closure_var_name, capture_type_name },
+                );
+            } else {
+                // For functions with more than 7 params, fall back to AnyClosure7
+                // This is rare in practice; most closures have few parameters
+                try self.output.writer(self.allocator).print(
+                    "const {s} = runtime.AnyClosure7({s}, ",
+                    .{ closure_var_name, capture_type_name },
+                );
+            }
+
             try self.output.writer(self.allocator).print(
-                "const {s} = runtime.AnyClosure7({s}, ",
-                .{ closure_var_name, capture_type_name },
+                "{s}.{s}){{ .captures = .{{",
+                .{ closure_impl_name, impl_fn_name },
             );
         }
-
-        try self.output.writer(self.allocator).print(
-            "{s}.{s}){{ .captures = .{{",
-            .{ closure_impl_name, impl_fn_name },
-        );
 
         // Initialize captures - use renamed variable names from outer scope saved earlier
         // For mutated captures, use & to take pointer
