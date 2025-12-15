@@ -657,7 +657,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try self.emit("(");
 
             // For module calls or class method calls, add allocator as first argument only if needed
-            if ((is_module_call or is_class_method_call or is_nested_class_method_call) and needs_alloc) {
+            const allocator_emitted = (is_module_call or is_class_method_call or is_nested_class_method_call) and needs_alloc;
+            if (allocator_emitted) {
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
                 try self.emit(alloc_name);
                 if (call.args.len > 0 or call.keyword_args.len > 0) {
@@ -687,7 +688,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             const provided_args = call.args.len + call.keyword_args.len;
                             const missing_args = if (sig.total_params > provided_args) sig.total_params - provided_args else 0;
                             for (0..missing_args) |j| {
-                                if (provided_args > 0 or j > 0) try self.emit(", ");
+                                // Add comma if: allocator was emitted OR args were provided OR this is not the first null
+                                if (allocator_emitted or provided_args > 0 or j > 0) try self.emit(", ");
                                 try self.emit("null");
                             }
                         }
