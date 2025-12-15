@@ -23,7 +23,7 @@ jobs:
   # Core tests split into 3 parallel jobs for faster CI
   test-metal0-core1:
     name: Metal0 @core1 (93 tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Pin to 22.04 - ubuntu-24.04 has 4-5x slowdown (actions/runner-images#11790)
     timeout-minutes: 30
 
     steps:
@@ -89,7 +89,7 @@ jobs:
 
   test-metal0-core2:
     name: Metal0 @core2 (90 tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Pin to 22.04 - ubuntu-24.04 has 4-5x slowdown (actions/runner-images#11790)
     timeout-minutes: 30
 
     steps:
@@ -155,7 +155,7 @@ jobs:
 
   test-metal0-core3:
     name: Metal0 @core3 (89 tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Pin to 22.04 - ubuntu-24.04 has 4-5x slowdown (actions/runner-images#11790)
     timeout-minutes: 30
 
     steps:
@@ -221,7 +221,7 @@ jobs:
 
   test-metal0-linux:
     name: Metal0 @linux (28 tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Pin to 22.04 - ubuntu-24.04 has 4-5x slowdown (actions/runner-images#11790)
     timeout-minutes: 60
 
     steps:
@@ -431,7 +431,7 @@ jobs:
 
   test-cpython-core1:
     name: CPython @core1 (93 tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 45
 
     steps:
@@ -481,7 +481,7 @@ jobs:
 
   test-cpython-core2:
     name: CPython @core2 (90 tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 45
 
     steps:
@@ -531,7 +531,7 @@ jobs:
 
   test-cpython-core3:
     name: CPython @core3 (89 tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 45
 
     steps:
@@ -581,7 +581,7 @@ jobs:
 
   test-cpython-linux:
     name: CPython @linux (28 tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 75
 
     steps:

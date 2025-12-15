@@ -1095,7 +1095,10 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
         ".", // Install to .metal0/ (the cwd)
     };
 
-    std.debug.print("Running batch compilation: zig build -j{d} (timeout: 300s)...\n", .{jobs});
+    // CI runners are slow (2 vCPU) - give more time
+    const is_ci = std.posix.getenv("CI") != null;
+    const timeout_secs: u64 = if (is_ci) 600 else 300; // 10 min for CI, 5 min locally
+    std.debug.print("Running batch compilation: zig build -j{d} (timeout: {d}s)...\n", .{ jobs, timeout_secs });
 
     // Spawn batch build process with manual timeout
     var child = std.process.Child.init(&argv, aa);
@@ -1137,10 +1140,10 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
         }
     }.read, .{ stderr_reader, aa, &stderr_buf }) catch null;
 
-    // Kill if timeout (5 min) - fail fast, fail loud
+    // Kill if timeout - fail fast, fail loud
     // Use PID instead of pointer to avoid race condition
     var done = std.atomic.Value(bool).init(false);
-    const timeout_ns: u64 = 300 * std.time.ns_per_s; // 5 min - enough for ~130 tests on CI
+    const timeout_ns: u64 = timeout_secs * std.time.ns_per_s;
     const child_id = child.id;
     const killer = std.Thread.spawn(.{}, struct {
         const process_utils = @import("../../utils/process_fmt.zig");

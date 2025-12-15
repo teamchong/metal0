@@ -160,7 +160,9 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var test_dir: []const u8 = "tests/cpython";
     const timeout_sec: u64 = 5; // 5s per test - fail fast
     const bail_count: usize = 0; // Run all tests
-    const jobs: usize = std.Thread.getCpuCount() catch 8;
+    // CI runners have only 2 vCPU - reduce parallelism to avoid thrashing
+    const is_ci = std.posix.getenv("CI") != null;
+    const jobs: usize = if (is_ci) 2 else std.Thread.getCpuCount() catch 8;
     const dots_mode: bool = false;
     const batch_mode: bool = true; // Fast batch compilation
     const filter_pattern: ?[]const u8 = null;
