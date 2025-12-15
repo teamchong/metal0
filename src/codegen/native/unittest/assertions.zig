@@ -705,11 +705,155 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
 pub const genAssertTrue = gen1ArgAssert("assertTrue");
 pub const genAssertFalse = gen1ArgAssert("assertFalse");
 pub const genAssertIsNone = gen1ArgAssert("assertIsNone");
-pub const genAssertGreater = gen2ArgAssert("assertGreater");
-pub const genAssertLess = gen2ArgAssert("assertLess");
-pub const genAssertGreaterEqual = gen2ArgAssert("assertGreaterEqual");
-pub const genAssertLessEqual = gen2ArgAssert("assertLessEqual");
-pub const genAssertNotEqual = gen2ArgAssert("assertNotEqual");
+/// Generate code for assertGreater(a, b) - routes uncertain types to PyValue.gt()
+pub fn genAssertGreater(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 2) {
+        try self.emit("@compileError(\"assertGreater requires 2 arguments\")");
+        return;
+    }
+
+    const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
+    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
+        type_b == .pyvalue or type_b == .unknown);
+
+    if (is_uncertain) {
+        // Route to PyValue.gt() - compiles ONCE
+        try self.emit("if (!runtime.PyValue.from(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(").gt(runtime.PyValue.from(");
+        try parent.genExpr(self, args[1]);
+        try self.emit("))) return error.AssertionFailed;");
+    } else {
+        // Direct comparison for certain types - native speed
+        try self.emit("if (!(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(" > ");
+        try parent.genExpr(self, args[1]);
+        try self.emit(")) return error.AssertionFailed;");
+    }
+}
+
+/// Generate code for assertLess(a, b) - routes uncertain types to PyValue.lt()
+pub fn genAssertLess(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 2) {
+        try self.emit("@compileError(\"assertLess requires 2 arguments\")");
+        return;
+    }
+
+    const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
+    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
+        type_b == .pyvalue or type_b == .unknown);
+
+    if (is_uncertain) {
+        // Route to PyValue.lt() - compiles ONCE
+        try self.emit("if (!runtime.PyValue.from(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(").lt(runtime.PyValue.from(");
+        try parent.genExpr(self, args[1]);
+        try self.emit("))) return error.AssertionFailed;");
+    } else {
+        // Direct comparison for certain types - native speed
+        try self.emit("if (!(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(" < ");
+        try parent.genExpr(self, args[1]);
+        try self.emit(")) return error.AssertionFailed;");
+    }
+}
+
+/// Generate code for assertGreaterEqual(a, b) - routes uncertain types to PyValue.ge()
+pub fn genAssertGreaterEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 2) {
+        try self.emit("@compileError(\"assertGreaterEqual requires 2 arguments\")");
+        return;
+    }
+
+    const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
+    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
+        type_b == .pyvalue or type_b == .unknown);
+
+    if (is_uncertain) {
+        // Route to PyValue.ge() - compiles ONCE
+        try self.emit("if (!runtime.PyValue.from(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(").ge(runtime.PyValue.from(");
+        try parent.genExpr(self, args[1]);
+        try self.emit("))) return error.AssertionFailed;");
+    } else {
+        // Direct comparison for certain types - native speed
+        try self.emit("if (!(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(" >= ");
+        try parent.genExpr(self, args[1]);
+        try self.emit(")) return error.AssertionFailed;");
+    }
+}
+
+/// Generate code for assertLessEqual(a, b) - routes uncertain types to PyValue.le()
+pub fn genAssertLessEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 2) {
+        try self.emit("@compileError(\"assertLessEqual requires 2 arguments\")");
+        return;
+    }
+
+    const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
+    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
+        type_b == .pyvalue or type_b == .unknown);
+
+    if (is_uncertain) {
+        // Route to PyValue.le() - compiles ONCE
+        try self.emit("if (!runtime.PyValue.from(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(").le(runtime.PyValue.from(");
+        try parent.genExpr(self, args[1]);
+        try self.emit("))) return error.AssertionFailed;");
+    } else {
+        // Direct comparison for certain types - native speed
+        try self.emit("if (!(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(" <= ");
+        try parent.genExpr(self, args[1]);
+        try self.emit(")) return error.AssertionFailed;");
+    }
+}
+
+/// Generate code for assertNotEqual(a, b) - routes uncertain types to PyValue.eql()
+pub fn genAssertNotEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 2) {
+        try self.emit("@compileError(\"assertNotEqual requires 2 arguments\")");
+        return;
+    }
+
+    const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
+    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
+        type_b == .pyvalue or type_b == .unknown);
+
+    if (is_uncertain) {
+        // Route to PyValue.eql() with negation - compiles ONCE
+        try self.emit("if (runtime.PyValue.from(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(").eql(runtime.PyValue.from(");
+        try parent.genExpr(self, args[1]);
+        try self.emit("))) return error.AssertionFailed;");
+    } else {
+        // Use unittest fallback for certain types - handles structs, arrays, etc.
+        try self.emit("try unittest.assertNotEqual(");
+        try parent.genExpr(self, args[0]);
+        try self.emit(", ");
+        try parent.genExpr(self, args[1]);
+        try self.emit(")");
+    }
+}
 pub const genAssertIsNotNone = gen1ArgAssert("assertIsNotNone");
 pub const genAssertAlmostEqual = gen2ArgAssert("assertAlmostEqual");
 pub const genAssertNotAlmostEqual = gen2ArgAssert("assertNotAlmostEqual");

@@ -43,20 +43,22 @@ fn isKnownOperatorFunc(name: []const u8) bool {
     return known.has(name);
 }
 
+/// Operator wrappers route to PyValue methods to avoid anytype monomorphization explosion.
+/// PyValue.from() monomorphizes per type, but eql/lt/gt/le/ge compile once.
 const OperatorWrappers = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "eq", "(a: anytype, b: anytype) bool { return runtime.operatorEq(a, b); }\n" },
-    .{ "ne", "(a: anytype, b: anytype) bool { return runtime.operatorNe(a, b); }\n" },
-    .{ "lt", "(a: anytype, b: anytype) bool { return runtime.operatorLt(a, b); }\n" },
-    .{ "le", "(a: anytype, b: anytype) bool { return runtime.operatorLe(a, b); }\n" },
-    .{ "gt", "(a: anytype, b: anytype) bool { return runtime.operatorGt(a, b); }\n" },
-    .{ "ge", "(a: anytype, b: anytype) bool { return runtime.operatorGe(a, b); }\n" },
-    .{ "add", "(a: anytype, b: anytype) @TypeOf(a) { return a + b; }\n" },
-    .{ "sub", "(a: anytype, b: anytype) @TypeOf(a) { return a - b; }\n" },
-    .{ "mul", "(a: anytype, b: anytype) @TypeOf(a) { return a * b; }\n" },
-    .{ "truediv", "(a: anytype, b: anytype) f64 { return @as(f64, @floatFromInt(a)) / @as(f64, @floatFromInt(b)); }\n" },
-    .{ "floordiv", "(a: anytype, b: anytype) @TypeOf(a) { return @divFloor(a, b); }\n" },
-    .{ "mod", "(a: anytype, b: anytype) @TypeOf(a) { return @rem(a, b); }\n" },
-    .{ "neg", "(a: anytype) @TypeOf(a) { return -a; }\n" },
+    .{ "eq", "(a: anytype, b: anytype) bool { return runtime.PyValue.from(a).eql(runtime.PyValue.from(b)); }\n" },
+    .{ "ne", "(a: anytype, b: anytype) bool { return !runtime.PyValue.from(a).eql(runtime.PyValue.from(b)); }\n" },
+    .{ "lt", "(a: anytype, b: anytype) bool { return runtime.PyValue.from(a).lt(runtime.PyValue.from(b)); }\n" },
+    .{ "le", "(a: anytype, b: anytype) bool { return runtime.PyValue.from(a).le(runtime.PyValue.from(b)); }\n" },
+    .{ "gt", "(a: anytype, b: anytype) bool { return runtime.PyValue.from(a).gt(runtime.PyValue.from(b)); }\n" },
+    .{ "ge", "(a: anytype, b: anytype) bool { return runtime.PyValue.from(a).ge(runtime.PyValue.from(b)); }\n" },
+    .{ "add", "(a: anytype, b: anytype) runtime.PyValue { return runtime.PyValue.from(a).add(runtime.PyValue.from(b)); }\n" },
+    .{ "sub", "(a: anytype, b: anytype) runtime.PyValue { return runtime.PyValue.from(a).sub(runtime.PyValue.from(b)); }\n" },
+    .{ "mul", "(a: anytype, b: anytype) runtime.PyValue { return runtime.PyValue.from(a).mul(runtime.PyValue.from(b)); }\n" },
+    .{ "truediv", "(a: anytype, b: anytype) runtime.PyValue { return runtime.PyValue.from(a).div(runtime.PyValue.from(b)); }\n" },
+    .{ "floordiv", "(a: anytype, b: anytype) runtime.PyValue { return runtime.PyValue.from(a).floordiv(runtime.PyValue.from(b)); }\n" },
+    .{ "mod", "(a: anytype, b: anytype) runtime.PyValue { return runtime.PyValue.from(a).mod(runtime.PyValue.from(b)); }\n" },
+    .{ "neg", "(a: anytype) runtime.PyValue { return runtime.PyValue.from(a).neg(); }\n" },
     .{ "not_", "(a: anytype) bool { return !runtime.toBool(a); }\n" },
     .{ "truth", "(a: anytype) bool { return runtime.toBool(a); }\n" },
 });
