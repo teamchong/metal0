@@ -302,13 +302,19 @@ pub const NativeCodegen = struct {
     async_function_defs: FnvFuncDefMap,
 
     // Track functions with varargs (*args)
-    // Maps function name -> void (e.g., "func" -> {})
-    vararg_functions: FnvVoidMap,
+    // Maps function name -> vararg_start_index (number of regular params before *args)
+    // e.g., "op_sequence" -> 1 for def op_sequence(op, *classes)
+    vararg_functions: hashmap_helper.StringHashMap(usize),
 
     // Track vararg parameter names (*args parameters)
     // Maps parameter name -> void (e.g., "args" -> {})
     // Used for type inference: iterating over vararg gives i64
     vararg_params: FnvVoidMap,
+
+    // Track methods with varargs (*args)
+    // Maps "ClassName.method_name" -> vararg_start_index (number of regular params before *args, not counting self)
+    // e.g., "OperationLogger.log_operation" -> 0 for def log_operation(self, *args)
+    vararg_methods: hashmap_helper.StringHashMap(usize),
 
     // Track functions with kwargs (**kwargs)
     // Maps function name -> void (e.g., "func" -> {})
@@ -749,8 +755,9 @@ pub const NativeCodegen = struct {
             .functions_needing_allocator = FnvVoidMap.init(allocator),
             .async_functions = FnvVoidMap.init(allocator),
             .async_function_defs = FnvFuncDefMap.init(allocator),
-            .vararg_functions = FnvVoidMap.init(allocator),
+            .vararg_functions = hashmap_helper.StringHashMap(usize).init(allocator),
             .vararg_params = FnvVoidMap.init(allocator),
+            .vararg_methods = hashmap_helper.StringHashMap(usize).init(allocator),
             .kwarg_functions = FnvVoidMap.init(allocator),
             .kwarg_params = FnvVoidMap.init(allocator),
             .dict_builtin_vars = FnvVoidMap.init(allocator),

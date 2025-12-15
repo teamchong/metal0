@@ -459,6 +459,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         var class_method_needs_alloc = false;
         var is_nested_class_method_call = false;
         var is_static_method = false; // Track @staticmethod for type-based invocation
+        var method_class_name: ?[]const u8 = null; // Track class name for vararg detection
         {
             // FIRST: Check if this is a self.method() call within the current class
             // This must be checked BEFORE the generic type inferrer check because
@@ -472,6 +473,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         for (class_def.body) |stmt| {
                             if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
                                 is_class_method_call = true;
+                                method_class_name = class_name; // Track for vararg detection
                                 // Use analyzeNeedsAllocator (same as signature generation)
                                 // to ensure call-site allocator passing matches method signature
                                 class_method_needs_alloc = function_traits.analyzeNeedsAllocator(stmt.function_def, class_name);
@@ -489,6 +491,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     // Look up method in class registry
                     if (self.class_registry.findMethod(class_name, attr.attr)) |method_info| {
                         is_class_method_call = true;
+                        method_class_name = class_name; // Track for vararg detection
                         is_static_method = method_info.is_static; // Track staticmethod for type-based call
                         // Get the method's FunctionDef from the class and check if it needs allocator
                         // Use analyzeNeedsAllocator to match method signature generation
@@ -505,6 +508,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         for (nested_class_def.body) |stmt| {
                             if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
                                 is_class_method_call = true;
+                                method_class_name = class_name; // Track for vararg detection
                                 // Import hasStaticmethodDecorator from signature module
                                 const signature = @import("../statements/functions/generators/signature.zig");
                                 is_static_method = signature.hasStaticmethodDecorator(stmt.function_def.decorators);
@@ -523,6 +527,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     // This is a method call on a nested class instance
                     // Check if this specific method needs allocator
                     is_nested_class_method_call = true;
+                    method_class_name = class_name; // Track for vararg detection
                     var method_key_buf: [512]u8 = undefined;
                     const method_key = std.fmt.bufPrint(&method_key_buf, "{s}.{s}", .{ class_name, attr.attr }) catch null;
                     if (method_key) |key| {
@@ -666,15 +671,59 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             }
 
-            for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try genExpr(self, arg);
-            }
+            // Check if this is a vararg method call - if so, wrap arguments in slice literal
+            const vararg_method_info: ?usize = if (method_class_name) |cn| blk: {
+                var method_key_buf: [512]u8 = undefined;
+                const key = std.fmt.bufPrint(&method_key_buf, "{s}.{s}", .{ cn, attr.attr }) catch break :blk null;
+                break :blk self.vararg_methods.get(key);
+            } else null;
+            const is_vararg_method = vararg_method_info != null;
 
-            // Add keyword arguments as positional arguments
-            for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.emit(", ");
-                try genExpr(self, kwarg.value);
+            if (is_vararg_method and (call.args.len > 0 or call.keyword_args.len > 0)) {
+                const vararg_start_index = vararg_method_info.?;
+
+                // Emit regular args first (up to vararg_start_index)
+                for (call.args[0..@min(vararg_start_index, call.args.len)], 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try genExpr(self, arg);
+                }
+
+                // Add comma before varargs slice if we emitted regular args
+                if (vararg_start_index > 0 and call.args.len > vararg_start_index) {
+                    try self.emit(", ");
+                }
+
+                // Wrap remaining arguments (after vararg_start_index) in a PyValue slice literal
+                try self.emit("&[_]runtime.PyValue{");
+                var arg_idx: usize = 0;
+                for (call.args[@min(vararg_start_index, call.args.len)..]) |arg| {
+                    if (arg_idx > 0) try self.emit(", ");
+                    try self.emit("runtime.PyValue.from(");
+                    try genExpr(self, arg);
+                    try self.emit(")");
+                    arg_idx += 1;
+                }
+                // Add keyword arguments as positional arguments
+                for (call.keyword_args) |kwarg| {
+                    if (arg_idx > 0) try self.emit(", ");
+                    try self.emit("runtime.PyValue.from(");
+                    try genExpr(self, kwarg.value);
+                    try self.emit(")");
+                    arg_idx += 1;
+                }
+                try self.emit("}");
+            } else {
+                // Normal argument emission
+                for (call.args, 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try genExpr(self, arg);
+                }
+
+                // Add keyword arguments as positional arguments
+                for (call.keyword_args, 0..) |kwarg, i| {
+                    if (i > 0 or call.args.len > 0) try self.emit(", ");
+                    try genExpr(self, kwarg.value);
+                }
             }
 
             // Add null for missing optional parameters when calling self.method()
@@ -1384,7 +1433,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         const is_async_func = self.async_functions.contains(raw_func_name);
 
         // Check if this is a vararg function (needs args wrapped in slice)
-        const is_vararg_func = self.vararg_functions.contains(raw_func_name);
+        // vararg_start_index is the number of regular params before *args
+        const vararg_info = self.vararg_functions.get(raw_func_name);
+        const is_vararg_func = vararg_info != null;
 
         // Check if this is a kwarg function (needs args wrapped in PyDict)
         const is_kwarg_func = self.kwarg_functions.contains(raw_func_name);
@@ -1422,25 +1473,40 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Get function signature for parameter mapping
         const func_sig = self.function_signatures.get(raw_func_name);
 
-        // Add regular arguments - wrap in slice for vararg functions
+        // Add regular arguments - wrap remaining args in slice for vararg functions
         if (is_vararg_func) {
-            // Check if any args are starred (unpacked)
+            const vararg_start_index = vararg_info.?;
+
+            // Emit regular args first (up to vararg_start_index)
+            for (call.args[0..@min(vararg_start_index, call.args.len)], 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try genExpr(self, arg);
+            }
+
+            // Check if any remaining args are starred (unpacked)
             var has_starred = false;
-            for (call.args) |arg| {
+            for (call.args[@min(vararg_start_index, call.args.len)..]) |arg| {
                 if (arg == .starred) {
                     has_starred = true;
                     break;
                 }
             }
 
+            // Add comma before varargs slice if we emitted regular args
+            if (vararg_start_index > 0 and call.args.len > vararg_start_index) {
+                try self.emit(", ");
+            } else if (vararg_start_index == 0 and call.args.len > 0) {
+                // No regular args, varargs slice is the first arg
+            }
+
             if (has_starred) {
                 // Build slice at runtime by concatenating unpacked arrays
                 // For now: if there's a starred arg, just pass it directly (assume single starred arg)
                 var found_starred = false;
-                for (call.args) |arg| {
+                for (call.args[@min(vararg_start_index, call.args.len)..]) |arg| {
                     if (arg == .starred) {
                         // Generate the value with & prefix to convert array to slice
-                        // *[1,2] becomes &[_]i64{1, 2} which is []const i64
+                        // *[1,2] becomes &[_]Type{1, 2} which is []const Type
                         try self.emit("&");
                         try genExpr(self, arg.starred.value.*);
                         found_starred = true;
@@ -1449,12 +1515,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
                 if (!found_starred) {
                     // Shouldn't happen, but handle gracefully
-                    try self.emit("&[_]i64{}");
+                    try self.emit("&.{}");
                 }
             } else {
-                // Normal case: wrap args in slice
-                try self.emit("&[_]i64{");
-                for (call.args, 0..) |arg, i| {
+                // Normal case: wrap remaining args (after vararg_start_index) in slice
+                // Use &.{...} to let Zig infer the slice type from arguments
+                try self.emit("&.{");
+                for (call.args[@min(vararg_start_index, call.args.len)..], 0..) |arg, i| {
                     if (i > 0) try self.emit(", ");
                     try genExpr(self, arg);
                 }

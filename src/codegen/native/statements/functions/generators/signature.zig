@@ -1053,10 +1053,10 @@ pub fn genFunctionSignature(
         // Check if vararg is used in function body - use "_:" for unused params
         const vararg_is_used = param_analyzer.isNameUsedInBody(func.body, vararg_name);
         if (!vararg_is_used) {
-            try self.emit("_: []const i64"); // Unused vararg
+            try self.emit("_: anytype"); // Unused vararg - use anytype for flexibility
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
-            try self.emit(": []const i64"); // For now, assume varargs are integers
+            try self.emit(": anytype"); // Use anytype for varargs to handle any slice type
         }
     }
 
@@ -1561,12 +1561,18 @@ pub fn genMethodSignatureWithSkip(
     if (method.vararg) |vararg_name| {
         if (any_param_emitted) try self.emit(", ");
         any_param_emitted = true;
+
+        // Track this method as having varargs for call site argument wrapping
+        // Store param_index = number of regular params before varargs (not counting self)
+        const method_key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, method.name });
+        try self.vararg_methods.put(method_key, param_index);
+
         const is_vararg_used = param_analyzer.isNameUsedInBody(method.body, vararg_name);
         if (is_skipped or !is_vararg_used) {
-            try self.emit("_: anytype"); // Use anonymous for unused
+            try self.emit("_: []const runtime.PyValue"); // Use concrete slice type
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
-            try self.emit(": anytype"); // Use anytype for flexibility
+            try self.emit(": []const runtime.PyValue"); // Use concrete slice type
         }
     }
 
@@ -1613,6 +1619,37 @@ pub fn genMethodSignatureWithSkip(
         // Magic method return types already include error union if needed
         // e.g., "__bool__" -> "runtime.PythonError!bool", "__float__" -> "f64"
         try self.emit(magic_return_type);
+    } else if (std.mem.eql(u8, method.name, "__iter__")) {
+        // Special handling for __iter__ - returns an iterator/slice
+        // Check if method returns 'self' - common pattern for iterator classes
+        const returns_self = blk: {
+            for (method.body) |stmt| {
+                if (stmt == .return_stmt) {
+                    if (stmt.return_stmt.value) |val| {
+                        if (val.* == .name and std.mem.eql(u8, val.name.id, "self")) {
+                            break :blk true;
+                        }
+                    }
+                }
+            }
+            break :blk false;
+        };
+        const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
+        if (needs_error) try self.emit("!");
+        if (returns_self) {
+            // Iterator class pattern: def __iter__(self): return self
+            try self.emit("*@This()");
+        } else {
+            // Non-self __iter__ - use PyValue for flexibility
+            // This handles iter(range(...)) and other complex cases
+            try self.emit("runtime.PyValue");
+        }
+    } else if (std.mem.eql(u8, method.name, "__next__")) {
+        // __next__ returns the next item or raises StopIteration
+        // Use PyValue for flexibility
+        const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
+        if (needs_error) try self.emit("!");
+        try self.emit("runtime.PyValue");
     } else if (method.return_type != null) {
         // Determine return type (add error union if allocator needed or function can error)
         // Note: funcNeedsErrorUnion uses simple name lookup, which works for most methods

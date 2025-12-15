@@ -77,9 +77,10 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     };
 
     // Track functions with varargs (for call site generation)
+    // Store the vararg start index (number of regular params before *args)
     if (func.vararg) |vararg_name| {
         const func_name_copy = try self.allocator.dupe(u8, func.name);
-        try self.vararg_functions.put(func_name_copy, {});
+        try self.vararg_functions.put(func_name_copy, func.args.len);
         // Also track the parameter name (e.g., "args") for type inference
         const vararg_param_copy = try self.allocator.dupe(u8, vararg_name);
         try self.vararg_params.put(vararg_param_copy, {});
