@@ -116,6 +116,12 @@ pub fn isErrorUnion(comptime T: type) bool {
     return @typeInfo(T) == .error_union;
 }
 
+/// Check if a type is an error set - used by assertRaises
+/// Single comptime dispatch point replaces inline @typeInfo checks
+pub fn isErrorSet(comptime T: type) bool {
+    return @typeInfo(T) == .error_set;
+}
+
 /// Set element at index in any container - for slice assignment
 /// Handles: ArrayList (.items), arrays, slices
 pub fn setAt(comptime T: type, container: *T, index: usize, value: GetElementType(T)) void {

@@ -672,8 +672,8 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     self.block_label_counter += 1;
                     try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
                     try genExpr(self, subscript.value.*);
-                    // Get items array (works for both ArrayListUnmanaged and fixed arrays)
-                    try self.emit("; const __items = if (@hasField(@TypeOf(__s), \"items\")) __s.items else &__s");
+                    // Use container_dispatch helper - avoids inline @hasField monomorphization
+                    try self.emit("; const __items = runtime.container_dispatch.getSlice(@TypeOf(__s), __s)");
                     try self.emitFmt("; break :slice_{d} (try runtime.slice_ops.sliceWithStep(@TypeOf(__items[0]), __global_allocator, __items, ", .{label_id});
 
                     // Start
