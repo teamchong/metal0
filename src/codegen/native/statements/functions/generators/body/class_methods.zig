@@ -1627,18 +1627,26 @@ pub fn genInitMethodFromNew(
     // Initialize builtin base value first if present
     // For __new__ methods that transform the value (e.g., float.__new__(cls, 2*value)),
     // we extract the transformation expression instead of using the raw parameter.
-    if (builtin_base) |_| {
+    if (builtin_base) |base_info| {
         try self.emitIndent();
         try self.emit(".__base_value__ = ");
         // Extract transformation expr from float.__new__(cls, expr) or super().__new__(cls, expr)
         if (extractBuiltinNewExpr(new_method)) |expr| {
             try self.genExpr(expr);
         } else {
-            // Fallback: use first non-cls parameter
+            // Fallback: use first non-cls parameter, or default value if none
+            var found_param = false;
             for (new_method.args) |arg| {
                 if (std.mem.eql(u8, arg.name, "cls")) continue;
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                found_param = true;
                 break;
+            }
+            // If no parameters besides cls, use the default value
+            if (!found_param and base_info.init_args.len > 0) {
+                if (base_info.init_args[0].default) |default_val| {
+                    try self.emit(default_val);
+                }
             }
         }
         try self.emit(",\n");
