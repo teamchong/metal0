@@ -52,16 +52,18 @@ pub const pyPow = pow_mod.pyPow;
 /// Returns error union for compatibility with codegen that emits `try`
 /// Note: static call function (no @This() param) for use as type, not instance
 pub const pow = struct {
+    const op_ops = @import("operator_ops.zig");
+
     pub fn call(base: anytype, exp: @TypeOf(base)) !@TypeOf(base) {
         const T = @TypeOf(base);
+        // Dispatch to concrete functions to reduce monomorphization
+        if (T == i64) return op_ops.powI64(base, exp);
+        if (T == f64) return op_ops.powF64(base, exp);
+        // Fallback for other numeric types
         if (@typeInfo(T) == .float) {
-            // Python raises ZeroDivisionError for 0.0 ** negative
-            if (base == 0.0 and exp < 0.0) {
-                return error.ZeroDivisionError;
-            }
-            return std.math.pow(T, base, exp);
+            return @floatCast(try op_ops.powF64(@floatCast(base), @floatCast(exp)));
         }
-        // For integers, use std.math.pow with conversion
+        // Integer fallback
         const base_f: f64 = @floatFromInt(base);
         const exp_f: f64 = @floatFromInt(exp);
         const result = std.math.pow(f64, base_f, exp_f);
@@ -168,30 +170,35 @@ pub const pyEqualSliceToTuple = ops_mod.pyEqualSliceToTuple;
 /// These allow passing operators as first-class functions: mod = operator.mod; mod(a, b)
 /// Called as: OperatorMod{}.call(a, b) - self is the struct instance
 pub const OperatorMod = struct {
-    const float_ops = @import("float_ops/arithmetic.zig");
+    const op_ops = @import("operator_ops.zig");
 
     pub fn call(_: @This(), a: anytype, b: @TypeOf(a)) @TypeOf(a) {
         const T = @TypeOf(a);
+        // Dispatch to concrete functions to reduce monomorphization
+        if (T == i64) return op_ops.modI64(a, b);
+        if (T == f64) return @floatCast(op_ops.modF64(a, b));
+        // Fallback for other numeric types
         if (@typeInfo(T) == .float) {
-            // Use proper Python floored modulo semantics
-            return @floatCast(float_ops.pyFloatMod(a, b));
+            return @floatCast(op_ops.modF64(@floatCast(a), @floatCast(b)));
         }
         return @mod(a, b);
     }
 };
 
 pub const OperatorPow = struct {
+    const op_ops = @import("operator_ops.zig");
+
     /// Returns error union for compatibility with `pow` in tuple iteration
     pub fn call(_: @This(), base: anytype, exp: @TypeOf(base)) !@TypeOf(base) {
         const T = @TypeOf(base);
+        // Dispatch to concrete functions to reduce monomorphization
+        if (T == i64) return op_ops.powI64(base, exp);
+        if (T == f64) return op_ops.powF64(base, exp);
+        // Fallback for other numeric types
         if (@typeInfo(T) == .float) {
-            // Python raises ZeroDivisionError for 0.0 ** negative
-            if (base == 0.0 and exp < 0.0) {
-                return error.ZeroDivisionError;
-            }
-            return std.math.pow(T, base, exp);
+            return @floatCast(try op_ops.powF64(@floatCast(base), @floatCast(exp)));
         }
-        // For integers, use std.math.pow with conversion
+        // Integer fallback
         const base_f: f64 = @floatFromInt(base);
         const exp_f: f64 = @floatFromInt(exp);
         const result = std.math.pow(f64, base_f, exp_f);
@@ -200,12 +207,18 @@ pub const OperatorPow = struct {
 };
 
 pub const OperatorTruediv = struct {
+    const op_ops = @import("operator_ops.zig");
+
     pub fn call(_: @This(), a: anytype, b: @TypeOf(a)) f64 {
         const T = @TypeOf(a);
+        // Dispatch to concrete functions to reduce monomorphization
+        if (T == i64) return op_ops.truedivI64(a, b);
+        if (T == f64) return op_ops.truedivF64(a, b);
+        // Fallback for other numeric types
         if (@typeInfo(T) == .float) {
-            return a / b;
+            return op_ops.truedivF64(@floatCast(a), @floatCast(b));
         }
-        // Integer true division returns float
+        // Integer fallback
         const a_f: f64 = @floatFromInt(a);
         const b_f: f64 = @floatFromInt(b);
         return a_f / b_f;
@@ -213,10 +226,16 @@ pub const OperatorTruediv = struct {
 };
 
 pub const OperatorFloordiv = struct {
+    const op_ops = @import("operator_ops.zig");
+
     pub fn call(_: @This(), a: anytype, b: @TypeOf(a)) @TypeOf(a) {
         const T = @TypeOf(a);
+        // Dispatch to concrete functions to reduce monomorphization
+        if (T == i64) return op_ops.floordivI64(a, b);
+        if (T == f64) return @floatCast(op_ops.floordivF64(a, b));
+        // Fallback for other numeric types
         if (@typeInfo(T) == .float) {
-            return @floor(a / b);
+            return @floatCast(op_ops.floordivF64(@floatCast(a), @floatCast(b)));
         }
         return @divFloor(a, b);
     }

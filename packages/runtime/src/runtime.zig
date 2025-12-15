@@ -72,6 +72,9 @@ pub const list_ops = @import("runtime/list_ops.zig");
 /// Export equality operations for reducing assertion monomorphization
 pub const equality_ops = @import("runtime/equality_ops.zig");
 
+/// Export operator operations for reducing operator callable monomorphization
+pub const operator_ops = @import("runtime/operator_ops.zig");
+
 // =============================================================================
 // Modular submodules (split from runtime.zig for organization)
 // These are available as separate imports for new code:
