@@ -252,10 +252,15 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // - Struct initializers like "Type{}" need semicolons
     // - Statement blocks like "{ ... }" do NOT need semicolons
     // - Labeled blocks like "blk: { ... }" do NOT need semicolons
+    // - If statements like "if (...) return error.AssertionFailed;" are complete and do NOT need semicolons
     var needs_semicolon = true;
 
+    // Check if this is an if statement (from unittest assertions) - these are complete statements
+    if (!added_discard_prefix and std.mem.startsWith(u8, generated, "if (")) {
+        needs_semicolon = false;
+    }
     // If we added "_ = " prefix, it's an assignment that always needs semicolon
-    if (!added_discard_prefix and generated.len > 0 and generated[generated.len - 1] == '}') {
+    else if (!added_discard_prefix and generated.len > 0 and generated[generated.len - 1] == '}') {
         // Check for labeled blocks (e.g., "blk: {", "sub_0: {", "slice_1: {", "comp_2: {")
         // Pattern: identifier followed by colon and space then brace
         const is_labeled_block = blk: {

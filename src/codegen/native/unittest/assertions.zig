@@ -522,7 +522,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
                 try parent.genExpr(self, args[0]);
                 try self.emit(") != (");
                 try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed");
+                try self.emit(")) return error.AssertionFailed;");
                 return;
             },
             .float => {
@@ -530,7 +530,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
                 try parent.genExpr(self, args[0]);
                 try self.emit(") != (");
                 try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed");
+                try self.emit(")) return error.AssertionFailed;");
                 return;
             },
             .bool => {
@@ -538,7 +538,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
                 try parent.genExpr(self, args[0]);
                 try self.emit(") != (");
                 try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed");
+                try self.emit(")) return error.AssertionFailed;");
                 return;
             },
             .string => {
@@ -546,7 +546,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
                 try parent.genExpr(self, args[0]);
                 try self.emit(", ");
                 try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed");
+                try self.emit(")) return error.AssertionFailed;");
                 return;
             },
             else => {},
@@ -557,13 +557,13 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
     if (isEmptyListLiteral(args[1])) {
         try self.emit("if (runtime.builtinLen(");
         try parent.genExpr(self, args[0]);
-        try self.emit(") != 0) return error.AssertionFailed");
+        try self.emit(") != 0) return error.AssertionFailed;");
         return;
     }
     if (isEmptyListLiteral(args[0])) {
         try self.emit("if (runtime.builtinLen(");
         try parent.genExpr(self, args[1]);
-        try self.emit(") != 0) return error.AssertionFailed");
+        try self.emit(") != 0) return error.AssertionFailed;");
         return;
     }
 
@@ -617,7 +617,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         // Compare with concrete type
         try self.emit(" break :__ae_blk !std.mem.eql(");
         try self.emit(elem_type.?);
-        try self.emit(", __ae_slice_a, __ae_slice_b); }) return error.AssertionFailed");
+        try self.emit(", __ae_slice_a, __ae_slice_b); }) return error.AssertionFailed;");
         return;
     }
 
@@ -628,7 +628,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         try parent.genExpr(self, args[0]);
         try self.emit(", ");
         try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed");
+        try self.emit("))) return error.AssertionFailed;");
         return;
     }
 
@@ -645,7 +645,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     try parent.genExpr(self, args[1]);
-    try self.emit(", __global_allocator))) return error.AssertionFailed");
+    try self.emit(", __global_allocator))) return error.AssertionFailed;");
 }
 
 pub const genAssertTrue = gen1ArgAssert("assertTrue");
@@ -893,7 +893,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     try emitCallableInvocation(self, args[1], call_args, &.{});
     self.inside_try_body = prev_inside_try;
     // expectError returns true if NO error was raised (test should fail)
-    try self.emit(")) return error.ExpectedExceptionNotRaised");
+    try self.emit(")) return error.ExpectedExceptionNotRaised;");
 }
 
 /// Generate code for self.assertRaises(exception_type, callable, *args, **kwargs)
@@ -917,7 +917,7 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
     try self.emit("if (unittest.expectError(");
     try emitCallableInvocation(self, args[1], call_args, keyword_args);
     self.inside_try_body = prev_inside_try;
-    try self.emit(")) return error.ExpectedExceptionNotRaised");
+    try self.emit(")) return error.ExpectedExceptionNotRaised;");
 }
 
 /// Generate code for self.assertRaisesRegex(exception, regex, callable, *args, **kwargs)
