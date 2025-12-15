@@ -8,7 +8,6 @@ mmap
 openpty
 poll
 posix
-pty
 pwd
 resource
 selectors
