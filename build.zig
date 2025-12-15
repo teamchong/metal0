@@ -32,6 +32,9 @@ pub fn build(b: *std.Build) void {
     const allocator_helper = b.addModule("utils.allocator_helper", .{
         .root_source_file = b.path("src/utils/allocator_helper.zig"),
     });
+    const string_interner = b.addModule("utils.string_interner", .{
+        .root_source_file = b.path("src/utils/string_interner.zig"),
+    });
     const runtime = b.createModule(.{
         .root_source_file = b.path("packages/runtime/src/runtime.zig"),
         .target = target,
@@ -232,6 +235,7 @@ pub fn build(b: *std.Build) void {
     });
     exe.root_module.addImport("utils.hashmap_helper", hashmap_helper);
     exe.root_module.addImport("utils.allocator_helper", allocator_helper);
+    exe.root_module.addImport("utils.string_interner", string_interner);
     exe.root_module.addImport("utils.platform", platform);
     exe.root_module.addImport("runtime", runtime);
     exe.root_module.addImport("collections", collections);

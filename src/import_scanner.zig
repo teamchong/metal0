@@ -57,6 +57,9 @@ pub const ImportGraph = struct {
     registry: ?*import_registry.ImportRegistry,
     /// External packages that couldn't be resolved (need to be installed)
     unresolved: hashmap_helper.StringHashMap(void),
+    /// Source file cache - prevents re-reading files during compilation
+    /// Key: file path, Value: file contents
+    source_cache: hashmap_helper.StringHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) ImportGraph {
         return .{
@@ -64,6 +67,7 @@ pub const ImportGraph = struct {
             .allocator = allocator,
             .registry = null,
             .unresolved = hashmap_helper.StringHashMap(void).init(allocator),
+            .source_cache = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
     }
 
@@ -74,7 +78,39 @@ pub const ImportGraph = struct {
             .allocator = allocator,
             .registry = reg,
             .unresolved = hashmap_helper.StringHashMap(void).init(allocator),
+            .source_cache = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
+    }
+
+    /// Read source file with caching - returns cached content if available
+    /// The returned slice is valid until deinit() is called
+    pub fn readSourceCached(self: *ImportGraph, file_path: []const u8) ![]const u8 {
+        // Check cache first
+        if (self.source_cache.get(file_path)) |cached| {
+            return cached;
+        }
+
+        // Read file (handle absolute paths)
+        const source = blk: {
+            if (std.fs.path.isAbsolute(file_path)) {
+                const file = std.fs.openFileAbsolute(file_path, .{}) catch return error.FileNotFound;
+                defer file.close();
+                break :blk file.readToEndAlloc(self.allocator, 100_000_000) catch return error.ReadError;
+            } else {
+                break :blk std.fs.cwd().readFileAlloc(self.allocator, file_path, 100_000_000) catch return error.ReadError;
+            }
+        };
+
+        // Cache the source (key needs to be duped for stability)
+        const key = try self.allocator.dupe(u8, file_path);
+        try self.source_cache.put(key, source);
+
+        return source;
+    }
+
+    /// Get cached source without reading (returns null if not cached)
+    pub fn getCachedSource(self: *const ImportGraph, file_path: []const u8) ?[]const u8 {
+        return self.source_cache.get(file_path);
     }
 
     /// Check if module is handled by the registry (zig_runtime or c_library)
@@ -100,6 +136,13 @@ pub const ImportGraph = struct {
             self.allocator.free(entry.key_ptr.*);
         }
         self.unresolved.deinit();
+        // Free source cache (keys and values)
+        var cache_iter = self.source_cache.iterator();
+        while (cache_iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.source_cache.deinit();
     }
 
     /// Get list of unresolved (external) packages
@@ -142,17 +185,9 @@ pub const ImportGraph = struct {
         const key = try self.allocator.dupe(u8, file_path);
         try visited.put(key, {});
 
-        // Read file (handle absolute paths)
-        const source = blk: {
-            if (std.fs.path.isAbsolute(file_path)) {
-                const file = std.fs.openFileAbsolute(file_path, .{}) catch return;
-                defer file.close();
-                break :blk file.readToEndAlloc(self.allocator, 100_000_000) catch return;
-            } else {
-                break :blk std.fs.cwd().readFileAlloc(self.allocator, file_path, 100_000_000) catch return;
-            }
-        };
-        defer self.allocator.free(source);
+        // Read file with caching (prevents re-reads during codegen)
+        const source = self.readSourceCached(file_path) catch return;
+        // Note: source is owned by cache, no defer free needed
 
         // Parse to find imports
         const imports = try extractImports(self.allocator, source);
