@@ -16,10 +16,11 @@ concurrency:
 jobs:
   # =============================================================================
   # Metal0 Compiled Tests (Python -> Zig -> Native Binary)
+  # Split into 6 core groups (~45 tests each) for CI runners with 2 vCPU
   # =============================================================================
 
   test-metal0-core1:
-    name: Metal0 @core1 (93 tests)
+    name: Metal0 @core1 (46 tests)
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -38,7 +39,7 @@ jobs:
         timeout-minutes: 30
 
   test-metal0-core2:
-    name: Metal0 @core2 (90 tests)
+    name: Metal0 @core2 (46 tests)
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -57,7 +58,7 @@ jobs:
         timeout-minutes: 30
 
   test-metal0-core3:
-    name: Metal0 @core3 (89 tests)
+    name: Metal0 @core3 (46 tests)
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -72,6 +73,63 @@ jobs:
         with:
           group: "@core3"
           label: "core3"
+          os: "linux"
+        timeout-minutes: 30
+
+  test-metal0-core4:
+    name: Metal0 @core4 (46 tests)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build
+      - uses: ./.github/actions/run-metal0-tests
+        with:
+          group: "@core4"
+          label: "core4"
+          os: "linux"
+        timeout-minutes: 30
+
+  test-metal0-core5:
+    name: Metal0 @core5 (46 tests)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build
+      - uses: ./.github/actions/run-metal0-tests
+        with:
+          group: "@core5"
+          label: "core5"
+          os: "linux"
+        timeout-minutes: 30
+
+  test-metal0-core6:
+    name: Metal0 @core6 (42 tests)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build
+      - uses: ./.github/actions/run-metal0-tests
+        with:
+          group: "@core6"
+          label: "core6"
           os: "linux"
         timeout-minutes: 30
 
@@ -137,9 +195,9 @@ jobs:
   # =============================================================================
 
   test-cpython-core1:
-    name: CPython @core1 (93 tests)
+    name: CPython @core1 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -155,9 +213,9 @@ jobs:
         timeout-minutes: 30
 
   test-cpython-core2:
-    name: CPython @core2 (90 tests)
+    name: CPython @core2 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -173,9 +231,9 @@ jobs:
         timeout-minutes: 30
 
   test-cpython-core3:
-    name: CPython @core3 (89 tests)
+    name: CPython @core3 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -187,6 +245,60 @@ jobs:
         with:
           group: "core3"
           label: "core3"
+          os: "linux"
+        timeout-minutes: 30
+
+  test-cpython-core4:
+    name: CPython @core4 (46 tests)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.11"
+      - uses: ./.github/actions/run-cpython-tests
+        with:
+          group: "core4"
+          label: "core4"
+          os: "linux"
+        timeout-minutes: 30
+
+  test-cpython-core5:
+    name: CPython @core5 (46 tests)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.11"
+      - uses: ./.github/actions/run-cpython-tests
+        with:
+          group: "core5"
+          label: "core5"
+          os: "linux"
+        timeout-minutes: 30
+
+  test-cpython-core6:
+    name: CPython @core6 (42 tests)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.11"
+      - uses: ./.github/actions/run-cpython-tests
+        with:
+          group: "core6"
+          label: "core6"
           os: "linux"
         timeout-minutes: 30
 
