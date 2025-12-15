@@ -104,6 +104,116 @@ pub fn ZeroClosure(comptime ArgT: type, comptime RetT: type, comptime func: fn (
     };
 }
 
+/// Typed closure with explicit argument/return types (eliminates anytype monomorphization)
+/// Each closure has ONE .call() signature - no per-call-site monomorphization
+///
+/// Why this matters:
+/// - AnyClosure with anytype: 200 closures × 5 arg types = 1000 monomorphizations
+/// - TypedClosure: 200 closures × 1 fixed signature = 200 monomorphizations
+///
+/// The inner function still uses anytype (unavoidable for Python's dynamic typing),
+/// but the closure wrapper has a fixed signature, breaking the O(n²) explosion.
+
+/// TypedClosure0 - no arguments, explicit return type
+pub fn TypedClosure0(comptime CaptureT: type, comptime RetT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self) RetT {
+            return @call(.auto, func, .{self.captures});
+        }
+    };
+}
+
+/// TypedClosure1 - one argument with explicit types
+pub fn TypedClosure1(comptime CaptureT: type, comptime Arg1T: type, comptime RetT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: Arg1T) RetT {
+            return @call(.auto, func, .{ self.captures, arg1 });
+        }
+    };
+}
+
+/// TypedClosure2 - two arguments with explicit types
+pub fn TypedClosure2(comptime CaptureT: type, comptime Arg1T: type, comptime Arg2T: type, comptime RetT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T) RetT {
+            return @call(.auto, func, .{ self.captures, arg1, arg2 });
+        }
+    };
+}
+
+/// TypedClosure3 - three arguments with explicit types
+pub fn TypedClosure3(comptime CaptureT: type, comptime Arg1T: type, comptime Arg2T: type, comptime Arg3T: type, comptime RetT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T, arg3: Arg3T) RetT {
+            return @call(.auto, func, .{ self.captures, arg1, arg2, arg3 });
+        }
+    };
+}
+
+/// TypedClosure4 - four arguments with explicit types
+pub fn TypedClosure4(comptime CaptureT: type, comptime Arg1T: type, comptime Arg2T: type, comptime Arg3T: type, comptime Arg4T: type, comptime RetT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T, arg3: Arg3T, arg4: Arg4T) RetT {
+            return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4 });
+        }
+    };
+}
+
+/// TypedClosure5 - five arguments with explicit types
+pub fn TypedClosure5(comptime CaptureT: type, comptime Arg1T: type, comptime Arg2T: type, comptime Arg3T: type, comptime Arg4T: type, comptime Arg5T: type, comptime RetT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T, arg3: Arg3T, arg4: Arg4T, arg5: Arg5T) RetT {
+            return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5 });
+        }
+    };
+}
+
+/// TypedClosure6 - six arguments with explicit types
+pub fn TypedClosure6(comptime CaptureT: type, comptime Arg1T: type, comptime Arg2T: type, comptime Arg3T: type, comptime Arg4T: type, comptime Arg5T: type, comptime Arg6T: type, comptime RetT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T, arg3: Arg3T, arg4: Arg4T, arg5: Arg5T, arg6: Arg6T) RetT {
+            return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6 });
+        }
+    };
+}
+
+/// TypedClosure7 - seven arguments with explicit types
+pub fn TypedClosure7(comptime CaptureT: type, comptime Arg1T: type, comptime Arg2T: type, comptime Arg3T: type, comptime Arg4T: type, comptime Arg5T: type, comptime Arg6T: type, comptime Arg7T: type, comptime RetT: type, comptime func: anytype) type {
+    return struct {
+        const Self = @This();
+        captures: CaptureT,
+
+        pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T, arg3: Arg3T, arg4: Arg4T, arg5: Arg5T, arg6: Arg6T, arg7: Arg7T) RetT {
+            return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6, arg7 });
+        }
+    };
+}
+
+/// Legacy AnyClosure aliases - kept for backward compatibility during transition
+/// These use @TypeOf inference which causes monomorphization but ensures type correctness
+/// TODO: Remove once all codegen uses TypedClosure
+
 /// Universal closure with any-typed arguments (for Python closures with mixed types)
 /// Uses anytype parameters to accept strings, ints, etc.
 /// Return type is inferred from the wrapped function's return type

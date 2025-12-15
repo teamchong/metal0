@@ -68,6 +68,52 @@ const StringMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     // Note: 'format' is handled specially below (needs keyword args)
 });
 
+// String methods that are UNIQUE to strings (no collision with other types)
+// Used for safe dispatch on unknown types - Zig type checking catches misuse
+fn isUniqueStringMethod(name: []const u8) bool {
+    const unique_methods = std.StaticStringMap(void).initComptime(.{
+        // Unique string methods - no other Python type has these
+        .{ "replace", {} },
+        .{ "upper", {} },
+        .{ "lower", {} },
+        .{ "capitalize", {} },
+        .{ "title", {} },
+        .{ "swapcase", {} },
+        .{ "strip", {} },
+        .{ "lstrip", {} },
+        .{ "rstrip", {} },
+        .{ "split", {} },
+        .{ "rsplit", {} },
+        .{ "splitlines", {} },
+        .{ "startswith", {} },
+        .{ "endswith", {} },
+        .{ "isdigit", {} },
+        .{ "isalpha", {} },
+        .{ "isalnum", {} },
+        .{ "isspace", {} },
+        .{ "islower", {} },
+        .{ "isupper", {} },
+        .{ "isascii", {} },
+        .{ "istitle", {} },
+        .{ "isprintable", {} },
+        .{ "isdecimal", {} },
+        .{ "isnumeric", {} },
+        .{ "ljust", {} },
+        .{ "rjust", {} },
+        .{ "center", {} },
+        .{ "zfill", {} },
+        .{ "encode", {} },
+        .{ "decode", {} },
+        .{ "rfind", {} },
+        .{ "rindex", {} },
+        // Note: 'join' excluded - collides with thread.join()
+        // Note: 'find' excluded - could be ambiguous
+        // Note: 'count' excluded - used by list.count() too
+        // Note: 'index' excluded - used by list.index() too
+    });
+    return unique_methods.has(name);
+}
+
 // List methods - O(1) lookup via StaticStringMap
 const ListMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "append", methods.genAppend },
@@ -389,6 +435,16 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             obj_type != .pyvalue and
             !type_traits.isUnknown(obj_type))
         {
+            handler(self, obj, call.args) catch |err| {
+                if (err == error.UnsupportedSyntax) return false;
+                return err;
+            };
+            return true;
+        }
+        // Fallback: For unknown types, dispatch unique string methods (no collisions with other types)
+        // These methods are unique to strings - no other Python type has them
+        // Zig type checking will catch misuse at compile time
+        if (type_traits.isUnknown(obj_type) and isUniqueStringMethod(method_name)) {
             handler(self, obj, call.args) catch |err| {
                 if (err == error.UnsupportedSyntax) return false;
                 return err;

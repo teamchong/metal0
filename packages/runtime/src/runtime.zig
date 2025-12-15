@@ -376,6 +376,15 @@ pub const AnyClosure4 = closure_impl.AnyClosure4;
 pub const AnyClosure5 = closure_impl.AnyClosure5;
 pub const AnyClosure6 = closure_impl.AnyClosure6;
 pub const AnyClosure7 = closure_impl.AnyClosure7;
+// TypedClosure - explicit arg/return types, eliminates anytype monomorphization at call sites
+pub const TypedClosure0 = closure_impl.TypedClosure0;
+pub const TypedClosure1 = closure_impl.TypedClosure1;
+pub const TypedClosure2 = closure_impl.TypedClosure2;
+pub const TypedClosure3 = closure_impl.TypedClosure3;
+pub const TypedClosure4 = closure_impl.TypedClosure4;
+pub const TypedClosure5 = closure_impl.TypedClosure5;
+pub const TypedClosure6 = closure_impl.TypedClosure6;
+pub const TypedClosure7 = closure_impl.TypedClosure7;
 
 /// Debug info reader for Python line number translation
 pub const debug_reader = @import("runtime/debug_reader.zig");

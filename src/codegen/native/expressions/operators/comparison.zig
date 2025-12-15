@@ -989,152 +989,246 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 const class_info = self.type_inferrer.class_fields.get(class_name);
 
                 // Map comparison operators to dunder methods
+                // Phase 9: Emit direct method calls when known, PyValue fallback when unknown
+                // This eliminates anytype monomorphization from classInstance* functions
                 switch (op) {
                     .Eq => {
-                        // Generate: runtime.classInstanceEq(a, b, allocator)
-                        try self.emit("runtime.classInstanceEq(");
-                        try genExpr(self, current_left);
-                        try self.emit(", ");
-                        try genExpr(self, compare.comparators[i]);
-                        try self.emit(", __global_allocator)");
+                        const has_eq = if (class_info) |info| info.methods.contains("__eq__") else false;
+                        if (has_eq) {
+                            // Direct method call - no anytype monomorphization
+                            try genExpr(self, current_left);
+                            try self.emit(".__eq__(");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(")");
+                        } else {
+                            // PyValue fallback - compiles once
+                            try self.emit("runtime.PyValue.from(");
+                            try genExpr(self, current_left);
+                            try self.emit(").eql(runtime.PyValue.from(");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit("))");
+                        }
                     },
                     .NotEq => {
-                        // Check if class has __ne__
-                        const has_ne = if (class_info) |info|
-                            info.methods.contains("__ne__")
-                        else
-                            false;
+                        const has_ne = if (class_info) |info| info.methods.contains("__ne__") else false;
+                        const has_eq = if (class_info) |info| info.methods.contains("__eq__") else false;
 
-                        if (!has_ne) {
-                            // Use !(a.__eq__(b)) as fallback
-                            try self.emit("!runtime.classInstanceEq(");
+                        if (has_ne) {
+                            // Direct __ne__ call
                             try genExpr(self, current_left);
-                            try self.emit(", ");
+                            try self.emit(".__ne__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(", __global_allocator)");
+                            try self.emit(")");
+                        } else if (has_eq) {
+                            // Use !a.__eq__(b)
+                            try self.emit("!");
+                            try genExpr(self, current_left);
+                            try self.emit(".__eq__(");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(")");
                         } else {
-                            try self.emit("runtime.classInstanceNe(");
+                            // PyValue fallback
+                            try self.emit("!runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(", ");
+                            try self.emit(").eql(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(", __global_allocator)");
+                            try self.emit("))");
                         }
                     },
                     .Lt => {
-                        // Check if class has __lt__, call it directly
-                        const has_lt = if (class_info) |info|
-                            info.methods.contains("__lt__")
-                        else
-                            false;
+                        const has_lt = if (class_info) |info| info.methods.contains("__lt__") else false;
 
                         if (has_lt) {
-                            // Direct method call: a.__lt__(b)
-                            // The result may be a class instance (like SymbolicBool) that needs __bool__ when used in if
-                            try self.emit("runtime.classInstanceLt(");
+                            // Direct method call
                             try genExpr(self, current_left);
-                            try self.emit(", ");
+                            try self.emit(".__lt__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(", __global_allocator)");
+                            try self.emit(")");
                         } else {
-                            // No __lt__, use default comparison (by identity)
+                            // PyValue fallback
+                            try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(" < ");
+                            try self.emit(").lt(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
+                            try self.emit("))");
                         }
                     },
                     .LtEq => {
-                        const has_le = if (class_info) |info|
-                            info.methods.contains("__le__")
-                        else
-                            false;
+                        const has_le = if (class_info) |info| info.methods.contains("__le__") else false;
 
                         if (has_le) {
-                            try self.emit("runtime.classInstanceLe(");
                             try genExpr(self, current_left);
-                            try self.emit(", ");
+                            try self.emit(".__le__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(", __global_allocator)");
+                            try self.emit(")");
                         } else {
+                            try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(" <= ");
+                            try self.emit(").le(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
+                            try self.emit("))");
                         }
                     },
                     .Gt => {
-                        const has_gt = if (class_info) |info|
-                            info.methods.contains("__gt__")
-                        else
-                            false;
+                        const has_gt = if (class_info) |info| info.methods.contains("__gt__") else false;
 
                         if (has_gt) {
-                            try self.emit("runtime.classInstanceGt(");
                             try genExpr(self, current_left);
-                            try self.emit(", ");
+                            try self.emit(".__gt__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(", __global_allocator)");
+                            try self.emit(")");
                         } else {
+                            try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(" > ");
+                            try self.emit(").gt(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
+                            try self.emit("))");
                         }
                     },
                     .GtEq => {
-                        const has_ge = if (class_info) |info|
-                            info.methods.contains("__ge__")
-                        else
-                            false;
+                        const has_ge = if (class_info) |info| info.methods.contains("__ge__") else false;
 
                         if (has_ge) {
-                            try self.emit("runtime.classInstanceGe(");
                             try genExpr(self, current_left);
-                            try self.emit(", ");
+                            try self.emit(".__ge__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(", __global_allocator)");
+                            try self.emit(")");
                         } else {
+                            try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(" >= ");
+                            try self.emit(").ge(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
+                            try self.emit("))");
                         }
                     },
                     else => {
                         // In, NotIn, Is, IsNot are handled above
-                        // Fallback to runtime comparison
-                        try self.emit("runtime.classInstanceEq(");
+                        // PyValue fallback for any other case
+                        try self.emit("runtime.PyValue.from(");
                         try genExpr(self, current_left);
-                        try self.emit(", ");
+                        try self.emit(").eql(runtime.PyValue.from(");
                         try genExpr(self, compare.comparators[i]);
-                        try self.emit(", __global_allocator)");
+                        try self.emit("))");
                     },
                 }
             } else {
                 // Right is class instance - use reflected method with swapped operands
                 // Python reflection: a < ClassInstance calls ClassInstance.__gt__(a)
+                // Phase 9: Use direct method calls or PyValue fallback
+                const right_class_name = right_type.class_instance;
+                const right_class_info = self.type_inferrer.class_fields.get(right_class_name);
+
                 switch (op) {
                     .Lt => {
                         // a < b where b is class instance → b.__gt__(a)
-                        try self.emit("runtime.classInstanceGt(");
+                        const has_gt = if (right_class_info) |info| info.methods.contains("__gt__") else false;
+                        if (has_gt) {
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(".__gt__(");
+                            try genExpr(self, current_left);
+                            try self.emit(")");
+                        } else {
+                            try self.emit("runtime.PyValue.from(");
+                            try genExpr(self, current_left);
+                            try self.emit(").lt(runtime.PyValue.from(");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit("))");
+                        }
                     },
                     .LtEq => {
                         // a <= b where b is class instance → b.__ge__(a)
-                        try self.emit("runtime.classInstanceGe(");
+                        const has_ge = if (right_class_info) |info| info.methods.contains("__ge__") else false;
+                        if (has_ge) {
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(".__ge__(");
+                            try genExpr(self, current_left);
+                            try self.emit(")");
+                        } else {
+                            try self.emit("runtime.PyValue.from(");
+                            try genExpr(self, current_left);
+                            try self.emit(").le(runtime.PyValue.from(");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit("))");
+                        }
                     },
                     .Gt => {
                         // a > b where b is class instance → b.__lt__(a)
-                        try self.emit("runtime.classInstanceLt(");
+                        const has_lt = if (right_class_info) |info| info.methods.contains("__lt__") else false;
+                        if (has_lt) {
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(".__lt__(");
+                            try genExpr(self, current_left);
+                            try self.emit(")");
+                        } else {
+                            try self.emit("runtime.PyValue.from(");
+                            try genExpr(self, current_left);
+                            try self.emit(").gt(runtime.PyValue.from(");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit("))");
+                        }
                     },
                     .GtEq => {
                         // a >= b where b is class instance → b.__le__(a)
-                        try self.emit("runtime.classInstanceLe(");
+                        const has_le = if (right_class_info) |info| info.methods.contains("__le__") else false;
+                        if (has_le) {
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(".__le__(");
+                            try genExpr(self, current_left);
+                            try self.emit(")");
+                        } else {
+                            try self.emit("runtime.PyValue.from(");
+                            try genExpr(self, current_left);
+                            try self.emit(").ge(runtime.PyValue.from(");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit("))");
+                        }
+                    },
+                    .Eq => {
+                        const has_eq = if (right_class_info) |info| info.methods.contains("__eq__") else false;
+                        if (has_eq) {
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(".__eq__(");
+                            try genExpr(self, current_left);
+                            try self.emit(")");
+                        } else {
+                            try self.emit("runtime.PyValue.from(");
+                            try genExpr(self, current_left);
+                            try self.emit(").eql(runtime.PyValue.from(");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit("))");
+                        }
+                    },
+                    .NotEq => {
+                        const has_ne = if (right_class_info) |info| info.methods.contains("__ne__") else false;
+                        const has_eq = if (right_class_info) |info| info.methods.contains("__eq__") else false;
+                        if (has_ne) {
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(".__ne__(");
+                            try genExpr(self, current_left);
+                            try self.emit(")");
+                        } else if (has_eq) {
+                            try self.emit("!");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit(".__eq__(");
+                            try genExpr(self, current_left);
+                            try self.emit(")");
+                        } else {
+                            try self.emit("!runtime.PyValue.from(");
+                            try genExpr(self, current_left);
+                            try self.emit(").eql(runtime.PyValue.from(");
+                            try genExpr(self, compare.comparators[i]);
+                            try self.emit("))");
+                        }
                     },
                     else => {
-                        // Eq, NotEq - symmetrical
-                        try self.emit("runtime.classInstanceEq(");
+                        // PyValue fallback
+                        try self.emit("runtime.PyValue.from(");
+                        try genExpr(self, current_left);
+                        try self.emit(").eql(runtime.PyValue.from(");
+                        try genExpr(self, compare.comparators[i]);
+                        try self.emit("))");
                     },
                 }
-                try genExpr(self, compare.comparators[i]); // class instance first
-                try self.emit(", ");
-                try genExpr(self, current_left);
-                try self.emit(", __global_allocator)");
             }
         }
         // Handle BigInt comparisons

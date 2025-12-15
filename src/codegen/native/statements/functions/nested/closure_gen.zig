@@ -142,6 +142,20 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: b
     }
 }
 
+/// Convert Python type annotation to Zig type string
+/// Returns "anytype" for unknown/missing annotations to maintain flexibility
+fn pythonTypeToZig(type_annotation: ?[]const u8) []const u8 {
+    const annotation = type_annotation orelse return "anytype";
+    if (std.mem.eql(u8, annotation, "int")) return "i64";
+    if (std.mem.eql(u8, annotation, "float")) return "f64";
+    if (std.mem.eql(u8, annotation, "str")) return "[]const u8";
+    if (std.mem.eql(u8, annotation, "bool")) return "bool";
+    if (std.mem.eql(u8, annotation, "bytes")) return "[]const u8";
+    if (std.mem.eql(u8, annotation, "None")) return "void";
+    // For complex types (List, Dict, etc.) or unknown annotations, use anytype
+    return "anytype";
+}
+
 /// Generate standard closure with captured variables
 pub fn genStandardClosure(
     self: *NativeCodegen,
@@ -231,7 +245,16 @@ pub fn genStandardClosure(
     var param_renames = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
     defer param_renames.deinit();
 
-    for (func.args) |arg| {
+    // Track parameter types for TypedClosure (use concrete types when available)
+    // This reduces monomorphization: one closure signature instead of per-call-site
+    var param_types = try self.allocator.alloc([]const u8, func.args.len);
+    defer self.allocator.free(param_types);
+
+    for (func.args, 0..) |arg, idx| {
+        // Get Zig type from Python annotation, or "anytype" if unknown
+        const zig_type = pythonTypeToZig(arg.type_annotation);
+        param_types[idx] = zig_type;
+
         // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
         const is_used = var_tracking.isParamUsedInStmts(arg.name, func.body);
         if (is_used) {
@@ -242,12 +265,12 @@ pub fn genStandardClosure(
                 .{ arg.name, saved_counter },
             );
             try param_renames.put(arg.name, unique_param_name);
-            try self.output.writer(self.allocator).print(", {s}: anytype", .{unique_param_name});
+            try self.output.writer(self.allocator).print(", {s}: {s}", .{ unique_param_name, zig_type });
         } else {
-            try self.output.writer(self.allocator).print(", _: anytype", .{});
+            try self.output.writer(self.allocator).print(", _: {s}", .{zig_type});
         }
     }
-    // Handle *args (vararg) parameter
+    // Handle *args (vararg) parameter - always anytype (tuple of varying types)
     if (func.vararg) |vararg_name| {
         const is_used = var_tracking.isParamUsedInStmts(vararg_name, func.body);
         if (is_used) {
@@ -262,7 +285,7 @@ pub fn genStandardClosure(
             try self.output.writer(self.allocator).print(", _: anytype", .{});
         }
     }
-    // Handle **kwargs (kwarg) parameter
+    // Handle **kwargs (kwarg) parameter - always anytype (dict of varying types)
     if (func.kwarg) |kwarg_name| {
         const is_used = var_tracking.isParamUsedInStmts(kwarg_name, func.body);
         if (is_used) {
