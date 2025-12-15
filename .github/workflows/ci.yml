@@ -220,7 +220,7 @@ jobs:
         timeout-minutes: 30
 
   test-metal0-linux:
-    name: Metal0 @linux (27 tests)
+    name: Metal0 @linux (28 tests)
     runs-on: ubuntu-22.04  # Pin to 22.04 - ubuntu-24.04 has 4-5x slowdown (actions/runner-images#11790)
     timeout-minutes: 60
 
@@ -580,7 +580,7 @@ jobs:
         timeout-minutes: 30
 
   test-cpython-linux:
-    name: CPython @linux (27 tests)
+    name: CPython @linux (28 tests)
     runs-on: ubuntu-22.04
     timeout-minutes: 75
 
