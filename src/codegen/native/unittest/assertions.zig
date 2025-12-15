@@ -686,20 +686,19 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         return;
     }
 
-    // === GENERIC FALLBACK: Try classInstanceEq first, then PyValue ===
-    // For all other cases, use assertEqualGeneric which:
-    // 1. Checks at comptime if either argument has __eq__ method
-    // 2. If yes, calls classInstanceEq which invokes __eq__
-    // 3. If no, falls back to toPyValue().eql() for primitive comparison
-    // This handles both custom class instances AND methods that return primitives
-    // For unknown types, we try classInstanceEq at comptime (it uses @hasDecl to check for __eq__)
-    // This handles cases where type inference fails but the actual value has __eq__
-    // If neither has __eq__, fall back to PyValue.eql()
-    try self.emit("if (!(try runtime.assertEqualGeneric(");
+    // === GENERIC FALLBACK: Use PyValue.from().eql() ===
+    // For all other cases (class instances, dicts, sets, mixed types),
+    // use PyValue.from().eql() which compiles ONCE instead of O(n²) monomorphization.
+    // PyValue.eql() handles all comparison semantics internally:
+    // - Same-type comparisons (floats with NaN, ints, strings)
+    // - Cross-type comparisons (int vs float)
+    // - Container comparisons (lists, dicts, sets)
+    // - PyObject/class instance comparisons (via PyObject interface)
+    try self.emit("if (!runtime.PyValue.from(");
     try parent.genExpr(self, args[0]);
-    try self.emit(", ");
+    try self.emit(").eql(runtime.PyValue.from(");
     try parent.genExpr(self, args[1]);
-    try self.emit(", __global_allocator))) return error.AssertionFailed;");
+    try self.emit("))) return error.AssertionFailed;");
 }
 
 pub const genAssertTrue = gen1ArgAssert("assertTrue");
