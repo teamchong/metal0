@@ -434,6 +434,11 @@ pub const NativeCodegen = struct {
     // Used to detect class constructor calls for nested classes without captures
     nested_class_names: FnvVoidMap,
 
+    // Track class-body-level nested class aliases (e.g., "Inner" -> "Outer__Inner")
+    // These are classes defined directly in a class body (not inside methods)
+    // Used to resolve references like self.Inner() or Inner() to the mangled name
+    nested_class_aliases: FnvStringMap,
+
     // Track classes that have been hoisted from method bodies to struct level
     // Maps original class name -> actual generated name (which may be renamed due to collisions)
     // These classes should be skipped during normal body generation
@@ -796,6 +801,7 @@ pub const NativeCodegen = struct {
             .mutated_captures = FnvVoidMap.init(aa),
             .nested_class_instances = hashmap_helper.StringHashMap([]const u8).init(aa),
             .nested_class_names = FnvVoidMap.init(aa),
+            .nested_class_aliases = FnvStringMap.init(aa),
             .hoisted_local_classes = FnvStringMap.init(aa),
             .bigint_vars = FnvVoidMap.init(aa),
             .nested_class_bases = FnvStringMap.init(aa),

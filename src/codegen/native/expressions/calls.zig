@@ -276,6 +276,28 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     if (call.func.* == .attribute) {
         const attr = call.func.attribute;
 
+        // Handle self.NestedClass() pattern - nested class constructor call via self
+        // This must be checked FIRST before other method call patterns
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+            if (self.nested_class_aliases.get(attr.attr)) |aliased_name| {
+                // Generate: AliasedName.init(__global_allocator, args...)
+                // Class-body-level nested classes return @This(), NOT error union
+                // So we don't need try here (unlike method-local nested classes)
+                try self.emit(aliased_name);
+                try self.emit(".init(__global_allocator");
+                for (call.args) |arg| {
+                    try self.emit(", ");
+                    try genExpr(self, arg);
+                }
+                for (call.keyword_args) |kwarg| {
+                    try self.emit(", ");
+                    try genExpr(self, kwarg.value);
+                }
+                try self.emit(")");
+                return;
+            }
+        }
+
         // Handle ctypes CDLL function calls: lib.strlen("hello")
         // The base value (lib) should be a CDLL type
         const base_type = try self.type_inferrer.inferExpr(attr.value.*);
@@ -761,7 +783,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         const raw_func_name = call.func.name.id;
         // Check if variable has been renamed (for try/except captured variables)
         // Also check hoisted_local_classes for locally-defined classes that were hoisted
-        const func_name = self.hoisted_local_classes.get(raw_func_name) orelse self.var_renames.get(raw_func_name) orelse raw_func_name;
+        // Also check nested_class_aliases for class-body-level nested classes (e.g., Inner -> Outer__Inner)
+        const func_name = self.nested_class_aliases.get(raw_func_name) orelse
+            self.hoisted_local_classes.get(raw_func_name) orelse
+            self.var_renames.get(raw_func_name) orelse
+            raw_func_name;
 
         // Check if this is a simple lambda (function pointer)
         if (self.lambda_vars.contains(raw_func_name)) {
@@ -994,9 +1020,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             // Nested classes have init() returning !*@This() (error union with pointer)
             // So we need try for: nested class calls, or self-class calls when inside a nested class
+            // BUT: Class-body-level nested classes (in nested_class_aliases) return @This(), NOT error union
             // Also need try for classes with type-check patterns in __init__ (returns !@This())
             const current_class_is_nested = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
-            const needs_try_for_nested = in_nested_names or (is_self_class_call and current_class_is_nested);
+            const is_class_body_nested = self.nested_class_aliases.contains(raw_func_name);
+            // Don't add try for class-body-level nested classes - they return @This()
+            const needs_try_for_nested = if (is_class_body_nested) false else (in_nested_names or (is_self_class_call and current_class_is_nested));
             const has_error_init = self.error_init_classes.contains(raw_func_name);
             const needs_try = needs_try_for_nested or has_error_init;
 
