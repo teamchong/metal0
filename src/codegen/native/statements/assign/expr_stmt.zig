@@ -194,11 +194,17 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         return;
     }
 
+    // Early check: if statements are complete statements that don't need _ = prefix
+    // This must be checked BEFORE the needs_discard block since that block modifies the buffer
+    const is_if_statement = std.mem.startsWith(u8, generated, "if (");
+
     // Detect value-returning expressions that need _ = prefix:
     // 1. Labeled block expressions: (blk: { ... break :blk value; })
     // 2. Try expressions for module functions: try runtime.tokenizer.init(...)
+    // NOTE: if statements are excluded even if they contain value-returning sub-expressions
     const needs_discard = blk: {
         if (added_discard_prefix) break :blk false;
+        if (is_if_statement) break :blk false; // if statements are complete, don't add _ =
         if (generated.len <= 10) break :blk false;
 
         // Pattern 1: Labeled block expressions
@@ -255,8 +261,9 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // - If statements like "if (...) return error.AssertionFailed;" are complete and do NOT need semicolons
     var needs_semicolon = true;
 
-    // Check if this is an if statement (from unittest assertions) - these are complete statements
-    if (!added_discard_prefix and std.mem.startsWith(u8, generated, "if (")) {
+    // If statements are complete statements - no semicolon needed
+    // (is_if_statement was checked early, before any buffer modifications)
+    if (is_if_statement) {
         needs_semicolon = false;
     }
     // If we added "_ = " prefix, it's an assignment that always needs semicolon

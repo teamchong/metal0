@@ -425,6 +425,10 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     };
 
     const alloc_name = "__global_allocator";
+    // At module level (scope 0), we can't use 'try' - use 'catch unreachable' instead
+    const at_module_level = self.symbol_table.currentScopeLevel() == 0;
+    const try_prefix = if (at_module_level) "" else "try ";
+    const catch_suffix = if (at_module_level) " catch unreachable" else "";
 
     if (is_dict) {
         // For dicts, reversed() returns reversed keys
@@ -432,8 +436,12 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("const _raw_iterable = ");
         try self.genExpr(args[0]);
         try self.emit(";\n");
-        try self.emit("const _iterable = if (@typeInfo(@TypeOf(_raw_iterable)) == .error_union) try _raw_iterable else _raw_iterable;\n");
-        try self.emitFmt("const __reversed_copy = try {s}.dupe([]const u8, _iterable.keys());\n", .{alloc_name});
+        if (at_module_level) {
+            try self.emit("const _iterable = _raw_iterable;\n");
+        } else {
+            try self.emit("const _iterable = if (@typeInfo(@TypeOf(_raw_iterable)) == .error_union) try _raw_iterable else _raw_iterable;\n");
+        }
+        try self.emitFmt("const __reversed_copy = {s}{s}.dupe([]const u8, _iterable.keys()){s};\n", .{ try_prefix, alloc_name, catch_suffix });
         try self.emit("std.mem.reverse([]const u8, __reversed_copy);\n");
         try self.emit("break :__rev_dict_blk __reversed_copy;\n");
         try self.emit("}");
@@ -476,7 +484,7 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("    else if (@typeInfo(T) == .array) break :blk2 @as([]const @typeInfo(T).array.child, &_rev_input)\n");
     try self.emit("    else break :blk2 _rev_input;\n");
     try self.emit("};\n");
-    try self.emitFmt("const __reversed_copy = try {s}.dupe({s}, _rev_slice);\n", .{ alloc_name, elem_zig_type });
+    try self.emitFmt("const __reversed_copy = {s}{s}.dupe({s}, _rev_slice){s};\n", .{ try_prefix, alloc_name, elem_zig_type, catch_suffix });
     try self.emitFmt("std.mem.reverse({s}, __reversed_copy);\n", .{elem_zig_type});
     if (is_bytes) {
         // Wrap result in PyBytes for bytes input

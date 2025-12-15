@@ -148,9 +148,17 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     self.output = saved_output;
 
     try writer.writeAll(body_code);
+
+    // Don't add semicolon if body already ends with } or ; (block expressions or return statements)
+    const needs_semicolon = body_code.len == 0 or
+        (body_code[body_code.len - 1] != '}' and body_code[body_code.len - 1] != ';');
     self.allocator.free(body_code);
 
-    try writer.writeAll(";\n    }\n};\n");
+    if (needs_semicolon) {
+        try writer.writeAll(";\n    }\n};\n");
+    } else {
+        try writer.writeAll("\n    }\n};\n");
+    }
 
     // Generate factory function (outer lambda)
     const factory_name = try std.fmt.allocPrint(
@@ -372,8 +380,9 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
 
     try writer.writeAll(body_code);
 
-    // Don't add semicolon if body already ends with } (block expressions like assertRaises)
-    const needs_semicolon = body_code.len == 0 or body_code[body_code.len - 1] != '}';
+    // Don't add semicolon if body already ends with } or ; (block expressions or return statements)
+    const needs_semicolon = body_code.len == 0 or
+        (body_code[body_code.len - 1] != '}' and body_code[body_code.len - 1] != ';');
     self.allocator.free(body_code);
 
     if (needs_semicolon) {
@@ -460,7 +469,14 @@ fn genInlineSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, c
     // Generate body with captured vars prefixed with __cl. (inline closure param name)
     try genExprWithCapturePrefix(self, lambda.body.*, captured_vars, "__cl");
 
-    try self.emit(";\n    }\n}){ ");
+    // Don't add semicolon if body already ends with } or ; (block expressions or return statements)
+    const last_char = if (self.output.items.len > 0) self.output.items[self.output.items.len - 1] else 0;
+    const needs_semicolon = last_char != '}' and last_char != ';';
+    if (needs_semicolon) {
+        try self.emit(";\n    }\n}){ ");
+    } else {
+        try self.emit("\n    }\n}){ ");
+    }
 
     // Initialize captured fields
     // Check var_renames for renamed variables (e.g., comprehension loop vars)
@@ -491,10 +507,10 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
             // Check if this variable is captured
             for (captured_vars) |captured| {
                 if (std.mem.eql(u8, n.id, captured)) {
-                    // Prefix with closure struct parameter name
+                    // Prefix with closure struct parameter name (escape Zig keywords)
                     try self.emit(prefix);
                     try self.emit(".");
-                    try self.emit(n.id);
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), n.id);
                     return;
                 }
             }
@@ -516,8 +532,8 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
                 try self.emit(n.id);
                 return;
             }
-            // Not captured, use directly
-            try self.emit(n.id);
+            // Not captured, use directly (escape Zig keywords like 'fn')
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), n.id);
         },
         .binop => |b| {
             // Use @mod for modulo to handle signed integers properly
