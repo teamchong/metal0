@@ -835,6 +835,43 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
+    // Pre-hoist pass 0: Generate class-body-level nested classes at FILE LEVEL
+    // These must be generated BEFORE the parent struct so they can be referenced from anywhere
+    // e.g., class Outer: class Inner: ... (Inner needs to be accessible from child classes)
+    for (class.body) |stmt| {
+        if (stmt == .class_def) {
+            const nested_class = stmt.class_def;
+
+            // Generate mangled name: Outer__Inner
+            const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ class.name, nested_class.name });
+
+            // Track mapping for later resolution (e.g., Inner -> Outer__Inner)
+            try self.nested_class_aliases.put(nested_class.name, mangled_name);
+            try self.nested_class_names.put(nested_class.name, {});
+
+            // Skip if already generated
+            if (self.hoisted_local_classes.contains(nested_class.name)) continue;
+            if (self.class_registry.getClass(mangled_name) != null) continue;
+
+            // Mark as hoisted with the mangled name
+            try self.hoisted_local_classes.put(nested_class.name, mangled_name);
+
+            // Generate nested class at file level with mangled name
+            var mutable_nested = nested_class;
+            mutable_nested.name = mangled_name;
+
+            // Generate comment for clarity
+            try self.emit("\n");
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("// Nested class: {s}.{s} (hoisted to file level as {s})\n", .{ class.name, nested_class.name, mangled_name });
+
+            try genClassDef(self, mutable_nested);
+
+            // Register in class registry with mangled name
+            try self.class_registry.registerClass(mangled_name, nested_class);
+        }
+    }
+
     // Generate: const ClassName = struct {
     // Use pub const for top-level classes in module mode so they're accessible from importers
     try self.emitIndent();
@@ -910,44 +947,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         self.hoisted_local_classes.clearRetainingCapacity();
     }
 
-    // Pre-hoist pass 0: Hoist class-body-level nested classes
-    // These are classes defined directly in the class body (not inside methods)
-    // e.g., class Outer: class Inner: ... (Inner needs to be generated inside Outer struct)
-    for (class.body) |stmt| {
-        if (stmt == .class_def) {
-            const nested_class = stmt.class_def;
-
-            // Generate mangled name: Outer__Inner
-            const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ class.name, nested_class.name });
-
-            // Track mapping for later resolution (e.g., Inner -> Outer__Inner)
-            try self.nested_class_aliases.put(nested_class.name, mangled_name);
-            try self.nested_class_names.put(nested_class.name, {});
-
-            // Skip if already hoisted (handles recursive generation)
-            if (self.hoisted_local_classes.contains(nested_class.name)) continue;
-            if (self.class_registry.getClass(mangled_name) != null) continue;
-
-            // Mark as hoisted with the mangled name
-            try self.hoisted_local_classes.put(nested_class.name, mangled_name);
-
-            // Recursively generate the nested class with mangled name
-            // We need to temporarily modify context to use the mangled name
-            const saved_name = nested_class.name;
-            var mutable_nested = nested_class;
-            mutable_nested.name = mangled_name;
-
-            // Generate comment for clarity
-            try self.emit("\n");
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print("// Nested class: {s} (defined as {s})\n", .{ saved_name, mangled_name });
-
-            try genClassDef(self, mutable_nested);
-
-            // Register in class registry with mangled name
-            try self.class_registry.registerClass(mangled_name, nested_class);
-        }
-    }
+    // Note: Class-body-level nested classes are now generated at file level (before struct definition)
+    // See "Pre-hoist pass 0" above the struct opening for nested class generation
 
     // Pre-hoist pass 1: Hoist locally-defined classes from ALL method bodies to struct level
     // This MUST happen BEFORE generating any fields or methods, because Zig requires

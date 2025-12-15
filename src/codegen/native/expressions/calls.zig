@@ -1504,11 +1504,15 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         }
         try self.emit("(");
 
+        // Track whether allocator was emitted (needed for comma before default nulls)
+        var allocator_was_emitted = false;
+
         // For user-defined functions: inject allocator as FIRST argument
         // BUT NOT for async functions - the _async wrapper doesn't take allocator
         if (user_func_needs_alloc and !is_async_func) {
             const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
             try self.emit(alloc_name);
+            allocator_was_emitted = true;
             if (call.args.len > 0 or call.keyword_args.len > 0 or is_vararg_func) {
                 try self.emit(", ");
             }
@@ -1642,7 +1646,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
                     // For each remaining parameter position, find matching keyword arg or emit null
                     for (sig.param_names[start_pos..]) |param_name| {
-                        if (emitted_count > 0 or call.args.len > 0) try self.emit(", ");
+                        if (emitted_count > 0 or call.args.len > 0 or allocator_was_emitted) try self.emit(", ");
 
                         // Find keyword argument with this parameter name
                         var found = false;
@@ -1666,7 +1670,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 } else {
                     // No function signature available - emit keyword args in order (fallback)
                     for (call.keyword_args, 0..) |kwarg, i| {
-                        if (i > 0 or call.args.len > 0) try self.emit(", ");
+                        if (i > 0 or call.args.len > 0 or allocator_was_emitted) try self.emit(", ");
                         try genExpr(self, kwarg.value);
                     }
 
