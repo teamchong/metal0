@@ -198,3 +198,30 @@ pub fn contains(comptime T: type, container: T, value: GetElementType(T)) bool {
 pub fn notContains(comptime T: type, container: T, value: GetElementType(T)) bool {
     return !contains(T, container, value);
 }
+
+/// Check if type is a slice - for identity comparison
+/// Compiles ONCE per type, not per 'is'/'is not' expression
+pub fn isSlice(comptime T: type) bool {
+    const info = @typeInfo(T);
+    return info == .pointer and info.pointer.size == .slice;
+}
+
+/// Check if pointer type has a declaration (dunder method) on its child type
+/// Used for reverse dunder dispatch (__radd__, __rsub__, etc.)
+/// Compiles ONCE per type, not per arithmetic expression
+pub fn hasPtrChildDecl(comptime T: type, comptime decl_name: []const u8) bool {
+    const info = @typeInfo(T);
+    if (info == .pointer and info.pointer.size == .one) {
+        return @hasDecl(info.pointer.child, decl_name);
+    }
+    return false;
+}
+
+/// Get pointer child type if T is a single-item pointer, else void
+pub fn getPtrChild(comptime T: type) type {
+    const info = @typeInfo(T);
+    if (info == .pointer and info.pointer.size == .one) {
+        return info.pointer.child;
+    }
+    return void;
+}
