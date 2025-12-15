@@ -72,11 +72,12 @@ pub fn pySliceEql(comptime T: type, a: []const T, b: []const T) bool {
 
 /// Python-style tuple/array equality
 /// Handles NaN specially: two NaN values are considered equal (identity semantics)
+/// SIMPLIFIED: Uses PyValue conversion for complex types to avoid monomorphization explosion
 pub fn pyTupleEql(a: anytype, b: @TypeOf(a)) bool {
     const T = @TypeOf(a);
     const info = @typeInfo(T);
 
-    // Handle arrays
+    // Handle arrays - iterate without recursion
     if (info == .array) {
         const ElemT = info.array.child;
         if (@typeInfo(ElemT) == .float) {
@@ -89,33 +90,22 @@ pub fn pyTupleEql(a: anytype, b: @TypeOf(a)) bool {
             }
             return true;
         }
+        // Non-float arrays - use standard comparison
+        return std.mem.eql(ElemT, &a, &b);
     }
 
-    // Handle structs (tuples are anonymous structs in Zig)
+    // Handle structs (tuples) - convert to PyValue to avoid recursive inline for
+    // This prevents monomorphization explosion for complex nested types
     if (info == .@"struct") {
-        inline for (info.@"struct".fields) |field| {
-            const a_field = @field(a, field.name);
-            const b_field = @field(b, field.name);
-            const FieldT = field.type;
-
-            if (@typeInfo(FieldT) == .float) {
-                const a_nan = std.math.isNan(a_field);
-                const b_nan = std.math.isNan(b_field);
-                // Both NaN -> equal (identity), skip to next field
-                // Only one NaN or different values -> not equal
-                if (!(a_nan and b_nan)) {
-                    if (a_nan or b_nan) return false;
-                    if (a_field != b_field) return false;
-                }
-            } else {
-                if (!pyAnyEql(a_field, b_field)) return false;
-            }
-        }
-        return true;
+        const a_pv = PyValue.from(a);
+        const b_pv = PyValue.from(b);
+        return pyValueEql(a_pv, b_pv);
     }
 
-    // Fallback to pyAnyEql for Python semantics
-    return pyAnyEql(a, b);
+    // Fallback: use PyValue conversion
+    const a_pv = PyValue.from(a);
+    const b_pv = PyValue.from(b);
+    return pyValueEql(a_pv, b_pv);
 }
 
 // =============================================================================
@@ -281,15 +271,12 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             const ElemT = std.meta.Elem(@TypeOf(a.items));
             return std.mem.eql(ElemT, a.items, b.items);
         }
-        // Special case: structs (tuples) need element-wise pyAnyEql for NaN handling
-        // std.meta.eql uses == which fails for NaN
+        // Special case: structs (tuples) - use PyValue conversion to avoid recursive inline for
+        // This prevents monomorphization explosion for complex nested types
         if (a_info == .@"struct") {
-            inline for (a_info.@"struct".fields) |field| {
-                if (!pyAnyEql(@field(a, field.name), @field(b, field.name))) {
-                    return false;
-                }
-            }
-            return true;
+            const a_pv = PyValue.from(a);
+            const b_pv = PyValue.from(b);
+            return pyValueEql(a_pv, b_pv);
         }
         return std.meta.eql(a, b);
     }

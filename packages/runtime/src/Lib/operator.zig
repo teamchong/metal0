@@ -256,26 +256,95 @@ pub fn concatInPlace(list: anytype, items: anytype) !void {
 }
 
 /// Check containment: b in a
+/// Dispatches to concrete functions for common types to reduce monomorphization
 pub fn contains(sequence: anytype, item: anytype) bool {
+    const SeqT = @TypeOf(sequence);
+    const ItemT = @TypeOf(item);
+
+    // Fast path: both are PyValue slices
+    if (SeqT == []const PyValue and ItemT == PyValue) {
+        return containsPyValue(sequence, item);
+    }
+
+    // Fast path: string slice containment
+    if (SeqT == []const u8 and ItemT == []const u8) {
+        return std.mem.indexOf(u8, sequence, item) != null;
+    }
+
+    // Standard iteration for same types
     for (sequence) |elem| {
-        if (elem == item) return true;
+        if (@TypeOf(elem) == ItemT) {
+            if (elem == item) return true;
+        }
+    }
+    return false;
+}
+
+/// PyValue containment - compiles ONCE
+fn containsPyValue(sequence: []const PyValue, item: PyValue) bool {
+    const equality = @import("runtime").equality;
+    for (sequence) |elem| {
+        if (equality.pyValueEql(elem, item)) return true;
     }
     return false;
 }
 
 /// Count occurrences
+/// Dispatches to concrete functions for common types to reduce monomorphization
 pub fn countOf(sequence: anytype, item: anytype) usize {
+    const SeqT = @TypeOf(sequence);
+    const ItemT = @TypeOf(item);
+
+    // Fast path: both are PyValue slices
+    if (SeqT == []const PyValue and ItemT == PyValue) {
+        return countOfPyValue(sequence, item);
+    }
+
+    // Standard iteration for same types
     var count: usize = 0;
     for (sequence) |elem| {
-        if (elem == item) count += 1;
+        if (@TypeOf(elem) == ItemT) {
+            if (elem == item) count += 1;
+        }
+    }
+    return count;
+}
+
+/// PyValue count - compiles ONCE
+fn countOfPyValue(sequence: []const PyValue, item: PyValue) usize {
+    const equality = @import("runtime").equality;
+    var count: usize = 0;
+    for (sequence) |elem| {
+        if (equality.pyValueEql(elem, item)) count += 1;
     }
     return count;
 }
 
 /// Index of first occurrence
+/// Dispatches to concrete functions for common types to reduce monomorphization
 pub fn indexOf(sequence: anytype, item: anytype) !usize {
+    const SeqT = @TypeOf(sequence);
+    const ItemT = @TypeOf(item);
+
+    // Fast path: both are PyValue slices
+    if (SeqT == []const PyValue and ItemT == PyValue) {
+        return indexOfPyValue(sequence, item);
+    }
+
+    // Standard iteration for same types
     for (sequence, 0..) |elem, i| {
-        if (elem == item) return i;
+        if (@TypeOf(elem) == ItemT) {
+            if (elem == item) return i;
+        }
+    }
+    return error.ValueError;
+}
+
+/// PyValue indexOf - compiles ONCE
+fn indexOfPyValue(sequence: []const PyValue, item: PyValue) !usize {
+    const equality = @import("runtime").equality;
+    for (sequence, 0..) |elem, i| {
+        if (equality.pyValueEql(elem, item)) return i;
     }
     return error.ValueError;
 }

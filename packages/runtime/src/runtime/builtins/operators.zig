@@ -1,6 +1,43 @@
 /// Operator comparison functions (eq, ne, lt, le, gt, ge, pyEqual)
+///
+/// IMPORTANT: This file uses PyValue-First Architecture to prevent monomorphization explosion.
+/// All complex type handling is delegated to PyValue.eql() which compiles ONCE.
+/// See CLAUDE.md "anytype Guidelines" for rules.
 const std = @import("std");
 const PyValue = @import("../../Objects/object.zig").PyValue;
+
+// =============================================================================
+// CONCRETE PyValue COMPARISONS (compile ONCE, not per call site)
+// =============================================================================
+
+/// PyValue equality - compiles once
+pub fn pyEqualPyValue(a: PyValue, b: PyValue) bool {
+    return a.eql(b);
+}
+
+/// PyValue less-than - compiles once
+pub fn pyLtPyValue(a: PyValue, b: PyValue) bool {
+    return a.lt(b);
+}
+
+/// PyValue less-than-or-equal - compiles once
+pub fn pyLePyValue(a: PyValue, b: PyValue) bool {
+    return a.le(b);
+}
+
+/// PyValue greater-than - compiles once
+pub fn pyGtPyValue(a: PyValue, b: PyValue) bool {
+    return a.gt(b);
+}
+
+/// PyValue greater-than-or-equal - compiles once
+pub fn pyGePyValue(a: PyValue, b: PyValue) bool {
+    return a.ge(b);
+}
+
+// =============================================================================
+// OPERATOR COMPARISONS (dispatch to concrete functions)
+// =============================================================================
 
 /// operator.eq - equality comparison
 /// Two-Flow: Handles PyValue for uncertain types
@@ -8,18 +45,33 @@ pub fn operatorEq(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
-    // Two-Flow: Handle PyValue comparisons
+    // Fast path: PyValue (already converted)
     if (TypeA == PyValue and TypeB == PyValue) {
-        return a.eql(b);
+        return pyEqualPyValue(a, b);
     }
 
+    // Fast path: same primitive types (no conversion needed)
     if (TypeA == TypeB) {
-        const info = @typeInfo(TypeA);
-        if (info == .int or info == .float or info == .bool or info == .comptime_int or info == .comptime_float) {
-            return a == b;
-        }
+        if (TypeA == i64) return a == b;
+        if (TypeA == f64) return a == b;
+        if (TypeA == bool) return a == b;
+        if (TypeA == []const u8) return std.mem.eql(u8, a, b);
     }
-    return false;
+
+    // Fast path: primitives (different but compatible types)
+    const info_a = @typeInfo(TypeA);
+    const info_b = @typeInfo(TypeB);
+    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
+        return a == b;
+    }
+    if ((info_a == .float or info_a == .comptime_float) and (info_b == .float or info_b == .comptime_float)) {
+        return a == b;
+    }
+
+    // Fallback: convert to PyValue (compiles once via pyEqualPyValue)
+    const a_pv = PyValue.from(a);
+    const b_pv = PyValue.from(b);
+    return pyEqualPyValue(a_pv, b_pv);
 }
 
 /// operator.ne - inequality comparison
@@ -28,84 +80,137 @@ pub fn operatorNe(a: anytype, b: anytype) bool {
 }
 
 /// operator.lt - less than comparison
-/// Two-Flow: Handles PyValue for uncertain types
 pub fn operatorLt(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
-    // Two-Flow: Handle PyValue comparisons
+    // Fast path: PyValue (already converted)
     if (TypeA == PyValue and TypeB == PyValue) {
-        return a.lt(b);
+        return pyLtPyValue(a, b);
     }
 
+    // Fast path: same primitive types
     if (TypeA == TypeB) {
-        const info = @typeInfo(TypeA);
-        if (info == .int or info == .float or info == .comptime_int or info == .comptime_float) {
-            return a < b;
-        }
+        if (TypeA == i64) return a < b;
+        if (TypeA == f64) return a < b;
     }
-    return false;
+
+    // Fast path: primitives (different but compatible types)
+    const info_a = @typeInfo(TypeA);
+    const info_b = @typeInfo(TypeB);
+    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
+        return a < b;
+    }
+    if ((info_a == .float or info_a == .comptime_float) and (info_b == .float or info_b == .comptime_float)) {
+        return a < b;
+    }
+
+    // Fallback: convert to PyValue
+    const a_pv = PyValue.from(a);
+    const b_pv = PyValue.from(b);
+    return pyLtPyValue(a_pv, b_pv);
 }
 
 /// operator.le - less than or equal comparison
-/// Two-Flow: Handles PyValue for uncertain types
 pub fn operatorLe(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
-    // Two-Flow: Handle PyValue comparisons
+    // Fast path: PyValue
     if (TypeA == PyValue and TypeB == PyValue) {
-        return a.le(b);
+        return pyLePyValue(a, b);
     }
 
+    // Fast path: same primitive types
     if (TypeA == TypeB) {
-        const info = @typeInfo(TypeA);
-        if (info == .int or info == .float or info == .comptime_int or info == .comptime_float) {
-            return a <= b;
-        }
+        if (TypeA == i64) return a <= b;
+        if (TypeA == f64) return a <= b;
     }
-    return false;
+
+    // Fast path: primitives
+    const info_a = @typeInfo(TypeA);
+    const info_b = @typeInfo(TypeB);
+    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
+        return a <= b;
+    }
+    if ((info_a == .float or info_a == .comptime_float) and (info_b == .float or info_b == .comptime_float)) {
+        return a <= b;
+    }
+
+    // Fallback: convert to PyValue
+    const a_pv = PyValue.from(a);
+    const b_pv = PyValue.from(b);
+    return pyLePyValue(a_pv, b_pv);
 }
 
 /// operator.gt - greater than comparison
-/// Two-Flow: Handles PyValue for uncertain types
 pub fn operatorGt(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
-    // Two-Flow: Handle PyValue comparisons
+    // Fast path: PyValue
     if (TypeA == PyValue and TypeB == PyValue) {
-        return a.gt(b);
+        return pyGtPyValue(a, b);
     }
 
+    // Fast path: same primitive types
     if (TypeA == TypeB) {
-        const info = @typeInfo(TypeA);
-        if (info == .int or info == .float or info == .comptime_int or info == .comptime_float) {
-            return a > b;
-        }
+        if (TypeA == i64) return a > b;
+        if (TypeA == f64) return a > b;
     }
-    return false;
+
+    // Fast path: primitives
+    const info_a = @typeInfo(TypeA);
+    const info_b = @typeInfo(TypeB);
+    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
+        return a > b;
+    }
+    if ((info_a == .float or info_a == .comptime_float) and (info_b == .float or info_b == .comptime_float)) {
+        return a > b;
+    }
+
+    // Fallback: convert to PyValue
+    const a_pv = PyValue.from(a);
+    const b_pv = PyValue.from(b);
+    return pyGtPyValue(a_pv, b_pv);
 }
 
 /// operator.ge - greater than or equal comparison
-/// Two-Flow: Handles PyValue for uncertain types
 pub fn operatorGe(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
-    // Two-Flow: Handle PyValue comparisons
+    // Fast path: PyValue
     if (TypeA == PyValue and TypeB == PyValue) {
-        return a.ge(b);
+        return pyGePyValue(a, b);
     }
 
+    // Fast path: same primitive types
     if (TypeA == TypeB) {
-        const info = @typeInfo(TypeA);
-        if (info == .int or info == .float or info == .comptime_int or info == .comptime_float) {
-            return a >= b;
-        }
+        if (TypeA == i64) return a >= b;
+        if (TypeA == f64) return a >= b;
     }
-    return false;
+
+    // Fast path: primitives
+    const info_a = @typeInfo(TypeA);
+    const info_b = @typeInfo(TypeB);
+    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
+        return a >= b;
+    }
+    if ((info_a == .float or info_a == .comptime_float) and (info_b == .float or info_b == .comptime_float)) {
+        return a >= b;
+    }
+
+    // Fallback: convert to PyValue
+    const a_pv = PyValue.from(a);
+    const b_pv = PyValue.from(b);
+    return pyGePyValue(a_pv, b_pv);
 }
+
+// =============================================================================
+// CLASS INSTANCE COMPARISONS (for dunder methods)
+// These need anytype to access __eq__, __lt__, etc. methods
+// =============================================================================
 
 /// Class instance equality comparison
 pub fn classInstanceEq(a: anytype, b: anytype, allocator: std.mem.Allocator) bool {
@@ -158,7 +263,6 @@ pub fn classInstanceNe(a: anytype, b: anytype, allocator: std.mem.Allocator) boo
 }
 
 /// Class instance less-than comparison
-/// The result can be any type (e.g., SymbolicBool) - caller must handle __bool__ conversion
 pub fn classInstanceLt(a: anytype, b: anytype, allocator: std.mem.Allocator) bool {
     const TypeA = @TypeOf(a);
     const type_info = @typeInfo(TypeA);
@@ -295,13 +399,11 @@ pub fn classInstanceGt(a: anytype, b: anytype, allocator: std.mem.Allocator) boo
 
             const ResultType = @TypeOf(result);
             if (@typeInfo(ResultType) == .error_union) {
-                // Result is error union - unwrap and check payload type
                 const payload = result catch return false;
                 const PayloadType = @TypeOf(payload);
                 if (PayloadType == bool) {
                     return payload;
                 } else {
-                    // Payload is a class instance (like *SymbolicBool) - call __bool__
                     return toBoolFromResult(payload);
                 }
             } else if (ResultType == bool) {
@@ -323,13 +425,11 @@ pub fn classInstanceGt(a: anytype, b: anytype, allocator: std.mem.Allocator) boo
 
                 const ResultType = @TypeOf(result);
                 if (@typeInfo(ResultType) == .error_union) {
-                    // Result is error union - unwrap and check payload type
                     const payload = result catch return false;
                     const PayloadType = @TypeOf(payload);
                     if (PayloadType == bool) {
                         return payload;
                     } else {
-                        // Payload is a class instance (like *SymbolicBool) - call __bool__
                         return toBoolFromResult(payload);
                     }
                 } else if (ResultType == bool) {
@@ -416,8 +516,6 @@ fn toBoolFromResult(result: anytype) bool {
             const bool_result = result.__bool__();
             const BoolResultType = @TypeOf(bool_result);
             if (@typeInfo(BoolResultType) == .error_union) {
-                // __bool__ raised an error (like TypeError) - propagate as false
-                // In assertRaises context, this would be caught
                 return bool_result catch false;
             } else {
                 return bool_result;
@@ -438,6 +536,11 @@ fn toBoolFromResult(result: anytype) bool {
     return false;
 }
 
+// =============================================================================
+// PYEQUAL - Simplified to avoid monomorphization explosion
+// NO MORE recursive inline for loops!
+// =============================================================================
+
 /// Generic assertEqual helper - delegates to centralized equality module
 pub fn assertEqualGeneric(a: anytype, b: anytype, allocator: std.mem.Allocator) !bool {
     // Use the centralized pyAnyEql from equality.zig for most cases
@@ -452,178 +555,76 @@ pub fn assertEqualGeneric(a: anytype, b: anytype, allocator: std.mem.Allocator) 
 }
 
 /// Universal Python-semantic equality comparison
+/// SIMPLIFIED: No more recursive inline for loops. Complex types convert to PyValue.
 pub fn pyEqual(allocator: std.mem.Allocator, a: anytype, b: anytype) !bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
-    const info_a = @typeInfo(TypeA);
-    const info_b = @typeInfo(TypeB);
 
-    // Same type fast path
-    if (TypeA == TypeB) {
-        if (TypeA == f64) return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
-        if (TypeA == f32) return @as(u32, @bitCast(a)) == @as(u32, @bitCast(b));
-        if (info_a == .int or info_a == .comptime_int or info_a == .comptime_float or info_a == .bool) {
-            return a == b;
-        }
-        if (info_a == .pointer and info_a.pointer.size == .slice) {
-            if (info_a.pointer.child == u8) {
-                return std.mem.eql(u8, a, b);
-            }
-        }
-        // Check for BigInt (struct with managed field containing std.math.big.int.Managed)
-        // This is more specific than checking for eql method since other types may have eql
-        if (info_a == .@"struct" and @hasField(TypeA, "managed")) {
-            // BigInt has a managed field and eql method
-            if (@hasDecl(TypeA, "eql")) {
-                return a.eql(&b);
-            }
-        }
+    // Fast path: PyValue (already converted)
+    if (TypeA == PyValue and TypeB == PyValue) {
+        return pyEqualPyValue(a, b);
     }
 
-    // Cross-type integer comparison (e.g., i64 vs comptime_int)
+    // Fast path: same primitive types
+    if (TypeA == TypeB) {
+        if (TypeA == i64) return a == b;
+        if (TypeA == f64) return @as(u64, @bitCast(a)) == @as(u64, @bitCast(b));
+        if (TypeA == f32) return @as(u32, @bitCast(a)) == @as(u32, @bitCast(b));
+        if (TypeA == bool) return a == b;
+        if (TypeA == []const u8) return std.mem.eql(u8, a, b);
+    }
+
+    // Fast path: cross-type integers
+    const info_a = @typeInfo(TypeA);
+    const info_b = @typeInfo(TypeB);
     if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
         return a == b;
     }
 
-    // Cross-type BigInt comparison (BigInt vs int)
-    // BigInt is identified by having a 'managed' field
+    // Fast path: BigInt (identified by 'managed' field)
     const a_is_bigint = info_a == .@"struct" and @hasField(TypeA, "managed");
     const b_is_bigint = info_b == .@"struct" and @hasField(TypeB, "managed");
     const a_is_int = info_a == .int or info_a == .comptime_int;
     const b_is_int = info_b == .int or info_b == .comptime_int;
 
     if (a_is_bigint and b_is_int) {
-        // Compare BigInt a with int b using eqlInt method
         if (@hasDecl(TypeA, "eqlInt")) {
             return a.eqlInt(@as(i64, @intCast(b)));
-        }
-        // Fallback: try toInt64 comparison
-        if (@hasDecl(TypeA, "toInt64")) {
-            if (a.toInt64()) |a_i64| {
-                return a_i64 == b;
-            }
         }
         return false;
     }
     if (b_is_bigint and a_is_int) {
-        // Compare int a with BigInt b using eqlInt method
         if (@hasDecl(TypeB, "eqlInt")) {
             return b.eqlInt(@as(i64, @intCast(a)));
         }
-        // Fallback: try toInt64 comparison
-        if (@hasDecl(TypeB, "toInt64")) {
-            if (b.toInt64()) |b_i64| {
-                return a == b_i64;
-            }
+        return false;
+    }
+    if (a_is_bigint and b_is_bigint) {
+        if (@hasDecl(TypeA, "eql")) {
+            return a.eql(&b);
         }
         return false;
     }
 
-    // Tagged union handling
-    if (info_a == .@"union" and info_a.@"union".tag_type != null) {
-        const tag = std.meta.activeTag(a);
-        inline for (info_a.@"union".fields) |field| {
-            if (tag == @field(std.meta.Tag(TypeA), field.name)) {
-                const field_value = @field(a, field.name);
-                return pyEqual(allocator, field_value, b);
-            }
-        }
-    }
-    if (info_b == .@"union" and info_b.@"union".tag_type != null) {
-        const tag = std.meta.activeTag(b);
-        inline for (info_b.@"union".fields) |field| {
-            if (tag == @field(std.meta.Tag(TypeB), field.name)) {
-                const field_value = @field(b, field.name);
-                return pyEqual(allocator, a, field_value);
-            }
-        }
-    }
-
-    // Builtin subclass handling
-    if (info_a == .@"struct" and @hasField(TypeA, "__base_value__")) {
-        return pyEqual(allocator, a.__base_value__, b);
-    }
-    if (info_b == .@"struct" and @hasField(TypeB, "__base_value__")) {
-        return pyEqual(allocator, a, b.__base_value__);
-    }
-
-    // ArrayList comparison
-    if (info_a == .@"struct" and @hasField(TypeA, "items") and @hasField(TypeA, "capacity") and
-        info_b == .@"struct" and @hasField(TypeB, "items") and @hasField(TypeB, "capacity"))
-    {
-        if (a.items.len != b.items.len) return false;
-        for (a.items, b.items) |item_a, item_b| {
-            if (!try pyEqual(allocator, item_a, item_b)) return false;
-        }
-        return true;
-    }
-
-    // ArrayList to tuple
-    if (info_a == .@"struct" and @hasField(TypeA, "items") and @hasField(TypeA, "capacity")) {
-        return pyEqualSliceToTuple(allocator, a.items, b);
-    }
-    if (info_b == .@"struct" and @hasField(TypeB, "items") and @hasField(TypeB, "capacity")) {
-        return pyEqualSliceToTuple(allocator, b.items, a);
-    }
-
-    // Tuple element-wise comparison
-    if (info_a == .@"struct" and info_b == .@"struct") {
-        const a_is_class = @hasDecl(TypeA, "__name__");
-        const b_is_class = @hasDecl(TypeB, "__name__");
-        if (!a_is_class and !b_is_class) {
-            const fields_a = info_a.@"struct".fields;
-            const fields_b = info_b.@"struct".fields;
-            if (fields_a.len != fields_b.len) return false;
-            inline for (fields_a, 0..) |field_a, i| {
-                const a_val = @field(a, field_a.name);
-                const b_val = @field(b, fields_b[i].name);
-                if (!try pyEqual(allocator, a_val, b_val)) return false;
-            }
-            return true;
-        }
-    }
-
-    // Custom __eq__ method
+    // Fast path: class instance with __eq__
     const a_has_eq = info_a == .@"struct" and @hasDecl(TypeA, "__eq__");
     const b_has_eq = info_b == .@"struct" and @hasDecl(TypeB, "__eq__");
-
     if (a_has_eq) return classInstanceEq(a, b, allocator);
     if (b_has_eq) return classInstanceEq(b, a, allocator);
 
-    // Numeric coercion fallback
+    // FALLBACK: Convert both to PyValue and let PyValue.eql() handle complexity
+    // This avoids recursive inline for loops that cause monomorphization explosion
     const object = @import("../../Objects/object.zig");
     const a_val = try object.toPyValue(allocator, a);
     const b_val = try object.toPyValue(allocator, b);
-    return a_val.eql(b_val);
+    return pyEqualPyValue(a_val, b_val);
 }
 
-/// Helper to compare slice to tuple
+/// Helper to compare slice to tuple - simplified version
 pub fn pyEqualSliceToTuple(allocator: std.mem.Allocator, slice: anytype, tup: anytype) !bool {
-    const SliceType = @TypeOf(slice);
-    const TupleType = @TypeOf(tup);
-    const slice_info = @typeInfo(SliceType);
-    const tup_info = @typeInfo(TupleType);
-
-    if (slice_info != .pointer or slice_info.pointer.size != .slice) return false;
-
-    if (tup_info == .array) {
-        const arr_info = tup_info.array;
-        if (slice.len != arr_info.len) return false;
-        for (0..arr_info.len) |i| {
-            if (!try pyEqual(allocator, slice[i], tup[i])) return false;
-        }
-        return true;
-    }
-
-    if (tup_info == .@"struct") {
-        const fields = tup_info.@"struct".fields;
-        if (slice.len != fields.len) return false;
-        inline for (fields, 0..) |field, i| {
-            const tup_val = @field(tup, field.name);
-            if (!try pyEqual(allocator, slice[i], tup_val)) return false;
-        }
-        return true;
-    }
-
-    return false;
+    // Convert both to PyValue and compare
+    const object = @import("../../Objects/object.zig");
+    const slice_val = try object.toPyValue(allocator, slice);
+    const tup_val = try object.toPyValue(allocator, tup);
+    return pyEqualPyValue(slice_val, tup_val);
 }
