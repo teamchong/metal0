@@ -825,6 +825,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         const lazy_call = try std.fmt.allocPrint(self.allocator, "(try {s}(__alloc))", .{attr_name});
                         try self.var_renames.put(attr_name, lazy_call);
                     }
+                } else {
+                    // Simple constant - register in class_type_attrs for self.attr -> @This().attr
+                    const const_key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class.name, attr_name });
+                    try self.class_type_attrs.put(const_key, "__const__");
                 }
             }
         }
