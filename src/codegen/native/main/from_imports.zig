@@ -88,9 +88,19 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
-        // Skip builtin modules (they're not compiled, so can't reference them)
+        // Skip builtin modules UNLESS they have a Zig implementation in the import registry
+        // This allows from-import symbols to be generated for modules like weakref that have runtime.Lib implementations
         if (import_resolver.isBuiltinModule(from_imp.module)) {
-            continue;
+            if (self.import_registry.lookup(from_imp.module)) |info| {
+                // Module has a Zig implementation - continue to generate from-import symbols
+                if (info.zig_import != null or info.direct_import != null) {
+                    // Fall through to generate symbols
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            }
         }
 
         // Handle operator module specially - generate wrapper functions
