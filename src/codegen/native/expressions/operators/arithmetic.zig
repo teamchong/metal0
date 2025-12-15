@@ -697,15 +697,26 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             // Always use __global_allocator (TryHelper structs can't access outer allocator)
             const alloc_name = "__global_allocator";
 
+            // At module level (scope 0), we can't use 'try' - use 'catch unreachable' instead
+            const at_module_level = self.symbol_table.currentScopeLevel() == 0;
+
             // Generate single concat call with all parts
-            try self.emit("try std.mem.concat(");
+            if (at_module_level) {
+                try self.emit("(std.mem.concat(");
+            } else {
+                try self.emit("try std.mem.concat(");
+            }
             try self.emit(alloc_name);
             try self.emit(", u8, &[_][]const u8{ ");
             for (parts.items, 0..) |part, i| {
                 if (i > 0) try self.emit(", ");
                 try genExpr(self, part);
             }
-            try self.emit(" })");
+            if (at_module_level) {
+                try self.emit(" }) catch unreachable)");
+            } else {
+                try self.emit(" })");
+            }
             return;
         }
 

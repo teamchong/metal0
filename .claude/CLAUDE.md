@@ -698,6 +698,31 @@ packages/
 
 ---
 
+## Critical Issues (MUST FIX)
+
+### Missing `builtins` Module Support
+**Warning:** `External module 'builtins' not found, skipping import`
+
+This warning appears frequently during codegen and causes test failures. The `builtins` module is a core Python module that provides built-in functions like `len()`, `range()`, `print()`, etc.
+
+**Impact:** Tests that `import builtins` or use `builtins.xxx` fail silently during codegen.
+
+**Root cause:** The codegen doesn't recognize `builtins` as a valid module and skips the import entirely.
+
+**Fix needed:** Add `builtins` module support in:
+- `src/codegen/native/` - Module resolution logic
+- `packages/runtime/src/Lib/` - Implement `builtins.zig` if needed
+
+**Related warnings to fix:**
+- `External module 'builtins' not found`
+- `External module 'test.test_profile' not found`
+- `External module 'test.test_contextlib' not found`
+- `External module 'test.test_grammar' not found`
+- `External module 'xxsubtype' not found`
+- `External module '_io' not found`
+
+---
+
 ## CPython Test Progress
 
 **Status:** Tests currently have compile/runtime errors after dunder dispatch refactoring.

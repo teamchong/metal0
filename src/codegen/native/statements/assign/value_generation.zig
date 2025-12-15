@@ -854,17 +854,27 @@ pub fn genStringConcat(self: *NativeCodegen, assign: ast.Node.Assign, var_name: 
     try helpers.flattenConcat(self, assign.value.*, &parts);
 
     // Get allocator name based on scope
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const at_module_level = self.symbol_table.currentScopeLevel() == 0;
+    const alloc_name = if (!at_module_level) "__global_allocator" else "allocator";
 
     // Generate concat with all parts at once
-    try self.emit("try std.mem.concat(");
+    // At module level (scope 0), we can't use 'try' - use 'catch unreachable' instead
+    if (at_module_level) {
+        try self.emit("(std.mem.concat(");
+    } else {
+        try self.emit("try std.mem.concat(");
+    }
     try self.emit(alloc_name);
     try self.emit(", u8, &[_][]const u8{ ");
     for (parts.items, 0..) |part, i| {
         if (i > 0) try self.emit(", ");
         try self.genExpr(part);
     }
-    try self.emit(" });\n");
+    if (at_module_level) {
+        try self.emit(" }) catch unreachable);\n");
+    } else {
+        try self.emit(" });\n");
+    }
 
     // Add defer cleanup
     try deferCleanup.emitStringConcatDefer(self, var_name, is_first_assignment);
