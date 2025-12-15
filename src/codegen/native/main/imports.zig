@@ -449,15 +449,7 @@ pub fn collectImports(
                 },
             }
         } else {
-            // Module not in registry - first check if it's a builtin module we don't support
-            // These are stdlib modules with unsupported syntax (subprocess, tempfile, os, etc.)
-            if (import_resolver.isBuiltinModule(python_module)) {
-                // Built-in module without Zig runtime support - skip it
-                try self.markSkippedModule(python_module);
-                continue;
-            }
-
-            // Special handling for 'builtins' module
+            // Special handling for 'builtins' module first
             // This is Python's module that exposes built-in functions (len, str, int, etc.)
             // These are already available globally, so no import needed - just continue
             if (std.mem.eql(u8, python_module, "builtins")) {
@@ -496,6 +488,20 @@ pub fn collectImports(
             if (stdlib_gen.hasModule(python_module)) {
                 // Module exists in runtime.Lib - add to imports list
                 try imports.append(self.allocator, python_module);
+                continue;
+            }
+
+            // If this is a known CPython builtin module but we don't have an implementation,
+            // this is a compile-time ERROR (not warning) - forces manual handling
+            // Add mapping to module_aliases.zig or implement in runtime.Lib
+            if (import_resolver.isBuiltinModule(python_module)) {
+                // COMPILE ERROR: Builtin module needs alias or implementation
+                // Either: 1) Add mapping in module_aliases.zig, or 2) Create Lib/{module}.zig
+                std.debug.print("ERROR: CPython builtin module '{s}' not found in module_aliases or stdlib_gen.\n", .{python_module});
+                std.debug.print("       To fix: Add mapping in src/codegen/native/module_aliases.zig\n", .{});
+                std.debug.print("       Or implement in packages/runtime/src/Lib/{s}.zig\n", .{python_module});
+                // Mark as skipped but note this is an unhandled builtin
+                try self.markSkippedModule(python_module);
                 continue;
             }
 

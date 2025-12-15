@@ -60,6 +60,9 @@ pub const stub_modules = std.StaticStringMap(void).initComptime(.{
     .{ "_testinternalcapi", {} }, // Internal C API tests
     .{ "_xxsubinterpreters", {} }, // Subinterpreter tests
     .{ "_xxinterpchannels", {} }, // Interpreter channel tests
+    // Test-to-test imports (tests importing other tests)
+    .{ "test.test_grammar", {} }, // Grammar tests
+    .{ "test.test_support", {} }, // Support utilities (use test.support instead)
 });
 
 /// Resolve a Python module name to its Zig implementation name

@@ -722,6 +722,7 @@ test "reference counting" {
 pub const listFromTuple = list_conversion_mod.listFromTuple;
 pub const listFromString = list_conversion_mod.listFromString;
 pub const listFromAny = list_conversion_mod.listFromAny;
+pub const listEquals = list_conversion_mod.listEquals;
 
 // Backwards compatibility exports for direct module access (e.g., runtime.json)
 pub const json = @import("Lib/json.zig");
