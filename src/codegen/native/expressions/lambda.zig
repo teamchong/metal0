@@ -124,8 +124,9 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
         // Check if param is used in body - if not, use _ to discard
         const is_used = isParamUsedInBody(arg.name, lambda.body.*);
         if (is_used) {
-            // Escape Zig reserved keywords (e.g., "fn" -> @"fn", "test" -> @"test")
-            try zig_keywords.writeEscapedIdent(lambda_func.writer(self.allocator), arg.name);
+            // Use writeParamName to handle both keyword escaping AND shadowing prevention
+            // (e.g., "take" -> "take_arg" to avoid shadowing runtime.take)
+            try zig_keywords.writeParamName(lambda_func.writer(self.allocator), arg.name);
             try lambda_func.writer(self.allocator).print(": {s}", .{param_types[i]});
         } else {
             // In Zig 0.15, unused params must be named exactly "_", not "_name"

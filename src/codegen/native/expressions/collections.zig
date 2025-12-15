@@ -285,14 +285,14 @@ fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
 
     // Let Zig's comptime infer the type and generate optimal code
     try self.emitIndent();
-    try self.emit("const T = comptime runtime.InferListType(@TypeOf(");
+    try self.emit("const __T = comptime runtime.InferListType(@TypeOf(");
     try self.emit(values_var);
     try self.emit("));\n");
 
     try self.emitIndent();
     try self.emit("var ");
     try self.emit(list_var);
-    try self.emit(" = std.ArrayListUnmanaged(T){};\n");
+    try self.emit(" = std.ArrayListUnmanaged(__T){};\n");
 
     // Inline loop - unrolled at Zig compile time!
     try self.emitIndent();
@@ -301,11 +301,11 @@ fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     try self.emit(") |val| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const cast_val = if (@TypeOf(val) != T) cast_blk: {\n");
+    try self.emit("const cast_val = if (@TypeOf(val) != __T) cast_blk: {\n");
     self.indent();
     // PyValue conversion for heterogeneous lists
     try self.emitIndent();
-    try self.emit("if (T == runtime.PyValue) {\n");
+    try self.emit("if (__T == runtime.PyValue) {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("break :cast_blk try runtime.PyValue.fromAlloc(__global_allocator, val);\n");
@@ -313,7 +313,7 @@ fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("if (T == f64 and (@TypeOf(val) == i64 or @TypeOf(val) == comptime_int)) {\n");
+    try self.emit("if (__T == f64 and (@TypeOf(val) == i64 or @TypeOf(val) == comptime_int)) {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("break :cast_blk @as(f64, @floatFromInt(val));\n");
@@ -321,7 +321,7 @@ fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("if (T == f64 and @TypeOf(val) == comptime_float) {\n");
+    try self.emit("if (__T == f64 and @TypeOf(val) == comptime_float) {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("break :cast_blk @as(f64, val);\n");
@@ -330,7 +330,7 @@ fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     try self.emit("}\n");
     // Array to slice coercion (for arrays of different sizes)
     try self.emitIndent();
-    try self.emit("if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .slice and @typeInfo(@TypeOf(val)) == .array) {\n");
+    try self.emit("if (@typeInfo(__T) == .pointer and @typeInfo(__T).pointer.size == .slice and @typeInfo(@TypeOf(val)) == .array) {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("break :cast_blk &val;\n");

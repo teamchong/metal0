@@ -150,6 +150,9 @@ const shadowing_method_names = std.StaticStringMap(void).initComptime(.{
     .{ "format", {} },
     .{ "encode", {} },
     .{ "decode", {} },
+    .{ "take", {} },      // runtime.take iterator function
+    .{ "compare", {} },   // comparison functions
+    .{ "stop", {} },      // iterator stop
 });
 
 /// Module names that parameters should not shadow

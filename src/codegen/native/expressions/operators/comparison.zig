@@ -342,6 +342,17 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         try self.emit(")");
                     }
                 }
+            } else if (type_traits.isClassInstance(right_type)) {
+                // Class instances with __contains__ method
+                // Generate: container.__contains__(allocator, item)
+                if (op == .NotIn) {
+                    try self.emit("!");
+                }
+                try self.emit("(try ");
+                try genExpr(self, compare.comparators[i]); // class instance
+                try self.emit(".__contains__(__global_allocator, ");
+                try genExpr(self, current_left); // item to search for
+                try self.emit("))");
             } else {
                 // Fallback for arrays and unrecognized types
                 // Infer element type from the item being searched for
@@ -396,17 +407,16 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     const in_label_id = self.block_label_counter;
                     self.block_label_counter += 1;
 
+                    // Use container_dispatch helpers to avoid monomorphization explosion
+                    // Compiles ONCE per container type, not per 'in' expression
                     try self.output.writer(self.allocator).print("in_{d}: {{ const __arr = ", .{in_label_id});
                     try genExpr(self, compare.comparators[i]); // array/container
                     try self.emit("; const __val = ");
                     try genExpr(self, current_left); // item to search for
-                    // Use std.meta.Elem which works for arrays, slices, and pointers
-                    // For arrays, use &__arr to coerce to slice; for slices, use __arr directly
-                    try self.output.writer(self.allocator).print("; const T = std.meta.Elem(@TypeOf(__arr)); const __slice = if (@typeInfo(@TypeOf(__arr)) == .array) &__arr else __arr; break :in_{d} (std.mem.indexOfScalar(T, __slice, __val)", .{in_label_id});
                     if (op == .In) {
-                        try self.emit(" != null); }");
+                        try self.output.writer(self.allocator).print("; break :in_{d} runtime.container_dispatch.contains(@TypeOf(__arr), __arr, __val); }}", .{in_label_id});
                     } else {
-                        try self.emit(" == null); }");
+                        try self.output.writer(self.allocator).print("; break :in_{d} runtime.container_dispatch.notContains(@TypeOf(__arr), __arr, __val); }}", .{in_label_id});
                     }
                 }
             }

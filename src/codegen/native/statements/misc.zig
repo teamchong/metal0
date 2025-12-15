@@ -1213,11 +1213,9 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         try self.emit("\n");
                     }
                     try self.emitIndent();
-                    // Use container_dispatch helpers - avoids inline @typeInfo monomorphization
-                    // Check for both error_union (!T) and error_set (error.X)
-                    try self.emitFmt("if (runtime.container_dispatch.isErrorUnion(@TypeOf(__ar_val))) {{ _ = __ar_val catch break :__ar_blk_{d} {{}}; }}\n", .{block_id});
-                    try self.emitIndent();
-                    try self.emitFmt("if (runtime.container_dispatch.isErrorSet(@TypeOf(__ar_val))) {{ break :__ar_blk_{d} {{}}; }}\n", .{block_id});
+                    // Use unittest.expectError() which handles both error and non-error types
+                    // internally via @typeInfo branching (avoids Zig type-checking unreachable branches)
+                    try self.emitFmt("if (!unittest.expectError(__ar_val)) break :__ar_blk_{d} {{}};\n", .{block_id});
                     self.dedent();
                     try self.emitIndent();
                     try self.emit("}\n");

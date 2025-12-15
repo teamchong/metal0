@@ -185,3 +185,16 @@ pub fn setPtrAt(comptime T: type, comptime E: type, container: T, index: usize, 
         }
     }
 }
+
+/// Check if value is contained in array/slice - for 'in' operator
+/// Handles: arrays, slices, ArrayList (.items)
+/// Compiles ONCE per type, not per 'in' expression
+pub fn contains(comptime T: type, container: T, value: GetElementType(T)) bool {
+    const slice = getSlice(T, container);
+    return std.mem.indexOfScalar(GetElementType(T), slice, value) != null;
+}
+
+/// Check if value is NOT contained in array/slice - for 'not in' operator
+pub fn notContains(comptime T: type, container: T, value: GetElementType(T)) bool {
+    return !contains(T, container, value);
+}
