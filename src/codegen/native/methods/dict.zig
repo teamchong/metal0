@@ -127,9 +127,9 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictKeys(__global_allocator, ");
+        try self.emit("runtime.pyDictKeysPV(__global_allocator, runtime.PyValue.from(");
         try self.genExpr(obj);
-        try self.emit(")");
+        try self.emit("))");
         return;
     }
 
@@ -201,9 +201,9 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictValues(__global_allocator, ");
+        try self.emit("runtime.pyDictValuesPV(__global_allocator, runtime.PyValue.from(");
         try self.genExpr(obj);
-        try self.emit(")");
+        try self.emit("))");
         return;
     }
 
@@ -269,9 +269,9 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictItems(__global_allocator, ");
+        try self.emit("runtime.pyDictItemsPV(__global_allocator, runtime.PyValue.from(");
         try self.genExpr(obj);
-        try self.emit(")");
+        try self.emit("))");
         return;
     }
 
@@ -360,19 +360,19 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
         const default_val = if (args.len >= 2) args[1] else null;
         // Route to runtime helper for PyValue dicts
         if (default_val) |def| {
-            try self.emit("(runtime.pyDictPop(__global_allocator, &");
+            try self.emit("(runtime.pyDictPopPV(__global_allocator, &");
             try self.genExpr(obj);
-            try self.emit(", ");
+            try self.emit(", runtime.PyValue.from(");
             try self.genExpr(args[0]);
-            try self.emit(") orelse ");
+            try self.emit(")) orelse ");
             try self.genExpr(def);
             try self.emit(")");
         } else {
-            try self.emit("(runtime.pyDictPop(__global_allocator, &");
+            try self.emit("(runtime.pyDictPopPV(__global_allocator, &");
             try self.genExpr(obj);
-            try self.emit(", ");
+            try self.emit(", runtime.PyValue.from(");
             try self.genExpr(args[0]);
-            try self.emit(") orelse return error.KeyError)");
+            try self.emit(")) orelse return error.KeyError)");
         }
         return;
     }
@@ -417,11 +417,11 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictUpdate(__global_allocator, &");
+        try self.emit("runtime.pyDictUpdatePV(__global_allocator, &");
         try self.genExpr(obj);
-        try self.emit(", ");
+        try self.emit(", runtime.PyValue.from(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emit("))");
         return;
     }
 
@@ -476,7 +476,7 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictClear(&");
+        try self.emit("runtime.pyDictClearPV(&");
         try self.genExpr(obj);
         try self.emit(")");
         return;
@@ -495,9 +495,9 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictCopy(__global_allocator, ");
+        try self.emit("runtime.pyDictCopyPV(__global_allocator, runtime.PyValue.from(");
         try self.genExpr(obj);
-        try self.emit(")");
+        try self.emit("))");
         return;
     }
 

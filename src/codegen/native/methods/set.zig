@@ -48,11 +48,11 @@ pub fn genAdd(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("runtime.pySetAdd(__global_allocator, &");
+        try self.emit("try runtime.pySetAddPV(__global_allocator, &");
         try self.genExpr(obj);
-        try self.emit(", ");
+        try self.emit(", runtime.PyValue.from(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emit("))");
         return;
     }
 
@@ -75,11 +75,11 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("try runtime.pySetRemove(__global_allocator, &");
+        try self.emit("try runtime.pySetRemovePV(__global_allocator, &");
         try self.genExpr(obj);
-        try self.emit(", ");
+        try self.emit(", runtime.PyValue.from(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emit("))");
         return;
     }
 
@@ -104,11 +104,11 @@ pub fn genDiscard(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("runtime.pySetDiscard(__global_allocator, &");
+        try self.emit("runtime.pySetDiscardPV(__global_allocator, &");
         try self.genExpr(obj);
-        try self.emit(", ");
+        try self.emit(", runtime.PyValue.from(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emit("))");
         return;
     }
 
@@ -130,7 +130,7 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("runtime.pySetClear(&");
+        try self.emit("runtime.pySetClearPV(&");
         try self.genExpr(obj);
         try self.emit(")");
         return;
@@ -150,7 +150,7 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("try runtime.pySetPop(__global_allocator, &");
+        try self.emit("try runtime.pySetPopPVFunc(__global_allocator, &");
         try self.genExpr(obj);
         try self.emit(")");
         return;
