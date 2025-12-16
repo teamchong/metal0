@@ -1214,14 +1214,22 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         const saved_inside_try_body = self.inside_try_body;
         self.inside_try_body = true;
 
+        // CRITICAL: Reset in_assert_raises_context inside TryHelper function body.
+        // When we're inside a TryHelper, we're in a separate Zig function - labeled breaks
+        // cannot cross function boundaries. If raise happens here, it must use `return error.X`
+        // (not `break :__ar_blk_N`) so the catch handler outside can handle it properly.
+        const saved_in_assert_raises = self.in_assert_raises_context;
+        self.in_assert_raises_context = false;
+
         // Generate try block body with renamed variables
         for (try_node.body) |stmt| {
             try self.generateStmt(stmt);
         }
 
-        // Restore inside_try_body and control_flow_terminated IMMEDIATELY after try body
-        // Must do this before generating else/finally/handlers since they need accurate state
+        // Restore inside_try_body, in_assert_raises_context, and control_flow_terminated
+        // IMMEDIATELY after try body. Must do this before generating else/finally/handlers.
         self.inside_try_body = saved_inside_try_body;
+        self.in_assert_raises_context = saved_in_assert_raises;
         self.control_flow_terminated = saved_control_flow_terminated;
 
         // Clear rename map after generating body and free allocated strings
@@ -1437,9 +1445,16 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     }
                 }
                 for (handler.body) |stmt| {
-                    // Skip function_def - already hoisted before try block
-                    if (stmt == .function_def) continue;
+                    // Only skip function_def if it was already hoisted (at module level)
+                    // When inside a function/method, function defs in handlers must be generated inline
+                    if (stmt == .function_def and self.mode == .module) continue;
                     try self.generateStmt(stmt);
+                }
+                // If inside assertRaises context, break out of the __ar_blk block
+                // to indicate the exception was successfully caught (test passes)
+                if (self.in_assert_raises_context) {
+                    try self.emitIndent();
+                    try self.emitFmt("break :__ar_blk_{d} {{}}; // Exception caught by except handler\n", .{self.current_assert_raises_block_id});
                 }
                 self.dedent();
                 // For catch-all handlers (Exception/BaseException), close the block
@@ -1511,9 +1526,16 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     }
                 }
                 for (handler.body) |stmt| {
-                    // Skip function_def - already hoisted before try block
-                    if (stmt == .function_def) continue;
+                    // Only skip function_def if it was already hoisted (at module level)
+                    // When inside a function/method, function defs in handlers must be generated inline
+                    if (stmt == .function_def and self.mode == .module) continue;
                     try self.generateStmt(stmt);
+                }
+                // If inside assertRaises context, break out of the __ar_blk block
+                // to indicate the exception was successfully caught (test passes)
+                if (self.in_assert_raises_context) {
+                    try self.emitIndent();
+                    try self.emitFmt("break :__ar_blk_{d} {{}}; // Exception caught by except handler\n", .{self.current_assert_raises_block_id});
                 }
                 self.dedent();
                 try self.emitIndent();
@@ -1578,9 +1600,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     } else {
         // No exception handlers - just try/finally or try/else/finally
         // When there's a finally block, use defer to ensure it runs even if try body returns
-        // BUT: Can't use defer if finally contains break/continue/return (Zig doesn't allow control flow in defer)
+        // BUT: Can't use defer if:
+        // 1. finally contains break/continue/return (Zig doesn't allow control flow in defer)
+        // 2. try body contains break/continue/return (defer won't run before these exit)
+        // In case 2, we use Nuitka-style inline code duplication instead
         const finally_has_control_flow = has_finally and containsControlFlow(try_node.finalbody);
-        const can_use_defer = has_finally and !finally_has_control_flow and !containsRaise(try_node.finalbody);
+        const try_body_has_control_flow = containsControlFlow(try_node.body);
+        const can_use_defer = has_finally and !finally_has_control_flow and !containsRaise(try_node.finalbody) and !try_body_has_control_flow;
 
         // Track if we need special handling for raise in try body
         // When finally can't use defer, raise must store exception instead of returning directly
@@ -1618,6 +1644,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // NOTE: __pending_exception_N is already declared at line 687 for all try blocks with finally
         // No need to declare it again here
 
+        // Push finally context for Nuitka-style code duplication
+        // When return/break/continue/raise is encountered inside the try body,
+        // the finally code will be duplicated inline BEFORE the control flow statement
+        if (has_finally) {
+            _ = self.pushFinallyContext(try_node.finalbody, can_use_defer);
+        }
+
         // Generate try body
         const saved_inside_try_body = self.inside_try_body;
         const saved_inside_try_with_finally = self.inside_try_with_finally;
@@ -1636,6 +1669,28 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         self.inside_try_with_finally = saved_inside_try_with_finally;
         self.current_try_finally_id = saved_try_finally_id;
 
+        // Emit finally code at end of try body for normal fallthrough
+        // (when try body doesn't terminate with break/continue/return)
+        // The inline duplication before control flow handles early exits;
+        // this handles the normal path where execution falls through
+        if (has_finally and !can_use_defer and !self.control_flow_terminated) {
+            // Emit finally code inline at end of try body
+            try self.emitIndent();
+            try self.emit("{ // finally (normal path)\n");
+            self.indent();
+            for (try_node.finalbody) |stmt| {
+                try self.generateStmt(stmt);
+            }
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+        }
+
+        // Pop finally context after try body
+        if (has_finally) {
+            self.popFinallyContext();
+        }
+
         // Also handle else_body when there are no exception handlers
         // (try/else/finally without except)
         if (try_node.else_body.len > 0) {
@@ -1648,15 +1703,21 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
     // Generate finally block (always executes after try/except/else)
     // Uses a labeled block to allow raise statements to break out with an error
-    // SKIP this if we already generated it as defer (no exception handlers + no control flow/raise)
-    const used_defer_for_finally = try_node.handlers.len == 0 and has_finally and !containsControlFlow(try_node.finalbody) and !containsRaise(try_node.finalbody);
+    // SKIP this if we already generated it as defer (no exception handlers + no control flow in finally or try body)
+    const used_defer_for_finally = try_node.handlers.len == 0 and has_finally and !containsControlFlow(try_node.finalbody) and !containsRaise(try_node.finalbody) and !containsControlFlow(try_node.body);
+
+    // Also skip when using inline duplication (no exception handlers + try body has control flow)
+    // In this case, we already emitted finally code:
+    // 1. Inline before control flow statements (break/continue/return)
+    // 2. At end of try body for normal path
+    const used_inline_duplication = try_node.handlers.len == 0 and has_finally and containsControlFlow(try_node.body);
 
     // Also skip if try body terminated with control flow (break/continue/return)
     // In this case, the finally block code after try body is unreachable
-    // TODO: Proper Python semantics requires running finally BEFORE the control flow statement
+    // The finally code was already duplicated inline BEFORE the control flow statement
     const try_body_terminated = self.control_flow_terminated;
 
-    if (has_finally and !used_defer_for_finally and !try_body_terminated) {
+    if (has_finally and !used_defer_for_finally and !used_inline_duplication and !try_body_terminated) {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __finally_err_{d}: ?anyerror = __finally_blk_{d}: {{\n", .{ helper_id, helper_id });
         self.indent();
