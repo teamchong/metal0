@@ -1432,9 +1432,9 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // dict1 |= dict2 is handled separately in aug_assign
     if (binop.op == .BitOr and container_traits.isDict(left_type) and container_traits.isDict(right_type)) {
         // Generate: blk: { var __merged = dict1.copy(); __merged.update(dict2); break :blk __merged; }
-        const label_id = self.block_label_counter;
-        self.block_label_counter += 1;
-        try self.output.writer(self.allocator).print("(dmerge_{d}: {{\n", .{label_id});
+        var em = self.exprEmitter();
+        const label_id = em.reserveLabelId();
+        try self.emitFmt("(dmerge_{d}: {{\n", .{label_id});
         self.indent_level += 1;
 
         try self.emitIndent();

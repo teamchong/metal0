@@ -5,14 +5,15 @@ const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 const type_traits = @import("../../analysis/traits/type_traits.zig");
+const expr_emitter = @import("expr_emitter.zig");
 
 const nano_ts = h.c("@as(i64, @intCast(std.time.nanoTimestamp()))");
 
 fn genNsToSec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     // Use scoped label to avoid conflicts with nested blocks
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     try self.emitFmt("time_{d}: {{ const _t = std.time.nanoTimestamp(); break :time_{d} @as(f64, @floatFromInt(_t)) / 1_000_000_000.0; }}", .{ label_id, label_id });
 }
 
@@ -56,8 +57,8 @@ fn genSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genGmtime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Use scoped label to avoid conflicts with nested blocks
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     try self.emitFmt("gmtime_{d}: {{ const _ts: i64 = ", .{label_id});
     if (args.len > 0) {
         try self.emit("@intFromFloat(");

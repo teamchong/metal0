@@ -8,6 +8,7 @@ const shared = @import("../shared_maps.zig");
 const BinOpStrings = shared.BinOpStrings;
 const function_traits = @import("analysis.function_traits");
 const zig_keywords = @import("utils.zig_keywords");
+const expr_emitter = @import("../expr_emitter.zig");
 
 // Trait imports for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
@@ -354,9 +355,9 @@ fn genExprWithSubs(
             } else if (c.func.* == .name and (std.mem.eql(u8, c.func.name.id, "set") or std.mem.eql(u8, c.func.name.id, "frozenset")) and c.args.len == 1) {
                 // set([x]) or frozenset([x]) in comprehension - needs argument substitution
                 // Generate: set_blk: { var _set = std.AutoHashMap(i64, void).init(__global_allocator); for (<arg>) |_item| { try _set.put(_item, {}); } break :set_blk _set; }
-                const set_label = self.block_label_counter;
-                self.block_label_counter += 1;
-                try self.output.writer(self.allocator).print("set_{d}: {{\n", .{set_label});
+                var em = self.exprEmitter();
+                const set_label = em.reserveLabelId();
+                try self.emitFmt("set_{d}: {{\n", .{set_label});
                 self.indent();
                 try self.emitIndent();
                 try self.emit("var _set = std.AutoHashMap(i64, void).init(__global_allocator);\n");
@@ -452,9 +453,9 @@ fn genExprWithSubs(
             switch (sub.slice) {
                 .slice => |sr| {
                     // It's a slice - generate slice with substitutions
-                    const label_id = self.block_label_counter;
-                    self.block_label_counter += 1;
-                    try self.output.writer(self.allocator).print("slice_{d}: {{ const __s = ", .{label_id});
+                    var em = self.exprEmitter();
+                    const label_id = em.reserveLabelId();
+                    try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
                     try genExprWithSubs(self, sub.value.*, subs);
                     try self.emit("; const __start = @min(");
                     if (sr.lower) |lower| {
@@ -597,8 +598,8 @@ fn genExprWithSubs(
 /// Generate SIMD-vectorized list comprehension when possible
 /// Pattern: [x * 2 for x in range(N)] → SIMD vector operations
 fn genSimdListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, simd: function_traits.SimdInfo) CodegenError!void {
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     const gen = listcomp.generators[0];
     const loop_var = gen.target.name.id;
@@ -740,8 +741,8 @@ fn genListCompScalar(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenE
 
 /// Generate parallel list comprehension using runtime.parallel
 fn genParallelListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, parallel: function_traits.ParallelInfo, simd: function_traits.SimdInfo) CodegenError!void {
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     const start = simd.range_start orelse 0;
     const end = simd.range_end orelse return genListCompImpl(self, listcomp);
@@ -835,8 +836,8 @@ fn genMetalListComp(
     metal: function_traits.MetalInfo,
     simd: function_traits.SimdInfo,
 ) CodegenError!void {
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Get range bounds
     const start = simd.range_start orelse 0;
@@ -893,8 +894,8 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     const comp_id = self.output.items.len;
 
     // Get unique block label to avoid nested block conflicts
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Build variable substitution map for this comprehension
     var subs = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
@@ -1329,8 +1330,8 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     const comp_id = self.output.items.len;
 
     // Get unique block label to avoid nested block conflicts
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Infer value type using TypeInferrer
     // First, set up temp vars for loop variables so type inference can see them
@@ -1774,8 +1775,8 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
     const genExpr = parent.genExpr;
 
     // Get unique block label to avoid nested block conflicts
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Generate: (gen_N: { ... })
     // Wrap in parentheses to prevent "label:" from being parsed as named argument

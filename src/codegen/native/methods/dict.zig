@@ -4,6 +4,7 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
+const expr_emitter = @import("../expr_emitter.zig");
 const NativeType = @import("../../../analysis/native_types.zig").NativeType;
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
@@ -73,8 +74,8 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     if (is_dict_literal) {
         // Wrap in block with intermediate variable
         // Use parentheses to prevent "label:" from being parsed as named argument
-        const label_id = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em = self.exprEmitter();
+        const label_id = em.reserveLabelId();
         try self.output.writer(self.allocator).print("(dget_{d}: {{\n", .{label_id});
         self.indent();
         try self.emitIndent();
@@ -144,8 +145,8 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     const needs_temp = producesBlockExpression(obj);
 
     // Generate unique label for block
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Generate block that builds list of keys using .keys() slice
     // Wrap in parentheses to prevent "label:" from being parsed as named argument
@@ -214,8 +215,8 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     const needs_temp = producesBlockExpression(obj);
 
     // Generate unique label for block
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Generate block that builds list of values
     // Wrap in parentheses to prevent "label:" from being parsed as named argument
@@ -282,8 +283,8 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     const needs_temp = producesBlockExpression(obj);
 
     // Generate unique label for block
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Generate block that builds list of tuples
     // Wrap in parentheses to prevent "label:" from being parsed as named argument
@@ -379,8 +380,8 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 
     const default_val = if (args.len >= 2) args[1] else null;
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Generate block: { const val = dict.fetchSwapRemove(key); if (val) |v| v.value else default/error }
     try self.output.writer(self.allocator).print("(dpop_{d}: {{\n", .{label_id});
@@ -425,8 +426,8 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Generate block that iterates and updates
     try self.output.writer(self.allocator).print("(dupdate_{d}: {{\n", .{label_id});
@@ -501,8 +502,8 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Generate block that clones the dict
     try self.output.writer(self.allocator).print("(dcopy_{d}: {{\n", .{label_id});
@@ -565,8 +566,8 @@ pub fn genSetdefault(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Generate block: if dict.get(key) return it, else put default and return
     try self.output.writer(self.allocator).print("(dsetdef_{d}: {{\n", .{label_id});
@@ -622,8 +623,8 @@ pub fn genPopitem(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Generate block that pops arbitrary item
     try self.output.writer(self.allocator).print("(dpopitem_{d}: {{\n", .{label_id});

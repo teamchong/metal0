@@ -4,6 +4,7 @@ const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
+const expr_emitter = @import("expr_emitter.zig");
 
 const prng = "var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); const _r = _prng.random(); ";
 const randintBody = "); " ++ prng ++ "break :blk a + @as(i64, @intCast(_r.int(u64) % @as(u64, @intCast(b - a + 1)))); }";
@@ -48,8 +49,8 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 pub fn genRandrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
     // Use unique label and variable names to avoid shadowing outer scope variables
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // Check if any argument might produce BigInt (e.g., bit shift operations with large values)
     const is_bigint = blk: {

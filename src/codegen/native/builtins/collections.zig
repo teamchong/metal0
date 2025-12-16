@@ -7,6 +7,7 @@ const producesBlockExpression = @import("../expressions.zig").producesBlockExpre
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const expr_emitter = @import("../expr_emitter.zig");
 
 /// String method codegen patterns for map(str.method, items)
 const StrMethodPatterns = std.StaticStringMap([]const u8).initComptime(.{
@@ -126,10 +127,10 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Generate block that creates list of tuples
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
-    try self.output.writer(self.allocator).print("zip_{d}: {{\n", .{label_id});
+    try self.emitFmt("zip_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Store each iterable with runtime.iterSlice for universal handling
@@ -337,8 +338,8 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // }
 
     // Use unique label to avoid conflicts with outer blocks
-    const any_label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const any_label_id = em.reserveLabelId();
 
     // Check if argument is a list/tuple literal (fixed array) or genexp/listcomp (ArrayList)
     const is_list_literal = (args[0] == .list or args[0] == .tuple);

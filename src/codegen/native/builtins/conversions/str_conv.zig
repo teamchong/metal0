@@ -6,6 +6,7 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
+const expr_emitter = @import("../../expr_emitter.zig");
 
 /// Generate code for str(obj) or str(bytes, encoding)
 /// Converts to string representation
@@ -53,8 +54,8 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     } else false;
 
-    const str_label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const str_label_id = em.reserveLabelId();
 
     if (arg_type == .bigint) {
         // BigInt needs special formatting via toDecimalString
@@ -196,8 +197,8 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (type_traits.isIntegral(arg_type)) {
         // bytes(n) creates a bytes object of n null bytes
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-        const bytes_label_id = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em = self.exprEmitter();
+        const bytes_label_id = em.reserveLabelId();
         try self.emitFmt("bytes_{d}: {{\n", .{bytes_label_id});
         try self.emitFmt("const _len: usize = @intCast(", .{});
         try self.genExpr(args[0]);
@@ -250,8 +251,8 @@ pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (type_traits.isIntegral(arg_type)) {
         // bytearray(n) creates a bytearray of n null bytes
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-        const bytearray_label_id = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em = self.exprEmitter();
+        const bytearray_label_id = em.reserveLabelId();
         try self.emitFmt("bytearray_{d}: {{\n", .{bytearray_label_id});
         try self.emitFmt("const _len: usize = @intCast(", .{});
         try self.genExpr(args[0]);
@@ -306,8 +307,8 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For strings, wrap with quotes: "'string'"
     if (string_traits.isString(arg_type)) {
-        const repr_label_id = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em = self.exprEmitter();
+        const repr_label_id = em.reserveLabelId();
         try self.emitFmt("repr_{d}: {{\n", .{repr_label_id});
         try self.emitFmt("var __repr_buf_{d} = std.ArrayList(u8){{}};\n", .{repr_label_id});
         try self.emitFmt("try __repr_buf_{d}.appendSlice({s}, \"'\");\n", .{ repr_label_id, alloc_name });
@@ -375,8 +376,8 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For bigint, use toDecimalString method
     if (arg_type == .bigint) {
-        const repr_num_label_id = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em = self.exprEmitter();
+        const repr_num_label_id = em.reserveLabelId();
         try self.emitFmt("repr_num_{d}: {{\n", .{repr_num_label_id});
         try self.emitFmt("var __repr_num_buf_{d} = std.ArrayListUnmanaged(u8){{}};\n", .{repr_num_label_id});
         try self.emitFmt("try __repr_num_buf_{d}.appendSlice({s}, try (", .{ repr_num_label_id, alloc_name });

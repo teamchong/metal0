@@ -7,6 +7,7 @@ const producesBlockExpression = @import("../../expressions.zig").producesBlockEx
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
+const expr_emitter = @import("../../expr_emitter.zig");
 
 /// Generate code for len(obj)
 /// Works with: strings, lists, dicts, tuples
@@ -113,9 +114,10 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("@as(i64, @intCast(");
 
     // Wrap block expressions in temp variable with unique label
-    const len_label_id = self.block_label_counter;
+    var em = self.exprEmitter();
+    const len_label_id = em.peekLabelId();
     if (needs_wrap) {
-        self.block_label_counter += 1;
+        _ = em.reserveLabelId();
         try self.emitFmt("len_{d}: {{ const __obj = ", .{len_label_id});
         try self.genExpr(args[0]);
         try self.emitFmt("; break :len_{d} ", .{len_label_id});

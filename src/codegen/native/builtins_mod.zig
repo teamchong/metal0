@@ -7,6 +7,7 @@ const NativeCodegen = h.NativeCodegen;
 const collections = @import("builtins/collections.zig");
 const builtins = @import("builtins.zig");
 const expressions = @import("expressions.zig");
+const expr_emitter = @import("expr_emitter.zig");
 
 // Comptime generators
 fn genFmt(comptime prefix: []const u8, comptime fmt: []const u8, comptime default: []const u8) h.H {
@@ -127,7 +128,7 @@ pub fn genSuper(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             return;
         }
     }
-    const id = self.block_label_counter;
-    self.block_label_counter += 1;
-    try self.output.writer(self.allocator).print("super_{d}: {{ break :super_{d} .{{}}; }}", .{ id, id });
+    var em = self.exprEmitter();
+    const id = em.reserveLabelId();
+    try self.emitFmt("super_{d}: {{ break :super_{d} .{{}}; }}", .{ id, id });
 }

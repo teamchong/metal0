@@ -7,6 +7,7 @@ const zig_keywords = @import("utils.zig_keywords");
 const param_analyzer = @import("../../functions/param_analyzer.zig");
 const for_basic = @import("for_basic.zig");
 const container_traits = @import("../../../../../analysis/traits/container_traits.zig");
+const expr_emitter = @import("../../../expr_emitter.zig");
 
 /// Generate enumerate loop
 pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []ast.Node) CodegenError!void {
@@ -129,8 +130,9 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
 
     // Check if loop variable shadows an imported module
     const shadows_import = self.imported_modules.contains(item_var);
-    const enum_unique_capture_id = self.block_label_counter;
-    if (shadows_import and item_var_used) self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const enum_unique_capture_id = em.peekLabelId();
+    if (shadows_import and item_var_used) _ = em.reserveLabelId();
 
     try self.emit(") |");
     if (!item_var_used) {

@@ -8,6 +8,7 @@ const container_traits = @import("../../../../analysis/traits/container_traits.z
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
+const expr_emitter = @import("../../expr_emitter.zig");
 
 /// Get the appropriate NativeList append method for a given type
 /// This avoids anytype monomorphization by using typed append methods
@@ -53,8 +54,8 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("runtime.NativeList.init()");
             return;
         }
-        const list_label = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em = self.exprEmitter();
+        const list_label = em.reserveLabelId();
         try self.emitFmt("list_tup_blk_{d}: {{\n", .{list_label});
         try self.emit("var _list = runtime.NativeList.init();\n");
         for (tup.elts) |elt| {
@@ -76,8 +77,8 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const func_name = args[0].call.func.name.id;
         if (std.mem.eql(u8, func_name, "range")) {
             const range_args = args[0].call.args;
-            const list_label = self.block_label_counter;
-            self.block_label_counter += 1;
+            var em_range = self.exprEmitter();
+            const list_label = em_range.reserveLabelId();
             try self.emitFmt("list_range_blk_{d}: {{\n", .{list_label});
             // Use ArrayListUnmanaged(i64) directly - matches print and other list operations
             try self.emit("var _list = std.ArrayListUnmanaged(i64){};\n");
@@ -156,8 +157,8 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             return;
         }
         // Generate inline NativeList initialization with string characters
-        const list_str_label = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em_str = self.exprEmitter();
+        const list_str_label = em_str.reserveLabelId();
         try self.emitFmt("list_str_blk_{d}: {{\n", .{list_str_label});
         try self.emit("var _list = runtime.NativeList.init();\n");
         // Iterate through UTF-8 characters
@@ -226,8 +227,8 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Fast path: dict type - iterate keys using NativeList
     if (container_traits.isDict(arg_type) or is_dict_attr) {
-        const list_label = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em_dict = self.exprEmitter();
+        const list_label = em_dict.reserveLabelId();
         try self.emitFmt("list_blk_{d}: {{\n", .{list_label});
         if (is_dict_attr) {
             try self.emit("const _dict = @constCast(&");
@@ -250,8 +251,8 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Fast path: array/slice type with known element type using NativeList
     const elem_type = container_traits.getElementType(arg_type);
     if (elem_type != .unknown) {
-        const list_label = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em_elem = self.exprEmitter();
+        const list_label = em_elem.reserveLabelId();
         try self.emitFmt("list_blk_{d}: {{\n", .{list_label});
         try self.emit("const _iterable = ");
         try self.genExpr(args[0]);
@@ -372,8 +373,8 @@ pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For name references to iterators, exhaust them by calling next until done
     // This produces a runtime tuple and properly exhausts stateful iterators
     if (args[0] == .name) {
-        const label = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em_iter = self.exprEmitter();
+        const label = em_iter.reserveLabelId();
         // Generate a block that exhausts the iterator
         // For StringIterator and similar, we iterate until next() returns null
         try self.output.writer(self.allocator).print("tup_{d}: {{\n", .{label});
@@ -476,8 +477,8 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (is_feature_macros) {
         // Generate set from FeatureMacros.keys()
-        const set_label_1 = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em_feat = self.exprEmitter();
+        const set_label_1 = em_feat.reserveLabelId();
         try self.emitFmt("set_blk_{d}: {{\n", .{set_label_1});
         try self.emitFmt("var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
         try self.emit("for (runtime.FeatureMacros.keys()) |_item| {\n");
@@ -494,8 +495,8 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Note: PyValue doesn't support set directly, so for PyValue.list
     // we can iterate and build a set from the elements.
     if (arg_type == .pyvalue) {
-        const set_label = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em_pyval = self.exprEmitter();
+        const set_label = em_pyval.reserveLabelId();
         // PyValue.list is *ArrayListUnmanaged(PyValue) - iterate items and build set
         try self.emitFmt("set_pyval_{d}: {{\n", .{set_label});
         try self.emit("const __pyval_iter = ");
@@ -543,8 +544,8 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Check if arg produces a block expression that needs to be stored in temp variable
     const needs_temp = producesBlockExpression(args[0]);
 
-    const set_label_2 = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em_set = self.exprEmitter();
+    const set_label_2 = em_set.reserveLabelId();
     try self.emitFmt("set_blk_{d}: {{\n", .{set_label_2});
 
     if (needs_temp) {

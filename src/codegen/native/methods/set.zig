@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
+const expr_emitter = @import("../expr_emitter.zig");
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 
 /// Check if a set expression is uncertain (needs PyValue operations)
@@ -169,8 +170,8 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 /// Returns shallow copy of set
 pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     // Generate a block that creates new set and copies elements
     try self.output.writer(self.allocator).print("(scopy_{d}: {{\n", .{label_id});
     self.indent_level += 1;
@@ -214,8 +215,8 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.output.writer(self.allocator).print("(supdate_{d}: {{\n", .{label_id});
     self.indent_level += 1;
@@ -260,8 +261,8 @@ pub fn genUnion(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.output.writer(self.allocator).print("(sunion_{d}: {{\n", .{label_id});
     self.indent_level += 1;
@@ -324,8 +325,8 @@ pub fn genIntersection(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.output.writer(self.allocator).print("(sinter_{d}: {{\n", .{label_id});
     self.indent_level += 1;
@@ -384,8 +385,8 @@ pub fn genDifference(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.output.writer(self.allocator).print("(sdiff_{d}: {{\n", .{label_id});
     self.indent_level += 1;
@@ -442,8 +443,8 @@ pub fn genSymmetricDifference(self: *NativeCodegen, obj: ast.Node, args: []ast.N
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.output.writer(self.allocator).print("(ssymdiff_{d}: {{\n", .{label_id});
     self.indent_level += 1;
@@ -503,8 +504,8 @@ pub fn genIssubset(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.output.writer(self.allocator).print("(sissubset_{d}: {{\n", .{label_id});
     self.indent_level += 1;
@@ -546,8 +547,8 @@ pub fn genIssuperset(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.output.writer(self.allocator).print("(sissuperset_{d}: {{\n", .{label_id});
     self.indent_level += 1;
@@ -588,8 +589,8 @@ pub fn genIsdisjoint(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.output.writer(self.allocator).print("(sisdisjoint_{d}: {{\n", .{label_id});
     self.indent_level += 1;
@@ -633,8 +634,8 @@ pub fn genIntersectionUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.No
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.output.writer(self.allocator).print("(sinterupd_{d}: {{\n", .{label_id});
     self.indent_level += 1;
@@ -697,8 +698,8 @@ pub fn genDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.output.writer(self.allocator).print("(sdiffupd_{d}: {{\n", .{label_id});
     self.indent_level += 1;
@@ -742,8 +743,8 @@ pub fn genSymmetricDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: [
         return;
     }
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.output.writer(self.allocator).print("(ssymdiffupd_{d}: {{\n", .{label_id});
     self.indent_level += 1;

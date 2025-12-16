@@ -10,6 +10,7 @@ const mutation_analyzer = @import("../../../analysis/native_types/mutation_analy
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const expr_emitter = @import("../expr_emitter.zig");
 
 /// Key type inference result
 const KeyTypeResult = enum { int, string, unknown };
@@ -434,9 +435,9 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     }
 
     // Use unique label to avoid conflicts with nested dict literals
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
-    try self.output.writer(self.allocator).print("dict_blk_{d}: {{\n", .{label_id});
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
+    try self.emitFmt("dict_blk_{d}: {{\n", .{label_id});
     self.indent();
     try self.emitIndent();
     if (uses_int_keys) {
@@ -548,8 +549,8 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     }
 
     try self.emitIndent();
-    // Use the label_id that was captured at the start of this function
-    try self.output.writer(self.allocator).print("break :dict_blk_{d} map;\n", .{label_id});
+    // Use the label_id from ExprEmitter
+    try self.emitFmt("break :dict_blk_{d} map;\n", .{label_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

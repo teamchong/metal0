@@ -15,6 +15,7 @@ const collections = @import("../collections.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const expr_emitter = @import("../../expr_emitter.zig");
 
 /// Check if expression is a string constant (NOT bytes)
 fn isStringConstant(expr: ast.Node) bool {
@@ -259,17 +260,17 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
                 if (is_literal) {
                     // Wrap the whole thing in a block
-                    const list_check_id = self.block_label_counter;
-                    self.block_label_counter += 1;
-                    try self.output.writer(self.allocator).print("(in_{d}: {{ const __list = ", .{list_check_id});
-                    try genExpr(self, compare.comparators[i]); // list literal
+                    var em = self.exprEmitter();
+                    var blk = try em.labeledBlock("in", "__list", compare.comparators[i]);
+                    try blk.startBreak();
                     if (op == .In) {
-                        try self.output.writer(self.allocator).print("; break :in_{d} runtime.pyContains({s}, __list.items, ", .{ list_check_id, type_str });
+                        try blk.emitFmt("runtime.pyContains({s}, __list.items, ", .{type_str});
                     } else {
-                        try self.output.writer(self.allocator).print("; break :in_{d} !runtime.pyContains({s}, __list.items, ", .{ list_check_id, type_str });
+                        try blk.emitFmt("!runtime.pyContains({s}, __list.items, ", .{type_str});
                     }
                     try genExpr(self, current_left); // item to search for
-                    try self.emit("); })");
+                    try self.emit(")");
+                    try blk.close();
                 } else {
                     // For variables, .items access needed for ArrayList, but not for arrays
                     if (op == .In) {
@@ -386,38 +387,30 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         try self.emit(")");
                     } else {
                         // Generate inline block expression that loops through array
-                        // Use unique label to avoid collisions with nested expressions
-                        const in_label_id = self.block_label_counter;
-                        self.block_label_counter += 1;
-                        try self.output.writer(self.allocator).print("(in_{d}: {{\n", .{in_label_id});
-                        try self.emit("for (");
+                        var em = self.exprEmitter();
+                        var blk = try em.labeledBlockRaw("in");
+                        try blk.emit("for (");
                         try genExpr(self, compare.comparators[i]); // array
-                        try self.emit(") |__item| {\n");
-                        try self.emit("if (std.mem.eql(u8, __item, ");
+                        try blk.emit(") |__item| { if (std.mem.eql(u8, __item, ");
                         try genExpr(self, current_left); // search string
-                        try self.output.writer(self.allocator).print(")) break :in_{d} true;\n", .{in_label_id});
-                        try self.emit("}\n");
-                        try self.output.writer(self.allocator).print("break :in_{d} false;\n", .{in_label_id});
-                        try self.emit("})");
+                        try blk.emitFmt(")) break :{s}_{d} true; }} ", .{ blk.getPrefix(), blk.getLabelId() });
+                        try blk.breakWith("false");
+                        try blk.close();
                     }
                 } else {
                     // Integer and float arrays use indexOfScalar
-                    // Use std.meta.Elem to get element type - works for both arrays and slices
-                    // Use unique label to avoid collisions with nested expressions
-                    const in_label_id = self.block_label_counter;
-                    self.block_label_counter += 1;
-
                     // Use container_dispatch helpers to avoid monomorphization explosion
-                    // Compiles ONCE per container type, not per 'in' expression
-                    try self.output.writer(self.allocator).print("in_{d}: {{ const __arr = ", .{in_label_id});
-                    try genExpr(self, compare.comparators[i]); // array/container
-                    try self.emit("; const __val = ");
+                    var em = self.exprEmitter();
+                    var blk = try em.labeledBlock("in", "__arr", compare.comparators[i]);
+                    try blk.emit("const __val = ");
                     try genExpr(self, current_left); // item to search for
+                    try blk.emit("; ");
                     if (op == .In) {
-                        try self.output.writer(self.allocator).print("; break :in_{d} runtime.container_dispatch.contains(@TypeOf(__arr), __arr, __val); }}", .{in_label_id});
+                        try blk.breakWith("runtime.container_dispatch.contains(@TypeOf(__arr), __arr, __val)");
                     } else {
-                        try self.output.writer(self.allocator).print("; break :in_{d} runtime.container_dispatch.notContains(@TypeOf(__arr), __arr, __val); }}", .{in_label_id});
+                        try blk.breakWith("runtime.container_dispatch.notContains(@TypeOf(__arr), __arr, __val)");
                     }
+                    try blk.close();
                 }
             }
         }
@@ -629,40 +622,37 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 const right_is_alias = if (compare.comparators[i] == .name) self.isArrayListAlias(compare.comparators[i].name.id) else false;
 
                 // Use a block to handle potential type mismatches at comptime
-                const block_id = self.block_label_counter;
-                self.block_label_counter += 1;
-                try self.output.writer(self.allocator).print("(is_blk_{d}: {{\n", .{block_id});
-                try self.emit("const __is_left = ");
+                var em = self.exprEmitter();
+                var blk = try em.labeledBlockRaw("is_blk");
+                try blk.emit("const __is_left = ");
                 if (left_is_alias) {
                     try genExpr(self, current_left);
                 } else {
                     try self.emit("&");
                     try genExpr(self, current_left);
                 }
-                try self.emit(";\n");
-                try self.emit("const __is_right = ");
+                try blk.emit("; const __is_right = ");
                 if (right_is_alias) {
                     try genExpr(self, compare.comparators[i]);
                 } else {
                     try self.emit("&");
                     try genExpr(self, compare.comparators[i]);
                 }
-                try self.emit(";\n");
                 // Type check at comptime - different types means different identity
-                try self.emit("if (@TypeOf(__is_left) != @TypeOf(__is_right)) {\n");
+                try blk.emit("; if (@TypeOf(__is_left) != @TypeOf(__is_right)) { ");
                 if (op == .Is) {
-                    try self.output.writer(self.allocator).print("break :is_blk_{d} false;\n", .{block_id});
+                    try blk.breakWith("false");
                 } else {
-                    try self.output.writer(self.allocator).print("break :is_blk_{d} true;\n", .{block_id});
+                    try blk.breakWith("true");
                 }
-                try self.emit("}\n");
+                try blk.emit("; } ");
                 // Same type - compare pointers
                 if (op == .Is) {
-                    try self.output.writer(self.allocator).print("break :is_blk_{d} __is_left == __is_right;\n", .{block_id});
+                    try blk.breakWith("__is_left == __is_right");
                 } else {
-                    try self.output.writer(self.allocator).print("break :is_blk_{d} __is_left != __is_right;\n", .{block_id});
+                    try blk.breakWith("__is_left != __is_right");
                 }
-                try self.emit("})");
+                try blk.close();
             } else {
                 // Check if either side is a tuple (struct types don't support ==)
                 const left_is_tuple = (container_traits.isTuple(current_left_type) or current_left == .tuple);
@@ -737,45 +727,39 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         {
             // For sets, compare count and all keys match
             // This is a simplified comparison - full Python would check symmetric difference
-            const set_label = self.block_label_counter;
-            self.block_label_counter += 1;
-
             if (op == .NotEq) {
                 try self.emit("!");
             }
-            try self.output.writer(self.allocator).print("set_cmp_{d}: {{ const __s1 = (", .{set_label});
-            try genExpr(self, current_left);
-            try self.emit("); const __s2 = (");
+            var em = self.exprEmitter();
+            var blk = try em.labeledBlock("set_cmp", "__s1", current_left);
+            try blk.emit("const __s2 = (");
             try genExpr(self, compare.comparators[i]);
-            try self.emit("); if (__s1.count() != __s2.count()) break :set_cmp_");
-            try self.output.writer(self.allocator).print("{d} false; ", .{set_label});
-            try self.emit("var __all_match = true; var __it = __s1.iterator(); ");
-            try self.emit("while (__it.next()) |entry| { if (!__s2.contains(entry.key_ptr.*)) { __all_match = false; break; } } ");
-            try self.output.writer(self.allocator).print("break :set_cmp_{d} __all_match; }}", .{set_label});
+            try blk.emitFmt("); if (__s1.count() != __s2.count()) break :{s}_{d} false; ", .{ blk.getPrefix(), blk.getLabelId() });
+            try blk.emit("var __all_match = true; var __it = __s1.iterator(); ");
+            try blk.emit("while (__it.next()) |entry| { if (!__s2.contains(entry.key_ptr.*)) { __all_match = false; break; } } ");
+            try blk.breakWith("__all_match");
+            try blk.close();
         }
         // Handle dict comparisons (HashMaps don't support ==)
         else if ((container_traits.isDict(current_left_type) or current_left == .dict) and
             (container_traits.isDict(right_type) or compare.comparators[i] == .dict))
         {
             // For dicts, compare count, all keys match, and all values equal
-            const dict_label = self.block_label_counter;
-            self.block_label_counter += 1;
-
             if (op == .NotEq) {
                 try self.emit("!");
             }
-            try self.output.writer(self.allocator).print("dict_cmp_{d}: {{ const __d1 = (", .{dict_label});
-            try genExpr(self, current_left);
-            try self.emit("); const __d2 = (");
+            var em = self.exprEmitter();
+            var blk = try em.labeledBlock("dict_cmp", "__d1", current_left);
+            try blk.emit("const __d2 = (");
             try genExpr(self, compare.comparators[i]);
-            try self.emit("); if (__d1.count() != __d2.count()) break :dict_cmp_");
-            try self.output.writer(self.allocator).print("{d} false; ", .{dict_label});
-            try self.emit("var __all_match = true; var __it = __d1.iterator(); ");
-            try self.emit("while (__it.next()) |entry| { ");
-            try self.emit("if (__d2.get(entry.key_ptr.*)) |v2| { if (!std.meta.eql(entry.value_ptr.*, v2)) { __all_match = false; break; } } ");
-            try self.emit("else { __all_match = false; break; } ");
-            try self.emit("} ");
-            try self.output.writer(self.allocator).print("break :dict_cmp_{d} __all_match; }}", .{dict_label});
+            try blk.emitFmt("); if (__d1.count() != __d2.count()) break :{s}_{d} false; ", .{ blk.getPrefix(), blk.getLabelId() });
+            try blk.emit("var __all_match = true; var __it = __d1.iterator(); ");
+            try blk.emit("while (__it.next()) |entry| { ");
+            try blk.emit("if (__d2.get(entry.key_ptr.*)) |v2| { if (!std.meta.eql(entry.value_ptr.*, v2)) { __all_match = false; break; } } ");
+            try blk.emit("else { __all_match = false; break; } ");
+            try blk.emit("} ");
+            try blk.breakWith("__all_match");
+            try blk.close();
         }
         // Handle list comparisons (ArrayList structs don't support ==)
         // Also handles cross-type comparison: ArrayList (.list) vs fixed array (.array) literal

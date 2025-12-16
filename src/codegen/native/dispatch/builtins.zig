@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
+const expr_emitter = @import("../expr_emitter.zig");
 
 const builtins = @import("../builtins.zig");
 const builtins_mod = @import("../builtins_mod.zig");
@@ -387,8 +388,8 @@ pub fn tryDispatchByName(self: *NativeCodegen, func_name: []const u8, args: []as
 /// This is used when dict() is called with keyword args instead of an iterable
 fn genDictFromKwargs(self: *NativeCodegen, kwargs: []const ast.Node.KeywordArg) CodegenError!void {
     // Generate a labeled block that creates and populates a StringHashMap
-    const id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const id = em.reserveLabelId();
 
     try self.emitFmt("dict_{d}: {{\n", .{id});
     self.indent();
@@ -431,8 +432,8 @@ fn genSortedWithKwargs(self: *NativeCodegen, args: []ast.Node, kwargs: []const a
     }
 
     const alloc_name = "__global_allocator";
-    const id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const id = em.reserveLabelId();
 
     try self.emitFmt("sorted_{d}: {{\n", .{id});
 

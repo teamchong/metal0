@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 pub const CodegenError = @import("main.zig").CodegenError;
 pub const NativeCodegen = @import("main.zig").NativeCodegen;
+const expr_emitter = @import("expr_emitter.zig");
 
 /// Module handler function pointer type
 pub const H = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -188,8 +189,8 @@ pub fn codecResult(comptime d: []const u8) H {
 
 /// Emit a unique labeled block start and return the label ID for break
 pub fn emitUniqueBlockStart(self: *NativeCodegen, prefix: []const u8) CodegenError!u64 {
-    const id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const id = em.reserveLabelId();
     try self.emitFmt("{s}_{d}: {{ ", .{ prefix, id });
     return id;
 }

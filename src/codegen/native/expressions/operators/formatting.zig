@@ -7,6 +7,7 @@ const CodegenError = @import("../../main.zig").CodegenError;
 const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const expr_emitter = @import("../../expr_emitter.zig");
 
 /// Parse a Python format specifier like "%.0f", "%5.2f", "%d"
 /// Returns the format type char and the number of characters consumed
@@ -72,8 +73,8 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
         null;
 
     // For simple cases like "%d" % n where n is potentially BigInt, use comptime-aware formatting
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     // If format string is a variable (not literal), use runtime formatting
     // This must be checked BEFORE creating the buffer/writer

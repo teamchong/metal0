@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
+const expr_emitter = @import("../expr_emitter.zig");
 
 // Import submodules
 const validation = @import("string/validation.zig");
@@ -460,8 +461,8 @@ pub fn genEncode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // and avoid "pointless discard of local constant" when arg is already a variable
     if (args.len > 0) {
         // Generate: encode_blk: { runtime.discard(encoding_arg); break :encode_blk text; }
-        const id = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
         try self.emitFmt("encode_{d}: {{ runtime.discard(", .{id});
         try self.genExpr(args[0]);
         try self.emitFmt("); break :encode_{d} ", .{id});
@@ -479,8 +480,8 @@ pub fn genDecode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // The encoding argument is consumed via runtime.discard to prevent "unused" errors
     if (args.len > 0) {
         // Generate: decode_blk: { runtime.discard(encoding_arg); break :decode_blk bytes; }
-        const id = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
         try self.emitFmt("decode_{d}: {{ runtime.discard(", .{id});
         try self.genExpr(args[0]);
         try self.emitFmt("); break :decode_{d} ", .{id});
@@ -540,8 +541,8 @@ pub fn genPartition(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
     // str.partition() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     try self.emitFmt("partition_{d}: {{\n", .{label_id});
     try self.emit("    const _text = ");
     try self.genExpr(obj);
@@ -563,8 +564,8 @@ pub fn genRpartition(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     // str.rpartition() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     try self.emitFmt("rpartition_{d}: {{\n", .{label_id});
     try self.emit("    const _text = ");
     try self.genExpr(obj);
@@ -586,8 +587,8 @@ pub fn genRemoveprefix(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     // str.removeprefix() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     try self.emitFmt("removeprefix_{d}: {{\n", .{label_id});
     try self.emit("    const _text = ");
     try self.genExpr(obj);
@@ -609,8 +610,8 @@ pub fn genRemovesuffix(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     // str.removesuffix() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     try self.emitFmt("removesuffix_{d}: {{\n", .{label_id});
     try self.emit("    const _text = ");
     try self.genExpr(obj);
@@ -629,8 +630,8 @@ pub fn genRemovesuffix(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 /// Generate code for text.rsplit([sep[, maxsplit]])
 /// Like split but starts from the right
 pub fn genRsplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     try self.emitFmt("rsplit_{d}: {{\n", .{label_id});
     try self.emit("    const _text = ");
     try self.genExpr(obj);
@@ -678,8 +679,8 @@ pub fn genRsplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 pub fn genCasefold(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     try self.emitFmt("casefold_{d}: {{\n", .{label_id});
     try self.emit("    const _text = ");
     try self.genExpr(obj);
@@ -695,8 +696,8 @@ pub fn genCasefold(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
 /// Generate code for text.format(*args, **kwargs)
 /// Python new-style string formatting: "Hello {name}".format(name="World")
 pub fn genFormat(self: *NativeCodegen, obj: ast.Node, args: []ast.Node, keywords: []ast.Node.KeywordArg) CodegenError!void {
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
 
     try self.emitFmt("format_{d}: {{\n", .{label_id});
     try self.emit("break :format_");

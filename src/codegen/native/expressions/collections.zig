@@ -10,6 +10,7 @@ const native_types = @import("../../../analysis/native_types.zig");
 const NativeType = native_types.NativeType;
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const expr_emitter = @import("../expr_emitter.zig");
 
 // Re-export dict generation from dict.zig
 const dict = @import("dict.zig");
@@ -258,9 +259,9 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 
 /// Generate comptime-optimized list literal
 fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
-    // Generate unique block label using block_label_counter (not pointer addresses)
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    // Generate unique block label using ExprEmitter
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     const label = try std.fmt.allocPrint(self.allocator, "__list_blk_{d}", .{label_id});
     defer self.allocator.free(label);
     const list_var = try std.fmt.allocPrint(self.allocator, "__list_{d}", .{label_id});
@@ -351,9 +352,9 @@ fn widenTupleTypes(allocator: std.mem.Allocator, t1: NativeType, t2: NativeType)
 
 /// Generate runtime list literal (fallback path)
 fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
-    // Generate unique block label using block_label_counter (not pointer addresses)
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    // Generate unique block label using ExprEmitter
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     const runtime_label = try std.fmt.allocPrint(self.allocator, "__list_rt_{d}", .{label_id});
     defer self.allocator.free(runtime_label);
     const list_var = try std.fmt.allocPrint(self.allocator, "__list_var_{d}", .{label_id});
@@ -425,9 +426,9 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
         return;
     }
 
-    // Generate unique block label using block_label_counter (not pointer addresses)
-    const label_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    // Generate unique block label using ExprEmitter
+    var em = self.exprEmitter();
+    const label_id = em.reserveLabelId();
     const label = try std.fmt.allocPrint(self.allocator, "__set_blk_{d}", .{label_id});
     defer self.allocator.free(label);
 

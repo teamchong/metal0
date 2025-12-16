@@ -7,6 +7,7 @@ const CodegenError = @import("../../main.zig").CodegenError;
 const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+const expr_emitter = @import("../../expr_emitter.zig");
 
 /// Generate boolean operations (and, or)
 /// Python's and/or return the actual values, not booleans:
@@ -78,16 +79,11 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
         }
 
         // Use unique label to avoid redefinition with nested boolean ops
-        const label_id = self.block_label_counter;
-        self.block_label_counter += 1;
-
-        try self.emitFmt("boolop_{d}: {{\n", .{label_id});
-        try self.emit("const _a = ");
-        try genExpr(self, a);
-        try self.emit(";\n");
-        try self.emit("const _b = ");
+        var em = self.exprEmitter();
+        var blk = try em.labeledBlock("boolop", "_a", a);
+        try blk.emit("const _b = ");
         try genExpr(self, b);
-        try self.emit(";\n");
+        try blk.emit("; ");
 
         // Generate type-appropriate truthiness check
         // Note: string is a tagged union with payload StringKind, so we check the tag
@@ -105,12 +101,12 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
 
         if (boolop.op == .Or) {
             // "a or b": return a if truthy, else b
-            try self.emitFmt("break :boolop_{d} if ({s}) _a else _b;\n", .{ label_id, truthy_check });
+            try blk.emitFmt("break :{s}_{d} if ({s}) _a else _b", .{ blk.getPrefix(), blk.getLabelId(), truthy_check });
         } else {
             // "a and b": return a if falsy, else b
-            try self.emitFmt("break :boolop_{d} if (!({s})) _a else _b;\n", .{ label_id, truthy_check });
+            try blk.emitFmt("break :{s}_{d} if (!({s})) _a else _b", .{ blk.getPrefix(), blk.getLabelId(), truthy_check });
         }
-        try self.emit("}");
+        try blk.close();
         return;
     }
 

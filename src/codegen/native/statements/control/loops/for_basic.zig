@@ -12,6 +12,7 @@ const triggerDeferredClosureInstantiations = @import("../../assign.zig").trigger
 const string_traits = @import("../../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../../../analysis/traits/type_traits.zig");
+const expr_emitter = @import("../../../expr_emitter.zig");
 
 /// Check if an expression is a lazy class attribute access (self.ATTR where ATTR is lazy)
 /// Returns the attribute name if it is, null otherwise
@@ -424,9 +425,10 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     // If so, we need to wrap in a block to capture the runtime value first
     const lazy_attr_name = isLazyClassAttrAccess(self, iter);
     const needs_lazy_wrapper = lazy_attr_name != null;
-    const lazy_iter_id = self.block_label_counter;
+    var em_lazy = self.exprEmitter();
+    const lazy_iter_id = em_lazy.peekLabelId();
     if (needs_lazy_wrapper) {
-        self.block_label_counter += 1;
+        _ = em_lazy.reserveLabelId();
         try self.emitIndent();
         try self.emit("{\n");
         self.indent();
@@ -1098,8 +1100,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Convert to index-based iteration that yields single-char slices
     if (string_traits.isString(iter_type)) {
         // Generate: { const __str = <expr>; for (0..__str.len) |__i| { const c = __str[__i..][0..1]; ... } }
-        const label_id = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em_str = self.exprEmitter();
+        const label_id = em_str.reserveLabelId();
 
         try self.emit("{\n");
         self.indent();
@@ -1158,8 +1160,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // For iteration, extract items from the ArrayList pointer
     if (iter_type == .pyvalue) {
         // Generate: for (iter.list.items) |item| { ... } or runtime dispatch
-        const label_id = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em_pyval = self.exprEmitter();
+        const label_id = em_pyval.reserveLabelId();
 
         try self.emit("{\n");
         self.indent();
@@ -1177,8 +1179,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Check if loop variable would shadow an outer scope variable
         const shadows_outer_pyval = self.isDeclared(var_name) or self.hoisted_vars.contains(var_name) or
             self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
-        const unique_capture_id_pyval = self.block_label_counter;
-        if (shadows_outer_pyval) self.block_label_counter += 1;
+        const unique_capture_id_pyval = em_pyval.peekLabelId();
+        if (shadows_outer_pyval) _ = em_pyval.reserveLabelId();
 
         try self.emitIndent();
         try self.output.writer(self.allocator).print("for (__pyval_items_{d}) |", .{label_id});
@@ -1299,8 +1301,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     if (type_traits.isUnknown(iter_type) or iter_type == .pyvalue) {
         // Generate: var __i: usize = 0; const __len = runtime.PyList.len(iter);
         //           while (__i < __len) : (__i += 1) { const var = try runtime.PyList.getItem(iter, __i); ... }
-        const label_id = self.block_label_counter;
-        self.block_label_counter += 1;
+        var em_pylist = self.exprEmitter();
+        const label_id = em_pylist.reserveLabelId();
 
         try self.emit("{\n");
         self.indent();
@@ -1496,8 +1498,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Use raw name for hoisted_vars check (scope_analyzer uses raw names)
     const raw_var_name = for_stmt.target.name.id;
     const shadows_outer = self.isDeclared(raw_var_name) or self.hoisted_vars.contains(raw_var_name) or self.imported_modules.contains(raw_var_name);
-    const unique_capture_id = self.block_label_counter;
-    if (shadows_outer) self.block_label_counter += 1;
+    var em_capture = self.exprEmitter();
+    const unique_capture_id = em_capture.peekLabelId();
+    if (shadows_outer) _ = em_capture.reserveLabelId();
 
     try self.emit(") |");
     if (!var_used) {
@@ -1807,8 +1810,8 @@ fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     const var_name = sanitizeVarName(for_stmt.target.name.id);
 
     // Generate unique ID for this async loop
-    const loop_id = self.block_label_counter;
-    self.block_label_counter += 1;
+    var em_async = self.exprEmitter();
+    const loop_id = em_async.reserveLabelId();
 
     // Emit: { const __aiter_N = <iter>.__aiter__();
     try self.emitIndent();
