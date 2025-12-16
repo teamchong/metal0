@@ -92,8 +92,11 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
     const emitLeftOperand = struct {
         fn emit(s: *NativeCodegen, ltype: NativeType, left: *const ast.Node, aname: []const u8) CodegenError!void {
             if (ltype == .bigint) {
-                // Already BigInt - no wrapping needed, line 161 provides outer parens
+                // Already BigInt - wrap in parens to ensure catch precedence is correct
+                // e.g., (result_of_pow).sub() not result_of_pow catch @panic.sub()
+                try s.emit("(");
                 try genExpr(s, left.*);
+                try s.emit(")");
             } else if (ltype == .int) {
                 // Check if unbounded (could be i128) vs bounded (i64)
                 if (ltype.int.needsBigInt()) {
@@ -130,9 +133,10 @@ fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Native
     const emitRightOperand = struct {
         fn emit(s: *NativeCodegen, rtype: NativeType, right: *const ast.Node, aname: []const u8) CodegenError!void {
             if (rtype == .bigint) {
-                // Already BigInt - pass as pointer
-                try s.emit("&");
+                // Already BigInt - wrap in parens to ensure catch precedence is correct
+                try s.emit("&(");
                 try genExpr(s, right.*);
+                try s.emit(")");
             } else if (rtype == .int) {
                 // Check if unbounded (could be i128) vs bounded (i64)
                 if (rtype.int.needsBigInt()) {

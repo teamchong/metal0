@@ -7,10 +7,56 @@ const PyValue = object_zig.PyValue;
 const pylist = @import("../Objects/listobject.zig");
 const NativeList = pylist.NativeList;
 
+// =============================================================================
+// CONCRETE PyValue CONVERSIONS (compile ONCE - no monomorphization)
+// =============================================================================
+
+/// Convert PyValue tuple to list - compiles once
+fn listFromPyValue(allocator: std.mem.Allocator, value: PyValue) std.ArrayListUnmanaged(PyValue) {
+    var list = std.ArrayListUnmanaged(PyValue){};
+    switch (value) {
+        .tuple => |items| {
+            for (items) |item| {
+                list.append(allocator, item) catch {};
+            }
+        },
+        .list => |l| {
+            for (l.items) |item| {
+                list.append(allocator, item) catch {};
+            }
+        },
+        .string => |s| {
+            var i: usize = 0;
+            while (i < s.len) {
+                const byte = s[i];
+                const char_len: usize = if (byte < 0x80) 1 else if (byte < 0xE0) 2 else if (byte < 0xF0) 3 else 4;
+                const end = @min(i + char_len, s.len);
+                const char_copy = allocator.dupe(u8, s[i..end]) catch {
+                    i = end;
+                    continue;
+                };
+                list.append(allocator, PyValue.from(char_copy)) catch {};
+                i = end;
+            }
+        },
+        else => {},
+    }
+    return list;
+}
+
+// =============================================================================
+// ANYTYPE WRAPPERS (dispatch to concrete for PyValue)
+// =============================================================================
+
 /// Convert a tuple to a list (ArrayList) - used by list() codegen
 pub fn listFromTuple(allocator: std.mem.Allocator, tuple: anytype) std.ArrayListUnmanaged(PyValue) {
     const T = @TypeOf(tuple);
     const info = @typeInfo(T);
+
+    // Fast path: PyValue - use concrete function to avoid monomorphization
+    if (T == PyValue) {
+        return listFromPyValue(allocator, tuple);
+    }
 
     var list = std.ArrayListUnmanaged(PyValue){};
 
@@ -57,6 +103,11 @@ pub fn listFromString(allocator: std.mem.Allocator, str: []const u8) std.ArrayLi
 pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayListUnmanaged(PyValue) {
     const T = @TypeOf(iterable);
     const info = @typeInfo(T);
+
+    // Fast path: PyValue - use concrete function to avoid monomorphization
+    if (T == PyValue) {
+        return listFromPyValue(allocator, iterable);
+    }
 
     var list = std.ArrayListUnmanaged(PyValue){};
 
