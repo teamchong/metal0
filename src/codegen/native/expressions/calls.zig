@@ -12,6 +12,7 @@ const generators = @import("../statements/functions/generators.zig");
 const shared = @import("../shared_maps.zig");
 const RuntimeExceptions = shared.RuntimeExceptions;
 const NativeType = @import("../../../analysis/native_types/core.zig").NativeType;
+const expr_emitter = @import("../expr_emitter.zig");
 
 // Import trait functions for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");

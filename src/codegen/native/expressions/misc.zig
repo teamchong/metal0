@@ -9,6 +9,7 @@ const expressions_mod = @import("../expressions.zig");
 const producesBlockExpression = expressions_mod.producesBlockExpression;
 const self_analyzer = @import("../statements/functions/self_analyzer.zig");
 const UnittestAssertions = self_analyzer.unittest_assertion_methods;
+const expr_emitter = @import("../expr_emitter.zig");
 
 // Trait imports for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
@@ -132,11 +133,10 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 const base_is_block = producesBlockExpression(subscript.value.*);
                 if (base_is_block) {
                     // Wrap in block to allow field access on block result
-                    const label_id = self.block_label_counter;
-                    self.block_label_counter += 1;
-                    try self.output.writer(self.allocator).print("sub_{d}: {{ const __base = ", .{label_id});
-                    try genExpr(self, subscript.value.*);
-                    try self.output.writer(self.allocator).print("; break :sub_{d} __base.@\"{d}\"; }}", .{ label_id, index });
+                    var em = self.exprEmitter();
+                    var block = try em.labeledBlock("sub", "__base", subscript.value.*);
+                    try block.breakWithFmt("__base.@\"{d}\"", .{index});
+                    try block.close();
                 } else {
                     // Direct field access
                     try genExpr(self, subscript.value.*);
@@ -158,13 +158,13 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 } else {
                     // Non-constant tuple index - use runtime helper to avoid comptime explosion
                     // The inline for is still needed internally, but it's compiled once per tuple type
-                    const label_id = self.block_label_counter;
-                    self.block_label_counter += 1;
-                    try self.output.writer(self.allocator).print("tup_{d}: {{ const __t = ", .{label_id});
-                    try genExpr(self, subscript.value.*);
-                    try self.output.writer(self.allocator).print("; break :tup_{d} runtime.tuple_ops.TupleOps(@TypeOf(__t)).get(__t, @intCast(", .{label_id});
+                    var em = self.exprEmitter();
+                    var block = try em.labeledBlock("tup", "__t", subscript.value.*);
+                    try block.emit("break :");
+                    try block.emitFmt("{s}_{d} runtime.tuple_ops.TupleOps(@TypeOf(__t)).get(__t, @intCast(", .{ block.prefix, block.label_id });
                     try genExpr(self, subscript.slice.index.*);
-                    try self.emit(")); }");
+                    try block.emit("))");
+                    try block.close();
                 }
             }
             return;
@@ -219,13 +219,12 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     // Because Zig doesn't allow field access on block expressions: blk:{}.field is invalid
     // Wrap in parentheses to prevent "label:" from being parsed as named argument when used in fn calls
     if (producesBlockExpression(attr.value.*)) {
-        const attr_label_id = self.block_label_counter;
-        self.block_label_counter += 1;
-        try self.emitFmt("(attr_{d}: {{ const __obj = ", .{attr_label_id});
-        try genExpr(self, attr.value.*);
-        try self.emitFmt("; break :attr_{d} __obj.", .{attr_label_id});
+        var em = self.exprEmitter();
+        var block = try em.labeledBlock("attr", "__obj", attr.value.*);
+        try block.emit("break :");
+        try block.emitFmt("{s}_{d} __obj.", .{ block.prefix, block.label_id });
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-        try self.emit("; })");
+        try block.close();
         return;
     }
 

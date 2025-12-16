@@ -162,6 +162,34 @@ pub const ExprEmitter = struct {
         try self.codegen.emit(handler);
         try self.codegen.emit(")");
     }
+
+    /// Emit a labeled block with callback pattern (auto-closes)
+    /// Pattern: (prefix_N: { const temp = expr; callback emits break; })
+    pub fn withLabeledBlock(
+        self: *ExprEmitter,
+        comptime prefix: []const u8,
+        comptime temp_var: []const u8,
+        expr: ast.Node,
+        ctx: anytype,
+        comptime emitBreak: fn(@TypeOf(ctx), *LabeledBlock) CodegenError!void,
+    ) CodegenError!void {
+        var block = try self.labeledBlock(prefix, temp_var, expr);
+        try emitBreak(ctx, &block);
+        try block.close();
+    }
+
+    /// Emit a labeled block without temp var using callback (auto-closes)
+    /// Pattern: (prefix_N: { callback emits content and break; })
+    pub fn withLabeledBlockRaw(
+        self: *ExprEmitter,
+        comptime prefix: []const u8,
+        ctx: anytype,
+        comptime emitContent: fn(@TypeOf(ctx), *LabeledBlock) CodegenError!void,
+    ) CodegenError!void {
+        var block = try self.labeledBlockRaw(prefix);
+        try emitContent(ctx, &block);
+        try block.closeRaw();
+    }
 };
 
 /// A labeled block that must be closed
