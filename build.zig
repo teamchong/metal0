@@ -4,6 +4,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Metal GPU acceleration - enabled on macOS only
+    // Uses comptime check to eliminate dead code on other platforms
+    const use_metal = target.result.os.tag == .macos;
+
     // Note: Parallel build isolation removed for Zig 0.15 compatibility
     // In Zig 0.15, Build.LazyPath is a union without direct .path access
     // Using default zig-out directory for all builds
@@ -178,6 +182,16 @@ pub fn build(b: *std.Build) void {
     runtime.addImport("gzip", gzip_module);
     runtime.addImport("h2", h2_mod);
     runtime.addImport("tokenizer", tokenizer_mod);
+
+    // Metal GPU acceleration frameworks (macOS only)
+    // Enables GPU-accelerated tensor operations for numpy-like code
+    if (use_metal) {
+        runtime.linkFramework("Metal", .{});
+        runtime.linkFramework("MetalKit", .{});
+        runtime.linkFramework("Foundation", .{});
+        runtime.linkFramework("Accelerate", .{});
+    }
+
     collections.addImport("runtime", runtime);
 
     // C interop module - with runtime access for eval/exec support

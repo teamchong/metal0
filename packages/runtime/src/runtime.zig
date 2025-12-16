@@ -352,6 +352,10 @@ pub const itertools = @import("Lib/itertools.zig");
 /// Export ctypes FFI module
 pub const ctypes = @import("Modules/_ctypes.zig");
 
+/// Export Metal GPU acceleration module (macOS only)
+/// Uses comptime checks for platform-specific compilation
+pub const metal = @import("metal/metal.zig");
+
 /// Export typing module types
 pub const typing = @import("Lib/typing.zig");
 
