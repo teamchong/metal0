@@ -164,14 +164,26 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit(".count()");
         }
     } else if (is_class_instance) {
-        // User-defined class with __len__ method
-        // __len__ returns PythonError!i64, so we need to unwrap with try
-        if (needs_wrap) {
-            try self.emit("(try __obj.__len__())");
+        // Check if this is array.array (inline struct with non-error __len__)
+        const is_python_array = std.mem.eql(u8, arg_type.class_instance, "array.array");
+        if (is_python_array) {
+            // array.array inline struct has __len__ returning usize (not error union)
+            if (needs_wrap) {
+                try self.emit("__obj.__len__()");
+            } else {
+                try self.genExpr(args[0]);
+                try self.emit(".__len__()");
+            }
         } else {
-            try self.emit("(try ");
-            try self.genExpr(args[0]);
-            try self.emit(".__len__())");
+            // User-defined class with __len__ method
+            // __len__ returns PythonError!i64, so we need to unwrap with try
+            if (needs_wrap) {
+                try self.emit("(try __obj.__len__())");
+            } else {
+                try self.emit("(try ");
+                try self.genExpr(args[0]);
+                try self.emit(".__len__())");
+            }
         }
     } else {
         // For arrays, slices, strings - use builtins.len which handles all types

@@ -219,6 +219,14 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
         }
     }
 
+    // Add Metal framework on macOS for GPU acceleration
+    if (builtin.os.tag == .macos) {
+        try args.append(aa, "-framework");
+        try args.append(aa, "Metal");
+        try args.append(aa, "-framework");
+        try args.append(aa, "Foundation");
+    }
+
     try args.append(aa, output_flag);
 
     const argv = try args.toOwnedSlice(aa);
@@ -369,6 +377,14 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
         } else if (builtin.os.tag == .linux) {
             try args.append(aa, "-lopenblas");
         }
+    }
+
+    // Add Metal framework on macOS for GPU acceleration
+    if (builtin.os.tag == .macos) {
+        try args.append(aa, "-framework");
+        try args.append(aa, "Metal");
+        try args.append(aa, "-framework");
+        try args.append(aa, "Foundation");
     }
 
     try args.append(aa, output_flag);

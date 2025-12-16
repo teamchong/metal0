@@ -389,6 +389,17 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         return;
     }
 
+    // Check if this is an array.array attribute access
+    // The inline struct has direct fields (typecode, items) - use direct access
+    if (type_traits.isClassInstance(value_type) and
+        std.mem.eql(u8, value_type.class_instance, "array.array"))
+    {
+        try genExpr(self, attr.value.*);
+        try self.emit(".");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+        return;
+    }
+
     // Check if this is a property method (decorated with @property)
     const is_property = try isPropertyMethod(self, attr);
 

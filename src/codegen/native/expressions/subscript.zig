@@ -205,6 +205,22 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
     switch (subscript.slice) {
         .index => {
+            // Check for array.array type - use __getitem__ method directly
+            // The inline struct has items: ArrayListUnmanaged which needs .items.items access
+            // It's simpler to use the __getitem__ method which handles this correctly
+            const subscript_value_type = try self.type_inferrer.inferExpr(subscript.value.*);
+            if (type_traits.isClassInstance(subscript_value_type) and
+                std.mem.eql(u8, subscript_value_type.class_instance, "array.array"))
+            {
+                try genExpr(self, subscript.value.*);
+                try self.emit(".__getitem__(");
+                // Cast index to usize for __getitem__ method
+                try self.emit("@as(usize, @intCast(");
+                try genExpr(self, subscript.slice.index.*);
+                try self.emit(")))");
+                return;
+            }
+
             // Check if the object has __getitem__ magic method (custom class support)
             // For now, use heuristic: check if value is a name that matches a class name
             const has_magic_method = blk: {
