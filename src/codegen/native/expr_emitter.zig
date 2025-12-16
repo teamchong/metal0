@@ -215,6 +215,18 @@ pub const LabeledBlock = struct {
         try self.emitter.codegen.emitFmt("break :{s}_{d} {s}", .{ self.prefix, self.label_id, value });
     }
 
+    /// Start a break statement, emitting just "break :label_N "
+    /// Use this when the break value is complex and needs multiple emit calls
+    /// Must be followed by emitting the value, then calling close()
+    pub fn startBreak(self: *LabeledBlock) CodegenError!void {
+        try self.emitter.codegen.emitFmt("break :{s}_{d} ", .{ self.prefix, self.label_id });
+    }
+
+    /// Get the codegen instance for complex emissions inside the block
+    pub fn getCodegen(self: *LabeledBlock) *NativeCodegen {
+        return self.emitter.codegen;
+    }
+
     /// Emit code inside the block (before break)
     pub fn emit(self: *LabeledBlock, s: []const u8) CodegenError!void {
         try self.emitter.codegen.emit(s);

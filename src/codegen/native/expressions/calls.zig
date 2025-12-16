@@ -610,11 +610,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         if (needs_temp_var) {
             // Wrap in block with intermediate variable using unique label:
             // mcall_{id}: { const __obj = <expr>; break :mcall_{id} __obj.method(args); }
-            const mcall_label_id = self.block_label_counter;
-            self.block_label_counter += 1;
-            try self.emitFmt("mcall_{d}: {{ const __obj = ", .{mcall_label_id});
-            try genExpr(self, attr.value.*);
-            try self.emitFmt("; break :mcall_{d} ", .{mcall_label_id});
+            var em = self.exprEmitter();
+            var blk = try em.labeledBlock("mcall", "__obj", attr.value.*);
+            try blk.startBreak();
             // In defer blocks, 'try' is not allowed - use catch {} instead
             if (emit_try and !self.inside_defer) {
                 try self.emit("try ");
@@ -651,10 +649,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             // In defer blocks, append 'catch {}' to silence errors
             if (emit_try and self.inside_defer) {
-                try self.emit(") catch {}; }");
+                try self.emit(") catch {}");
             } else {
-                try self.emit("); }");
+                try self.emit(")");
             }
+            try blk.close();
         } else {
             // Normal path - no wrapping needed
             // In defer blocks, 'try' is not allowed - use catch {} at the end instead
@@ -1327,15 +1326,14 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         // For starred expressions in class constructors, unpack the tuple
                         // Generate: tuple.@"0", tuple.@"1" (assuming 2-element tuple for Fraction)
                         // We use block expressions with unique labels
-                        const label1 = self.block_label_counter;
-                        self.block_label_counter += 1;
-                        const label2 = self.block_label_counter;
-                        self.block_label_counter += 1;
-                        try self.emitFmt("unpack_{d}: {{ const __t = ", .{label1});
-                        try genExpr(self, arg.starred.value.*);
-                        try self.emitFmt("; break :unpack_{d} __t.@\"0\"; }}, unpack_{d}: {{ const __t = ", .{ label1, label2 });
-                        try genExpr(self, arg.starred.value.*);
-                        try self.emitFmt("; break :unpack_{d} __t.@\"1\"; }}", .{label2});
+                        var em = self.exprEmitter();
+                        var blk1 = try em.labeledBlock("unpack", "__t", arg.starred.value.*);
+                        try blk1.breakWith("__t.@\"0\"");
+                        try blk1.close();
+                        try self.emit(", ");
+                        var blk2 = try em.labeledBlock("unpack", "__t", arg.starred.value.*);
+                        try blk2.breakWith("__t.@\"1\"");
+                        try blk2.close();
                         continue;
                     }
 
