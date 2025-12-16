@@ -83,9 +83,14 @@ pub fn main(allocator: std.mem.Allocator) !void {
 }
 
 /// Finalize and print results - called after all tests run
+/// Exits with code 1 if any tests failed (for CI integration)
 pub fn finalize() void {
+    const has_failures = if (global_result) |result| result.failed > 0 else false;
     printResults();
     deinitRunner();
+    if (has_failures) {
+        std.process.exit(1);
+    }
 }
 
 /// Mock value - can be null, string, int, bool, or error
