@@ -155,6 +155,8 @@ fn isTestSupportedOnCurrentPlatform(
 /// Examples:
 ///   metal0 test tests/cpython              # Run all tests
 ///   metal0 test tests/cpython bool float   # Only test_bool.py, test_float.py
+///   metal0 test tests/cpython --codegen-only  # Only run codegen phase (py → zig)
+///   metal0 test tests/cpython --compile-only  # Run codegen + compile (skip run)
 pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     // Zero config - sensible defaults
     var test_dir: []const u8 = "tests/cpython";
@@ -166,6 +168,8 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const dots_mode: bool = false;
     const batch_mode: bool = true; // Fast batch compilation
     const filter_pattern: ?[]const u8 = null;
+    var codegen_only: bool = false; // Only run codegen phase
+    var compile_only: bool = false; // Run codegen + compile, skip run
     var file_patterns = std.ArrayList([]const u8){};
     defer file_patterns.deinit(allocator);
 
@@ -173,6 +177,14 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     // Supports @group syntax: @core, @linux, @macos, @windows
     var first_pos = true;
     for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--codegen-only")) {
+            codegen_only = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--compile-only")) {
+            compile_only = true;
+            continue;
+        }
         if (!std.mem.startsWith(u8, arg, "-")) {
             if (first_pos) {
                 test_dir = arg;
@@ -465,6 +477,17 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     //     return;
     // }
 
+    // If codegen-only mode, print summary and exit
+    if (codegen_only) {
+        if (final_codegen_fail == 0) {
+            printSuccess("Codegen complete: {d}/{d} succeeded", .{ codegen_total, total });
+        } else {
+            printError("Codegen: {d}/{d} succeeded, {d} failed", .{ codegen_total, total, final_codegen_fail });
+            return error.TestsFailed;
+        }
+        return;
+    }
+
     // Phase 2: Compile (.zig → binary)
     // Two modes:
     //   - batch_mode: Single zig build invocation (3-5x faster, shares runtime analysis)
@@ -690,6 +713,19 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         const final_compile_cached = compile_cached.load(.seq_cst);
         if (!dots_mode) std.debug.print("  Compile: {d}/{d} (cached: {d})\n", .{ final_compile_ok + final_compile_cached, codegen_total, final_compile_cached });
     } // End of normal/fallback mode block
+
+    // If compile-only mode, print summary and exit
+    if (compile_only) {
+        const compiled_count = bin_paths.items.len;
+        const failed_count = codegen_total - compiled_count;
+        if (failed_count == 0) {
+            printSuccess("Compile complete: {d}/{d} succeeded", .{ compiled_count, codegen_total });
+        } else {
+            printError("Compile: {d}/{d} succeeded, {d} failed", .{ compiled_count, codegen_total, failed_count });
+            return error.TestsFailed;
+        }
+        return;
+    }
 
     // Phase 3: Run binaries that exist (PARALLEL)
     if (!dots_mode) std.debug.print("Phase 3: Run... ({d} binaries to check)\n", .{bin_paths.items.len});
