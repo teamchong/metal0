@@ -1840,6 +1840,21 @@ pub const NativeCodegen = struct {
         return null;
     }
 
+    /// Check if a class is a metaclass (inherits from type)
+    /// Used for handling super().__new__() in metaclass __new__ methods
+    pub fn isClassMetaclass(self: *NativeCodegen, class_name: []const u8) bool {
+        // Get the parent class from inheritance registry
+        const parent = self.class_registry.inheritance.get(class_name) orelse return false;
+
+        // Direct inheritance from type
+        if (std.mem.eql(u8, parent, "type")) {
+            return true;
+        }
+
+        // Check if parent is also a metaclass (recursive)
+        return self.isClassMetaclass(parent);
+    }
+
     /// Check if a class name inherits from unittest.TestCase (directly or indirectly)
     /// This traverses the inheritance chain through imported modules and local classes
     pub fn isTestCaseSubclass(self: *NativeCodegen, class_name: []const u8) bool {

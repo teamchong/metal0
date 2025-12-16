@@ -1321,7 +1321,8 @@ pub fn genMethodSignatureWithSkip(
     // Note: __init_subclass__ and __class_getitem__ are implicit classmethods in Python
     const is_staticmethod = hasStaticmethodDecorator(method.decorators);
     const is_implicit_classmethod = std.mem.eql(u8, method.name, "__init_subclass__") or
-        std.mem.eql(u8, method.name, "__class_getitem__");
+        std.mem.eql(u8, method.name, "__class_getitem__") or
+        std.mem.eql(u8, method.name, "__new__");
     const is_classmethod = hasClassmethodDecorator(method.decorators) or is_implicit_classmethod;
 
     // Check if class has a known parent - for parameter usage detection
@@ -1466,15 +1467,21 @@ pub fn genMethodSignatureWithSkip(
             break :blk false;
         } else false;
 
+        // Check if parameter shadows an imported module (e.g., 'test', 'copy')
+        const shadows_imported_module = self.imported_modules.contains(arg.name);
+
         if (is_skipped or !is_param_used) {
             // Use anonymous parameter for unused
             try self.emit("_: ");
         } else {
-            // Use writeParamName to handle Zig keywords AND method shadowing (e.g., "init" -> "init_arg")
-            try zig_keywords.writeParamName(self.output.writer(self.allocator), arg.name);
-            // Add __local suffix if shadows class method
-            if (shadows_class_method) {
-                try self.emit("__local");
+            // Add __local suffix if shadows class method or imported module
+            if (shadows_class_method or shadows_imported_module) {
+                // Build the suffixed name first, then write it with proper escaping
+                const suffixed_name = try std.fmt.allocPrint(self.allocator, "{s}__local", .{arg.name});
+                try zig_keywords.writeParamName(self.output.writer(self.allocator), suffixed_name);
+            } else {
+                // Use writeParamName to handle Zig keywords AND method shadowing (e.g., "init" -> "init_arg")
+                try zig_keywords.writeParamName(self.output.writer(self.allocator), arg.name);
             }
             try self.emit(": ");
         }
@@ -1695,12 +1702,15 @@ pub fn genMethodSignatureWithSkip(
             }
         }
 
-        // Check if method returns 'self' - for nested classes this should be pointer type
+        // Check if method returns 'self' or 'cls' - for nested classes this should be pointer type
+        // Note: 'cls' is the first param in metaclass instance methods (like 'self' in regular classes)
         const returns_self = blk: {
             for (method.body) |stmt| {
                 if (stmt == .return_stmt) {
                     if (stmt.return_stmt.value) |val| {
-                        if (val.* == .name and std.mem.eql(u8, val.name.id, "self")) {
+                        if (val.* == .name and (std.mem.eql(u8, val.name.id, "self") or
+                            std.mem.eql(u8, val.name.id, "cls")))
+                        {
                             break :blk true;
                         }
                     }
@@ -1730,7 +1740,9 @@ pub fn genMethodSignatureWithSkip(
                     if (val.* == .name) {
                         // Check if returned value is a parameter (not 'self')
                         for (method.args) |arg| {
+                            // Skip self and cls - these are instance params, not general return values
                             if (!std.mem.eql(u8, arg.name, "self") and
+                                !std.mem.eql(u8, arg.name, "cls") and
                                 std.mem.eql(u8, arg.name, val.name.id) and
                                 arg.type_annotation == null)
                             {

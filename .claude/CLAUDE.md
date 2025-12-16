@@ -359,29 +359,46 @@ Certain types still get full native speed.
 
 > **Note**: This is orthogonal to Two-Flow Type System. Two-Flow handles type **confidence** (certain/uncertain). UnifiedInt handles integer **size** (i64/BigInt).
 
+**Type Simplification (3-tier system):**
 | Use Case | Type | Rationale |
 |----------|------|-----------|
 | Loop counters (`for i in range(n)`) | `i64` | Known small, tight loops |
-| Array/slice indices | `i64` | Memory bounded |
+| Array/slice indices | `usize` | Memory bounded, natural index type |
 | Known-small literals | `i64` | Compile-time known |
-| Function params/returns | `UnifiedInt` | Caller may pass BigInt |
-| Arithmetic results | `UnifiedInt` | May overflow |
-| Crypto/large numbers | `BigInt` | Explicitly large |
+| Large literals (`10**30`) | `UnifiedInt` | Auto-promotes to BigInt internally |
+| Function params/returns | `UnifiedInt` | Caller may pass large values |
+| Arithmetic results (uncertain) | `UnifiedInt` | May overflow |
+| Arithmetic results (certain small) | `i64` | Known to fit |
+
+**Result: Only 3 type combinations** (vs 6 before):
+- `i64 × i64` → `i64` (native speed)
+- `i64 × UnifiedInt` → `UnifiedInt`
+- `UnifiedInt × UnifiedInt` → `UnifiedInt`
 
 ```zig
 // UnifiedInt auto-promotes on overflow
 const UnifiedInt = union(enum) {
-    small: i64,      // Fast path
-    big: *BigInt,    // Arbitrary precision
+    small: i64,      // Fast path (8 bytes)
+    big: *BigInt,    // Arbitrary precision (pointer)
 };
 
-// Runtime location: packages/runtime/src/Objects/pyint.zig
+// Runtime helpers - NO error unions, panic on OOM
+runtime.unified_int_ops.add(left, right, allocator)  // returns UnifiedInt
+runtime.unified_int_ops.sub(left, right, allocator)
+runtime.unified_int_ops.mul(left, right, allocator)
+runtime.unified_int_ops.pow(base, exp, allocator)
+runtime.unified_int_ops.shl(value, shift, allocator)
+runtime.unified_int_ops.neg(value, allocator)
+runtime.unified_int_ops.bitNot(value, allocator)     // ~x = -(x+1)
 ```
 
 **Key Files:**
 - `src/analysis/native_types/core.zig` - `NativeType.unified_int`
+- `src/analysis/traits/type_traits/binaryResultType.zig` - Type promotion rules
 - `src/codegen/native/expressions/operators/arithmetic.zig` - `genUnifiedIntBinOp()`
+- `packages/runtime/src/runtime/unified_int_ops.zig` - Runtime helpers (panic on OOM)
 - `packages/runtime/src/Objects/pyint.zig` - `UnifiedInt` implementation
+- `packages/runtime/src/runtime/pyobject_utils.zig` - `pyObjEqUnifiedInt()` comparison
 
 ---
 

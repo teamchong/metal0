@@ -518,13 +518,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 if (left_is_eval and !right_is_eval) {
                     // eval(...) == value - check if value is BigInt
                     // Note: right_type is already in scope from line 103
-                    if (right_type == .bigint) {
-                        // BigInt comparison
-                        try self.emit("runtime.bigIntCompare(runtime.pyObjToBigInt(");
+                    if (right_type == .bigint or right_type == .unified_int) {
+                        // BigInt/UnifiedInt comparison - use pyObjEqUnifiedInt
+                        try self.emit("runtime.pyObjEqUnifiedInt(");
                         try genExpr(self, current_left);
-                        try self.emit(", __global_allocator), ");
+                        try self.emit(", ");
                         try genExpr(self, compare.comparators[i]);
-                        try self.emit(", .eq)");
+                        try self.emit(", __global_allocator)");
                     } else {
                         // Integer comparison
                         try self.emit("runtime.pyObjEqInt(");
@@ -534,15 +534,15 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         try self.emit(")");
                     }
                 } else if (right_is_eval and !left_is_eval) {
-                    // value == eval(...) - check if value is BigInt
+                    // value == eval(...) - check if value is BigInt/UnifiedInt
                     // Note: current_left_type is already in scope from line 107
-                    if (current_left_type == .bigint) {
-                        // BigInt comparison
-                        try self.emit("runtime.bigIntCompare(");
-                        try genExpr(self, current_left);
-                        try self.emit(", runtime.pyObjToBigInt(");
+                    if (current_left_type == .bigint or current_left_type == .unified_int) {
+                        // BigInt/UnifiedInt comparison - use pyObjEqUnifiedInt
+                        try self.emit("runtime.pyObjEqUnifiedInt(");
                         try genExpr(self, compare.comparators[i]);
-                        try self.emit(", __global_allocator), .eq)");
+                        try self.emit(", ");
+                        try genExpr(self, current_left);
+                        try self.emit(", __global_allocator)");
                     } else {
                         // Integer comparison
                         try self.emit("runtime.pyObjEqInt(");

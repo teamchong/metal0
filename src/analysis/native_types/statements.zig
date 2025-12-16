@@ -67,7 +67,8 @@ fn detectIsinstancePattern(condition: ast.Node) ?IsinstancePattern {
 /// Map Python builtin type names to NativeType
 fn pythonTypeToNative(type_name: []const u8) ?NativeType {
     // Common Python types
-    if (std.mem.eql(u8, type_name, "int")) return .{ .int = .unbounded };
+    // Use UnifiedInt for int type - handles both small (i64) and large (BigInt) values
+    if (std.mem.eql(u8, type_name, "int")) return .unified_int;
     if (std.mem.eql(u8, type_name, "float")) return .float;
     if (std.mem.eql(u8, type_name, "str")) return .{ .string = .runtime }; // Default to runtime string
     if (std.mem.eql(u8, type_name, "bool")) return .bool;
@@ -817,7 +818,7 @@ pub fn visitStmtScoped(
 fn inferConstant(value: ast.Value) InferError!NativeType {
     return switch (value) {
         .int => .{ .int = .bounded },
-        .bigint => .bigint, // Large integers are BigInt
+        .bigint => .unified_int, // Large integers use UnifiedInt (auto-promotes to BigInt internally)
         .float => .float,
         .string => .{ .string = .literal }, // String literals are compile-time constants
         .bytes => .bytes, // Bytes literals use PyBytes wrapper

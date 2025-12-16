@@ -4,6 +4,9 @@
 //!
 //! NOTE: For operations that need AST inspection (large shift/pow constants),
 //! use binaryResultTypeWithHints() which accepts optional hint parameters.
+//!
+//! TYPE SIMPLIFICATION: Prefers UnifiedInt over BigInt for most operations.
+//! UnifiedInt (i64 fast path + BigInt fallback) handles overflow automatically.
 
 const std = @import("std");
 const NativeType = @import("../../native_types/core.zig").NativeType;
@@ -29,20 +32,21 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
     const left_tag = @as(std.meta.Tag(@TypeOf(left)), left);
     const right_tag = @as(std.meta.Tag(@TypeOf(right)), right);
 
-    // Check if either operand needs BigInt (explicit bigint or unbounded int)
-    const left_needs_bigint = left_tag == .bigint or
+    // Check if either operand needs UnifiedInt (explicit bigint, unified_int, or unbounded int)
+    // UnifiedInt handles both small (i64) and large (BigInt) values automatically
+    const left_needs_unified = left_tag == .bigint or left_tag == .unified_int or
         (left_tag == .int and left.int.needsBigInt());
-    const right_needs_bigint = right_tag == .bigint or
+    const right_needs_unified = right_tag == .bigint or right_tag == .unified_int or
         (right_tag == .int and right.int.needsBigInt());
 
-    // SPECIAL CASE: For bitwise operations (BitAnd, BitOr, BitXor), if ONE operand is BigInt
-    // and the other is unknown, we should return BigInt (since unknown could be any int-like value)
-    // This handles: hibit:BigInt | getrandbits():unknown → BigInt
+    // SPECIAL CASE: For bitwise operations (BitAnd, BitOr, BitXor), if ONE operand is BigInt/UnifiedInt
+    // and the other is unknown, we should return UnifiedInt (since unknown could be any int-like value)
+    // This handles: hibit:BigInt | getrandbits():unknown → UnifiedInt
     const is_bitwise = op == .BitAnd or op == .BitOr or op == .BitXor;
     if (is_bitwise) {
         const one_unknown = isUnknown(left) != isUnknown(right); // XOR: exactly one is unknown
-        if (one_unknown and (left_needs_bigint or right_needs_bigint)) {
-            return .bigint;
+        if (one_unknown and (left_needs_unified or right_needs_unified)) {
+            return .unified_int;
         }
     }
 
@@ -51,10 +55,6 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
 
     // If ONE operand is unknown but the other isn't BigInt, return unknown
     if (isUnknown(left) or isUnknown(right)) return .unknown;
-
-    // Check if either operand is unified_int
-    const left_is_unified = left_tag == .unified_int;
-    const right_is_unified = right_tag == .unified_int;
 
     switch (op) {
         .Add => {
@@ -65,27 +65,21 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             const left_is_listlike = container_traits.isList(left) or left_tag == .array;
             const right_is_listlike = container_traits.isList(right) or right_tag == .array;
             if (left_is_listlike and right_is_listlike) return .pyvalue;
-            // UnifiedInt propagation (unified_int preserves ability to hold small or big)
-            if (left_is_unified or right_is_unified) return .unified_int;
-            // BigInt propagation
-            if (left_needs_bigint or right_needs_bigint) return .bigint;
+            // UnifiedInt propagation (handles both small i64 and large BigInt)
+            if (left_needs_unified or right_needs_unified) return .unified_int;
             // Numeric promotion
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
         },
         .Sub => {
             // UnifiedInt propagation
-            if (left_is_unified or right_is_unified) return .unified_int;
-            // BigInt propagation
-            if (left_needs_bigint or right_needs_bigint) return .bigint;
+            if (left_needs_unified or right_needs_unified) return .unified_int;
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
         },
         .Mod => {
             // String formatting: str % value → runtime string
             if (string_traits.isString(left)) return .{ .string = .runtime };
             // UnifiedInt propagation
-            if (left_is_unified or right_is_unified) return .unified_int;
-            // BigInt propagation
-            if (left_needs_bigint or right_needs_bigint) return .bigint;
+            if (left_needs_unified or right_needs_unified) return .unified_int;
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
         },
         .Mult => {
@@ -98,9 +92,7 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             if (left_is_listlike and isIntegral(right)) return .pyvalue;
             if (right_is_listlike and isIntegral(left)) return .pyvalue;
             // UnifiedInt propagation
-            if (left_is_unified or right_is_unified) return .unified_int;
-            // BigInt propagation
-            if (left_needs_bigint or right_needs_bigint) return .bigint;
+            if (left_needs_unified or right_needs_unified) return .unified_int;
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
         },
         .Div => {
@@ -111,48 +103,41 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
         },
         .FloorDiv => {
             // UnifiedInt propagation
-            if (left_is_unified or right_is_unified) return .unified_int;
-            // BigInt propagation
-            if (left_needs_bigint or right_needs_bigint) return .bigint;
+            if (left_needs_unified or right_needs_unified) return .unified_int;
             if (isNumeric(left) and isNumeric(right)) {
                 if (isFloating(left) or isFloating(right)) return .float;
                 return promoteNumeric(left, right);
             }
         },
         .Pow => {
-            // Large exponent produces BigInt (e.g., 10 ** 30000)
+            // Large exponent produces UnifiedInt (e.g., 10 ** 30000)
+            // UnifiedInt will auto-promote to BigInt internally
             if (hints.exponent) |exp| {
-                if (exp >= 20) return .bigint;
+                if (exp >= 20) return .unified_int;
             }
             // UnifiedInt propagation
-            if (left_is_unified or right_is_unified) return .unified_int;
-            // BigInt propagation
-            if (left_needs_bigint or right_needs_bigint) return .bigint;
+            if (left_needs_unified or right_needs_unified) return .unified_int;
             if (isNumeric(left) and isNumeric(right)) {
                 if (isFloating(left) or isFloating(right)) return .float;
                 return promoteNumeric(left, right);
             }
         },
         .LShift => {
-            // Large shift produces BigInt (e.g., 1 << 100000)
+            // Large shift produces UnifiedInt (e.g., 1 << 100000)
+            // UnifiedInt will auto-promote to BigInt internally
             if (hints.shift_amount) |shift| {
-                if (shift >= 63) return .bigint;
+                if (shift >= 63) return .unified_int;
             } else {
-                // Shift amount not comptime-known - use unified_int or BigInt for safety
-                if (left_is_unified or right_is_unified) return .unified_int;
-                return .bigint;
+                // Shift amount not comptime-known - use UnifiedInt for safety
+                return .unified_int;
             }
             // UnifiedInt propagation
-            if (left_is_unified or right_is_unified) return .unified_int;
-            // BigInt propagation
-            if (left_needs_bigint or right_needs_bigint) return .bigint;
+            if (left_needs_unified or right_needs_unified) return .unified_int;
             if (isIntegral(left) and isIntegral(right)) return promoteNumeric(left, right);
         },
         .RShift, .BitAnd, .BitOr, .BitXor => {
             // UnifiedInt propagation
-            if (left_is_unified or right_is_unified) return .unified_int;
-            // BigInt propagation
-            if (left_needs_bigint or right_needs_bigint) return .bigint;
+            if (left_needs_unified or right_needs_unified) return .unified_int;
             if (isIntegral(left) and isIntegral(right)) return promoteNumeric(left, right);
         },
     }
@@ -160,7 +145,7 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
 }
 
 /// Get result type of binary operation (simple version without hints)
-/// For LShift, assumes unknown shift amount → returns bigint for safety
+/// For LShift, assumes unknown shift amount → returns unified_int for safety
 pub fn binaryResultType(op: BinOp, left: NativeType, right: NativeType) NativeType {
     return binaryResultTypeWithHints(op, left, right, .{});
 }
@@ -170,11 +155,13 @@ fn promoteNumeric(left: NativeType, right: NativeType) NativeType {
     const right_tag = @as(std.meta.Tag(@TypeOf(right)), right);
     if (left_tag == .complex or right_tag == .complex) return .complex;
     if (left_tag == .float or right_tag == .float) return .float;
-    // UnifiedInt absorbs other int types (it can hold both small and big)
+    // UnifiedInt absorbs other int types (it can hold both small i64 and large BigInt)
     if (left_tag == .unified_int or right_tag == .unified_int) return .unified_int;
-    if (left_tag == .bigint or right_tag == .bigint) return .bigint;
+    // BigInt promotes to UnifiedInt (UnifiedInt is the preferred type)
+    if (left_tag == .bigint or right_tag == .bigint) return .unified_int;
     if (left_tag == .int and right_tag == .int) {
-        if (left.int == .unbounded or right.int == .unbounded) return .{ .int = .unbounded };
+        // Unbounded ints use UnifiedInt for auto-promotion
+        if (left.int == .unbounded or right.int == .unbounded) return .unified_int;
         return .{ .int = .bounded };
     }
     if (left_tag == .usize or right_tag == .usize) return .usize;

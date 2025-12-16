@@ -1,5 +1,6 @@
 /// Arithmetic operations: add, sub, mul, div, mod, pow, floor division
-/// Handles BigInt operations, string concatenation, list concatenation, string repetition
+/// Handles BigInt/UnifiedInt operations, string concatenation, list concatenation, string repetition
+/// Uses runtime.unified_int_ops for UnifiedInt (auto-promoting i64/BigInt) - no error unions
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -261,6 +262,7 @@ const BigIntPowCtx = struct {
 };
 
 /// Context for large exponent pow with bool conversion
+/// Now uses UnifiedInt via unified_int_ops (panics on OOM, no error unions)
 const LargeExpPowCtx = struct {
     cg: *NativeCodegen,
     binop: ast.Node.BinOp,
@@ -269,9 +271,8 @@ const LargeExpPowCtx = struct {
     alloc_name: []const u8,
 
     fn emit(ctx: @This(), _: *NativeCodegen) CodegenError!void {
-        try ctx.cg.emit("(runtime.BigInt.fromInt(");
-        try ctx.cg.emit(ctx.alloc_name);
-        try ctx.cg.emit(", ");
+        // Use unified_int_ops.pow(left, exp, allocator) -> UnifiedInt
+        try ctx.cg.emit("runtime.unified_int_ops.pow(runtime.unified_int_ops.fromI64(");
         // Left operand with bool conversion
         if (ctx.left_is_bool) {
             try ctx.cg.emit("@as(i64, @intFromBool(");
@@ -280,7 +281,7 @@ const LargeExpPowCtx = struct {
         } else {
             try genExpr(ctx.cg, ctx.binop.left.*);
         }
-        try ctx.cg.emit(") catch @panic(\"OOM\")).pow(@as(u32, @intCast(");
+        try ctx.cg.emit("), @as(u32, @intCast(");
         // Right operand with bool conversion
         if (ctx.right_is_bool) {
             try ctx.cg.emit("@as(i64, @intFromBool(");
@@ -291,6 +292,7 @@ const LargeExpPowCtx = struct {
         }
         try ctx.cg.emit(")), ");
         try ctx.cg.emit(ctx.alloc_name);
+        try ctx.cg.emit(")");
     }
 };
 
@@ -402,101 +404,108 @@ fn isUnifiedInt(t: NativeType) bool {
     return t == .unified_int;
 }
 
-/// UnifiedInt method names for standard binary operations
-const UnifiedIntMethods = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Add", "add" }, .{ "Sub", "sub" }, .{ "Mult", "mul" },
-    .{ "FloorDiv", "floorDiv" }, .{ "Mod", "mod" },
-    .{ "BitAnd", "bitAnd" }, .{ "BitOr", "bitOr" }, .{ "BitXor", "bitXor" },
+/// Runtime helper function names for UnifiedInt operations
+/// Maps operator tag to runtime.unified_int_ops.xxx function name
+/// UnifiedInt handles both small (i64) and large (BigInt) automatically, panics on OOM
+const UnifiedIntRuntimeOps = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "add" },
+    .{ "Sub", "sub" },
+    .{ "Mult", "mul" },
+    .{ "FloorDiv", "floorDiv" },
+    .{ "Mod", "mod" },
+    .{ "LShift", "shl" },
+    .{ "RShift", "shr" },
+    .{ "Pow", "pow" },
+    // Note: Bitwise ops (BitAnd, BitOr, BitXor) are TODO in UnifiedInt
 });
 
-/// Generate UnifiedInt binary operations using method calls
-/// UnifiedInt handles both small (i64) and large (BigInt) integers automatically
+/// Generate UnifiedInt binary operations using runtime.unified_int_ops helpers
+/// Pattern: runtime.unified_int_ops.add(left, right, allocator)
+/// No 'try' needed - runtime helpers panic on OOM internally
 fn genUnifiedIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
     const alloc_name = "__global_allocator";
 
-    // Helper to emit operand wrapped in UnifiedInt if needed
+    // Helper to emit operand as UnifiedInt value
     const emitAsUnifiedInt = struct {
-        fn emit(s: *NativeCodegen, node: *const ast.Node, t: NativeType, aname: []const u8) CodegenError!void {
+        fn emit(s: *NativeCodegen, node: *const ast.Node, t: NativeType) CodegenError!void {
             if (isUnifiedInt(t)) {
-                // Already UnifiedInt
+                // Already UnifiedInt - emit directly
                 try genExpr(s, node.*);
             } else if (t == .bigint) {
-                // BigInt -> UnifiedInt.fromBigInt
+                // BigInt -> UnifiedInt.fromBigInt (no allocation needed)
                 try s.emit("runtime.UnifiedInt.fromBigInt(");
                 try genExpr(s, node.*);
                 try s.emit(")");
             } else if (t == .int or t == .usize) {
-                // i64/usize -> UnifiedInt.fromI64
-                try s.emit("runtime.UnifiedInt.fromI64(@as(i64, ");
+                // i64/usize -> UnifiedInt.fromI64 (no allocation needed)
+                try s.emit("runtime.unified_int_ops.fromI64(@as(i64, ");
                 try genExpr(s, node.*);
                 try s.emit("))");
             } else {
                 // Unknown - try to convert as i64
-                _ = aname;
-                try s.emit("runtime.UnifiedInt.fromI64(@as(i64, ");
+                try s.emit("runtime.unified_int_ops.fromI64(@as(i64, ");
                 try genExpr(s, node.*);
                 try s.emit("))");
             }
         }
     }.emit;
 
-    // Standard operations use UnifiedInt methods
+    // Get the runtime helper function name
     const op_name = @tagName(binop.op);
-    if (UnifiedIntMethods.get(op_name)) |method| {
-        try self.emit("(try ");
-        try emitAsUnifiedInt(self, binop.left, left_type, alloc_name);
-        try self.emit(".");
-        try self.emit(method);
-        try self.emit("(");
-        try emitAsUnifiedInt(self, binop.right, right_type, alloc_name);
-        try self.emit(", ");
-        try self.emit(alloc_name);
-        try self.emit("))");
+
+    // Standard binary operations: runtime.unified_int_ops.xxx(left, right, allocator)
+    if (UnifiedIntRuntimeOps.get(op_name)) |runtime_fn| {
+        // For shift/pow operations, right operand is a primitive (u32)
+        if (binop.op == .LShift or binop.op == .RShift) {
+            try self.emit("runtime.unified_int_ops.");
+            try self.emit(runtime_fn);
+            try self.emit("(");
+            try emitAsUnifiedInt(self, binop.left, left_type);
+            try self.emit(", @as(u32, @intCast(");
+            try genExpr(self, binop.right.*);
+            try self.emit(")), ");
+            try self.emit(alloc_name);
+            try self.emit(")");
+        } else if (binop.op == .Pow) {
+            try self.emit("runtime.unified_int_ops.");
+            try self.emit(runtime_fn);
+            try self.emit("(");
+            try emitAsUnifiedInt(self, binop.left, left_type);
+            try self.emit(", @as(u32, @intCast(");
+            try genExpr(self, binop.right.*);
+            try self.emit(")), ");
+            try self.emit(alloc_name);
+            try self.emit(")");
+        } else {
+            // Standard binary ops: both operands are UnifiedInt
+            try self.emit("runtime.unified_int_ops.");
+            try self.emit(runtime_fn);
+            try self.emit("(");
+            try emitAsUnifiedInt(self, binop.left, left_type);
+            try self.emit(", ");
+            try emitAsUnifiedInt(self, binop.right, right_type);
+            try self.emit(", ");
+            try self.emit(alloc_name);
+            try self.emit(")");
+        }
         return;
     }
 
     switch (binop.op) {
-        .RShift => {
-            // UnifiedInt.shr(shift_amount, allocator)
-            try self.emit("(try ");
-            try emitAsUnifiedInt(self, binop.left, left_type, alloc_name);
-            try self.emit(".shr(@as(usize, @intCast(");
-            try genExpr(self, binop.right.*);
-            try self.emit(")), ");
-            try self.emit(alloc_name);
-            try self.emit("))");
-        },
-        .LShift => {
-            // UnifiedInt.shl(shift_amount, allocator)
-            try self.emit("(try ");
-            try emitAsUnifiedInt(self, binop.left, left_type, alloc_name);
-            try self.emit(".shl(@as(usize, @intCast(");
-            try genExpr(self, binop.right.*);
-            try self.emit(")), ");
-            try self.emit(alloc_name);
-            try self.emit("))");
-        },
-        .Pow => {
-            // UnifiedInt.pow(exp, allocator)
-            try self.emit("(try ");
-            try emitAsUnifiedInt(self, binop.left, left_type, alloc_name);
-            try self.emit(".pow(@as(u32, @intCast(");
-            try genExpr(self, binop.right.*);
-            try self.emit(")), ");
-            try self.emit(alloc_name);
-            try self.emit("))");
-        },
         .Div => {
             // Python division always returns float
-            try self.emit("try runtime.divideFloat(");
-            try emitAsUnifiedInt(self, binop.left, left_type, alloc_name);
-            try self.emit(".toI64(), ");
-            try emitAsUnifiedInt(self, binop.right, right_type, alloc_name);
-            try self.emit(".toI64())");
+            // Convert UnifiedInt to f64 via toF64()
+            try self.emit("(runtime.unified_int_ops.toF64(");
+            try emitAsUnifiedInt(self, binop.left, left_type);
+            try self.emit(") / runtime.unified_int_ops.toF64(");
+            try emitAsUnifiedInt(self, binop.right, right_type);
+            try self.emit("))");
         },
         else => {
             // Unsupported UnifiedInt op - fall back to error
-            try self.emit("@compileError(\"Unsupported UnifiedInt operation\")");
+            try self.emit("@compileError(\"Unsupported UnifiedInt operation: ");
+            try self.emit(op_name);
+            try self.emit("\")");
         },
     }
 }
@@ -612,7 +621,33 @@ fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
         // or with unknown types
         return self.isVarUncertain(name);
     }
+
+    // Check attribute access - if the inferred type is PyValue, treat as uncertain
+    if (expr == .attribute) {
+        const attr_type = self.type_inferrer.inferExpr(expr) catch return false;
+        return attr_type == .pyvalue or attr_type == .unknown;
+    }
+
     return false;
+}
+
+/// Check if an expression is a comptime literal (int or float constant)
+/// Comptime literals need explicit type casting before wrapping in PyValue.from()
+fn isComptimeLiteral(expr: ast.Node) bool {
+    return switch (expr) {
+        .constant => |c| c.value == .int or c.value == .float,
+        .unaryop => |u| (u.op == .USub or u.op == .UAdd) and isComptimeLiteral(u.operand.*),
+        else => false,
+    };
+}
+
+/// Check if a comptime literal is a float
+fn isComptimeFloat(expr: ast.Node) bool {
+    return switch (expr) {
+        .constant => |c| c.value == .float,
+        .unaryop => |u| (u.op == .USub or u.op == .UAdd) and isComptimeFloat(u.operand.*),
+        else => false,
+    };
 }
 
 /// Generate PyValue binary operations for uncertain operands
@@ -630,12 +665,37 @@ fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!voi
     // PyValue.from() is a no-op for existing PyValues, so it's safe to wrap unconditionally
     // This avoids complex type tracking issues where one operand might be uncertain
     // but the type inference doesn't detect it correctly
+    //
+    // FIX: Comptime literals (like `1` or `3.14`) need explicit type casting before
+    // PyValue.from() because comptime_int and comptime_float can't be wrapped directly.
     try self.emit("(runtime.PyValue.from(");
-    try genExpr(self, binop.left.*);
+    if (isComptimeLiteral(binop.left.*)) {
+        // Cast comptime literal to concrete type
+        if (isComptimeFloat(binop.left.*)) {
+            try self.emit("@as(f64, ");
+        } else {
+            try self.emit("@as(i64, ");
+        }
+        try genExpr(self, binop.left.*);
+        try self.emit(")");
+    } else {
+        try genExpr(self, binop.left.*);
+    }
     try self.emit(")).");
     try self.emit(method_name);
     try self.emit("(runtime.PyValue.from(");
-    try genExpr(self, binop.right.*);
+    if (isComptimeLiteral(binop.right.*)) {
+        // Cast comptime literal to concrete type
+        if (isComptimeFloat(binop.right.*)) {
+            try self.emit("@as(f64, ");
+        } else {
+            try self.emit("@as(i64, ");
+        }
+        try genExpr(self, binop.right.*);
+        try self.emit(")");
+    } else {
+        try genExpr(self, binop.right.*);
+    }
     try self.emit("))");
 }
 
@@ -733,11 +793,14 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             // Generate comptime check for method existence using container_dispatch helper
             // Reduces monomorphization by centralizing @typeInfo/@hasDecl checks
             // If method exists, call it; otherwise raise TypeError at runtime
-            try self.emit("radd_blk: { const _rhs = ");
+            // Wrap in parentheses so field access like `(radd_blk: {...}).__class__` works
+            var em = self.exprEmitter();
+            const radd_label = em.reserveLabelId();
+            try self.emitFmt("(radd_blk_{d}: {{ const _rhs = ", .{radd_label});
             try genExpr(self, binop.right.*);
-            try self.output.writer(self.allocator).print("; if (runtime.container_dispatch.hasPtrChildDecl(@TypeOf(_rhs), \"{s}\")) {{ break :radd_blk try _rhs.{s}(__global_allocator, ", .{ rdunder_method, rdunder_method });
+            try self.output.writer(self.allocator).print("; if (runtime.container_dispatch.hasPtrChildDecl(@TypeOf(_rhs), \"{s}\")) {{ break :radd_blk_{d} try _rhs.{s}(__global_allocator, ", .{ rdunder_method, radd_label, rdunder_method });
             try genExpr(self, binop.left.*);
-            try self.emit("); } else { return error.TypeError; } }");
+            try self.emitFmt("); }} else {{ return error.TypeError; }} }})", .{});
             return;
         }
     }
@@ -1231,19 +1294,31 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             }
         }.emit;
 
-        // Check if exponent is large enough to need BigInt
+        // Check if exponent is large enough to need UnifiedInt
         if (binop.right.* == .constant and binop.right.constant.value == .int) {
             const exp = binop.right.constant.value.int;
             if (exp >= 20) {
-                // Use BigInt for large exponents with callback pattern
-                var em = self.exprEmitter();
-                try em.withOOMCatch(LargeExpPowCtx{
-                    .cg = self,
-                    .binop = binop,
-                    .left_is_bool = left_is_bool,
-                    .right_is_bool = right_is_bool,
-                    .alloc_name = "__global_allocator",
-                }, LargeExpPowCtx.emit);
+                // Use unified_int_ops.pow for large exponents (no error union, panics on OOM)
+                const alloc_name = "__global_allocator";
+                try self.emit("runtime.unified_int_ops.pow(runtime.unified_int_ops.fromI64(");
+                if (left_is_bool) {
+                    try self.emit("@as(i64, @intFromBool(");
+                    try genExpr(self, binop.left.*);
+                    try self.emit("))");
+                } else {
+                    try genExpr(self, binop.left.*);
+                }
+                try self.emit("), @as(u32, @intCast(");
+                if (right_is_bool) {
+                    try self.emit("@as(i64, @intFromBool(");
+                    try genExpr(self, binop.right.*);
+                    try self.emit("))");
+                } else {
+                    try genExpr(self, binop.right.*);
+                }
+                try self.emit(")), ");
+                try self.emit(alloc_name);
+                try self.emit(")");
                 return;
             }
             // Small constant positive exponent - use i64
@@ -1354,25 +1429,23 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         return;
     }
 
-    // Check for large shifts that require BigInt
-    // e.g., 1 << 100000 exceeds i64 range, needs BigInt
-    // Also need BigInt when RHS is not comptime-known (Zig requires fixed-width int for LHS if RHS unknown)
+    // Check for large shifts that require UnifiedInt
+    // e.g., 1 << 100000 exceeds i64 range, needs UnifiedInt (auto-promotes to BigInt)
+    // Also need UnifiedInt when RHS is not comptime-known (Zig requires fixed-width int for LHS if RHS unknown)
     if (binop.op == .LShift) {
         const is_comptime_shift = binop.right.* == .constant and binop.right.constant.value == .int;
         const is_large_shift = is_comptime_shift and binop.right.constant.value.int >= 63;
 
-        // Use BigInt for large shifts OR when shift amount is not comptime-known
+        // Use unified_int_ops for large shifts OR when shift amount is not comptime-known
         if (is_large_shift or !is_comptime_shift) {
             const alloc_name = "__global_allocator";
-            try self.emit("(runtime.BigInt.fromInt(");
-            try self.emit(alloc_name);
-            try self.emit(", ");
+            try self.emit("runtime.unified_int_ops.shl(runtime.unified_int_ops.fromI64(");
             try genExpr(self, binop.left.*);
-            try self.emit(") catch @panic(\"OOM\")).shl(@as(usize, @intCast(");
+            try self.emit("), @as(u32, @intCast(");
             try genExpr(self, binop.right.*);
             try self.emit(")), ");
             try self.emit(alloc_name);
-            try self.emit(") catch @panic(\"OOM\")");
+            try self.emit(")");
             return;
         }
     }
@@ -1626,6 +1699,11 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
                 try self.emit("(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit(").neg()");
+            } else if (operand_type == .unified_int) {
+                // UnifiedInt negation: use runtime helper (panics on OOM)
+                try self.emit("runtime.unified_int_ops.neg(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(", __global_allocator)");
             } else if (operand_type == .bigint) {
                 // BigInt negation: use runtime helper
                 try self.emit("runtime.bigint_ops.neg(");
@@ -1705,6 +1783,11 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
                 try self.emit("~@as(i64, @intFromBool(");
                 try genExpr(self, unaryop.operand.*);
                 try self.emit("))");
+            } else if (operand_type == .unified_int) {
+                // UnifiedInt bitwise complement: ~n = -(n+1) using unified_int_ops.bitNot
+                try self.emit("runtime.unified_int_ops.bitNot(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(", __global_allocator)");
             } else if (operand_type == .bigint) {
                 // BigInt bitwise complement: ~n = -(n+1)
                 // Implemented as: negate (n+1) -> -(n+1) = -n-1 = ~n

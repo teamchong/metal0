@@ -214,6 +214,7 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
             // Local import: generate runtime error
             try self.emitIndent();
             try self.emitFmt("return error.ModuleNotFoundError; // No module named '{s}'\n", .{module_name});
+            self.control_flow_terminated = true; // Mark control flow terminated to skip unreachable code
         }
         return;
     }
@@ -268,6 +269,7 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
             // Local import: generate runtime error
             try self.emitIndent();
             try self.emitFmt("return error.ModuleNotFoundError; // No module named '{s}'\n", .{module_name});
+            self.control_flow_terminated = true; // Mark control flow terminated to skip unreachable code
         }
         return;
     }
@@ -1466,13 +1468,23 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
     // Generate body
     // If we're inside an assertRaises context (from a parent with statement),
     // wrap expression statements in error-catching code
+    // EXCEPTION: Assertion calls (self.assert*) generate complete statements, not expressions
     for (with_node.body) |stmt| {
         if (self.in_assert_raises_context and stmt == .expr_stmt) {
-            // Wrap expression in error catch for assertRaises context
-            try self.emitIndent();
-            try self.emit("{ const __ar_expr = ");
-            try self.genExpr(stmt.expr_stmt.value.*);
-            try self.emit("; if (@typeInfo(@TypeOf(__ar_expr)) == .error_union) { _ = __ar_expr catch {}; } }\n");
+            // Check if this is an assertion call (generates statement, not expression)
+            const is_assertion = isAssertionCall(stmt.expr_stmt.value.*);
+            if (is_assertion) {
+                // Don't wrap - assertions generate complete statements like:
+                // if (!...) return error.AssertionFailed;
+                // Wrapping would cause double-semicolon syntax error
+                try self.generateStmt(stmt);
+            } else {
+                // Wrap non-assertion expressions for error catching
+                try self.emitIndent();
+                try self.emit("{ const __ar_expr = ");
+                try self.genExpr(stmt.expr_stmt.value.*);
+                try self.emit("; if (@typeInfo(@TypeOf(__ar_expr)) == .error_union) { _ = __ar_expr catch {}; } }\n");
+            }
         } else {
             try self.generateStmt(stmt);
         }
@@ -1494,6 +1506,23 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
+}
+
+/// Check if an expression is an assertion call (self.assert*)
+/// These calls generate complete statements, not expressions, so they
+/// should not be wrapped in `const __ar_expr = ...` in assertRaises context.
+fn isAssertionCall(expr: ast.Node) bool {
+    if (expr != .call) return false;
+    const call = expr.call;
+    // Check for self.assert* pattern (attribute access on self)
+    if (call.func.* == .attribute) {
+        const attr = call.func.attribute;
+        // Check if the attribute name starts with "assert"
+        if (attr.attr.len >= 6 and std.mem.startsWith(u8, attr.attr, "assert")) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /// Extract exception type name from an expression

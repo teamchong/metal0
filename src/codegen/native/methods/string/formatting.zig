@@ -188,11 +188,12 @@ pub fn genRfind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     if (args.len == 0) return error.UnsupportedSyntax;
 
     if (args.len == 1) {
-        try self.emit("if (std.mem.lastIndexOf(u8, ");
+        // Wrap in parens so it's a valid expression in any context
+        try self.emit("(if (std.mem.lastIndexOf(u8, ");
         try emitStringExpr(self, obj);
         try self.emit(", ");
         try self.genExpr(args[0]);
-        try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1");
+        try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1)");
     } else {
         try self.emit("blk: {\n");
         try self.emit("    const __rfind_text = ");
@@ -226,11 +227,12 @@ pub fn genRindex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     if (args.len == 0) return error.UnsupportedSyntax;
 
     if (args.len == 1) {
-        try self.emit("if (std.mem.lastIndexOf(u8, ");
+        // Wrap in parens so it's a valid expression in any context
+        try self.emit("(if (std.mem.lastIndexOf(u8, ");
         try emitStringExpr(self, obj);
         try self.emit(", ");
         try self.genExpr(args[0]);
-        try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1");
+        try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1)");
     } else {
         try self.emit("blk: {\n");
         try self.emit("    const __ridx_text = ");

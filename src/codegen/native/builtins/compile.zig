@@ -8,7 +8,7 @@ pub fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // We require at least source, filename, and mode (first 3 args)
     if (args.len < 3) {
         // For tests that call compile() with fewer args, emit a stub
-        try self.emit("@compileError(\"compile() requires at least 3 arguments\")");
+        try self.emit("(blk_compile: { @panic(\"compile() requires at least 3 arguments\"); })");
         return;
     }
     try self.emit("try runtime.compile_builtin(__global_allocator, ");

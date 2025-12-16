@@ -476,6 +476,12 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             try self.emit("(");
             try self.genExpr(iter);
             try self.emit(").items");
+        } else if (producesBlockExpression(iter)) {
+            // Block expression (reversed(), etc.) - wrap in temp variable for .items access
+            // Can't do `blk: {...}.items` directly in for loop operand
+            try self.emit("blk: { const __iter = ");
+            try self.genExpr(iter);
+            try self.emit("; break :blk __iter.items; }");
         } else {
             // Variable that holds ArrayList
             try self.genExpr(iter);
@@ -514,43 +520,43 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             // Discard pattern or unused variable - explicitly discard the value
             try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
         } else {
-            // Check if loop variable shadows a module-level function or imported module
-            const shadows_module_func = self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
-            if (shadows_module_func and !self.var_renames.contains(var_name)) {
-                const renamed = try self.name_gen.local(var_name);
-                try self.var_renames.put(var_name, renamed);
-            }
-            const actual_name = self.var_renames.get(var_name) orelse var_name;
-
-            // Check if the renamed name contains a dot (capture struct access like __cap_foo.bar)
-            // If so, this is for reading captured vars, not for declaring new locals.
-            // For declarations, use a sanitized name with dots replaced by underscores.
-            const decl_name = blk: {
-                if (std.mem.indexOfScalar(u8, actual_name, '.')) |_| {
-                    // Contains dot - sanitize for declaration
-                    var buf = try self.allocator.alloc(u8, actual_name.len);
-                    for (actual_name, 0..) |c, idx| {
-                        buf[idx] = if (c == '.') '_' else c;
-                    }
-                    break :blk buf;
-                } else {
-                    break :blk actual_name;
-                }
-            };
-
             // Check if variable is hoisted (used after loop) - use assignment not declaration
             // Also check if reassigned later in the loop body - need `var` not `const`
             const is_hoisted = self.hoisted_vars.contains(var_name);
             const is_reassigned = varIsReassignedInBody(body, var_name);
 
             if (is_hoisted) {
-                // Already declared at function level - just assign
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
-            } else if (is_reassigned) {
-                try self.emit("var ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
+                // Already declared at function level - just assign using original name
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
             } else {
-                try self.emit("const ");
+                // Not hoisted - check if loop variable shadows a module-level function, imported module, or outer scope variable
+                const shadows_outer_scope = self.isDeclared(var_name) or
+                    self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
+                if (shadows_outer_scope and !self.var_renames.contains(var_name)) {
+                    const renamed = try self.name_gen.local(var_name);
+                    try self.var_renames.put(var_name, renamed);
+                }
+                const actual_name = self.var_renames.get(var_name) orelse var_name;
+
+                // Check if the renamed name contains a dot (capture struct access like __cap_foo.bar)
+                // If so, sanitize for declaration (replace dots with underscores)
+                const decl_name = blk: {
+                    if (std.mem.indexOfScalar(u8, actual_name, '.')) |_| {
+                        var buf = try self.allocator.alloc(u8, actual_name.len);
+                        for (actual_name, 0..) |c, idx| {
+                            buf[idx] = if (c == '.') '_' else c;
+                        }
+                        break :blk buf;
+                    } else {
+                        break :blk actual_name;
+                    }
+                };
+
+                if (is_reassigned) {
+                    try self.emit("var ");
+                } else {
+                    try self.emit("const ");
+                }
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
             }
             try self.output.writer(self.allocator).print(" = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
@@ -1254,15 +1260,25 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             try self.pushScope();
 
             try self.emitIndent();
-            // Check if loop variable shadows a module-level function or imported module
-            const shadows_module_func_vararg = self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
-            if (shadows_module_func_vararg and !self.var_renames.contains(var_name)) {
-                const renamed = try self.name_gen.local(var_name);
-                try self.var_renames.put(var_name, renamed);
-            }
-            const actual_name_vararg = self.var_renames.get(var_name) orelse var_name;
+            // Check if variable is hoisted - if so, use original name without redeclaration
+            const is_hoisted_vararg = self.hoisted_vars.contains(var_name);
+            const actual_name_vararg = if (is_hoisted_vararg) blk: {
+                // Hoisted vars use original name
+                break :blk var_name;
+            } else blk: {
+                // Not hoisted - check if loop variable shadows outer scope
+                const shadows_outer_scope_vararg = self.isDeclared(var_name) or
+                    self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
+                if (shadows_outer_scope_vararg and !self.var_renames.contains(var_name)) {
+                    const renamed = try self.name_gen.local(var_name);
+                    try self.var_renames.put(var_name, renamed);
+                }
+                break :blk self.var_renames.get(var_name) orelse var_name;
+            };
 
-            try self.emit("const ");
+            if (!is_hoisted_vararg) {
+                try self.emit("const ");
+            }
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name_vararg);
             try self.output.writer(self.allocator).print(
                 " = @field(__vararg_val_{s}, __tuple_field.name);\n",
@@ -1360,34 +1376,37 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         if (!tuple_var_used) {
             try self.output.writer(self.allocator).print("_ = " ++ get_item_expr ++ ";\n", .{ label_id, label_id, label_id });
         } else {
-            // Check if loop variable shadows a module-level function or imported module
-            const shadows_module_func = self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
-            if (shadows_module_func and !self.var_renames.contains(var_name)) {
-                const renamed = try self.name_gen.local(var_name);
-                try self.var_renames.put(var_name, renamed);
-            }
-            const actual_name = self.var_renames.get(var_name) orelse var_name;
-
-            // Check if the renamed name contains a dot (capture struct access like __cap_foo.bar)
-            // If so, sanitize for declaration (replace dots with underscores)
-            const decl_name = blk: {
-                if (std.mem.indexOfScalar(u8, actual_name, '.')) |_| {
-                    // Contains dot - sanitize for declaration
-                    var buf = try self.allocator.alloc(u8, actual_name.len);
-                    for (actual_name, 0..) |c, idx| {
-                        buf[idx] = if (c == '.') '_' else c;
-                    }
-                    break :blk buf;
-                } else {
-                    break :blk actual_name;
-                }
-            };
-
             // Check if variable is hoisted (used after loop) - use assignment not const
+            // Hoisted vars are already declared in outer scope, so don't rename them
             if (self.hoisted_vars.contains(var_name)) {
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
+                // Use original var name (already declared in outer scope)
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                 try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id, label_id });
             } else {
+                // Not hoisted - check if loop variable shadows a module-level function, imported module, or outer scope variable
+                const shadows_outer_scope = self.isDeclared(var_name) or
+                    self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
+                if (shadows_outer_scope and !self.var_renames.contains(var_name)) {
+                    const renamed = try self.name_gen.local(var_name);
+                    try self.var_renames.put(var_name, renamed);
+                }
+                const actual_name = self.var_renames.get(var_name) orelse var_name;
+
+                // Check if the renamed name contains a dot (capture struct access like __cap_foo.bar)
+                // If so, sanitize for declaration (replace dots with underscores)
+                const decl_name = blk: {
+                    if (std.mem.indexOfScalar(u8, actual_name, '.')) |_| {
+                        // Contains dot - sanitize for declaration
+                        var buf = try self.allocator.alloc(u8, actual_name.len);
+                        for (actual_name, 0..) |c, idx| {
+                            buf[idx] = if (c == '.') '_' else c;
+                        }
+                        break :blk buf;
+                    } else {
+                        break :blk actual_name;
+                    }
+                };
+
                 try self.emit("const ");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
                 try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id, label_id });
@@ -1523,7 +1542,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // If so, use a unique capture name to avoid Zig "capture shadows local" error
     // Also check hoisted_vars - hoisted vars are pre-declared at function start
     // Also check imported_modules - can't shadow an imported module name
+    // Also check func_local_vars - can't shadow function local variables
     // Use raw name for hoisted_vars check (scope_analyzer uses raw names)
+    // NOTE: Only check variables that are ACTUALLY declared (isDeclared, hoisted_vars, imported_modules)
+    // Do NOT include func_local_vars - those are variables that WILL be declared later,
+    // and assigning to them before declaration causes "undeclared identifier" errors
     const raw_var_name = for_stmt.target.name.id;
     const shadows_outer = self.isDeclared(raw_var_name) or self.hoisted_vars.contains(raw_var_name) or self.imported_modules.contains(raw_var_name);
     var em_capture = self.exprEmitter();

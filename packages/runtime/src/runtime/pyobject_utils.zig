@@ -302,6 +302,36 @@ pub fn pyObjEqInt(obj: *PyObject, value: i64) bool {
     return if (getTypeId(obj) == .int) PyInt.getValue(obj) == value else false;
 }
 
+/// Compare PyObject with UnifiedInt (for eval() result comparisons with potentially large integers)
+pub fn pyObjEqUnifiedInt(obj: *PyObject, value: anytype, allocator: std.mem.Allocator) bool {
+    const UnifiedInt = @import("../Objects/pyint.zig").UnifiedInt;
+    const V = @TypeOf(value);
+
+    // Handle UnifiedInt value
+    const unified_val: UnifiedInt = if (V == UnifiedInt)
+        value
+    else if (V == i64 or V == comptime_int)
+        UnifiedInt.fromI64(value)
+    else
+        @compileError("pyObjEqUnifiedInt: unsupported value type");
+
+    const type_id = getTypeId(obj);
+    return switch (type_id) {
+        .int => {
+            const obj_val = PyInt.getValue(obj);
+            return unified_val.eql(UnifiedInt.fromI64(obj_val), allocator) catch false;
+        },
+        .bigint => {
+            // BigInt is already imported at module level
+            const cast = pyobject_cast.cast;
+            const big_obj = cast(PyBigIntObject, obj);
+            const obj_unified = UnifiedInt.fromBigIntValue(allocator, &big_obj.value) catch return false;
+            return unified_val.eql(obj_unified, allocator) catch false;
+        },
+        else => false,
+    };
+}
+
 /// Extract int value from PyObject (for eval() results)
 pub fn pyObjToInt(obj: *PyObject) i64 {
     return if (getTypeId(obj) == .int) PyInt.getValue(obj) else 0;

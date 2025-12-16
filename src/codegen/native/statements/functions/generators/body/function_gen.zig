@@ -1269,9 +1269,10 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Using _ = &self instead of _ = self avoids "pointless discard" errors when self IS used.
     const is_new_method = std.mem.eql(u8, method.name, "__new__");
     const is_staticmethod = signature.hasStaticmethodDecorator(method.decorators);
-    // Note: __init_subclass__ and __class_getitem__ are implicit classmethods in Python
+    // Note: __init_subclass__, __class_getitem__, and __new__ are implicit classmethods in Python
     const is_implicit_classmethod = std.mem.eql(u8, method.name, "__init_subclass__") or
-        std.mem.eql(u8, method.name, "__class_getitem__");
+        std.mem.eql(u8, method.name, "__class_getitem__") or
+        std.mem.eql(u8, method.name, "__new__");
     const is_classmethod = signature.hasClassmethodDecorator(method.decorators) or is_implicit_classmethod;
 
     // Skip self suppression for @staticmethod and @classmethod - they don't have a self parameter
@@ -1335,6 +1336,24 @@ fn genMethodBodyWithAllocatorInfoAndContext(
                 try self.emitIndent();
                 try self.emit("_ = &");
                 try self.emit(arg.name);
+                try self.emit(";\n");
+            }
+        }
+    }
+
+    // For implicit classmethods (__new__, __init_subclass__, __class_getitem__), emit suppression
+    // for parameters that may not be used in generated code. The first param (cls) is skipped in
+    // signature, so we start from index 1 (name, bases, dict for __new__)
+    // These need upfront discards because the method body may end with return (control_flow_terminated)
+    if (is_implicit_classmethod and method.args.len > 1) {
+        // Skip first param (cls), iterate remaining params
+        for (method.args[1..]) |arg| {
+            // Only emit discard if the param is used in Python source (not made anonymous in signature)
+            // If it was made anonymous, no discard needed
+            if (param_analyzer.isNameUsedInBody(method.body, arg.name)) {
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
                 try self.emit(";\n");
             }
         }
@@ -1430,7 +1449,10 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             break :blk false;
         } else false;
 
-        if (shadows_builtin_method or shadows_class_method) {
+        // Also check if parameter shadows an imported module (e.g., 'test', 'copy')
+        const shadows_imported_module = self.imported_modules.contains(arg.name);
+
+        if (shadows_builtin_method or shadows_class_method or shadows_imported_module) {
             // Add rename mapping using NameGen for consistent naming
             const renamed = try self.name_gen.local(arg.name);
             try self.var_renames.put(arg.name, renamed);

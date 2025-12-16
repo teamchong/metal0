@@ -346,6 +346,31 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         if (obj == .attribute or obj == .name) {
             const parent_name = if (obj == .name) obj.name.id else if (obj == .attribute) obj.attribute.attr else "";
 
+            // Handle type.__new__(cls, name, bases, dict) for metaclass creation
+            // Pattern: type.__new__(cls, name, bases, dict) -> runtime.typeNew(metaclass, name, bases, dict)
+            if (std.mem.eql(u8, method_name, "__new__") and std.mem.eql(u8, parent_name, "type")) {
+                if (call.args.len >= 4) {
+                    // type.__new__(cls, name, bases, dict)
+                    // cls is the metaclass, name is class name, bases is tuple, dict is namespace
+                    try self.emit("(try runtime.typeNew(__global_allocator, ");
+                    try self.genExpr(call.args[0]); // cls/metaclass
+                    try self.emit(", ");
+                    try self.genExpr(call.args[1]); // name
+                    try self.emit(", ");
+                    try self.genExpr(call.args[2]); // bases
+                    try self.emit(", ");
+                    try self.genExpr(call.args[3]); // dict
+                    try self.emit("))");
+                    return true;
+                } else if (call.args.len == 1) {
+                    // type.__new__(cls) - create empty type for metaclass
+                    try self.emit("(try runtime.typeNew(__global_allocator, ");
+                    try self.genExpr(call.args[0]); // cls
+                    try self.emit(", \"\", &[_]*runtime.PyType{}, runtime.hashmap_helper.StringHashMap(runtime.PyValue).init(__global_allocator)))");
+                    return true;
+                }
+            }
+
             // For builtin types (str, int, float, bool), __new__ creates an instance with a value
             const is_builtin_new = std.mem.eql(u8, method_name, "__new__") and BuiltinNewTypes.has(parent_name);
 
@@ -850,15 +875,47 @@ fn handleSuperCall(self: *NativeCodegen, call: ast.Node.Call, method_name: []con
         return false;
     };
 
+    const parent = @import("../expressions.zig");
+
+    // Check if this is a metaclass (inherits from type)
+    const is_metaclass = self.isClassMetaclass(current_class);
+
+    // Handle super().__new__() in metaclass context
+    // Pattern: super().__new__(cls, name, bases, dict) -> runtime.typeNew(cls, name, bases, dict)
+    if (is_metaclass and std.mem.eql(u8, method_name, "__new__")) {
+        if (call.args.len >= 4) {
+            // super().__new__(cls, name, bases, dict)
+            try self.emit("(try runtime.typeNew(__global_allocator, ");
+            try parent.genExpr(self, call.args[0]); // cls
+            try self.emit(", ");
+            try parent.genExpr(self, call.args[1]); // name
+            try self.emit(", ");
+            try parent.genExpr(self, call.args[2]); // bases
+            try self.emit(", ");
+            try parent.genExpr(self, call.args[3]); // dict
+            try self.emit("))");
+            return true;
+        } else if (call.args.len == 1) {
+            // super().__new__(cls) - create empty type
+            try self.emit("(try runtime.typeNew(__global_allocator, ");
+            try parent.genExpr(self, call.args[0]); // cls
+            try self.emit(", \"\", &[_]*runtime.PyType{}, runtime.hashmap_helper.StringHashMap(runtime.PyValue).init(__global_allocator)))");
+            return true;
+        }
+    }
+
     const parent_class = self.getParentClassName(current_class) orelse {
         // No parent class found (e.g., inheriting from external module like unittest.TestCase)
+        // For metaclasses, return empty PyValue
+        if (is_metaclass) {
+            try self.emit("runtime.PyValue{ .none = {} }");
+            return true;
+        }
         // Generate a no-op {} since we can't call the actual parent method
         // This is safe because test methods in unittest typically don't need parent return values
         try self.emit("{}");
         return true;
     };
-
-    const parent = @import("../expressions.zig");
 
     // Generate: ParentClass.method(@ptrCast(@constCast(self)), args)
     // Need @constCast because self is *const Child, and parent method may expect mutable pointer

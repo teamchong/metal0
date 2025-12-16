@@ -20,9 +20,10 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
     switch (constant.value) {
         .int => try self.output.writer(self.allocator).print("{d}", .{constant.value.int}),
         .bigint => |s| {
-            // Use catch unreachable instead of try - this works at module scope
-            // parseIntToBigInt only fails on allocation errors, which shouldn't happen for string literals
-            try self.output.writer(self.allocator).print("(runtime.parseIntToBigInt(__global_allocator, \"{s}\", 10) catch unreachable)", .{s});
+            // Large integers are now represented as UnifiedInt (auto-promotes i64 to BigInt)
+            // Use unified_int_ops.fromBigIntVal to convert BigInt value to UnifiedInt
+            // fromBigIntVal demotes to i64 if it fits, otherwise allocates BigInt on heap
+            try self.output.writer(self.allocator).print("runtime.unified_int_ops.fromBigIntVal(__global_allocator, (runtime.parseIntToBigInt(__global_allocator, \"{s}\", 10) catch unreachable))", .{s});
         },
         .float => |f| {
             if (std.math.isInf(f)) {

@@ -13,7 +13,7 @@ const expr_emitter = @import("../../expr_emitter.zig");
 /// Works with: strings, lists, dicts, tuples
 pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("@compileError(\"len() requires exactly 1 argument\")");
+        try self.emit("(blk_len: { @panic(\"len() requires exactly 1 argument\"); })");
         return;
     }
 
@@ -309,7 +309,7 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (args.len != 1) {
         // More than 2 args - not valid, emit error
-        try self.emit("@compileError(\"int() takes at most 2 arguments\")");
+        try self.emit("(blk_int: { @panic(\"int() takes at most 2 arguments\"); })");
         return;
     }
 
@@ -489,7 +489,7 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: Extract int from PyValue for uncertain types
 pub fn genHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("@compileError(\"hex() takes exactly one argument\")");
+        try self.emit("(blk_hex: { @panic(\"hex() takes exactly one argument\"); })");
         return;
     }
     // Two-Flow: Check if argument is uncertain (PyValue)
@@ -510,7 +510,7 @@ pub fn genHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: Extract int from PyValue for uncertain types
 pub fn genOct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("@compileError(\"oct() takes exactly one argument\")");
+        try self.emit("(blk_oct: { @panic(\"oct() takes exactly one argument\"); })");
         return;
     }
     // Two-Flow: Check if argument is uncertain (PyValue)
@@ -531,7 +531,7 @@ pub fn genOct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: Extract int from PyValue for uncertain types
 pub fn genBin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("@compileError(\"bin() takes exactly one argument\")");
+        try self.emit("(blk_bin: { @panic(\"bin() takes exactly one argument\"); })");
         return;
     }
     // Two-Flow: Check if argument is uncertain (PyValue)

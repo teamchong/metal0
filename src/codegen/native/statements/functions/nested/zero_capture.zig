@@ -277,8 +277,41 @@ pub fn genZeroCaptureClosure(
     }
     defer self.in_generator_function = saved_in_generator;
 
+    // Check if body contains early-terminating statements (skipped imports)
+    // If so, emit param discards upfront before they become unreachable
+    const has_early_termination = blk: {
+        for (func.body) |stmt| {
+            if (stmt == .import_stmt) {
+                if (self.isSkippedModule(stmt.import_stmt.module)) break :blk true;
+            } else if (stmt == .import_from) {
+                if (self.isSkippedModule(stmt.import_from.module)) break :blk true;
+            }
+        }
+        break :blk false;
+    };
+
+    // Emit param discards upfront if we'll terminate early
+    if (has_early_termination) {
+        for (func.args) |arg| {
+            // Skip already-anonymous parameters (named "_")
+            if (std.mem.eql(u8, arg.name, "_")) continue;
+            // Emit discard for parameter
+            try self.emitIndent();
+            try self.emit("_ = &");
+            // Use renamed parameter if applicable
+            if (param_renames.get(arg.name)) |renamed| {
+                try self.emit(renamed);
+            } else {
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            }
+            try self.emit(";\n");
+        }
+    }
+
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
+        // If control flow terminated, skip remaining statements
+        if (self.control_flow_terminated) break;
     }
 
     // For generators, return the collected results

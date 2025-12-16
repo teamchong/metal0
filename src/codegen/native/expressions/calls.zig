@@ -1223,6 +1223,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // Library classes like Path are dispatched separately, so if we reach here
                 // it's likely a local class that wasn't tracked in nested_class_names
                 // (e.g., due to scoping issues). User-defined init() returns struct directly.
+                // Need to emit (try ...) wrapper if class has error init
+                if (needs_try) {
+                    try self.emit("(try ");
+                }
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
                 if (call.args.len == 0 and call.keyword_args.len == 0) {
                     try self.emit(".init(__global_allocator");

@@ -111,6 +111,27 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 return;
             }
 
+            // Handle 'cls' in metaclass instance methods - 'cls' is the first param (like 'self')
+            // In metaclass methods, 'cls' maps to 'self'/'__self' in Zig
+            // IMPORTANT: Only do this if 'cls' is actually the first parameter name,
+            // not just a local variable named 'cls' (e.g., in __new__ methods)
+            if (std.mem.eql(u8, name_to_use, "cls") and self.inside_method_with_self) {
+                // Check if 'cls' is actually the first parameter name for this method
+                const is_first_param = if (self.current_method_first_param) |fp|
+                    std.mem.eql(u8, fp, "cls")
+                else
+                    false;
+
+                if (is_first_param) {
+                    if (self.method_nesting_depth > 0) {
+                        try self.emit("__self");
+                    } else {
+                        try self.emit("self");
+                    }
+                    return;
+                }
+            }
+
             // Handle Python builtin constants
             if (std.mem.eql(u8, name_to_use, "Ellipsis")) {
                 // Python Ellipsis constant - emit void value (like ellipsis_literal)

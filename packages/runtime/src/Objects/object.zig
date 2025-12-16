@@ -3,6 +3,7 @@
 const std = @import("std");
 const allocator_helper = @import("utils.allocator_helper");
 const bigint = @import("bigint");
+const pytype = @import("pytype.zig");
 
 /// PyValue - Runtime-typed value for dynamic attributes
 /// Uses tagged union for type safety
@@ -17,6 +18,7 @@ pub const PyValue = union(enum) {
     tuple: []const PyValue,
     bigint: bigint.BigInt, // For integers that don't fit in i64
     complex: Complex, // Python complex number
+    type_obj: *pytype.PyType, // Python type/class object (for metaclasses)
     ptr: *anyopaque, // For types that can't be represented
 
     pub const Complex = struct { real: f64, imag: f64 };
@@ -109,6 +111,7 @@ pub const PyValue = union(enum) {
                     try writer.print("({d}{d}j)", .{ v.real, v.imag });
                 }
             },
+            .type_obj => |t| try writer.print("<class '{s}'>", .{t.name}),
             .ptr => try writer.writeAll("<ptr>"),
         }
     }
@@ -147,6 +150,7 @@ pub const PyValue = union(enum) {
             .tuple => |v| v.len > 0,
             .bigint => |v| !v.isZero(),
             .complex => |v| v.real != 0.0 or v.imag != 0.0, // 0j is falsy
+            .type_obj => true, // Type objects are always truthy
             .ptr => true,
         };
     }
@@ -174,6 +178,7 @@ pub const PyValue = union(enum) {
             .tuple => "tuple",
             .bigint => "int",
             .complex => "complex",
+            .type_obj => "type",
             .ptr => "object",
         };
     }
@@ -808,6 +813,7 @@ pub const PyValue = union(enum) {
                 },
                 .bigint => |v| v.eql(&other.bigint),
                 .complex => |v| v.real == other.complex.real and v.imag == other.complex.imag,
+                .type_obj => |v| v == other.type_obj,
                 .ptr => |v| v == other.ptr,
             };
         }

@@ -962,13 +962,14 @@ pub fn inferExprWithInferrer(
                     val_type = .pyvalue;
                 }
 
-                // Also check for tuples with BigInt elements - these need PyValue at runtime
+                // Also check for tuples with BigInt/UnifiedInt elements - these need PyValue at runtime
                 if (val_type == .tuple) {
                     for (d.values) |value| {
                         const vt = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, value, type_inferrer);
                         if (vt == .tuple) {
                             for (vt.tuple) |elem_type| {
-                                if (elem_type == .bigint) {
+                                const elem_tag = @as(std.meta.Tag(NativeType), elem_type);
+                                if (elem_tag == .bigint or elem_tag == .unified_int) {
                                     val_type = .pyvalue;
                                     break;
                                 }
@@ -1419,10 +1420,12 @@ pub fn inferExprWithInferrer(
                 },
                 .Not => break :blk .bool, // not x always returns bool
                 .Invert => {
-                    // ~x always returns int - preserve operand's boundedness
-                    if (@as(std.meta.Tag(NativeType), operand_type) == .int) {
-                        break :blk operand_type; // Preserve boundedness
-                    }
+                    // ~x always returns int-like type
+                    const op_tag = @as(std.meta.Tag(NativeType), operand_type);
+                    // Preserve UnifiedInt/BigInt types
+                    if (op_tag == .unified_int) break :blk .unified_int;
+                    if (op_tag == .bigint) break :blk .unified_int; // Convert BigInt to UnifiedInt
+                    if (op_tag == .int) break :blk operand_type; // Preserve boundedness
                     break :blk .{ .int = .bounded }; // Default to bounded
                 },
             }
@@ -1444,7 +1447,7 @@ pub fn inferExprWithInferrer(
 fn inferConstant(value: ast.Value) InferError!NativeType {
     return switch (value) {
         .int => .{ .int = .bounded }, // Integer literals are bounded
-        .bigint => .bigint, // Large integers are BigInt
+        .bigint => .unified_int, // Large integers use UnifiedInt (auto-promotes to BigInt)
         .float => .float,
         .string => .{ .string = .literal }, // String literals are compile-time constants
         .bytes => .bytes, // Bytes literals use PyBytes wrapper

@@ -124,11 +124,11 @@ pub fn inferBuiltinCall(
         // Check if argument is a large float literal (e.g., 1e100)
         if (arg == .constant and arg.constant.value == .float) {
             const fval = arg.constant.value.float;
-            // If float exceeds i64 range, use bigint
+            // If float exceeds i64 range, use UnifiedInt (auto-promotes to BigInt)
             const max_i64: f64 = @as(f64, @floatFromInt(std.math.maxInt(i64)));
             const min_i64: f64 = @as(f64, @floatFromInt(std.math.minInt(i64)));
             if (fval > max_i64 or fval < min_i64 or @abs(fval) > max_i64) {
-                return .bigint;
+                return .unified_int;
             }
         }
         // Check for unary minus with float literal: int(-1e100)
@@ -137,7 +137,7 @@ pub fn inferBuiltinCall(
                 const fval = arg.unaryop.operand.constant.value.float;
                 const max_i64: f64 = @as(f64, @floatFromInt(std.math.maxInt(i64)));
                 if (fval > max_i64) {
-                    return .bigint;
+                    return .unified_int;
                 }
             }
         }
@@ -149,15 +149,16 @@ pub fn inferBuiltinCall(
         // by inferring the arg type and checking if it's a string (from external source)
         const arg_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, arg, type_inferrer);
         const arg_tag = @as(std.meta.Tag(NativeType), arg_type);
-        // If arg is a RUNTIME string (not literal), it could be from input() - unbounded
+        // If arg is a RUNTIME string (not literal), it could be from input() - use UnifiedInt
         // Literal strings like "123" are bounded because we can verify the value at compile time
         if (arg_tag == .string and arg_type.string != .literal) {
-            // String from file/input/network - unbounded
-            return .{ .int = .unbounded };
+            // String from file/input/network - use UnifiedInt for safety
+            return .unified_int;
         }
-        // If arg is already an unbounded int, propagate
+        // If arg is already UnifiedInt or unbounded int, propagate as UnifiedInt
+        if (arg_tag == .unified_int) return .unified_int;
         if (arg_tag == .int and arg_type.int == .unbounded) {
-            return .{ .int = .unbounded };
+            return .unified_int;
         }
         // Default: bounded (e.g., int(float_literal), int(int_var), int("123"))
         return .{ .int = .bounded };

@@ -496,7 +496,7 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Supports common patterns like map(str.strip, items) and map(int, items)
 pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        try self.emit("@compileError(\"map() requires 2 arguments\")");
+        try self.emit("(blk_map: { @panic(\"map() requires 2 arguments\"); })");
         return;
     }
 
@@ -692,7 +692,9 @@ pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // 1. Function pointers (complex in Zig, needs comptime or anytype)
     // 2. Lambda support (would need closure generation)
     // For now, users should use explicit for loops with if conditions
-    try self.emit("@compileError(\"filter() not supported - use explicit for loop with if instead\")");
+    // Use a block expression that returns a valid type but panics with a clear message
+    // This prevents "unreachable code" errors after the filter() call
+    try self.emit("(blk_filter: { @panic(\"filter() not supported - use explicit for loop with if instead\"); })");
 }
 
 /// Generate code for iter(iterable)

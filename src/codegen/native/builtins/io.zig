@@ -37,7 +37,7 @@ fn emitStringExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 /// Two-Flow: Extracts filename string from PyValue if uncertain
 pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
-        try self.emit("@compileError(\"open() requires at least 1 argument\")");
+        try self.emit("(blk_open: { @panic(\"open() requires at least 1 argument\"); })");
         return;
     }
 
@@ -94,7 +94,7 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: Extracts prompt string from PyValue if uncertain
 pub fn genInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 1) {
-        try self.emit("@compileError(\"input() takes at most 1 argument\")");
+        try self.emit("(blk_input: { @panic(\"input() takes at most 1 argument\"); })");
         return;
     }
     try self.emit("runtime.builtins.input(__global_allocator, ");
@@ -184,7 +184,7 @@ pub fn genPrintWithKeywords(self: *NativeCodegen, args: []ast.Node, keyword_args
 /// Returns an async iterator object
 pub fn genAiter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("@compileError(\"aiter() takes exactly one argument\")");
+        try self.emit("(blk_aiter: { @panic(\"aiter() takes exactly one argument\"); })");
         return;
     }
     // For now, just return the object (which should have __aiter__)
@@ -195,7 +195,7 @@ pub fn genAiter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Returns the next item from async iterator
 pub fn genAnext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("@compileError(\"anext() missing required argument\")");
+        try self.emit("(blk_anext: { @panic(\"anext() missing required argument\"); })");
         return;
     }
     // For now, call __anext__ on the object
@@ -212,7 +212,7 @@ pub fn genAnext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// In AOT, we just pass through since decoration is handled elsewhere
 pub fn genStaticmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("@compileError(\"staticmethod requires an argument\")");
+        try self.emit("(blk_staticmethod: { @panic(\"staticmethod requires an argument\"); })");
         return;
     }
     try self.genExpr(args[0]);
@@ -222,7 +222,7 @@ pub fn genStaticmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 /// In AOT, we just pass through since decoration is handled elsewhere
 pub fn genClassmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("@compileError(\"classmethod requires an argument\")");
+        try self.emit("(blk_classmethod: { @panic(\"classmethod requires an argument\"); })");
         return;
     }
     try self.genExpr(args[0]);

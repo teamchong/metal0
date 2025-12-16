@@ -89,6 +89,9 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     // Found field: self.x = y
                     const field_name = attr.attr;
 
+                    // Skip __dict__ - it's always added separately
+                    if (std.mem.eql(u8, field_name, "__dict__")) continue;
+
                     // FIRST: Check if value is a parameter name - parameters shadow outer variables
                     // This must be checked BEFORE inferExpr to avoid picking up outer variables
                     // with the same name as parameters
@@ -481,8 +484,8 @@ pub fn genClassAttributeFields(self: *NativeCodegen, class_body: []const ast.Nod
                     continue;
                 }
 
-                // Skip list/set literals - they may be handled elsewhere
-                if (assign.value.* == .list or assign.value.* == .set) {
+                // Skip list/set/dict literals - they may be handled elsewhere
+                if (assign.value.* == .list or assign.value.* == .set or assign.value.* == .dict) {
                     continue;
                 }
 
@@ -490,6 +493,12 @@ pub fn genClassAttributeFields(self: *NativeCodegen, class_body: []const ast.Nod
                 // These are already handled as `pub const` in generators.zig (lines 1523-1533)
                 // Generating struct fields here would cause "duplicate struct member" errors
                 if (assign.value.* == .constant) {
+                    continue;
+                }
+
+                // Skip unary ops on constants (like -1, +2, ~0)
+                // These are handled as lazy-computed attributes or pub const
+                if (assign.value.* == .unaryop) {
                     continue;
                 }
 

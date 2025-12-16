@@ -90,6 +90,10 @@ pub const comparison_ops = @import("runtime/comparison_ops.zig");
 /// Use bigint_ops.add(a, b, alloc) instead of ((a.add(&b, alloc) catch @panic("OOM")))
 pub const bigint_ops = @import("runtime/bigint_ops.zig");
 
+/// Export UnifiedInt operations - auto-promoting integer arithmetic (i64 -> BigInt on overflow)
+/// Use unified_int_ops.add(a, b, alloc) for Python's unlimited precision int semantics
+pub const unified_int_ops = @import("runtime/unified_int_ops.zig");
+
 // =============================================================================
 // Modular submodules (split from runtime.zig for organization)
 // These are available as separate imports for new code:
@@ -729,6 +733,7 @@ pub const containsGeneric = pyobject_utils.containsGeneric;
 pub const contains = pyobject_utils.contains;
 pub const pyLen = pyobject_utils.pyLen;
 pub const pyObjEqInt = pyobject_utils.pyObjEqInt;
+pub const pyObjEqUnifiedInt = pyobject_utils.pyObjEqUnifiedInt;
 pub const pyObjToInt = pyobject_utils.pyObjToInt;
 pub const pyObjToBigInt = pyobject_utils.pyObjToBigInt;
 pub const createObject = pyobject_utils.createObject;

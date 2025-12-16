@@ -118,16 +118,41 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
         self.type_inferrer.putConfidence(arg.name, confidence) catch {};
     }
 
+    // Track parameter renames for shadowing prevention
+    // Lambda params can shadow module-level vars - Zig error: "function parameter shadows declaration of 'X'"
+    var param_renames = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
+    defer {
+        // Free allocated rename strings
+        for (param_renames.values()) |renamed| {
+            self.allocator.free(renamed);
+        }
+        param_renames.deinit();
+    }
+
     // Generate parameter list - check if parameter is used in body
     for (lambda.args, 0..) |arg, i| {
         if (i > 0) try lambda_func.writer(self.allocator).writeAll(", ");
         // Check if param is used in body - if not, use _ to discard
         const is_used = isParamUsedInBody(arg.name, lambda.body.*);
         if (is_used) {
-            // Use writeParamName to handle both keyword escaping AND shadowing prevention
-            // (e.g., "take" -> "take_arg" to avoid shadowing runtime.take)
-            try zig_keywords.writeParamName(lambda_func.writer(self.allocator), arg.name);
-            try lambda_func.writer(self.allocator).print(": {s}", .{param_types[i]});
+            // Check if param shadows module-level variable
+            const shadows_module_var = self.module_level_vars.contains(arg.name) or
+                self.module_level_funcs.contains(arg.name) or
+                self.module_level_from_imports.contains(arg.name);
+
+            if (shadows_module_var) {
+                // Rename param to avoid shadowing
+                const renamed = try std.fmt.allocPrint(self.allocator, "__lp_{s}", .{arg.name});
+                try param_renames.put(arg.name, renamed);
+                // Register in var_renames so body generation uses renamed param
+                try self.var_renames.put(arg.name, renamed);
+                try lambda_func.writer(self.allocator).print("{s}: {s}", .{ renamed, param_types[i] });
+            } else {
+                // Use writeParamName to handle both keyword escaping AND shadowing prevention
+                // (e.g., "take" -> "take_arg" to avoid shadowing runtime.take)
+                try zig_keywords.writeParamName(lambda_func.writer(self.allocator), arg.name);
+                try lambda_func.writer(self.allocator).print(": {s}", .{param_types[i]});
+            }
         } else {
             // In Zig 0.15, unused params must be named exactly "_", not "_name"
             try lambda_func.writer(self.allocator).print("_: {s}", .{param_types[i]});
@@ -142,6 +167,10 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
     defer {
         for (lambda.args) |arg| {
             _ = self.type_inferrer.var_types.swapRemove(arg.name);
+            // Also clean up var_renames for this param
+            if (param_renames.contains(arg.name)) {
+                _ = self.var_renames.swapRemove(arg.name);
+            }
         }
     }
 

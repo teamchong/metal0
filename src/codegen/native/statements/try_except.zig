@@ -421,6 +421,44 @@ fn containsRaise(stmts: []ast.Node) bool {
     return false;
 }
 
+/// Check if statements contain control flow (break, continue, return) that is illegal in defer
+/// Zig error: "cannot break/continue/return out of defer expression"
+fn containsControlFlow(stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .break_stmt, .continue_stmt, .return_stmt => return true,
+            .if_stmt => |if_stmt| {
+                if (containsControlFlow(if_stmt.body)) return true;
+                if (containsControlFlow(if_stmt.else_body)) return true;
+            },
+            .for_stmt => |for_stmt| {
+                // Don't recurse into loop body - break/continue there is for the inner loop
+                // But DO check orelse_body since that's not part of the loop
+                if (for_stmt.orelse_body) |orelse_body| {
+                    if (containsControlFlow(orelse_body)) return true;
+                }
+            },
+            .while_stmt => |while_stmt| {
+                // Same - don't recurse into loop body, but check orelse_body
+                if (while_stmt.orelse_body) |orelse_body| {
+                    if (containsControlFlow(orelse_body)) return true;
+                }
+            },
+            .with_stmt => |with_stmt| {
+                if (containsControlFlow(with_stmt.body)) return true;
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    if (containsControlFlow(case.body)) return true;
+                }
+            },
+            // Don't recurse into nested try/functions - their control flow is local
+            else => {},
+        }
+    }
+    return false;
+}
+
 pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     // Detect optional import pattern: try: import X except: X = None
     // If module X is unavailable, mark it as skipped so functions using it are skipped
@@ -1405,22 +1443,16 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     } else {
         // No exception handlers - just try/finally or try/else/finally
         // When there's a finally block, use defer to ensure it runs even if try body returns
-        if (has_finally) {
+        // BUT: Can't use defer if finally contains break/continue/return (Zig doesn't allow control flow in defer)
+        const finally_has_control_flow = has_finally and containsControlFlow(try_node.finalbody);
+        const can_use_defer = has_finally and !finally_has_control_flow and !containsRaise(try_node.finalbody);
+
+        if (can_use_defer) {
             // Generate finally code as defer BEFORE try body
             // defer runs when scope exits (including on return), ensuring cleanup always happens
             try self.emitIndent();
             try self.emit("defer {\n");
             self.indent();
-
-            // Check if finally block contains raise statements
-            // If it does, we need to handle them specially
-            const finally_has_raise = containsRaise(try_node.finalbody);
-            if (finally_has_raise) {
-                // Finally block with raise needs special handling
-                // We can't use simple defer, need to capture exceptions
-                try self.emitIndent();
-                try self.emit("// TODO: Handle raise in finally block\n");
-            }
 
             // Generate finally body inline in the defer
             for (try_node.finalbody) |stmt| {
@@ -1466,9 +1498,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
     // Generate finally block (always executes after try/except/else)
     // Uses a labeled block to allow raise statements to break out with an error
-    // SKIP this if we already generated it as defer (no exception handlers case)
-    const skip_finally_generation = try_node.handlers.len == 0 and has_finally;
-    if (has_finally and !skip_finally_generation) {
+    // SKIP this if we already generated it as defer (no exception handlers + no control flow/raise)
+    const used_defer_for_finally = try_node.handlers.len == 0 and has_finally and !containsControlFlow(try_node.finalbody) and !containsRaise(try_node.finalbody);
+    if (has_finally and !used_defer_for_finally) {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __finally_err_{d}: ?anyerror = __finally_blk_{d}: {{\n", .{ helper_id, helper_id });
         self.indent();

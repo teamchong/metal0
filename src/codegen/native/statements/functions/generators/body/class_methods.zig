@@ -1116,11 +1116,14 @@ pub fn genInitMethodWithBuiltinBase(
         // Generate non-field statements (local var assignments, if statements, etc.)
         if (!is_field_assign) {
             try self.generateStmt(stmt);
+            // If statement terminated control flow, skip remaining statements
+            if (self.control_flow_terminated) break;
         }
     }
 
     // If __init__ has unconditional raise/return, skip struct creation (unreachable code)
-    if (has_terminating_stmt) {
+    // Check both static analysis (has_terminating_stmt) and runtime flag (control_flow_terminated)
+    if (has_terminating_stmt or self.control_flow_terminated) {
         // Close comptime type guard if we opened one
         if (has_type_checks) {
             self.dedent();
@@ -1531,6 +1534,31 @@ pub fn genInitMethodFromNew(
         }
     }
 
+    // Emit discards for __new__ params that appear used in Python but may not be
+    // used in generated init body (e.g., metaclass __new__ using dict param for dict['x'] = ...)
+    // The codegen doesn't fully implement all metaclass patterns, so params may appear unused
+    for (new_method.args) |arg| {
+        // Skip cls/self (first param)
+        if (std.mem.eql(u8, arg.name, "cls") or std.mem.eql(u8, arg.name, "self")) continue;
+        // Only emit discard if the param is named (not already anonymous "_:")
+        // Check if it was used in Python source but with a pattern we don't fully codegen
+        if (param_analyzer.isNameUsedInBody(new_method.body, arg.name)) {
+            // Check if this param was renamed - use the renamed version for discard
+            const param_name = blk: {
+                for (renamed_params.items) |entry| {
+                    if (std.mem.eql(u8, entry.original, arg.name)) {
+                        break :blk entry.renamed;
+                    }
+                }
+                break :blk arg.name;
+            };
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), param_name);
+            try self.emit(";\n");
+        }
+    }
+
     // Find the variable name used to receive super().__new__() result
     // Common patterns: obj = super().__new__(cls, ...) or self = super().__new__(cls, ...)
     var instance_var_name: []const u8 = "self"; // default fallback
@@ -1597,7 +1625,17 @@ pub fn genInitMethodFromNew(
         // Generate non-field, non-super-new statements
         if (!is_field_assign and !is_super_new_or_return) {
             try self.generateStmt(stmt);
+            // If statement terminated control flow (raise/return), skip remaining statements
+            if (self.control_flow_terminated) break;
         }
+    }
+
+    // If control flow terminated (raise/return in __new__), skip struct creation (unreachable code)
+    if (self.control_flow_terminated) {
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        return;
     }
 
     // Generate return statement with field initializers
@@ -1877,9 +1915,10 @@ pub fn genClassMethods(
             defer self.inside_new_method = prev_inside_new;
 
             // Track whether we're inside a classmethod (no self/__self, captured vars need special access)
-            // Both explicit @classmethod and implicit classmethods like __init_subclass__/__class_getitem__
+            // Both explicit @classmethod and implicit classmethods like __init_subclass__/__class_getitem__/__new__
             const is_implicit_classmethod = std.mem.eql(u8, method.name, "__init_subclass__") or
-                std.mem.eql(u8, method.name, "__class_getitem__");
+                std.mem.eql(u8, method.name, "__class_getitem__") or
+                std.mem.eql(u8, method.name, "__new__");
             const is_classmethod = signature.hasClassmethodDecorator(method.decorators) or is_implicit_classmethod;
             const prev_inside_classmethod = self.inside_classmethod;
             if (is_classmethod) self.inside_classmethod = true;
@@ -2087,7 +2126,8 @@ fn inheritMethodsFromClass(
 
             // Track whether we're inside a classmethod for inherited methods
             const is_implicit_classmethod = std.mem.eql(u8, parent_method.name, "__init_subclass__") or
-                std.mem.eql(u8, parent_method.name, "__class_getitem__");
+                std.mem.eql(u8, parent_method.name, "__class_getitem__") or
+                std.mem.eql(u8, parent_method.name, "__new__");
             const is_classmethod = signature.hasClassmethodDecorator(parent_method.decorators) or is_implicit_classmethod;
             const prev_inside_classmethod = self.inside_classmethod;
             if (is_classmethod) self.inside_classmethod = true;

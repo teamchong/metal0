@@ -204,12 +204,12 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
 /// Generate class definition with __init__ constructor
 /// Types that cannot be subclassed in Python (final types)
+/// Note: 'type' is NOT in this list - metaclasses (class Foo(type)) are supported
 const non_subclassable_types = std.StaticStringMap(void).initComptime(.{
     .{ "bool", {} },
     .{ "NoneType", {} },
     .{ "NotImplementedType", {} },
     .{ "ellipsis", {} },
-    .{ "type", {} },
     .{ "range", {} },
     .{ "slice", {} },
 });
@@ -238,7 +238,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     }
                 }
                 // Generate code that raises TypeError
-                // At module level, we can't use 'return' - use @compileError instead
+                // Inside a function, return error.TypeError
+                // Otherwise, emit a stub struct that errors when used
                 if (self.inside_nested_function or self.current_function_name != null) {
                     try self.emitIndent();
                     try self.emit("return error.TypeError; // type '");
@@ -247,11 +248,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     // Mark control flow as terminated so subsequent code isn't generated
                     self.control_flow_terminated = true;
                 } else {
-                    // Module level: use compile error to indicate unsupported feature
+                    // Emit a stub struct that raises compile error when init() is called
+                    // This is valid at any level (module, class body, etc.)
                     try self.emitIndent();
-                    try self.emit("@compileError(\"Cannot subclass '");
+                    try self.emit("const ");
+                    try self.emit(class.name);
+                    try self.emit(" = struct { pub fn init(_: std.mem.Allocator) @This() { @compileError(\"Cannot subclass '");
                     try self.emit(base);
-                    try self.emit("' - metaclasses are not supported\");\n");
+                    try self.emit("' - metaclasses are not supported\"); } };\n");
                 }
                 return;
             }

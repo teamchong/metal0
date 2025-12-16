@@ -274,11 +274,12 @@ pub fn inferMethodCall(
         const HEX_HASH = comptime fnv_hash.hash("hex");
         const CONJUGATE_HASH = comptime fnv_hash.hash("conjugate");
 
-        // as_integer_ratio returns (numerator, denominator) tuple of BigInts
+        // as_integer_ratio returns (numerator, denominator) tuple of UnifiedInts
+        // UnifiedInt handles both small (i64) and large (BigInt) values
         if (method_hash == AS_INTEGER_RATIO_HASH) {
             const tuple_types = try allocator.alloc(NativeType, 2);
-            tuple_types[0] = .bigint;
-            tuple_types[1] = .bigint;
+            tuple_types[0] = .unified_int;
+            tuple_types[1] = .unified_int;
             return .{ .tuple = tuple_types };
         }
         // is_integer returns bool
