@@ -43,6 +43,34 @@ pub fn appendCast(comptime T: type, list: *std.ArrayListUnmanaged(T), allocator:
     try list.append(allocator, cast_val);
 }
 
+/// Bound method wrapper for list.append
+/// In Python, list.append can be passed as a callback. This wrapper captures the list
+/// and allocator, providing a callable interface.
+/// Usage: BoundListMethod(T).init(&list, allocator) -> callable that appends to list
+pub fn BoundListMethod(comptime T: type) type {
+    return struct {
+        list: *std.ArrayListUnmanaged(T),
+        allocator: std.mem.Allocator,
+
+        const Self = @This();
+
+        pub fn init(list: *std.ArrayListUnmanaged(T), allocator: std.mem.Allocator) Self {
+            return .{ .list = list, .allocator = allocator };
+        }
+
+        /// Call the bound method (append to list)
+        pub fn call(self: Self, value: T) void {
+            self.list.append(self.allocator, value) catch @panic("OOM");
+        }
+
+        /// Call with any type (with casting)
+        pub fn callAny(self: Self, value: anytype) void {
+            const cast_val = castToListElement(T, @TypeOf(value), value, self.allocator) catch @panic("OOM");
+            self.list.append(self.allocator, cast_val) catch @panic("OOM");
+        }
+    };
+}
+
 test "castToListElement - same type" {
     const val: i64 = 42;
     const result = try castToListElement(i64, i64, val, std.testing.allocator);

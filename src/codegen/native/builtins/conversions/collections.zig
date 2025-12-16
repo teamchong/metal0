@@ -412,8 +412,15 @@ pub fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // dict() takes 0 or 1 argument
-    if (args.len != 1) return error.UnsupportedSyntax;
+    // dict() takes 0 or 1 argument - generate runtime TypeError for invalid counts
+    if (args.len > 1) {
+        try self.emit("(blk_dict_err: {\n");
+        try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"dict expected at most 1 argument, got ");
+        try self.emitFmt("{d}\", @src().line);\n", .{args.len});
+        try self.emit("break :blk_dict_err error.TypeError;\n");
+        try self.emit("})");
+        return;
+    }
 
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 

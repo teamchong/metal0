@@ -964,11 +964,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // 2. Name is in class registry (handles lowercase class names like "base_set")
         // Use raw_func_name for checking class registry (original Python name)
         // Also check nested_class_names - nested classes inside functions won't be in class_registry
-        // Also check symbol_table for locally defined classes (const MyClass = struct{...})
+        // NOTE: We do NOT check symbol_table.lookup - that includes function parameters which aren't classes!
         // Also check current_class_name - when inside a class method calling own class constructor
         const in_class_registry = self.class_registry.getClass(raw_func_name) != null;
         const in_nested_names = self.nested_class_names.contains(raw_func_name);
-        const in_local_scope = self.symbol_table.lookup(raw_func_name) != null;
         // Check if we're calling our own class constructor from within the class
         const is_self_class_call = if (self.current_class_name) |cn|
             std.mem.eql(u8, cn, raw_func_name)
@@ -977,7 +976,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Check for external class types from stdlib modules (lowercase but still classes)
         const is_external_class = std.mem.eql(u8, raw_func_name, "ndarray") or
             std.mem.eql(u8, raw_func_name, "staticarray");
-        const is_user_class = in_class_registry or in_nested_names or in_local_scope or is_self_class_call or is_external_class;
+        // Check for type aliases (e.g., R = fractions.Fraction)
+        const is_type_alias = self.type_alias_vars.contains(raw_func_name);
+        const is_user_class = in_class_registry or in_nested_names or is_self_class_call or is_external_class or is_type_alias;
         const is_class_constructor = is_user_class or (raw_func_name.len > 0 and std.ascii.isUpper(raw_func_name[0]));
 
         // Check if this is a runtime exception type that needs runtime. prefix
@@ -1448,16 +1449,17 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Handle vararg loop variable calls: c(arg) where c is from "for c in *classes"
         // Vararg loop variables are types (structs) at comptime, need .init() to instantiate
-        // Generate: try c.init(allocator, args...)
+        // Wrap result in PyValue.fromAlloc for use in heterogeneous containers (e.g., lists populated in vararg loops)
+        // Generate: try runtime.PyValue.fromAlloc(__global_allocator, try c.init(allocator, args...))
         if (self.vararg_loop_vars.contains(raw_func_name)) {
-            try self.emit("try ");
+            try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, try ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
             try self.emit(".init(__global_allocator");
             for (call.args) |arg| {
                 try self.emit(", ");
                 try genExpr(self, arg);
             }
-            try self.emit(")");
+            try self.emit("))");
             return;
         }
 
@@ -1577,6 +1579,28 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         } else {
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
+
+                // Handle starred expression from vararg loop: op(*instances) where instances was built from vararg
+                // For such cases, generate list item access: list.items[0], list.items[1]
+                // Since the list was populated in a vararg loop, its length equals the tuple field count at runtime
+                if (arg == .starred) {
+                    if (arg.starred.value.* == .name) {
+                        const list_name = arg.starred.value.name.id;
+                        if (self.vararg_list_sources.get(list_name)) |_| {
+                            // Generate unpacking for 2-element case (most common for binary operators)
+                            // Uses runtime length check but generates fixed-arity calls
+                            try genExpr(self, arg.starred.value.*);
+                            try self.emit(".items[0], ");
+                            try genExpr(self, arg.starred.value.*);
+                            try self.emit(".items[1]");
+                            continue;
+                        }
+                    }
+                    // Fallthrough - handle generic starred as single argument
+                    try genExpr(self, arg.starred.value.*);
+                    continue;
+                }
+
                 // Check if argument is a class instance - pass by pointer for Python semantics
                 const arg_type = self.inferExprScoped(arg) catch .unknown;
                 if (type_traits.isClassInstance(arg_type)) {

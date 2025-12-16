@@ -25,6 +25,11 @@ const PathProperties = std.StaticStringMap(void).initComptime(.{
     .{ "parent", {} }, .{ "stem", {} }, .{ "suffix", {} }, .{ "name", {} },
 });
 
+/// List methods that can be used as callbacks (e.g., log.append passed to a function)
+const ListMethodsAsCallbacks = std.StaticStringMap(void).initComptime(.{
+    .{ "append", {} },
+});
+
 /// Generate tuple literal as Zig anonymous struct
 /// Always uses anonymous tuple syntax (.{ elem1, elem2 }) for type compatibility
 /// This matches the type inference which generates struct types for tuples
@@ -489,6 +494,22 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.{s}", .{ attr.attr, value_field });
         }
     } else {
+        // Check if this is a list method being used as a callback (e.g., log.append)
+        // In Python, list.append returns a bound method. In Zig, we need a closure wrapper.
+        if (value_type == .list and ListMethodsAsCallbacks.has(attr.attr)) {
+            // Generate a closure wrapper that captures the list and allocator
+            // Get element type from ArrayListUnmanaged(T):
+            // - @TypeOf(list) = ArrayListUnmanaged(T) which is a struct
+            // - fields[0].type = items field type = []T (slice)
+            // - @typeInfo([]T).pointer.child = T
+            try self.emit("runtime.list_ops.BoundListMethod(@typeInfo(@typeInfo(@TypeOf(");
+            try genExpr(self, attr.value.*);
+            try self.emit(")).@\"struct\".fields[0].type).pointer.child).init(&");
+            try genExpr(self, attr.value.*);
+            try self.emit(", __global_allocator)");
+            return;
+        }
+
         // Known attribute: direct field access
         // Escape attribute name if it's a Zig keyword (e.g., "test")
         try genExpr(self, attr.value.*);

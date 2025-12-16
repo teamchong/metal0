@@ -210,9 +210,9 @@ fn emitCapturedVarParams(self: *NativeCodegen, class_name: []const u8, captured_
             vt.toZigType(self.allocator, &type_buf) catch {};
             break :blk if (type_buf.items.len > 0) type_buf.items else "i64";
         } else "i64";
-        // Fix empty list type: type inferrer may detect PyObject for mixed/string lists
+        // Fix empty list type: use PyValue for unknown element types (heterogeneous lists)
         if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
-            zig_type = "std.ArrayList([]const u8)";
+            zig_type = "std.ArrayList(runtime.PyValue)";
         }
         // Check if zig_type contains a nested class name (self-referential/recursive types)
         var has_nested_class_ref = std.mem.indexOf(u8, zig_type, class_name) != null;
@@ -326,7 +326,8 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) Codege
         try self.emit("return __ptr;\n");
     } else {
         // Top-level classes: value semantics (existing behavior)
-        try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator) @This() {{\n", .{alloc_name});
+        // Return error union for consistency with nested classes and Python __init__ semantics
+        try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator) !@This() {{\n", .{alloc_name});
         self.indent();
 
         try self.emitIndent();
@@ -385,7 +386,8 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []c
     if (is_nested) {
         try self.emit(") !*@This() {\n");
     } else {
-        try self.emit(") @This() {\n");
+        // Return error union for consistency with nested classes and Python __init__ semantics
+        try self.emit(") !@This() {\n");
     }
     self.indent();
 
@@ -552,10 +554,9 @@ pub fn genInitMethod(
 
     if (is_nested) {
         try self.emit(") !*@This() {\n");
-    } else if (can_raise) {
-        try self.emit(") !@This() {\n");
     } else {
-        try self.emit(") @This() {\n");
+        // Always return error union for consistency with Python __init__ semantics
+        try self.emit(") !@This() {\n");
     }
     self.indent();
 
@@ -961,14 +962,11 @@ pub fn genInitMethodWithBuiltinBase(
     }
 
     // Use @This() or !@This() for self-referential return type
-    // Use error union if we have type checks that may return error.TypeError
-    // or if __init__ body can raise exceptions
+    // Always use error union for consistency with Python __init__ semantics
     if (is_nested) {
         try self.emit(") !*@This() {\n");
-    } else if (has_type_checks or can_raise) {
-        try self.emit(") !@This() {\n");
     } else {
-        try self.emit(") @This() {\n");
+        try self.emit(") !@This() {\n");
     }
     self.indent();
 
@@ -1498,10 +1496,9 @@ pub fn genInitMethodFromNew(
 
     if (is_nested) {
         try self.emit(") !*@This() {\n");
-    } else if (can_raise) {
-        try self.emit(") !@This() {\n");
     } else {
-        try self.emit(") @This() {\n");
+        // Always return error union for consistency with Python __init__ semantics
+        try self.emit(") !@This() {\n");
     }
     self.indent();
 

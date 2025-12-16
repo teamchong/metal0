@@ -49,9 +49,12 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
         try self.emitIndent();
         if (has_runnable_tests) {
-            try self.output.writer(self.allocator).print("var _test_instance_{s} = {s}.init(__global_allocator);\n", .{ class_info.class_name, class_info.class_name });
+            // init() returns error union - use try to handle error
+            try self.output.writer(self.allocator).print("var _test_instance_{s} = try {s}.init(__global_allocator);\n", .{ class_info.class_name, class_info.class_name });
         } else {
-            try self.output.writer(self.allocator).print("_ = {s}.init(__global_allocator);\n", .{class_info.class_name});
+            // No runnable tests, but still need to instantiate for side effects
+            // Use catch to discard error and value
+            try self.output.writer(self.allocator).print("_ = {s}.init(__global_allocator) catch undefined;\n", .{class_info.class_name});
         }
 
         // Call setUpClass if exists

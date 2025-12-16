@@ -155,12 +155,50 @@ pub const BuiltinMap = std.StaticStringMap(BuiltinHandler).initComptime(.{
     .{ "isabstract", inspect_mod.genIsabstract },
 });
 
+/// Module-specific function names that can be shadowed by local definitions
+/// These are from "from X import Y" patterns and need scope checking
+const ModuleSpecificFuncs = std.StaticStringMap(void).initComptime(.{
+    // struct module
+    .{ "pack", {} },
+    .{ "unpack", {} },
+    .{ "calcsize", {} },
+    // functools module
+    .{ "partial", {} },
+    .{ "reduce", {} },
+    .{ "lru_cache", {} },
+    .{ "cache", {} },
+    .{ "wraps", {} },
+    // itertools module
+    .{ "chain", {} },
+    .{ "repeat", {} },
+    .{ "count", {} },
+    .{ "islice", {} },
+    .{ "zip_longest", {} },
+    // copy module
+    .{ "deepcopy", {} },
+    // base64 module
+    .{ "b64encode", {} },
+    .{ "b64decode", {} },
+    .{ "urlsafe_b64encode", {} },
+    .{ "urlsafe_b64decode", {} },
+    // collections module
+    .{ "OrderedDict", {} },
+    // inspect module
+    .{ "isabstract", {} },
+});
+
 /// Try to dispatch built-in function call
 /// Returns true if dispatched successfully
 pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
     if (call.func.* != .name) return false;
 
     const func_name = call.func.name.id;
+
+    // Module-specific functions can be shadowed by local definitions
+    // e.g., `def unpack(s): ...` shadows `from struct import unpack`
+    if (ModuleSpecificFuncs.has(func_name) and self.isDeclared(func_name)) {
+        return false; // Let it be treated as a normal function call
+    }
 
     // eval() needs special handling for comptime vs runtime detection
     if (std.mem.eql(u8, func_name, "eval")) {

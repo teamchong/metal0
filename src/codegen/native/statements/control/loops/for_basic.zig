@@ -1276,9 +1276,37 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // Used by call codegen to generate c.init(...) instead of c(...)
             try self.vararg_loop_vars.put(actual_name_vararg, {});
 
+            // Scan loop body for .append() calls to track lists populated from vararg
+            // This allows starred expression unpacking to use the correct tuple type
+            for (for_stmt.body) |stmt| {
+                if (stmt == .expr_stmt) {
+                    if (stmt.expr_stmt.value.* == .call) {
+                        const call_expr = stmt.expr_stmt.value.call;
+                        if (call_expr.func.* == .attribute) {
+                            const attr = call_expr.func.attribute;
+                            // Check for list.append() pattern
+                            if (std.mem.eql(u8, attr.attr, "append")) {
+                                if (attr.value.* == .name) {
+                                    const list_name = attr.value.name.id;
+                                    try self.vararg_list_sources.put(list_name, iter_name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Track current vararg source for detecting append to lists
+            // This allows starred expression unpacking to use the correct tuple type
+            const prev_vararg_source = self.current_vararg_source;
+            self.current_vararg_source = iter_name;
+
             for (for_stmt.body) |stmt| {
                 try self.generateStmt(stmt);
             }
+
+            // Restore previous vararg source (for nested loops)
+            self.current_vararg_source = prev_vararg_source;
 
             // Remove tracking after loop body
             _ = self.vararg_loop_vars.swapRemove(actual_name_vararg);

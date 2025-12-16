@@ -1040,11 +1040,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 break :blk "i64";
             } else "i64";
             defer type_buf.deinit(self.allocator);
-            // Fix empty list type: type inferrer may detect PyObject for mixed/string lists
-            // Map to appropriate Zig type: PyObject -> []const u8 for string lists
+            // Fix empty list type: use PyValue for unknown element types (heterogeneous lists)
             if (std.mem.indexOf(u8, zig_type, "std.ArrayList(*runtime.PyObject)") != null) {
-                // Default to string list since that's the most common case for empty lists with appends
-                zig_type = "std.ArrayList([]const u8)";
+                zig_type = "std.ArrayList(runtime.PyValue)";
             }
 
             // Check if zig_type contains a nested class name (self-referential/recursive types)
@@ -1810,7 +1808,7 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
         try self.emit("pub const __doc__: ?[]const u8 = null;\n\n");
 
         try self.emitIndent();
-        try self.emit("pub fn init() @This() {\n");
+        try self.emit("pub fn init() !@This() {\n");
         self.indent();
         try self.emitIndent();
         try self.emit("return @This(){};\n");
@@ -1874,9 +1872,9 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
     if (init_method) |init| {
         try genGenericInitMethod(self, init, class.type_params);
     } else {
-        // Default init method
+        // Default init method - returns error union for consistency
         try self.emitIndent();
-        try self.emit("pub fn init() @This() {\n");
+        try self.emit("pub fn init() !@This() {\n");
         self.indent();
         try self.emitIndent();
         try self.emit("return @This(){};\n");
@@ -1965,7 +1963,7 @@ fn genGenericInitMethod(self: *NativeCodegen, init: ast.Node.FunctionDef, type_p
         try self.output.writer(self.allocator).print("{s}: {s}", .{ arg.name, param_type });
     }
 
-    try self.emit(") @This() {\n");
+    try self.emit(") !@This() {\n");
     self.indent();
 
     try self.emitIndent();

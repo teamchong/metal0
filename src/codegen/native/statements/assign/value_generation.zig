@@ -736,12 +736,14 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
         try self.emit(".{};\n");
     } else {
         try self.emit("std.ArrayListUnmanaged(");
-        // Generate element type, converting PyObject to []const u8 for string lists
+        // Generate element type
+        // For unknown element types (*runtime.PyObject), use runtime.PyValue to support
+        // heterogeneous elements (e.g., vararg loop class instantiation)
         var type_buf = std.ArrayListUnmanaged(u8){};
         defer type_buf.deinit(self.allocator);
         try elem_type.toZigType(self.allocator, &type_buf);
         const type_str = if (std.mem.eql(u8, type_buf.items, "*runtime.PyObject"))
-            "[]const u8"
+            "runtime.PyValue"
         else
             type_buf.items;
         try self.emit(type_str);

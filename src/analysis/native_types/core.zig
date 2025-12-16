@@ -443,7 +443,7 @@ pub const NativeType = union(enum) {
             },
             .none => try buf.appendSlice(allocator, "?void"),
             .pyvalue => try buf.appendSlice(allocator, "runtime.PyValue"),
-            .unknown => try buf.appendSlice(allocator, "*runtime.PyObject"),
+            .unknown => try buf.appendSlice(allocator, "runtime.PyValue"),
             .path => try buf.appendSlice(allocator, "*pathlib.Path"),
             .usize_slice => try buf.appendSlice(allocator, "[]const usize"),
             .slice => |elem_type| {
@@ -468,7 +468,7 @@ pub const NativeType = union(enum) {
             .callable => |_| try buf.appendSlice(allocator, "runtime.builtins.PyCallable"),
             .cdll => try buf.appendSlice(allocator, "runtime.ctypes.CDLL"),
             .c_func => try buf.appendSlice(allocator, "*const fn() callconv(.c) anyopaque"),
-            .pyobject => try buf.appendSlice(allocator, "*runtime.PyObject"),
+            .pyobject => try buf.appendSlice(allocator, "runtime.PyValue"),
             // subprocess types
             .subprocess_result => try buf.appendSlice(allocator, "struct { returncode: i64, stdout: []const u8, stderr: []const u8 }"),
             .subprocess_status_output => try buf.appendSlice(allocator, "struct { @\"0\": i64, @\"1\": []const u8 }"),

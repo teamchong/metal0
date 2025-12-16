@@ -317,6 +317,15 @@ pub const NativeCodegen = struct {
     // These variables may be types at comptime, requiring .init() call instead of direct call
     vararg_loop_vars: FnvVoidMap,
 
+    // Track current vararg source when inside a vararg loop body
+    // Used to record which lists are populated from vararg iteration
+    current_vararg_source: ?[]const u8,
+
+    // Track lists populated from vararg loops (e.g., "instances" from "for c in classes: instances.append(...)")
+    // Maps list name -> vararg source name (e.g., "instances" -> "classes")
+    // Used for starred expression unpacking: op(*instances) uses @typeInfo of classes tuple
+    vararg_list_sources: hashmap_helper.StringHashMap([]const u8),
+
     // Track methods with varargs (*args)
     // Maps "ClassName.method_name" -> vararg_start_index (number of regular params before *args, not counting self)
     // e.g., "OperationLogger.log_operation" -> 0 for def log_operation(self, *args)
@@ -777,6 +786,8 @@ pub const NativeCodegen = struct {
             .vararg_functions = hashmap_helper.StringHashMap(usize).init(aa),
             .vararg_params = FnvVoidMap.init(aa),
             .vararg_loop_vars = FnvVoidMap.init(aa),
+            .current_vararg_source = null,
+            .vararg_list_sources = hashmap_helper.StringHashMap([]const u8).init(aa),
             .vararg_methods = hashmap_helper.StringHashMap(usize).init(aa),
             .kwarg_functions = FnvVoidMap.init(aa),
             .kwarg_params = FnvVoidMap.init(aa),
