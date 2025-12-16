@@ -62,6 +62,10 @@ pub const ParallelInfo = simd_analysis.ParallelInfo;
 pub const analyzeListCompForSimd = simd_analysis.analyzeListCompForSimd;
 pub const analyzeListCompForParallel = simd_analysis.analyzeListCompForParallel;
 
+// Metal GPU acceleration analysis
+pub const MetalInfo = simd_analysis.MetalInfo;
+pub const analyzeListCompForMetal = simd_analysis.analyzeListCompForMetal;
+
 // Call graph and function analysis
 pub const call_graph = @import("function_traits/call_graph.zig");
 pub const CallGraph = call_graph.CallGraph;

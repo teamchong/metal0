@@ -34,14 +34,14 @@ pub fn MTLCreateSystemDefaultDevice() ?MTLDevice {
 }
 
 /// Send Objective-C message (generic)
-fn msgSend(comptime ReturnType: type) *const fn (target: *anyopaque, sel: *anyopaque) callconv(.C) ReturnType {
+fn msgSend(comptime ReturnType: type) *const fn (target: *anyopaque, sel: *anyopaque) callconv(.c) ReturnType {
     if (comptime builtin.os.tag != .macos) {
         return undefined;
     }
     return @ptrCast(&c.objc_msgSend);
 }
 
-fn msgSendWithArg(comptime ReturnType: type, comptime ArgType: type) *const fn (target: *anyopaque, sel: *anyopaque, arg: ArgType) callconv(.C) ReturnType {
+fn msgSendWithArg(comptime ReturnType: type, comptime ArgType: type) *const fn (target: *anyopaque, sel: *anyopaque, arg: ArgType) callconv(.c) ReturnType {
     if (comptime builtin.os.tag != .macos) {
         return undefined;
     }
@@ -92,7 +92,7 @@ pub fn deviceGetName(device: MTLDevice) []const u8 {
 /// Create a new buffer on device
 pub fn deviceNewBuffer(device: MTLDevice, length: usize, options: u32) ?MTLBuffer {
     if (comptime builtin.os.tag != .macos) return null;
-    const NewBufferFn = *const fn (*anyopaque, *anyopaque, usize, u32) callconv(.C) ?MTLBuffer;
+    const NewBufferFn = *const fn (*anyopaque, *anyopaque, usize, u32) callconv(.c) ?MTLBuffer;
     const newBuffer: NewBufferFn = @ptrCast(&c.objc_msgSend);
     return newBuffer(device, sel("newBufferWithLength:options:"), length, options);
 }
@@ -100,7 +100,7 @@ pub fn deviceNewBuffer(device: MTLDevice, length: usize, options: u32) ?MTLBuffe
 /// Create buffer with data
 pub fn deviceNewBufferWithBytes(device: MTLDevice, bytes: [*]const u8, length: usize, options: u32) ?MTLBuffer {
     if (comptime builtin.os.tag != .macos) return null;
-    const NewBufferFn = *const fn (*anyopaque, *anyopaque, [*]const u8, usize, u32) callconv(.C) ?MTLBuffer;
+    const NewBufferFn = *const fn (*anyopaque, *anyopaque, [*]const u8, usize, u32) callconv(.c) ?MTLBuffer;
     const newBuffer: NewBufferFn = @ptrCast(&c.objc_msgSend);
     return newBuffer(device, sel("newBufferWithBytes:length:options:"), bytes, length, options);
 }
@@ -108,7 +108,7 @@ pub fn deviceNewBufferWithBytes(device: MTLDevice, bytes: [*]const u8, length: u
 /// Create library from source
 pub fn deviceNewLibraryWithSource(device: MTLDevice, source: [*:0]const u8, options: ?*anyopaque, err: *?*anyopaque) ?MTLLibrary {
     if (comptime builtin.os.tag != .macos) return null;
-    const NewLibraryFn = *const fn (*anyopaque, *anyopaque, [*:0]const u8, ?*anyopaque, *?*anyopaque) callconv(.C) ?MTLLibrary;
+    const NewLibraryFn = *const fn (*anyopaque, *anyopaque, [*:0]const u8, ?*anyopaque, *?*anyopaque) callconv(.c) ?MTLLibrary;
     const newLibrary: NewLibraryFn = @ptrCast(&c.objc_msgSend);
     return newLibrary(device, sel("newLibraryWithSource:options:error:"), source, options, err);
 }
@@ -174,7 +174,7 @@ pub fn bufferGetLength(buffer: MTLBuffer) usize {
 /// Get function from library
 pub fn libraryNewFunction(library: MTLLibrary, name: [*:0]const u8) ?MTLFunction {
     if (comptime builtin.os.tag != .macos) return null;
-    const NewFunctionFn = *const fn (*anyopaque, *anyopaque, [*:0]const u8) callconv(.C) ?MTLFunction;
+    const NewFunctionFn = *const fn (*anyopaque, *anyopaque, [*:0]const u8) callconv(.c) ?MTLFunction;
     const newFunction: NewFunctionFn = @ptrCast(&c.objc_msgSend);
     return newFunction(library, sel("newFunctionWithName:"), name);
 }
@@ -186,7 +186,7 @@ pub fn libraryNewFunction(library: MTLLibrary, name: [*:0]const u8) ?MTLFunction
 /// Set compute pipeline state
 pub fn encoderSetComputePipelineState(encoder: MTLComputeCommandEncoder, pipeline: MTLComputePipelineState) void {
     if (comptime builtin.os.tag != .macos) return;
-    const SetPipelineFn = *const fn (*anyopaque, *anyopaque, MTLComputePipelineState) callconv(.C) void;
+    const SetPipelineFn = *const fn (*anyopaque, *anyopaque, MTLComputePipelineState) callconv(.c) void;
     const setPipeline: SetPipelineFn = @ptrCast(&c.objc_msgSend);
     setPipeline(encoder, sel("setComputePipelineState:"), pipeline);
 }
@@ -194,7 +194,7 @@ pub fn encoderSetComputePipelineState(encoder: MTLComputeCommandEncoder, pipelin
 /// Set buffer at index
 pub fn encoderSetBuffer(encoder: MTLComputeCommandEncoder, buffer: MTLBuffer, offset: usize, index: usize) void {
     if (comptime builtin.os.tag != .macos) return;
-    const SetBufferFn = *const fn (*anyopaque, *anyopaque, MTLBuffer, usize, usize) callconv(.C) void;
+    const SetBufferFn = *const fn (*anyopaque, *anyopaque, MTLBuffer, usize, usize) callconv(.c) void;
     const setBuffer: SetBufferFn = @ptrCast(&c.objc_msgSend);
     setBuffer(encoder, sel("setBuffer:offset:atIndex:"), buffer, offset, index);
 }
@@ -202,7 +202,7 @@ pub fn encoderSetBuffer(encoder: MTLComputeCommandEncoder, buffer: MTLBuffer, of
 /// Set bytes at index
 pub fn encoderSetBytes(encoder: MTLComputeCommandEncoder, bytes: *const anyopaque, length: usize, index: usize) void {
     if (comptime builtin.os.tag != .macos) return;
-    const SetBytesFn = *const fn (*anyopaque, *anyopaque, *const anyopaque, usize, usize) callconv(.C) void;
+    const SetBytesFn = *const fn (*anyopaque, *anyopaque, *const anyopaque, usize, usize) callconv(.c) void;
     const setBytes: SetBytesFn = @ptrCast(&c.objc_msgSend);
     setBytes(encoder, sel("setBytes:length:atIndex:"), bytes, length, index);
 }
@@ -210,7 +210,7 @@ pub fn encoderSetBytes(encoder: MTLComputeCommandEncoder, bytes: *const anyopaqu
 /// Dispatch threadgroups
 pub fn encoderDispatchThreadgroups(encoder: MTLComputeCommandEncoder, grid: MTLSize, threadgroup: MTLSize) void {
     if (comptime builtin.os.tag != .macos) return;
-    const DispatchFn = *const fn (*anyopaque, *anyopaque, MTLSize, MTLSize) callconv(.C) void;
+    const DispatchFn = *const fn (*anyopaque, *anyopaque, MTLSize, MTLSize) callconv(.c) void;
     const dispatch: DispatchFn = @ptrCast(&c.objc_msgSend);
     dispatch(encoder, sel("dispatchThreadgroups:threadsPerThreadgroup:"), grid, threadgroup);
 }
@@ -218,7 +218,7 @@ pub fn encoderDispatchThreadgroups(encoder: MTLComputeCommandEncoder, grid: MTLS
 /// Dispatch threads (non-uniform)
 pub fn encoderDispatchThreads(encoder: MTLComputeCommandEncoder, threads: MTLSize, threadgroup: MTLSize) void {
     if (comptime builtin.os.tag != .macos) return;
-    const DispatchFn = *const fn (*anyopaque, *anyopaque, MTLSize, MTLSize) callconv(.C) void;
+    const DispatchFn = *const fn (*anyopaque, *anyopaque, MTLSize, MTLSize) callconv(.c) void;
     const dispatch: DispatchFn = @ptrCast(&c.objc_msgSend);
     dispatch(encoder, sel("dispatchThreads:threadsPerThreadgroup:"), threads, threadgroup);
 }
@@ -237,7 +237,7 @@ pub fn encoderEndEncoding(encoder: MTLComputeCommandEncoder) void {
 /// Create compute pipeline state from function
 pub fn deviceNewComputePipelineState(device: MTLDevice, function: MTLFunction, err: *?*anyopaque) ?MTLComputePipelineState {
     if (comptime builtin.os.tag != .macos) return null;
-    const NewPipelineFn = *const fn (*anyopaque, *anyopaque, MTLFunction, *?*anyopaque) callconv(.C) ?MTLComputePipelineState;
+    const NewPipelineFn = *const fn (*anyopaque, *anyopaque, MTLFunction, *?*anyopaque) callconv(.c) ?MTLComputePipelineState;
     const newPipeline: NewPipelineFn = @ptrCast(&c.objc_msgSend);
     return newPipeline(device, sel("newComputePipelineStateWithFunction:error:"), function, err);
 }

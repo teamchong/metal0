@@ -179,6 +179,25 @@ pub fn sum(a: []const f32) f32 {
 }
 
 // ============================================================================
+// List Comprehension Vectorization
+// These are used by the compiler for automatic GPU acceleration of patterns like:
+//   [x * 2 for x in range(1_000_000)]
+// ============================================================================
+
+/// List comprehension kernel module
+pub const listcomp = @import("kernels/listcomp.zig");
+
+/// Vectorized list comprehension operation type
+pub const VectorOp = listcomp.VectorOp;
+
+/// GPU-accelerated list comprehension: [op(x, constant) for x in range(start, end)]
+/// Automatically uses Metal GPU on macOS for large arrays (>10K elements)
+pub const vectorizedListComp = listcomp.vectorizedListComp;
+
+/// Returns ArrayList for runtime compatibility
+pub const vectorizedListCompToArrayList = listcomp.vectorizedListCompToArrayList;
+
+// ============================================================================
 // Tests
 // ============================================================================
 

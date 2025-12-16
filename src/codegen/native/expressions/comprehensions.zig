@@ -678,17 +678,30 @@ fn genSimdListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, simd: func
     try self.emitIndent();
     try self.emit("}\n");
 
-    // Scalar cleanup for remaining elements
+    // Scalar cleanup for remaining elements - must use native i64 arithmetic
+    // (not genExpr which may emit PyValue-based code)
     try self.emitIndent();
     try self.output.writer(self.allocator).print("while (__i < {d}) : (__i += 1) {{\n", .{count});
     self.indent();
     try self.emitIndent();
     try self.output.writer(self.allocator).print("const {s}: i64 = @as(i64, @intCast(__i)) + {d};\n", .{ loop_var, start });
     try self.emitIndent();
-    try self.emit("__result[__i] = ");
-    const parent = @import("../expressions.zig");
-    try parent.genExpr(self, listcomp.elt.*);
-    try self.emit(";\n");
+    // Generate native i64 expression based on SIMD op type
+    const c = getConstantFromExpr(listcomp.elt.*, loop_var) orelse 0;
+    const scalar_expr = switch (simd.op) {
+        .add => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s} +% {d};\n", .{ loop_var, c }),
+        .sub => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s} -% {d};\n", .{ loop_var, c }),
+        .mul => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s} *% {d};\n", .{ loop_var, c }),
+        .neg => try std.fmt.allocPrint(self.allocator, "__result[__i] = -%{s};\n", .{loop_var}),
+        .square => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s} *% {s};\n", .{ loop_var, loop_var }),
+        .bit_and => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s} & {d};\n", .{ loop_var, c }),
+        .bit_or => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s} | {d};\n", .{ loop_var, c }),
+        .bit_xor => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s} ^ {d};\n", .{ loop_var, c }),
+        .shl => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s} << @intCast({d});\n", .{ loop_var, c }),
+        .shr => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s} >> @intCast({d});\n", .{ loop_var, c }),
+        else => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s};\n", .{loop_var}),
+    };
+    try self.emit(scalar_expr);
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -779,12 +792,25 @@ fn genParallelListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, parall
 }
 
 /// Generate list comprehension: [x * 2 for x in range(5)]
-/// Generates as imperative loop that builds ArrayList (or SIMD/parallel when possible)
+/// Generates as imperative loop that builds ArrayList (or Metal/SIMD/parallel when possible)
+///
+/// Dispatch priority (highest to lowest):
+/// 1. Metal GPU (>10K elements on macOS) - massive parallelism
+/// 2. Parallel (>1K elements) - multi-core CPU
+/// 3. SIMD (16-1023 elements) - vectorized CPU
+/// 4. Scalar (small arrays) - simple loop
 pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenError!void {
     // Check for SIMD vectorization opportunity
     const simd = function_traits.analyzeListCompForSimd(listcomp);
     if (simd.vectorizable and simd.is_range and simd.range_end != null) {
         const count = (simd.range_end orelse 0) - (simd.range_start orelse 0);
+
+        // Check for Metal GPU acceleration (large workloads on macOS)
+        // Metal dispatch is worth it for >10K elements due to GPU overhead
+        const metal = function_traits.analyzeListCompForMetal(listcomp);
+        if (metal.suitable and count >= 10000) {
+            return genMetalListComp(self, listcomp, metal, simd);
+        }
 
         // Check for parallelization opportunity (large workloads)
         const parallel = function_traits.analyzeListCompForParallel(listcomp);
@@ -799,6 +825,62 @@ pub fn genListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
     }
 
     return genListCompImpl(self, listcomp);
+}
+
+/// Generate Metal GPU-accelerated list comprehension
+/// Pattern: [x * 2 for x in range(1_000_000)] → runtime.metal.vectorizedListCompToArrayList()
+fn genMetalListComp(
+    self: *NativeCodegen,
+    listcomp: ast.Node.ListComp,
+    metal: function_traits.MetalInfo,
+    simd: function_traits.SimdInfo,
+) CodegenError!void {
+    const label_id = self.block_label_counter;
+    self.block_label_counter += 1;
+
+    // Get range bounds
+    const start = simd.range_start orelse 0;
+    const end = simd.range_end orelse return genListCompImpl(self, listcomp);
+
+    // Map SimdOp to Metal VectorOp string
+    const op_name: []const u8 = switch (metal.op) {
+        .add => ".add",
+        .sub => ".sub",
+        .mul => ".mul",
+        .div => ".div",
+        .neg => ".neg",
+        .square => ".square",
+        .bit_and => ".bit_and",
+        .bit_or => ".bit_or",
+        .bit_xor => ".bit_xor",
+        .shl => ".shl",
+        .shr => ".shr",
+        .mul_add => ".mul_add",
+        else => return genListCompImpl(self, listcomp), // Unsupported op, fall back
+    };
+
+    const constant = metal.constant orelse 0;
+
+    // Generate Metal dispatch block
+    // Note: runtime.metal.vectorizedListCompToArrayList handles the comptime check
+    // for Metal availability - on non-macOS it falls back to CPU
+    try self.emit(try std.fmt.allocPrint(self.allocator, "(metal_{d}: {{\n", .{label_id}));
+    self.indent();
+
+    // Emit: break :metal_N try runtime.metal.vectorizedListCompToArrayList(__global_allocator, start, end, op, constant);
+    try self.emitIndent();
+    try self.emit("break :");
+    try self.output.writer(self.allocator).print("metal_{d} try runtime.metal.vectorizedListCompToArrayList(__global_allocator, {d}, {d}, runtime.metal.VectorOp{s}, {d});\n", .{
+        label_id,
+        start,
+        end,
+        op_name,
+        constant,
+    });
+
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("})");
 }
 
 /// Internal list comprehension implementation (scalar)

@@ -263,3 +263,112 @@ kernel void reduce_max(
         output[tgid] = shared[0];
     }
 }
+
+// ============================================================================
+// List Comprehension Vectorization
+// These kernels accelerate patterns like: [x * 2 + 5 for x in range(N)]
+// ============================================================================
+
+/// Vector add constant: out[i] = (start + i) + constant
+/// Pattern: [x + c for x in range(start, end)]
+kernel void vector_add_const(
+    device long* output [[buffer(0)]],
+    constant long* params [[buffer(1)]],  // [start, constant, size]
+    uint gid [[thread_position_in_grid]]
+) {
+    long start = params[0];
+    long constant = params[1];
+    output[gid] = (start + (long)gid) + constant;
+}
+
+/// Vector subtract constant: out[i] = (start + i) - constant
+/// Pattern: [x - c for x in range(start, end)]
+kernel void vector_sub_const(
+    device long* output [[buffer(0)]],
+    constant long* params [[buffer(1)]],  // [start, constant, size]
+    uint gid [[thread_position_in_grid]]
+) {
+    long start = params[0];
+    long constant = params[1];
+    output[gid] = (start + (long)gid) - constant;
+}
+
+/// Vector multiply constant: out[i] = (start + i) * constant
+/// Pattern: [x * c for x in range(start, end)]
+kernel void vector_mul_const(
+    device long* output [[buffer(0)]],
+    constant long* params [[buffer(1)]],  // [start, constant, size]
+    uint gid [[thread_position_in_grid]]
+) {
+    long start = params[0];
+    long constant = params[1];
+    output[gid] = (start + (long)gid) * constant;
+}
+
+/// Vector square: out[i] = (start + i) * (start + i)
+/// Pattern: [x * x for x in range(start, end)]
+kernel void vector_square(
+    device long* output [[buffer(0)]],
+    constant long* params [[buffer(1)]],  // [start, constant, size]
+    uint gid [[thread_position_in_grid]]
+) {
+    long x = params[0] + (long)gid;
+    output[gid] = x * x;
+}
+
+/// Vector negate: out[i] = -(start + i)
+/// Pattern: [-x for x in range(start, end)]
+kernel void vector_neg(
+    device long* output [[buffer(0)]],
+    constant long* params [[buffer(1)]],  // [start, constant, size]
+    uint gid [[thread_position_in_grid]]
+) {
+    long start = params[0];
+    output[gid] = -(start + (long)gid);
+}
+
+/// Vector multiply-add (FMA): out[i] = (start + i) * multiplier + addend
+/// Pattern: [x * a + b for x in range(start, end)]
+kernel void vector_mul_add(
+    device long* output [[buffer(0)]],
+    constant long* params [[buffer(1)]],  // [start, multiplier, addend, size]
+    uint gid [[thread_position_in_grid]]
+) {
+    long start = params[0];
+    long multiplier = params[1];
+    long addend = params[2];
+    output[gid] = (start + (long)gid) * multiplier + addend;
+}
+
+/// Vector bitwise AND: out[i] = (start + i) & constant
+kernel void vector_bit_and(
+    device long* output [[buffer(0)]],
+    constant long* params [[buffer(1)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    long start = params[0];
+    long constant = params[1];
+    output[gid] = (start + (long)gid) & constant;
+}
+
+/// Vector bitwise OR: out[i] = (start + i) | constant
+kernel void vector_bit_or(
+    device long* output [[buffer(0)]],
+    constant long* params [[buffer(1)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    long start = params[0];
+    long constant = params[1];
+    output[gid] = (start + (long)gid) | constant;
+}
+
+/// Vector bitwise XOR: out[i] = (start + i) ^ constant
+kernel void vector_bit_xor(
+    device long* output [[buffer(0)]],
+    constant long* params [[buffer(1)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    long start = params[0];
+    long constant = params[1];
+    output[gid] = (start + (long)gid) ^ constant;
+}

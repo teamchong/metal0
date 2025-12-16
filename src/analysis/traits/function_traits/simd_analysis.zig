@@ -231,3 +231,63 @@ fn isParallelizableExpr(expr: ast.Node, loop_var: []const u8) bool {
         else => false,
     };
 }
+
+// ============================================================================
+// Metal GPU Acceleration Analysis
+// ============================================================================
+
+/// Metal GPU acceleration info for list comprehensions
+/// GPU dispatch is only beneficial for large workloads (>10K elements)
+/// due to data transfer overhead
+pub const MetalInfo = struct {
+    /// Is this suitable for GPU acceleration?
+    suitable: bool = false,
+    /// Minimum size to benefit from GPU (transfer overhead threshold)
+    min_size: usize = 10000,
+    /// The operation type
+    op: SimdOp = .none,
+    /// Static size if known at compile time
+    static_size: ?usize = null,
+    /// Constant operand for the operation
+    constant: ?i64 = null,
+};
+
+/// Analyze a list comprehension for Metal GPU acceleration potential
+/// Returns MetalInfo indicating if GPU dispatch would be beneficial
+///
+/// Criteria for Metal suitability:
+/// 1. Must be vectorizable (reuses SIMD analysis)
+/// 2. Must have statically known size >= 10K elements
+/// 3. Operation must be simple arithmetic (add, mul, etc.)
+pub fn analyzeListCompForMetal(listcomp: ast.Node.ListComp) MetalInfo {
+    var info = MetalInfo{};
+
+    // Reuse existing SIMD analysis
+    const simd = analyzeListCompForSimd(listcomp);
+    if (!simd.vectorizable) return info;
+
+    info.op = simd.op;
+
+    // Must have static range bounds to determine size at compile time
+    if (simd.range_end) |end| {
+        const start = simd.range_start orelse 0;
+        if (end > start) {
+            const size: usize = @intCast(end - start);
+            info.static_size = size;
+            // Only use Metal for large workloads (GPU overhead threshold)
+            info.suitable = size >= info.min_size;
+        }
+    }
+
+    // Get constant operand from expression
+    if (listcomp.generators.len == 1) {
+        const gen = listcomp.generators[0];
+        if (gen.target.* == .name) {
+            const loop_var = gen.target.name.id;
+            const expr_info = analyzeSimdExpr(listcomp.elt.*, loop_var);
+            info.constant = expr_info.constant;
+        }
+    }
+
+    return info;
+}
