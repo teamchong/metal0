@@ -328,7 +328,14 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
             }
             std.debug.print(")\n", .{});
         }
-        return;
+        // Print parseable format for CI and exit with error
+        std.debug.print("\n{s}Results:{s} {s}0/0 passed (0%%){s}\n", .{
+            Color.bold,
+            Color.reset,
+            Color.red,
+            Color.reset,
+        });
+        return error.NoTestsFound;
     }
 
     // Clean stale cache files that don't match current test set
