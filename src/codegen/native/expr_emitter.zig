@@ -190,6 +190,100 @@ pub const ExprEmitter = struct {
         try emitContent(ctx, &block);
         try block.closeRaw();
     }
+
+    /// Emit a labeled block with two temp variables using callback (auto-closes)
+    /// Pattern: (prefix_N: { const var1 = expr1; const var2 = expr2; callback emits break; })
+    /// Useful for patterns like: const __s = value; const __idx = index;
+    pub fn withLabeledBlock2(
+        self: *ExprEmitter,
+        comptime prefix: []const u8,
+        comptime var1: []const u8,
+        expr1: ast.Node,
+        comptime var2: []const u8,
+        expr2: ast.Node,
+        ctx: anytype,
+        comptime emitBreak: fn(@TypeOf(ctx), *LabeledBlock) CodegenError!void,
+    ) CodegenError!void {
+        var block = try self.labeledBlock(prefix, var1, expr1);
+        try block.emitFmt("const {s} = ", .{var2});
+        try genExpr(self.codegen, expr2);
+        try block.emit("; ");
+        try emitBreak(ctx, &block);
+        try block.close();
+    }
+
+    /// Emit a labeled block where callback handles everything including break (auto-closes)
+    /// Pattern: (prefix_N: { callback emits all content including break; })
+    /// Most flexible - callback is responsible for emitting break statement
+    pub fn withBlock(
+        self: *ExprEmitter,
+        comptime prefix: []const u8,
+        ctx: anytype,
+        comptime emitAll: fn(@TypeOf(ctx), *LabeledBlock) CodegenError!void,
+    ) CodegenError!void {
+        var block = try self.labeledBlockRaw(prefix);
+        try emitAll(ctx, &block);
+        try block.close();
+    }
+
+    /// Emit a labeled block with var where callback handles statements and break (auto-closes)
+    /// Pattern: (prefix_N: { var temp = expr; callback emits statements and break; })
+    /// Use 'var' instead of 'const' for mutable temp variable (e.g., BigInt clone/negate)
+    pub fn withMutableBlock(
+        self: *ExprEmitter,
+        comptime prefix: []const u8,
+        comptime temp_var: []const u8,
+        expr: ast.Node,
+        ctx: anytype,
+        comptime emitBody: fn(@TypeOf(ctx), *LabeledBlock) CodegenError!void,
+    ) CodegenError!void {
+        const label_id = self.codegen.block_label_counter;
+        self.codegen.block_label_counter += 1;
+
+        // Emit block start with mutable temp variable
+        try self.codegen.emitFmt("({s}_{d}: {{ var {s} = ", .{ prefix, label_id, temp_var });
+        try genExpr(self.codegen, expr);
+        try self.codegen.emit("; ");
+
+        var block = LabeledBlock{
+            .emitter = self,
+            .label_id = label_id,
+            .prefix = prefix,
+        };
+        try emitBody(ctx, &block);
+        try block.close();
+    }
+
+    /// Create a nested labeled block inside an existing block
+    /// Returns the inner block's label_id so you can reference it
+    /// Pattern: (outer_N: { ... (inner_M: { ... }) ... })
+    pub fn nestedBlock(
+        self: *ExprEmitter,
+        comptime prefix: []const u8,
+    ) CodegenError!LabeledBlock {
+        const label_id = self.codegen.block_label_counter;
+        self.codegen.block_label_counter += 1;
+
+        try self.codegen.emitFmt("({s}_{d}: {{ ", .{ prefix, label_id });
+
+        return LabeledBlock{
+            .emitter = self,
+            .label_id = label_id,
+            .prefix = prefix,
+        };
+    }
+
+    /// Get the next label ID without incrementing (for lookahead)
+    pub fn peekLabelId(self: *ExprEmitter) usize {
+        return self.codegen.block_label_counter;
+    }
+
+    /// Reserve a label ID and return it (increments counter)
+    pub fn reserveLabelId(self: *ExprEmitter) usize {
+        const id = self.codegen.block_label_counter;
+        self.codegen.block_label_counter += 1;
+        return id;
+    }
 };
 
 /// A labeled block that must be closed
@@ -246,6 +340,80 @@ pub const LabeledBlock = struct {
     /// Close with just the block end (no semicolon before)
     pub fn closeRaw(self: *LabeledBlock) CodegenError!void {
         try self.emitter.codegen.emit(" })");
+    }
+
+    /// Emit an AST expression node inside the block
+    pub fn emitExpr(self: *LabeledBlock, expr: ast.Node) CodegenError!void {
+        try genExpr(self.emitter.codegen, expr);
+    }
+
+    /// Emit break with callback for complex break values
+    /// Pattern: break :label_N <callback emits value>
+    pub fn breakWithCallback(
+        self: *LabeledBlock,
+        ctx: anytype,
+        comptime emitValue: fn(@TypeOf(ctx), *NativeCodegen) CodegenError!void,
+    ) CodegenError!void {
+        try self.emitter.codegen.emitFmt("break :{s}_{d} ", .{ self.prefix, self.label_id });
+        try emitValue(ctx, self.emitter.codegen);
+    }
+
+    /// Create a nested block inside this block (for patterns with nested labeled blocks)
+    /// Returns a new LabeledBlock that must be closed before the outer block
+    pub fn nested(self: *LabeledBlock, comptime prefix: []const u8) CodegenError!LabeledBlock {
+        return self.emitter.nestedBlock(prefix);
+    }
+
+    /// Create a nested block with temp var inside this block
+    pub fn nestedWithVar(
+        self: *LabeledBlock,
+        comptime prefix: []const u8,
+        comptime temp_var: []const u8,
+        expr: ast.Node,
+    ) CodegenError!LabeledBlock {
+        const label_id = self.emitter.codegen.block_label_counter;
+        self.emitter.codegen.block_label_counter += 1;
+
+        try self.emitter.codegen.emitFmt("({s}_{d}: {{ const {s} = ", .{ prefix, label_id, temp_var });
+        try genExpr(self.emitter.codegen, expr);
+        try self.emitter.codegen.emit("; ");
+
+        return LabeledBlock{
+            .emitter = self.emitter,
+            .label_id = label_id,
+            .prefix = prefix,
+        };
+    }
+
+    /// Create a nested mutable block inside this block
+    pub fn nestedMutable(
+        self: *LabeledBlock,
+        comptime prefix: []const u8,
+        comptime temp_var: []const u8,
+        expr: ast.Node,
+    ) CodegenError!LabeledBlock {
+        const label_id = self.emitter.codegen.block_label_counter;
+        self.emitter.codegen.block_label_counter += 1;
+
+        try self.emitter.codegen.emitFmt("({s}_{d}: {{ var {s} = ", .{ prefix, label_id, temp_var });
+        try genExpr(self.emitter.codegen, expr);
+        try self.emitter.codegen.emit("; ");
+
+        return LabeledBlock{
+            .emitter = self.emitter,
+            .label_id = label_id,
+            .prefix = prefix,
+        };
+    }
+
+    /// Get the label ID for this block (useful for nested blocks that need to reference parent)
+    pub fn getLabelId(self: *LabeledBlock) usize {
+        return self.label_id;
+    }
+
+    /// Get the prefix for this block
+    pub fn getPrefix(self: *LabeledBlock) []const u8 {
+        return self.prefix;
     }
 };
 

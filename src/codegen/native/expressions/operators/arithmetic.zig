@@ -149,6 +149,63 @@ const BigIntBinOpCtx = struct {
     }
 };
 
+/// Context for BigInt negation (clone and negate)
+const BigIntNegateCtx = struct {
+    cg: *NativeCodegen,
+    operand: *const ast.Node,
+    alloc_name: []const u8,
+
+    fn emit(ctx: @This(), blk: *expr_emitter.LabeledBlock) CodegenError!void {
+        try blk.emit("var __neg_tmp = (");
+        try blk.emitExpr(ctx.operand.*);
+        try blk.emit(").clone(");
+        try blk.emit(ctx.alloc_name);
+        try blk.emit(") catch @panic(\"OOM\"); __neg_tmp.negate(); ");
+        try blk.breakWith("__neg_tmp");
+    }
+};
+
+/// Context for BigInt inversion (~n = -(n+1))
+const BigIntInvertCtx = struct {
+    cg: *NativeCodegen,
+    operand: *const ast.Node,
+    alloc_name: []const u8,
+
+    fn emit(ctx: @This(), blk: *expr_emitter.LabeledBlock) CodegenError!void {
+        try blk.emit("var __bi_tmp = (");
+        try blk.emitExpr(ctx.operand.*);
+        try blk.emit(").add(&(runtime.BigInt.fromInt(");
+        try blk.emit(ctx.alloc_name);
+        try blk.emit(", 1) catch @panic(\"OOM\")), ");
+        try blk.emit(ctx.alloc_name);
+        try blk.emit(") catch @panic(\"OOM\"); __bi_tmp.negate(); ");
+        try blk.breakWith("__bi_tmp");
+    }
+};
+
+/// Context for unknown type negation (with nested block for BigInt path)
+const UnknownNegateCtx = struct {
+    cg: *NativeCodegen,
+    operand: *const ast.Node,
+    alloc_name: []const u8,
+
+    fn emit(ctx: @This(), blk: *expr_emitter.LabeledBlock) CodegenError!void {
+        try blk.emit("const __v = ");
+        try blk.emitExpr(ctx.operand.*);
+        try blk.emit("; const __T = @TypeOf(__v); ");
+        try blk.startBreak();
+        try blk.emit("if (@typeInfo(__T) == .@\"struct\" and @hasDecl(__T, \"negate\")) ");
+        // Nested block for BigInt path
+        var inner = try blk.nested("val");
+        try inner.emit("var __tmp = __v.clone(");
+        try inner.emit(ctx.alloc_name);
+        try inner.emit(") catch @panic(\"OOM\"); __tmp.negate(); ");
+        try inner.breakWith("__tmp");
+        try inner.close();
+        try blk.emit(" else -__v");
+    }
+};
+
 /// Context for BigInt shift operations
 const BigIntShiftCtx = struct {
     cg: *NativeCodegen,
@@ -1618,26 +1675,22 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
                 try self.emit(").neg()");
             } else if (operand_type == .bigint) {
                 // BigInt negation: clone and negate
-                // Wrap in parens to avoid label being misinterpreted as struct field in tuple literals
                 const alloc_name = "__global_allocator";
-                const id = self.block_label_counter;
-                self.block_label_counter += 1;
-                try self.emitFmt("(neg_{d}: {{ var __neg_tmp = (", .{id});
-                try genExpr(self, unaryop.operand.*);
-                try self.emit(").clone(");
-                try self.emit(alloc_name);
-                try self.emitFmt(") catch @panic(\"OOM\"); __neg_tmp.negate(); break :neg_{d} __neg_tmp; }})", .{id});
+                var em = self.exprEmitter();
+                try em.withBlock("neg", BigIntNegateCtx{
+                    .cg = self,
+                    .operand = unaryop.operand,
+                    .alloc_name = alloc_name,
+                }, BigIntNegateCtx.emit);
             } else if (type_traits.isUnknown(operand_type)) {
                 // Unknown type (e.g., anytype parameter) - use comptime type check
-                // Wrap in parens to avoid label being misinterpreted as struct field in tuple literals
                 const alloc_name = "__global_allocator";
-                const id = self.block_label_counter;
-                self.block_label_counter += 1;
-                try self.emitFmt("(unk_{d}: {{ const __v = ", .{id});
-                try genExpr(self, unaryop.operand.*);
-                try self.emitFmt("; const __T = @TypeOf(__v); break :unk_{d} if (@typeInfo(__T) == .@\"struct\" and @hasDecl(__T, \"negate\")) (val_{d}: {{ var __tmp = __v.clone(", .{ id, id });
-                try self.emit(alloc_name);
-                try self.emitFmt(") catch @panic(\"OOM\"); __tmp.negate(); break :val_{d} __tmp; }}) else -__v; }})", .{id});
+                var em = self.exprEmitter();
+                try em.withBlock("unk", UnknownNegateCtx{
+                    .cg = self,
+                    .operand = unaryop.operand,
+                    .alloc_name = alloc_name,
+                }, UnknownNegateCtx.emit);
             } else {
                 try self.emit("-(");
                 try genExpr(self, unaryop.operand.*);
@@ -1706,17 +1759,13 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
             } else if (operand_type == .bigint) {
                 // BigInt bitwise complement: ~n = -(n+1)
                 // Implemented as: negate (n+1) -> -(n+1) = -n-1 = ~n
-                // Wrap in parens to avoid label being misinterpreted as struct field in tuple literals
                 const alloc_name = "__global_allocator";
-                const id = self.block_label_counter;
-                self.block_label_counter += 1;
-                try self.emitFmt("(inv_{d}: {{ var __bi_tmp = (", .{id});
-                try genExpr(self, unaryop.operand.*);
-                try self.emit(").add(&(runtime.BigInt.fromInt(");
-                try self.emit(alloc_name);
-                try self.emit(", 1) catch @panic(\"OOM\")), ");
-                try self.emit(alloc_name);
-                try self.emitFmt(") catch @panic(\"OOM\"); __bi_tmp.negate(); break :inv_{d} __bi_tmp; }})", .{id});
+                var em = self.exprEmitter();
+                try em.withBlock("inv", BigIntInvertCtx{
+                    .cg = self,
+                    .operand = unaryop.operand,
+                    .alloc_name = alloc_name,
+                }, BigIntInvertCtx.emit);
             } else {
                 try self.emit("~@as(i64, ");
                 try genExpr(self, unaryop.operand.*);
