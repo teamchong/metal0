@@ -978,16 +978,17 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         // Generate comptime type check with unique label to avoid conflicts
         if (type_traits.isUnknown(left_type) and (type_traits.isIntegral(right_type) or type_traits.isUnknown(right_type))) {
             const alloc_name = "__global_allocator";
-            const label_id = self.block_label_counter;
-            self.block_label_counter += 1;
-            try self.output.writer(self.allocator).print("mul_{d}: {{ const _lhs = ", .{label_id});
-            try genExpr(self, binop.left.*);
-            try self.emit("; const _rhs = ");
+            var em = self.exprEmitter();
+            var blk = try em.labeledBlock("mul", "_lhs", binop.left.*);
+            try blk.emit("const _rhs = ");
             try genExpr(self, binop.right.*);
             // For string * n with n < 0, return empty string; for numeric types, just multiply
-            try self.output.writer(self.allocator).print("; break :mul_{d} if (@TypeOf(_lhs) == []const u8) (if (_rhs < 0) \"\" else runtime.strRepeat(", .{label_id});
+            try blk.emit("; ");
+            try blk.startBreak();
+            try self.emit("if (@TypeOf(_lhs) == []const u8) (if (_rhs < 0) \"\" else runtime.strRepeat(");
             try self.emit(alloc_name);
-            try self.emit(", _lhs, @as(usize, @intCast(_rhs)))) else _lhs * _rhs; }");
+            try self.emit(", _lhs, @as(usize, @intCast(_rhs)))) else _lhs * _rhs");
+            try blk.close();
             return;
         }
         // n * str -> repeat string n times
