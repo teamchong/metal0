@@ -456,9 +456,25 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     for (0..actual_codegen_threads) |ti| {
         codegen_threads[ti] = std.Thread.spawn(.{}, CodegenContext.worker, .{&codegen_ctx}) catch continue;
     }
+
+    // Timeout watchdog for codegen phase (60s total)
+    var codegen_done = std.atomic.Value(bool).init(false);
+    const watchdog = std.Thread.spawn(.{}, struct {
+        fn run(done: *std.atomic.Value(bool)) void {
+            std.Thread.sleep(60 * std.time.ns_per_s); // 60 second timeout
+            if (!done.load(.seq_cst)) {
+                printError("Phase 1 (Codegen) TIMEOUT after 60s - likely infinite loop in codegen", .{});
+                printError("This is a compiler bug. Please report which test file hangs.", .{});
+                std.process.exit(1);
+            }
+        }
+    }.run, .{&codegen_done}) catch unreachable;
+
     for (0..actual_codegen_threads) |ti| {
         codegen_threads[ti].join();
     }
+    codegen_done.store(true, .seq_cst);
+    watchdog.detach(); // Let watchdog exit naturally
 
     // Build zig_files list from successful codegens
     var zig_files = std.ArrayList([]const u8){};
