@@ -68,6 +68,7 @@ pub const TypeInferrer = struct {
     ctypes_functions: hashmap_helper.StringHashMap(CTypesFuncInfo), // ctypes function tracking
     from_imports: hashmap_helper.StringHashMap([]const u8), // from-import tracking: symbol -> module (e.g., "datetime" -> "datetime")
     annotated_functions: hashmap_helper.StringHashMap(void), // functions with explicit return type annotations (set)
+    captured_var_types: FnvHashMap, // Captured variable types for nested class methods (var_name -> type from outer scope)
 
     pub fn init(allocator: std.mem.Allocator) InferError!TypeInferrer {
         // Allocate arena on heap to avoid copy issues
@@ -89,6 +90,7 @@ pub const TypeInferrer = struct {
             .ctypes_functions = hashmap_helper.StringHashMap(CTypesFuncInfo).init(allocator),
             .from_imports = hashmap_helper.StringHashMap([]const u8).init(allocator),
             .annotated_functions = hashmap_helper.StringHashMap(void).init(allocator),
+            .captured_var_types = FnvHashMap.init(allocator),
         };
     }
 
@@ -111,6 +113,7 @@ pub const TypeInferrer = struct {
         self.ctypes_functions.deinit();
         self.from_imports.deinit();
         self.annotated_functions.deinit();
+        self.captured_var_types.deinit();
 
         // Free arena and all type allocations
         const alloc = self.allocator;
@@ -249,6 +252,19 @@ pub const TypeInferrer = struct {
     /// Check if a variable has uncertain (needs PyValue) type
     pub fn isUncertain(self: *TypeInferrer, name: []const u8) bool {
         return self.getConfidence(name) == .uncertain;
+    }
+
+    /// Check if a variable has explicitly tracked confidence (is in the confidence map)
+    /// This distinguishes between "explicitly uncertain" and "not tracked" (default uncertain).
+    /// Used by Two-Flow Type System to only use PyValue for explicitly uncertain variables.
+    pub fn hasTrackedConfidence(self: *TypeInferrer, name: []const u8) bool {
+        if (self.current_scope_name) |scope| {
+            const scoped_key = std.fmt.allocPrint(self.arena.allocator(), "{s}:{s}", .{ scope, name }) catch return false;
+            if (self.scoped_var_confidence.contains(scoped_key)) {
+                return true;
+            }
+        }
+        return self.var_confidence.contains(name);
     }
 
     /// Mark a function as having explicit return type annotation
@@ -1005,6 +1021,11 @@ pub const TypeInferrer = struct {
         if (node == .name) {
             if (self.getScopedVar(node.name.id)) |scoped_type| {
                 return scoped_type;
+            }
+            // Check captured variable types (for nested class methods)
+            // This allows type inference to work for variables captured from outer function scope
+            if (self.captured_var_types.get(node.name.id)) |captured_type| {
+                return captured_type;
             }
         }
 

@@ -452,7 +452,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             // Handle type alias assignments: R = fractions.Fraction, D = decimal.Decimal
             // These need `const R = type` not `var R = type` or `R = type`
+            // Skip if already declared (module-level type aliases are emitted at module level)
             if (self.type_alias_vars.contains(var_name)) {
+                if (self.isDeclared(var_name)) {
+                    // Already declared at module level - skip
+                    continue;
+                }
                 try self.emitIndent();
                 try self.emit("const ");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
@@ -472,11 +477,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             // Check if assigning to a for-loop capture variable
             // In Zig, loop captures are immutable, so we need to rename: line = line.strip()
-            // becomes __loop_line = line.strip() and subsequent refs use __loop_line
+            // becomes __mN_lv_line = line.strip() and subsequent refs use __mN_lv_line
             // NOTE: We set the rename AFTER generating the value, so the RHS uses the original capture
             const is_loop_capture_reassign = self.loop_capture_vars.contains(var_name);
             const loop_renamed_name = if (is_loop_capture_reassign)
-                std.fmt.allocPrint(self.allocator, "__loop_{s}", .{var_name}) catch var_name
+                self.name_gen.loopVar(var_name) catch var_name
             else
                 var_name;
             if (is_loop_capture_reassign) {
@@ -747,8 +752,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Check if it's a captured variable (via var_renames)
                 const is_captured = self.var_renames.contains(var_name);
                 if (exists_in_outer and !is_captured) {
-                    // Rename to avoid shadowing: rep -> __shadow_rep_N
-                    const shadow_name = try std.fmt.allocPrint(self.allocator, "__shadow_{s}_{d}", .{ var_name, self.lambda_counter });
+                    // Rename to avoid shadowing using unified name_gen
+                    const shadow_name = try self.name_gen.shadow(var_name);
                     try self.var_renames.put(var_name, shadow_name);
                     var_name = shadow_name;
                 }
@@ -950,6 +955,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     is_mutable_class_instance,
                     is_listcomp,
                     is_iterator,
+                    assign.value.*,
                 );
 
                 // Mark as declared with proper type for scope-aware type lookup
@@ -1366,22 +1372,17 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             } else {
                 // Emit value normally
                 try self.genExpr(assign.value.*);
-                // TWO-FLOW TYPE SYSTEM: Close PyValue.from() wrapper if uncertain type
-                // WHITELIST: Only primitives (int, float, bool, string, none) and unknown types get PyValue wrapper
-                const is_primitive = type_traits.isIntegral(value_type) or type_traits.isFloating(value_type) or
-                    type_traits.isBoolean(value_type) or string_traits.isString(value_type) or
-                    type_traits.isNone(value_type);
-                // Match the opening condition from value_generation.zig
-                // Only close PyValue wrapper if value_type is unknown OR (primitive AND var uncertain AND not string)
-                // IMPORTANT: DON'T close wrapper if expression produces BigInt (even if variable type isn't BigInt yet)
-                const expr_is_bigint = isBigIntExpression(self, assign.value.*);
-                const needs_pyvalue_close = !expr_is_bigint and (type_traits.isUnknown(value_type) or
-                    (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type)));
-                if (is_first_assignment and needs_pyvalue_close) {
+                // TWO-FLOW TYPE SYSTEM: Close PyValue.from() wrapper if it was opened
+                // Use wrapper_opened flag from emitVarDeclaration which already handles
+                // all the conditions (unknown type, uncertain var, and expr_produces_pyvalue check)
+                if (is_first_assignment and wrapper_opened) {
                     try self.emit(")");
                     // Update var_types to mark this variable as PyValue so that subsequent
                     // uses in binop detect it via isOperandUncertain and use PyValue methods
                     try self.type_inferrer.var_types.put(var_name, .pyvalue);
+                    // Also update scoped_var_types so getScopedVar returns .pyvalue (not the original type)
+                    // This is critical for aug_assign detection inside functions where scope is set
+                    try self.type_inferrer.putScopedVar(var_name, .pyvalue);
                 }
                 try self.emit(";\n");
             }
@@ -1477,7 +1478,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.var_renames.put(original_var_name, loop_renamed_name);
                 // Also register the type for the renamed variable so type inference works
                 // e.g., when checking `not __loop_line` we need to know it's a string
-                try self.type_inferrer.var_types.put(loop_renamed_name, value_type);
+                // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
+                try self.type_inferrer.putScopedVar(loop_renamed_name, value_type);
                 // Remove from func_local_vars so var_renames lookup is used in expressions.zig
                 // This ensures subsequent uses of the variable resolve to the renamed version
                 _ = self.func_local_vars.swapRemove(original_var_name);
@@ -1618,11 +1620,19 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // This handles all types correctly including class instances (stored as .ptr)
                 // Use @constCast since the object may be declared as const (HashMap stores data via pointers,
                 // so @constCast works correctly - the internal data is heap-allocated)
-                try self.emit("try @constCast(&");
-                try self.genExpr(attr.value.*);
-                try self.emitFmt(".__dict__).put(\"{s}\", runtime.PyValue.from(", .{attr.attr});
-                try self.genExpr(assign.value.*);
-                try self.emit("))");
+                if (self.inside_defer) {
+                    try self.emit("@constCast(&");
+                    try self.genExpr(attr.value.*);
+                    try self.emitFmt(".__dict__).put(\"{s}\", runtime.PyValue.from(", .{attr.attr});
+                    try self.genExpr(assign.value.*);
+                    try self.emit(")) catch {}");
+                } else {
+                    try self.emit("try @constCast(&");
+                    try self.genExpr(attr.value.*);
+                    try self.emitFmt(".__dict__).put(\"{s}\", runtime.PyValue.from(", .{attr.attr});
+                    try self.genExpr(assign.value.*);
+                    try self.emit("))");
+                }
             } else {
                 // Known attribute: direct assignment
                 try self.genExpr(target);

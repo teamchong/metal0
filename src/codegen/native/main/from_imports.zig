@@ -129,6 +129,29 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
+        // Handle copy module specially - route to runtime.copy_ops
+        // Python: from copy import copy, deepcopy
+        // Zig: These are handled via dispatch (copy_mod.zig), not as direct imports
+        if (std.mem.eql(u8, from_imp.module, "copy")) {
+            for (from_imp.names, 0..) |name, i| {
+                if (std.mem.eql(u8, name, "*")) continue;
+
+                const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                    from_imp.asnames[i].?
+                else
+                    name;
+
+                // Skip if already generated
+                if (generated_symbols.contains(symbol_name)) continue;
+
+                // Register for inline dispatch routing (copy.copy() and copy.deepcopy() calls
+                // are handled by copy_mod.zig dispatch, so we just register for local_from_imports)
+                try self.local_from_imports.put(symbol_name, "copy");
+                try generated_symbols.put(symbol_name, {});
+            }
+            continue;
+        }
+
         // Handle metal0 native libraries (from metal0 import tokenizer)
         if (std.mem.eql(u8, from_imp.module, "metal0")) {
             for (from_imp.names, 0..) |name, i| {
@@ -294,26 +317,26 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
-        // Handle contextlib module - expand "from contextlib import *"
+        // Handle contextlib module - expand imports (both * and named)
         if (std.mem.eql(u8, from_imp.module, "contextlib")) {
-            for (from_imp.names) |name| {
+            const contextlib_exports = [_][]const u8{
+                "contextmanager",
+                "closing",
+                "nullcontext",
+                "suppress",
+                "redirect_stdout",
+                "redirect_stderr",
+                "ExitStack",
+                "AsyncExitStack",
+                "aclosing",
+                "asynccontextmanager",
+                "AbstractContextManager",
+                "AbstractAsyncContextManager",
+                "chdir",
+            };
+            for (from_imp.names, 0..) |name, i| {
                 if (std.mem.eql(u8, name, "*")) {
-                    // Expand common contextlib exports (Python's __all__)
-                    const contextlib_exports = [_][]const u8{
-                        "contextmanager",
-                        "closing",
-                        "nullcontext",
-                        "suppress",
-                        "redirect_stdout",
-                        "redirect_stderr",
-                        "ExitStack",
-                        "AsyncExitStack",
-                        "aclosing",
-                        "asynccontextmanager",
-                        "AbstractContextManager",
-                        "AbstractAsyncContextManager",
-                        "chdir",
-                    };
+                    // Expand all contextlib exports for star import
                     for (contextlib_exports) |exp_name| {
                         if (generated_symbols.contains(exp_name)) continue;
                         try self.emit("const ");
@@ -323,37 +346,60 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         try self.emit(";\n");
                         try generated_symbols.put(exp_name, {});
                     }
+                } else {
+                    // Named import - generate const for this specific name
+                    const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                        from_imp.asnames[i].?
+                    else
+                        name;
+                    if (generated_symbols.contains(symbol_name)) continue;
+                    // Check if name is a known contextlib export
+                    var is_known = false;
+                    for (contextlib_exports) |exp_name| {
+                        if (std.mem.eql(u8, name, exp_name)) {
+                            is_known = true;
+                            break;
+                        }
+                    }
+                    if (is_known) {
+                        try self.emit("const ");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                        try self.emit(" = contextlib.");
+                        try self.emit(name);
+                        try self.emit(";\n");
+                        try generated_symbols.put(symbol_name, {});
+                    }
                 }
             }
             continue;
         }
 
-        // Handle itertools module - expand "from itertools import *"
+        // Handle itertools module - expand imports (both * and named)
         if (std.mem.eql(u8, from_imp.module, "itertools")) {
-            for (from_imp.names) |name| {
+            const itertools_exports = [_][]const u8{
+                "count",
+                "cycle",
+                "repeat",
+                "accumulate",
+                "chain",
+                "compress",
+                "dropwhile",
+                "filterfalse",
+                "groupby",
+                "islice",
+                "pairwise",
+                "starmap",
+                "takewhile",
+                "tee",
+                "zip_longest",
+                "product",
+                "permutations",
+                "combinations",
+                "combinations_with_replacement",
+            };
+            for (from_imp.names, 0..) |name, i| {
                 if (std.mem.eql(u8, name, "*")) {
-                    // Expand common itertools functions (Python's __all__)
-                    const itertools_exports = [_][]const u8{
-                        "count",
-                        "cycle",
-                        "repeat",
-                        "accumulate",
-                        "chain",
-                        "compress",
-                        "dropwhile",
-                        "filterfalse",
-                        "groupby",
-                        "islice",
-                        "pairwise",
-                        "starmap",
-                        "takewhile",
-                        "tee",
-                        "zip_longest",
-                        "product",
-                        "permutations",
-                        "combinations",
-                        "combinations_with_replacement",
-                    };
+                    // Expand all itertools exports for star import
                     for (itertools_exports) |exp_name| {
                         if (generated_symbols.contains(exp_name)) continue;
                         try self.emit("const ");
@@ -362,6 +408,28 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         try self.emit(exp_name);
                         try self.emit(";\n");
                         try generated_symbols.put(exp_name, {});
+                    }
+                } else {
+                    // Named import
+                    const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                        from_imp.asnames[i].?
+                    else
+                        name;
+                    if (generated_symbols.contains(symbol_name)) continue;
+                    var is_known = false;
+                    for (itertools_exports) |exp_name| {
+                        if (std.mem.eql(u8, name, exp_name)) {
+                            is_known = true;
+                            break;
+                        }
+                    }
+                    if (is_known) {
+                        try self.emit("const ");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                        try self.emit(" = itertools.");
+                        try self.emit(name);
+                        try self.emit(";\n");
+                        try generated_symbols.put(symbol_name, {});
                     }
                 }
             }
@@ -658,7 +726,13 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             try self.emit(" = ");
 
             // Normal case: use module const reference
-            try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
+            // For simple module names (no dots), use writeLocalVarName to match module import generation
+            // (e.g., `copy` becomes `copy_` to avoid shadowing struct methods)
+            if (std.mem.indexOfScalar(u8, from_imp.module, '.') != null) {
+                try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
+            } else {
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), from_imp.module);
+            }
             try self.emit(".");
             try self.emit(name);
             try self.emit(";\n");

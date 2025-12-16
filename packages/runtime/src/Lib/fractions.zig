@@ -89,6 +89,13 @@ pub const Fraction = struct {
         };
     }
 
+    /// Python-compatible from_float alias (uses default max_denominator)
+    /// Python: Fraction.from_float(f) -> exact float-to-fraction conversion
+    pub fn from_float(f: f64) Fraction {
+        // Use a very large max_denominator for exact representation
+        return fromFloat(f, std.math.maxInt(i64) / 2);
+    }
+
     /// Parse a fraction from a string like "3/4" or "1.5"
     pub fn fromString(s: []const u8) !Fraction {
         // Check for slash

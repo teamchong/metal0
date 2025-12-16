@@ -5,15 +5,19 @@ const h = @import("mod_helper.zig");
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // sys.argv references mutable global __sys_argv (initialized in main, can be assigned)
     .{ "argv", h.c("__sys_argv") },
-    .{ "exit", h.wrap("blk: { const _code: u8 = @intCast(", "); std.process.exit(_code); break :blk; }", "blk: { std.process.exit(0); break :blk; }") },
+    // sys.exit uses noreturn so doesn't need block label
+    .{ "exit", h.wrap("{ const _code: u8 = @intCast(", "); std.process.exit(_code); }", "std.process.exit(0)") },
     .{ "path", h.c("&[_][]const u8{\".\" }") },
-    .{ "platform", h.c("blk: { const _b = @import(\"builtin\"); break :blk switch (_b.os.tag) { .linux => \"linux\", .macos => \"darwin\", .windows => \"win32\", .freebsd => \"freebsd\", else => \"unknown\" }; }") },
+    // sys.platform references pre-computed global (avoids block label collision)
+    .{ "platform", h.c("__sys_platform") },
     .{ "version", h.c("\"3.12.0 (metal0 compiled)\"") },
     .{ "version_info", h.c(".{ .major = 3, .minor = 12, .micro = 0, .releaselevel = \"final\", .serial = 0 }") },
-    .{ "executable", h.c("blk: { const _b = @import(\"builtin\"); const _is_wasm = _b.os.tag == .wasi or _b.os.tag == .freestanding; if (comptime _is_wasm) break :blk \"\"; const _args = std.os.argv; if (_args.len > 0) break :blk std.mem.span(_args[0]); break :blk \"\"; }") },
+    // sys.executable references pre-computed global (avoids block label collision)
+    .{ "executable", h.c("__sys_executable") },
     .{ "stdin", h.c("(try runtime.PyFile.create(__global_allocator, std.io.getStdIn(), \"r\"))") }, .{ "stdout", h.c("(try runtime.PyFile.create(__global_allocator, std.io.getStdOut(), \"w\"))") }, .{ "stderr", h.c("(try runtime.PyFile.create(__global_allocator, std.io.getStdErr(), \"w\"))") },
     .{ "maxsize", h.c("@as(i128, std.math.maxInt(i64))") },
-    .{ "byteorder", h.c("blk: { const _native = @import(\"builtin\").cpu.arch.endian(); break :blk if (_native == .little) \"little\" else \"big\"; }") },
+    // sys.byteorder references pre-computed global (avoids block label collision)
+    .{ "byteorder", h.c("__sys_byteorder") },
     .{ "getsizeof", h.wrap("@as(i64, @intCast(@sizeOf(@TypeOf(", "))))", "@as(i64, 0)") }, .{ "getrecursionlimit", h.I64(1000) }, .{ "setrecursionlimit", h.c("{}") },
     .{ "getdefaultencoding", h.c("\"utf-8\"") }, .{ "getfilesystemencoding", h.c("\"utf-8\"") },
     .{ "intern", h.pass("\"\"") }, .{ "modules", h.c("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)") },

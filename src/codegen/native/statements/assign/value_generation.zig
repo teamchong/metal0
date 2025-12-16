@@ -12,6 +12,43 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 
+// Import widenTupleTypes for proper nested tuple widening in lists
+const collections = @import("../../expressions/collections.zig");
+const widenTupleTypes = collections.widenTupleTypes;
+
+/// PyValue method names for binary operations (must match arithmetic.zig)
+const PyValueMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "Add", {} },
+    .{ "Sub", {} },
+    .{ "Mult", {} },
+    .{ "Div", {} },
+    .{ "FloorDiv", {} },
+    .{ "Mod", {} },
+    .{ "BitAnd", {} },
+    .{ "BitOr", {} },
+    .{ "BitXor", {} },
+    .{ "LShift", {} },
+    .{ "RShift", {} },
+    .{ "Pow", {} },
+});
+
+/// Check if a binop expression will produce PyValue output
+/// (i.e., uses genPyValueBinOp because operands are uncertain)
+fn binopProducesPyValue(self: *NativeCodegen, expr: ast.Node) bool {
+    if (expr != .binop) return false;
+    const binop = expr.binop;
+
+    // Check if operator has PyValue method
+    if (PyValueMethods.get(@tagName(binop.op)) == null) return false;
+
+    // Check if either operand is uncertain
+    const arithmetic = @import("../../expressions/operators/arithmetic.zig");
+    const left_uncertain = arithmetic.isOperandUncertain(self, binop.left.*);
+    const right_uncertain = arithmetic.isOperandUncertain(self, binop.right.*);
+
+    return left_uncertain or right_uncertain;
+}
+
 /// Generate tuple unpacking assignment: a, b = (1, 2)
 pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tuple: ast.Node.Tuple) CodegenError!void {
     const core = @import("../../main/core.zig");
@@ -62,14 +99,15 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
 
             // Register the type for this unpacked variable
             // Extract element type from source tuple if available
+            // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
             if (container_traits.isTuple(source_type)) {
                 if (i < source_type.tuple.len) {
-                    try self.type_inferrer.var_types.put(var_name, source_type.tuple[i]);
+                    try self.type_inferrer.putScopedVar(var_name, source_type.tuple[i]);
                 }
             } else if (container_traits.isList(source_type)) {
-                try self.type_inferrer.var_types.put(var_name, source_type.list.*);
+                try self.type_inferrer.putScopedVar(var_name, source_type.list.*);
             } else if (source_tag == .array) {
-                try self.type_inferrer.var_types.put(var_name, source_type.array.element_type.*);
+                try self.type_inferrer.putScopedVar(var_name, source_type.array.element_type.*);
             }
 
             // Check if var_name would shadow a module-level import, function, or global var
@@ -161,15 +199,27 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             if (is_dynamic) {
                 // Dynamic attribute: use __dict__.put()
                 // Generate the base object (e.g., 'a' for a.x, 'self' for self.x)
-                try self.emit("try @constCast(&");
-                try self.genExpr(attr.value.*);
-                try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
-                if (is_list_type) {
-                    try self.output.writer(self.allocator).print(".items[{d}]", .{i});
+                if (self.inside_defer) {
+                    try self.emit("@constCast(&");
+                    try self.genExpr(attr.value.*);
+                    try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
+                    if (is_list_type) {
+                        try self.output.writer(self.allocator).print(".items[{d}]", .{i});
+                    } else {
+                        try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
+                    }
+                    try self.emit(")) catch {};\n");
                 } else {
-                    try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
+                    try self.emit("try @constCast(&");
+                    try self.genExpr(attr.value.*);
+                    try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
+                    if (is_list_type) {
+                        try self.output.writer(self.allocator).print(".items[{d}]", .{i});
+                    } else {
+                        try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
+                    }
+                    try self.emit("));\n");
                 }
-                try self.emit("));\n");
             } else {
                 // Static attribute: direct field assignment
                 try self.genExpr(target);
@@ -340,14 +390,15 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             const is_first_assignment = !self.isDeclared(var_name);
 
             // Register element type for unpacked variable
+            // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
             if (container_traits.isTuple(source_type)) {
                 if (i < source_type.tuple.len) {
-                    try self.type_inferrer.var_types.put(var_name, source_type.tuple[i]);
+                    try self.type_inferrer.putScopedVar(var_name, source_type.tuple[i]);
                 }
             } else if (container_traits.isList(source_type)) {
-                try self.type_inferrer.var_types.put(var_name, source_type.list.*);
+                try self.type_inferrer.putScopedVar(var_name, source_type.list.*);
             } else if (type_traits.isArray(source_type)) {
-                try self.type_inferrer.var_types.put(var_name, source_type.array.element_type.*);
+                try self.type_inferrer.putScopedVar(var_name, source_type.array.element_type.*);
             }
 
             // Use renamed version for declarations (filters out lazy attribute patterns)
@@ -428,15 +479,27 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             if (is_dynamic) {
                 // Dynamic attribute: use __dict__.put()
                 // Generate the base object (e.g., 'a' for a.x, 'self' for self.x)
-                try self.emit("try @constCast(&");
-                try self.genExpr(attr.value.*);
-                try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
-                if (is_list_type) {
-                    try self.output.writer(self.allocator).print(".items[{d}]", .{i});
+                if (self.inside_defer) {
+                    try self.emit("@constCast(&");
+                    try self.genExpr(attr.value.*);
+                    try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
+                    if (is_list_type) {
+                        try self.output.writer(self.allocator).print(".items[{d}]", .{i});
+                    } else {
+                        try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
+                    }
+                    try self.emit(")) catch {};\n");
                 } else {
-                    try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
+                    try self.emit("try @constCast(&");
+                    try self.genExpr(attr.value.*);
+                    try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
+                    if (is_list_type) {
+                        try self.output.writer(self.allocator).print(".items[{d}]", .{i});
+                    } else {
+                        try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
+                    }
+                    try self.emit("));\n");
                 }
-                try self.emit("));\n");
             } else {
                 // Static attribute: direct field assignment
                 try self.genExpr(target);
@@ -489,6 +552,7 @@ pub fn emitVarDeclaration(
     is_mutable_class_instance: bool,
     is_listcomp: bool,
     is_iterator: bool,
+    value_expr: ?ast.Node,
 ) CodegenError!bool {
     // Note: Module-level constant assignments (__name__, __file__) are now handled in assign.zig
     // They're skipped before reaching this function
@@ -638,11 +702,19 @@ pub fn emitVarDeclaration(
         type_traits.isNone(value_type);
     // Only wrap if value_type is unknown OR (primitive AND var is uncertain)
     // If value_type is a concrete primitive, we know the exact type from the value itself
-    const needs_pyvalue_wrap = type_traits.isUnknown(value_type) or
-        (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type));
+    // EXCEPTION: If value expression already produces PyValue (e.g., binop with uncertain operands),
+    // don't wrap again - the expression already returns PyValue type
+    const expr_produces_pyvalue = if (value_expr) |expr| binopProducesPyValue(self, expr) else false;
+    const needs_pyvalue_wrap = !expr_produces_pyvalue and (type_traits.isUnknown(value_type) or
+        (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type)));
     if (needs_pyvalue_wrap) {
         try self.emit(": runtime.PyValue = runtime.PyValue.from(");
         return true; // Wrapper opened - caller must close with ")"
+    }
+    // If expression produces PyValue, emit type annotation without wrapper
+    if (expr_produces_pyvalue) {
+        try self.emit(": runtime.PyValue = ");
+        return false; // No wrapper opened
     }
 
     // For functions (lambdas) and callables, never emit type annotation
@@ -723,11 +795,11 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
         break :blk .{ .int = .bounded }; // Default to int for empty lists
     };
 
-    // Widen type to accommodate all elements
+    // Widen type to accommodate all elements (use recursive tuple widening for nested tuples)
     if (list.elts.len > 1) {
         for (list.elts[1..]) |elem| {
             const this_type = try self.type_inferrer.inferExpr(elem);
-            elem_type = elem_type.widen(this_type);
+            elem_type = try widenTupleTypes(self.allocator, elem_type, this_type);
         }
     }
 

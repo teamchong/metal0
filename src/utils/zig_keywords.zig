@@ -189,12 +189,13 @@ pub fn wouldShadowModule(name: []const u8) bool {
     return shadowing_module_names.has(name);
 }
 
-/// Write parameter name, adding _arg suffix if it would shadow a method or module
+/// Write parameter name, adding _ suffix if it would shadow a method or module
+/// Uses same suffix as writeLocalVarName for consistency between declaration and usage
 pub fn writeParamName(writer: anytype, name: []const u8) !void {
     if (isZigKeyword(name)) {
         try writer.print("@\"{s}\"", .{name});
     } else if (wouldShadowMethod(name) or wouldShadowModule(name)) {
-        try writer.print("{s}_arg", .{name});
+        try writer.print("{s}_", .{name});
     } else {
         try writer.writeAll(name);
     }
@@ -227,6 +228,35 @@ fn containsNonAscii(name: []const u8) bool {
         if (c > 127) return true;
     }
     return false;
+}
+
+/// Check if a string is a valid Zig identifier that can be emitted directly
+/// Returns false if the name needs @"" escaping or contains invalid chars
+/// Use this to validate dynamic strings (e.g., from ctypes, CDLL) before emitting
+pub fn isValidZigIdent(name: []const u8) bool {
+    if (name.len == 0) return false;
+
+    // Cannot start with digit
+    const first = name[0];
+    if (first >= '0' and first <= '9') return false;
+
+    // Check for keywords and non-ASCII
+    if (isZigKeyword(name) or containsNonAscii(name)) return false;
+
+    // Bare underscore requires escaping
+    if (name.len == 1 and name[0] == '_') return false;
+
+    // Check for special characters that require escaping
+    for (name) |c| {
+        // Valid Zig identifier chars: a-z, A-Z, 0-9, _
+        const is_alpha = (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z');
+        const is_digit = (c >= '0' and c <= '9');
+        const is_underscore = (c == '_');
+        if (!is_alpha and !is_digit and !is_underscore) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /// Write escaped identifier to writer
@@ -309,6 +339,115 @@ pub fn dottedToIdentAlloc(allocator: std.mem.Allocator, module_path: []const u8)
     return result;
 }
 
+// =============================================================================
+// CENTRALIZED PARAMETER NAMING
+// =============================================================================
+// This is the SINGLE SOURCE OF TRUTH for how Python parameter names are
+// transformed to Zig parameter names. All code that generates parameter
+// declarations or references should use these types and functions.
+// =============================================================================
+
+/// Describes how a parameter name was transformed
+pub const ParamSuffix = enum {
+    /// No transformation (original name used as-is)
+    none,
+    /// Name suffixed with "_" (shadows method/module name)
+    underscore,
+    /// Name suffixed with "_param" (has default value, becomes optional)
+    param,
+    /// Name wrapped with @"" (Zig keyword or Unicode)
+    escaped,
+};
+
+/// Result of parameter name transformation
+pub const ZigParamName = struct {
+    /// The Zig-compatible parameter name (may be allocated)
+    name: []const u8,
+    /// What type of suffix was applied
+    suffix: ParamSuffix,
+    /// Whether the name was allocated (caller must free if true)
+    allocated: bool,
+
+    /// Get the Python name that would produce this Zig name
+    /// For searching in generated code, we need to know what to look for
+    pub fn getSearchNames(self: ZigParamName, python_name: []const u8) struct { primary: []const u8, secondary: ?[]const u8 } {
+        return switch (self.suffix) {
+            .none => .{ .primary = python_name, .secondary = null },
+            .underscore => .{ .primary = self.name, .secondary = python_name },
+            .param => .{ .primary = self.name, .secondary = null },
+            .escaped => .{ .primary = python_name, .secondary = null },
+        };
+    }
+};
+
+/// CENTRALIZED FUNCTION: Get the Zig name for a Python parameter
+///
+/// This is the SINGLE SOURCE OF TRUTH for parameter naming. Use this function
+/// whenever you need to determine what Zig name a Python parameter should have.
+///
+/// Priority order:
+/// 1. Parameters with defaults -> "_param" suffix (becomes optional ?T)
+/// 2. Parameters that shadow methods/modules -> "_" suffix
+/// 3. Parameters that are Zig keywords -> @"name" escaping
+/// 4. All other parameters -> use as-is
+///
+/// Examples:
+///   getZigParamName(alloc, "x", false)     -> { "x", .none }
+///   getZigParamName(alloc, "x", true)      -> { "x_param", .param }
+///   getZigParamName(alloc, "stop", false)  -> { "stop_", .underscore }
+///   getZigParamName(alloc, "test", false)  -> { "@\"test\"", .escaped }
+pub fn getZigParamName(
+    allocator: std.mem.Allocator,
+    python_name: []const u8,
+    has_default: bool,
+) !ZigParamName {
+    // Priority 1: Optional parameters (have defaults) use _param suffix
+    if (has_default) {
+        const name = try std.fmt.allocPrint(allocator, "{s}_param", .{python_name});
+        return .{ .name = name, .suffix = .param, .allocated = true };
+    }
+
+    // Priority 2: Names that shadow methods or modules use _ suffix
+    if (wouldShadowMethod(python_name) or wouldShadowModule(python_name)) {
+        const name = try std.fmt.allocPrint(allocator, "{s}_", .{python_name});
+        return .{ .name = name, .suffix = .underscore, .allocated = true };
+    }
+
+    // Priority 3: Zig keywords and special identifiers need @"" escaping
+    if (isZigKeyword(python_name) or containsNonAscii(python_name)) {
+        const name = try std.fmt.allocPrint(allocator, "@\"{s}\"", .{python_name});
+        return .{ .name = name, .suffix = .escaped, .allocated = true };
+    }
+
+    // Handle bare underscore
+    if (python_name.len == 1 and python_name[0] == '_') {
+        return .{ .name = "@\"_\"", .suffix = .escaped, .allocated = false };
+    }
+
+    // Priority 4: Use original name as-is
+    return .{ .name = python_name, .suffix = .none, .allocated = false };
+}
+
+/// Write parameter name using the centralized naming logic
+/// Convenience function that combines getZigParamName + writer output
+pub fn writeZigParamName(writer: anytype, allocator: std.mem.Allocator, python_name: []const u8, has_default: bool) !ZigParamName {
+    const result = try getZigParamName(allocator, python_name, has_default);
+    try writer.writeAll(result.name);
+    return result;
+}
+
+/// Check if a Python parameter name would be transformed
+/// Useful for deciding whether to track renames
+pub fn wouldTransformParam(python_name: []const u8, has_default: bool) bool {
+    if (has_default) return true;
+    if (wouldShadowMethod(python_name)) return true;
+    if (wouldShadowModule(python_name)) return true;
+    if (isZigKeyword(python_name)) return true;
+    if (containsNonAscii(python_name)) return true;
+    if (python_name.len == 1 and python_name[0] == '_') return true;
+    return false;
+}
+
 /// Write a dotted module path as a Zig identifier (with dots replaced by underscores)
 /// Escapes if the result is a keyword
 pub fn writeEscapedDottedIdent(writer: anytype, module_path: []const u8) !void {
@@ -351,4 +490,89 @@ test "escapeIfKeyword" {
     const t = try escapeIfKeyword(allocator, "test");
     defer allocator.free(t);
     try std.testing.expectEqualStrings("@\"test\"", t);
+}
+
+test "getZigParamName - regular parameter" {
+    const allocator = std.testing.allocator;
+
+    // Regular parameter - no transformation
+    const x = try getZigParamName(allocator, "x", false);
+    try std.testing.expectEqualStrings("x", x.name);
+    try std.testing.expect(x.suffix == .none);
+    try std.testing.expect(!x.allocated);
+}
+
+test "getZigParamName - parameter with default" {
+    const allocator = std.testing.allocator;
+
+    // Parameter with default - gets _param suffix
+    const x = try getZigParamName(allocator, "x", true);
+    defer allocator.free(x.name);
+    try std.testing.expectEqualStrings("x_param", x.name);
+    try std.testing.expect(x.suffix == .param);
+    try std.testing.expect(x.allocated);
+}
+
+test "getZigParamName - shadows method" {
+    const allocator = std.testing.allocator;
+
+    // Parameter that shadows method - gets _ suffix
+    const stop = try getZigParamName(allocator, "stop", false);
+    defer allocator.free(stop.name);
+    try std.testing.expectEqualStrings("stop_", stop.name);
+    try std.testing.expect(stop.suffix == .underscore);
+    try std.testing.expect(stop.allocated);
+}
+
+test "getZigParamName - Zig keyword" {
+    const allocator = std.testing.allocator;
+
+    // Zig keyword - gets @"" escaping
+    const t = try getZigParamName(allocator, "test", false);
+    defer allocator.free(t.name);
+    try std.testing.expectEqualStrings("@\"test\"", t.name);
+    try std.testing.expect(t.suffix == .escaped);
+    try std.testing.expect(t.allocated);
+}
+
+test "getZigParamName - default takes priority over shadowing" {
+    const allocator = std.testing.allocator;
+
+    // Parameter "stop" with default - _param takes priority over _
+    const stop = try getZigParamName(allocator, "stop", true);
+    defer allocator.free(stop.name);
+    try std.testing.expectEqualStrings("stop_param", stop.name);
+    try std.testing.expect(stop.suffix == .param);
+}
+
+test "isValidZigIdent" {
+    // Valid identifiers
+    try std.testing.expect(isValidZigIdent("foo"));
+    try std.testing.expect(isValidZigIdent("myFunction"));
+    try std.testing.expect(isValidZigIdent("some_var"));
+    try std.testing.expect(isValidZigIdent("CamelCase"));
+    try std.testing.expect(isValidZigIdent("_private"));
+    try std.testing.expect(isValidZigIdent("var123"));
+
+    // Invalid - empty
+    try std.testing.expect(!isValidZigIdent(""));
+
+    // Invalid - starts with digit
+    try std.testing.expect(!isValidZigIdent("123abc"));
+    try std.testing.expect(!isValidZigIdent("0x"));
+
+    // Invalid - Zig keywords
+    try std.testing.expect(!isValidZigIdent("test"));
+    try std.testing.expect(!isValidZigIdent("fn"));
+    try std.testing.expect(!isValidZigIdent("const"));
+
+    // Invalid - bare underscore
+    try std.testing.expect(!isValidZigIdent("_"));
+
+    // Invalid - special characters
+    try std.testing.expect(!isValidZigIdent("foo-bar"));
+    try std.testing.expect(!isValidZigIdent("foo.bar"));
+    try std.testing.expect(!isValidZigIdent("foo bar"));
+    try std.testing.expect(!isValidZigIdent("foo@bar"));
+    try std.testing.expect(!isValidZigIdent("foo!"));
 }

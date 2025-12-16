@@ -23,14 +23,30 @@ const IntReturningBuiltins = std.StaticStringMap(void).initComptime(.{
 
 /// Emit a for-loop target variable name (raw identifier, no closure transformation)
 /// For-loop targets create new local bindings, not references to captured variables
-fn emitForLoopTarget(self: *NativeCodegen, target: ast.Node) CodegenError!void {
+/// Checks for shadowing against imported modules and uses unique names if needed
+/// Returns the mangled name if shadowing occurred, null otherwise
+fn emitForLoopTarget(self: *NativeCodegen, target: ast.Node, unique_id: usize) CodegenError!?[]const u8 {
     switch (target) {
-        .name => |n| try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), n.id),
+        .name => |n| {
+            const var_name = n.id;
+            // Check if this name shadows an imported module
+            const shadows_import = self.imported_modules.contains(var_name);
+            if (shadows_import) {
+                // Use unique capture name to avoid shadowing imported module
+                const mangled_name = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}__", .{ var_name, unique_id });
+                try self.emit(mangled_name);
+                return mangled_name;
+            } else {
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                return null;
+            }
+        },
         else => {
             // Fallback for complex targets - shouldn't happen in practice
             // since tuple targets are handled separately
             const parent = @import("../expressions.zig");
             try parent.genExpr(self, target);
+            return null;
         },
     }
 }
@@ -1220,9 +1236,21 @@ fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) CodegenErr
                 }
             } else {
                 try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
-                try emitForLoopTarget(self, gen.target.*);
+                // emitForLoopTarget handles shadowing detection and unique naming
+                const unique_id = self.nextLabelId();
+                const maybe_mangled = try emitForLoopTarget(self, gen.target.*, unique_id);
                 try self.emit("| {\n");
                 self.indent();
+
+                // If loop target shadows an imported module, register the rename mapping
+                // so body references use the renamed variable
+                if (maybe_mangled) |mangled_name| {
+                    if (gen.target.* == .name) {
+                        const target_name = gen.target.name.id;
+                        try self.var_renames.put(target_name, mangled_name);
+                        try renamed_vars.append(self.allocator, target_name);
+                    }
+                }
 
                 // Check if iterator source is a closure list - if so, register loop var as closure
                 // This enables x.call() syntax instead of x() when calling the element
@@ -1699,9 +1727,18 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
                 }
             } else {
                 try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
-                try emitForLoopTarget(self, gen.target.*);
+                const unique_id = self.nextLabelId();
+                const maybe_mangled = try emitForLoopTarget(self, gen.target.*, unique_id);
                 try self.emit("| {\n");
                 self.indent();
+
+                // If loop target shadows an imported module, register the rename mapping
+                if (maybe_mangled) |mangled_name| {
+                    if (gen.target.* == .name) {
+                        const target_name = gen.target.name.id;
+                        try self.var_renames.put(target_name, mangled_name);
+                    }
+                }
             }
         }
 
@@ -1923,9 +1960,18 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
                 }
             } else {
                 try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
-                try emitForLoopTarget(self, gen.target.*);
+                const unique_id = self.nextLabelId();
+                const maybe_mangled = try emitForLoopTarget(self, gen.target.*, unique_id);
                 try self.emit("| {\n");
                 self.indent();
+
+                // If loop target shadows an imported module, register the rename mapping
+                if (maybe_mangled) |mangled_name| {
+                    if (gen.target.* == .name) {
+                        const target_name = gen.target.name.id;
+                        try self.var_renames.put(target_name, mangled_name);
+                    }
+                }
             }
         }
 

@@ -429,6 +429,14 @@ pub fn genStandardClosure(
                 try self.output.writer(self.allocator).print("var {s} = {s};\n", .{ local_name, renamed });
                 // Update rename to use local copy
                 try param_renames.put(arg.name, local_name);
+
+                // Register the mutable copy's type in scoped type map
+                // This is CRITICAL for aug_assign to detect the correct type and use native operations
+                if (self.type_inferrer.getScopedVar(arg.name)) |param_type| {
+                    try self.type_inferrer.putScopedVar(local_name, param_type);
+                } else if (self.type_inferrer.var_types.get(arg.name)) |param_type| {
+                    try self.type_inferrer.putScopedVar(local_name, param_type);
+                }
             }
         }
     }
@@ -901,9 +909,11 @@ pub fn emitClosureInstantiation(
     // Initialize captures
     for (info.captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.emit(", ");
-        // Use var_renames if available, otherwise use original name
-        const actual_name = self.var_renames.get(var_name) orelse var_name;
-        try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, actual_name });
+        // For captured variables, use the ORIGINAL name, not the renamed one.
+        // Captured variables exist in the outer scope under their original names.
+        // The var_renames may contain shadow renames from inner scopes, which
+        // shouldn't apply to capture initialization.
+        try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, var_name });
     }
     try self.emit(" } };\n");
 
@@ -1105,6 +1115,14 @@ pub fn genNestedFunctionWithOuterCapture(
                 try self.emitIndent();
                 try self.output.writer(self.allocator).print("var {s} = {s};\n", .{ local_name, renamed });
                 try param_renames.put(arg.name, local_name);
+
+                // Register the mutable copy's type in scoped type map
+                // This is CRITICAL for aug_assign to detect the correct type and use native operations
+                if (self.type_inferrer.getScopedVar(arg.name)) |param_type| {
+                    try self.type_inferrer.putScopedVar(local_name, param_type);
+                } else if (self.type_inferrer.var_types.get(arg.name)) |param_type| {
+                    try self.type_inferrer.putScopedVar(local_name, param_type);
+                }
             }
         }
     }
@@ -1302,12 +1320,12 @@ pub fn genNestedFunctionWithOuterCapture(
                 try self.output.writer(self.allocator).print(" .{s} = {s}.{s}", .{ var_name, outer_capture_param, var_name });
             }
         } else {
-            // Check if this var was renamed (e.g., function parameter renamed to avoid shadowing)
-            const actual_name = self.var_renames.get(var_name) orelse var_name;
+            // For captured variables, use the ORIGINAL name.
+            // Captured variables exist in the outer scope under their original names.
             if (is_mutated) {
-                try self.output.writer(self.allocator).print(" .{s} = &{s}", .{ var_name, actual_name });
+                try self.output.writer(self.allocator).print(" .{s} = &{s}", .{ var_name, var_name });
             } else {
-                try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, actual_name });
+                try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, var_name });
             }
         }
     }

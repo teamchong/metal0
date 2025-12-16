@@ -116,8 +116,14 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // If class has __str__, generate direct method call
     if (dunder_info.has_str and args[0] == .name) {
-        if (self.inside_try_body or self.in_assert_raises_context) {
+        if (self.inside_try_body and !self.in_assert_raises_context) {
+            // In try block (not assertRaises) - propagate errors with try
             try self.emit("(try ");
+            try self.genExpr(args[0]);
+            try self.emit(".__str__())");
+        } else if (self.in_assert_raises_context) {
+            // In assertRaises - return error union as-is for expectError()
+            try self.emit("(");
             try self.genExpr(args[0]);
             try self.emit(".__str__())");
         } else {
@@ -130,8 +136,14 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // If class has __repr__ but not __str__, use __repr__
     if (dunder_info.has_repr and args[0] == .name) {
-        if (self.inside_try_body or self.in_assert_raises_context) {
+        if (self.inside_try_body and !self.in_assert_raises_context) {
+            // In try block (not assertRaises) - propagate errors with try
             try self.emit("(try ");
+            try self.genExpr(args[0]);
+            try self.emit(".__repr__())");
+        } else if (self.in_assert_raises_context) {
+            // In assertRaises - return error union as-is for expectError()
+            try self.emit("(");
             try self.genExpr(args[0]);
             try self.emit(".__repr__())");
         } else {

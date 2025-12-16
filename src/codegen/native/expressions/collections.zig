@@ -321,7 +321,9 @@ fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
 }
 
 /// Widen tuple types element-wise, making positions optional if any element has None
-fn widenTupleTypes(allocator: std.mem.Allocator, t1: NativeType, t2: NativeType) !NativeType {
+/// Recursively widens nested tuples to handle heterogeneous nested structures
+/// Public to allow use in other codegen modules (e.g., value_generation)
+pub fn widenTupleTypes(allocator: std.mem.Allocator, t1: NativeType, t2: NativeType) !NativeType {
     // Both must be tuples with same length
     if (@as(std.meta.Tag(NativeType), t1) != .tuple or @as(std.meta.Tag(NativeType), t2) != .tuple) {
         return t1.widen(t2);
@@ -342,6 +344,9 @@ fn widenTupleTypes(allocator: std.mem.Allocator, t1: NativeType, t2: NativeType)
             const inner = try allocator.create(NativeType);
             inner.* = elem1;
             new_types[i] = .{ .optional = inner };
+        } else if (@as(std.meta.Tag(NativeType), elem1) == .tuple and @as(std.meta.Tag(NativeType), elem2) == .tuple) {
+            // Recursively widen nested tuples (e.g., list of tuple of tuples)
+            new_types[i] = try widenTupleTypes(allocator, elem1, elem2);
         } else {
             new_types[i] = elem1.widen(elem2);
         }

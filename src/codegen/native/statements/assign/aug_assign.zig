@@ -854,27 +854,42 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // TWO-FLOW TYPE SYSTEM: Handle uncertain/PyValue targets with PyValue methods
     // This prevents generating raw Zig operators for PyValue types which would cause type mismatches
     if (aug.target.* == .name) {
-        const var_name = aug.target.name.id;
+        const original_name = aug.target.name.id;
+        // Check if variable was renamed (e.g., parameter "start" -> mutable copy "__m0_m_start")
+        // This is critical for aug_assign on mutable copies of parameters
+        const var_name = self.var_renames.get(original_name) orelse original_name;
         // Check actual inferred type (including scoped vars for parameters)
         const inferred_type = self.type_inferrer.getScopedVar(var_name) orelse
             self.type_inferrer.var_types.get(var_name);
 
         // Use PyValue methods if:
         // 1. Type is explicitly pyvalue/unknown, OR
-        // 2. Variable has uncertain confidence (Two-Flow system)
-        // But NOT for concrete certain types (float, int from literals/annotations)
+        // 2. Variable was declared as PyValue (via shouldUsePyValue in initial assignment), OR
+        // 3. Symbol table shows variable was declared as PyValue
+        // Trust primitive types from scoped vars (e.g., function params with inferred f64/i64)
         const is_pyvalue_type = if (inferred_type) |vt|
             (vt == .pyvalue or vt == .unknown)
         else
             false;
-        const is_uncertain = self.isVarUncertain(var_name);
-        // Use PyValue if type is explicitly pyvalue OR if uncertain (runtime-determined)
-        // Exception: if we have a concrete type from scoped vars (e.g., function params), trust it
-        const has_certain_scoped_type = if (self.type_inferrer.getScopedVar(var_name)) |vt| blk: {
+
+        // Check if we have a primitive type from scoped vars (function params, loop vars)
+        // These should use native operations, not PyValue
+        const has_primitive_scoped_type = if (self.type_inferrer.getScopedVar(var_name)) |vt| blk: {
             const tag = @as(std.meta.Tag(@TypeOf(vt)), vt);
-            break :blk (tag == .float or tag == .int or tag == .bool) and self.isVarCertain(var_name);
+            break :blk (tag == .float or tag == .int or tag == .bool);
         } else false;
-        const needs_pyvalue = is_pyvalue_type or (is_uncertain and !has_certain_scoped_type);
+
+        // Check if variable was declared as PyValue in symbol table
+        // This catches cases where initial assignment wrapped in PyValue but type inference says float
+        const declared_as_pyvalue = if (self.symbol_table.getType(var_name)) |local_type|
+            (local_type == .pyvalue or local_type == .unknown)
+        else
+            false;
+
+        // Use shouldUsePyValue to match what value_generation uses for initial assignment
+        // This ensures aug assign uses PyValue methods when the variable was declared as PyValue
+        const needs_pyvalue = is_pyvalue_type or declared_as_pyvalue or
+            (!has_primitive_scoped_type and self.shouldUsePyValue(var_name));
 
         if (needs_pyvalue) {
             // PyValue method names for augmented assignment operations

@@ -272,22 +272,29 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
 
         // Try module attribute dispatch FIRST (handles string.*, math.*, sys.*, etc.)
         // This correctly handles constants like math.pi, math.e which need inline values
-        const module_functions = @import("../dispatch/module_functions.zig");
-        // Create a fake call with no args to use the module dispatcher
-        const empty_args: []ast.Node = &[_]ast.Node{};
-        const fake_call = ast.Node.Call{
-            .func = attr.value,
-            .args = empty_args,
-            .keyword_args = &[_]ast.Node.KeywordArg{},
-        };
+        // EXCEPTION: Skip dispatch for `operator` module when getting function references
+        // (e.g., operator.eq passed as callback). The operator functions are meant to be
+        // CALLED with 2 args, not used as values. Passing them to fake_call with 0 args
+        // would emit default values like "false" instead of the function reference.
+        const is_operator_module = std.mem.eql(u8, module_name, "operator") or std.mem.eql(u8, module_name, "_operator");
+        if (!is_operator_module) {
+            const module_functions = @import("../dispatch/module_functions.zig");
+            // Create a fake call with no args to use the module dispatcher
+            const empty_args: []ast.Node = &[_]ast.Node{};
+            const fake_call = ast.Node.Call{
+                .func = attr.value,
+                .args = empty_args,
+                .keyword_args = &[_]ast.Node.KeywordArg{},
+            };
 
-        // Track output length before dispatch to detect if anything was emitted
-        const output_before = self.output.items.len;
-        if (module_functions.tryDispatch(self, module_name, attr_name, fake_call) catch false) {
-            // Only return if something was actually emitted
-            // Some handlers check args.len == 0 and return early without emitting
-            if (self.output.items.len > output_before) {
-                return;
+            // Track output length before dispatch to detect if anything was emitted
+            const output_before = self.output.items.len;
+            if (module_functions.tryDispatch(self, module_name, attr_name, fake_call) catch false) {
+                // Only return if something was actually emitted
+                // Some handlers check args.len == 0 and return early without emitting
+                if (self.output.items.len > output_before) {
+                    return;
+                }
             }
         }
 
@@ -301,10 +308,12 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
 
             if (is_runtime_module) {
                 // For runtime module function references (used as values, not calls),
-                // emit a reference to the runtime function
-                // e.g., copy.copy -> &runtime.copy.copy, zlib.compress -> &runtime.zlib.compress
-                try self.emit("&runtime.");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
+                // emit a reference to the runtime function using the local import
+                // e.g., operator.eq -> &operator.eq (operator is already imported)
+                // The module is imported at file top, so just use its local name
+                try self.emit("&");
+                // Use writeLocalVarName to handle renamed modules (e.g., copy -> copy_)
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), module_name);
                 try self.emit(".");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
             } else {

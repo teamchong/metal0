@@ -587,7 +587,17 @@ const PyValueMethods = std.StaticStringMap([]const u8).initComptime(.{
 });
 
 /// Check if an expression operand is uncertain (needs PyValue)
-fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
+/// TWO-FLOW TYPE SYSTEM: Check type and confidence together.
+///
+/// Decision logic:
+/// 1. If type is explicitly PyValue or unknown → use PyValue (uncertain)
+/// 2. If type is concrete (int/float/etc.) AND confidence is explicitly tracked as uncertain → use PyValue
+/// 3. If type is concrete AND confidence is NOT tracked or is certain → use native ops
+///
+/// NOTE: The confidence map defaults to `.uncertain` for untracked variables, so we need
+/// to distinguish between "explicitly uncertain" and "not tracked". We check if confidence
+/// is in the map before trusting the uncertain default.
+pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
     // Check if this is a variable with uncertain confidence
     if (expr == .name) {
         const name = expr.name.id;
@@ -602,23 +612,29 @@ fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
             return false;
         }
 
-        // FIRST: Check scoped vars (for loop variables, function params)
-        // then fall back to global var_types
+        // Check type first
         const var_type = self.type_inferrer.getScopedVar(name) orelse
             self.type_inferrer.var_types.get(name);
         if (var_type) |vt| {
             switch (vt) {
                 // Explicit PyValue or unknown - always use PyValue methods
                 .pyvalue, .unknown => return true,
-                // Concrete types - don't use PyValue methods (loop variables, etc.)
-                .string, .int, .float, .bool, .none, .bytes => return false,
+                // Concrete types - check if confidence is EXPLICITLY tracked as uncertain
+                // If confidence is not tracked, default to using native ops (not uncertain)
+                .string, .int, .float, .bool, .none, .bytes => {
+                    // Check if this variable has explicitly tracked confidence
+                    if (self.type_inferrer.hasTrackedConfidence(name)) {
+                        return self.isVarUncertain(name);
+                    }
+                    // Not tracked - assume certain (use native ops)
+                    return false;
+                },
                 // Class instances - don't use PyValue methods
                 .class_instance => return false,
                 else => {},
             }
         }
         // Fall back to confidence check for variables not in var_types
-        // or with unknown types
         return self.isVarUncertain(name);
     }
 
@@ -1357,9 +1373,10 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         const right_is_bool = type_traits.isBoolean(right_type);
 
         // True division (/) - always returns float
-        // At module level (indent_level == 0), we can't use 'try', so use direct division
-        if (self.indent_level == 0) {
-            // Direct division for module-level constants (assume no divide-by-zero)
+        // At module level (indent_level == 0) or inside defer, we can't use 'try'
+        if (self.indent_level == 0 or self.inside_defer) {
+            // Direct division for module-level constants or defer blocks (assume no divide-by-zero)
+            // Inside defer, errors cannot propagate anyway
             try self.emit("(@as(f64, @floatFromInt(");
             if (left_is_bool) {
                 try self.emit("@as(i64, @intFromBool(");

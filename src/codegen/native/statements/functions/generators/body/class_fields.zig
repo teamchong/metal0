@@ -75,7 +75,8 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
         }
 
         if (!type_traits.isUnknown(param_type)) {
-            self.type_inferrer.var_types.put(arg.name, param_type) catch {};
+            // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
+            self.type_inferrer.putScopedVar(arg.name, param_type) catch {};
         }
     }
 
@@ -177,7 +178,11 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                             .float => "0.0",
                             .bool => "false",
                             .string => "\"\"",
-                            .dict, .list, .set => ".{}", // Empty struct init
+                            // Zig 0.15: HashMap-based types (dict, set) can't use .{} for empty init
+                            // - they require allocator. Use undefined and initialize in setUp/init.
+                            // ArrayListUnmanaged (list) CAN use .{} for empty init.
+                            .dict, .set => "undefined",
+                            .list => ".{}",
                             else => "undefined",
                         };
                         try writer.print(": {s} = {s},\n", .{ field_type_str, default_val });

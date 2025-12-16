@@ -627,6 +627,27 @@ pub fn genPass(self: *NativeCodegen) CodegenError!void {
 
 /// Generate break statement
 pub fn genBreak(self: *NativeCodegen) CodegenError!void {
+    // Mark control flow as terminated after break
+    defer self.control_flow_terminated = true;
+
+    // Check if we're inside a finally block - break needs special handling
+    // In Python, break in finally should run finally then break outer loop
+    // For now, we emit break from the labeled block with a special signal
+    if (self.inside_finally_block) {
+        try self.emitIndent();
+        // Break from finally block - the outer code will handle the actual break
+        // For now, just break from the finally block; outer loop break is TODO (requires labeled loops)
+        try self.output.writer(self.allocator).print("break :__finally_blk_{d} null; // break from finally (outer loop break TODO)\n", .{self.current_finally_id});
+        return;
+    }
+
+    // Nuitka-style finally code duplication: emit all finally blocks BEFORE break
+    // This ensures Python semantics where finally runs before any exit
+    if (self.hasActiveFinallyBlocks()) {
+        // Execute all active finally blocks (innermost to outermost)
+        try self.emitAllFinallyBlocks();
+    }
+
     // Check if we're inside a try helper that needs break handling
     if (self.try_break_helper_id != null) {
         // Inside try helper - return error to signal break
@@ -640,6 +661,27 @@ pub fn genBreak(self: *NativeCodegen) CodegenError!void {
 
 /// Generate continue statement
 pub fn genContinue(self: *NativeCodegen) CodegenError!void {
+    // Mark control flow as terminated after continue
+    defer self.control_flow_terminated = true;
+
+    // Check if we're inside a finally block - continue needs special handling
+    // In Python, continue in finally should run finally then continue outer loop
+    // For now, we emit break from the labeled block with a special signal
+    if (self.inside_finally_block) {
+        try self.emitIndent();
+        // Break from finally block - the outer code will handle the actual continue
+        // For now, just break from the finally block; outer loop continue is TODO (requires labeled loops)
+        try self.output.writer(self.allocator).print("break :__finally_blk_{d} null; // continue from finally (outer loop continue TODO)\n", .{self.current_finally_id});
+        return;
+    }
+
+    // Nuitka-style finally code duplication: emit all finally blocks BEFORE continue
+    // This ensures Python semantics where finally runs before any exit
+    if (self.hasActiveFinallyBlocks()) {
+        // Execute all active finally blocks (innermost to outermost)
+        try self.emitAllFinallyBlocks();
+    }
+
     var builder = CodeBuilder.init(self);
     _ = try builder.line("continue;");
 }

@@ -209,12 +209,22 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // PHASE 3.7: Emit module assignments for registry modules
     // Note: Compiled user/stdlib modules already emitted via @import above
+    // Track emitted module consts to avoid duplicates (e.g., import _pyio appearing twice)
+    var emitted_module_consts = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer emitted_module_consts.deinit();
+
     for (imported_modules.items) |mod_name| {
         // Skip 'builtins' module - it's handled specially in dispatch
         // builtins.func() calls are dispatched to built-in function handlers directly
         if (std.mem.eql(u8, mod_name, "builtins")) {
             continue;
         }
+
+        // Skip if we've already emitted this module const
+        if (emitted_module_consts.contains(mod_name)) {
+            continue;
+        }
+        try emitted_module_consts.put(mod_name, {});
 
         // Track this module name for call site handling
         const mod_copy = try self.arena.allocator().dupe(u8, mod_name);
@@ -303,6 +313,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // PHASE 3.6: Generate from-import symbol re-exports
     try from_imports_gen.generateFromImports(self);
+
+    // PHASE 3.7: Emit module-level type aliases BEFORE class definitions
+    // Type aliases like `F = fractions.Fraction` must be at module level because
+    // class methods (e.g., DummyFloat._richcmp) need them at compile time.
+    try emitModuleLevelTypeAliases(self, module.body);
 
     // PHASE 3.8: Pre-pass to detect optional import patterns (try: import X except: X = None)
     // This MUST happen before class/function generation so methods using X can be skipped
@@ -566,7 +581,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("var __global_allocator: std.mem.Allocator = undefined;\n");
         try self.emit("var __allocator_initialized: bool = false;\n");
         // sys.argv mutable global - can be assigned by Python code
-        try self.emit("var __sys_argv: [][]const u8 = &[_][]const u8{};\n\n");
+        try self.emit("var __sys_argv: [][]const u8 = &[_][]const u8{};\n");
+        // sys module pre-computed globals (avoid repeated block label collisions)
+        try self.emit("var __sys_executable: []const u8 = \"\";\n");
+        try self.emit("var __sys_platform: []const u8 = \"unknown\";\n");
+        try self.emit("var __sys_byteorder: []const u8 = \"little\";\n\n");
     }
 
     // PHASE 5.6: Generate module-level global variables (for 'global' keyword support)
@@ -1389,6 +1408,32 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("    }\n");
         try self.emitIndent();
         try self.emit("};\n");
+
+        // Initialize sys.executable (compute once to avoid block label collisions)
+        try self.emitIndent();
+        try self.emit("__sys_executable = sys_exec_blk: {\n");
+        try self.emitIndent();
+        try self.emit("    const b = @import(\"builtin\");\n");
+        try self.emitIndent();
+        try self.emit("    const is_wasm = b.os.tag == .wasi or b.os.tag == .freestanding;\n");
+        try self.emitIndent();
+        try self.emit("    if (comptime is_wasm) break :sys_exec_blk \"\";\n");
+        try self.emitIndent();
+        try self.emit("    const args = std.os.argv;\n");
+        try self.emitIndent();
+        try self.emit("    if (args.len > 0) break :sys_exec_blk std.mem.span(args[0]);\n");
+        try self.emitIndent();
+        try self.emit("    break :sys_exec_blk \"\";\n");
+        try self.emitIndent();
+        try self.emit("};\n");
+
+        // Initialize sys.platform (compute once)
+        try self.emitIndent();
+        try self.emit("__sys_platform = switch (@import(\"builtin\").os.tag) { .linux => \"linux\", .macos => \"darwin\", .windows => \"win32\", .freebsd => \"freebsd\", else => \"unknown\" };\n");
+
+        // Initialize sys.byteorder (compute once)
+        try self.emitIndent();
+        try self.emit("__sys_byteorder = if (@import(\"builtin\").cpu.arch.endian() == .little) \"little\" else \"big\";\n");
         try self.emit("\n");
 
         // Initialize runtime modules that need allocator (from registry needs_init flag)
@@ -1668,16 +1713,28 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 try self.emitIndent();
                 // Use renamed variable if inside TryHelper (where __gen_result is passed as pointer)
                 const gen_result_name = self.var_renames.get("__gen_result") orelse "__gen_result";
-                try self.emit("try ");
-                try self.emit(gen_result_name);
-                try self.emit(".append(__global_allocator, runtime.PyValue.from(");
-                if (yield.value) |val| {
-                    try expressions.genExpr(self, val.*);
+                // Inside defer blocks, 'try' is not allowed - use 'catch {}' instead
+                if (self.inside_defer) {
+                    try self.emit(gen_result_name);
+                    try self.emit(".append(__global_allocator, runtime.PyValue.from(");
+                    if (yield.value) |val| {
+                        try expressions.genExpr(self, val.*);
+                    } else {
+                        try self.emit("null");
+                    }
+                    try self.emit(")) catch {};\n");
                 } else {
-                    // yield without value yields None in Python
-                    try self.emit("null");
+                    try self.emit("try ");
+                    try self.emit(gen_result_name);
+                    try self.emit(".append(__global_allocator, runtime.PyValue.from(");
+                    if (yield.value) |val| {
+                        try expressions.genExpr(self, val.*);
+                    } else {
+                        // yield without value yields None in Python
+                        try self.emit("null");
+                    }
+                    try self.emit("));\n");
                 }
-                try self.emit("));\n");
             } else {
                 try statements.genPass(self);
             }
@@ -1933,4 +1990,63 @@ fn isFunctionAliasRecursive(body: []const ast.Node, var_name: []const u8, module
         }
     }
     return false;
+}
+
+/// Emit module-level type aliases before class definitions.
+/// Detects patterns like `F = fractions.Fraction` and emits `const F = fractions.Fraction;`
+/// at module level so class methods can reference them.
+fn emitModuleLevelTypeAliases(self: *NativeCodegen, body: []const ast.Node) !void {
+    var emitted_any = false;
+
+    for (body) |stmt| {
+        if (stmt != .assign) continue;
+
+        const assign = stmt.assign;
+        // Only handle simple name targets
+        for (assign.targets) |target| {
+            if (target != .name) continue;
+            const var_name = target.name.id;
+
+            // Check if RHS is module.Type pattern
+            if (assign.value.* == .attribute) {
+                const attr = assign.value.attribute;
+                if (attr.value.* == .name) {
+                    const module_name = attr.value.name.id;
+                    const attr_name = attr.attr;
+
+                    // Known type exports from modules
+                    const is_type_alias = blk: {
+                        if (std.mem.eql(u8, module_name, "fractions") and std.mem.eql(u8, attr_name, "Fraction")) break :blk true;
+                        if (std.mem.eql(u8, module_name, "decimal") and std.mem.eql(u8, attr_name, "Decimal")) break :blk true;
+                        // Add more patterns as needed
+                        break :blk false;
+                    };
+
+                    if (is_type_alias) {
+                        if (!emitted_any) {
+                            try self.emit("\n// Module-level type aliases\n");
+                            emitted_any = true;
+                        }
+
+                        // Track this type alias for call codegen
+                        try self.type_alias_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
+
+                        // Emit: const F = fractions.Fraction;
+                        try self.emit("const ");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                        try self.emit(" = ");
+                        // Emit module.attribute
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
+                        try self.emit(".");
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                        try self.emit(";\n");
+
+                        // Mark as declared so main() doesn't re-declare it
+                        try self.declareVar(var_name);
+                        try self.markGlobalVar(var_name);
+                    }
+                }
+            }
+        }
+    }
 }

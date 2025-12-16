@@ -815,6 +815,11 @@ pub fn genFunctionSignature(
             self.imported_modules.contains(arg.name) or
             zig_keywords.wouldShadowModule(arg.name);
 
+        // Check if parameter shadows a local variable from an outer scope
+        // e.g., for module in modules: class C: def setUpClass(module): ... - `module` shadows loop var
+        // Use isDeclaredInAnyScope to check all scopes (including outer function scopes)
+        const shadows_local_scope = self.isDeclaredInAnyScope(arg.name);
+
         // Check if parameter name shadows a sibling method or class-level attribute
         // e.g., def __release_buffer__(self, buffer): ... where 'buffer' is also a method
         // Also check class-level assignments like 'num = property(...)' which become lazy methods
@@ -848,7 +853,7 @@ pub fn genFunctionSignature(
         // For generators, always mark params as used since yield body isn't properly generated
         const is_used_directly = if (is_generator) true else param_analyzer.isNameUsedInBody(func.body, arg.name);
         const is_captured = self.isVarCapturedByAnyNestedClass(arg.name);
-        const is_used = is_used_directly or is_captured or shadows_module_level or shadows_class_member;
+        const is_used = is_used_directly or is_captured or shadows_module_level or shadows_class_member or shadows_local_scope;
 
         // For unused parameters, use "_" (anonymous) instead of "_name" in Zig 0.15+
         // "_name" still triggers unused warnings - only "_" fully ignores
@@ -860,14 +865,23 @@ pub fn genFunctionSignature(
             // This ensures signature and body use the same renamed parameter name
             if (self.var_renames.get(arg.name)) |renamed| {
                 try self.emit(renamed);
+                // NameGen renames don't include _param suffix, so add it if has default
+                if (arg.default != null) {
+                    try self.emit("_param");
+                }
+            } else if (shadows_local_scope) {
+                // Parameter shadows local variable from outer scope - rename to avoid Zig error
+                const renamed = try std.fmt.allocPrint(self.allocator, "{s}__param", .{arg.name});
+                try self.emit(renamed);
+                try self.var_renames.put(arg.name, renamed);
             } else {
-                // Only escape reserved keywords if we're NOT renaming
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-            }
-
-            // Parameters with defaults become optional (suffix with '_param')
-            if (arg.default != null) {
-                try self.emit("_param");
+                // Use centralized parameter naming (handles keywords, shadows, and defaults in correct priority)
+                // Priority: has_default → _param suffix (avoids collision, e.g., "stop" → "stop_param")
+                //           shadows method → _ suffix (e.g., "stop" → "stop_")
+                //           zig keyword → @"" escaping (e.g., "type" → @"type")
+                const param_info = try zig_keywords.getZigParamName(self.allocator, arg.name, arg.default != null);
+                try self.emit(param_info.name);
+                // Note: No separate _param suffix needed - getZigParamName handles it
             }
             try self.emit(": ");
         }
@@ -946,6 +960,14 @@ pub fn genFunctionSignature(
             defer self.allocator.free(zig_type);
             if (arg.default != null) try self.emit("?");
             try self.emit(zig_type);
+            // Also register parameter type with type inferrer for aug_assign detection
+            // Without this, mutable copies would not know their type
+            const native_type_core = @import("../../../../../analysis/native_types/core.zig");
+            const native_type = native_type_core.zigTypeStringToNative(zig_type);
+            if (native_type != .unknown) {
+                const scoped_key = try std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ func.name, arg.name });
+                try self.type_inferrer.scoped_var_types.put(scoped_key, native_type);
+            }
         } else if (self.getVarTypeInScope(func.name, arg.name)) |var_type| {
             // Use scoped type inference for function parameters
             // This avoids type pollution from variables with same name in other scopes
@@ -1470,15 +1492,24 @@ pub fn genMethodSignatureWithSkip(
         // Check if parameter shadows an imported module (e.g., 'test', 'copy')
         const shadows_imported_module = self.imported_modules.contains(arg.name);
 
+        // Check if parameter shadows a local variable from an outer scope
+        // e.g., for module in modules: class C: def setUpClass(module): ... - `module` shadows loop var
+        const shadows_local_scope = self.isDeclaredInAnyScope(arg.name);
+
         if (is_skipped or !is_param_used) {
             // Use anonymous parameter for unused
             try self.emit("_: ");
         } else {
-            // Add __local suffix if shadows class method or imported module
-            if (shadows_class_method or shadows_imported_module) {
-                // Build the suffixed name first, then write it with proper escaping
-                const suffixed_name = try std.fmt.allocPrint(self.allocator, "{s}__local", .{arg.name});
-                try zig_keywords.writeParamName(self.output.writer(self.allocator), suffixed_name);
+            // Add rename suffix if shadows class method, imported module, or local scope variable
+            // Use deterministic naming ({name}__shadow) so signature and body can compute same name
+            // This is needed because var_renames is cleared before body generation
+            if (shadows_class_method or shadows_imported_module or shadows_local_scope) {
+                // Use deterministic rename pattern (not name_gen which has a counter)
+                const renamed = try std.fmt.allocPrint(self.allocator, "{s}__shadow", .{arg.name});
+                try zig_keywords.writeParamName(self.output.writer(self.allocator), renamed);
+                // NOTE: We intentionally don't add to var_renames here because it gets cleared
+                // before body generation. function_gen.zig will detect the shadow and add
+                // the same rename using the same deterministic pattern.
             } else {
                 // Use writeParamName to handle Zig keywords AND method shadowing (e.g., "init" -> "init_arg")
                 try zig_keywords.writeParamName(self.output.writer(self.allocator), arg.name);
@@ -1495,7 +1526,16 @@ pub fn genMethodSignatureWithSkip(
         else
             false;
 
-        if (receives_bigint) {
+        // Check if this parameter is used as a function (called directly, e.g., op(a, b))
+        // For such parameters, use anytype to accept any callable type
+        // This must be checked BEFORE type inference, which might return .callable → PyCallable
+        const is_callable_param = param_analyzer.isParameterUsedAsFunction(method.body, arg.name);
+
+        if (is_callable_param and arg.default == null) {
+            // Parameter is called as a function - use anytype for any callable type
+            try self.emit("anytype");
+            try self.anytype_params.put(arg.name, {});
+        } else if (receives_bigint) {
             // Parameter receives BigInt at some call site - use anytype
             try self.emit("anytype");
             try self.anytype_params.put(arg.name, {});
@@ -1611,10 +1651,31 @@ pub fn genMethodSignatureWithSkip(
         }
         if (anytype_param) |param_name| {
             // Generate: PolymorphicReturn(@TypeOf(param))
+            // Check if parameter was renamed due to shadowing (e.g., other -> other__shadow)
+            // Same conditions used in parameter generation above
+            const shadows_class_method = if (class_body) |cb| blk: {
+                for (cb) |class_stmt| {
+                    if (class_stmt == .function_def) {
+                        if (std.mem.eql(u8, class_stmt.function_def.name, param_name)) {
+                            break :blk true;
+                        }
+                    }
+                }
+                break :blk false;
+            } else false;
+            const shadows_imported_module = self.imported_modules.contains(param_name);
+            const shadows_local_scope = self.isDeclaredInAnyScope(param_name);
+            const param_was_renamed = shadows_class_method or shadows_imported_module or shadows_local_scope;
+
             try self.emit("PolymorphicReturn__");
             try self.emit(method.name);
             try self.emit("(@TypeOf(");
-            try self.emit(param_name);
+            if (param_was_renamed) {
+                try self.emit(param_name);
+                try self.emit("__shadow");
+            } else {
+                try self.emit(param_name);
+            }
             try self.emit(")) {\n");
             return;
         }

@@ -119,6 +119,45 @@ pub const NameGen = struct {
         return std.fmt.allocPrint(self.allocator, "__m{d}_lambda", .{id});
     }
 
+    /// Generate a unique shadow variable name
+    /// Used when a local variable in nested function shadows outer scope
+    pub fn shadow(self: *NameGen, original: []const u8) ![]const u8 {
+        const id = self.counter;
+        self.counter += 1;
+        return std.fmt.allocPrint(self.allocator, "__m{d}_s_{s}", .{ id, original });
+    }
+
+    /// Generate a unique loop variable name
+    /// Used for for-loop capture variables
+    pub fn loopVar(self: *NameGen, original: []const u8) ![]const u8 {
+        const id = self.counter;
+        self.counter += 1;
+        return std.fmt.allocPrint(self.allocator, "__m{d}_lv_{s}", .{ id, original });
+    }
+
+    /// Generate a unique comprehension variable name
+    /// Used for list/dict/set comprehension loop variables
+    pub fn compVar(self: *NameGen, original: []const u8) ![]const u8 {
+        const id = self.counter;
+        self.counter += 1;
+        return std.fmt.allocPrint(self.allocator, "__m{d}_cv_{s}", .{ id, original });
+    }
+
+    /// Generate a unique comprehension result name
+    pub fn compResult(self: *NameGen) ![]const u8 {
+        const id = self.counter;
+        self.counter += 1;
+        return std.fmt.allocPrint(self.allocator, "__m{d}_cr", .{id});
+    }
+
+    /// Generate a unique inner loop variable name
+    /// Used for inner variable bindings in for loops
+    pub fn innerVar(self: *NameGen, original: []const u8) ![]const u8 {
+        const id = self.counter;
+        self.counter += 1;
+        return std.fmt.allocPrint(self.allocator, "__m{d}_iv_{s}", .{ id, original });
+    }
+
     /// Check if a name is a generated name (has our prefix pattern __m{digit}_)
     pub fn isGeneratedName(name: []const u8) bool {
         if (name.len < 5) return false;
@@ -129,19 +168,19 @@ pub const NameGen = struct {
     }
 
     /// Extract original name from generated name, or return as-is if not generated
-    /// e.g., "__m0_p_foo" -> "foo", "__m123_l_bar" -> "bar"
+    /// e.g., "__m0_p_foo" -> "foo", "__m123_l_bar" -> "bar", "__m5_lv_x" -> "x"
     pub fn extractOriginal(name: []const u8) []const u8 {
         if (!isGeneratedName(name)) return name;
 
         // Find the pattern: __m{digits}_{type}_{original}
-        // Skip __m, then find first underscore after digits, then find second underscore
+        // Type can be: p, l, t, c, h, e, m, C, b, s, lv, cv, iv, cr
         var i: usize = 3; // Start after "__m"
         // Skip digits
         while (i < name.len and std.ascii.isDigit(name[i])) : (i += 1) {}
-        // Skip _type_
+        // Skip underscore after digits
         if (i < name.len and name[i] == '_') i += 1;
-        // Skip type char (p, l, t, c, h, e, m, C, b)
-        if (i < name.len) i += 1;
+        // Skip type chars (can be 1-2 chars like 'p', 'lv', 'cv', 'iv', 'cr')
+        while (i < name.len and name[i] != '_') : (i += 1) {}
         // Skip underscore before original name
         if (i < name.len and name[i] == '_') i += 1;
 
@@ -191,4 +230,32 @@ test "extractOriginal" {
     try std.testing.expectEqualStrings("foo", NameGen.extractOriginal("__m0_p_foo"));
     try std.testing.expectEqualStrings("bar", NameGen.extractOriginal("__m123_l_bar"));
     try std.testing.expectEqualStrings("baz", NameGen.extractOriginal("baz"));
+    // Test multi-char type prefixes
+    try std.testing.expectEqualStrings("x", NameGen.extractOriginal("__m5_lv_x"));
+    try std.testing.expectEqualStrings("i", NameGen.extractOriginal("__m10_cv_i"));
+    try std.testing.expectEqualStrings("y", NameGen.extractOriginal("__m7_iv_y"));
+}
+
+test "new naming functions" {
+    var namegen = init(std.testing.allocator);
+
+    const s1 = try namegen.shadow("rep");
+    defer std.testing.allocator.free(s1);
+    try std.testing.expectEqualStrings("__m0_s_rep", s1);
+
+    const lv1 = try namegen.loopVar("i");
+    defer std.testing.allocator.free(lv1);
+    try std.testing.expectEqualStrings("__m1_lv_i", lv1);
+
+    const cv1 = try namegen.compVar("x");
+    defer std.testing.allocator.free(cv1);
+    try std.testing.expectEqualStrings("__m2_cv_x", cv1);
+
+    const cr1 = try namegen.compResult();
+    defer std.testing.allocator.free(cr1);
+    try std.testing.expectEqualStrings("__m3_cr", cr1);
+
+    const iv1 = try namegen.innerVar("val");
+    defer std.testing.allocator.free(iv1);
+    try std.testing.expectEqualStrings("__m4_iv_val", iv1);
 }

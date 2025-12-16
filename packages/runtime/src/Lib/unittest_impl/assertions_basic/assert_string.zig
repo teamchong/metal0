@@ -49,13 +49,32 @@ pub fn assertEndsWith(text: []const u8, suffix: []const u8) !void {
     }
 }
 
+/// Helper to extract f64 from either a float or PyValue
+fn extractFloat(comptime T: type, value: T) f64 {
+    if (T == PyValue) {
+        // PyValue - extract float (try float field, then int coercion)
+        return value.toFloat() orelse @as(f64, @floatFromInt(value.toInt() orelse 0));
+    } else {
+        // Regular numeric type
+        const info = @typeInfo(T);
+        if (info == .int or info == .comptime_int) {
+            return @floatFromInt(value);
+        } else {
+            return @floatCast(value);
+        }
+    }
+}
+
 /// Assertion: assertAlmostEqual(a, b) - floats must be equal within 7 decimal places
 pub fn assertAlmostEqual(a: anytype, b: anytype) !void {
-    const diff = @abs(a - b);
+    // Extract float values (handles PyValue, int, float)
+    const a_float = extractFloat(@TypeOf(a), a);
+    const b_float = extractFloat(@TypeOf(b), b);
+    const diff = @abs(a_float - b_float);
     const tolerance: f64 = 0.0000001;
 
     if (diff >= tolerance) {
-        std.debug.print("AssertionError: {d} !~= {d} (diff={d})\n", .{ a, b, diff });
+        std.debug.print("AssertionError: {d} !~= {d} (diff={d})\n", .{ a_float, b_float, diff });
         if (runner.global_result) |result| {
             result.addFail("assertAlmostEqual failed") catch {};
         }
@@ -69,11 +88,14 @@ pub fn assertAlmostEqual(a: anytype, b: anytype) !void {
 
 /// Assertion: assertNotAlmostEqual(a, b) - floats must NOT be equal within 7 decimal places
 pub fn assertNotAlmostEqual(a: anytype, b: anytype) !void {
-    const diff = @abs(a - b);
+    // Extract float values (handles PyValue, int, float)
+    const a_float = extractFloat(@TypeOf(a), a);
+    const b_float = extractFloat(@TypeOf(b), b);
+    const diff = @abs(a_float - b_float);
     const tolerance: f64 = 0.0000001;
 
     if (diff < tolerance) {
-        std.debug.print("AssertionError: {d} ~= {d} (expected not almost equal)\n", .{ a, b });
+        std.debug.print("AssertionError: {d} ~= {d} (expected not almost equal)\n", .{ a_float, b_float });
         if (runner.global_result) |result| {
             result.addFail("assertNotAlmostEqual failed") catch {};
         }

@@ -1,6 +1,40 @@
 /// Lambda expression code generation
 /// Generates anonymous functions as named functions with function pointers
 /// With closure support using Zig structs
+///
+/// LAMBDA VS CLOSURE CONTRACT
+/// ==========================
+/// This module handles three distinct lambda generation strategies:
+///
+/// | Type              | Var Map       | Generated As            | Called As       |
+/// |-------------------|---------------|-------------------------|-----------------|
+/// | Simple lambda     | lambda_vars   | `&__lambda_N`           | `f(args)`       |
+/// | Capturing lambda  | closure_vars  | `struct{}.init(caps)`   | `f.call(args)`  |
+/// | Inline lambda     | closure_vars  | `(struct{...})`         | `f.call(args)`  |
+///
+/// SIMPLE LAMBDA (no captures)
+/// - Generated at module level as `fn __lambda_N(...) T { ... }`
+/// - Stored in `lambda_vars` map for deferred emission
+/// - Returns function pointer `&__lambda_N`
+/// - Caller invokes directly: `f(args)`
+///
+/// CAPTURING LAMBDA (captures outer variables)
+/// - Generated as struct with captured variables as fields
+/// - Stored in `closure_vars` map
+/// - Returns struct instance: `StructName.init(captured_vals)`
+/// - Caller invokes via method: `f.call(args)`
+///
+/// INLINE LAMBDA (captures nested types)
+/// - Generated inline when lambda references types defined in enclosing scope
+/// - Uses anonymous struct literal: `(struct { fn call(...) T { ... } })`
+/// - IMPORTANT: Returns the struct itself, NOT `.call`
+/// - Caller extracts .call: `f.call(args)`
+///
+/// WHY THREE STRATEGIES?
+/// - Simple: Most efficient, single function pointer
+/// - Capturing: Needed when lambda uses variables from enclosing scope
+/// - Inline: Needed when lambda references types (classes) that aren't visible at module level
+///
 const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
 const ast = @import("analysis.ast");
@@ -69,6 +103,15 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
         return;
     }
 
+    // FIX: When inside a function scope (scope level > 0), use inline lambda
+    // Module-level lambdas are stored and emitted in PHASE 8, which happens after
+    // function bodies are generated. This causes "undeclared identifier" errors
+    // when lambdas are used as keyword arguments like data.sort(key=lambda x: x[1])
+    if (self.symbol_table.currentScopeLevel() > 0) {
+        try genInlineLambda(self, lambda);
+        return;
+    }
+
     // Check if lambda references variables from outer scope (not its parameters)
     const captured_vars = try findCapturedVars(self, lambda);
     defer self.allocator.free(captured_vars);
@@ -109,8 +152,9 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
         param_types[i] = try inferParamType(self, arg.name, lambda.body.*);
 
         // Register parameter with type inferrer so it knows the type during body codegen
+        // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
         const native_type = stringToNativeType(param_types[i]);
-        try self.type_inferrer.var_types.put(arg.name, native_type);
+        try self.type_inferrer.putScopedVar(arg.name, native_type);
 
         // Two-Flow: Track confidence for lambda parameters
         // Inferred params are uncertain unless they're literal types
@@ -218,10 +262,11 @@ pub fn lambdaCapturesVars(self: *NativeCodegen, lambda: ast.Node.Lambda) bool {
 /// Public function to get lambda return type
 pub fn getLambdaReturnType(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!NativeType {
     // First register parameter types temporarily
+    // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
     for (lambda.args) |arg| {
         const param_type_str = try inferParamType(self, arg.name, lambda.body.*);
         const param_native_type = stringToNativeType(param_type_str);
-        try self.type_inferrer.var_types.put(arg.name, param_native_type);
+        try self.type_inferrer.putScopedVar(arg.name, param_native_type);
 
         // Two-Flow: Track confidence for lambda parameters
         const confidence: TypeConfidence = if (type_traits.isUnknown(param_native_type)) .uncertain else .certain;
@@ -576,6 +621,24 @@ fn analyzeParamUsage(self: *NativeCodegen, param_name: []const u8, node: ast.Nod
 
         // Recurse into other node types
         .call => |c| {
+            // Check if this is a unittest method call (assertRaises, assertEqual, etc.)
+            // These methods accept any type, so parameter should be anytype
+            if (c.func.* == .attribute) {
+                const method_name = c.func.attribute.attr;
+                // assertRaises/assertRaisesRegex pass the value to bool(), int(), etc.
+                // which can accept any class instance - use anytype
+                if (std.mem.eql(u8, method_name, "assertRaises") or
+                    std.mem.eql(u8, method_name, "assertRaisesRegex"))
+                {
+                    // Check if param is passed to this method (3rd arg is typically the value)
+                    for (c.args) |arg| {
+                        if (arg == .name and std.mem.eql(u8, arg.name.id, param_name)) {
+                            return "anytype";
+                        }
+                    }
+                }
+            }
+
             const func_type = try analyzeParamUsage(self, param_name, c.func.*);
             if (!std.mem.eql(u8, func_type, "i64")) return func_type;
 
@@ -748,6 +811,19 @@ fn referencesNestedClass(self: *NativeCodegen, node: ast.Node) bool {
     }
 }
 
+/// Check if a lambda body is an assertRaises call (self.assertRaises(...))
+/// These calls generate statements with their own return, so inline lambda should NOT
+/// wrap them with another return statement
+fn isAssertRaisesCall(node: ast.Node) bool {
+    if (node != .call) return false;
+    const call = node.call;
+    if (call.func.* != .attribute) return false;
+    const attr = call.func.attribute;
+    const method_name = attr.attr;
+    return std.mem.eql(u8, method_name, "assertRaises") or
+        std.mem.eql(u8, method_name, "assertRaisesRegex");
+}
+
 /// Check if a lambda body calls a nested class constructor
 /// This is used to determine if the inline lambda needs an error union return type
 /// because nested class init methods return error unions and will be wrapped with try
@@ -852,8 +928,9 @@ fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!v
         param_types[i] = try inferParamType(self, arg.name, lambda.body.*);
 
         // Register parameter with type inferrer
+        // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
         const native_type = stringToNativeType(param_types[i]);
-        try self.type_inferrer.var_types.put(arg.name, native_type);
+        try self.type_inferrer.putScopedVar(arg.name, native_type);
 
         // Two-Flow: Track confidence for inline lambda parameters
         const confidence: TypeConfidence = if (type_traits.isUnknown(native_type)) .uncertain else .certain;
@@ -921,7 +998,17 @@ fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!v
         try self.emit("[]const u8 { var __temp = ");
         const expressions = @import("../expressions.zig");
         try expressions.genExpr(self, lambda.body.*);
-        try self.emit("; return __temp.tobytes(); } }).call");
+        try self.emit("; return __temp.tobytes(); } })");
+    } else if (isAssertRaisesCall(lambda.body.*)) {
+        // assertRaises calls generate their own return statement, so don't wrap with return
+        // Pattern: (struct { fn call(o: T) !void { assertRaises_body } })
+        try self.emit("!void { ");
+
+        // Generate body expression (assertRaises generates: if (...) return error.X;)
+        const expressions = @import("../expressions.zig");
+        try expressions.genExpr(self, lambda.body.*);
+
+        try self.emit(" } })");
     } else {
         if (body_calls_nested_class) {
             try self.emit("!*");
@@ -933,7 +1020,8 @@ fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!v
         const expressions = @import("../expressions.zig");
         try expressions.genExpr(self, lambda.body.*);
 
-        try self.emit("; } }).call");
+        // Don't extract .call - keep as struct so closure call code can use .call() on it
+        try self.emit("; } })");
     }
 
     // Clean up registered parameters

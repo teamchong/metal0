@@ -54,15 +54,23 @@ fn widenTuplePosition(comptime T1: type, comptime T2: type) type {
     if (isStringLiteral(T2) and T1 == []const u8) return []const u8;
     if (isStringLiteral(T1) and isStringLiteral(T2)) return []const u8;
 
-    // Comptime int -> i64, comptime float -> f64
-    if (t1_info == .comptime_int or t2_info == .comptime_int) return i64;
-    if (t1_info == .comptime_float or t2_info == .comptime_float) return f64;
+    // Int + float = float (Python semantics: int is promoted to float)
+    // Must check this BEFORE comptime_int handling
+    const t1_is_int_like = t1_info == .int or t1_info == .comptime_int;
+    const t2_is_int_like = t2_info == .int or t2_info == .comptime_int;
+    const t1_is_float_like = t1_info == .float or t1_info == .comptime_float;
+    const t2_is_float_like = t2_info == .float or t2_info == .comptime_float;
 
-    // Both are int types - widen to i64
-    if (t1_info == .int and t2_info == .int) return i64;
+    // Mixed int + float -> f64 (Python's type promotion)
+    if ((t1_is_int_like and t2_is_float_like) or (t1_is_float_like and t2_is_int_like)) {
+        return f64;
+    }
 
-    // Both are float types - widen to f64
-    if (t1_info == .float and t2_info == .float) return f64;
+    // Both are float types (including comptime_float) - widen to f64
+    if (t1_is_float_like and t2_is_float_like) return f64;
+
+    // Both are int types (including comptime_int) - widen to i64
+    if (t1_is_int_like and t2_is_int_like) return i64;
 
     // Nested tuples - recursively widen each position
     if (t1_info == .@"struct" and t2_info == .@"struct") {

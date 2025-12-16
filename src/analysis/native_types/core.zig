@@ -674,3 +674,18 @@ pub const NativeType = union(enum) {
         return attributes.isErrorUnion(self);
     }
 };
+
+/// Convert Zig type string to NativeType (for reverse lookup)
+/// Used when codegen determines parameter type from call sites and needs to register it
+pub fn zigTypeStringToNative(zig_type: []const u8) NativeType {
+    if (std.mem.eql(u8, zig_type, "i64")) return .{ .int = .bounded };
+    if (std.mem.eql(u8, zig_type, "f64")) return .float;
+    if (std.mem.eql(u8, zig_type, "bool")) return .bool;
+    if (std.mem.eql(u8, zig_type, "[]const u8")) return .{ .string = .runtime };
+    if (std.mem.eql(u8, zig_type, "usize")) return .usize;
+    if (std.mem.eql(u8, zig_type, "runtime.BigInt")) return .bigint;
+    if (std.mem.eql(u8, zig_type, "runtime.UnifiedInt")) return .unified_int;
+    if (std.mem.eql(u8, zig_type, "runtime.PyValue")) return .pyvalue;
+    // For types we can't reverse-map, return unknown
+    return .unknown;
+}

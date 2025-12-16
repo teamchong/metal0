@@ -448,8 +448,16 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // If class has __int__, generate direct method call
     if (dunder_info.has_int and args[0] == .name) {
-        if (self.inside_try_body or self.in_assert_raises_context) {
+        // In try block (but not assertRaises): propagate error with try
+        // In assertRaises context: return error union for expectError() to check
+        // Otherwise: catch and return 0
+        if (self.inside_try_body and !self.in_assert_raises_context) {
             try self.emit("(try ");
+            try self.genExpr(args[0]);
+            try self.emit(".__int__())");
+        } else if (self.in_assert_raises_context) {
+            // Return error union as-is - statement-level expectError() will handle it
+            try self.emit("(");
             try self.genExpr(args[0]);
             try self.emit(".__int__())");
         } else {
@@ -462,8 +470,13 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // If class has __index__ but not __int__, use __index__
     if (dunder_info.has_index and args[0] == .name) {
-        if (self.inside_try_body or self.in_assert_raises_context) {
+        if (self.inside_try_body and !self.in_assert_raises_context) {
             try self.emit("(try ");
+            try self.genExpr(args[0]);
+            try self.emit(".__index__())");
+        } else if (self.in_assert_raises_context) {
+            // Return error union as-is - statement-level expectError() will handle it
+            try self.emit("(");
             try self.genExpr(args[0]);
             try self.emit(".__index__())");
         } else {

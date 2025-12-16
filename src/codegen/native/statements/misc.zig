@@ -96,6 +96,30 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         return;
     }
 
+    // Nuitka-style finally code duplication: emit all finally blocks BEFORE return
+    // This ensures Python semantics where finally runs before any exit
+    if (self.hasActiveFinallyBlocks()) {
+        // Store return value first (to avoid multiple evaluation)
+        if (ret.value) |value| {
+            try self.emitIndent();
+            try self.emit("const __return_value = ");
+            try self.genExpr(value.*);
+            try self.emit(";\n");
+        }
+
+        // Execute all active finally blocks (innermost to outermost)
+        try self.emitAllFinallyBlocks();
+
+        // Now emit the actual return
+        try self.emitIndent();
+        if (ret.value != null) {
+            try self.emit("return __return_value;\n");
+        } else {
+            try self.emit("return;\n");
+        }
+        return;
+    }
+
     try self.emitIndent();
 
     if (ret.value) |value| {
@@ -1695,6 +1719,13 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         try self.emitIndent();
         try self.emit("// raise inside defer - cannot propagate\n");
         return;
+    }
+
+    // Nuitka-style finally code duplication: emit all finally blocks BEFORE raise
+    // This ensures Python semantics where finally runs before any exit
+    if (self.hasActiveFinallyBlocks()) {
+        // Execute all active finally blocks (innermost to outermost)
+        try self.emitAllFinallyBlocks();
     }
 
     if (raise_node.exc) |exc| {

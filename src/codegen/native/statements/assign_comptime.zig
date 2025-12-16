@@ -16,7 +16,38 @@ pub fn emitComptimeAssignment(
 ) CodegenError!void {
     try self.emitIndent();
 
-    // Check if variable has been renamed (e.g., for try/except pointer params)
+    // Check if var_name would shadow a module-level import, function, or global var
+    // If so, create a prefixed name to avoid Zig's "shadows declaration" error
+    // This must happen BEFORE checking var_renames, so the rename gets created
+    if (is_first_assignment) {
+        const shadows_import = self.imported_modules.contains(var_name);
+        const shadows_module_func = self.module_level_funcs.contains(var_name);
+        const shadows_global = self.isGlobalVar(var_name);
+        // Also check if var_name would shadow a class-level attribute (becomes lazy method)
+        const shadows_class_member = if (self.current_class_body) |class_body| blk: {
+            for (class_body) |stmt| {
+                if (stmt == .assign) {
+                    for (stmt.assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            break :blk true;
+                        }
+                    }
+                }
+            }
+            break :blk false;
+        } else false;
+
+        const needs_local_rename = shadows_import or shadows_module_func or shadows_global or shadows_class_member;
+        const existing_rename = self.var_renames.get(var_name);
+        const has_lazy_pattern = if (existing_rename) |r| std.mem.startsWith(u8, r, "(try ") else false;
+        if (needs_local_rename and (existing_rename == null or has_lazy_pattern)) {
+            // Create a unique prefixed name using NameGen
+            const prefixed_name = try self.name_gen.local(var_name);
+            try self.var_renames.put(var_name, prefixed_name);
+        }
+    }
+
+    // Check if variable has been renamed (e.g., for try/except pointer params or shadowing)
     const actual_name = self.var_renames.get(var_name) orelse var_name;
 
     if (is_first_assignment) {
@@ -65,8 +96,13 @@ pub fn emitComptimeAssignment(
     switch (value) {
         .int => |v| try self.output.writer(self.allocator).print("{d}", .{v}),
         .float => |v| {
-            // Use Python-style float formatting (always show .0 for whole numbers)
-            if (@mod(v, 1.0) == 0.0) {
+            // Handle special values first to avoid printing just "inf" or "nan"
+            if (std.math.isInf(v)) {
+                try self.emit(if (v < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
+            } else if (std.math.isNan(v)) {
+                try self.emit("std.math.nan(f64)");
+            } else if (@mod(v, 1.0) == 0.0) {
+                // Use Python-style float formatting (always show .0 for whole numbers)
                 try self.output.writer(self.allocator).print("{d:.1}", .{v});
             } else {
                 try self.output.writer(self.allocator).print("{d}", .{v});

@@ -113,6 +113,16 @@ pub const DeferredClosureInfo = struct {
     alias_name: []const u8, // The name to alias (e.g., "check")
 };
 
+/// Context for active finally blocks - used for Nuitka-style code duplication
+/// When return/break/continue/raise is encountered inside try-finally,
+/// the finally code is duplicated inline BEFORE the control flow statement.
+pub const FinallyContext = struct {
+    id: u32, // Unique ID for this finally block
+    finalbody: []const ast.Node, // AST nodes for finally block
+    pending_exception_var: []const u8, // Variable name like "__pending_exception_0"
+    is_defer_based: bool, // True if using defer approach (skip inline duplication)
+};
+
 pub const NativeCodegen = struct {
     allocator: std.mem.Allocator,
     arena: *std.heap.ArenaAllocator, // Arena for internal string allocations (deinit frees all at once)
@@ -562,6 +572,14 @@ pub const NativeCodegen = struct {
     // Used for break :__finally_blk_N error.SomeException
     current_finally_id: u32,
 
+    // Stack of active finally blocks for Nuitka-style code duplication
+    // When return/break/continue/raise is inside try-finally, the finally code
+    // is duplicated inline BEFORE the control flow statement
+    finally_stack: std.ArrayList(FinallyContext),
+
+    // Counter for generating unique finally block IDs
+    finally_counter: u32,
+
     // True when generating code inside a nested function/closure body
     // When true, isDeclared() only checks current scope, not parent function scopes
     // This ensures variables from outer function that weren't captured are treated as undeclared
@@ -861,6 +879,8 @@ pub const NativeCodegen = struct {
             .inside_defer = false,
             .inside_finally_block = false,
             .current_finally_id = 0,
+            .finally_stack = std.ArrayList(FinallyContext){},
+            .finally_counter = 0,
             .inside_nested_function = false,
             .nested_function_base_scope = 0,
             .current_function_name = null,
@@ -997,6 +1017,65 @@ pub const NativeCodegen = struct {
             }
             self.keyword_assert_count += 1;
         }
+    }
+
+    // ============================================================
+    // Finally Stack Methods (Nuitka-style code duplication)
+    // ============================================================
+
+    /// Push a finally context onto the stack when entering a try-finally block.
+    /// Returns the unique ID for this finally block.
+    pub fn pushFinallyContext(self: *NativeCodegen, finalbody: []const ast.Node, is_defer: bool) u32 {
+        const id = self.finally_counter;
+        self.finally_counter += 1;
+        const var_name = std.fmt.allocPrint(self.allocator, "__pending_exception_{d}", .{id}) catch "__pending_exception";
+        self.finally_stack.append(self.allocator, .{
+            .id = id,
+            .finalbody = finalbody,
+            .pending_exception_var = var_name,
+            .is_defer_based = is_defer,
+        }) catch {};
+        return id;
+    }
+
+    /// Pop the topmost finally context from the stack when exiting a try-finally block.
+    pub fn popFinallyContext(self: *NativeCodegen) void {
+        _ = self.finally_stack.pop();
+    }
+
+    /// Emit finally block code inline (for a single context).
+    /// Skip if using defer-based approach (defer handles it automatically).
+    pub fn emitFinallyInline(self: *NativeCodegen, ctx: FinallyContext) CodegenError!void {
+        if (ctx.is_defer_based) return; // Defer handles it
+
+        try self.emitIndent();
+        try self.emit("{ // finally (inline)\n");
+        self.indent();
+        for (ctx.finalbody) |stmt| {
+            try self.generateStmt(stmt);
+        }
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    /// Emit ALL active finally blocks inline (from innermost to outermost).
+    /// Called before return/break/continue/raise statements.
+    pub fn emitAllFinallyBlocks(self: *NativeCodegen) CodegenError!void {
+        // Execute from innermost to outermost (reverse order)
+        var i = self.finally_stack.items.len;
+        while (i > 0) {
+            i -= 1;
+            try self.emitFinallyInline(self.finally_stack.items[i]);
+        }
+    }
+
+    /// Check if there are any active non-defer finally blocks.
+    pub fn hasActiveFinallyBlocks(self: *NativeCodegen) bool {
+        for (self.finally_stack.items) |ctx| {
+            if (!ctx.is_defer_based) return true;
+        }
+        return false;
     }
 
     /// Intern a string literal and return its index
@@ -1170,10 +1249,13 @@ pub const NativeCodegen = struct {
 
     /// Check if a variable is declared in ANY scope (ignoring nested function boundaries)
     /// Used for parameter shadowing checks where we need to know if the name exists anywhere
+    /// in enclosing scopes (e.g., for loop variables around nested class definitions)
+    /// NOTE: This intentionally does NOT check hoisted_vars because hoisted_vars contains
+    /// method-local state that gets cleared at method body start. Since signature generation
+    /// happens BEFORE body generation, hoisted_vars would contain stale data from the previous method.
     pub fn isDeclaredInAnyScope(self: *NativeCodegen, name: []const u8) bool {
-        // Check hoisted vars
-        if (self.hoisted_vars.contains(name)) return true;
         // Check all scopes via full lookup (ignores nested function boundaries)
+        // Don't check hoisted_vars - it's method-local state that isn't valid during signature generation
         return self.symbol_table.lookup(name) != null;
     }
 

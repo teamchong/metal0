@@ -349,6 +349,11 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
         if (iter_is_list[i]) try self.emit(".items");
         try self.emit("[__zip_idx];\n");
 
+        // Add variable to symbol table so nested scopes can detect shadowing
+        if (elt == .name and !std.mem.eql(u8, var_name, "_")) {
+            try self.declareVar(var_name);
+        }
+
         // Check if variable is used in body - if not, track for warning suppression
         if (elt == .name and !std.mem.eql(u8, var_name, "_")) {
             const is_used = for_basic.varUsedInBody(body, var_name);

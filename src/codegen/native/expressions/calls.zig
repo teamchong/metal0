@@ -1,4 +1,21 @@
 /// Function call code generation
+///
+/// LAMBDA/CLOSURE CALL DISPATCH
+/// ============================
+/// When calling a function stored in a variable, we need to determine how to invoke it:
+///
+/// | Source          | Check               | Call Pattern            |
+/// |-----------------|---------------------|-------------------------|
+/// | Simple lambda   | `lambda_vars`       | `f(args)`               |
+/// | Closure         | `closure_vars`      | `f.call(args)`          |
+/// | Regular func    | neither             | `f(args)`               |
+///
+/// The maps `lambda_vars` and `closure_vars` track how each lambda was generated.
+/// See lambda.zig for the generation side of this contract.
+///
+/// IMPORTANT: Integer literal arguments to closures need `@as(i64, ...)` wrapping
+/// to prevent comptime_int issues with runtime control flow in the closure body.
+///
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
@@ -1494,7 +1511,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Add 'try' if function needs allocator, is async, or returns error union
         // Note: kwarg functions don't need try - the block expression handles errors
-        if (user_func_needs_alloc or is_async_func or func_needs_error) {
+        // IMPORTANT: Only emit 'try' inside function bodies (scope level > 0)
+        // At module level (scope 0), 'try' is invalid in Zig - error unions must be handled differently
+        const at_module_level = self.symbol_table.currentScopeLevel() == 0;
+        if (!at_module_level and (user_func_needs_alloc or is_async_func or func_needs_error)) {
             try self.emit("try ");
         }
 
@@ -1581,6 +1601,14 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try self.emit("}");
             }
         } else {
+            // Check if we're calling an anytype parameter (e.g., op(a, b) where op: anytype)
+            // In this case, skip PyValue wrapping for args - just pass them as-is
+            // because the anytype callable can accept any compatible types
+            const is_anytype_callable = if (call.func.* == .name)
+                self.anytype_params.contains(call.func.name.id)
+            else
+                false;
+
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
 
@@ -1622,10 +1650,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         // Pass class instances by pointer to allow mutations to propagate
                         try self.emit("&");
                     }
-                } else if (arg_type == .pyvalue or type_traits.isUnknown(arg_type)) {
+                } else if (!is_anytype_callable and (arg_type == .pyvalue or type_traits.isUnknown(arg_type))) {
                     // Two-Flow: PyValue/unknown argument - use comptime type dispatch to handle function param type
                     // This handles cases where we pass a PyValue to a function expecting string/int/etc
                     // For uncertain types, let the runtime handle conversion via PyValue
+                    // EXCEPTION: Skip wrapping when calling an anytype callable - pass args directly
                     try self.emit("pyval_arg_blk: { const __pv = ");
                     try genExpr(self, arg);
                     try self.emit("; break :pyval_arg_blk if (@TypeOf(__pv) == runtime.PyValue) __pv.asString() else __pv; }");

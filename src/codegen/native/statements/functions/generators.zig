@@ -352,7 +352,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         // to avoid the nested class's 'self' leaking into the enclosing class's methods
         if (self.current_function_name == null) {
             // Module-level class - just set self directly
-            try self.type_inferrer.var_types.put("self", .{ .class_instance = class.name });
+            // Use putScopedVar to update both scoped and global maps
+            try self.type_inferrer.putScopedVar("self", .{ .class_instance = class.name });
         }
         // For nested classes (inside methods), don't override 'self' in type_inferrer
         // because 'self' should refer to the enclosing class's instance, not the nested class
@@ -1036,6 +1037,11 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             var type_buf = std.ArrayList(u8){};
             const var_type: ?@import("../../../../analysis/native_types/core.zig").NativeType = self.type_inferrer.getScopedVar(var_name) orelse
                 self.type_inferrer.var_types.get(var_name);
+            // Store captured variable type in TypeInferrer for use in method body type inference
+            // This allows inferExpr() to resolve types for captured variables in nested class methods
+            if (var_type) |vt| {
+                try self.type_inferrer.captured_var_types.put(var_name, vt);
+            }
             var zig_type: []const u8 = if (var_type) |vt| blk: {
                 vt.toZigType(self.allocator, &type_buf) catch {};
                 if (type_buf.items.len > 0) {

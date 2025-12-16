@@ -1,4 +1,31 @@
 /// Function and method body generation
+///
+/// PARAMETER DISCARD PATTERNS
+/// ==========================
+/// Zig requires all named parameters to be used. When a Python function parameter
+/// is unused in the generated code, we must emit a discard statement: `_ = param;`
+///
+/// There are several discard patterns in this file, each for a different scenario:
+///
+/// | Location      | Pattern        | Usage Check                 | Why Needed                          |
+/// |---------------|----------------|-----------------------------|-------------------------------------|
+/// | Generator     | `_ = param;`   | AST (ExcludingYield)        | yield body becomes `// pass`        |
+/// | Anytype       | `_ = param;`   | Generated code string       | Body may not reference param        |
+/// | Method        | `_ = param;`   | Generated code string       | Same as anytype, for methods        |
+///
+/// USAGE CHECK STRATEGIES:
+/// - AST-based: Fast, but may miss usage in codegen-added code
+/// - Generated-code: Accurate, but slower (string search in output)
+///
+/// RENAME HANDLING:
+/// When checking usage, both original name AND potential renames must be checked.
+/// For example, "stop" becomes "stop_" in the signature (wouldShadowMethod).
+/// The usage check must look for both "stop" and "stop_" in the output.
+///
+/// INSERTION LOCATION:
+/// If function body ends with `return`, discards must be inserted BEFORE the return.
+/// Otherwise they can be appended at the end.
+///
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
@@ -485,6 +512,12 @@ pub fn genFunctionBody(
     // Push new scope for function body
     try self.pushScope();
 
+    // Enter type inferrer scope for this function
+    // This enables scoped variable type tracking for aug_assign detection
+    // Without this, getScopedVar would return null and aug_assign would incorrectly use PyValue
+    const old_type_scope = self.type_inferrer.enterScope(func.name);
+    defer self.type_inferrer.exitScope(old_type_scope);
+
     // Emit hoisted variable declarations using shared hoisting module
     // This handles forward reference detection and fallback types
     // Pass func.body for pre-scan type inference (Solution 3 for forward refs)
@@ -507,12 +540,73 @@ pub fn genFunctionBody(
         for (func.args) |arg| {
             // Skip params with defaults - they're used in "const x = x_param orelse ..."
             if (arg.default != null) continue;
+            // Skip params that would be renamed by wouldShadowMethod (e.g., "stop" -> "stop_")
+            // These ARE used in the body under their renamed form, so discard would be pointless
+            if (zig_keywords.wouldShadowMethod(arg.name)) continue;
             // Only discard if param is NOT used in the body (excluding yield expressions)
             // Use ExcludingYield variant since yield becomes `// pass`
             if (param_analyzer.isNameUsedInBodyExcludingYield(func.body, arg.name)) continue;
             try self.emitIndent();
             try self.emit("_ = ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+            // Use writeLocalVarName for consistency with signature generation (handles "stop" -> "stop_")
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
+            try self.emit(";\n");
+        }
+    }
+
+    // Emit discards for anytype parameters at the BEGINNING of function body
+    // This is necessary because:
+    // 1. anytype params can't be made anonymous ("_:") in the signature - they need a name for Zig to accept them
+    // 2. The end-of-function unused param check is skipped when control_flow_terminated is true
+    // 3. Functions that panic/raise early would leave anytype params without discards
+    // By emitting discards upfront, we ensure they execute even if the function terminates early
+    for (func.args) |arg| {
+        // Skip params with defaults - they have different handling
+        if (arg.default != null) continue;
+        // Check if this param is anytype by checking if it was used as a function/iterator/type-check
+        // (same conditions that make signature.zig emit "anytype")
+        const is_func_arg = param_analyzer.isParameterUsedAsFunction(func.body, arg.name);
+        const is_iter_arg = param_analyzer.isParameterUsedAsIterator(func.body, arg.name) and arg.type_annotation == null;
+        const is_type_check_arg = param_analyzer.isParameterUsedInTypeCheck(func.body, arg.name) and arg.type_annotation == null;
+        const is_passed_to_callable_arg = param_analyzer.isParameterPassedToCallableParam(func.body, arg.name, func.args);
+        // Check if function has any callable parameter
+        const has_callable_param_arg = blk: {
+            for (func.args) |p| {
+                if (param_analyzer.isParameterUsedAsFunction(func.body, p.name)) {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        };
+        const is_anytype_arg = is_func_arg or is_iter_arg or is_type_check_arg or
+            ((is_passed_to_callable_arg or has_callable_param_arg) and arg.type_annotation == null);
+
+        if (is_anytype_arg) {
+            // Emit discard for anytype param using address-of to avoid "pointless discard" error
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
+            try self.emit(";\n");
+        }
+    }
+
+    // Also emit discards for vararg (*args) and kwarg (**kwargs) parameters
+    // These are always anytype in the signature and may not be used in generated code
+    if (func.vararg) |vararg_name| {
+        // Only emit if vararg IS used in Python (otherwise it was made anonymous "_:" in signature)
+        if (param_analyzer.isNameUsedInBody(func.body, vararg_name)) {
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
+            try self.emit(";\n");
+        }
+    }
+    if (func.kwarg) |kwarg_name| {
+        // Only emit if kwarg IS used in Python (otherwise it was made anonymous "_:" in signature)
+        if (param_analyzer.isNameUsedInBody(func.body, kwarg_name)) {
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
             try self.emit(";\n");
         }
     }
@@ -609,22 +703,35 @@ pub fn genFunctionBody(
                 continue;
             }
 
-            // Get the actual parameter name in generated code (may have been renamed by signature.zig)
-            const actual_param_name = self.var_renames.get(arg.name) orelse arg.name;
-
             // Create a mutable copy of the parameter using NameGen for unique naming
             const mut_name = try self.name_gen.mutable(arg.name);
             try self.emitIndent();
             try self.emit("var ");
             try self.emit(mut_name);
             try self.emit(" = ");
-            try self.emit(actual_param_name);
+            // Get the actual parameter name in generated code
+            // For NameGen renames (module shadows), use var_renames
+            // Otherwise use writeLocalVarName for method shadows (e.g., "stop" -> "stop_")
+            if (self.var_renames.get(arg.name)) |renamed| {
+                try self.emit(renamed);
+            } else {
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
+            }
             try self.emit(";\n");
             // Rename all references to use the mutable copy
             try self.var_renames.put(arg.name, mut_name);
             // Remove from func_local_vars so expressions.zig uses var_renames lookup
             // (func_local_vars is checked before var_renames, so we need to remove it)
             _ = self.func_local_vars.swapRemove(arg.name);
+
+            // Register the mutable copy's type in scoped type map
+            // This is CRITICAL for aug_assign to detect the correct type and use native operations
+            // The type is inherited from the original parameter
+            if (self.type_inferrer.getScopedVar(arg.name)) |param_type| {
+                try self.type_inferrer.putScopedVar(mut_name, param_type);
+            } else if (self.type_inferrer.var_types.get(arg.name)) |param_type| {
+                try self.type_inferrer.putScopedVar(mut_name, param_type);
+            }
         }
     }
 
@@ -800,27 +907,59 @@ pub fn genFunctionBody(
             }
 
             // Check if this param appears as a complete identifier in the generated body
+            // Note: Also check for renamed version if it would shadow a method (e.g., "stop" -> "stop_")
             const param_is_used = blk: {
-                var pos: usize = 0;
-                while (std.mem.indexOfPos(u8, body_output, pos, arg.name)) |idx| {
-                    const end = idx + arg.name.len;
-                    // Check boundaries for complete identifier match
-                    const valid_start = idx == 0 or (!std.ascii.isAlphanumeric(body_output[idx - 1]) and body_output[idx - 1] != '_');
-                    const valid_end = end >= body_output.len or (!std.ascii.isAlphanumeric(body_output[end]) and body_output[end] != '_');
-                    if (valid_start and valid_end) {
-                        break :blk true;
+                // Helper to check if a name appears as complete identifier
+                const checkName = struct {
+                    fn check(output: []const u8, name: []const u8) bool {
+                        var pos: usize = 0;
+                        while (std.mem.indexOfPos(u8, output, pos, name)) |idx| {
+                            const end = idx + name.len;
+                            // Check boundaries for complete identifier match
+                            const valid_start = idx == 0 or (!std.ascii.isAlphanumeric(output[idx - 1]) and output[idx - 1] != '_');
+                            const valid_end = end >= output.len or (!std.ascii.isAlphanumeric(output[end]) and output[end] != '_');
+                            if (valid_start and valid_end) {
+                                return true;
+                            }
+                            pos = end;
+                        }
+                        return false;
                     }
-                    pos = end;
+                }.check;
+
+                // Check original name
+                if (checkName(body_output, arg.name)) {
+                    break :blk true;
                 }
+
+                // If name would be renamed (e.g., "stop" -> "stop_"), check renamed version
+                if (zig_keywords.wouldShadowMethod(arg.name)) {
+                    // Build renamed name with "_" suffix
+                    var renamed_buf: [256]u8 = undefined;
+                    const renamed_len = arg.name.len + 1;
+                    if (renamed_len <= renamed_buf.len) {
+                        @memcpy(renamed_buf[0..arg.name.len], arg.name);
+                        renamed_buf[arg.name.len] = '_';
+                        if (checkName(body_output, renamed_buf[0..renamed_len])) {
+                            break :blk true;
+                        }
+                    }
+                }
+
                 break :blk false;
             };
 
             if (!param_is_used) {
                 // Param not used - emit discard
+                // Use writeLocalVarName for consistency with signature generation (handles "stop" -> "stop_")
                 if (ends_with_return) {
                     // Body ends with return - insert at body_start_pos
-                    // Build the discard statement
-                    const discard = try std.fmt.allocPrint(self.allocator, "    _ = {s};\n", .{arg.name});
+                    // Build the discard statement with proper name escaping
+                    var discard_buf = std.ArrayList(u8){};
+                    try discard_buf.appendSlice(self.allocator, "    _ = ");
+                    try zig_keywords.writeLocalVarName(discard_buf.writer(self.allocator), arg.name);
+                    try discard_buf.appendSlice(self.allocator, ";\n");
+                    const discard = try discard_buf.toOwnedSlice(self.allocator);
                     defer self.allocator.free(discard);
                     // Insert at body_start_pos
                     try self.output.insertSlice(self.allocator, body_start_pos, discard);
@@ -828,7 +967,7 @@ pub fn genFunctionBody(
                     // Safe to append at end
                     try self.emitIndent();
                     try self.emit("_ = ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
                     try self.emit(";\n");
                 }
             }
@@ -1359,6 +1498,62 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         }
     }
 
+    // Emit discards for anytype parameters at the BEGINNING of method body
+    // This is necessary because:
+    // 1. anytype params can't be made anonymous ("_:") in the signature - they need a name for Zig to accept them
+    // 2. The end-of-method unused param check is skipped when control_flow_terminated is true
+    // 3. Methods that panic/raise early would leave anytype params without discards
+    // By emitting discards upfront, we ensure they execute even if the method terminates early
+    const start_param_idx = if (method.args.len > 0 and !is_staticmethod and !is_classmethod) @as(usize, 1) else @as(usize, 0);
+    for (method.args[start_param_idx..]) |arg| {
+        // Check if this param is anytype by checking if it was used as a function/iterator/type-check
+        // (same conditions that make signature.zig emit "anytype")
+        const is_func = param_analyzer.isParameterUsedAsFunction(method.body, arg.name);
+        const is_iter = param_analyzer.isParameterUsedAsIterator(method.body, arg.name) and arg.type_annotation == null;
+        const is_type_check = param_analyzer.isParameterUsedInTypeCheck(method.body, arg.name) and arg.type_annotation == null;
+        const is_passed_to_callable = param_analyzer.isParameterPassedToCallableParam(method.body, arg.name, method.args);
+        // Check if function has any callable parameter
+        const has_callable_param = blk: {
+            for (method.args) |p| {
+                if (param_analyzer.isParameterUsedAsFunction(method.body, p.name)) {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        };
+        const is_anytype = (is_func and arg.default == null) or is_iter or is_type_check or
+            ((is_passed_to_callable or has_callable_param) and arg.type_annotation == null);
+
+        if (is_anytype) {
+            // Emit discard for anytype param using address-of to avoid "pointless discard" error
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
+            try self.emit(";\n");
+        }
+    }
+
+    // Also emit discards for vararg (*args) and kwarg (**kwargs) parameters
+    // These are always anytype in the signature and may not be used in generated code
+    if (method.vararg) |vararg_name| {
+        // Only emit if vararg IS used in Python (otherwise it was made anonymous "_:" in signature)
+        if (param_analyzer.isNameUsedInBody(method.body, vararg_name)) {
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
+            try self.emit(";\n");
+        }
+    }
+    if (method.kwarg) |kwarg_name| {
+        // Only emit if kwarg IS used in Python (otherwise it was made anonymous "_:" in signature)
+        if (param_analyzer.isNameUsedInBody(method.body, kwarg_name)) {
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
+            try self.emit(";\n");
+        }
+    }
+
     // Emit hoisted variable declarations using shared hoisting module
     // This handles forward reference detection and fallback types
     // Pass method.body for pre-scan type inference (Solution 3 for forward refs)
@@ -1452,13 +1647,24 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // Also check if parameter shadows an imported module (e.g., 'test', 'copy')
         const shadows_imported_module = self.imported_modules.contains(arg.name);
 
-        if (shadows_builtin_method or shadows_class_method or shadows_imported_module) {
-            // Add rename mapping using NameGen for consistent naming
-            const renamed = try self.name_gen.local(arg.name);
+        // Check if parameter shadows a local variable from an outer scope
+        // e.g., for module in modules: class C: def setUpClass(module): ... - `module` shadows loop var
+        const shadows_local_scope = self.isDeclaredInAnyScope(arg.name);
+
+        if (shadows_builtin_method or shadows_class_method or shadows_imported_module or shadows_local_scope) {
+            // Use deterministic rename pattern to match signature.zig
+            // Both signature and body must use the same name ({name}__shadow)
+            const renamed = try std.fmt.allocPrint(self.allocator, "{s}__shadow", .{arg.name});
             try self.var_renames.put(arg.name, renamed);
             try renamed_params.append(self.allocator, arg.name);
+            // Remove from func_local_vars so expressions.zig uses var_renames lookup
+            // (func_local_vars is checked before var_renames at line 97 of expressions.zig)
+            _ = self.func_local_vars.swapRemove(arg.name);
+            // Declare the RENAMED name in symbol table (not original) so scope tracking works correctly
+            try self.declareVar(renamed);
+        } else {
+            try self.declareVar(arg.name);
         }
-        try self.declareVar(arg.name);
     }
 
     // Track body start position for unused param detection BEFORE mutable copies are generated
@@ -1517,6 +1723,15 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             // Remove from func_local_vars so expressions.zig uses var_renames lookup
             _ = self.func_local_vars.swapRemove(arg.name);
             try renamed_params.append(self.allocator, arg.name);
+
+            // Register the mutable copy's type in scoped type map
+            // This is CRITICAL for aug_assign to detect the correct type and use native operations
+            // The type is inherited from the original parameter
+            if (self.type_inferrer.getScopedVar(arg.name)) |param_type| {
+                try self.type_inferrer.putScopedVar(mut_name, param_type);
+            } else if (self.type_inferrer.var_types.get(arg.name)) |param_type| {
+                try self.type_inferrer.putScopedVar(mut_name, param_type);
+            }
         }
     }
 
@@ -1622,26 +1837,59 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             }
 
             // Check if this param appears as a complete identifier in the generated body
+            // Note: Also check for renamed version if it would shadow a method (e.g., "stop" -> "stop_")
+            // or if it was renamed to avoid shadowing outer scope (e.g., "module" -> "module__shadow")
+
+            // Get the actual name used in generated code (may be renamed)
+            const actual_param_name = self.var_renames.get(arg.name) orelse arg.name;
+
             const param_is_used = blk: {
-                var pos: usize = 0;
-                while (std.mem.indexOfPos(u8, method_body_output, pos, arg.name)) |idx| {
-                    const end = idx + arg.name.len;
-                    // Check boundaries for complete identifier match
-                    const valid_start = idx == 0 or (!std.ascii.isAlphanumeric(method_body_output[idx - 1]) and method_body_output[idx - 1] != '_');
-                    const valid_end = end >= method_body_output.len or (!std.ascii.isAlphanumeric(method_body_output[end]) and method_body_output[end] != '_');
-                    if (valid_start and valid_end) {
-                        break :blk true;
+                // Helper to check if a name appears as complete identifier
+                const checkName = struct {
+                    fn check(output: []const u8, name: []const u8) bool {
+                        var pos: usize = 0;
+                        while (std.mem.indexOfPos(u8, output, pos, name)) |idx| {
+                            const end = idx + name.len;
+                            // Check boundaries for complete identifier match
+                            const valid_start = idx == 0 or (!std.ascii.isAlphanumeric(output[idx - 1]) and output[idx - 1] != '_');
+                            const valid_end = end >= output.len or (!std.ascii.isAlphanumeric(output[end]) and output[end] != '_');
+                            if (valid_start and valid_end) {
+                                return true;
+                            }
+                            pos = end;
+                        }
+                        return false;
                     }
-                    pos = end;
+                }.check;
+
+                // Check actual name used in generated code (may be renamed)
+                if (checkName(method_body_output, actual_param_name)) {
+                    break :blk true;
                 }
+
+                // If name would be renamed by writeLocalVarName (e.g., "stop" -> "stop_"), check that too
+                if (zig_keywords.wouldShadowMethod(actual_param_name)) {
+                    // Build renamed name with "_" suffix
+                    var renamed_buf: [256]u8 = undefined;
+                    const renamed_len = actual_param_name.len + 1;
+                    if (renamed_len <= renamed_buf.len) {
+                        @memcpy(renamed_buf[0..actual_param_name.len], actual_param_name);
+                        renamed_buf[actual_param_name.len] = '_';
+                        if (checkName(method_body_output, renamed_buf[0..renamed_len])) {
+                            break :blk true;
+                        }
+                    }
+                }
+
                 break :blk false;
             };
 
             if (!param_is_used) {
-                // Param not used - emit discard
+                // Param not used - emit discard using the actual name in generated code
+                // Use writeLocalVarName for consistency with signature generation (handles "stop" -> "stop_")
                 try self.emitIndent();
                 try self.emit("_ = ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_param_name);
                 try self.emit(";\n");
             }
         }

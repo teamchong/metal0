@@ -64,22 +64,34 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // For uncertain lists, we need runtime helpers that can handle type dynamically
     if (isListUncertain(self, obj)) {
         // Route to PyValue-First API that compiles ONCE (no monomorphization)
-        try self.emit("try runtime.pyListAppendPV(__global_allocator, &");
-        try emitObjExpr(self, obj);
-        try self.emit(", runtime.PyValue.from(");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        // In defer blocks, 'try' is not allowed - use catch {} instead
+        if (self.inside_defer) {
+            try self.emit("runtime.pyListAppendPV(__global_allocator, &");
+            try emitObjExpr(self, obj);
+            try self.emit(", runtime.PyValue.from(");
+            try self.genExpr(args[0]);
+            try self.emit(")) catch {}");
+        } else {
+            try self.emit("try runtime.pyListAppendPV(__global_allocator, &");
+            try emitObjExpr(self, obj);
+            try self.emit(", runtime.PyValue.from(");
+            try self.genExpr(args[0]);
+            try self.emit("))");
+        }
         return;
     }
 
     // Check if list expects PyValue or PyObject elements
+    // Type inference now handles captured variables via type_inferrer.captured_var_types
     const list_type = self.type_inferrer.inferExpr(obj) catch .unknown;
 
     // Check element type of list
+    // Both .pyvalue and .unknown map to runtime.PyValue in Zig code (see core.zig:toZigType)
     const elem_is_pyvalue = blk: {
         if (container_traits.isList(list_type)) {
             const elem_type = list_type.list.*;
-            break :blk (@as(std.meta.Tag(@TypeOf(elem_type)), elem_type) == .pyvalue);
+            const elem_tag = @as(std.meta.Tag(@TypeOf(elem_type)), elem_type);
+            break :blk (elem_tag == .pyvalue or elem_tag == .unknown);
         }
         break :blk false;
     };
@@ -101,46 +113,91 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Check if obj needs temp variable (list literal, comprehension, etc.)
     if (needsTempVariable(obj)) {
         // Use temp variable pattern for list literals
-        try self.emit("{ var __list_temp = ");
-        try self.genExpr(obj);
-        try self.emit("; try __list_temp.append(__global_allocator, ");
+        // In defer blocks, 'try' is not allowed - use catch {} instead
+        if (self.inside_defer) {
+            try self.emit("{ var __list_temp = ");
+            try self.genExpr(obj);
+            try self.emit("; __list_temp.append(__global_allocator, ");
 
-        if (elem_is_pyvalue) {
-            try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
-            try self.genExpr(args[0]);
-            try self.emit(")");
-        } else if (elem_is_callable and item_is_lambda) {
-            self.callable_context_param_type = "[]const u8";
-            defer self.callable_context_param_type = null;
-            try self.emit("callable_blk: { const __callable_temp = ");
-            try self.genExpr(args[0]);
-            try self.emit("; break :callable_blk runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }");
+            if (elem_is_pyvalue) {
+                try self.emit("runtime.PyValue.fromAlloc(__global_allocator, ");
+                try self.genExpr(args[0]);
+                try self.emit(") catch unreachable");
+            } else if (elem_is_callable and item_is_lambda) {
+                self.callable_context_param_type = "[]const u8";
+                defer self.callable_context_param_type = null;
+                try self.emit("callable_blk: { const __callable_temp = ");
+                try self.genExpr(args[0]);
+                try self.emit("; break :callable_blk runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }");
+            } else {
+                try self.genExpr(args[0]);
+            }
+
+            try self.emit(") catch {}; }");
         } else {
-            try self.genExpr(args[0]);
-        }
+            try self.emit("{ var __list_temp = ");
+            try self.genExpr(obj);
+            try self.emit("; try __list_temp.append(__global_allocator, ");
 
-        try self.emit("); }");
+            if (elem_is_pyvalue) {
+                try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
+                try self.genExpr(args[0]);
+                try self.emit(")");
+            } else if (elem_is_callable and item_is_lambda) {
+                self.callable_context_param_type = "[]const u8";
+                defer self.callable_context_param_type = null;
+                try self.emit("callable_blk: { const __callable_temp = ");
+                try self.genExpr(args[0]);
+                try self.emit("; break :callable_blk runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }");
+            } else {
+                try self.genExpr(args[0]);
+            }
+
+            try self.emit("); }");
+        }
     } else {
         // Existing code for variables/attributes/subscripts
-        try self.emit("try ");
-        try emitObjExpr(self, obj);
-        try self.emit(".append(__global_allocator, ");
+        // In defer blocks, 'try' is not allowed - use catch {} instead
+        if (self.inside_defer) {
+            try emitObjExpr(self, obj);
+            try self.emit(".append(__global_allocator, ");
 
-        if (elem_is_pyvalue) {
-            try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
-            try self.genExpr(args[0]);
-            try self.emit(")");
-        } else if (elem_is_callable and item_is_lambda) {
-            self.callable_context_param_type = "[]const u8";
-            defer self.callable_context_param_type = null;
-            try self.emit("callable_blk: { const __callable_temp = ");
-            try self.genExpr(args[0]);
-            try self.emit("; break :callable_blk runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }");
+            if (elem_is_pyvalue) {
+                try self.emit("runtime.PyValue.fromAlloc(__global_allocator, ");
+                try self.genExpr(args[0]);
+                try self.emit(") catch unreachable");
+            } else if (elem_is_callable and item_is_lambda) {
+                self.callable_context_param_type = "[]const u8";
+                defer self.callable_context_param_type = null;
+                try self.emit("callable_blk: { const __callable_temp = ");
+                try self.genExpr(args[0]);
+                try self.emit("; break :callable_blk runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }");
+            } else {
+                try self.genExpr(args[0]);
+            }
+
+            try self.emit(") catch {}");
         } else {
-            try self.genExpr(args[0]);
-        }
+            try self.emit("try ");
+            try emitObjExpr(self, obj);
+            try self.emit(".append(__global_allocator, ");
 
-        try self.emit(")");
+            if (elem_is_pyvalue) {
+                try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
+                try self.genExpr(args[0]);
+                try self.emit(")");
+            } else if (elem_is_callable and item_is_lambda) {
+                self.callable_context_param_type = "[]const u8";
+                defer self.callable_context_param_type = null;
+                try self.emit("callable_blk: { const __callable_temp = ");
+                try self.genExpr(args[0]);
+                try self.emit("; break :callable_blk runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }");
+            } else {
+                try self.genExpr(args[0]);
+            }
+
+            try self.emit(")");
+        }
     }
 }
 
@@ -391,9 +448,16 @@ pub fn genSort(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    // Generate: list.clearRetainingCapacity()
-    try self.genExpr(obj);
-    try self.emit(".clearRetainingCapacity()");
+    // Handle list literals and temporary expressions that need temp variable
+    if (needsTempVariable(obj)) {
+        try self.emit("{ var __list_temp = ");
+        try self.genExpr(obj);
+        try self.emit("; __list_temp.clearRetainingCapacity(); }");
+    } else {
+        // Generate: list.clearRetainingCapacity()
+        try emitObjExpr(self, obj);
+        try self.emit(".clearRetainingCapacity()");
+    }
 }
 
 /// Generate code for list.copy() / dict.copy()

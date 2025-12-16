@@ -233,7 +233,11 @@ fn detectMutationInNode(
                             break;
                         }
                     }
-                    if (!is_param and self.func_local_vars.contains(var_name) and MutatingMethods.has(attr.attr)) {
+                    // Check if this is an outer-scope variable being mutated
+                    // Use func_local_vars to match capture detection (line 318) - func_local_vars
+                    // is populated by collectLocalVarsInStmts() BEFORE nested class analysis runs
+                    const is_outer_var = self.func_local_vars.contains(var_name) or self.hoisted_vars.contains(var_name);
+                    if (!is_param and is_outer_var and MutatingMethods.has(attr.attr)) {
                         const key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, var_name }) catch return error.OutOfMemory;
                         try self.mutated_captures.put(key, {});
                     }

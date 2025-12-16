@@ -436,20 +436,21 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
         try self.output.writer(self.allocator).print("const __lazy_iter_{d} = try @This().{s}(__global_allocator);\n", .{ lazy_iter_id, lazy_attr_name.? });
     }
 
-    // Generate for loop over iterable
-    try self.emitIndent();
-    // Lazy iterators may return tuples, which require inline for
-    if (needs_lazy_wrapper) {
-        try self.emit("inline for (");
-    } else {
-        try self.emit("for (");
-    }
-
-    // Check if we need to add .items for ArrayList
+    // Check iter type first to determine if we need inline for
     const iter_type = try self.type_inferrer.inferExpr(iter);
 
     // Check if this is a method call like dict.items()
     const is_method_call = iter == .call and iter.call.func.* == .attribute;
+
+    // Generate for loop over iterable
+    try self.emitIndent();
+    // Lazy iterators and tuples require inline for (comptime iteration)
+    const needs_inline_for_loop = needs_lazy_wrapper or container_traits.isTuple(iter_type);
+    if (needs_inline_for_loop) {
+        try self.emit("inline for (");
+    } else {
+        try self.emit("for (");
+    }
 
     // If using lazy wrapper, iterate over the captured variable
     if (needs_lazy_wrapper) {
@@ -487,6 +488,11 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             try self.genExpr(iter);
             try self.emit(".items");
         }
+    } else if (container_traits.isTuple(iter_type) and iter == .name) {
+        // Tuple variable - must use inline for with direct iteration
+        // Zig for loops can't iterate over tuple structs, need inline for
+        // This is handled by switching to inline for at the loop level
+        try self.genExpr(iter);
     } else if (iter == .name) {
         // Variable with unknown type - use container_dispatch helper to reduce monomorphization
         // Replaces inline @typeInfo/@hasField check with centralized helper
@@ -507,6 +513,13 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     self.indent();
     try self.pushScope();
 
+    // Track output position before generating unpacking - we'll check for actual usage after body gen
+    const pre_body_pos = self.output.items.len;
+
+    // Track declared variables for post-generation discard check
+    var declared_vars = std.ArrayListUnmanaged([]const u8){};
+    defer declared_vars.deinit(self.allocator);
+
     // Unpack tuple elements using struct field access: const x = __tuple__.@"0"; const y = __tuple__.@"1";
     // Escape variable names if they're Zig keywords (e.g., "fn" -> @"fn")
     // Handle Python's discard pattern: `for _, v in items:` - use `_ = value;` to discard
@@ -514,7 +527,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     // If a variable is later reassigned in the body, use `var` instead of `const`
     for (var_names, 0..) |var_name, i| {
         try self.emitIndent();
-        // Check if this variable is used in the loop body
+        // Check if this variable is used in the loop body (AST-based check)
         const is_used = varUsedInBody(body, var_name);
         if (std.mem.eql(u8, var_name, "_") or !is_used) {
             // Discard pattern or unused variable - explicitly discard the value
@@ -558,6 +571,9 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
                     try self.emit("const ");
                 }
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
+
+                // Track this variable for post-generation discard check
+                try declared_vars.append(self.allocator, decl_name);
             }
             try self.output.writer(self.allocator).print(" = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
 
@@ -569,6 +585,34 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     // Generate body statements
     for (body) |stmt| {
         try self.generateStmt(stmt);
+    }
+
+    // Post-generation check: emit discards for variables declared but not actually used in output
+    // This catches cases where AST says var is used but codegen optimized it away (e.g., *arg expansion)
+    const body_output = self.output.items[pre_body_pos..];
+    for (declared_vars.items) |var_name| {
+        // Count occurrences of the variable name as a complete identifier in the generated body
+        var occurrence_count: usize = 0;
+        var pos: usize = 0;
+        while (std.mem.indexOfPos(u8, body_output, pos, var_name)) |idx| {
+            const end = idx + var_name.len;
+            // Check boundaries for complete identifier match
+            const valid_start = idx == 0 or (!std.ascii.isAlphanumeric(body_output[idx - 1]) and body_output[idx - 1] != '_');
+            const valid_end = end >= body_output.len or (!std.ascii.isAlphanumeric(body_output[end]) and body_output[end] != '_');
+            if (valid_start and valid_end) {
+                occurrence_count += 1;
+                if (occurrence_count > 1) break; // Found usage beyond declaration
+            }
+            pos = end;
+        }
+
+        // If only 1 occurrence (the declaration itself), emit discard
+        if (occurrence_count <= 1) {
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try self.emit(";\n");
+        }
     }
 
     self.popScope();
@@ -885,14 +929,29 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 if (self.func_local_vars.swapRemove(var_name)) {
                     removed_from_func_locals = true;
                 }
-                try self.output.writer(self.allocator).print("const __inner_{s}_{d} = __loop_val_{d};\n", .{ var_name, loop_var_id, loop_var_id });
+                // For heterogeneous tuples (not type or callable), wrap in PyValue for type consistency
+                // This allows TryHelper to use concrete runtime.PyValue type instead of anytype
+                if (is_heterogeneous_inner and !is_type_tuple_inner and !has_callable_elements) {
+                    try self.output.writer(self.allocator).print("const __inner_{s}_{d}: runtime.PyValue = runtime.PyValue.from(__loop_val_{d});\n", .{ var_name, loop_var_id, loop_var_id });
+                    try self.heterogeneous_loop_vars.put(var_name, {});
+                } else {
+                    try self.output.writer(self.allocator).print("const __inner_{s}_{d} = __loop_val_{d};\n", .{ var_name, loop_var_id, loop_var_id });
+                }
             } else {
                 // For type tuples, heterogeneous tuples, and callable tuples: const var = __loop_val_N
                 // Types must be comptime, heterogeneous values can't share a single type,
                 // and function types must be const in Zig
-                try self.emit("const ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
+                // For heterogeneous tuples (not type or callable), wrap in PyValue for type consistency
+                if (is_heterogeneous_inner and !is_type_tuple_inner and !has_callable_elements) {
+                    try self.emit("const ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                    try self.output.writer(self.allocator).print(": runtime.PyValue = runtime.PyValue.from(__loop_val_{d});\n", .{loop_var_id});
+                    try self.heterogeneous_loop_vars.put(var_name, {});
+                } else {
+                    try self.emit("const ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                    try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
+                }
             }
         } else {
             // For homogeneous value tuples: T = __loop_val_N (runtime assignment to outer var)
@@ -907,7 +966,12 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             for (iter_type.tuple[1..]) |t| {
                 elem_type = elem_type.widen(t);
             }
-            try self.type_inferrer.putScopedVar(for_stmt.target.name.id, elem_type);
+            // For heterogeneous tuples, register as pyvalue since we wrap in PyValue
+            if (is_heterogeneous_inner and !is_type_tuple_inner and !has_callable_elements) {
+                try self.type_inferrer.putScopedVar(for_stmt.target.name.id, .pyvalue);
+            } else {
+                try self.type_inferrer.putScopedVar(for_stmt.target.name.id, elem_type);
+            }
 
             // If any tuple element is a callable type, register loop variable as callable
             // This enables .call() syntax for calls like pow_op(a, b) -> pow_op.call(a, b)
@@ -999,6 +1063,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
         // Clean up var_renames that were added for shadowing avoidance
         _ = self.var_renames.swapRemove(var_name);
+        // Clean up heterogeneous loop var tracking
+        _ = self.heterogeneous_loop_vars.swapRemove(var_name);
 
         // Restore func_local_vars if we removed it for rename to take effect
         if (removed_from_func_locals) {
@@ -1077,7 +1143,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.pushScope();
 
         // Register loop variable as string type (runtime since from file)
-        try self.type_inferrer.var_types.put(var_name, .{ .string = .runtime });
+        // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
+        try self.type_inferrer.putScopedVar(var_name, .{ .string = .runtime });
 
         // Track loop capture variable for shadowing detection
         // When Python code does `line = line.strip()` inside `for line in file:`,
@@ -1093,6 +1160,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Clean up loop capture tracking and renames when exiting loop
         _ = self.loop_capture_vars.swapRemove(var_name);
         _ = self.var_renames.swapRemove(var_name);
+        _ = self.heterogeneous_loop_vars.swapRemove(var_name);
 
         self.popScope();
         self.dedent();
@@ -1134,7 +1202,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         }
 
         // Register loop variable as string type (slice from indexing)
-        try self.type_inferrer.var_types.put(var_name, .{ .string = .slice });
+        // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
+        try self.type_inferrer.putScopedVar(var_name, .{ .string = .slice });
 
         // Track loop capture variable
         if (tuple_var_used) {
@@ -1148,6 +1217,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Clean up
         _ = self.loop_capture_vars.swapRemove(var_name);
         _ = self.var_renames.swapRemove(var_name);
+        _ = self.heterogeneous_loop_vars.swapRemove(var_name);
 
         self.popScope();
         self.dedent();
@@ -1350,10 +1420,17 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
         try self.emit("{\n");
         self.indent();
+        // Handle error unions (e.g., generator functions that return ![]PyValue)
+        // First capture raw value, then unwrap if it's an error union
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const __pylist_{d} = ", .{label_id});
+        try self.output.writer(self.allocator).print("const __pylist_raw_{d} = ", .{label_id});
         try self.genExpr(for_stmt.iter.*);
         try self.emit(";\n");
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print(
+            "const __pylist_{d} = if (@typeInfo(@TypeOf(__pylist_raw_{d})) == .error_union) try __pylist_raw_{d} else __pylist_raw_{d};\n",
+            .{ label_id, label_id, label_id, label_id },
+        );
         try self.emitIndent();
         // Use runtime.container_dispatch.getLen() - compiles ONCE per type, not per call site
         // Handles: slices, arrays, ArrayLists, PyBytes, and PyObject
@@ -1624,17 +1701,18 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // If iterating over a vararg param (e.g., args in *args), register loop var as i64
     // This enables correct type inference for print(x) inside the loop
+    // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
     if (for_stmt.iter.* == .name) {
         const iter_var_name = for_stmt.iter.name.id;
         if (self.vararg_params.contains(iter_var_name)) {
             // Register loop variable as i64 type
-            try self.type_inferrer.var_types.put(var_name, .{ .int = .bounded });
+            try self.type_inferrer.putScopedVar(var_name, .{ .int = .bounded });
         }
     }
 
     // If iterating over a deque (ArrayList from itertools, etc.), loop variable is i64
     if (iter_type == .deque) {
-        try self.type_inferrer.var_types.put(var_name, .{ .int = .bounded });
+        try self.type_inferrer.putScopedVar(var_name, .{ .int = .bounded });
     }
 
     // If iterating over a list of callables (PyCallable), register loop var as callable
@@ -1647,7 +1725,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             try self.callable_vars.put(owned_name, {});
             // Register in var_types for type inference
             // Use .unknown since we can't know the return type of arbitrary callables in a list
-            try self.type_inferrer.var_types.put(var_name, .{ .callable = .unknown });
+            try self.type_inferrer.putScopedVar(var_name, .{ .callable = .unknown });
         }
     }
 
@@ -1658,6 +1736,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Clean up loop capture tracking and renames when exiting loop
     _ = self.loop_capture_vars.swapRemove(var_name);
     _ = self.var_renames.swapRemove(var_name);
+    _ = self.heterogeneous_loop_vars.swapRemove(var_name);
 
     // Pop scope when exiting loop
     self.popScope();
@@ -1787,11 +1866,47 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     }
 
     // Generate while loop
+    // Check if stop expression would generate PyValue (e.g., uncertain operands)
+    // If so, extract the integer value for comparison with the isize loop variable
+    // Note: type inference might say "int" but codegen can still produce PyValue
+    // if the expression contains uncertain operands (e.g., external module attributes)
+    const stop_is_pyvalue = blk: {
+        const stop_type = self.type_inferrer.inferExpr(stop_expr) catch null;
+        if (stop_type) |st| {
+            if (st == .pyvalue or st == .unknown) break :blk true;
+        }
+        // Also check if the expression is a BinOp with uncertain operands
+        // (type inference returns "int" but codegen generates PyValue)
+        if (stop_expr == .binop) {
+            const binop = stop_expr.binop;
+            // Check if either operand is attribute access (external module constants are uncertain)
+            if (binop.left.* == .attribute) break :blk true;
+            if (binop.right.* == .attribute) break :blk true;
+            // Check if either operand is uncertain via type inference
+            const left_type = self.type_inferrer.inferExpr(binop.left.*) catch null;
+            if (left_type) |lt| {
+                if (lt == .pyvalue or lt == .unknown) break :blk true;
+            }
+            const right_type = self.type_inferrer.inferExpr(binop.right.*) catch null;
+            if (right_type) |rt| {
+                if (rt == .pyvalue or rt == .unknown) break :blk true;
+            }
+        }
+        break :blk false;
+    };
+
     try self.emitIndent();
     try self.emit("while (");
     try self.emit(loop_var_name);
     try self.emit(" < ");
-    try self.genExpr(stop_expr);
+    if (stop_is_pyvalue) {
+        // Extract integer from PyValue for loop comparison
+        try self.emit("(");
+        try self.genExpr(stop_expr);
+        try self.emit(").asInt()");
+    } else {
+        try self.genExpr(stop_expr);
+    }
     try self.emit(") {\n");
 
     self.indent();

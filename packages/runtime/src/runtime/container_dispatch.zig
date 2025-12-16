@@ -4,7 +4,7 @@
 const std = @import("std");
 
 /// Extract slice from any container type
-/// Handles: ArrayList (has .items), PyBytes (has .data), PyValue.list (has .list.items), fixed arrays, slices
+/// Handles: ArrayList (has .items), PyBytes (has .data), PyValue.list (has .list.items), fixed arrays, slices, tuples
 /// Returns const slice for read operations
 pub fn getSlice(comptime T: type, container: T) GetSliceType(T) {
     const info = @typeInfo(T);
@@ -20,6 +20,10 @@ pub fn getSlice(comptime T: type, container: T) GetSliceType(T) {
         return container;
     } else if (info == .array) {
         return &container;
+    } else if (info == .@"struct" and info.@"struct".is_tuple) {
+        // Tuple struct - return as-is (caller should use inline for with getAt)
+        // Note: tuples can't be converted to slices directly, but getAt handles indexed access
+        return container;
     }
     // Fallback for unknown types - return empty slice
     return &[0]GetElementType(T){};
@@ -47,21 +51,40 @@ pub fn getMutSlice(comptime T: type, container: *T) GetMutSliceType(T) {
 /// Get container length
 pub fn getLen(comptime T: type, container: T) usize {
     const info = @typeInfo(T);
-    if (info == .@"struct" and @hasField(T, "list")) {
+    // Order matters: check comptime-known lengths first (no container access needed)
+    if (info == .array) {
+        return info.array.len;
+    } else if (info == .@"struct" and info.@"struct".is_tuple) {
+        // Tuple struct - length is number of fields (comptime-known)
+        return info.@"struct".fields.len;
+    } else if (info == .@"struct" and @hasField(T, "list")) {
         // PyValue.list types - .list is *ArrayListUnmanaged
         return container.list.items.len;
     } else if (info == .@"struct" and @hasField(T, "items")) {
         return container.items.len;
     } else if (info == .pointer and info.pointer.size == .slice) {
         return container.len;
-    } else if (info == .array) {
-        return info.array.len;
     }
     return 0;
 }
 
 /// Get element at index from any container
 pub fn getAt(comptime T: type, container: T, index: usize) GetElementType(T) {
+    const info = @typeInfo(T);
+    // For tuple structs, we need special handling since tuples can't be indexed by runtime usize
+    // The index MUST be comptime-known for tuples
+    if (info == .@"struct" and info.@"struct".is_tuple) {
+        // Use inline switch to convert runtime index to comptime field access
+        const fields = info.@"struct".fields;
+        inline for (0..fields.len) |i| {
+            if (index == i) {
+                return @field(container, fields[i].name);
+            }
+        }
+        // Index out of bounds
+        unreachable;
+    }
+    // For other containers, use slice indexing
     const slice = getSlice(T, container);
     return slice[index];
 }
@@ -87,6 +110,13 @@ pub fn GetElementType(comptime T: type) type {
         return info.pointer.child;
     } else if (info == .array) {
         return info.array.child;
+    } else if (info == .@"struct" and info.@"struct".is_tuple) {
+        // Tuple struct (e.g., struct { f64, f64, f64 }) - elements accessed by field index
+        // All tuple elements must have same type for iteration, use first field's type
+        const fields = info.@"struct".fields;
+        if (fields.len > 0) {
+            return fields[0].type;
+        }
     }
     return void;
 }
@@ -106,6 +136,9 @@ fn GetSliceType(comptime T: type) type {
         return T;
     } else if (info == .array) {
         return []const info.array.child;
+    } else if (info == .@"struct" and info.@"struct".is_tuple) {
+        // Tuple struct - return the tuple type itself (used with inline for iteration)
+        return T;
     }
     return []const void;
 }

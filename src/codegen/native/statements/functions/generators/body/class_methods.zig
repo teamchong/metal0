@@ -265,27 +265,8 @@ fn wouldShadowMethodInClass(param_name: []const u8, class_body: []const ast.Node
     return false;
 }
 
-/// Write init parameter name, renaming if it would shadow a method in the class
-fn writeInitParamName(
-    self: *NativeCodegen,
-    param_name: []const u8,
-    class_body: []const ast.Node,
-) CodegenError!void {
-    // First check Zig keywords
-    if (zig_keywords.isZigKeyword(param_name)) {
-        try self.output.writer(self.allocator).print("@\"{s}\"", .{param_name});
-    }
-    // Then check if it would shadow a method in this class
-    else if (wouldShadowMethodInClass(param_name, class_body)) {
-        try self.output.writer(self.allocator).print("{s}_param", .{param_name});
-    }
-    // Finally check common method names from zig_keywords
-    else if (zig_keywords.wouldShadowMethod(param_name)) {
-        try self.output.writer(self.allocator).print("{s}_arg", .{param_name});
-    } else {
-        try self.output.writer(self.allocator).writeAll(param_name);
-    }
-}
+// NOTE: writeInitParamName was removed - it contained dead code (wouldShadowMethodInClass
+// was already checked before calling). Callers now use zig_keywords.writeLocalVarName directly.
 
 /// Generate default init() method for classes without __init__
 /// Nested classes (in nested_class_names) are heap-allocated for Python reference semantics
@@ -346,6 +327,9 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) Codege
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
+
+    // Default init returns !@This(), track for `try` in instantiation calls
+    try self.error_init_classes.put(class_name, {});
 }
 
 /// Generate default init() method with builtin/complex parent type support
@@ -455,6 +439,9 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []c
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
+
+    // Default init returns !@This(), track for `try` in instantiation calls
+    try self.error_init_classes.put(class_name, {});
 }
 
 /// Generate init() method from __init__
@@ -921,7 +908,8 @@ pub fn genInitMethodWithBuiltinBase(
                     try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed, .needs_mutable_copy = shadows_local_assign });
                     try self.emit(renamed);
                 } else {
-                    try writeInitParamName(self, arg.name, class_body);
+                    // Use writeLocalVarName for consistency - handles keywords and method shadows
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
                 }
                 try self.emit(": ");
             }
@@ -1468,7 +1456,8 @@ pub fn genInitMethodFromNew(
                 try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed, .needs_mutable_copy = shadows_local_assign });
                 try self.emit(renamed);
             } else {
-                try writeInitParamName(self, arg.name, class_body);
+                // Use writeLocalVarName for consistency - handles keywords and method shadows
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
             }
             try self.emit(": ");
         }
