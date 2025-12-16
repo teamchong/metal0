@@ -247,10 +247,11 @@ fn findWrittenVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap) !void {
                 // Also check else block and except handlers
                 try findWrittenVarsInStmts(try_stmt.else_body, vars);
                 for (try_stmt.handlers) |handler| {
-                    // The exception name in "except E as e:" is a write - e is assigned
-                    if (handler.name) |exc_name| {
-                        try vars.put(exc_name, {});
-                    }
+                    // NOTE: Don't add exception names from NESTED try handlers here.
+                    // Exception names (the "as e" in "except E as e:") are local to
+                    // their own try block and should be handled by that block's TryHelper,
+                    // not captured as outer variables by enclosing try blocks.
+                    // See findLocallyDeclaredVars which marks them as local.
                     try findWrittenVarsInStmts(handler.body, vars);
                 }
                 try findWrittenVarsInStmts(try_stmt.finalbody, vars);
@@ -326,6 +327,12 @@ fn findLocallyDeclaredVars(stmts: []ast.Node, vars: *FnvVoidMap) !void {
             .try_stmt => |try_stmt| {
                 try findLocallyDeclaredVars(try_stmt.body, vars);
                 for (try_stmt.handlers) |handler| {
+                    // Exception names from nested try handlers are locally declared
+                    // within this scope - they should NOT be captured as outer variables
+                    // by enclosing try blocks.
+                    if (handler.name) |exc_name| {
+                        try vars.put(exc_name, {});
+                    }
                     try findLocallyDeclaredVars(handler.body, vars);
                 }
                 try findLocallyDeclaredVars(try_stmt.else_body, vars);
@@ -583,6 +590,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     });
                 }
             }
+            // Pre-populate exception_vars so type inference during hoisting can detect
+            // assignments from exception variables (e.g., `exc1 = e` where `e` is exception var)
+            try self.exception_vars.put(exc_name, {});
         }
     }
 
@@ -590,13 +600,18 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     for (declared_vars.items) |hoisted| {
         const var_name = hoisted.name;
 
-        // Exception names (from "except X as name") are always strings
+        // Exception names (from "except X as name") use PyException for full Python semantics
+        // (including __traceback__, __context__, __cause__ attributes)
         // For regular variables, infer type from the RHS expression
         var zig_type: []const u8 = undefined;
         var needs_free = false;
         var var_type: ?NativeType = null;
         if (hoisted.is_exception_name) {
-            zig_type = "[]const u8";
+            zig_type = "runtime.PyException";
+        } else if (hoisted.value == .name and self.exception_vars.contains(hoisted.value.name.id)) {
+            // Assigning from an exception variable - propagate PyException type
+            // e.g., `exc1 = e` where `e` is from `except X as e:`
+            zig_type = "runtime.PyException";
         } else {
             var_type = self.type_inferrer.inferExpr(hoisted.value) catch null;
             if (var_type) |vt| {
@@ -661,6 +676,16 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         // Mark as hoisted so assignment generation skips declaration
         try self.hoisted_vars.put(var_name, {});
+
+        // Mark exception variables for type-aware assignment generation
+        // This includes both direct exception vars (from "except X as name:") and
+        // propagated exception vars (from "exc1 = e" where e is exception var)
+        if (hoisted.is_exception_name) {
+            try self.exception_vars.put(var_name, {});
+        } else if (hoisted.value == .name and self.exception_vars.contains(hoisted.value.name.id)) {
+            // Variable assigned from exception var - also track it as exception type
+            try self.exception_vars.put(var_name, {});
+        }
     }
 
     // Get unique ID for this try block (used for variable names)
@@ -797,13 +822,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         try declared_var_set.put(name, {});
                     }
                 }
-            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.type_inferrer.getScopedVar(name) != null or self.nested_class_names.contains(name) or self.func_local_vars.contains(name) or self.hoisted_vars.contains(name) or self.forward_declared_vars.contains(name)) {
+            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.type_inferrer.getScopedVar(name) != null or self.nested_class_names.contains(name) or self.hoisted_vars.contains(name) or self.forward_declared_vars.contains(name)) {
                 // Variable is only read and we can verify it exists - capture as read-only
                 // Note: nested_class_names tracks classes defined inside methods (like for-loop bodies)
-                // Note: func_local_vars tracks function-local variables declared before the try block
                 // Note: hoisted_vars tracks variables that were hoisted for scope escaping
                 // Note: forward_declared_vars tracks variables forward declared for scope escaping
                 // Note: getScopedVar checks for loop-local variables stored in scoped_var_types
+                // NOTE: Do NOT include func_local_vars - those are variables that WILL be declared
+                // later in the function, not variables that are already available
                 try read_only_vars.append(self.allocator, name);
             }
 
@@ -861,7 +887,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // Parameters use helper_id suffix to avoid shadowing in nested try blocks
         for (read_only_vars.items) |var_name| {
             if (param_count > 0) try self.emit(", ");
-            try self.output.writer(self.allocator).print("p_{s}_{d}: anytype", .{ var_name, helper_id });
+            // For heterogeneous loop variables, use concrete runtime.PyValue type
+            // These variables are wrapped in PyValue in for_basic.zig to ensure type consistency
+            // across inline for iterations (fixes "anytype can't reconcile multiple types" error)
+            if (self.heterogeneous_loop_vars.contains(var_name)) {
+                try self.output.writer(self.allocator).print("p_{s}_{d}: runtime.PyValue", .{ var_name, helper_id });
+            } else {
+                try self.output.writer(self.allocator).print("p_{s}_{d}: anytype", .{ var_name, helper_id });
+            }
             param_count += 1;
         }
         for (written_outer_vars.items) |var_name| {
@@ -900,11 +933,19 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         for (declared_vars.items) |hoisted| {
             // Exception names are ALWAYS passed as parameters because they are assigned
             // in the catch block which is INSIDE the helper struct's run() function.
-            // The assignment `e = runtime.getExceptionStr()` happens in the catch handler,
+            // The assignment `e = runtime.getExceptionFull()` happens in the catch handler,
             // which requires the pointer parameter to access the outer variable.
             if (hoisted.is_exception_name) {
                 if (param_count > 0) try self.emit(", ");
-                try self.output.writer(self.allocator).print("p_{s}_{d}: *[]const u8", .{ hoisted.name, helper_id });
+                try self.output.writer(self.allocator).print("p_{s}_{d}: *runtime.PyException", .{ hoisted.name, helper_id });
+                param_count += 1;
+                continue;
+            }
+            // Check if this variable is assigned from an exception variable (e.g., exc1 = e)
+            // In that case, it should also be typed as PyException
+            if (hoisted.value == .name and self.exception_vars.contains(hoisted.value.name.id)) {
+                if (param_count > 0) try self.emit(", ");
+                try self.output.writer(self.allocator).print("p_{s}_{d}: *runtime.PyException", .{ hoisted.name, helper_id });
                 param_count += 1;
                 continue;
             }
@@ -1195,7 +1236,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         }
         for (declared_vars.items) |hoisted| {
             // Exception names are ALWAYS passed as parameter since they're assigned in catch handlers
-            // The assignment `e = runtime.getExceptionStr()` needs the pointer to work
+            // The assignment `e = runtime.getExceptionFull()` needs the pointer to work
             // Don't skip exception names - they need the parameter for the assignment
             if (call_param_count > 0) try self.emit(", ");
             try self.emit("&");
@@ -1293,8 +1334,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     // Only emit if used in handler body OR hoisted (used elsewhere)
                     if (is_accessible or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
                         try self.emitIndent();
-                        // Use runtime.getExceptionStr() to get the actual exception message
-                        // not just the error type name
+                        // Use runtime.getExceptionFull() to get full PyException with
+                        // __traceback__, __context__, __cause__ attributes
                         if (is_accessible) {
                             // Assign to the existing hoisted variable
                             // Check for rename (e.g., p_e.* for hoisted exception names passed as pointers)
@@ -1303,14 +1344,19 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                             } else {
                                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
                             }
-                            try self.emit(" = runtime.getExceptionStr();\n");
+                            try self.emit(" = runtime.getExceptionFull();\n");
                         } else {
                             // Declare new const - either not declared elsewhere, or declared but not accessible
                             // Use scoped name to avoid shadowing outer variables with the same name
                             const scoped_name = try std.fmt.allocPrint(self.allocator, "__exc_{s}_{d}", .{ exc_name, helper_id });
                             try self.emit("const ");
                             try self.emit(scoped_name);
-                            try self.emit(": []const u8 = runtime.getExceptionStr();\n");
+                            try self.emit(": runtime.PyException = runtime.getExceptionFull();\n");
+                            // Suppress "unused local constant" error - variable may be used or just declared for Python compat
+                            try self.emitIndent();
+                            try self.emit("_ = &");
+                            try self.emit(scoped_name);
+                            try self.emit(";\n");
                             // Add to var_renames so handler body references use the scoped name
                             try self.var_renames.put(exc_name, scoped_name);
                         }
@@ -1360,8 +1406,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     // Only emit if used in handler body OR hoisted (used elsewhere)
                     if (is_accessible or isNameUsedInStmts(handler.body, exc_name, self.allocator)) {
                         try self.emitIndent();
-                        // Use runtime.getExceptionStr() to get the actual exception message
-                        // not just the error type name
+                        // Use runtime.getExceptionFull() to get full PyException with
+                        // __traceback__, __context__, __cause__ attributes
                         if (is_accessible) {
                             // Assign to the existing hoisted variable
                             // Check for rename (e.g., p_e.* for hoisted exception names passed as pointers)
@@ -1370,14 +1416,19 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                             } else {
                                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
                             }
-                            try self.emit(" = runtime.getExceptionStr();\n");
+                            try self.emit(" = runtime.getExceptionFull();\n");
                         } else {
                             // Declare new const - either not declared elsewhere, or declared but not accessible
                             // Use scoped name to avoid shadowing outer variables with the same name
                             const scoped_name = try std.fmt.allocPrint(self.allocator, "__exc_{s}_{d}", .{ exc_name, helper_id });
                             try self.emit("const ");
                             try self.emit(scoped_name);
-                            try self.emit(": []const u8 = runtime.getExceptionStr();\n");
+                            try self.emit(": runtime.PyException = runtime.getExceptionFull();\n");
+                            // Suppress "unused local constant" error - variable may be used or just declared for Python compat
+                            try self.emitIndent();
+                            try self.emit("_ = &");
+                            try self.emit(scoped_name);
+                            try self.emit(";\n");
                             // Add to var_renames so handler body references use the scoped name
                             try self.var_renames.put(exc_name, scoped_name);
                         }
@@ -1447,6 +1498,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         const finally_has_control_flow = has_finally and containsControlFlow(try_node.finalbody);
         const can_use_defer = has_finally and !finally_has_control_flow and !containsRaise(try_node.finalbody);
 
+        // Track if we need special handling for raise in try body
+        // When finally can't use defer, raise must store exception instead of returning directly
+        const needs_try_finally_tracking = has_finally and !can_use_defer;
+
         if (can_use_defer) {
             // Generate finally code as defer BEFORE try body
             // defer runs when scope exits (including on return), ensuring cleanup always happens
@@ -1476,15 +1531,26 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.emit("}\n");
         }
 
+        // NOTE: __pending_exception_N is already declared at line 687 for all try blocks with finally
+        // No need to declare it again here
+
         // Generate try body
         const saved_inside_try_body = self.inside_try_body;
+        const saved_inside_try_with_finally = self.inside_try_with_finally;
+        const saved_try_finally_id = self.current_try_finally_id;
         self.inside_try_body = true;
+        if (needs_try_finally_tracking) {
+            self.inside_try_with_finally = true;
+            self.current_try_finally_id = @intCast(helper_id);
+        }
 
         for (try_node.body) |stmt| {
             try self.generateStmt(stmt);
         }
 
         self.inside_try_body = saved_inside_try_body;
+        self.inside_try_with_finally = saved_inside_try_with_finally;
+        self.current_try_finally_id = saved_try_finally_id;
 
         // Also handle else_body when there are no exception handlers
         // (try/else/finally without except)

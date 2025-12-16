@@ -210,6 +210,9 @@ pub const NativeCodegen = struct {
     // Track variables hoisted from try blocks (to skip declaration in assignment)
     hoisted_vars: FnvVoidMap,
 
+    // Track exception variable names (from "except X as name:") - typed as PyException
+    exception_vars: FnvVoidMap,
+
     // Track first assignments that may need discards (var_name -> emitted_name)
     // Discards are emitted at end of scope after checking if variable was actually used
     pending_discards: FnvStringMap,
@@ -590,6 +593,14 @@ pub const NativeCodegen = struct {
     // This allows errors to propagate to except handlers
     inside_try_body: bool,
 
+    // Track if we're inside a try block that has a finally block (but no exception handlers)
+    // When true, raise statements store exception to __pending_exception_N instead of returning
+    // This ensures finally block runs before exception propagates
+    inside_try_with_finally: bool,
+
+    // Current try-finally helper ID for __pending_exception_N variable name
+    current_try_finally_id: u32,
+
     // True when targeting WASM browser (freestanding) mode
     // Used to skip exports for non-main functions
     target_wasm_browser: bool,
@@ -623,6 +634,11 @@ pub const NativeCodegen = struct {
     // Maps variable name -> void (e.g., "line" -> {})
     // When assigning to a loop capture, we rename to __loop_<varname> and track in var_renames
     loop_capture_vars: FnvVoidMap,
+
+    // Track heterogeneous loop variables (iterate over mixed-type tuples like ["str", 0.0, None])
+    // These are wrapped in runtime.PyValue for type consistency in TryHelper
+    // Maps variable name -> void (e.g., "x" -> {})
+    heterogeneous_loop_vars: FnvVoidMap,
 
     // Track forward-declared variables (captured by nested classes before defined)
     // Maps variable name -> void (e.g., "list2" -> {})
@@ -756,6 +772,7 @@ pub const NativeCodegen = struct {
             .callable_context_param_type = null,
             .var_renames = FnvStringMap.init(aa),
             .hoisted_vars = FnvVoidMap.init(aa),
+            .exception_vars = FnvVoidMap.init(aa),
             .pending_discards = FnvStringMap.init(aa),
             .function_start_pos = 0,
             .array_vars = FnvVoidMap.init(aa),
@@ -851,6 +868,8 @@ pub const NativeCodegen = struct {
             .in_generator_function = false,
             .current_function_returns_pyvalue = false,
             .inside_try_body = false,
+            .inside_try_with_finally = false,
+            .current_try_finally_id = 0,
             .target_wasm_browser = false,
             .skipped_modules = FnvVoidMap.init(aa),
             .skipped_functions = FnvVoidMap.init(aa),
@@ -858,6 +877,7 @@ pub const NativeCodegen = struct {
             .local_var_types = hashmap_helper.StringHashMap(NativeType).init(aa),
             .local_from_imports = FnvStringMap.init(aa),
             .loop_capture_vars = FnvVoidMap.init(aa),
+            .heterogeneous_loop_vars = FnvVoidMap.init(aa),
             .callable_global_vars = FnvVoidMap.init(aa),
             .import_module_vars = FnvVoidMap.init(aa),
             .csv_iterators = FnvVoidMap.init(aa),
@@ -1146,6 +1166,21 @@ pub const NativeCodegen = struct {
             return self.var_renames.contains(name);
         }
         return self.symbol_table.lookup(name) != null;
+    }
+
+    /// Check if a variable is declared in ANY scope (ignoring nested function boundaries)
+    /// Used for parameter shadowing checks where we need to know if the name exists anywhere
+    pub fn isDeclaredInAnyScope(self: *NativeCodegen, name: []const u8) bool {
+        // Check hoisted vars
+        if (self.hoisted_vars.contains(name)) return true;
+        // Check all scopes via full lookup (ignores nested function boundaries)
+        return self.symbol_table.lookup(name) != null;
+    }
+
+    /// Check if a variable is an exception variable (from "except X as name:")
+    /// Exception variables are typed as runtime.PyException
+    pub fn isExceptionVar(self: *NativeCodegen, name: []const u8) bool {
+        return self.exception_vars.contains(name);
     }
 
     /// Check if a variable is captured by any nested class in the current function scope

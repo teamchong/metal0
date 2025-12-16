@@ -492,6 +492,12 @@ pub const getExceptionType = exceptions.getExceptionType;
 pub const getExceptionStr = exceptions.getExceptionStr;
 pub const clearException = exceptions.clearException;
 
+// Full Python exception objects with __traceback__, __context__, __cause__
+pub const PyException = exceptions.PyException;
+pub const PyTraceback = exceptions.PyTraceback;
+pub const getExceptionFull = exceptions.getExceptionFull;
+pub const setExceptionFull = exceptions.setExceptionFull;
+
 /// Python's NotImplemented singleton - used by binary operations to signal
 /// that the operation is not supported for the given types.
 /// In Python: return NotImplemented tells the interpreter to try the reflected method.

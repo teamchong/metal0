@@ -57,6 +57,104 @@ pub fn getExceptionStr() []const u8 {
 pub fn clearException() void {
     last_exception_message = null;
     last_exception_type = null;
+    last_exception_full = null;
+}
+
+/// Python traceback object - represents a stack frame in the exception traceback
+pub const PyTraceback = struct {
+    tb_filename: []const u8,
+    tb_lineno: u32,
+    tb_name: []const u8,
+    tb_next: ?*PyTraceback = null,
+
+    pub fn init(allocator: std.mem.Allocator, filename: []const u8, lineno: u32, name: []const u8) !*PyTraceback {
+        const self = try allocator.create(PyTraceback);
+        self.* = .{
+            .tb_filename = filename,
+            .tb_lineno = lineno,
+            .tb_name = name,
+            .tb_next = null,
+        };
+        return self;
+    }
+};
+
+/// Python exception object - provides full Python exception semantics
+/// This is used for `except X as e:` where `e` needs __traceback__, __context__, etc.
+pub const PyException = struct {
+    /// The exception type name (e.g., "ValueError", "TypeError")
+    type_name: []const u8,
+    /// The exception message (equivalent to str(e))
+    message: []const u8,
+    /// The exception arguments (e.args in Python)
+    args: []const PyValue = &[_]PyValue{},
+    /// The traceback object (__traceback__ in Python)
+    __traceback__: ?*PyTraceback = null,
+    /// The exception that was being handled when this was raised (__context__ in Python)
+    __context__: ?*PyException = null,
+    /// The explicit cause of this exception (__cause__ in Python, from `raise X from Y`)
+    __cause__: ?*PyException = null,
+    /// Whether __context__ should be suppressed when displaying (__suppress_context__ in Python)
+    __suppress_context__: bool = false,
+
+    const Self = @This();
+
+    /// Initialize an empty exception with just type and message
+    pub fn init(type_name: []const u8, message: []const u8) Self {
+        return .{
+            .type_name = type_name,
+            .message = message,
+        };
+    }
+
+    /// Initialize from current thread-local exception state
+    pub fn fromCurrent() Self {
+        return .{
+            .type_name = last_exception_type orelse "Exception",
+            .message = last_exception_message orelse "",
+        };
+    }
+
+    /// Get string representation (equivalent to str(e) in Python)
+    pub fn __str__(self: *const Self) []const u8 {
+        return self.message;
+    }
+
+    /// Get repr representation (equivalent to repr(e) in Python)
+    pub fn __repr__(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
+        if (self.message.len == 0) {
+            return try std.fmt.allocPrint(allocator, "{s}()", .{self.type_name});
+        } else {
+            return try std.fmt.allocPrint(allocator, "{s}('{s}')", .{ self.type_name, self.message });
+        }
+    }
+
+    /// Convert to PyValue (stores as string message for compatibility)
+    /// Used when exception is assigned to a variable that expects PyValue
+    pub fn toPyValue(self: Self) PyValue {
+        return .{ .string = self.message };
+    }
+
+    /// Convert to PyValue with full type info (stores as ptr)
+    /// Use this when full exception info needs to be preserved
+    pub fn toPyValueFull(self: *Self) PyValue {
+        return .{ .ptr = @ptrCast(self) };
+    }
+};
+
+/// Thread-local storage for the full exception object
+threadlocal var last_exception_full: ?PyException = null;
+
+/// Set the full exception object
+pub fn setExceptionFull(exc: PyException) void {
+    last_exception_full = exc;
+    last_exception_type = exc.type_name;
+    last_exception_message = exc.message;
+}
+
+/// Get the full exception object (returns default if none set)
+pub fn getExceptionFull() PyException {
+    return last_exception_full orelse PyException.fromCurrent();
 }
 
 /// Set exception message with bytes repr formatted into the message
