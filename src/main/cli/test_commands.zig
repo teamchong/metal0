@@ -457,13 +457,13 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         codegen_threads[ti] = std.Thread.spawn(.{}, CodegenContext.worker, .{&codegen_ctx}) catch continue;
     }
 
-    // Timeout watchdog for codegen phase (60s total)
+    // Timeout watchdog for codegen phase (5 minutes total for CI with 2 workers)
     var codegen_done = std.atomic.Value(bool).init(false);
     const watchdog = std.Thread.spawn(.{}, struct {
         fn run(done: *std.atomic.Value(bool)) void {
-            std.Thread.sleep(60 * std.time.ns_per_s); // 60 second timeout
+            std.Thread.sleep(300 * std.time.ns_per_s); // 5 minute timeout
             if (!done.load(.seq_cst)) {
-                printError("Phase 1 (Codegen) TIMEOUT after 60s - likely infinite loop in codegen", .{});
+                printError("Phase 1 (Codegen) TIMEOUT after 5 minutes - likely infinite loop in codegen", .{});
                 printError("This is a compiler bug. Please report which test file hangs.", .{});
                 std.process.exit(1);
             }
