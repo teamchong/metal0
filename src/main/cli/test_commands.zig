@@ -173,6 +173,13 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var file_patterns = std.ArrayList([]const u8){};
     defer file_patterns.deinit(allocator);
 
+    // Track patterns allocated from group files (need to be freed)
+    var allocated_patterns = std.ArrayList([]const u8){};
+    defer {
+        for (allocated_patterns.items) |p| allocator.free(p);
+        allocated_patterns.deinit(allocator);
+    }
+
     // Simple arg parsing - first arg is dir, rest are patterns
     // Supports @group syntax: @core, @linux, @macos, @windows
     var first_pos = true;
@@ -197,8 +204,12 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                     printError("Group file should be at: tests/groups/{s}.txt", .{group_name});
                     return; // FATAL: Don't run all tests if group file fails to load
                 };
-                // Note: We don't free group_patterns strings since file_patterns reuses them
                 defer allocator.free(group_patterns);
+
+                // Track allocated patterns for cleanup (loadTestGroup dupes strings)
+                for (group_patterns) |pattern| {
+                    try allocated_patterns.append(allocator, pattern);
+                }
 
                 // Load platform restrictions (if multi.txt exists)
                 var platform_map = loadPlatformMap(allocator) catch |err| {

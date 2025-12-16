@@ -31,6 +31,13 @@ const pytuple = @import("Objects/tupleobject.zig");
 const pyfile = @import("Objects/fileobject.zig");
 const pydict = @import("Objects/dictobject.zig");
 pub const PyDict = pydict.PyDict;
+const pytype_mod = @import("Objects/pytype.zig");
+pub const PyType = pytype_mod.PyType;
+pub const typeNew = pytype_mod.typeNew;
+pub const typeCall = pytype_mod.typeCall;
+pub const dynamicType = pytype_mod.dynamicType;
+pub const initBuiltinType = pytype_mod.initBuiltinType;
+pub const getBuiltinType = pytype_mod.getBuiltinType;
 
 /// BigInt for arbitrary precision integers (Python int semantics)
 pub const bigint = @import("bigint");
