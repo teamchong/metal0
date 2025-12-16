@@ -58,10 +58,37 @@ pub fn NamedTuple(comptime field_count: usize) type {
             return dict;
         }
 
-        /// _replace(**kwargs) - Return new instance with specified fields replaced
-        pub fn _replace(self: Self, replacements: anytype) Self {
+        /// _replace using HashMap - compiles ONCE (no monomorphization)
+        /// Use this when replacements come from runtime sources
+        pub fn _replaceDict(self: Self, replacements: hashmap_helper.StringHashMap(i64)) Self {
             var new_values = self._values;
-            inline for (std.meta.fields(@TypeOf(replacements))) |field| {
+            var it = replacements.iterator();
+            while (it.next()) |entry| {
+                if (self.fieldIndex(entry.key_ptr.*)) |i| {
+                    new_values[i] = entry.value_ptr.*;
+                }
+            }
+            return .{
+                ._fields = self._fields,
+                ._values = new_values,
+                ._typename = self._typename,
+            };
+        }
+
+        /// _replace(**kwargs) - Return new instance with specified fields replaced
+        /// Note: This uses inline for which monomorphizes per replacement struct type.
+        /// For runtime replacements, prefer _replaceDict() which compiles once.
+        pub fn _replace(self: Self, replacements: anytype) Self {
+            const ReplacementType = @TypeOf(replacements);
+
+            // Fast path: HashMap - use concrete function
+            if (ReplacementType == hashmap_helper.StringHashMap(i64)) {
+                return self._replaceDict(replacements);
+            }
+
+            // Compile-time struct path (monomorphizes per struct type)
+            var new_values = self._values;
+            inline for (std.meta.fields(ReplacementType)) |field| {
                 const idx = self.fieldIndex(field.name);
                 if (idx) |i| {
                     new_values[i] = @field(replacements, field.name);

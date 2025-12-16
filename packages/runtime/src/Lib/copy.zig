@@ -6,6 +6,7 @@
 //! Mirrors: CPython Lib/copy.py
 
 const std = @import("std");
+const PyValue = @import("../Objects/object.zig").PyValue;
 
 pub const CopyError = error{
     OutOfMemory,
@@ -38,9 +39,57 @@ fn DeepCopyResult(comptime T: type) type {
     };
 }
 
+// =============================================================================
+// CONCRETE PyValue DEEP COPY (compiles ONCE - no monomorphization)
+// =============================================================================
+
+/// Deep copy for PyValue - compiles once, avoids recursive inline for explosion
+fn deepcopyPyValue(allocator: std.mem.Allocator, value: PyValue) !PyValue {
+    return switch (value) {
+        // Immutable primitives - return as-is
+        .int, .float, .bool, .none, .string, .complex => value,
+
+        // BigInt - clone it
+        .bigint => |bi| .{ .bigint = try bi.clone(allocator) },
+
+        // Bytes - copy data
+        .bytes => |b| .{ .bytes = .{ .data = try allocator.dupe(u8, b.data) } },
+
+        // List - deep copy each element
+        .list => |l| blk: {
+            var new_items = try allocator.alloc(PyValue, l.items.len);
+            for (l.items, 0..) |elem, i| {
+                new_items[i] = try deepcopyPyValue(allocator, elem);
+            }
+            break :blk .{ .list = .{ .items = new_items } };
+        },
+
+        // Tuple - deep copy each element
+        .tuple => |t| blk: {
+            var new_items = try allocator.alloc(PyValue, t.len);
+            for (t, 0..) |elem, i| {
+                new_items[i] = try deepcopyPyValue(allocator, elem);
+            }
+            break :blk .{ .tuple = new_items };
+        },
+
+        // Pointer - return as-is (can't deep copy without knowing ownership)
+        .ptr => value,
+    };
+}
+
+// =============================================================================
+// ANYTYPE DEEP COPY (dispatches to concrete for PyValue)
+// =============================================================================
+
 fn deepcopyImpl(allocator: std.mem.Allocator, value: anytype) !DeepCopyResult(@TypeOf(value)) {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
+
+    // Fast path: PyValue - use concrete function to avoid monomorphization
+    if (T == PyValue) {
+        return deepcopyPyValue(allocator, value);
+    }
 
     switch (info) {
         // Primitive types - just return the value
