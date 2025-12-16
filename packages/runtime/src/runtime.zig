@@ -79,6 +79,10 @@ pub const operator_ops = @import("runtime/operator_ops.zig");
 /// Use comparison_ops.eqI64, ltF64, etc. instead of operator.eq with anytype
 pub const comparison_ops = @import("runtime/comparison_ops.zig");
 
+/// Export BigInt operations for reducing parenthesization complexity in generated code
+/// Use bigint_ops.add(a, b, alloc) instead of ((a.add(&b, alloc) catch @panic("OOM")))
+pub const bigint_ops = @import("runtime/bigint_ops.zig");
+
 // =============================================================================
 // Modular submodules (split from runtime.zig for organization)
 // These are available as separate imports for new code:

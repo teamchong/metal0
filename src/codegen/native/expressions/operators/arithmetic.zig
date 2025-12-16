@@ -50,6 +50,23 @@ const BigIntStdMethods = std.StaticStringMap([]const u8).initComptime(.{
     .{ "BitAnd", "bitAnd" }, .{ "BitOr", "bitOr" }, .{ "BitXor", "bitXor" },
 });
 
+/// Runtime helper function names for BigInt operations
+/// Maps operator tag to runtime.bigint_ops.xxx function name
+const BigIntRuntimeOps = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "add" },
+    .{ "Sub", "sub" },
+    .{ "Mult", "mul" },
+    .{ "FloorDiv", "divFloor" },
+    .{ "Div", "divFloor" }, // Python / on ints is floor div
+    .{ "Mod", "mod" },
+    .{ "BitAnd", "bitAnd" },
+    .{ "BitOr", "bitOr" },
+    .{ "BitXor", "bitXor" },
+    .{ "LShift", "shl" },
+    .{ "RShift", "shr" },
+    .{ "Pow", "pow" },
+});
+
 /// Generate expression, wrapping in parentheses if it's a block expression
 fn genExprWrapped(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     if (producesBlockExpression(expr)) {
@@ -295,148 +312,84 @@ fn collectConcatParts(self: *NativeCodegen, node: ast.Node, parts: *std.ArrayLis
     try parts.append(self.allocator, node);
 }
 
-/// Generate BigInt binary operations using method calls with callback pattern
-/// Uses ExprEmitter.withOOMCatch for atomic parenthesization + catch handling
-/// Pattern: ((left.method(&right, allocator)) catch @panic("OOM"))
+/// Generate BigInt binary operations using runtime.bigint_ops helpers
+/// Pattern: runtime.bigint_ops.add(left, right, allocator)
+/// No complex parenthesization needed - runtime handles OOM internally
 fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
     const alloc_name = "__global_allocator";
-    var em = self.exprEmitter();
 
-    // Standard BigInt operations: left.method(&right, allocator)
+    // Get the runtime helper function name
     const op_name = @tagName(binop.op);
-    if (BigIntStdMethods.get(op_name)) |method| {
-        try em.withOOMCatch(BigIntBinOpCtx{
-            .cg = self,
-            .left_type = left_type,
-            .left = binop.left,
-            .method = method,
-            .right_type = right_type,
-            .right = binop.right,
-            .alloc_name = alloc_name,
-        }, BigIntBinOpCtx.emit);
+    const runtime_fn = BigIntRuntimeOps.get(op_name) orelse {
+        try self.emit("@compileError(\"Unsupported BigInt operation\")");
         return;
+    };
+
+    // Emit: runtime.bigint_ops.xxx(left, right, allocator)
+    try self.emit("runtime.bigint_ops.");
+    try self.emit(runtime_fn);
+    try self.emit("(");
+
+    // Emit left operand (convert to BigInt if needed)
+    try emitBigIntOperand(self, left_type, binop.left, alloc_name);
+    try self.emit(", ");
+
+    // For shift/pow operations, right operand is a primitive (usize/u32)
+    if (binop.op == .LShift or binop.op == .RShift) {
+        try self.emit("@as(usize, @intCast(");
+        try genExpr(self, binop.right.*);
+        try self.emit("))");
+    } else if (binop.op == .Pow) {
+        try self.emit("@as(u32, @intCast(");
+        try genExpr(self, binop.right.*);
+        try self.emit("))");
+    } else {
+        // Standard binary ops: right operand is also BigInt
+        try emitBigIntOperand(self, right_type, binop.right, alloc_name);
     }
 
-    switch (binop.op) {
-        .RShift => try em.withOOMCatch(BigIntShiftCtx{
-            .cg = self,
-            .left_type = left_type,
-            .left = binop.left,
-            .method = "shr",
-            .right = binop.right,
-            .alloc_name = alloc_name,
-        }, BigIntShiftCtx.emit),
-        .LShift => try em.withOOMCatch(BigIntShiftCtx{
-            .cg = self,
-            .left_type = left_type,
-            .left = binop.left,
-            .method = "shl",
-            .right = binop.right,
-            .alloc_name = alloc_name,
-        }, BigIntShiftCtx.emit),
-        .Pow => try em.withOOMCatch(BigIntPowCtx{
-            .cg = self,
-            .left_type = left_type,
-            .left = binop.left,
-            .right = binop.right,
-            .alloc_name = alloc_name,
-        }, BigIntPowCtx.emit),
-        .Div => try em.withOOMCatch(BigIntBinOpCtx{
-            .cg = self,
-            .left_type = left_type,
-            .left = binop.left,
-            .method = "floorDiv",
-            .right_type = right_type,
-            .right = binop.right,
-            .alloc_name = alloc_name,
-        }, BigIntBinOpCtx.emit),
-        else => try self.emit("@compileError(\"Unsupported BigInt operation\")"),
+    try self.emit(", ");
+    try self.emit(alloc_name);
+    try self.emit(")");
+}
+
+/// Emit an operand as a BigInt value
+/// Handles conversion from i64, i128, or existing BigInt
+fn emitBigIntOperand(self: *NativeCodegen, op_type: NativeType, node: *const ast.Node, alloc_name: []const u8) CodegenError!void {
+    if (op_type == .bigint) {
+        // Already BigInt - emit directly
+        try genExpr(self, node.*);
+    } else if (op_type == .int) {
+        if (op_type.int.needsBigInt()) {
+            // Large int (i128) - use fromInt128
+            try self.emit("runtime.bigint_ops.fromInt(");
+            try self.emit(alloc_name);
+            try self.emit(", @as(i64, @intCast(");
+            try genExpr(self, node.*);
+            try self.emit(")))");
+        } else {
+            // Normal i64
+            try self.emit("runtime.bigint_ops.fromInt(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
+            try genExpr(self, node.*);
+            try self.emit(")");
+        }
+    } else {
+        // Unknown type - try to convert as i64
+        try self.emit("runtime.bigint_ops.fromInt(");
+        try self.emit(alloc_name);
+        try self.emit(", @as(i64, ");
+        try genExpr(self, node.*);
+        try self.emit("))");
     }
 }
 
 /// Generate BigInt binary operations when RIGHT operand is BigInt (e.g., 0 - bigint)
-/// Converts left to BigInt first, then calls the appropriate method
+/// Now uses the same runtime.bigint_ops helpers as genBigIntBinOp
 fn genBigIntBinOpRightBig(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
-    const alloc_name = "__global_allocator";
-
-    // Helper to emit left operand converted to BigInt
-    // Always wraps in parens to handle catch precedence: (bigint_expr).method()
-    const emitLeftAsBigInt = struct {
-        fn emit(s: *NativeCodegen, ltype: NativeType, left: *const ast.Node, aname: []const u8) CodegenError!void {
-            if (ltype == .bigint) {
-                // Wrap in parens for proper precedence with catch: (expr catch @panic("OOM")).method()
-                try s.emit("(");
-                try genExpr(s, left.*);
-                try s.emit(")");
-            } else if (ltype == .int or ltype == .usize) {
-                try s.emit("(runtime.BigInt.fromInt(");
-                try s.emit(aname);
-                try s.emit(", ");
-                try genExpr(s, left.*);
-                try s.emit(") catch @panic(\"OOM\"))");
-            } else {
-                // Unknown - try to convert as i64
-                // Wrap genExpr in parens to handle block expressions
-                try s.emit("(runtime.BigInt.fromInt(");
-                try s.emit(aname);
-                try s.emit(", @as(i64, (");
-                try genExpr(s, left.*);
-                try s.emit(")))) catch @panic(\"OOM\"))");
-            }
-        }
-    }.emit;
-
-    // Helper to emit right operand as BigInt pointer
-    const emitRightAsBigInt = struct {
-        fn emit(s: *NativeCodegen, rtype: NativeType, right: *const ast.Node, aname: []const u8) CodegenError!void {
-            if (rtype == .bigint) {
-                // Already BigInt - wrap in pointer
-                try s.emit("&(");
-                try genExpr(s, right.*);
-                try s.emit(")");
-            } else if (rtype == .int) {
-                // Check if unbounded (could be i128) vs bounded (i64)
-                if (rtype.int.needsBigInt()) {
-                    // Unbounded int (e.g., sys.maxsize) - use fromInt128
-                    try s.emit("&(runtime.BigInt.fromInt128(");
-                    try s.emit(aname);
-                    try s.emit(", ");
-                    try genExpr(s, right.*);
-                    try s.emit(") catch @panic(\"OOM\"))");
-                } else {
-                    // Bounded int - use fromInt (i64)
-                    try s.emit("&(runtime.BigInt.fromInt(");
-                    try s.emit(aname);
-                    try s.emit(", ");
-                    try genExpr(s, right.*);
-                    try s.emit(") catch @panic(\"OOM\"))");
-                }
-            } else {
-                // Unknown - try to convert as i64
-                // Wrap genExpr in parens to handle block expressions
-                try s.emit("&(runtime.BigInt.fromInt(");
-                try s.emit(aname);
-                try s.emit(", @as(i64, (");
-                try genExpr(s, right.*);
-                try s.emit("))) catch @panic(\"OOM\")");
-            }
-        }
-    }.emit;
-
-    // Use BigIntStdMethods for standard operations (same as genBigIntBinOp)
-    if (BigIntStdMethods.get(@tagName(binop.op))) |method| {
-        try emitLeftAsBigInt(self, left_type, binop.left, alloc_name);
-        try self.emit(".");
-        try self.emit(method);
-        try self.emit("(");
-        try emitRightAsBigInt(self, right_type, binop.right, alloc_name);
-        try self.emit(", ");
-        try self.emit(alloc_name);
-        try self.emit(") catch @panic(\"OOM\")");
-        return;
-    }
-    // Unsupported - fall back to error
-    try self.emit("@compileError(\"Unsupported BigInt operation with right bigint\")");
+    // Delegate to the main function - it handles all cases now
+    try genBigIntBinOp(self, binop, left_type, right_type);
 }
 
 /// Check if a type requires BigInt representation (explicit bigint or unbounded int)
@@ -1674,14 +1627,10 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
                 try genExpr(self, unaryop.operand.*);
                 try self.emit(").neg()");
             } else if (operand_type == .bigint) {
-                // BigInt negation: clone and negate
-                const alloc_name = "__global_allocator";
-                var em = self.exprEmitter();
-                try em.withBlock("neg", BigIntNegateCtx{
-                    .cg = self,
-                    .operand = unaryop.operand,
-                    .alloc_name = alloc_name,
-                }, BigIntNegateCtx.emit);
+                // BigInt negation: use runtime helper
+                try self.emit("runtime.bigint_ops.neg(");
+                try genExpr(self, unaryop.operand.*);
+                try self.emit(", __global_allocator)");
             } else if (type_traits.isUnknown(operand_type)) {
                 // Unknown type (e.g., anytype parameter) - use comptime type check
                 const alloc_name = "__global_allocator";
