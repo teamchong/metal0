@@ -970,9 +970,6 @@ pub const Lib = struct {
     pub const threading = if (is_freestanding) void else @import("Lib/threading.zig");
     pub const queue = @import("Lib/queue.zig");
     pub const test_ = @import("Lib/test/support.zig"); // test is reserved, use test_
-
-    // NumPy-compatible array module with Metal GPU acceleration on macOS
-    pub const numpy = @import("Lib/numpy/numpy.zig");
 };
 
 /// Modules/ directory - C extension module implementations
