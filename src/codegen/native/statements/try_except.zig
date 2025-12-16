@@ -69,6 +69,35 @@ fn detectOptionalImportPattern(try_node: ast.Node.Try, codegen: *NativeCodegen) 
     return null;
 }
 
+/// Detect try/except from-import pattern: try: from X import a, b, ... except ImportError: fallback
+/// This handles the pattern where multiple names are imported and the except block provides fallbacks.
+/// Returns the module name if pattern matches and module is unavailable
+fn detectOptionalFromImportPattern(try_node: ast.Node.Try, codegen: *NativeCodegen) ?[]const u8 {
+    // Check if try body has exactly one from-import statement
+    if (try_node.body.len != 1) return null;
+    const try_stmt = try_node.body[0];
+    if (try_stmt != .import_from) return null;
+    const module_name = try_stmt.import_from.module;
+    // Empty module name means relative import like "from . import X" - skip
+    if (module_name.len == 0) return null;
+
+    // Check if there's an ImportError handler
+    for (try_node.handlers) |handler| {
+        if (handler.type) |exc_type| {
+            if (!std.mem.eql(u8, exc_type, "ImportError")) continue;
+        }
+        // Found an ImportError handler - check if module is available
+        const stdlib_gen = @import("../stdlib_modules_gen.zig");
+        const in_stdlib = stdlib_gen.hasModule(module_name);
+        const in_registry = codegen.import_registry.lookup(module_name) != null;
+        if (!in_stdlib and !in_registry) {
+            // Module is not in stdlib or registry - it's unavailable
+            return module_name;
+        }
+    }
+    return null;
+}
+
 // Use shared Python builtin names for DCE optimization
 const BuiltinFuncs = shared.PythonBuiltinNames;
 
@@ -481,6 +510,51 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.emit(unavailable_module);
         try self.emit("; // Optional import: module not available\n");
         return; // Skip generating the full try/except structure
+    }
+
+    // Detect try/except from-import pattern: try: from X import ... except ImportError: fallback
+    // When module is unavailable, generate the except block contents at module level
+    // This handles function definitions that can't be inside struct initializers
+    if (detectOptionalFromImportPattern(try_node, self)) |unavailable_module| {
+        try self.markSkippedModule(unavailable_module);
+        // Generate comment to mark the pattern
+        try self.emitIndent();
+        try self.emit("// Optional from-import: module '");
+        try self.emit(unavailable_module);
+        try self.emit("' not available, using fallback definitions\n");
+
+        // Find the ImportError handler and generate its body at module level
+        for (try_node.handlers) |handler| {
+            if (handler.type) |exc_type| {
+                if (!std.mem.eql(u8, exc_type, "ImportError")) continue;
+            }
+            // Generate each statement in the handler body at module level
+            for (handler.body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+            break; // Only generate the first matching handler
+        }
+        return; // Skip generating the full try/except structure
+    }
+
+    // Check if we're in module mode (can generate functions) or function mode (cannot)
+    // In Zig, function definitions must be at module level, not inside other functions
+    const can_generate_functions = self.mode == .module;
+
+    // Hoist function definitions from except handlers to current level (if at module level)
+    // If inside a function (e.g., main()), skip function definitions entirely - they should have been
+    // handled by the from-import at module level which generates null stubs
+    for (try_node.handlers) |handler| {
+        for (handler.body) |stmt| {
+            if (stmt == .function_def) {
+                if (can_generate_functions) {
+                    // Generate the function definition at module level (before try block)
+                    try self.generateStmt(stmt);
+                }
+                // If not at module level, skip entirely - the function should already be declared
+                // as a const at module level by the from-import handler
+            }
+        }
     }
 
     // First pass: collect variables declared in try block AND except handlers that need hoisting
@@ -1363,6 +1437,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     }
                 }
                 for (handler.body) |stmt| {
+                    // Skip function_def - already hoisted before try block
+                    if (stmt == .function_def) continue;
                     try self.generateStmt(stmt);
                 }
                 self.dedent();
@@ -1435,6 +1511,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     }
                 }
                 for (handler.body) |stmt| {
+                    // Skip function_def - already hoisted before try block
+                    if (stmt == .function_def) continue;
                     try self.generateStmt(stmt);
                 }
                 self.dedent();
@@ -1460,6 +1538,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 // This allows finally to run before the exception is propagated
                 if (has_finally) {
                     try self.output.writer(self.allocator).print("__pending_exception_{d} = {s};\n", .{ helper_id, err_var });
+                } else if (self.inside_defer) {
+                    // Cannot return from defer - just re-raise the error
+                    // The defer will complete and error will propagate naturally
+                    try self.output.writer(self.allocator).print("// Cannot return {s} from defer - error propagates after defer\n", .{err_var});
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("_ = {s}; // Acknowledge error\n", .{err_var});
                 } else {
                     try self.output.writer(self.allocator).print("return {s};\n", .{err_var});
                 }
@@ -1566,7 +1650,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     // Uses a labeled block to allow raise statements to break out with an error
     // SKIP this if we already generated it as defer (no exception handlers + no control flow/raise)
     const used_defer_for_finally = try_node.handlers.len == 0 and has_finally and !containsControlFlow(try_node.finalbody) and !containsRaise(try_node.finalbody);
-    if (has_finally and !used_defer_for_finally) {
+
+    // Also skip if try body terminated with control flow (break/continue/return)
+    // In this case, the finally block code after try body is unreachable
+    // TODO: Proper Python semantics requires running finally BEFORE the control flow statement
+    const try_body_terminated = self.control_flow_terminated;
+
+    if (has_finally and !used_defer_for_finally and !try_body_terminated) {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __finally_err_{d}: ?anyerror = __finally_blk_{d}: {{\n", .{ helper_id, helper_id });
         self.indent();
@@ -1596,11 +1686,16 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         self.inside_defer = saved_inside_defer;
         self.control_flow_terminated = saved_control_flow;
 
-        // Default: no exception raised in finally (only if not already terminated)
+        // Default: no exception raised in finally
+        // Only emit break if finally didn't already terminate with control flow
+        // If finally_terminated is true, the finally body already contains a break/return/raise
+        // that exits the labeled block, so we don't need to emit anything extra
         if (!finally_terminated) {
             try self.emitIndent();
             try self.output.writer(self.allocator).print("break :__finally_blk_{d} null;\n", .{helper_id});
         }
+        // Note: Don't emit unreachable when finally_terminated - the finally body already
+        // handled the exit (e.g., break :__finally_blk_N null from return, or error from raise)
         self.dedent();
         try self.emitIndent();
         try self.emit("};\n");

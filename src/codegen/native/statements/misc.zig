@@ -78,6 +78,24 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
     // Mark control flow as terminated on any exit path
     defer self.control_flow_terminated = true;
 
+    // Return inside defer block is not allowed in Zig
+    // Just skip the return - defer cleanup will still run
+    if (self.inside_defer and !self.inside_finally_block) {
+        try self.emitIndent();
+        try self.emit("// return inside defer - skipped (cleanup continues)\n");
+        return;
+    }
+
+    // Return inside finally block - use break to exit the labeled block
+    // The actual return will happen after finally block cleanup
+    if (self.inside_finally_block) {
+        try self.emitIndent();
+        // Store the return value and break out of finally block
+        // The return will be handled after the finally block
+        try self.output.writer(self.allocator).print("break :__finally_blk_{d} null; // return from finally\n", .{self.current_finally_id});
+        return;
+    }
+
     try self.emitIndent();
 
     if (ret.value) |value| {
@@ -747,6 +765,59 @@ fn varUsedInStatements(body: []const ast.Node, var_name: []const u8) bool {
     return false;
 }
 
+/// Recursively check if a list of statements contains a raise_stmt or expr_stmt
+/// This is needed because assertRaises blocks need labeled blocks when they contain
+/// statements that might raise, even if those are nested inside other blocks (if, with, for, etc.)
+fn containsRaiseOrExprStmt(stmts: []const ast.Node) bool {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .raise_stmt => return true,
+            .expr_stmt => return true,
+            // Recurse into compound statements
+            .if_stmt => |if_node| {
+                if (containsRaiseOrExprStmt(if_node.body)) return true;
+                if (if_node.else_body.len > 0) {
+                    if (containsRaiseOrExprStmt(if_node.else_body)) return true;
+                }
+            },
+            .for_stmt => |for_node| {
+                if (containsRaiseOrExprStmt(for_node.body)) return true;
+                if (for_node.orelse_body) |orelse_body| {
+                    if (containsRaiseOrExprStmt(orelse_body)) return true;
+                }
+            },
+            .while_stmt => |while_node| {
+                if (containsRaiseOrExprStmt(while_node.body)) return true;
+                if (while_node.orelse_body) |orelse_body| {
+                    if (containsRaiseOrExprStmt(orelse_body)) return true;
+                }
+            },
+            .with_stmt => |with_node| {
+                if (containsRaiseOrExprStmt(with_node.body)) return true;
+            },
+            .try_stmt => |try_node| {
+                if (containsRaiseOrExprStmt(try_node.body)) return true;
+                for (try_node.handlers) |handler| {
+                    if (containsRaiseOrExprStmt(handler.body)) return true;
+                }
+                if (try_node.else_body.len > 0) {
+                    if (containsRaiseOrExprStmt(try_node.else_body)) return true;
+                }
+                if (try_node.finalbody.len > 0) {
+                    if (containsRaiseOrExprStmt(try_node.finalbody)) return true;
+                }
+            },
+            .match_stmt => |match_node| {
+                for (match_node.cases) |case| {
+                    if (containsRaiseOrExprStmt(case.body)) return true;
+                }
+            },
+            else => {},
+        }
+    }
+    return false;
+}
+
 /// Check if with expression is a unittest context manager that should be skipped
 /// Check if context manager is assertRaises or assertRaisesRegex (needs error handling)
 /// Also handles tuples of context managers (e.g., with (assertRaises(), Stopwatch()) as ...)
@@ -1168,20 +1239,18 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             const prev_inside_try = self.inside_try_body;
             self.inside_try_body = true;
 
-            // Count expression statements to determine if we need the labeled block
-            var has_expr_stmts = false;
-            for (with_node.body) |stmt| {
-                if (stmt == .expr_stmt) {
-                    has_expr_stmts = true;
-                    break;
-                }
-            }
+            // Check recursively if body contains raise or expr statements
+            // Must be recursive because the statement might be nested inside other blocks (if, with, for, etc.)
+            const needs_labeled_block = containsRaiseOrExprStmt(with_node.body);
 
             // Generate a labeled block only if we have expression statements that might error
             const block_id = self.assert_raises_block_id;
             self.assert_raises_block_id += 1;
+            // Track current block ID for genRaise to use when breaking out
+            const saved_assert_raises_block_id = self.current_assert_raises_block_id;
+            self.current_assert_raises_block_id = block_id;
 
-            if (has_expr_stmts) {
+            if (needs_labeled_block) {
                 try self.emitIndent();
                 try self.emitFmt("_ = __ar_blk_{d}: {{\n", .{block_id});
                 self.indent();
@@ -1227,7 +1296,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             }
 
             // Close block and handle test pass/fail
-            if (has_expr_stmts) {
+            if (needs_labeled_block) {
                 // If body completed normally without raising, test fails
                 if (!self.control_flow_terminated) {
                     try self.emitIndent();
@@ -1237,7 +1306,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 try self.emitIndent();
                 try self.emit("};\n");
             } else {
-                // No expression statements - body has non-error statements
+                // No expression/raise statements - body has non-error statements
                 // This is a test case that expects error from non-expr stmt (if condition, etc)
                 // For now, just generate the body and mark as TODO
                 // The comparison/condition should return error which propagates up
@@ -1246,6 +1315,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             // Restore flags
             self.control_flow_terminated = saved_control_flow;
             self.inside_try_body = prev_inside_try;
+            self.current_assert_raises_block_id = saved_assert_raises_block_id;
 
             // Restore context flag
             self.in_assert_raises_context = was_in_assert_raises;
@@ -1306,7 +1376,8 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             // Use renamed name if we set up a shadow rename earlier
             const var_name = self.var_renames.get(original_name) orelse original_name;
 
-            try self.type_inferrer.var_types.put(var_name, context_type);
+            // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
+            try self.type_inferrer.putScopedVar(var_name, context_type);
 
             // NOTE: with-target variable was already hoisted BEFORE hoistWithBodyVars
             // (at the start of genWith) to ensure body variables can reference it
@@ -1552,7 +1623,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
     // Inside assertRaises context: break out of the block (exception was expected)
     if (self.in_assert_raises_context) {
         try self.emitIndent();
-        try self.emitFmt("break :blk_{d} {{}}; // Exception caught by assertRaises\n", .{self.current_assert_raises_block_id});
+        try self.emitFmt("break :__ar_blk_{d} {{}}; // Exception caught by assertRaises\n", .{self.current_assert_raises_block_id});
         self.control_flow_terminated = true;
         return;
     }
@@ -1583,6 +1654,38 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
             try self.emitIndent();
             try self.output.writer(self.allocator).print("break :__finally_blk_{d} error.Exception;\n", .{self.current_finally_id});
         }
+        self.control_flow_terminated = true;
+        return;
+    }
+
+    // Inside try body with finally block (no handlers): store exception to pending variable
+    // This allows finally to run before the exception is propagated
+    if (self.inside_try_with_finally) {
+        if (raise_node.exc) |exc| {
+            // Extract exception type name from the raise expression
+            const exc_name = getExceptionName(exc);
+            // Print Python-style error message if we have one
+            if (exc.* == .call) {
+                const call = exc.call;
+                if (call.args.len > 0) {
+                    try self.emitIndent();
+                    try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"");
+                    try self.emit(exc_name);
+                    try self.emit("\", ");
+                    try genRaiseMessage(self, call.args[0]);
+                    try self.emit(", @src().line);\n");
+                }
+            }
+            // Store exception to pending variable (finally will propagate it)
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("__pending_exception_{d} = error.{s};\n", .{ self.current_try_finally_id, exc_name });
+        } else {
+            // Bare raise - store generic exception
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("__pending_exception_{d} = error.Exception;\n", .{self.current_try_finally_id});
+        }
+        // Don't set control_flow_terminated - code after raise should still be unreachable
+        // but finally block must execute, and the exception will be propagated after finally
         self.control_flow_terminated = true;
         return;
     }

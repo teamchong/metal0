@@ -86,6 +86,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
                 // Check if the index is a string constant - use field access for struct-like access
                 // This handles patterns like locale.localeconv()['decimal_point'] -> __base.decimal_point
+                // But only if the string is a valid identifier (no spaces, special chars)
                 if (index == .constant and index.constant.value == .string) {
                     const key_str = index.constant.value.string;
                     // Strip quotes from string literal: "field" -> field
@@ -93,9 +94,38 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         key_str[1 .. key_str.len - 1]
                     else
                         key_str;
-                    try self.emit("__base.");
-                    // Escape field name if it's a Zig keyword (e.g., 'const', 'type', etc.)
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
+                    // Check if field_name is a valid Zig identifier (no spaces, special chars)
+                    // Must NOT start with a digit - "1" is not a valid identifier even though it has no special chars
+                    const is_valid_ident = blk: {
+                        if (field_name.len == 0) break :blk false;
+                        // First char cannot be a digit
+                        const first = field_name[0];
+                        if (first >= '0' and first <= '9') break :blk false;
+                        for (field_name) |c| {
+                            // Valid identifier chars: a-z, A-Z, 0-9, _ (but can't start with digit)
+                            if (c == ' ' or c == '-' or c == '.' or c == '[' or c == ']' or
+                                c == '(' or c == ')' or c == '{' or c == '}' or c == '/' or
+                                c == '\\' or c == ':' or c == ';' or c == ',' or c == '!' or
+                                c == '@' or c == '#' or c == '$' or c == '%' or c == '^' or
+                                c == '&' or c == '*' or c == '+' or c == '=' or c == '|' or
+                                c == '~' or c == '`' or c == '\'' or c == '"' or c == '<' or
+                                c == '>' or c == '?' or c == '\n' or c == '\r' or c == '\t')
+                            {
+                                break :blk false;
+                            }
+                        }
+                        break :blk true;
+                    };
+                    if (is_valid_ident) {
+                        try self.emit("__base.");
+                        // Escape field name if it's a Zig keyword (e.g., 'const', 'type', etc.)
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
+                    } else {
+                        // Invalid identifier (has spaces, etc.) - use .get() for dict access
+                        try self.emit("__base.get(\"");
+                        try self.emit(field_name);
+                        try self.emit("\").?");
+                    }
                 } else {
                     // Check if the base is a tuple type - use .@"N" instead of [N]
                     const base_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
@@ -310,12 +340,16 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try genExpr(self, subscript.slice.index.*);
                 try self.emit(").?");
             } else if (is_unknown_pyobject and type_traits.isIntegral(index_type)) {
-                // PyObject list access: runtime.PyList.get(obj, index)
-                try self.emit("(try runtime.PyList.get(");
+                // Unknown container with integer index - use container_dispatch which handles
+                // both Zig tuples/structs AND ArrayLists at comptime via type inspection
+                // This prevents type errors when anytype params receive tuples vs lists
+                try self.emit("runtime.container_dispatch.getAt(@TypeOf(");
                 try genExpr(self, subscript.value.*);
-                try self.emit(", ");
+                try self.emit("), ");
+                try genExpr(self, subscript.value.*);
+                try self.emit(", @as(usize, @intCast(");
                 try genExpr(self, subscript.slice.index.*);
-                try self.emit("))");
+                try self.emit(")))");
             } else if (is_dict or is_counter or is_tracked_dict) {
                 // Native dict/Counter access: dict.get(key).? for raw StringHashMap
                 // Counter returns 0 for missing keys in Python
@@ -832,7 +866,52 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 /// This recursively generates nested subscripts without labeled blocks, producing valid
 /// lvalues like `arr[0][1][2]` instead of `sub_N: { ... }[1][2]`
 pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) CodegenError!void {
-    // Recursively generate base without block wrapping
+    // Check if we need block wrapping for unknown container type with string key
+    // Must check BEFORE emitting base expression to avoid invalid syntax
+    const container_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
+    const needs_block = blk: {
+        switch (subscript.slice) {
+            .index => |index| {
+                const index_type = self.type_inferrer.inferExpr(index.*) catch .unknown;
+                break :blk type_traits.isUnknown(container_type) and
+                    (string_traits.isString(index_type) or index_type == .pyvalue or type_traits.isUnknown(index_type));
+            },
+            .slice => break :blk false,
+        }
+    };
+
+    if (needs_block) {
+        // Unknown container with string/pyvalue key - emit full block wrapper
+        // Do NOT emit base first - include it inside the block to avoid double-emit
+        const index = subscript.slice.index.*;
+        const index_type = self.type_inferrer.inferExpr(index) catch .unknown;
+
+        try self.emit("blk: { const __base = ");
+        // Emit the base expression (could be nested subscript or simple name)
+        if (subscript.value.* == .subscript) {
+            try genSubscriptLHS(self, subscript.value.subscript);
+        } else {
+            try genExpr(self, subscript.value.*);
+        }
+        try self.emit("; break :blk if (@TypeOf(__base) == runtime.PyValue) __base.pyDictGetPtr(");
+        if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
+            try genExpr(self, index);
+            try self.emit(".asString()");
+        } else {
+            try genExpr(self, index);
+        }
+        try self.emit(").?.* else __base.getPtr(");
+        if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
+            try genExpr(self, index);
+            try self.emit(".asString()");
+        } else {
+            try genExpr(self, index);
+        }
+        try self.emit(").?.*; }");
+        return;
+    }
+
+    // Standard path: emit base expression first, then append access
     if (subscript.value.* == .subscript) {
         // Nested subscript - recurse
         try genSubscriptLHS(self, subscript.value.subscript);
@@ -844,8 +923,6 @@ pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) Code
     // Now emit the index access
     switch (subscript.slice) {
         .index => |index| {
-            // Determine container type for appropriate access pattern
-            const container_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
             const index_type = self.type_inferrer.inferExpr(index.*) catch .unknown;
 
             // Dict access with string key - use .getPtr() for mutable access
@@ -865,26 +942,6 @@ pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) Code
                     try genExpr(self, index.*);
                 }
                 try self.emit(").?.*");
-            } else if (type_traits.isUnknown(container_type) and (string_traits.isString(index_type) or index_type == .pyvalue or type_traits.isUnknown(index_type))) {
-                // Unknown container with string/pyvalue key - emit runtime check
-                // Use inline if to handle both native dict and PyValue dict
-                try self.emit(": blk: { const __cont = ");
-                try genExpr(self, subscript.value.*);
-                try self.emit("; break :blk if (@TypeOf(__cont) == runtime.PyValue) __cont.pyDictGetPtr(");
-                if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
-                    try genExpr(self, index.*);
-                    try self.emit(".asString()");
-                } else {
-                    try genExpr(self, index.*);
-                }
-                try self.emit(").?.* else __cont.getPtr(");
-                if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
-                    try genExpr(self, index.*);
-                    try self.emit(".asString()");
-                } else {
-                    try genExpr(self, index.*);
-                }
-                try self.emit(").?.*; }");
             } else if (container_traits.isList(container_type)) {
                 try self.emit(".items[@as(usize, @intCast(");
                 try genExpr(self, index.*);
