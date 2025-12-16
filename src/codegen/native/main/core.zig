@@ -18,6 +18,7 @@ const fnv_hash = @import("utils.fnv_hash");
 const cleanup = @import("cleanup.zig");
 const debug_info = @import("debug.debug_info");
 const name_gen_mod = @import("codegen.name_gen");
+const expr_emitter = @import("../expr_emitter.zig");
 
 const hashmap_helper = @import("utils.hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
@@ -1403,6 +1404,12 @@ pub const NativeCodegen = struct {
                 self.zig_line_counter += 1;
             }
         }
+    }
+
+    /// Get an ExprEmitter for safe expression wrapping
+    /// Use for parenthesization, catch handling, and labeled blocks
+    pub fn exprEmitter(self: *NativeCodegen) expr_emitter.ExprEmitter {
+        return expr_emitter.ExprEmitter{ .codegen = self };
     }
 
     /// Static indent strings for O(1) lookup instead of O(n) loop
