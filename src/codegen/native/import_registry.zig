@@ -353,6 +353,10 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("signal", .zig_runtime, "std", null);
     try registry.register("multiprocessing", .zig_runtime, "std", null);
     try registry.register("array", .zig_runtime, null, null);
+
+    // NumPy - N-dimensional arrays with Metal GPU acceleration on macOS
+    try registry.registerDirect("numpy", .zig_runtime, "runtime.Lib.numpy", "runtime.Lib.numpy", null);
+
     try registry.registerDirect("weakref", .zig_runtime, "runtime.Lib.weakref", "runtime.Lib.weakref", null);
     try registry.register("types", .zig_runtime, "std", null);
     try registry.registerDirect("abc", .zig_runtime, "runtime.Lib.abc", "runtime.Lib.abc", null);
