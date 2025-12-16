@@ -613,6 +613,17 @@ pub fn inferModuleFunctionCall(
             if (static_maps.MathBoolFuncs.has(func_name)) return .bool;
             return .float; // All other math functions return float
         },
+        fnv_hash.hash("array") => {
+            // array module - array.array() returns typed array struct
+            // Using class_instance to avoid PyValue wrapping
+            const func_hash = fnv_hash.hash(func_name);
+            const ARRAY_HASH = comptime fnv_hash.hash("array");
+            if (func_hash == ARRAY_HASH) {
+                // Return as class_instance to skip PyValue wrapping
+                return .{ .class_instance = "array.array" };
+            }
+            return .unknown;
+        },
         else => {},
     }
 

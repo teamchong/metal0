@@ -883,6 +883,7 @@ pub const Lib = struct {
     pub const sre_compile = @import("Lib/sre_compile.zig");
     pub const sre_parse = @import("Lib/sre_parse.zig");
 
+    pub const array = @import("Lib/array.zig");
     pub const json = @import("Lib/json.zig");
     pub const re = @import("Lib/re.zig");
     pub const sys = @import("Lib/sys.zig");

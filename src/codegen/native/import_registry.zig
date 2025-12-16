@@ -272,6 +272,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     // Tier 1: Zig implementations (performance-critical)
     // Note: runtime is imported as @import("./runtime.zig") at module level
     // direct_import paths enable DCE by using runtime.Lib.xxx instead of runtime.xxx
+    try registry.registerDirect("array", .zig_runtime, "runtime.Lib.array", "runtime.Lib.array", null);
     try registry.registerDirect("json", .zig_runtime, "runtime.json", "runtime.Lib.json", null);
     try registry.registerDirect("http", .zig_runtime, "runtime.http", "runtime.Lib.http", null);
     try registry.registerDirect("http.client", .zig_runtime, "runtime.http.client", "runtime.Lib.http.client", null);
