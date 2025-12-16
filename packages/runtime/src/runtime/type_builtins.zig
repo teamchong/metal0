@@ -1,6 +1,8 @@
 /// Type builtin wrappers - simple functions that return a truthy []const u8
 /// Used when types are stored as first-class values in lists
 /// These return a non-empty string so bool(type) returns True
+const PyValue = @import("../Objects/object.zig").PyValue;
+const std = @import("std");
 
 pub fn boolBuiltin(arg: []const u8) []const u8 {
     return if (arg.len > 0) arg else "bool";
@@ -58,6 +60,23 @@ pub fn complexBuiltin(arg: []const u8) []const u8 {
 /// Used for: bool(x), int(x), str(x), etc.
 const PythonError = @import("exceptions.zig").PythonError;
 
+/// bool() for PyValue - compiles once (no monomorphization)
+pub fn boolBuiltinCallPyValue(t: PyValue) PythonError!bool {
+    return switch (t) {
+        .bool => |b| b,
+        .int => |i| i != 0,
+        .float => |f| f != 0.0 and !std.math.isNan(f),
+        .string => |s| s.len > 0,
+        .bytes => |b| b.data.len > 0,
+        .list => |l| l.items.len > 0,
+        .tuple => |tup| tup.len > 0,
+        .none => false,
+        .bigint => |bi| !bi.isZero(),
+        .complex => |c| c.real != 0.0 or c.imag != 0.0,
+        .ptr => true,
+    };
+}
+
 /// Call bool() type constructor with arguments
 /// Calling convention: boolBuiltinCall(first_arg, .{remaining_args})
 /// Python: bool() -> False (called as boolBuiltinCall({}, .{}))
@@ -77,8 +96,13 @@ pub fn boolBuiltinCall(t: anytype, args: anytype) PythonError!bool {
         }
     }
 
-    // Check if t is empty struct (bool() with no args)
+    // Fast path: PyValue (uncertain type) - compiles ONCE via concrete function
     const TType = @TypeOf(t);
+    if (TType == PyValue) {
+        return boolBuiltinCallPyValue(t);
+    }
+
+    // Check if t is empty struct (bool() with no args)
     const t_info = @typeInfo(TType);
     if (t_info == .@"struct") {
         const t_fields = t_info.@"struct".fields;

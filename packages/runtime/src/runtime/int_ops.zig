@@ -518,6 +518,19 @@ pub fn parseIntToBigInt(allocator: std.mem.Allocator, str: []const u8, base: u8)
     return result;
 }
 
+/// int() for PyValue - compiles once (no monomorphization)
+pub fn intBuiltinCallPyValue(first: PyValue) PythonError!i128 {
+    return switch (first) {
+        .int => |i| @as(i128, i),
+        .float => |f| @as(i128, @intFromFloat(f)),
+        .bool => |b| if (b) @as(i128, 1) else @as(i128, 0),
+        .string => |s| parseIntUnicode(s, 10) catch return PythonError.ValueError,
+        .bytes => |b| parseIntUnicode(b.data, 10) catch return PythonError.ValueError,
+        .bigint => |bi| bi.toInt(i128) catch return PythonError.OverflowError,
+        else => PythonError.TypeError,
+    };
+}
+
 /// int() builtin call wrapper for assertRaises testing
 /// Handles int(x) and int(x, base) with proper error checking
 pub fn intBuiltinCall(allocator: std.mem.Allocator, first: anytype, rest: anytype) PythonError!i128 {
@@ -529,6 +542,12 @@ pub fn intBuiltinCall(allocator: std.mem.Allocator, first: anytype, rest: anytyp
 
     // Count additional arguments
     const has_extra_args = rest_info == .@"struct" and rest_info.@"struct".fields.len > 0;
+
+    // Fast path: PyValue (uncertain type) - compiles ONCE via concrete function
+    if (FirstType == PyValue) {
+        if (has_extra_args) return PythonError.TypeError; // int(PyValue, base) not supported
+        return intBuiltinCallPyValue(first);
+    }
 
     // If first arg is numeric (int/float), any additional args are invalid
     if (first_info == .int or first_info == .comptime_int or first_info == .float or first_info == .comptime_float) {

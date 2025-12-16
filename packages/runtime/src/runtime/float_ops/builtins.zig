@@ -4,6 +4,7 @@ const exceptions = @import("../exceptions.zig");
 const parsing = @import("parsing.zig");
 const parseFloatWithUnicode = parsing.parseFloatWithUnicode;
 const parseFloatBytes = parsing.parseFloatBytes;
+const PyValue = @import("../../Objects/object.zig").PyValue;
 
 /// Python error types
 pub const PythonError = error{
@@ -17,12 +18,63 @@ pub const PythonError = error{
     Exception,
 };
 
+// =============================================================================
+// CONCRETE PyValue FUNCTIONS (compile ONCE - no monomorphization)
+// =============================================================================
+
+/// float() for PyValue - compiles once
+pub fn floatBuiltinCallPyValue(first: PyValue) PythonError!f64 {
+    return switch (first) {
+        .int => |i| @as(f64, @floatFromInt(i)),
+        .float => |f| f,
+        .bool => |b| if (b) @as(f64, 1.0) else @as(f64, 0.0),
+        .string => |s| parseFloatWithUnicode(s) catch {
+            exceptions.setFloatConversionErrorStr(s);
+            return PythonError.ValueError;
+        },
+        .bytes => |b| parseFloatBytes(b.data) catch {
+            exceptions.setFloatConversionError(b.data);
+            return PythonError.ValueError;
+        },
+        .bigint => |bi| bi.toFloat() catch return PythonError.OverflowError,
+        else => PythonError.TypeError,
+    };
+}
+
+/// bool() for PyValue - compiles once
+pub fn boolBuiltinCallPyValue(first: PyValue) PythonError!bool {
+    return switch (first) {
+        .bool => |b| b,
+        .int => |i| i != 0,
+        .float => |f| f != 0.0 and !std.math.isNan(f),
+        .string => |s| s.len > 0,
+        .bytes => |b| b.data.len > 0,
+        .list => |l| l.items.len > 0,
+        .tuple => |t| t.len > 0,
+        .none => false,
+        .bigint => |bi| !bi.isZero(),
+        .complex => |c| c.real != 0.0 or c.imag != 0.0,
+        .ptr => true,
+    };
+}
+
+// =============================================================================
+// ANYTYPE WRAPPERS (dispatch to concrete functions)
+// =============================================================================
+
 /// float() builtin call wrapper for assertRaises testing
 pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
     const FirstType = @TypeOf(first);
     const first_info = @typeInfo(FirstType);
     const RestType = @TypeOf(rest);
     const rest_info = @typeInfo(RestType);
+
+    // Fast path: PyValue (uncertain type) - compiles ONCE via concrete function
+    if (FirstType == PyValue) {
+        const has_extra = rest_info == .@"struct" and rest_info.@"struct".fields.len > 0;
+        if (has_extra) return PythonError.TypeError;
+        return floatBuiltinCallPyValue(first);
+    }
 
     const has_extra_args = rest_info == .@"struct" and rest_info.@"struct".fields.len > 0;
     if (has_extra_args) {
@@ -158,6 +210,11 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
     const has_extra_args = rest_info == .@"struct" and rest_info.@"struct".fields.len > 0;
     if (has_extra_args) {
         return PythonError.TypeError;
+    }
+
+    // Fast path: PyValue (uncertain type) - compiles ONCE via concrete function
+    if (FirstType == PyValue) {
+        return boolBuiltinCallPyValue(first);
     }
 
     if (FirstType == void or first_info == .@"struct" and first_info.@"struct".fields.len == 0) {

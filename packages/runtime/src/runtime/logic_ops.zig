@@ -5,11 +5,40 @@ const PyValue = object.PyValue;
 const toPyValue = object.toPyValue;
 const bool_ops = @import("bool_ops.zig");
 const toBoolWithError = bool_ops.toBoolWithError;
+const toBoolValue = bool_ops.toBoolValue;
+
+// =============================================================================
+// CONCRETE PyValue FUNCTIONS (compile ONCE - no monomorphization)
+// =============================================================================
+
+/// Python `or` for PyValue - compiles once
+pub fn pyOrPyValue(a: PyValue, b: PyValue) PyValue {
+    if (toBoolValue(a)) return a;
+    return b;
+}
+
+/// Python `and` for PyValue - compiles once
+pub fn pyAndPyValue(a: PyValue, b: PyValue) PyValue {
+    if (!toBoolValue(a)) return a;
+    return b;
+}
+
+// =============================================================================
+// ANYTYPE WRAPPERS (dispatch to concrete functions)
+// =============================================================================
 
 /// Python `or` semantics for incompatible types
 /// Returns a if truthy, else b (as PyValue)
 /// IMPORTANT: Must call toBool() BEFORE toPyValue() to invoke __bool__ methods
 pub fn pyOr(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
+    const TypeA = @TypeOf(a);
+    const TypeB = @TypeOf(b);
+
+    // Fast path: both PyValue - compiles ONCE via concrete function
+    if (TypeA == PyValue and TypeB == PyValue) {
+        return pyOrPyValue(a, b);
+    }
+
     // Check truthiness using toBool which handles __bool__ methods via comptime introspection
     // This must happen BEFORE toPyValue conversion which loses method information
     const a_truthy = try toBoolWithError(a);
@@ -23,6 +52,14 @@ pub fn pyOr(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
 /// Returns a if falsy, else b (as PyValue)
 /// IMPORTANT: Must call toBool() BEFORE toPyValue() to invoke __bool__ methods
 pub fn pyAnd(allocator: std.mem.Allocator, a: anytype, b: anytype) !PyValue {
+    const TypeA = @TypeOf(a);
+    const TypeB = @TypeOf(b);
+
+    // Fast path: both PyValue - compiles ONCE via concrete function
+    if (TypeA == PyValue and TypeB == PyValue) {
+        return pyAndPyValue(a, b);
+    }
+
     // Check truthiness using toBool which handles __bool__ methods via comptime introspection
     // This must happen BEFORE toPyValue conversion which loses method information
     const a_truthy = try toBoolWithError(a);
