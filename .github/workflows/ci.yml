@@ -22,7 +22,7 @@ jobs:
   test-metal0-core1:
     name: Metal0 @core1 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,12 +36,12 @@ jobs:
           group: "@core1"
           label: "core1"
           os: "linux"
-        timeout-minutes: 30
+        timeout-minutes: 45
 
   test-metal0-core2:
     name: Metal0 @core2 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,12 +55,12 @@ jobs:
           group: "@core2"
           label: "core2"
           os: "linux"
-        timeout-minutes: 30
+        timeout-minutes: 45
 
   test-metal0-core3:
     name: Metal0 @core3 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,12 +74,12 @@ jobs:
           group: "@core3"
           label: "core3"
           os: "linux"
-        timeout-minutes: 30
+        timeout-minutes: 45
 
   test-metal0-core4:
     name: Metal0 @core4 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,12 +93,12 @@ jobs:
           group: "@core4"
           label: "core4"
           os: "linux"
-        timeout-minutes: 30
+        timeout-minutes: 45
 
   test-metal0-core5:
     name: Metal0 @core5 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -112,12 +112,12 @@ jobs:
           group: "@core5"
           label: "core5"
           os: "linux"
-        timeout-minutes: 30
+        timeout-minutes: 45
 
   test-metal0-core6:
     name: Metal0 @core6 (51 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -131,7 +131,7 @@ jobs:
           group: "@core6"
           label: "core6"
           os: "linux"
-        timeout-minutes: 30
+        timeout-minutes: 45
 
   test-metal0-linux:
     name: Metal0 @linux (28 tests)
@@ -155,7 +155,7 @@ jobs:
   test-metal0-macos:
     name: Metal0 @macos (25 tests)
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:

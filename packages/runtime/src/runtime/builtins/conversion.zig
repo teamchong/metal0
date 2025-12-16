@@ -80,12 +80,20 @@ pub fn intWithBase(allocator: std.mem.Allocator, string: anytype, base: anytype)
     const base_val: u8 = blk: {
         const BaseT = @TypeOf(base);
         if (@typeInfo(BaseT) == .int or @typeInfo(BaseT) == .comptime_int) {
-            break :blk @intCast(base);
+            // Cast to i64 first to safely compare (handles comptime_int with large/negative values)
+            const base_i64: i64 = @intCast(base);
+            // Validate base is in valid range before casting to u8
+            // Python allows base 0 (auto-detect), 2-36
+            if (base_i64 < 0 or (base_i64 != 0 and (base_i64 < 2 or base_i64 > 36))) {
+                return PythonError.ValueError;
+            }
+            break :blk @intCast(base_i64);
         }
         break :blk 10;
     };
 
-    if (base_val < 2 or base_val > 36) {
+    // Additional validation for the parsed base value
+    if (base_val != 0 and (base_val < 2 or base_val > 36)) {
         return PythonError.ValueError;
     }
 
