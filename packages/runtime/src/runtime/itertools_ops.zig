@@ -17,7 +17,7 @@ pub fn compress(comptime T: type, allocator: std.mem.Allocator, data: []const T,
     const len = @min(data.len, selectors.len);
     for (0..len) |i| {
         if (selectors[i] != 0) {
-            result.append(allocator, data[i]) catch continue;
+            result.append(allocator, data[i]) catch unreachable;
         }
     }
     return result;
@@ -32,7 +32,7 @@ pub fn pairwise(comptime T: type, allocator: std.mem.Allocator, iter: []const T)
     var result: std.ArrayListUnmanaged(Pair(T)) = .{};
     if (iter.len > 1) {
         for (0..iter.len - 1) |i| {
-            result.append(allocator, .{ .first = iter[i], .second = iter[i + 1] }) catch continue;
+            result.append(allocator, .{ .first = iter[i], .second = iter[i + 1] }) catch unreachable;
         }
     }
     return result;
@@ -53,7 +53,7 @@ pub fn accumulate(comptime T: type, allocator: std.mem.Allocator, iter: []const 
             // Default: addition (only works for numeric types)
             acc = acc + item;
         }
-        result.append(allocator, acc) catch continue;
+        result.append(allocator, acc) catch unreachable;
     }
     return result;
 }
@@ -77,7 +77,7 @@ pub fn groupby(comptime T: type, allocator: std.mem.Allocator, iter: []const T) 
 
     for (iter[1..]) |item| {
         if (item == cur_key) {
-            cur_group.append(allocator, item) catch continue;
+            cur_group.append(allocator, item) catch unreachable;
         } else {
             result.append(allocator, .{ .key = cur_key, .group = cur_group }) catch unreachable;
             cur_key = item;
@@ -97,9 +97,9 @@ pub fn batched(comptime T: type, allocator: std.mem.Allocator, iter: []const T, 
         var batch: std.ArrayListUnmanaged(T) = .{};
         const end = @min(i + n, iter.len);
         for (iter[i..end]) |item| {
-            batch.append(allocator, item) catch continue;
+            batch.append(allocator, item) catch unreachable;
         }
-        result.append(allocator, batch) catch continue;
+        result.append(allocator, batch) catch unreachable;
     }
     return result;
 }
@@ -109,7 +109,7 @@ pub fn islice(comptime T: type, allocator: std.mem.Allocator, iter: []const T, s
     var result: std.ArrayListUnmanaged(T) = .{};
     const actual_stop = @min(stop, iter.len);
     for (iter[0..actual_stop]) |item| {
-        result.append(allocator, item) catch continue;
+        result.append(allocator, item) catch unreachable;
     }
     return result;
 }
@@ -126,7 +126,7 @@ pub fn combinations(comptime T: type, allocator: std.mem.Allocator, iter: []cons
 
     for (0..iter.len - 1) |i| {
         for (iter[i + 1 ..]) |b| {
-            result.append(allocator, .{ .first = iter[i], .second = b }) catch continue;
+            result.append(allocator, .{ .first = iter[i], .second = b }) catch unreachable;
         }
     }
     return result;
@@ -137,7 +137,7 @@ pub fn combinationsWithReplacement(comptime T: type, allocator: std.mem.Allocato
     var result: std.ArrayListUnmanaged(CombPair(T)) = .{};
     for (iter, 0..) |a, i| {
         for (iter[i..]) |b| {
-            result.append(allocator, .{ .first = a, .second = b }) catch continue;
+            result.append(allocator, .{ .first = a, .second = b }) catch unreachable;
         }
     }
     return result;
@@ -149,7 +149,7 @@ pub fn permutations(comptime T: type, allocator: std.mem.Allocator, iter: []cons
     for (iter, 0..) |a, i| {
         for (iter, 0..) |b, j| {
             if (i != j) {
-                result.append(allocator, .{ .first = a, .second = b }) catch continue;
+                result.append(allocator, .{ .first = a, .second = b }) catch unreachable;
             }
         }
     }
