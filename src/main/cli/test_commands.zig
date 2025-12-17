@@ -409,6 +409,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         codegen_ok: *std.atomic.Value(usize),
         codegen_fail: *std.atomic.Value(usize),
         codegen_cached: *std.atomic.Value(usize),
+        current_file: std.atomic.Value(usize), // Track file index being processed
 
         fn worker(ctx: *@This()) void {
             while (true) {
@@ -420,6 +421,9 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                     _ = ctx.codegen_cached.fetchAdd(1, .seq_cst);
                     continue;
                 }
+
+                // Mark current file index (for timeout detection)
+                ctx.current_file.store(idx + 1, .seq_cst); // +1 so 0 means "no file"
 
                 // Use thread-local allocator for codegen
                 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -433,9 +437,11 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                 };
                 compile_mod.compileFile(arena.allocator(), opts) catch {
                     _ = ctx.codegen_fail.fetchAdd(1, .seq_cst);
+                    ctx.current_file.store(0, .seq_cst);
                     continue;
                 };
                 _ = ctx.codegen_ok.fetchAdd(1, .seq_cst);
+                ctx.current_file.store(0, .seq_cst);
             }
         }
     };
@@ -446,6 +452,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         .codegen_ok = &codegen_ok,
         .codegen_fail = &codegen_fail,
         .codegen_cached = &codegen_cached,
+        .current_file = std.atomic.Value(usize).init(0),
     };
 
     // Spawn codegen worker threads
@@ -459,16 +466,28 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     // Timeout watchdog for codegen phase (5 minutes total for CI with 2 workers)
     var codegen_done = std.atomic.Value(bool).init(false);
+    const WatchdogContext = struct {
+        done: *std.atomic.Value(bool),
+        ctx: *CodegenContext,
+    };
+    var watchdog_ctx = WatchdogContext{ .done = &codegen_done, .ctx = &codegen_ctx };
     const watchdog = std.Thread.spawn(.{}, struct {
-        fn run(done: *std.atomic.Value(bool)) void {
+        fn run(wctx: *WatchdogContext) void {
             std.Thread.sleep(300 * std.time.ns_per_s); // 5 minute timeout
-            if (!done.load(.seq_cst)) {
-                printError("Phase 1 (Codegen) TIMEOUT after 5 minutes - likely infinite loop in codegen", .{});
-                printError("This is a compiler bug. Please report which test file hangs.", .{});
+            if (!wctx.done.load(.seq_cst)) {
+                printError("Phase 1 (Codegen) TIMEOUT after 5 minutes", .{});
+                const file_idx = wctx.ctx.current_file.load(.seq_cst);
+                if (file_idx > 0 and file_idx <= wctx.ctx.tasks.len) {
+                    const hanging_file = wctx.ctx.tasks[file_idx - 1].file_path;
+                    printError("HANGING FILE: {s}", .{hanging_file});
+                    printError("This file causes infinite loop in codegen - please report bug", .{});
+                } else {
+                    printError("Unable to determine which file is hanging (idx={d})", .{file_idx});
+                }
                 std.process.exit(1);
             }
         }
-    }.run, .{&codegen_done}) catch unreachable;
+    }.run, .{&watchdog_ctx}) catch unreachable;
 
     for (0..actual_codegen_threads) |ti| {
         codegen_threads[ti].join();

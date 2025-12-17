@@ -16,7 +16,7 @@ getopt
 getpass
 gettext
 global
-grammar
+# grammar  # DISABLED: crashes with SIGILL during codegen
 graphlib
 gzip
 hashlib
