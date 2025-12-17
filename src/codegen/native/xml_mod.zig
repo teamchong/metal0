@@ -3,7 +3,7 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 const element_tree_struct = "struct { root: ?*Element = null, pub fn getroot(s: *@This()) ?*Element { return s.root; } pub fn write(s: *@This(), f: []const u8) void { _ = s; _ = f; } }{}";
-const parseBody = "; const f = std.fs.cwd().openFile(_src, .{}) catch break :blk " ++ element_tree_struct ++ "; defer f.close(); _ = f.readToEndAlloc(__global_allocator, 10*1024*1024) catch {}; break :blk " ++ element_tree_struct ++ "; }";
+const parseBody = "; const f = std.fs.cwd().openFile(_src, .{}) catch break :blk " ++ element_tree_struct ++ "; defer f.close(); const content = f.readToEndAlloc(__global_allocator, 10*1024*1024) catch break :blk " ++ element_tree_struct ++ "; _ = content; break :blk " ++ element_tree_struct ++ "; }";
 const tostringBody = "; var r: std.ArrayList(u8) = .{}; r.appendSlice(__global_allocator, \"<\") catch {}; r.appendSlice(__global_allocator, e.tag) catch {}; r.appendSlice(__global_allocator, \">\") catch {}; r.appendSlice(__global_allocator, e.text) catch {}; r.appendSlice(__global_allocator, \"</\") catch {}; r.appendSlice(__global_allocator, e.tag) catch {}; r.appendSlice(__global_allocator, \">\") catch {}; break :blk r.items; }";
 const subElementBody = "; var c = Element{ .tag = t }; p.children.append(__global_allocator, &c) catch {}; break :blk c; }";
 
