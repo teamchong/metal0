@@ -22,11 +22,10 @@ pub fn genDefaultdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
             try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
         } else {
             // Non-variable (like int, str, list literals) - wrap in discard block
-            const id = try h.emitUniqueBlockStart(self, "discard");
-            try self.emit("_ = ");
+            const id = self.nextNameId();
+            try self.emitFmt("(__m{d}_discard: {{ _ = ", .{id});
             try self.genExpr(arg);
-            try h.emitBlockBreak(self, "discard", id);
-            try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator); }");
+            try self.emitFmt("; break :__m{d}_discard hashmap_helper.StringHashMap(i64).init(__global_allocator); }})", .{id});
         }
     } else {
         try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
@@ -42,11 +41,10 @@ pub fn genOrderedDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
             try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
         } else {
             // Non-variable - wrap in discard block
-            const id = try h.emitUniqueBlockStart(self, "discard");
-            try self.emit("_ = ");
+            const id = self.nextNameId();
+            try self.emitFmt("(__m{d}_discard: {{ _ = ", .{id});
             try self.genExpr(arg);
-            try h.emitBlockBreak(self, "discard", id);
-            try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator); }");
+            try self.emitFmt("; break :__m{d}_discard hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator); }})", .{id});
         }
     } else {
         try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
@@ -134,11 +132,10 @@ pub fn genUserDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
         } else {
             // Non-variable - wrap in discard block
-            const id = try h.emitUniqueBlockStart(self, "discard");
-            try self.emit("_ = ");
+            const id = self.nextNameId();
+            try self.emitFmt("(__m{d}_discard: {{ _ = ", .{id});
             try self.genExpr(arg);
-            try h.emitBlockBreak(self, "discard", id);
-            try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator); }");
+            try self.emitFmt("; break :__m{d}_discard hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator); }})", .{id});
         }
     } else {
         try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
