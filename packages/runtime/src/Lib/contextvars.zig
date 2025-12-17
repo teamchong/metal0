@@ -229,7 +229,7 @@ pub fn copy_context(allocator: std.mem.Allocator) Context {
         var new_ctx = Context.init(allocator);
         var iter = ctx.data.iterator();
         while (iter.next()) |entry| {
-            new_ctx.data.put(allocator, entry.key_ptr.*, entry.value_ptr.*) catch {};
+            new_ctx.data.put(allocator, entry.key_ptr.*, entry.value_ptr.*) catch unreachable;
         }
         return new_ctx;
     }

@@ -27,7 +27,7 @@ pub fn registerAdapter(comptime T: type, adapter: *const fn (value: T) []const u
     if (adapters_map == null) {
         adapters_map = hashmap_helper.StringHashMap(*const anyopaque).init(allocator_helper.fast_allocator);
     }
-    adapters_map.?.put(@typeName(T), @ptrCast(adapter)) catch {};
+    adapters_map.?.put(@typeName(T), @ptrCast(adapter)) catch unreachable;
 }
 
 /// Register a converter from SQLite type to Python
@@ -35,7 +35,7 @@ pub fn registerConverter(typename: []const u8, converter: *const anyopaque) void
     if (converters_map == null) {
         converters_map = hashmap_helper.StringHashMap(*const anyopaque).init(allocator_helper.fast_allocator);
     }
-    converters_map.?.put(typename, converter) catch {};
+    converters_map.?.put(typename, converter) catch unreachable;
 }
 
 // ============================================================================

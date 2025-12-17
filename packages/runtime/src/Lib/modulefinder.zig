@@ -100,7 +100,7 @@ pub const ModuleFinder = struct {
 
         if (excludes) |excl| {
             for (excl) |e| {
-                finder.excludes.put(allocator, e, {}) catch {};
+                finder.excludes.put(allocator, e, {}) catch unreachable;
             }
         }
 
@@ -352,7 +352,7 @@ pub fn AddPackagePath(allocator: std.mem.Allocator, packagename: []const u8, pat
             // Create new path list for this package
             var path_list: std.ArrayList([]const u8) = .{};
             path_list.append(allocator, path) catch {};
-            paths.put(allocator, packagename, path_list) catch {};
+            paths.put(allocator, packagename, path_list) catch unreachable;
         }
     }
 }
@@ -387,7 +387,7 @@ pub fn ReplacePackage(allocator: std.mem.Allocator, oldname: []const u8, newname
     initPackageReplacements(allocator);
 
     if (package_replacements) |*replacements| {
-        replacements.put(allocator, oldname, newname) catch {};
+        replacements.put(allocator, oldname, newname) catch unreachable;
     }
 }
 

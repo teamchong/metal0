@@ -289,7 +289,7 @@ pub fn textdomain(domain: ?[]const u8) []const u8 {
 pub fn bindtextdomain(domain: []const u8, localedir: ?[]const u8) []const u8 {
     const dir = localedir orelse DEFAULT_LOCALEDIR;
     if (locale_dirs) |*ld| {
-        ld.put(domain, dir) catch {};
+        ld.put(domain, dir) catch unreachable;
     }
     return dir;
 }

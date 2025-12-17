@@ -252,7 +252,7 @@ pub const Profile = struct {
             entry.value_ptr.* = FuncStats.init(self.allocator);
         }
         entry.value_ptr.ncalls += 1;
-        self.timings.put(frame, self.timer()) catch {};
+        self.timings.put(frame, self.timer()) catch unreachable;
         self.cur = frame;
     }
 

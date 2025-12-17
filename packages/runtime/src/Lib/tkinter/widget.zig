@@ -52,7 +52,7 @@ pub const Widget = struct {
                     bool => .{ .boolean = value },
                     else => continue,
                 };
-                self.options.put(field.name, opt_value) catch {};
+                self.options.put(field.name, opt_value) catch unreachable;
             }
         }
     }

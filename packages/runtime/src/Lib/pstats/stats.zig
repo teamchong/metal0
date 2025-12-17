@@ -78,7 +78,7 @@ pub const Stats = struct {
                 existing.total_time += entry.value_ptr.total_time;
                 existing.cumulative_time += entry.value_ptr.cumulative_time;
             } else {
-                self.stats.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                self.stats.put(entry.key_ptr.*, entry.value_ptr.*) catch unreachable;
             }
         }
     }
@@ -103,9 +103,9 @@ pub const Stats = struct {
 
                 // Reconstruct with basename
                 const new_key = std.fmt.bufPrint(&new_key_buf, "{s}{s}", .{ basename, rest }) catch key;
-                new_stats.put(new_key, entry.value_ptr.*) catch {};
+                new_stats.put(new_key, entry.value_ptr.*) catch unreachable;
             } else {
-                new_stats.put(key, entry.value_ptr.*) catch {};
+                new_stats.put(key, entry.value_ptr.*) catch unreachable;
             }
         }
 
