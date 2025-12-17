@@ -467,7 +467,7 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
                         try self.emitIndent();
                         try self.emit("const __empty: [0]@TypeOf(__list.items[0]) = .{};\n");
                         try self.emitIndent();
-                        try self.emit("__list.replaceRange(__global_allocator, __start, __end - __start, &__empty) catch {};\n");
+                        try self.emit("__list.replaceRange(__global_allocator, __start, __end - __start, &__empty) catch unreachable;\n");
 
                         self.dedent();
                         try self.emitIndent();

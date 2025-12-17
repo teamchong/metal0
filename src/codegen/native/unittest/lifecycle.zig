@@ -125,7 +125,13 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             // setUp
             if (class_info.has_setUp) {
                 try self.emitIndent();
-                try self.emit("ctx.instance.setUp(ctx.allocator) catch {};\n");
+                try self.emit("ctx.instance.setUp(ctx.allocator) catch |err| {\n");
+                self.indent();
+                try self.emitIndent();
+                try self.emit("_ = err; ctx.result.store(2, .release); return;\n"); // Fail test on setUp error
+                self.dedent();
+                try self.emitIndent();
+                try self.emit("};\n");
             }
 
             // Run test - check if method returns error union
@@ -159,7 +165,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
                 // tearDown on failure
                 if (class_info.has_tearDown) {
                     try self.emitIndent();
-                    try self.emit("ctx.instance.tearDown(ctx.allocator) catch {};\n");
+                    try self.emit("ctx.instance.tearDown(ctx.allocator) catch |err| { _ = err; };\n");
                 }
                 try self.emitIndent();
                 try self.emit("ctx.result.store(2, .release);\n"); // 2 = failed
@@ -178,7 +184,13 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             // tearDown on success
             if (class_info.has_tearDown) {
                 try self.emitIndent();
-                try self.emit("ctx.instance.tearDown(ctx.allocator) catch {};\n");
+                try self.emit("ctx.instance.tearDown(ctx.allocator) catch |err| {\n");
+                self.indent();
+                try self.emitIndent();
+                try self.emit("_ = err; ctx.result.store(2, .release); return;\n"); // Fail test on tearDown error
+                self.dedent();
+                try self.emitIndent();
+                try self.emit("};\n");
             }
             try self.emitIndent();
             try self.emit("ctx.result.store(1, .release);\n"); // 1 = passed
@@ -224,7 +236,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("runtime.print(\"{s} ... FAIL\\n\", .{name});\n");
     try self.emitIndent();
-    try self.emit("if (unittest.global_result.*) |r| r.addFail(name) catch {};\n");
+    try self.emit("if (unittest.global_result.*) |r| r.addFail(name) catch unreachable;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

@@ -115,7 +115,7 @@ pub fn genBreakpoint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for print(*args, sep=" ", end="\\n", file=sys.stdout, flush=False)
 pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    genPrintWithKeywords(self, args, &.{}) catch {};
+    try genPrintWithKeywords(self, args, &.{});
 }
 
 /// Generate code for print() with keyword arguments support

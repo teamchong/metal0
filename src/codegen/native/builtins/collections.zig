@@ -666,7 +666,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const __mapped = __map_func(__map_item);\n");
     try self.emitIndent();
-    try self.emit("__map_result.append(__global_allocator, __mapped) catch {};\n");
+    try self.emit("__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

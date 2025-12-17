@@ -208,7 +208,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                     } else {
                         try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
                     }
-                    try self.emit(")) catch {};\n");
+                    try self.emit(")) catch unreachable;\n");
                 } else {
                     try self.emit("try @constCast(&");
                     try self.genExpr(attr.value.*);
@@ -488,7 +488,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                     } else {
                         try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
                     }
-                    try self.emit(")) catch {};\n");
+                    try self.emit(")) catch unreachable;\n");
                 } else {
                     try self.emit("try @constCast(&");
                     try self.genExpr(attr.value.*);

@@ -64,13 +64,13 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // For uncertain lists, we need runtime helpers that can handle type dynamically
     if (isListUncertain(self, obj)) {
         // Route to PyValue-First API that compiles ONCE (no monomorphization)
-        // In defer blocks, 'try' is not allowed - use catch {} instead
+        // In defer blocks, 'try' is not allowed - use catch unreachable instead
         if (self.inside_defer) {
             try self.emit("runtime.pyListAppendPV(__global_allocator, &");
             try emitObjExpr(self, obj);
             try self.emit(", runtime.PyValue.from(");
             try self.genExpr(args[0]);
-            try self.emit(")) catch {}");
+            try self.emit(")) catch unreachable");
         } else {
             try self.emit("try runtime.pyListAppendPV(__global_allocator, &");
             try emitObjExpr(self, obj);
@@ -113,7 +113,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Check if obj needs temp variable (list literal, comprehension, etc.)
     if (needsTempVariable(obj)) {
         // Use temp variable pattern for list literals
-        // In defer blocks, 'try' is not allowed - use catch {} instead
+        // In defer blocks, 'try' is not allowed - use catch unreachable instead
         if (self.inside_defer) {
             try self.emit("{ var __list_temp = ");
             try self.genExpr(obj);
@@ -133,7 +133,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
                 try self.genExpr(args[0]);
             }
 
-            try self.emit(") catch {}; }");
+            try self.emit(") catch unreachable; }");
         } else {
             try self.emit("{ var __list_temp = ");
             try self.genExpr(obj);
@@ -157,7 +157,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         }
     } else {
         // Existing code for variables/attributes/subscripts
-        // In defer blocks, 'try' is not allowed - use catch {} instead
+        // In defer blocks, 'try' is not allowed - use catch unreachable instead
         if (self.inside_defer) {
             try emitObjExpr(self, obj);
             try self.emit(".append(__global_allocator, ");
@@ -176,7 +176,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
                 try self.genExpr(args[0]);
             }
 
-            try self.emit(") catch {}");
+            try self.emit(") catch unreachable");
         } else {
             try self.emit("try ");
             try emitObjExpr(self, obj);
