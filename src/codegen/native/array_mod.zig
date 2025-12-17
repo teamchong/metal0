@@ -39,12 +39,12 @@ fn genArrayStructDef(self: *h.NativeCodegen, typecode: u8) !void {
     try self.emit(") !void { try __self.items.append(__global_allocator, x); } ");
 
     // extend method
-    try self.emit("pub fn extend(__self: *@This(), iterable: anytype) void { for (iterable) |x| __self.append(__global_allocator, x) catch {}; } ");
+    try self.emit("pub fn extend(__self: *@This(), iterable: anytype) void { for (iterable) |x| __self.append(__global_allocator, x) catch @panic(\"array extend OOM\"); } ");
 
     // insert method
     try self.emit("pub fn insert(__self: *@This(), i: usize, x: ");
     try self.emit(zig_type);
-    try self.emit(") void { __self.items.insert(__global_allocator, i, x) catch {}; } ");
+    try self.emit(") void { __self.items.insert(__global_allocator, i, x) catch @panic(\"array insert OOM\"); } ");
 
     // remove method
     try self.emit("pub fn remove(__self: *@This(), x: ");
@@ -89,18 +89,18 @@ fn genArrayStructDef(self: *h.NativeCodegen, typecode: u8) !void {
         } else {
             try self.emit("__byte");
         }
-        try self.emit(") catch {}; } ");
+        try self.emit(") catch @panic(\"array frombytes OOM\"); } ");
     } else {
         // For other types, reinterpret bytes
         try self.emit("const typed_slice = std.mem.bytesAsSlice(");
         try self.emit(zig_type);
-        try self.emit(", s); for (typed_slice) |v| __self.items.append(__global_allocator, v) catch {}; } ");
+        try self.emit(", s); for (typed_slice) |v| __self.items.append(__global_allocator, v) catch @panic(\"array frombytes OOM\"); } ");
     }
 
     // fromlist method
     try self.emit("pub fn fromlist(__self: *@This(), list: []");
     try self.emit(zig_type);
-    try self.emit(") void { for (list) |x| __self.append(__global_allocator, x) catch {}; } ");
+    try self.emit(") void { for (list) |x| __self.append(__global_allocator, x) catch @panic(\"array fromlist OOM\"); } ");
 
     // buffer_info method
     try self.emit("pub fn buffer_info(__self: *@This()) struct { ptr: usize, len: usize } { return .{ .ptr = @intFromPtr(__self.items.items.ptr), .len = __self.items.items.len }; } ");
