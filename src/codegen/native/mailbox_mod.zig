@@ -2,7 +2,7 @@
 const std = @import("std");
 const h = @import("mod_helper.zig");
 
-const genMailboxType = h.wrap("blk: { const path = ", "; break :blk .{ .path = path, .factory = @as(?*anyopaque, null), .create = true }; }", ".{ .path = \"\", .factory = @as(?*anyopaque, null), .create = true }");
+const genMailboxType = h.structBlk("mb", ".path = __v, .factory = @as(?*anyopaque, null), .create = true", ".{ .path = \"\", .factory = @as(?*anyopaque, null), .create = true }");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Mailbox", genMailboxType }, .{ "Maildir", genMailboxType }, .{ "mbox", genMailboxType },

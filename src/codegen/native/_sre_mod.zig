@@ -3,7 +3,7 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "compile", h.wrap("blk: { const pat = ", "; _ = pat; break :blk .{ .pattern = pat, .flags = 0, .groups = 0 }; }", ".{ .pattern = \"\", .flags = 0, .groups = 0 }") },
+    .{ "compile", h.structBlk("sre", ".pattern = __v, .flags = 0, .groups = 0", ".{ .pattern = \"\", .flags = 0, .groups = 0 }") },
     .{ "c_o_d_e_s_i_z_e", h.I32(4) }, .{ "m_a_g_i_c", h.I32(20171005) },
     .{ "getlower", h.pass("@as(i32, 0)") }, .{ "getcodesize", h.I32(4) },
     .{ "match", h.c("null") }, .{ "fullmatch", h.c("null") }, .{ "search", h.c("null") },

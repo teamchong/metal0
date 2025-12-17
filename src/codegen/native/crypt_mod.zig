@@ -3,7 +3,7 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "crypt", h.wrap("blk: { const word = ", "; _ = word; break :blk \"$6$rounds=5000$salt$hash\"; }", "\"\"") }, .{ "mksalt", h.c("\"$6$rounds=5000$\"") },
+    .{ "crypt", h.discardBlk("crypt", "\"$6$rounds=5000$salt$hash\"", "\"\"") }, .{ "mksalt", h.c("\"$6$rounds=5000$\"") },
     .{ "METHOD_SHA512", h.c(".{ .name = \"SHA512\", .ident = \"$6$\", .salt_chars = 16, .total_size = 106 }") },
     .{ "METHOD_SHA256", h.c(".{ .name = \"SHA256\", .ident = \"$5$\", .salt_chars = 16, .total_size = 63 }") },
     .{ "METHOD_BLOWFISH", h.c(".{ .name = \"BLOWFISH\", .ident = \"$2b$\", .salt_chars = 22, .total_size = 59 }") },

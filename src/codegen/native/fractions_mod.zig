@@ -8,7 +8,7 @@ const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Fraction", genFraction },
-    .{ "gcd", h.wrap2("blk: { var _a: i64 = @intCast(", "); var _b: i64 = @intCast(", "); if (_a < 0) _a = -_a; if (_b < 0) _b = -_b; while (_b != 0) { const t = _b; _b = @mod(_a, _b); _a = t; } break :blk _a; }", "@as(i64, 1)") },
+    .{ "gcd", h.wrap2Blk("gcd", "var _a: i64 = @intCast(__v0); var _b: i64 = @intCast(__v1); if (_a < 0) _a = -_a; if (_b < 0) _b = -_b; while (_b != 0) { const t = _b; _b = @mod(_a, _b); _a = t; }", "_a", "@as(i64, 1)") },
 });
 
 fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

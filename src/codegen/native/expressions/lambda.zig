@@ -35,6 +35,7 @@
 /// - Capturing: Needed when lambda uses variables from enclosing scope
 /// - Inline: Needed when lambda references types (classes) that aren't visible at module level
 ///
+/// MIGRATION STATUS: Prepared for ZigBuilder - imports added
 const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
 const ast = @import("analysis.ast");
@@ -44,6 +45,8 @@ const zig_keywords = @import("utils.zig_keywords");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
 
 const ClosureError = error{
     NotAClosure,
@@ -125,13 +128,13 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
     }
 
     // Generate unique lambda function name
+    const id = self.name_gen.nextId();
     const lambda_name = try std.fmt.allocPrint(
         self.allocator,
-        "__lambda_{d}",
-        .{self.lambda_counter},
+        "__m{d}_lambda",
+        .{id},
     );
     // Don't free yet - we need it for later
-    self.lambda_counter += 1;
 
     // Save current output position - we'll generate lambda function separately
     const current_output = try self.output.toOwnedSlice(self.allocator);
@@ -679,10 +682,11 @@ fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8
     // Special case: closure (lambda returning lambda)
     if (body == .lambda) {
         // Generate closure name to match what will be generated
+        const id = self.name_gen.nextId();
         const closure_name = try std.fmt.allocPrint(
             self.allocator,
             "__Closure_{d}",
-            .{self.lambda_counter},
+            .{id},
         );
         return closure_name; // Caller must free this
     }

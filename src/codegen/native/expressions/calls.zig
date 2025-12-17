@@ -30,6 +30,8 @@ const shared = @import("../shared_maps.zig");
 const RuntimeExceptions = shared.RuntimeExceptions;
 const NativeType = @import("../../../analysis/native_types/core.zig").NativeType;
 const expr_emitter = @import("../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
 
 // Import trait functions for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
@@ -238,13 +240,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         const lambda = call.func.lambda;
 
         // Generate unique lambda function name
+        const id = self.name_gen.nextId();
         const lambda_name = try std.fmt.allocPrint(
             self.allocator,
-            "__lambda_{d}",
-            .{self.lambda_counter},
+            "__m{d}_lambda",
+            .{id},
         );
         defer self.allocator.free(lambda_name);
-        self.lambda_counter += 1;
 
         // Generate the lambda function definition using lambda_mod
         // We'll do this manually to avoid the & prefix

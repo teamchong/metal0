@@ -1,4 +1,9 @@
 /// Miscellaneous expression code generation (tuple, attribute, subscript)
+///
+/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// - Uses captureExpr() to bridge AST expressions to ZigValue
+/// - Emits using emitZigValue() for type-safe output
+/// - Uses nextNameId() for unique block labels
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
@@ -10,6 +15,8 @@ const producesBlockExpression = expressions_mod.producesBlockExpression;
 const self_analyzer = @import("../statements/functions/self_analyzer.zig");
 const UnittestAssertions = self_analyzer.unittest_assertion_methods;
 const expr_emitter = @import("../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
 
 // Trait imports for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
@@ -47,8 +54,6 @@ fn isVoidAssertionCall(elem: ast.Node) bool {
 }
 
 pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
-    const genExpr = expressions_mod.genExpr;
-
     // Empty tuples become empty struct
     if (tuple.elts.len == 0) {
         try self.emit(".{}");
@@ -70,7 +75,8 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
         // Don't wrap in tuple literal - assertions generate if-statements
         for (tuple.elts, 0..) |elem, i| {
             if (i > 0) try self.emit("\n");
-            try genExpr(self, elem);
+            const operand = try self.captureExpr(elem);
+            try self.emitZigValue(operand);
         }
         return;
     }
@@ -88,31 +94,35 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
             // Emit the assertion as a statement block that produces void
             const id = self.nextNameId();
             try self.emitFmt("__m{d}_void_assert: {{ ", .{id});
-            try genExpr(self, elem);
+            const operand = try self.captureExpr(elem);
+            try self.emitZigValue(operand);
             try self.emitFmt(" break :__m{d}_void_assert ", .{id});
             try self.emit("{}; }");
             continue;
         }
 
+        // Capture the element expression
+        const operand = try self.captureExpr(elem);
+
         // Wrap integer constants to avoid comptime_int at runtime
         if (elem == .constant and elem.constant.value == .int) {
             try self.emit("@as(i64, ");
-            try genExpr(self, elem);
+            try self.emitZigValue(operand);
             try self.emit(")");
         } else if (elem == .unaryop and elem.unaryop.op == .USub and
             elem.unaryop.operand.* == .constant and elem.unaryop.operand.constant.value == .int)
         {
             // Negative integer: -1 -> @as(i64, -1)
             try self.emit("@as(i64, ");
-            try genExpr(self, elem);
+            try self.emitZigValue(operand);
             try self.emit(")");
         } else if (elem == .constant and elem.constant.value == .float) {
             // Float constants to avoid comptime_float
             try self.emit("@as(f64, ");
-            try genExpr(self, elem);
+            try self.emitZigValue(operand);
             try self.emit(")");
         } else {
-            try genExpr(self, elem);
+            try self.emitZigValue(operand);
         }
     }
     try self.emit(" }");

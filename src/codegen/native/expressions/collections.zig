@@ -1,5 +1,9 @@
 /// List literal code generation
 /// Handles list literal expressions with array optimization and comptime/runtime paths
+///
+/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// - Uses captureExpr() to bridge AST expressions to ZigValue
+/// - Emits using emitZigValue() for type-safe output
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
@@ -11,6 +15,8 @@ const NativeType = native_types.NativeType;
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const expr_emitter = @import("../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
 
 // Re-export dict generation from dict.zig
 const dict = @import("dict.zig");
@@ -162,8 +168,9 @@ fn genArrayLiteral(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     for (list.elts, 0..) |elem, i| {
         if (i > 0) try self.emit(", ");
 
-        // Emit element value - use genExpr for proper formatting
-        try genExpr(self, elem);
+        // Capture and emit element value
+        const operand = try self.captureExpr(elem);
+        try self.emitZigValue(operand);
     }
 
     try self.emit("}");
@@ -259,62 +266,41 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 
 /// Generate comptime-optimized list literal
 fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
-    // Generate unique block label using ExprEmitter
-    var em = self.exprEmitter();
-    const label_id = em.reserveLabelId();
-    const label = try std.fmt.allocPrint(self.allocator, "__list_blk_{d}", .{label_id});
-    defer self.allocator.free(label);
-    const list_var = try std.fmt.allocPrint(self.allocator, "__list_{d}", .{label_id});
-    defer self.allocator.free(list_var);
-    const values_var = try std.fmt.allocPrint(self.allocator, "__values_{d}", .{label_id});
-    defer self.allocator.free(values_var);
+    // Generate unique names using NameGen to prevent shadowing
+    const id = self.nextNameId();
 
-    try self.emit(label);
-    try self.emit(": {\n");
+    try self.emitFmt("__list_blk_{d}: {{\n", .{id});
     self.indent();
     try self.emitIndent();
 
     // Generate comptime tuple
-    try self.emit("const ");
-    try self.emit(values_var);
-    try self.emit(" = .{ ");
+    try self.emitFmt("const __values_{d} = .{{ ", .{id});
     for (list.elts, 0..) |elem, i| {
         if (i > 0) try self.emit(", ");
-        try genExpr(self, elem);
+        const operand = try self.captureExpr(elem);
+        try self.emitZigValue(operand);
     }
     try self.emit(" };\n");
 
     // Let Zig's comptime infer the type and generate optimal code
     try self.emitIndent();
-    try self.emit("const __T = comptime runtime.InferListType(@TypeOf(");
-    try self.emit(values_var);
-    try self.emit("));\n");
+    try self.emitFmt("const __T_{d} = comptime runtime.InferListType(@TypeOf(__values_{d}));\n", .{ id, id });
 
     try self.emitIndent();
-    try self.emit("var ");
-    try self.emit(list_var);
-    try self.emit(" = std.ArrayListUnmanaged(__T){};\n");
+    try self.emitFmt("var __list_{d} = std.ArrayListUnmanaged(__T_{d}){{}};\n", .{ id, id });
 
     // Inline loop - call runtime helper for type casting (reduces monomorphization)
     try self.emitIndent();
-    try self.emit("inline for (");
-    try self.emit(values_var);
-    try self.emit(") |val| {\n");
+    try self.emitFmt("inline for (__values_{d}) |val| {{\n", .{id});
     self.indent();
     try self.emitIndent();
-    try self.emit("try runtime.list_ops.appendCast(__T, &");
-    try self.emit(list_var);
-    try self.emit(", __global_allocator, val);\n");
+    try self.emitFmt("try runtime.list_ops.appendCast(__T_{d}, &__list_{d}, __global_allocator, val);\n", .{ id, id });
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.emit("break :");
-    try self.emit(label);
-    try self.emit(" ");
-    try self.emit(list_var);
-    try self.emit(";\n");
+    try self.emitFmt("break :__list_blk_{d} __list_{d};\n", .{ id, id });
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
@@ -357,16 +343,10 @@ pub fn widenTupleTypes(allocator: std.mem.Allocator, t1: NativeType, t2: NativeT
 
 /// Generate runtime list literal (fallback path)
 fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
-    // Generate unique block label using ExprEmitter
-    var em = self.exprEmitter();
-    const label_id = em.reserveLabelId();
-    const runtime_label = try std.fmt.allocPrint(self.allocator, "__list_rt_{d}", .{label_id});
-    defer self.allocator.free(runtime_label);
-    const list_var = try std.fmt.allocPrint(self.allocator, "__list_var_{d}", .{label_id});
-    defer self.allocator.free(list_var);
+    // Generate unique names using NameGen to prevent shadowing
+    const id = self.nextNameId();
 
-    try self.emit(runtime_label);
-    try self.emit(": {\n");
+    try self.emitFmt("__list_rt_{d}: {{\n", .{id});
     self.indent();
     try self.emitIndent();
 
@@ -379,18 +359,14 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
         elem_type = try widenTupleTypes(self.allocator, elem_type, this_type);
     }
 
-    try self.emit("var ");
-    try self.emit(list_var);
-    try self.emit(" = std.ArrayListUnmanaged(");
+    try self.emitFmt("var __list_var_{d} = std.ArrayListUnmanaged(", .{id});
     try elem_type.toZigType(self.allocator, &self.output);
     try self.emit("){};\n");
 
     // Append each element (with type coercion if needed)
     for (list.elts) |elem| {
         try self.emitIndent();
-        try self.emit("try ");
-        try self.emit(list_var);
-        try self.emit(".append(__global_allocator, ");
+        try self.emitFmt("try __list_var_{d}.append(__global_allocator, ", .{id});
 
         // Check if we need to cast this element
         const this_type = try self.type_inferrer.inferExpr(elem);
@@ -398,26 +374,25 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
         // (type_traits.isConvertible confirms int→float is valid)
         const needs_cast = type_traits.isFloating(elem_type) and type_traits.isIntegral(this_type);
 
+        // Capture the element expression
+        const operand = try self.captureExpr(elem);
+
         if (needs_cast) {
             try self.emit("@as(f64, @floatFromInt(");
-            try genExpr(self, elem);
+            try self.emitZigValue(operand);
             try self.emit("))");
         } else if (type_traits.isCallable(elem_type)) {
             // List of callables - wrap non-PyCallable elements
             try genCallableElement(self, elem, this_type);
         } else {
-            try genExpr(self, elem);
+            try self.emitZigValue(operand);
         }
 
         try self.emit(");\n");
     }
 
     try self.emitIndent();
-    try self.emit("break :");
-    try self.emit(runtime_label);
-    try self.emit(" ");
-    try self.emit(list_var);
-    try self.emit(";\n");
+    try self.emitFmt("break :__list_rt_{d} __list_var_{d};\n", .{ id, id });
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
@@ -431,14 +406,10 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
         return;
     }
 
-    // Generate unique block label using ExprEmitter
-    var em = self.exprEmitter();
-    const label_id = em.reserveLabelId();
-    const label = try std.fmt.allocPrint(self.allocator, "__set_blk_{d}", .{label_id});
-    defer self.allocator.free(label);
+    // Generate unique names using NameGen to prevent shadowing
+    const id = self.nextNameId();
 
-    try self.emit(label);
-    try self.emit(": {\n");
+    try self.emitFmt("__set_blk_{d}: {{\n", .{id});
     self.indent();
     try self.emitIndent();
 
@@ -454,35 +425,36 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
     const is_string = string_traits.isString(elem_type);
     const is_float = type_traits.isFloating(elem_type);
     if (is_string) {
-        try self.emit("var _set = hashmap_helper.StringHashMap(void).init(__global_allocator);\n");
+        try self.emitFmt("var __set_{d} = hashmap_helper.StringHashMap(void).init(__global_allocator);\n", .{id});
     } else if (is_float) {
         // Floats can't be hashed directly in Zig, use u64 bit representation
-        try self.emit("var _set = std.AutoHashMap(u64, void).init(__global_allocator);\n");
+        try self.emitFmt("var __set_{d} = std.AutoHashMap(u64, void).init(__global_allocator);\n", .{id});
     } else {
-        try self.emit("var _set = std.AutoHashMap(");
+        try self.emitFmt("var __set_{d} = std.AutoHashMap(", .{id});
         try elem_type.toZigType(self.allocator, &self.output);
         try self.emit(", void).init(__global_allocator);\n");
     }
 
     // Add each element (use try for error handling)
     for (set_node.elts) |elem| {
+        // Capture element expression
+        const operand = try self.captureExpr(elem);
+
         try self.emitIndent();
         if (is_float) {
             // Convert float to bits for hashing
-            try self.emit("try _set.put(@bitCast(");
-            try genExpr(self, elem);
+            try self.emitFmt("try __set_{d}.put(@bitCast(", .{id});
+            try self.emitZigValue(operand);
             try self.emit("), {});\n");
         } else {
-            try self.emit("try _set.put(");
-            try genExpr(self, elem);
+            try self.emitFmt("try __set_{d}.put(", .{id});
+            try self.emitZigValue(operand);
             try self.emit(", {});\n");
         }
     }
 
     try self.emitIndent();
-    try self.emit("break :");
-    try self.emit(label);
-    try self.emit(" _set;\n");
+    try self.emitFmt("break :__set_blk_{d} __set_{d};\n", .{ id, id });
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

@@ -14,25 +14,23 @@ pub fn genZeroCaptureClosure(
     self: *NativeCodegen,
     func: ast.Node.FunctionDef,
 ) CodegenError!void {
-    // Save counter for unique naming
-    const saved_counter = self.lambda_counter;
+    // Save ID for unique naming
+    const saved_id = self.name_gen.nextId();
 
     // Generate the inner function
     const impl_name = try std.fmt.allocPrint(
         self.allocator,
-        "__ZeroImpl_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_ZeroImpl_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(impl_name);
 
     // Use unique function name inside the struct to avoid shadowing
     const inner_fn_name = try std.fmt.allocPrint(
         self.allocator,
-        "__fn_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_fn_{s}",
+        .{ saved_id, func.name },
     );
-    defer self.allocator.free(inner_fn_name);
-    self.lambda_counter += 1;
 
     // Build param name mappings for unique names to avoid shadowing outer scope
     var param_renames = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
@@ -51,8 +49,8 @@ pub fn genZeroCaptureClosure(
             // Create unique param name to avoid shadowing outer scope
             const unique_param_name = try std.fmt.allocPrint(
                 self.allocator,
-                "__p_{s}_{d}",
-                .{ arg.name, saved_counter },
+                "__m{d}_p_{s}",
+                .{ saved_id, arg.name },
             );
             try param_renames.put(arg.name, unique_param_name);
             // Use anytype to allow flexible parameter types (supports string, int, etc.)
@@ -68,8 +66,8 @@ pub fn genZeroCaptureClosure(
         if (is_vararg_used) {
             const unique_vararg_name = try std.fmt.allocPrint(
                 self.allocator,
-                "__p_{s}_{d}",
-                .{ vararg_name, saved_counter },
+                "__m{d}_p_{s}",
+                .{ saved_id, vararg_name },
             );
             try param_renames.put(vararg_name, unique_vararg_name);
             try self.output.writer(self.allocator).print("{s}: anytype", .{unique_vararg_name});
@@ -84,8 +82,8 @@ pub fn genZeroCaptureClosure(
         if (is_kwarg_used) {
             const unique_kwarg_name = try std.fmt.allocPrint(
                 self.allocator,
-                "__p_{s}_{d}",
-                .{ kwarg_name, saved_counter },
+                "__m{d}_p_{s}",
+                .{ saved_id, kwarg_name },
             );
             try param_renames.put(kwarg_name, unique_kwarg_name);
             try self.output.writer(self.allocator).print("{s}: anytype", .{unique_kwarg_name});
@@ -196,7 +194,7 @@ pub fn genZeroCaptureClosure(
         if (param_renames.get(arg.name)) |renamed| {
             if (is_reassigned) {
                 // Create mutable var copy name
-                const var_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ arg.name, saved_counter });
+                const var_name = try std.fmt.allocPrint(self.allocator, "__m{d}_v_{s}", .{ saved_id, arg.name });
                 try reassigned_param_vars.append(self.allocator, var_name);
                 try self.var_renames.put(arg.name, var_name);
             } else {
@@ -211,7 +209,7 @@ pub fn genZeroCaptureClosure(
         if (param_renames.get(vararg_name)) |renamed| {
             const is_reassigned = var_tracking.isParamReassignedInStmts(vararg_name, func.body);
             if (is_reassigned) {
-                const var_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ vararg_name, saved_counter });
+                const var_name = try std.fmt.allocPrint(self.allocator, "__m{d}_v_{s}", .{ saved_id, vararg_name });
                 try reassigned_param_vars.append(self.allocator, var_name);
                 try self.var_renames.put(vararg_name, var_name);
             } else {
@@ -226,7 +224,7 @@ pub fn genZeroCaptureClosure(
         if (param_renames.get(kwarg_name)) |renamed| {
             const is_reassigned = var_tracking.isParamReassignedInStmts(kwarg_name, func.body);
             if (is_reassigned) {
-                const var_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ kwarg_name, saved_counter });
+                const var_name = try std.fmt.allocPrint(self.allocator, "__m{d}_v_{s}", .{ saved_id, kwarg_name });
                 try reassigned_param_vars.append(self.allocator, var_name);
                 try self.var_renames.put(kwarg_name, var_name);
             } else {
@@ -239,7 +237,7 @@ pub fn genZeroCaptureClosure(
     for (func.args) |arg| {
         if (var_tracking.isParamReassignedInStmts(arg.name, func.body) and param_renames.get(arg.name) != null) {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ arg.name, saved_counter, arg.name, saved_counter });
+            try self.output.writer(self.allocator).print("var __m{d}_v_{s} = __m{d}_p_{s};\n", .{ saved_id, arg.name, saved_id, arg.name });
         }
     }
 
@@ -247,7 +245,7 @@ pub fn genZeroCaptureClosure(
     if (func.vararg) |vararg_name| {
         if (var_tracking.isParamReassignedInStmts(vararg_name, func.body) and param_renames.get(vararg_name) != null) {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ vararg_name, saved_counter, vararg_name, saved_counter });
+            try self.output.writer(self.allocator).print("var __m{d}_v_{s} = __m{d}_p_{s};\n", .{ saved_id, vararg_name, saved_id, vararg_name });
         }
     }
 
@@ -255,7 +253,7 @@ pub fn genZeroCaptureClosure(
     if (func.kwarg) |kwarg_name| {
         if (var_tracking.isParamReassignedInStmts(kwarg_name, func.body) and param_renames.get(kwarg_name) != null) {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ kwarg_name, saved_counter, kwarg_name, saved_counter });
+            try self.output.writer(self.allocator).print("var __m{d}_v_{s} = __m{d}_p_{s};\n", .{ saved_id, kwarg_name, saved_id, kwarg_name });
         }
     }
 
@@ -398,7 +396,7 @@ pub fn genZeroCaptureClosure(
     // 1. Imported module names (e.g., "test" shadows "import test")
     // 2. Nested class method names (e.g., closure "foo" vs class method "foo")
     // Using unique names prevents Zig's "shadows local constant" errors
-    const wrapper_name = try std.fmt.allocPrint(self.allocator, "__closure_{s}_{d}", .{ func.name, saved_counter });
+    const wrapper_name = try std.fmt.allocPrint(self.allocator, "__m{d}_closure_{s}", .{ saved_id, func.name });
     // Don't defer free - the name is stored in var_renames for later reference
     // Register rename so references use the correct name
     try self.var_renames.put(func.name, wrapper_name);
@@ -412,8 +410,8 @@ pub fn genZeroCaptureClosure(
         // Single arg (no vararg) - create simple wrapper struct
         const unique_param = try std.fmt.allocPrint(
             self.allocator,
-            "__p_{s}_{d}",
-            .{ func.args[0].name, saved_counter },
+            "__m{d}_p_{s}",
+            .{ saved_id, func.args[0].name },
         );
         defer self.allocator.free(unique_param);
 
@@ -432,9 +430,8 @@ pub fn genZeroCaptureClosure(
         try self.emit("}{};\n");
     } else {
         // Multiple args or has vararg - create wrapper struct with unique parameter names
-        // Use a different counter for wrapper params (saved_counter is already used above)
-        const wrapper_counter = self.lambda_counter;
-        self.lambda_counter += 1;
+        // Use a different ID for wrapper params (saved_id is already used above)
+        const wrapper_id = self.name_gen.nextId();
 
         // Build param name mappings for unique names
         var param_names = std.ArrayList([]const u8){};
@@ -448,8 +445,8 @@ pub fn genZeroCaptureClosure(
         for (func.args) |arg| {
             const unique_name = try std.fmt.allocPrint(
                 self.allocator,
-                "__p_{s}_{d}",
-                .{ arg.name, wrapper_counter },
+                "__m{d}_p_{s}",
+                .{ wrapper_id, arg.name },
             );
             try param_names.append(self.allocator, unique_name);
         }
@@ -459,8 +456,8 @@ pub fn genZeroCaptureClosure(
         if (func.vararg) |vararg_name| {
             vararg_param_name = try std.fmt.allocPrint(
                 self.allocator,
-                "__p_{s}_{d}",
-                .{ vararg_name, wrapper_counter },
+                "__m{d}_p_{s}",
+                .{ wrapper_id, vararg_name },
             );
             try param_names.append(self.allocator, vararg_param_name.?);
         }
@@ -565,20 +562,20 @@ pub fn genModuleLevelZeroCaptureClosure(
     func: ast.Node.FunctionDef,
     type_name: []const u8,
 ) CodegenError!void {
-    const saved_counter = self.lambda_counter;
+    const saved_id = self.name_gen.nextId();
 
     // Generate the implementation struct at module level
     const impl_name = try std.fmt.allocPrint(
         self.allocator,
-        "__ModImpl_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_ModImpl_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(impl_name);
 
     const inner_fn_name = try std.fmt.allocPrint(
         self.allocator,
-        "__fn_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_fn_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(inner_fn_name);
 
@@ -600,8 +597,8 @@ pub fn genModuleLevelZeroCaptureClosure(
         if (is_used) {
             const unique_param_name = try std.fmt.allocPrint(
                 self.allocator,
-                "__p_{s}_{d}",
-                .{ arg.name, saved_counter },
+                "__m{d}_p_{s}",
+                .{ saved_id, arg.name },
             );
             try param_renames.put(arg.name, unique_param_name);
             try self.output.writer(self.allocator).print("{s}: anytype", .{unique_param_name});
@@ -617,8 +614,8 @@ pub fn genModuleLevelZeroCaptureClosure(
         if (is_vararg_used) {
             const unique_vararg_name = try std.fmt.allocPrint(
                 self.allocator,
-                "__p_{s}_{d}",
-                .{ vararg_name, saved_counter },
+                "__m{d}_p_{s}",
+                .{ saved_id, vararg_name },
             );
             try param_renames.put(vararg_name, unique_vararg_name);
             try self.output.writer(self.allocator).print("{s}: anytype", .{unique_vararg_name});
@@ -716,7 +713,7 @@ pub fn genModuleLevelZeroCaptureClosure(
     try self.emit("    pub fn call(_: @This()");
 
     // Parameter list for wrapper
-    const wrapper_counter = saved_counter + 1;
+    const wrapper_id = self.name_gen.nextId();
     var param_names = std.ArrayList([]const u8){};
     defer {
         for (param_names.items) |name| self.allocator.free(name);
@@ -726,8 +723,8 @@ pub fn genModuleLevelZeroCaptureClosure(
     for (func.args) |arg| {
         const unique_name = try std.fmt.allocPrint(
             self.allocator,
-            "__p_{s}_{d}",
-            .{ arg.name, wrapper_counter },
+            "__m{d}_p_{s}",
+            .{ wrapper_id, arg.name },
         );
         try param_names.append(self.allocator, unique_name);
         try self.output.writer(self.allocator).print(", {s}: anytype", .{unique_name});
@@ -736,8 +733,8 @@ pub fn genModuleLevelZeroCaptureClosure(
     if (func.vararg) |vararg_name| {
         const vararg_param_name = try std.fmt.allocPrint(
             self.allocator,
-            "__p_{s}_{d}",
-            .{ vararg_name, wrapper_counter },
+            "__m{d}_p_{s}",
+            .{ wrapper_id, vararg_name },
         );
         try param_names.append(self.allocator, vararg_param_name);
         try self.output.writer(self.allocator).print(", {s}: anytype", .{vararg_param_name});

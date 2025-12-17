@@ -13,8 +13,7 @@ pub fn genRecursiveClosure(
     func: ast.Node.FunctionDef,
     captured_vars: [][]const u8,
 ) CodegenError!void {
-    const saved_counter = self.lambda_counter;
-    self.lambda_counter += 1;
+    const saved_id = self.name_gen.nextId();
 
     // For recursive closures, we generate:
     // const inner = struct {
@@ -53,7 +52,7 @@ pub fn genRecursiveClosure(
         if (i > 0) try self.emit(", ");
         const is_used = var_tracking.isParamUsedInStmts(arg.name, func.body);
         if (is_used) {
-            try self.output.writer(self.allocator).print("__p_{s}_{d}: anytype", .{ arg.name, saved_counter });
+            try self.output.writer(self.allocator).print("__p_{s}_{d}: anytype", .{ arg.name, saved_id });
         } else {
             try self.emit("_: anytype");
         }
@@ -152,13 +151,13 @@ pub fn genRecursiveClosure(
         const is_reassigned = var_tracking.isParamReassignedInStmts(arg.name, func.body);
 
         if (is_used) {
-            const rename = try std.fmt.allocPrint(self.allocator, "__p_{s}_{d}", .{ arg.name, saved_counter });
+            const rename = try std.fmt.allocPrint(self.allocator, "__p_{s}_{d}", .{ arg.name, saved_id });
             try param_renames.append(self.allocator, rename);
 
             // If the parameter is reassigned, we need a var copy
             if (is_reassigned) {
                 // Create a mutable variable name
-                const var_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ arg.name, saved_counter });
+                const var_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ arg.name, saved_id });
                 try reassigned_params.append(self.allocator, var_name);
                 try self.var_renames.put(arg.name, var_name);
             } else {
@@ -171,7 +170,7 @@ pub fn genRecursiveClosure(
     for (func.args) |arg| {
         if (var_tracking.isParamReassignedInStmts(arg.name, func.body)) {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ arg.name, saved_counter, arg.name, saved_counter });
+            try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ arg.name, saved_id, arg.name, saved_id });
         }
     }
 

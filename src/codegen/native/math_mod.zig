@@ -61,11 +61,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "nextafter", genNextafter }, .{ "ulp", genUlp },
 });
 
-const genFactorial = h.wrap("blk: { var n = @as(i64, ", "); var result: i64 = 1; while (n > 1) : (n -= 1) { result *= n; } break :blk result; }", "@as(i64, 1)");
+const genFactorial = h.wrapBlk("fact", "var _n = @as(i64, @intCast(__v)); var _result: i64 = 1; while (_n > 1) : (_n -= 1) { _result *= _n; }", "_result", "@as(i64, 1)");
 
-const genGcd = h.wrap2("blk: { var __gcd_a = @abs(@as(i64, ", ")); var __gcd_b = @abs(@as(i64, ", ")); while (__gcd_b != 0) { const __gcd_t = __gcd_b; __gcd_b = @mod(__gcd_a, __gcd_b); __gcd_a = __gcd_t; } break :blk __gcd_a; }", "@as(i64, 0)");
-const genLcm = h.wrap2("blk: { const __lcm_a = @abs(@as(i64, ", ")); const __lcm_b = @abs(@as(i64, ", ")); if (__lcm_a == 0 or __lcm_b == 0) break :blk @as(i64, 0); var __lcm_aa = __lcm_a; var __lcm_bb = __lcm_b; while (__lcm_bb != 0) { const __lcm_t = __lcm_bb; __lcm_bb = @mod(__lcm_aa, __lcm_bb); __lcm_aa = __lcm_t; } break :blk @divExact(__lcm_a, __lcm_aa) * __lcm_b; }", "@as(i64, 0)");
-const genComb = h.wrap2("blk: { const n = @as(u64, @intCast(", ")); const k = @as(u64, @intCast(", ")); if (k > n) break :blk @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) { result = result * (n - i) / (i + 1); } break :blk @as(i64, @intCast(result)); }", "@as(i64, 0)");
+const genGcd = h.wrap2Blk("gcd", "var _a = @abs(@as(i64, @intCast(__v0))); var _b = @abs(@as(i64, @intCast(__v1))); while (_b != 0) { const _t = _b; _b = @mod(_a, _b); _a = _t; }", "_a", "@as(i64, 0)");
+const genLcm = h.wrap2Blk("lcm", "const _a = @abs(@as(i64, @intCast(__v0))); const _b = @abs(@as(i64, @intCast(__v1))); var _aa = _a; var _bb = _b; while (_bb != 0) { const _t = _bb; _bb = @mod(_aa, _bb); _aa = _t; }", "if (_a == 0 or _b == 0) @as(i64, 0) else @divExact(_a, _aa) * _b", "@as(i64, 0)");
+const genComb = h.wrap2Blk("comb", "const _n = @as(u64, @intCast(__v0)); const _k = @as(u64, @intCast(__v1)); var _result: u64 = 1; var _i: u64 = 0; while (_i < _k) : (_i += 1) { _result = _result * (_n - _i) / (_i + 1); }", "if (_k > _n) @as(i64, 0) else @as(i64, @intCast(_result))", "@as(i64, 0)");
 
 fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 1) {
@@ -85,16 +85,16 @@ fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("@as(i64, 0)");
     }
 }
-const genFrexp = h.wrap("blk: { const val = @as(f64, ", "); const result = std.math.frexp(val); break :blk .{ result.significand, result.exponent }; }", ".{ @as(f64, 0.0), @as(i32, 0) }");
-const genModf = h.wrap("blk: { const val = @as(f64, ", "); const frac = val - @trunc(val); break :blk .{ frac, @trunc(val) }; }", ".{ @as(f64, 0.0), @as(f64, 0.0) }");
+const genFrexp = h.wrapBlk("frexp", "const _val = @as(f64, __v); const _res = std.math.frexp(_val);", ".{ _res.significand, _res.exponent }", ".{ @as(f64, 0.0), @as(i32, 0) }");
+const genModf = h.wrapBlk("modf", "const _val = @as(f64, __v); const _frac = _val - @trunc(_val);", ".{ _frac, @trunc(_val) }", ".{ @as(f64, 0.0), @as(f64, 0.0) }");
 
-const genDist = h.wrap2("blk: { const p = ", "; const q = ", "; var sum: f64 = 0; for (p, q) |pi, qi| { const d = pi - qi; sum += d * d; } break :blk @sqrt(sum); }", "@as(f64, 0.0)");
+const genDist = h.wrap2Blk("dist", "var _sum: f64 = 0; for (__v0, __v1) |_pi, _qi| { const _d = _pi - _qi; _sum += _d * _d; }", "@sqrt(_sum)", "@as(f64, 0.0)");
 
-const genFsum = h.wrap("blk: { var sum: f64 = 0; for (", ") |item| { sum += item; } break :blk sum; }", "@as(f64, 0.0)");
-const genProd = h.wrap("blk: { var product: f64 = 1; for (", ") |item| { product *= item; } break :blk product; }", "@as(f64, 1.0)");
+const genFsum = h.wrapBlk("fsum", "var _sum: f64 = 0; for (__v) |_item| { _sum += _item; }", "_sum", "@as(f64, 0.0)");
+const genProd = h.wrapBlk("prod", "var _product: f64 = 1; for (__v) |_item| { _product *= _item; }", "_product", "@as(f64, 1.0)");
 
 const genNextafter = h.wrap2("math.nextafter(@as(f64, ", "), @as(f64, ", "), null)", "@as(f64, 0.0)");
-const genUlp = h.wrap("blk: { const __x = @abs(@as(f64, ", ")); const __exp = @as(i32, @intFromFloat(@log2(__x))); break :blk std.math.ldexp(@as(f64, 1.0), __exp - 52); }", "std.math.floatMin(f64)");
+const genUlp = h.wrapBlk("ulp", "const _x = @abs(@as(f64, __v)); const _exp = @as(i32, @intFromFloat(@log2(_x)));", "std.math.ldexp(@as(f64, 1.0), _exp - 52)", "std.math.floatMin(f64)");
 
 // Classification functions that handle PyPowResult union type via runtime.math.*
 // Note: std.math uses camelCase (isNan, isInf, isFinite)

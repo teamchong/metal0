@@ -3,7 +3,7 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "compile", h.wrap("blk: { const pattern = ", "; _ = pattern; break :blk .{ .pattern = \"\", .flags = 0, .code = &[_]u32{}, .groups = 0 }; }", ".{ .pattern = \"\", .flags = 0, .code = &[_]u32{}, .groups = 0 }") },
+    .{ "compile", h.discardBlk("sre", ".{ .pattern = \"\", .flags = 0, .code = &[_]u32{}, .groups = 0 }", ".{ .pattern = \"\", .flags = 0, .code = &[_]u32{}, .groups = 0 }") },
     .{ "isstring", h.c("true") }, .{ "MAXCODE", h.U32(65535) }, .{ "MAXGROUPS", h.U32(100) },
     .{ "_code", h.c("&[_]u32{}") }, .{ "_compile", h.c("{}") }, .{ "_compile_charset", h.c("{}") },
     .{ "_optimize_charset", h.c("&[_]@TypeOf(.{}){}") }, .{ "_generate_overlap_table", h.c("&[_]i32{}") }, .{ "_compile_info", h.c("{}") },

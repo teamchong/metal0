@@ -111,6 +111,12 @@ pub fn deinit(self: *NativeCodegen) void {
     if (self.token_lines) |*tl| tl.deinit();
     if (self.call_graph) |*cg| cg.deinit();
 
+    // Builder (Phase 1 migration - lazily initialized)
+    if (self.builder) |b| {
+        b.deinit();
+        self.allocator.destroy(b);
+    }
+
     // Free arena (frees ALL internal strings at once - O(1) cleanup)
     const backing = self.allocator;
     self.arena.deinit();

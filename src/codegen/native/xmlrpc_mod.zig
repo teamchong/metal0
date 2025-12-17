@@ -3,7 +3,7 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const ClientFuncs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "ServerProxy", h.wrap("blk: { const uri = ", "; break :blk .{ .uri = uri, .allow_none = false, .use_datetime = false, .use_builtin_types = false }; }", ".{ .uri = \"\", .allow_none = false, .use_datetime = false, .use_builtin_types = false }") },
+    .{ "ServerProxy", h.structBlk("sp", ".uri = __v, .allow_none = false, .use_datetime = false, .use_builtin_types = false", ".{ .uri = \"\", .allow_none = false, .use_datetime = false, .use_builtin_types = false }") },
     .{ "Transport", h.c(".{ .use_datetime = false, .use_builtin_types = false }") },
     .{ "SafeTransport", h.c(".{ .use_datetime = false, .use_builtin_types = false }") },
     .{ "dumps", h.c("\"<?xml version='1.0'?><methodCall></methodCall>\"") },

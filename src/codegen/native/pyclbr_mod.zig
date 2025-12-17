@@ -2,7 +2,7 @@
 const std = @import("std");
 const h = @import("mod_helper.zig");
 
-const genReadmod = h.wrap("blk: { const modname = ", "; _ = modname; break :blk .{}; }", ".{}");
+const genReadmod = h.discardBlk("rm", ".{}", ".{}");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "readmodule", genReadmod }, .{ "readmodule_ex", genReadmod },

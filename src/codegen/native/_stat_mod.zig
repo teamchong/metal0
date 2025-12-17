@@ -16,7 +16,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "S_ISDIR", h.typeTest("0o040000") }, .{ "S_ISCHR", h.typeTest("0o020000") }, .{ "S_ISBLK", h.typeTest("0o060000") },
     .{ "S_ISREG", h.typeTest("0o100000") }, .{ "S_ISFIFO", h.typeTest("0o010000") }, .{ "S_ISLNK", h.typeTest("0o120000") }, .{ "S_ISSOCK", h.typeTest("0o140000") },
     .{ "S_IMODE", h.wrap("(", " & 0o7777)", "@as(u32, 0)") },
-    .{ "filemode", h.wrap("blk: { const mode = ", "; var perm: [10]u8 = \"----------\".*; if ((mode & 0o170000) == 0o040000) perm[0] = 'd'; if ((mode & 0o400) != 0) perm[1] = 'r'; if ((mode & 0o200) != 0) perm[2] = 'w'; if ((mode & 0o100) != 0) perm[3] = 'x'; if ((mode & 0o040) != 0) perm[4] = 'r'; if ((mode & 0o020) != 0) perm[5] = 'w'; if ((mode & 0o010) != 0) perm[6] = 'x'; if ((mode & 0o004) != 0) perm[7] = 'r'; if ((mode & 0o002) != 0) perm[8] = 'w'; if ((mode & 0o001) != 0) perm[9] = 'x'; break :blk &perm; }", "\"----------\"") },
+    .{ "filemode", genFilemode },
     // stat_result field indices
     .{ "ST_MODE", h.I32(0) }, .{ "ST_INO", h.I32(1) }, .{ "ST_DEV", h.I32(2) }, .{ "ST_NLINK", h.I32(3) },
     .{ "ST_UID", h.I32(4) }, .{ "ST_GID", h.I32(5) }, .{ "ST_SIZE", h.I32(6) },
@@ -31,3 +31,14 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "FILE_ATTRIBUTE_SYSTEM", h.U32(4) }, .{ "FILE_ATTRIBUTE_TEMPORARY", h.U32(256) },
     .{ "FILE_ATTRIBUTE_VIRTUAL", h.U32(65536) },
 });
+
+const ast = @import("analysis.ast");
+const NativeCodegen = h.NativeCodegen;
+const CodegenError = h.CodegenError;
+
+fn genFilemode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("\"----------\""); return; }
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_fm: {{ const mode = ", .{id}); try self.genExpr(args[0]);
+    try self.emitFmt("; var perm: [10]u8 = \"----------\".*; if ((mode & 0o170000) == 0o040000) perm[0] = 'd'; if ((mode & 0o400) != 0) perm[1] = 'r'; if ((mode & 0o200) != 0) perm[2] = 'w'; if ((mode & 0o100) != 0) perm[3] = 'x'; if ((mode & 0o040) != 0) perm[4] = 'r'; if ((mode & 0o020) != 0) perm[5] = 'w'; if ((mode & 0o010) != 0) perm[6] = 'x'; if ((mode & 0o004) != 0) perm[7] = 'r'; if ((mode & 0o002) != 0) perm[8] = 'w'; if ((mode & 0o001) != 0) perm[9] = 'x'; break :__m{d}_fm &perm; }})", .{id});
+}

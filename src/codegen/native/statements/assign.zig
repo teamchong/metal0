@@ -313,9 +313,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
         if (has_tuple_target) {
             // Generate temp variable for the value
-            const tmp_name = try std.fmt.allocPrint(self.allocator, "__chained_tmp_{d}", .{self.unpack_counter});
-            defer self.allocator.free(tmp_name);
-            self.unpack_counter += 1;
+            const tmp_name = try self.freshName("chained_tmp");
 
             // Infer source type
             // Two-Flow: Include .pyvalue for uncertain container types
@@ -1571,17 +1569,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // assigning to fields of block expressions
             if (attr.value.* == .call) {
                 // Generate: { var __tmp_N = B.init(...); __tmp_N.x = value; }
-                const tmp_id = self.unpack_counter;
-                self.unpack_counter += 1;
+                const tmp_id = self.nextNameId();
                 try self.emitIndent();
                 try self.emit("{\n");
                 self.indent_level += 1;
                 try self.emitIndent();
-                try self.emitFmt("var __attr_tmp_{d} = ", .{tmp_id});
+                try self.emitFmt("var __m{d}_attr_tmp = ", .{tmp_id});
                 try self.genExpr(attr.value.*);
                 try self.emit(";\n");
                 try self.emitIndent();
-                try self.emitFmt("__attr_tmp_{d}.", .{tmp_id});
+                try self.emitFmt("__m{d}_attr_tmp.", .{tmp_id});
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
                 try self.emit(" = ");
                 try self.genExpr(assign.value.*);

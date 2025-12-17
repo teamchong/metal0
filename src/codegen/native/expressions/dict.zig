@@ -1,5 +1,9 @@
 /// Dict literal code generation
 /// Handles dict literal expressions with comptime and runtime paths
+///
+/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// - Uses captureExpr() to bridge AST expressions to ZigValue
+/// - Emits using emitZigValue() for type-safe output
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
@@ -11,6 +15,8 @@ const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const expr_emitter = @import("../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
 
 /// Key type inference result
 const KeyTypeResult = enum { int, string, unknown };
@@ -225,11 +231,15 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emit("const _kvs = .{\n");
     self.indent();
     for (dict.keys, dict.values) |key, value| {
+        // Capture key and value expressions
+        const key_operand = try self.captureExpr(key);
+        const value_operand = try self.captureExpr(value);
+
         try self.emitIndent();
         try self.emit(".{ ");
-        try genExpr(self, key);
+        try self.emitZigValue(key_operand);
         try self.emit(", ");
-        try genExpr(self, value);
+        try self.emitZigValue(value_operand);
         try self.emit(" },\n");
     }
     self.dedent();

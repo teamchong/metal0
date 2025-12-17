@@ -1,5 +1,10 @@
 /// Subscript and slicing code generation
 /// Handles array/dict indexing and slicing operations
+///
+/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// - Uses captureExpr() to bridge AST expressions to ZigValue
+/// - Emits using emitZigValue() for type-safe output
+/// - Uses nextNameId() for unique block labels
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
@@ -12,6 +17,8 @@ const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const expr_emitter = @import("../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
 
 /// Check if a node is a negative constant
 pub fn isNegativeConstant(node: ast.Node) bool {

@@ -486,9 +486,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
                     // Generate temporary for the tuple value
                     try self.emitIndent();
-                    const tmp_name = try std.fmt.allocPrint(self.allocator, "__module_unpack_{d}", .{self.unpack_counter});
-                    defer self.allocator.free(tmp_name);
-                    self.unpack_counter += 1;
+                    const tmp_name = try self.freshName("module_unpack");
 
                     try self.emit("const ");
                     try self.emit(tmp_name);
@@ -1813,10 +1811,11 @@ fn genClosureWrapperTypes(self: *NativeCodegen, module: ast.Node.Module) !void {
 
                     if (captured.len == 0) {
                         // Generate a unique type name based on the outer function
+                        const id = self.name_gen.nextId();
                         const type_name = try std.fmt.allocPrint(
                             self.allocator,
-                            "{s}__struct_{d}",
-                            .{ func.name, self.lambda_counter },
+                            "__m{d}_{s}__struct",
+                            .{ id, func.name },
                         );
 
                         // Store the type name for later reference in signature.zig
@@ -1831,8 +1830,6 @@ fn genClosureWrapperTypes(self: *NativeCodegen, module: ast.Node.Module) !void {
                         // Generate the entire zero-capture closure at module level
                         // This includes impl struct + wrapper struct
                         try zero_capture.genModuleLevelZeroCaptureClosure(self, nf, type_name);
-
-                        self.lambda_counter += 1;
                     }
                 }
             }

@@ -1,5 +1,7 @@
 /// Enhanced lambda with closure support using Zig comptime
 /// Handles: lambda returning lambda, variable capture, higher-order functions
+///
+/// MIGRATION STATUS: Prepared for ZigBuilder - imports added
 const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
 const ast = @import("analysis.ast");
@@ -13,6 +15,8 @@ const shared = @import("../shared_maps.zig");
 const BinOpStrings = shared.BinOpStrings;
 const CompOpStrings = shared.CompOpStrings;
 const method_calls = @import("../dispatch/method_calls.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
 
 const ClosureError = error{
     NotAClosure,
@@ -76,12 +80,12 @@ fn isVarReferenced(self: *NativeCodegen, var_name: []const u8, node: ast.Node) C
 /// Generate closure lambda (returns struct with captured state)
 /// Example: make_adder = lambda x: lambda y: x + y
 pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) ClosureError!void {
+    const id = self.name_gen.nextId();
     const closure_name = try std.fmt.allocPrint(
         self.allocator,
         "__Closure_{d}",
-        .{self.lambda_counter},
+        .{id},
     );
-    self.lambda_counter += 1;
 
     // Check if body is a lambda (closure case)
     if (!isClosureLambda(outer_lambda.body.*)) {
@@ -170,13 +174,13 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     }
 
     // Generate factory function (outer lambda)
+    const factory_id = self.name_gen.nextId();
     const factory_name = try std.fmt.allocPrint(
         self.allocator,
-        "__lambda_{d}",
-        .{self.lambda_counter},
+        "__m{d}_lambda",
+        .{factory_id},
     );
     defer self.allocator.free(factory_name);
-    self.lambda_counter += 1;
 
     try writer.print("fn {s}(", .{factory_name});
     for (outer_lambda.args, 0..) |arg, i| {
@@ -307,12 +311,12 @@ pub fn lambdaReturnsVoid(lambda: ast.Node.Lambda) bool {
 /// Generate simple closure for lambda capturing outer variables
 /// Example: x = 10; f = lambda y: y + x
 pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, captured_vars: [][]const u8) ClosureError!void {
+    const id = self.name_gen.nextId();
     const closure_name = try std.fmt.allocPrint(
         self.allocator,
         "__Closure_{d}",
-        .{self.lambda_counter},
+        .{id},
     );
-    self.lambda_counter += 1;
 
     // Check if we're inside a function - if so, generate inline instead of hoisting
     const inside_function = self.current_function_name != null or self.indent_level > 0;

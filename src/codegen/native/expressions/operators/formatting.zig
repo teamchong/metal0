@@ -1,5 +1,8 @@
 /// String formatting operations
 /// Handles Python % operator for string formatting: "%d" % value
+///
+/// MIGRATION STATUS: Prepared for ZigBuilder - imports added
+/// - Uses labeled blocks heavily, migration deferred
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -8,6 +11,8 @@ const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const expr_emitter = @import("../../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
 
 /// Parse a Python format specifier like "%.0f", "%5.2f", "%d"
 /// Returns the format type char and the number of characters consumed

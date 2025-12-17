@@ -29,12 +29,13 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
 /// Generate code for tokenizer.encode(text)
 fn handleEncode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Wrap in PyList for Python compatibility
-    try self.emit("(blk: { ");
+    const id = self.nextNameId();
+    try self.emitFmt("(__tok_enc_{d}: {{ ", .{id});
 
     // Check if argument is a PyObject (unknown type) - needs conversion via PyString.getValue
     const arg_type = if (args.len > 0) self.type_inferrer.inferExpr(args[0]) catch .unknown else .unknown;
 
-    try self.emit("const __enc_tokens = try runtime.tokenizer.encode(__global_allocator, ");
+    try self.emitFmt("const __enc_tokens_{d} = try runtime.tokenizer.encode(__global_allocator, ", .{id});
     if (args.len > 0) {
         if (type_traits.isUnknown(arg_type)) {
             // PyObject (PyString) - convert to native string
@@ -47,28 +48,29 @@ fn handleEncode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     }
     try self.emit("); ");
-    try self.emit("const __enc_list = try runtime.PyList.create(__global_allocator); ");
-    try self.emit("for (__enc_tokens) |__enc_tok| { try runtime.PyList.append(__enc_list, try runtime.PyInt.create(__global_allocator, @intCast(__enc_tok))); } ");
-    try self.emit("break :blk __enc_list; })");
+    try self.emitFmt("const __enc_list_{d} = try runtime.PyList.create(__global_allocator); ", .{id});
+    try self.emitFmt("for (__enc_tokens_{d}) |__enc_tok_{d}| {{ try runtime.PyList.append(__enc_list_{d}, try runtime.PyInt.create(__global_allocator, @intCast(__enc_tok_{d}))); }} ", .{ id, id, id, id });
+    try self.emitFmt("break :__tok_enc_{d} __enc_list_{d}; }})", .{ id, id });
 }
 
 /// Generate code for tokenizer.decode(tokens)
 /// Converts PyList of PyInt to []u32 before calling runtime decode
 fn handleDecode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("(blk: { ");
-    try self.emit("const __dec_list = ");
+    const id = self.nextNameId();
+    try self.emitFmt("(__tok_dec_{d}: {{ ", .{id});
+    try self.emitFmt("const __dec_list_{d} = ", .{id});
     if (args.len > 0) {
         try self.genExpr(args[0]);
     }
     try self.emit("; ");
     // Convert PyList to []u32
-    try self.emit("var __dec_tokens = try __global_allocator.alloc(u32, runtime.PyList.len(__dec_list)); ");
-    try self.emit("var __dec_i: usize = 0; ");
-    try self.emit("while (__dec_i < __dec_tokens.len) : (__dec_i += 1) { ");
-    try self.emit("const __dec_item = try runtime.PyList.getItem(__dec_list, __dec_i); ");
-    try self.emit("__dec_tokens[__dec_i] = @intCast(runtime.PyInt.getValue(__dec_item)); ");
+    try self.emitFmt("var __dec_tokens_{d} = try __global_allocator.alloc(u32, runtime.PyList.len(__dec_list_{d})); ", .{ id, id });
+    try self.emitFmt("var __dec_i_{d}: usize = 0; ", .{id});
+    try self.emitFmt("while (__dec_i_{d} < __dec_tokens_{d}.len) : (__dec_i_{d} += 1) {{ ", .{ id, id, id });
+    try self.emitFmt("const __dec_item_{d} = try runtime.PyList.getItem(__dec_list_{d}, __dec_i_{d}); ", .{ id, id, id });
+    try self.emitFmt("__dec_tokens_{d}[__dec_i_{d}] = @intCast(runtime.PyInt.getValue(__dec_item_{d})); ", .{ id, id, id });
     try self.emit("} ");
-    try self.emit("break :blk try runtime.tokenizer.decode(__global_allocator, __dec_tokens); })");
+    try self.emitFmt("break :__tok_dec_{d} try runtime.tokenizer.decode(__global_allocator, __dec_tokens_{d}); }})", .{ id, id });
 }
 
 /// Generate code for tokenizer.count_tokens(text)

@@ -3,7 +3,7 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "open", h.wrap("blk: { const path = ", "; _ = path; break :blk .{ .name = path, .mode = \"r\", .closed = false }; }", ".{ .name = \"\", .mode = \"r\", .closed = false }") }, .{ "file_i_o", h.c(".{ .name = \"\", .mode = \"r\", .closefd = true, .closed = false }") },
+    .{ "open", h.structBlk("pyio", ".name = __v, .mode = \"r\", .closed = false", ".{ .name = \"\", .mode = \"r\", .closed = false }") }, .{ "file_i_o", h.c(".{ .name = \"\", .mode = \"r\", .closefd = true, .closed = false }") },
     .{ "bytes_i_o", h.c(".{ .buffer = \"\", .pos = 0 }") }, .{ "string_i_o", h.c(".{ .buffer = \"\", .pos = 0 }") },
     .{ "buffered_reader", h.c(".{ .raw = null, .buffer_size = 8192 }") }, .{ "buffered_writer", h.c(".{ .raw = null, .buffer_size = 8192 }") }, .{ "buffered_random", h.c(".{ .raw = null, .buffer_size = 8192 }") },
     .{ "buffered_r_w_pair", h.c(".{ .reader = null, .writer = null, .buffer_size = 8192 }") },

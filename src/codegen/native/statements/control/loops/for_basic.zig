@@ -839,13 +839,12 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         }
 
         // Use unique loop capture variable name to avoid shadowing in nested loops
-        const loop_var_id = self.lambda_counter;
-        self.lambda_counter += 1;
+        const loop_var_id = self.name_gen.nextId();
 
         try self.emitIndent();
         try self.emit("inline for (");
         try self.genExpr(for_stmt.iter.*);
-        try self.output.writer(self.allocator).print(") |__loop_val_{d}| {{\n", .{loop_var_id});
+        try self.output.writer(self.allocator).print(") |__m{d}_loop_val| {{\n", .{loop_var_id});
 
         self.indent();
         try self.pushScope();
@@ -933,10 +932,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 // For heterogeneous tuples (not type or callable), wrap in PyValue for type consistency
                 // This allows TryHelper to use concrete runtime.PyValue type instead of anytype
                 if (is_heterogeneous_inner and !is_type_tuple_inner and !has_callable_elements) {
-                    try self.output.writer(self.allocator).print("const __inner_{s}_{d}: runtime.PyValue = runtime.PyValue.from(__loop_val_{d});\n", .{ var_name, loop_var_id, loop_var_id });
+                    try self.output.writer(self.allocator).print("const __inner_{s}_{d}: runtime.PyValue = runtime.PyValue.from(__m{d}_loop_val);\n", .{ var_name, loop_var_id, loop_var_id });
                     try self.heterogeneous_loop_vars.put(var_name, {});
                 } else {
-                    try self.output.writer(self.allocator).print("const __inner_{s}_{d} = __loop_val_{d};\n", .{ var_name, loop_var_id, loop_var_id });
+                    try self.output.writer(self.allocator).print("const __inner_{s}_{d} = __m{d}_loop_val;\n", .{ var_name, loop_var_id, loop_var_id });
                 }
             } else {
                 // For type tuples, heterogeneous tuples, and callable tuples: const var = __loop_val_N
@@ -946,18 +945,18 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 if (is_heterogeneous_inner and !is_type_tuple_inner and !has_callable_elements) {
                     try self.emit("const ");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                    try self.output.writer(self.allocator).print(": runtime.PyValue = runtime.PyValue.from(__loop_val_{d});\n", .{loop_var_id});
+                    try self.output.writer(self.allocator).print(": runtime.PyValue = runtime.PyValue.from(__m{d}_loop_val);\n", .{loop_var_id});
                     try self.heterogeneous_loop_vars.put(var_name, {});
                 } else {
                     try self.emit("const ");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                    try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
+                    try self.output.writer(self.allocator).print(" = __m{d}_loop_val;\n", .{loop_var_id});
                 }
             }
         } else {
             // For homogeneous value tuples: T = __loop_val_N (runtime assignment to outer var)
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-            try self.output.writer(self.allocator).print(" = __loop_val_{d};\n", .{loop_var_id});
+            try self.output.writer(self.allocator).print(" = __m{d}_loop_val;\n", .{loop_var_id});
         }
 
         // Register loop variable type as widened tuple element type
@@ -1824,8 +1823,7 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     const shadows_outer = self.isDeclared(var_name) or self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
     var loop_var_name = var_name;
     if (shadows_outer) {
-        const unique_name = try std.fmt.allocPrint(self.allocator, "__loop_{s}_{d}", .{ var_name, self.lambda_counter });
-        self.lambda_counter += 1;
+        const unique_name = try self.name_gen.loopVar(var_name);
         try self.var_renames.put(var_name, unique_name);
         loop_var_name = unique_name;
     }

@@ -3,7 +3,7 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "Decimal", h.wrap("blk: { const v = ", "; _ = v; break :blk .{ .sign = 0, .digits = &[_]u8{}, .exp = 0 }; }", ".{ .sign = 0, .digits = &[_]u8{}, .exp = 0 }") }, .{ "Context", h.c(".{ .prec = 28, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }") },
+    .{ "Decimal", h.discardBlk("dec", ".{ .sign = 0, .digits = &[_]u8{}, .exp = 0 }", ".{ .sign = 0, .digits = &[_]u8{}, .exp = 0 }") }, .{ "Context", h.c(".{ .prec = 28, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }") },
     .{ "localcontext", h.c(".{ .prec = 28, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }") },
     .{ "getcontext", h.c(".{ .prec = 28, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }") }, .{ "setcontext", h.c("{}") },
     .{ "BasicContext", h.c(".{ .prec = 9, .rounding = 4, .Emin = -999999, .Emax = 999999, .capitals = 1, .clamp = 0 }") },

@@ -8,7 +8,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "build_opener", h.c(".{ .handlers = &[_]*anyopaque{} }") },
     .{ "pathname2url", h.pass("\"\"") }, .{ "url2pathname", h.pass("\"\"") },
     .{ "getproxies", h.c(".{}") },
-    .{ "Request", h.wrap("blk: { const url = ", "; break :blk .{ .full_url = url, .type = \"GET\", .data = @as(?[]const u8, null), .headers = .{}, .origin_req_host = @as(?[]const u8, null), .unverifiable = false, .method = @as(?[]const u8, null) }; }", ".{ .full_url = \"\", .type = \"GET\", .data = @as(?[]const u8, null), .headers = .{}, .origin_req_host = @as(?[]const u8, null), .unverifiable = false, .method = @as(?[]const u8, null) }") },
+    .{ "Request", h.structBlk("req", ".full_url = __v, .type = \"GET\", .data = @as(?[]const u8, null), .headers = .{}, .origin_req_host = @as(?[]const u8, null), .unverifiable = false, .method = @as(?[]const u8, null)", ".{ .full_url = \"\", .type = \"GET\", .data = @as(?[]const u8, null), .headers = .{}, .origin_req_host = @as(?[]const u8, null), .unverifiable = false, .method = @as(?[]const u8, null) }") },
     .{ "OpenerDirector", h.c(".{ .handlers = &[_]*anyopaque{} }") },
     .{ "BaseHandler", h.c(".{}") }, .{ "HTTPDefaultErrorHandler", h.c(".{}") },
     .{ "HTTPRedirectHandler", h.c(".{ .max_redirections = @as(i32, 10), .max_repeats = @as(i32, 4) }") },

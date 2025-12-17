@@ -1,6 +1,10 @@
 /// Comparison operations: ==, !=, <, <=, >, >=, in, not in, is, is not
 /// Handles chained comparisons, string comparisons, container membership, identity checks
 /// String literal comparisons are folded at compile time ("a" == "a" → true)
+///
+/// MIGRATION STATUS: Prepared for ZigBuilder - imports added
+/// - File is large (1400+ lines) with complex labeled block patterns
+/// - Migration deferred to focus on simpler files first
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -16,6 +20,8 @@ const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const expr_emitter = @import("../../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
 
 /// Check if expression is a string constant (NOT bytes)
 fn isStringConstant(expr: ast.Node) bool {

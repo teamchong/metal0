@@ -77,6 +77,12 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/codegen/native/name_gen.zig"),
     });
     name_gen.addImport("utils.zig_keywords", zig_keywords);
+
+    // Builder module for structured Zig code generation (inspired by Zig's C backend)
+    const builder_mod = b.addModule("codegen.builder", .{
+        .root_source_file = b.path("src/codegen/builder/builder.zig"),
+    });
+
     const ast = b.addModule("analysis.ast", .{
         .root_source_file = b.path("src/ast.zig"),
     });
@@ -256,6 +262,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("utils.fnv_hash", fnv_hash);
     exe.root_module.addImport("utils.zig_keywords", zig_keywords);
     exe.root_module.addImport("codegen.name_gen", name_gen);
+    exe.root_module.addImport("codegen.builder", builder_mod);
     exe.root_module.addImport("analysis.ast", ast);
     // lexer and parser are imported via relative paths from src/
     exe.root_module.addImport("c_interop", c_interop_mod);

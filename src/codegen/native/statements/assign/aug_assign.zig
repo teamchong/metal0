@@ -461,9 +461,8 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         if (container_traits.isTuple(target_type) or aug.target.* == .tuple) {
             if (aug.target.* == .name) {
                 const var_name = aug.target.name.id;
-                // Generate unique shadow variable name
-                const shadow_name = try std.fmt.allocPrint(self.allocator, "__{s}_concat_{d}", .{ var_name, self.shadow_counter });
-                self.shadow_counter += 1;
+                // Generate unique shadow variable name using NameGen
+                const shadow_name = try self.name_gen.shadow(var_name);
 
                 // Generate: const __x_shadow_N = runtime.tupleConcat(original_x, (new_elements));
                 try self.emitIndent();
@@ -497,9 +496,8 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         if (container_traits.isTuple(target_type) or aug.target.* == .tuple) {
             if (aug.target.* == .name) {
                 const var_name = aug.target.name.id;
-                // Generate unique shadow variable name
-                const shadow_name = try std.fmt.allocPrint(self.allocator, "__{s}_mult_{d}", .{ var_name, self.shadow_counter });
-                self.shadow_counter += 1;
+                // Generate unique shadow variable name using NameGen
+                const shadow_name = try self.name_gen.shadow(var_name);
 
                 // Check if multiplier is a comptime integer constant
                 if (aug.value.* == .constant and aug.value.constant.value == .int) {
@@ -813,9 +811,8 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
             const var_name = aug.target.name.id;
             const current_name = self.var_renames.get(var_name) orelse var_name;
 
-            // Generate unique shadow variable name
-            const shadow_name = try std.fmt.allocPrint(self.allocator, "__{s}_div_{d}", .{ var_name, self.shadow_counter });
-            self.shadow_counter += 1;
+            // Generate unique shadow variable name using NameGen
+            const shadow_name = try self.name_gen.shadow(var_name);
 
             // Generate: const __x_div_N = blk: { _ = &x; break :blk @as(f64, @floatFromInt(x)) / ...; };
             // The block with discard of `&x` (pointer) suppresses "var never mutated" warning

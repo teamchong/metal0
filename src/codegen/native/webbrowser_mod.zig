@@ -2,7 +2,7 @@
 const std = @import("std");
 const h = @import("mod_helper.zig");
 
-const genOpen = h.wrap("blk: { const url = ", "; _ = url; break :blk true; }", "false");
+const genOpen = h.discardBlk("wb", "true", "false");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "open", genOpen }, .{ "open_new", genOpen }, .{ "open_new_tab", genOpen },

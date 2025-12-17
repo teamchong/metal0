@@ -31,7 +31,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "contains", h.wrap2("runtime.containsGeneric(", ", ", ")", "false") },
     .{ "countOf", h.I64(0) }, .{ "indexOf", h.I64(-1) },
     // Item
-    .{ "getitem", h.wrap2("", "[", "]", "@as(i64, 0)") }, .{ "setitem", h.wrap3("blk: { ", "[", "] = ", "; break :blk null; }", "null") },
+    .{ "getitem", h.wrap2("", "[", "]", "@as(i64, 0)") }, .{ "setitem", h.wrap3Blk("seti", "__v0[@intCast(__v1)] = __v2;", "null", "null") },
     .{ "delitem", h.c("null") }, .{ "length_hint", h.I64(0) },
     // Getters
     .{ "attrgetter", h.c("struct { attr: []const u8 = \"\", pub fn __call__(__self: @This(), obj: anytype) []const u8 { _ = &__self; _ = obj; return \"\"; } }{}") },

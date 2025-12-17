@@ -11,20 +11,28 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "dec_str_to_int_inner", genDecStrToIntInner }, .{ "compute_powers", genComputePowers },
 });
 
-const genIntToDecimalString = h.wrap("(blk: { const n = ", "; if (@TypeOf(n) == runtime.BigInt) { break :blk n.toString(__global_allocator); } else { break :blk try std.fmt.allocPrint(__global_allocator, \"{d}\", .{n}); } })", "\"0\"");
+fn genIntToDecimalString(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("\"0\""); return; }
+    const id = self.nextNameId();
+    try self.emitFmt("(__pylong_itds_{d}: {{ const __n_{d} = ", .{ id, id });
+    try self.genExpr(args[0]);
+    try self.emitFmt("; if (@TypeOf(__n_{d}) == runtime.BigInt) {{ break :__pylong_itds_{d} __n_{d}.toString(__global_allocator); }} else {{ break :__pylong_itds_{d} try std.fmt.allocPrint(__global_allocator, \"{{d}}\", .{{__n_{d}}}); }} }})", .{ id, id, id, id, id });
+}
 
 fn genIntFromString(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("@as(i64, 0)"); return; }
-    try self.emit("(blk: { const s = "); try self.genExpr(args[0]); try self.emit("; const base: u8 = ");
+    const id = self.nextNameId();
+    try self.emitFmt("(__pylong_ifs_{d}: {{ const __s_{d} = ", .{ id, id }); try self.genExpr(args[0]); try self.emitFmt("; const __base_{d}: u8 = ", .{id});
     if (args.len > 1) { try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit(")"); } else { try self.emit("10"); }
-    try self.emit("; break :blk runtime.builtins.parseInt(s, base) catch 0; })");
+    try self.emitFmt("; break :__pylong_ifs_{d} runtime.builtins.parseInt(__s_{d}, __base_{d}) catch 0; }})", .{ id, id, id });
 }
 
 fn genDecStrToIntInner(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("@as(i64, 0)"); return; }
-    try self.emit("(blk: { const s = "); try self.genExpr(args[0]); try self.emit("; const guard: u8 = ");
+    const id = self.nextNameId();
+    try self.emitFmt("(__pylong_dsi_{d}: {{ const __s_{d} = ", .{ id, id }); try self.genExpr(args[0]); try self.emitFmt("; const __guard_{d}: u8 = ", .{id});
     if (args.len > 1) { try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit(")"); } else { try self.emit("8"); }
-    try self.emit("; _ = guard; const max_len: usize = @intFromFloat(@as(f64, @floatFromInt(@as(u64, 1) << 47)) / 0.4150374992788438); if (s.len > max_len) { return error.ValueError; } break :blk runtime.builtins.parseInt(s, 10) catch 0; })");
+    try self.emitFmt("; _ = __guard_{d}; const __max_len_{d}: usize = @intFromFloat(@as(f64, @floatFromInt(@as(u64, 1) << 47)) / 0.4150374992788438); if (__s_{d}.len > __max_len_{d}) {{ return error.ValueError; }} break :__pylong_dsi_{d} runtime.builtins.parseInt(__s_{d}, 10) catch 0; }})", .{ id, id, id, id, id, id });
 }
 
 fn genComputePowers(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

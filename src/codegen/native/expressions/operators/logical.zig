@@ -1,5 +1,9 @@
 /// Logical operations: and, or, not
 /// Handles Python value-based semantics (returns actual values, not just booleans)
+///
+/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// - Uses captureExpr() to bridge AST expressions to ZigValue
+/// - Emits using emitZigValue() for type-safe output
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -8,6 +12,8 @@ const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const expr_emitter = @import("../../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
 
 /// Generate boolean operations (and, or)
 /// Python's and/or return the actual values, not booleans:
@@ -28,7 +34,8 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
         const op_str = if (boolop.op == .And) " and " else " or ";
         for (boolop.values, 0..) |value, i| {
             if (i > 0) try self.emit(op_str);
-            try genExpr(self, value);
+            const operand = try self.captureExpr(value);
+            try self.emitZigValue(operand);
         }
         return;
     }
@@ -65,15 +72,20 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
             // Python's `x or y` returns x if truthy, else y (preserving actual value)
             // Use runtime.pyOr/pyAnd which returns PyValue
             // Wrap with runtime.toBool so result can be used in boolean contexts (if, while, etc.)
+
+            // Capture operands as ZigValues
+            const a_operand = try self.captureExpr(a);
+            const b_operand = try self.captureExpr(b);
+
             try self.emit("runtime.toBool(");
             if (boolop.op == .Or) {
                 try self.emit("(try runtime.pyOr(__global_allocator, ");
             } else {
                 try self.emit("(try runtime.pyAnd(__global_allocator, ");
             }
-            try genExpr(self, a);
+            try self.emitZigValue(a_operand);
             try self.emit(", ");
-            try genExpr(self, b);
+            try self.emitZigValue(b_operand);
             try self.emit(")))");
             return;
         }
@@ -114,8 +126,9 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
     const op_str = if (boolop.op == .And) " and " else " or ";
     for (boolop.values, 0..) |value, i| {
         if (i > 0) try self.emit(op_str);
+        const operand = try self.captureExpr(value);
         try self.emit("runtime.toBool(");
-        try genExpr(self, value);
+        try self.emitZigValue(operand);
         try self.emit(")");
     }
 }

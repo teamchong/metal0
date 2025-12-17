@@ -3,7 +3,7 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "connect", h.wrap("blk: { const db = ", "; _ = db; break :blk .{ .database = db, .isolation_level = \"\", .row_factory = null }; }", ".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }") }, .{ "connection", h.c(".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }") },
+    .{ "connect", h.structBlk("sql", ".database = __v, .isolation_level = \"\", .row_factory = null", ".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }") }, .{ "connection", h.c(".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }") },
     .{ "cursor", h.c(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }") },
     .{ "row", h.c(".{}") }, .{ "cursor_method", h.c(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }") },
     .{ "commit", h.c("{}") }, .{ "rollback", h.c("{}") }, .{ "close", h.c("{}") },

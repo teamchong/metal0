@@ -19,6 +19,7 @@ const cleanup = @import("cleanup.zig");
 const debug_info = @import("debug.debug_info");
 const name_gen_mod = @import("codegen.name_gen");
 const expr_emitter = @import("../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
 
 const hashmap_helper = @import("utils.hashmap_helper");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
@@ -143,9 +144,6 @@ pub const NativeCodegen = struct {
 
     // Class registry for inheritance support and method lookup
     class_registry: *ClassRegistry,
-
-    // Counter for unique tuple unpacking temporary variables
-    unpack_counter: usize,
 
     // Counter for unique __TryHelper struct names (avoids shadowing in nested try blocks)
     try_helper_counter: usize,
@@ -734,6 +732,11 @@ pub const NativeCodegen = struct {
     // This eliminates the need for shadowing detection entirely
     name_gen: name_gen_mod.NameGen,
 
+    // Structured code builder (Phase 1 migration)
+    // Provides type-safe, scope-aware code generation API
+    // Will gradually replace string-based emit()/emitFmt() calls
+    builder: ?*builder_mod.ZigBuilder,
+
     pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
         // Create arena for internal string allocations (keys, duped strings)
         // Arena allocator allows O(1) cleanup via single deinit() call
@@ -770,7 +773,6 @@ pub const NativeCodegen = struct {
             .module_name = null,
             .symbol_table = sym_table,
             .class_registry = cls_registry,
-            .unpack_counter = 0,
             .try_helper_counter = 0,
             .try_helper_depth = 0,
             .conditional_depth = 0,
@@ -920,6 +922,9 @@ pub const NativeCodegen = struct {
             .keyword_raise_count = 0,
             .keyword_assert_count = 0,
             .name_gen = name_gen_mod.init(allocator),
+            // Builder initialized to null - will be lazily created when needed
+            // This allows gradual migration without breaking existing codegen
+            .builder = null,
         };
         return self;
     }
@@ -1572,6 +1577,111 @@ pub const NativeCodegen = struct {
     /// Use with emitFmt: emitFmt("blk_{d}", .{self.nextNameId()})
     pub fn nextNameId(self: *NativeCodegen) usize {
         return self.name_gen.nextId();
+    }
+
+    /// Get or create the structured ZigBuilder (lazy initialization)
+    /// Use this during Phase 1 migration to access type-safe codegen APIs
+    /// The builder can coexist with existing emit()/emitFmt() calls
+    pub fn getBuilder(self: *NativeCodegen) CodegenError!*builder_mod.ZigBuilder {
+        if (self.builder) |b| {
+            return b;
+        }
+
+        // Lazy initialization - create builder on first use
+        const b = try self.allocator.create(builder_mod.ZigBuilder);
+        b.* = try builder_mod.ZigBuilder.init(self.allocator);
+        self.builder = b;
+        return b;
+    }
+
+    /// Get the builder's type pool for creating ZigType references
+    /// Returns null if builder hasn't been initialized yet
+    pub fn getTypePool(self: *NativeCodegen) ?*builder_mod.TypePool {
+        if (self.builder) |b| {
+            return b.getTypePool();
+        }
+        return null;
+    }
+
+    /// Capture an AST expression as a raw ZigValue
+    /// This is the bridge between existing emit-based codegen and the new builder API
+    /// Usage: const val = try self.captureExpr(expr);
+    /// The returned ZigValue.raw() contains the emitted Zig code for the expression
+    pub fn captureExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!builder_mod.ZigValue {
+        const expressions = @import("../expressions.zig");
+
+        // Save current output position
+        const start_pos = self.output.items.len;
+
+        // Generate the expression into the output buffer
+        try expressions.genExpr(self, expr);
+
+        // Extract the generated code
+        const generated = self.output.items[start_pos..];
+
+        // Copy to arena so it persists (output may be modified later)
+        const code = try self.arena.allocator().dupe(u8, generated);
+
+        // Remove the generated code from output (we're capturing it, not emitting it)
+        self.output.shrinkRetainingCapacity(start_pos);
+
+        return builder_mod.ZigValue.raw(code);
+    }
+
+    /// Emit a ZigValue to the output buffer
+    /// This allows mixing builder-style values with emit-style output
+    pub fn emitZigValue(self: *NativeCodegen, value: builder_mod.ZigValue) CodegenError!void {
+        switch (value) {
+            .none => {},
+            .certain_int => |v| try self.emitFmt("{d}", .{v}),
+            .certain_float => |v| {
+                if (std.math.isNan(v)) {
+                    try self.emit("std.math.nan(f64)");
+                } else if (std.math.isInf(v)) {
+                    if (v > 0) {
+                        try self.emit("std.math.inf(f64)");
+                    } else {
+                        try self.emit("-std.math.inf(f64)");
+                    }
+                } else {
+                    try self.emitFmt("{d}", .{v});
+                }
+            },
+            .certain_bool => |v| try self.emit(if (v) "true" else "false"),
+            .certain_str => |s| {
+                try self.emit("\"");
+                for (s) |c| {
+                    switch (c) {
+                        '\n' => try self.emit("\\n"),
+                        '\r' => try self.emit("\\r"),
+                        '\t' => try self.emit("\\t"),
+                        '\\' => try self.emit("\\\\"),
+                        '"' => try self.emit("\\\""),
+                        else => {
+                            if (c < 32 or c > 126) {
+                                try self.emitFmt("\\x{x:0>2}", .{c});
+                            } else {
+                                try self.output.append(self.allocator, c);
+                            }
+                        },
+                    }
+                }
+                try self.emit("\"");
+            },
+            .certain_null => try self.emit("null"),
+            .named => |name| try self.emit(name),
+            .raw_expr => |expr| try self.emit(expr),
+            else => {
+                // For complex values, use builder to emit and copy
+                const b = try self.getBuilder();
+                const start = b.body.items.len;
+                try b.emitValue(value, builder_mod.EmitConfig.forExpression());
+                const emitted = b.body.items[start..];
+                try self.emit(emitted);
+                // Roll back builder
+                b.body.shrinkRetainingCapacity(start);
+            },
+        }
     }
 
     /// Static indent strings for O(1) lookup instead of O(n) loop

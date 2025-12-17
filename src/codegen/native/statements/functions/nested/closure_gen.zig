@@ -162,9 +162,8 @@ pub fn genStandardClosure(
     func: ast.Node.FunctionDef,
     captured_vars: [][]const u8,
 ) CodegenError!void {
-    // Save counter before any nested generation that might increment it
-    const saved_counter = self.lambda_counter;
-    self.lambda_counter += 1;
+    // Save ID before any nested generation
+    const saved_id = self.name_gen.nextId();
 
     // Identify captured vars that are mutated in the function body
     // These need to be captured by pointer (*T) instead of by value (T)
@@ -182,16 +181,16 @@ pub fn genStandardClosure(
     // Generate comptime closure using runtime.Closure1 helper
     const closure_impl_name = try std.fmt.allocPrint(
         self.allocator,
-        "__ClosureImpl_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_ClosureImpl_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(closure_impl_name);
 
     // Generate the capture struct type (must be defined once and reused)
     const capture_type_name = try std.fmt.allocPrint(
         self.allocator,
-        "__CaptureType_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_CaptureType_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(capture_type_name);
 
@@ -213,19 +212,19 @@ pub fn genStandardClosure(
     self.indent();
 
     // Generate static function that closure will call
-    // Use unique name based on function name + saved counter to avoid shadowing
+    // Use unique name based on function name + saved ID to avoid shadowing
     const impl_fn_name = try std.fmt.allocPrint(
         self.allocator,
-        "call_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_call_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(impl_fn_name);
 
     // Use unique capture param name to avoid shadowing in nested closures
     const capture_param_name = try std.fmt.allocPrint(
         self.allocator,
-        "__cap_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_cap_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(capture_param_name);
 
@@ -262,11 +261,11 @@ pub fn genStandardClosure(
         // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
         const is_used = var_tracking.isParamUsedInStmts(arg.name, func.body);
         if (is_used) {
-            // Create a unique parameter name to avoid shadowing: __p_name_counter
+            // Create a unique parameter name to avoid shadowing: __p_name_id
             const unique_param_name = try std.fmt.allocPrint(
                 self.allocator,
-                "__p_{s}_{d}",
-                .{ arg.name, saved_counter },
+                "__m{d}_p_{s}",
+                .{ saved_id, arg.name },
             );
             try param_renames.put(arg.name, unique_param_name);
             try self.output.writer(self.allocator).print(", {s}: {s}", .{ unique_param_name, zig_type });
@@ -281,8 +280,8 @@ pub fn genStandardClosure(
         if (is_used) {
             const unique_param_name = try std.fmt.allocPrint(
                 self.allocator,
-                "__p_{s}_{d}",
-                .{ vararg_name, saved_counter },
+                "__m{d}_p_{s}",
+                .{ saved_id, vararg_name },
             );
             try param_renames.put(vararg_name, unique_param_name);
             try self.output.writer(self.allocator).print(", {s}: anytype", .{unique_param_name});
@@ -297,8 +296,8 @@ pub fn genStandardClosure(
         if (is_used) {
             const unique_param_name = try std.fmt.allocPrint(
                 self.allocator,
-                "__p_{s}_{d}",
-                .{ kwarg_name, saved_counter },
+                "__m{d}_p_{s}",
+                .{ saved_id, kwarg_name },
             );
             try param_renames.put(kwarg_name, unique_param_name);
             try self.output.writer(self.allocator).print(", {s}: anytype", .{unique_param_name});
@@ -667,8 +666,8 @@ pub fn genStandardClosure(
     // Create closure variable name
     const closure_var_name = try std.fmt.allocPrint(
         self.allocator,
-        "__closure_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_closure_{s}",
+        .{ saved_id, func.name },
     );
 
     // Note: impl_fn_name is already created above (line ~59) and is still in scope
@@ -950,9 +949,8 @@ pub fn genNestedFunctionWithOuterCapture(
         return;
     }
 
-    // Save counter before any nested generation that might increment it
-    const saved_counter = self.lambda_counter;
-    self.lambda_counter += 1;
+    // Save ID before any nested generation
+    const saved_id = self.name_gen.nextId();
 
     // Identify captured vars that are mutated in the function body (including nonlocal)
     var mutated_captures = hashmap_helper.StringHashMap(void).init(self.allocator);
@@ -968,16 +966,16 @@ pub fn genNestedFunctionWithOuterCapture(
     // Generate comptime closure using runtime.Closure1 helper
     const closure_impl_name = try std.fmt.allocPrint(
         self.allocator,
-        "__ClosureImpl_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_ClosureImpl_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(closure_impl_name);
 
     // Generate the capture struct type (must be defined once and reused)
     const capture_type_name = try std.fmt.allocPrint(
         self.allocator,
-        "__CaptureType_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_CaptureType_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(capture_type_name);
 
@@ -1000,16 +998,16 @@ pub fn genNestedFunctionWithOuterCapture(
     // Generate static function that closure will call
     const impl_fn_name = try std.fmt.allocPrint(
         self.allocator,
-        "call_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_call_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(impl_fn_name);
 
     // Use unique capture param name to avoid shadowing in nested closures
     const capture_param_name = try std.fmt.allocPrint(
         self.allocator,
-        "__cap_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_cap_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(capture_param_name);
 
@@ -1032,11 +1030,11 @@ pub fn genNestedFunctionWithOuterCapture(
         // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
         const is_used = var_tracking.isParamUsedInStmts(arg.name, func.body);
         if (is_used) {
-            // Create a unique parameter name to avoid shadowing: __p_name_counter
+            // Create a unique parameter name to avoid shadowing: __p_name_id
             const unique_param_name = try std.fmt.allocPrint(
                 self.allocator,
-                "__p_{s}_{d}",
-                .{ arg.name, saved_counter },
+                "__m{d}_p_{s}",
+                .{ saved_id, arg.name },
             );
             try param_renames.put(arg.name, unique_param_name);
             try self.output.writer(self.allocator).print(", {s}: anytype", .{unique_param_name});
@@ -1244,8 +1242,8 @@ pub fn genNestedFunctionWithOuterCapture(
     // Create closure type using comptime helper based on arg count
     const closure_var_name = try std.fmt.allocPrint(
         self.allocator,
-        "__closure_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_closure_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(closure_var_name);
 
@@ -1289,8 +1287,8 @@ pub fn genNestedFunctionWithOuterCapture(
     // Return type and function
     const impl_fn_ref = try std.fmt.allocPrint(
         self.allocator,
-        "call_{s}_{d}",
-        .{ func.name, saved_counter },
+        "__m{d}_call_{s}",
+        .{ saved_id, func.name },
     );
     defer self.allocator.free(impl_fn_ref);
 

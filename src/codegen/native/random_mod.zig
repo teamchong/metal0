@@ -7,21 +7,12 @@ const NativeCodegen = h.NativeCodegen;
 const expr_emitter = @import("expr_emitter.zig");
 
 const prng = "var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); const _r = _prng.random(); ";
-const randintBody = "); " ++ prng ++ "break :blk a + @as(i64, @intCast(_r.int(u64) % @as(u64, @intCast(b - a + 1)))); }";
-const uniformBody = "; " ++ prng ++ "const rv = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :blk a + (b - a) * rv; }";
-const gaussBody = "; " ++ prng ++ "const u1 = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); const u2 = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :blk mu + sigma * @sqrt(-2.0 * @log(u1)) * @cos(2.0 * std.math.pi * u2); }";
 
-pub const genRandint = h.wrap2("blk: { const a: i64 = @intCast(", "); const b: i64 = @intCast(", randintBody, "0");
-
-// Distribution body templates
-const expoBody = "; " ++ prng ++ "const u = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :blk -@log(u) / lambd; }";
-const betaBody = "; const b: f64 = "; // Need gamma samples for proper beta
-const triangularBody = "; const mode: f64 = "; // Three params: low, high, mode
-const vonmisesBody = "; const kappa: f64 = "; // mu, kappa params
+pub const genRandint = h.wrap2Blk("rint", "const _a: i64 = @intCast(__v0); const _b: i64 = @intCast(__v1); " ++ prng, "_a + @as(i64, @intCast(_r.int(u64) % @as(u64, @intCast(_b - _a + 1))))", "0");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Basic random functions
-    .{ "random", h.c("blk: { " ++ prng ++ "break :blk @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); }") },
+    .{ "random", genRandom },
     .{ "randint", genRandint },
     .{ "randrange", genRandrange },
     .{ "choice", genChoice },
@@ -29,10 +20,10 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "shuffle", genShuffle },
     .{ "sample", genSample },
     // Continuous distributions
-    .{ "uniform", h.wrap2("blk: { const a: f64 = ", "; const b: f64 = ", uniformBody, "0.0") },
-    .{ "gauss", h.wrap2("blk: { const mu: f64 = ", "; const sigma: f64 = ", gaussBody, "0.0") },
-    .{ "normalvariate", h.wrap2("blk: { const mu: f64 = ", "; const sigma: f64 = ", gaussBody, "0.0") },
-    .{ "expovariate", h.wrap("blk: { const lambd: f64 = ", expoBody, "0.0") },
+    .{ "uniform", genUniform },
+    .{ "gauss", genGauss },
+    .{ "normalvariate", genGauss },
+    .{ "expovariate", genExpovariate },
     .{ "gammavariate", genGammavariate },
     .{ "betavariate", genBetavariate },
     .{ "paretovariate", genParetovariate },
@@ -42,8 +33,43 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "vonmisesvariate", genVonmises },
     // State functions
     .{ "seed", h.c("{}") }, .{ "getstate", h.c(".{}") }, .{ "setstate", h.c("{}") },
-    .{ "getrandbits", h.wrap("blk: { const k: u6 = @intCast(", "); " ++ prng ++ "break :blk @as(i64, @intCast(_r.int(u64) & ((@as(u64, 1) << k) - 1))); }", "0") },
+    .{ "getrandbits", genRandbits },
 });
+
+fn genRandom(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_rand: {{ " ++ prng ++ "break :__m{d}_rand @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); }})", .{ id, id });
+}
+
+fn genUniform(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) { try self.emit("0.0"); return; }
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_uni: {{ const _a: f64 = ", .{id}); try self.genExpr(args[0]);
+    try self.emit("; const _b: f64 = "); try self.genExpr(args[1]);
+    try self.emitFmt("; " ++ prng ++ "const _rv = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :__m{d}_uni _a + (_b - _a) * _rv; }})", .{id});
+}
+
+fn genGauss(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) { try self.emit("0.0"); return; }
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_gauss: {{ const _mu: f64 = ", .{id}); try self.genExpr(args[0]);
+    try self.emit("; const _sigma: f64 = "); try self.genExpr(args[1]);
+    try self.emitFmt("; " ++ prng ++ "const _u1 = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); const _u2 = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :__m{d}_gauss _mu + _sigma * @sqrt(-2.0 * @log(_u1)) * @cos(2.0 * std.math.pi * _u2); }})", .{id});
+}
+
+fn genExpovariate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("0.0"); return; }
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_expo: {{ const _lambd: f64 = ", .{id}); try self.genExpr(args[0]);
+    try self.emitFmt("; " ++ prng ++ "const _u = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :__m{d}_expo -@log(_u) / _lambd; }})", .{id});
+}
+
+fn genRandbits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("0"); return; }
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_bits: {{ const _k: u6 = @intCast(", .{id}); try self.genExpr(args[0]);
+    try self.emitFmt("); " ++ prng ++ "break :__m{d}_bits @as(i64, @intCast(_r.int(u64) & ((@as(u64, 1) << _k) - 1))); }})", .{id});
+}
 
 pub fn genRandrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;

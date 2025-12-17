@@ -2,7 +2,7 @@
 const std = @import("std");
 const h = @import("mod_helper.zig");
 
-const genZoneInfo = h.wrap("blk: { const key = ", "; break :blk .{ .key = key }; }", ".{ .key = \"UTC\" }");
+const genZoneInfo = h.structBlk("zi", ".key = __v", ".{ .key = \"UTC\" }");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "zone_info", genZoneInfo }, .{ "from_file", h.c(".{ .key = \"UTC\" }") }, .{ "no_cache", genZoneInfo }, .{ "clear_cache", h.c("{}") },

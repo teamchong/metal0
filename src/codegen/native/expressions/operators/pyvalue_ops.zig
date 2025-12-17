@@ -1,0 +1,167 @@
+/// PyValue (Two-Flow) operations for uncertain type operands
+/// Handles runtime-polymorphic arithmetic using runtime.PyValue methods
+///
+/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// - Uses captureExpr() to bridge AST expressions to ZigValue
+/// - Emits using emitZigValue() for type-safe output
+const std = @import("std");
+const ast = @import("analysis.ast");
+const NativeCodegen = @import("../../main.zig").NativeCodegen;
+const CodegenError = @import("../../main.zig").CodegenError;
+const expressions = @import("../../expressions.zig");
+const genExpr = expressions.genExpr;
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
+
+/// PyValue method names for binary operations
+pub const PyValueMethods = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Add", "add" },
+    .{ "Sub", "sub" },
+    .{ "Mult", "mul" },
+    .{ "Div", "div" },
+    .{ "FloorDiv", "floordiv" },
+    .{ "Mod", "mod" },
+    // Bitwise operations for Two-Flow uncertain operands
+    .{ "BitAnd", "pyBitAnd" },
+    .{ "BitOr", "pyBitOr" },
+    .{ "BitXor", "pyBitXor" },
+    .{ "LShift", "pyLShift" },
+    .{ "RShift", "pyRShift" },
+    .{ "Pow", "pyPow" },
+});
+
+/// Check if an expression operand is uncertain (needs PyValue)
+/// TWO-FLOW TYPE SYSTEM: Check type and confidence together.
+///
+/// Decision logic:
+/// 1. If type is explicitly PyValue or unknown → use PyValue (uncertain)
+/// 2. If type is concrete (int/float/etc.) AND confidence is explicitly tracked as uncertain → use PyValue
+/// 3. If type is concrete AND confidence is NOT tracked or is certain → use native ops
+///
+/// NOTE: The confidence map defaults to `.uncertain` for untracked variables, so we need
+/// to distinguish between "explicitly uncertain" and "not tracked". We check if confidence
+/// is in the map before trusting the uncertain default.
+pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
+    // Check if this is a variable with uncertain confidence
+    if (expr == .name) {
+        const name = expr.name.id;
+
+        // NEVER treat 'self' in class methods as uncertain - it's always the concrete class type
+        if (std.mem.eql(u8, name, "self")) {
+            return false;
+        }
+
+        // NEVER treat anytype parameters as uncertain - they use comptime polymorphism
+        if (self.anytype_params.contains(name)) {
+            return false;
+        }
+
+        // Check type first
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            switch (vt) {
+                // Explicit PyValue or unknown - always use PyValue methods
+                .pyvalue, .unknown => return true,
+                // Concrete types - check if confidence is EXPLICITLY tracked as uncertain
+                // If confidence is not tracked, default to using native ops (not uncertain)
+                .string, .int, .float, .bool, .none, .bytes => {
+                    // Check if this variable has explicitly tracked confidence
+                    if (self.type_inferrer.hasTrackedConfidence(name)) {
+                        return self.isVarUncertain(name);
+                    }
+                    // Not tracked - assume certain (use native ops)
+                    return false;
+                },
+                // Class instances - don't use PyValue methods
+                .class_instance => return false,
+                else => {},
+            }
+        }
+        // Fall back to confidence check for variables not in var_types
+        return self.isVarUncertain(name);
+    }
+
+    // Check attribute access - if the inferred type is PyValue, treat as uncertain
+    if (expr == .attribute) {
+        const attr_type = self.type_inferrer.inferExpr(expr) catch return false;
+        return attr_type == .pyvalue or attr_type == .unknown;
+    }
+
+    return false;
+}
+
+/// Check if an expression is a comptime literal (int or float constant)
+/// Comptime literals need explicit type casting before wrapping in PyValue.from()
+pub fn isComptimeLiteral(expr: ast.Node) bool {
+    return switch (expr) {
+        .constant => |c| c.value == .int or c.value == .float,
+        .unaryop => |u| (u.op == .USub or u.op == .UAdd) and isComptimeLiteral(u.operand.*),
+        else => false,
+    };
+}
+
+/// Check if a comptime literal is a float
+pub fn isComptimeFloat(expr: ast.Node) bool {
+    return switch (expr) {
+        .constant => |c| c.value == .float,
+        .unaryop => |u| (u.op == .USub or u.op == .UAdd) and isComptimeFloat(u.operand.*),
+        else => false,
+    };
+}
+
+/// Generate PyValue binary operations for uncertain operands
+/// Pattern: (runtime.PyValue.from(left)).method(runtime.PyValue.from(right))
+pub fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
+    const method_name = PyValueMethods.get(@tagName(binop.op)) orelse {
+        // Unsupported operation - fall back to compile error
+        try self.emit("@compileError(\"Unsupported PyValue operation: ");
+        try self.emit(@tagName(binop.op));
+        try self.emit("\")");
+        return;
+    };
+
+    // Capture operands as ZigValues
+    const left_operand = try self.captureExpr(binop.left.*);
+    const right_operand = try self.captureExpr(binop.right.*);
+
+    // ALWAYS wrap both operands in PyValue.from() for safety
+    // This handles mixed type operations like: primitive // PyValue
+    // PyValue.from() is a no-op for existing PyValues, so it's safe to wrap unconditionally
+    //
+    // FIX: Comptime literals (like `1` or `3.14`) need explicit type casting before
+    // PyValue.from() because comptime_int and comptime_float can't be wrapped directly.
+
+    // Emit: (runtime.PyValue.from(...))
+    try self.emit("(runtime.PyValue.from(");
+    if (isComptimeLiteral(binop.left.*)) {
+        // Cast comptime literal to concrete type
+        if (isComptimeFloat(binop.left.*)) {
+            try self.emit("@as(f64, ");
+        } else {
+            try self.emit("@as(i64, ");
+        }
+        try self.emitZigValue(left_operand);
+        try self.emit(")");
+    } else {
+        try self.emitZigValue(left_operand);
+    }
+    try self.emit(")).");
+
+    // Emit method call: .method(runtime.PyValue.from(...))
+    try self.emit(method_name);
+    try self.emit("(runtime.PyValue.from(");
+    if (isComptimeLiteral(binop.right.*)) {
+        // Cast comptime literal to concrete type
+        if (isComptimeFloat(binop.right.*)) {
+            try self.emit("@as(f64, ");
+        } else {
+            try self.emit("@as(i64, ");
+        }
+        try self.emitZigValue(right_operand);
+        try self.emit(")");
+    } else {
+        try self.emitZigValue(right_operand);
+    }
+    try self.emit("))");
+}

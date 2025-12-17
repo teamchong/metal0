@@ -54,9 +54,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
     const core = @import("../../main/core.zig");
 
     // Generate unique temporary variable name
-    const tmp_name = try std.fmt.allocPrint(self.allocator, "__unpack_tmp_{d}", .{self.unpack_counter});
-    defer self.allocator.free(tmp_name);
-    self.unpack_counter += 1;
+    const tmp_name = try self.freshName("unpack_tmp");
 
     // Infer the type of the source tuple to track element types
     const source_type = try self.type_inferrer.inferExpr(assign.value.*);
@@ -239,9 +237,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
         } else if (target == .tuple) {
             // Handle nested tuple unpacking: (x, y), (z, t) = sorted(v.items(), ...)
             // First extract the i-th element into a temp, then unpack that
-            const nested_tmp = try std.fmt.allocPrint(self.allocator, "__nested_unpack_{d}", .{self.unpack_counter});
-            defer self.allocator.free(nested_tmp);
-            self.unpack_counter += 1;
+            const nested_tmp = try self.freshName("nested_unpack");
 
             // Generate: const __nested_unpack_N = __unpack_tmp_M[i];
             try self.emitIndent();
@@ -281,9 +277,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             }
         } else if (target == .list) {
             // Handle nested list unpacking: [x, y], [z, t] = ...
-            const nested_tmp = try std.fmt.allocPrint(self.allocator, "__nested_unpack_{d}", .{self.unpack_counter});
-            defer self.allocator.free(nested_tmp);
-            self.unpack_counter += 1;
+            const nested_tmp = try self.freshName("nested_unpack");
 
             try self.emitIndent();
             try self.emit("const ");
@@ -355,9 +349,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
     const core = @import("../../main/core.zig");
 
     // Generate unique temporary variable name
-    const tmp_name = try std.fmt.allocPrint(self.allocator, "__unpack_tmp_{d}", .{self.unpack_counter});
-    defer self.allocator.free(tmp_name);
-    self.unpack_counter += 1;
+    const tmp_name = try self.freshName("unpack_tmp");
 
     // Infer the type of the source to determine indexing style
     const source_type = try self.type_inferrer.inferExpr(assign.value.*);

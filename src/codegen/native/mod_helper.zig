@@ -130,9 +130,56 @@ pub fn shift(comptime op: []const u8) H {
 }
 
 /// Generates wrap: pre + arg + suf, or default
+/// WARNING: If pre contains "blk:", this will cause label conflicts on nested calls.
+/// Use wrapBlk() instead for labeled blocks.
 pub fn wrap(comptime pre: []const u8, comptime suf: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf); } else try self.emit(d);
+    } }.f;
+}
+
+/// Generates wrap with unique block label: __m{id}_name: { const __v = arg; body break :__m{id}_name result; }
+/// Use this instead of wrap() when you need a labeled block to avoid naming conflicts.
+/// @param name: short identifier for the block (e.g., "sig", "ipaddr")
+/// @param body: code using __v (the captured arg), WITHOUT the final break statement
+/// @param result: expression to return from the block (can use __v)
+/// @param d: default value when no args
+pub fn wrapBlk(comptime name: []const u8, comptime body: []const u8, comptime result: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(d); return; }
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("(__m{d}_{s}: {{ const __v = ", .{ id, name });
+        try self.genExpr(args[0]);
+        try self.emitFmt("; {s} break :__m{d}_{s} {s}; }})", .{ body, id, name, result });
+    } }.f;
+}
+
+/// Generates discard block with unique label: __m{id}_name: { _ = arg; break :__m{id}_name result; }
+/// Use for stubs that need to consume arg but return a constant
+pub fn discardBlk(comptime name: []const u8, comptime result: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(d); return; }
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("(__m{d}_{s}: {{ _ = ", .{ id, name });
+        try self.genExpr(args[0]);
+        try self.emitFmt("; break :__m{d}_{s} {s}; }})", .{ id, name, result });
+    } }.f;
+}
+
+/// Generates struct construction with unique block: __m{id}_name: { const __v = arg; break :__m{id}_name .{ fields }; }
+/// @param name: short identifier
+/// @param fields: struct literal body, use __v for the captured arg (e.g., ".address = __v, .version = 4")
+/// @param d: default struct literal
+pub fn structBlk(comptime name: []const u8, comptime fields: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(d); return; }
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("(__m{d}_{s}: {{ const __v = ", .{ id, name });
+        try self.genExpr(args[0]);
+        try self.emitFmt("; break :__m{d}_{s} .{{ {s} }}; }})", .{ id, name, fields });
     } }.f;
 }
 
@@ -144,9 +191,44 @@ pub fn passN(comptime n: usize, comptime d: []const u8) H {
 }
 
 /// Generates wrap2: pre + arg0 + mid + arg1 + suf, or default (requires 2+ args)
+/// WARNING: If pre contains "blk:", this will cause label conflicts. Use wrap2Blk() instead.
 pub fn wrap2(comptime pre: []const u8, comptime mid: []const u8, comptime suf: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len >= 2) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(mid); try self.genExpr(args[1]); try self.emit(suf); } else try self.emit(d);
+    } }.f;
+}
+
+/// Generates wrap2 with unique block: __m{id}_name: { const __v0 = arg0; const __v1 = arg1; body break :__m{id}_name result; }
+/// @param name: short identifier
+/// @param body: code using __v0 and __v1, WITHOUT the final break statement
+/// @param result: expression to return (can use __v0, __v1)
+/// @param d: default when < 2 args
+pub fn wrap2Blk(comptime name: []const u8, comptime body: []const u8, comptime result: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len < 2) { try self.emit(d); return; }
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("(__m{d}_{s}: {{ const __v0 = ", .{ id, name });
+        try self.genExpr(args[0]);
+        try self.emit("; const __v1 = ");
+        try self.genExpr(args[1]);
+        try self.emitFmt("; {s} break :__m{d}_{s} {s}; }})", .{ body, id, name, result });
+    } }.f;
+}
+
+/// Generates wrap3Blk with unique ID: captures 3 args as __v0, __v1, __v2, executes body, returns result
+pub fn wrap3Blk(comptime name: []const u8, comptime body: []const u8, comptime result: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len < 3) { try self.emit(d); return; }
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("(__m{d}_{s}: {{ const __v0 = ", .{ id, name });
+        try self.genExpr(args[0]);
+        try self.emit("; const __v1 = ");
+        try self.genExpr(args[1]);
+        try self.emit("; const __v2 = ");
+        try self.genExpr(args[2]);
+        try self.emitFmt("; {s} break :__m{d}_{s} {s}; }})", .{ body, id, name, result });
     } }.f;
 }
 

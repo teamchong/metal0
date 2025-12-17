@@ -2,8 +2,6 @@
 const std = @import("std");
 const h = @import("mod_helper.zig");
 
-const genFileCookieJar = h.wrap("blk: { const filename = ", "; break :blk .{ .filename = filename, .delayload = false }; }", ".{ .filename = @as(?[]const u8, null), .delayload = false }");
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "CookieJar", h.c(".{ .policy = @as(?*anyopaque, null) }") }, .{ "FileCookieJar", genFileCookieJar },
     .{ "MozillaCookieJar", genFileCookieJar }, .{ "LWPCookieJar", genFileCookieJar },
@@ -14,3 +12,14 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "DomainRFC2965Match", h.I32(4) }, .{ "DomainLiberal", h.I32(0) }, .{ "DomainStrict", h.I32(3) },
     .{ "LoadError", h.err("LoadError") }, .{ "time2isoz", h.c("\"1970-01-01 00:00:00Z\"") }, .{ "time2netscape", h.c("\"Thu, 01-Jan-1970 00:00:00 GMT\"") },
 });
+
+const ast = @import("analysis.ast");
+const NativeCodegen = h.NativeCodegen;
+const CodegenError = h.CodegenError;
+
+fn genFileCookieJar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit(".{ .filename = @as(?[]const u8, null), .delayload = false }"); return; }
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_fcj: {{ const filename = ", .{id}); try self.genExpr(args[0]);
+    try self.emitFmt("; break :__m{d}_fcj .{{ .filename = filename, .delayload = false }}; }})", .{id});
+}

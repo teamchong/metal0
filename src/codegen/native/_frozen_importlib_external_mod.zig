@@ -2,7 +2,7 @@
 const std = @import("std");
 const h = @import("mod_helper.zig");
 
-const genSourceFileLoader = h.wrap2("blk: { const name = ", "; const path = ", "; break :blk .{ .name = name, .path = path }; }", ".{ .name = \"\", .path = \"\" }");
+const genSourceFileLoader = h.wrap2Blk("sfl", "", ".{ .name = __v0, .path = __v1 }", ".{ .name = \"\", .path = \"\" }");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "source_file_loader", genSourceFileLoader }, .{ "sourceless_file_loader", h.c(".{ .name = \"\", .path = \"\" }") }, .{ "extension_file_loader", h.c(".{ .name = \"\", .path = \"\" }") },

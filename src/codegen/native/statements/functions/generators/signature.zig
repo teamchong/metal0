@@ -1750,11 +1750,12 @@ pub fn genMethodSignatureWithSkip(
         if (getReturnedLambda(method.body)) |lambda| {
             if (lambdaCapturesSelf(lambda.body.*)) {
                 // Method returns a closure - use closure type name
-                // The closure will be generated with current lambda_counter value
+                // The closure will be generated with current ID
+                const id = self.name_gen.nextId();
                 const closure_type = try std.fmt.allocPrint(
                     self.allocator,
-                    "__Closure_{d}",
-                    .{self.lambda_counter},
+                    "__m{d}_Closure",
+                    .{id},
                 );
                 defer self.allocator.free(closure_type);
                 try self.emit(closure_type);

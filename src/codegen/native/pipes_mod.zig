@@ -8,5 +8,5 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "append", h.c("{}") }, .{ "prepend", h.c("{}") }, .{ "open", h.c("null") }, .{ "copy", h.c("{}") },
     .{ "FILEIN_FILEOUT", h.c("\"ff\"") }, .{ "STDIN_FILEOUT", h.c("\"-f\"") },
     .{ "FILEIN_STDOUT", h.c("\"f-\"") }, .{ "STDIN_STDOUT", h.c("\"--\"") },
-    .{ "quote", h.wrap("blk: { const s = ", "; _ = s; break :blk \"''\"; }", "\"''\"") },
+    .{ "quote", h.discardBlk("pq", "\"''\"", "\"''\"") },
 });

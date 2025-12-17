@@ -3,9 +3,9 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "signal", h.wrap("blk: { const signum = ", "; _ = signum; break :blk null; }", "null") },
+    .{ "signal", h.discardBlk("sig", "null", "null") },
     .{ "getsignal", h.c("null") }, .{ "raise_signal", h.c("{}") },
-    .{ "alarm", h.wrap("blk: { const seconds = ", "; _ = seconds; break :blk @as(i32, 0); }", "@as(i32, 0)") },
+    .{ "alarm", h.discardBlk("alm", "@as(i32, 0)", "@as(i32, 0)") },
     .{ "pause", h.c("{}") }, .{ "getitimer", h.c(".{ .interval = 0.0, .value = 0.0 }") }, .{ "setitimer", h.c(".{ .interval = 0.0, .value = 0.0 }") },
     .{ "siginterrupt", h.c("{}") }, .{ "set_wakeup_fd", h.I32(-1) }, .{ "sigwait", h.I32(0) },
     .{ "pthread_kill", h.c("{}") }, .{ "pthread_sigmask", h.c("&[_]i32{}") }, .{ "sigpending", h.c("&[_]i32{}") },

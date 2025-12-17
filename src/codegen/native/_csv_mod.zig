@@ -2,7 +2,7 @@
 const std = @import("std");
 const h = @import("mod_helper.zig");
 
-const genRW = h.wrap("blk: { const csvfile = ", "; break :blk .{ .file = csvfile, .dialect = \"excel\" }; }", ".{ .file = null, .dialect = \"excel\" }");
+const genRW = h.structBlk("csv", ".file = __v, .dialect = \"excel\"", ".{ .file = null, .dialect = \"excel\" }");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "reader", genRW }, .{ "writer", genRW },

@@ -6,7 +6,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "tokenize", h.c("runtime.NativeList.init()") },
     .{ "generate_tokens", h.c("runtime.NativeList.init()") },
     .{ "detect_encoding", h.c(".{ \"utf-8\", runtime.NativeList.init() }") },
-    .{ "open", h.wrap("blk: { const path = ", "; break :blk std.fs.cwd().openFile(path, .{}) catch null; }", "@as(?std.fs.File, null)") },
+    .{ "open", h.wrapBlk("tok", "", "std.fs.cwd().openFile(__v, .{}) catch null", "@as(?std.fs.File, null)") },
     .{ "untokenize", h.c("\"\"") },
     .{ "TokenInfo", h.c(".{ .type = @as(i32, 0), .string = \"\", .start = .{ @as(i32, 0), @as(i32, 0) }, .end = .{ @as(i32, 0), @as(i32, 0) }, .line = \"\" }") },
     .{ "TokenError", h.err("TokenError") }, .{ "StopTokenizing", h.err("StopTokenizing") },
