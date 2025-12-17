@@ -277,3 +277,129 @@ Successfully identified and fixed 3 critical "fail fast fail loud" violations th
 Remaining issues are documented and prioritized for future work. Most are low-risk graceful degradations rather than correctness violations.
 
 **Time saved:** Developers can now debug test failures in minutes instead of hours.
+
+---
+
+## 🔴 CRITICAL NEW FINDINGS - Module Stub Silent Failures
+
+### 8. XML Module File Content Discarded
+**Severity:** 🔴 CRITICAL  
+**Location:** `src/codegen/native/xml_mod.zig:6`  
+**Impact:** `xml.parse()` returns empty tree regardless of file content
+
+**Code:**
+```zig
+const parseBody = "... const f = std.fs.cwd().openFile(_src, .{}) catch break :blk " 
+    ++ element_tree_struct 
+    ++ "; defer f.close(); "
+    ++ "_ = f.readToEndAlloc(__global_allocator, 10*1024*1024) catch {}; "  // ❌ Read and DISCARD!
+    ++ "break :blk " ++ element_tree_struct ++ "; }";
+```
+
+**What happens:**
+1. File opens successfully ✓
+2. File content is read and allocated ✓
+3. **Content is DISCARDED** with `_ =` ❌
+4. Returns empty XML tree ❌
+
+**Affected tests:** `test_xml_etree.py`, `test_minidom.py`
+
+**Fix needed:**
+```zig
+const content = f.readToEndAlloc(__global_allocator, 10*1024*1024) catch break :blk empty_tree;
+// Parse content into actual XML tree
+```
+
+---
+
+### 9. Gzip Module Write Failures Silent
+**Severity:** 🔴 CRITICAL  
+**Location:** `src/codegen/native/gzip_mod.zig:20`
+
+**Code:**
+```zig
+pub fn close(__self: *@This()) void {
+    if (__self.buffer.items.len > 0) {
+        const file = std.fs.cwd().createFile(__self.path, .{}) catch return;  // ❌ Silent!
+        defer file.close();
+        _ = file.write(__self.buffer.items) catch {};  // ❌ Data lost!
+    }
+}
+```
+
+**What happens:**
+1. User writes data to gzip file ✓
+2. `close()` is called ✓
+3. File creation fails → **data silently lost** ❌
+4. OR write fails → **data silently lost** ❌
+
+**Impact:** Data loss without error indication
+
+---
+
+### 10. ConfigParser Read Failures Partial Results
+**Severity:** 🟠 HIGH  
+**Location:** `src/codegen/native/configparser_mod.zig:5`
+
+**Code:**
+```zig
+pub fn read(__self: *@This(), filename: []const u8) !void {
+    const file = std.fs.cwd().openFile(filename, .{}) catch return;  // ✓ Good
+    defer file.close();
+    const content = file.readToEndAlloc(__global_allocator, 1024 * 1024) catch return;  // ✓ Good
+    __self.read_string(content);  // ✓ Parses content
+}
+
+pub fn read_string(__self: *@This__, content: []const u8) void {
+    // ...parsing logic...
+    __self.sections_map.put(current_section.?, ...) catch continue;  // ❌ Silent!
+    // ...
+    sec.put(key, value) catch {};  // ❌ Silent!
+}
+```
+
+**What happens:**
+- File read is OK (returns errors properly) ✓
+- But parsing failures are silent ❌
+- Returns partial config with missing sections/keys ❌
+
+---
+
+## Summary of New Findings
+
+| Module | Issue | Severity | Impact |
+|--------|-------|----------|---------|
+| xml | Content discarded | 🔴 CRITICAL | Always returns empty tree |
+| gzip | Write failures silent | 🔴 CRITICAL | Data loss without error |
+| configparser | Parse failures silent | 🟠 HIGH | Partial results |
+
+**Total module stubs:** 308 files  
+**Audited:** 3 (xml, gzip, configparser)  
+**Remaining:** 305 files need audit
+
+---
+
+## Updated Recommendations
+
+### Immediate (New):
+1. **Fix xml.parse()** - Actually parse file content instead of discarding
+2. **Fix gzip.close()** - Return error or panic on write failure  
+3. **Fix configparser** - Add error logging for parse failures
+
+### Short Term (Updated):
+1. Audit all 308 module stub files for silent failures
+2. Create policy: Module stubs must either work correctly OR panic with "Not implemented"
+3. Never silently return partial/empty results
+
+### Pattern to Search:
+```bash
+# Find file operations that discard content
+grep -n "readToEndAlloc.*catch {}" src/codegen/native/*_mod.zig
+
+# Find writes that ignore failures
+grep -n "write.*catch {}" src/codegen/native/*_mod.zig
+
+# Find HashMap operations that lose data
+grep -n "\.put(.*catch {}" src/codegen/native/*_mod.zig
+```
+
