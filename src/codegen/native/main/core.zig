@@ -393,6 +393,9 @@ pub const NativeCodegen = struct {
     // Current assertRaises block ID (for genRaise to break out of)
     current_assert_raises_block_id: u32,
 
+    // Counter for unique block labels (os.path, etc.)
+    general_block_id: u32,
+
     // Track when control flow has terminated (return/raise)
     // When true, skip generating subsequent statements to avoid unreachable code
     control_flow_terminated: bool,
@@ -837,6 +840,7 @@ pub const NativeCodegen = struct {
             .in_assert_raises_context = false,
             .assert_raises_block_id = 0,
             .current_assert_raises_block_id = 0,
+            .general_block_id = 0,
             .control_flow_terminated = false,
             .c_libraries = std.ArrayList([]const u8){},
             .comptime_evals = FnvVoidMap.init(aa),
@@ -1541,6 +1545,20 @@ pub const NativeCodegen = struct {
     /// Use for parenthesization, catch handling, and labeled blocks
     pub fn exprEmitter(self: *NativeCodegen) expr_emitter.ExprEmitter {
         return expr_emitter.ExprEmitter{ .codegen = self };
+    }
+
+    /// Emit a unique block label (e.g., "os_dirname_blk_0", "os_dirname_blk_1")
+    /// Returns the block ID for use in break statements
+    pub fn emitUniqueBlockLabel(self: *NativeCodegen, comptime prefix: []const u8) CodegenError!u32 {
+        const block_id = self.general_block_id;
+        self.general_block_id += 1;
+        try self.emitFmt(prefix ++ "_blk_{d}", .{block_id});
+        return block_id;
+    }
+
+    /// Emit a break statement with a unique block ID
+    pub fn emitBreakToBlock(self: *NativeCodegen, comptime prefix: []const u8, block_id: u32) CodegenError!void {
+        try self.emitFmt("break :" ++ prefix ++ "_blk_{d}", .{block_id});
     }
 
     /// Static indent strings for O(1) lookup instead of O(n) loop

@@ -17,9 +17,12 @@ fn pathBlock(comptime name: []const u8, comptime body: []const u8, comptime resu
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // os.path operations require at least 1 argument
             if (args.len == 0) return error.UnsupportedSyntax;
-            try self.emit("os_" ++ name ++ "_blk: { const _path = ");
+            const block_id = try self.emitUniqueBlockLabel("os_" ++ name);
+            try self.emit(": { const _path = ");
             try self.genExpr(args[0]);
-            try self.emit("; " ++ body ++ "break :os_" ++ name ++ "_blk " ++ result ++ "; }");
+            try self.emit("; " ++ body);
+            try self.emitBreakToBlock("os_" ++ name, block_id);
+            try self.emit(" " ++ result ++ "; }");
         }
     }.f;
 }
@@ -34,7 +37,10 @@ fn osSwitch(comptime name: []const u8, comptime win: []const u8, comptime posix:
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             _ = args;
-            try self.emit("os_" ++ name ++ "_blk: { const _builtin = @import(\"builtin\"); break :os_" ++ name ++ "_blk switch (_builtin.os.tag) { .windows => " ++ win ++ ", else => " ++ posix ++ " }; }");
+            const block_id = try self.emitUniqueBlockLabel("os_" ++ name);
+            try self.emit(": { const _builtin = @import(\"builtin\"); ");
+            try self.emitBreakToBlock("os_" ++ name, block_id);
+            try self.emit(" switch (_builtin.os.tag) { .windows => " ++ win ++ ", else => " ++ posix ++ " }; }");
         }
     }.f;
 }
@@ -371,9 +377,12 @@ fn genPathJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genPathSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_path_split_blk: { const _path = ");
+    const block_id = try self.emitUniqueBlockLabel("os_path_split");
+    try self.emit(": { const _path = ");
     try self.genExpr(args[0]);
-    try self.emit("; const _dirname = std.fs.path.dirname(_path) orelse \"\"; const _basename = std.fs.path.basename(_path); break :os_path_split_blk .{ .@\"0\" = _dirname, .@\"1\" = _basename }; }");
+    try self.emit("; const _dirname = std.fs.path.dirname(_path) orelse \"\"; const _basename = std.fs.path.basename(_path); ");
+    try self.emitBreakToBlock("os_path_split", block_id);
+    try self.emit(" .{ .@\"0\" = _dirname, .@\"1\" = _basename }; }");
 }
 
 fn genPathSplitext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
