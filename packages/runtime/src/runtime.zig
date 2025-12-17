@@ -936,6 +936,7 @@ pub const Lib = struct {
     pub const doctest = @import("Lib/doctest.zig");
     pub const importlib = @import("Lib/importlib.zig");
     pub const abc = @import("Lib/abc.zig");
+    pub const _py_abc = @import("Lib/_py_abc.zig");
     pub const @"struct" = @import("Lib/struct.zig");
     pub const codecs = @import("Lib/codecs.zig");
     pub const csv = @import("Lib/csv.zig");

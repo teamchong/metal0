@@ -358,7 +358,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("types", .zig_runtime, "std", null);
     try registry.registerDirect("abc", .zig_runtime, "runtime.Lib.abc", "runtime.Lib.abc", null);
     try registry.registerDirect("_py_abc", .zig_runtime, "runtime.Lib._py_abc", "runtime.Lib._py_abc", null);
-    try registry.register("inspect", .zig_runtime, "std", null);
+    try registry.registerDirect("inspect", .zig_runtime, "runtime.Lib.inspect", "runtime.Lib.inspect", null);
     try registry.register("dataclasses", .zig_runtime, "std", null);
     try registry.register("enum", .zig_runtime, "std", null);
     try registry.register("atexit", .zig_runtime, "std", null);

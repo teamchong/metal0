@@ -66,10 +66,17 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
     const is_list_type = source_tag == .list or type_traits.isArray(source_type);
 
     // Generate: const __unpack_tmp_N = value_expr;
+    // Add 'try' if value is a function call (may return error union)
     try self.emitIndent();
     try self.emit("const ");
     try self.emit(tmp_name);
     try self.emit(" = ");
+    const is_call = assign.value.* == .call;
+    if (is_call) {
+        // Always use 'try' for function calls in unpacking
+        // If not in try body, use 'try' anyway (let it propagate to caller)
+        try self.emit("try ");
+    }
     try self.genExpr(assign.value.*);
     try self.emit(";\n");
 
@@ -358,10 +365,17 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
     const is_list_type = source_tag == .list or type_traits.isArray(source_type);
 
     // Generate: const __unpack_tmp_N = value_expr;
+    // Add 'try' if value is a function call (may return error union)
     try self.emitIndent();
     try self.emit("const ");
     try self.emit(tmp_name);
     try self.emit(" = ");
+    const is_call = assign.value.* == .call;
+    if (is_call) {
+        // Always use 'try' for function calls in unpacking
+        // If not in try body, use 'try' anyway (let it propagate to caller)
+        try self.emit("try ");
+    }
     try self.genExpr(assign.value.*);
     try self.emit(";\n");
 
