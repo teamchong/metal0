@@ -49,14 +49,6 @@ pub fn requires_IEEE_754() bool {
     return true;
 }
 
-/// Check if running with sanitizers enabled (address, memory, etc.)
-pub fn check_sanitizer(address: bool, memory: bool) bool {
-    _ = address;
-    _ = memory;
-    // AOT compilation doesn't use sanitizers during test execution
-    return false;
-}
-
 /// Check if the platform supports the given resource
 /// Resources: audio, curses, largefile, network, bsddb, decimal, cpu, subprocess, etc.
 pub fn is_resource_enabled(resource: []const u8) bool {
