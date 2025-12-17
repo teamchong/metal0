@@ -202,9 +202,9 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     }
     try self.emit("\n");
 
-    // Print results (tests already ran sequentially above)
+    // Print results and record in unittest.global_result (tests already ran sequentially above)
     try self.emitIndent();
-    try self.emit("// Print results\n");
+    try self.emit("// Print results and record pass/fail counts\n");
     try self.emitIndent();
     try self.emit("for (test_names, 0..) |name, i| {\n");
     self.indent();
@@ -215,12 +215,16 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     self.indent();
     try self.emitIndent();
     try self.emit("runtime.print(\"{s} ... ok\\n\", .{name});\n");
+    try self.emitIndent();
+    try self.emit("if (unittest.global_result.*) |r| r.addPass();\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("} else {\n");
     self.indent();
     try self.emitIndent();
     try self.emit("runtime.print(\"{s} ... FAIL\\n\", .{name});\n");
+    try self.emitIndent();
+    try self.emit("if (unittest.global_result.*) |r| r.addFail(name) catch {};\n");
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");

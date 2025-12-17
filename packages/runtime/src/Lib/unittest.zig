@@ -16,6 +16,10 @@ pub const finalize = runner.finalize;
 pub const Mock = runner.Mock;
 pub const MockValue = runner.MockValue;
 
+// Re-export global state (needed by codegen to record test results)
+pub const global_result = &runner.global_result;
+pub const global_allocator = &runner.global_allocator;
+
 // Re-export basic assertions
 pub const assertEqual = assertions_basic.assertEqual;
 pub const assertEqualPyValue = assertions_basic.assertEqualPyValue;
