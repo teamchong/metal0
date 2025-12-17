@@ -550,6 +550,7 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Convert iterable to set
     // Check if arg produces a block expression that needs to be stored in temp variable
     const needs_temp = producesBlockExpression(args[0]);
+    const is_tuple_literal = args[0] == .tuple;
 
     var em_set = self.exprEmitter();
     const set_label_2 = em_set.reserveLabelId();
@@ -565,7 +566,12 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else {
             try self.emitFmt("var _set = std.AutoHashMap(@TypeOf(__iterable[0]), void).init({s});\n", .{alloc_name});
         }
-        try self.emit("for (__iterable) |_item| {\n");
+        // Use inline for with tuples to avoid comptime index errors
+        if (is_tuple_literal) {
+            try self.emit("inline for (__iterable) |_item| {\n");
+        } else {
+            try self.emit("for (__iterable) |_item| {\n");
+        }
     } else {
         if (is_string_set) {
             try self.emitFmt("var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
@@ -574,7 +580,12 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.genExpr(args[0]);
             try self.emitFmt("[0]), void).init({s});\n", .{alloc_name});
         }
-        try self.emit("for (");
+        // Use inline for with tuples to avoid comptime index errors
+        if (is_tuple_literal) {
+            try self.emit("inline for (");
+        } else {
+            try self.emit("for (");
+        }
         try self.genExpr(args[0]);
         try self.emit(") |_item| {\n");
     }
