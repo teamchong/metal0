@@ -342,6 +342,17 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("_random", .zig_runtime, null, null);
     try registry.register("_struct", .zig_runtime, null, null);
     try registry.register("_weakref", .zig_runtime, null, null);
+    try registry.register("_codecs", .zig_runtime, null, null);
+    try registry.register("_locale", .zig_runtime, null, null);
+    try registry.register("_imp", .zig_runtime, null, null);
+    try registry.register("_lzma", .zig_runtime, null, null);
+    try registry.register("_pickle", .zig_runtime, null, null);
+    try registry.register("_pydecimal", .zig_runtime, null, null);
+    try registry.register("_pyio", .zig_runtime, null, null);
+    try registry.register("_pylong", .zig_runtime, null, null);
+    try registry.register("_sre", .zig_runtime, null, null);
+    try registry.register("_sqlite3", .zig_runtime, null, null);
+    try registry.register("_stat", .zig_runtime, null, null);
     try registry.register("ast", .zig_runtime, "runtime.ast_executor", null);
     try registry.register("contextlib", .zig_runtime, "std", null);
     try registry.register("string", .zig_runtime, "std", null);
