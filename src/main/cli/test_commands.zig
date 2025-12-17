@@ -450,8 +450,8 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         .codegen_cached = &codegen_cached,
     };
 
-    // Spawn codegen worker threads (limit to 2 to avoid memory thrashing on CI)
-    const num_codegen_threads = @min(@min(ncpu, 2), codegen_tasks.items.len);
+    // Spawn codegen worker threads
+    const num_codegen_threads = @min(ncpu, codegen_tasks.items.len);
     var codegen_threads: [32]std.Thread = undefined;
     const actual_codegen_threads = @min(num_codegen_threads, 32);
 
