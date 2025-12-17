@@ -473,7 +473,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var watchdog_ctx = WatchdogContext{ .done = &codegen_done, .ctx = &codegen_ctx };
     const watchdog = std.Thread.spawn(.{}, struct {
         fn run(wctx: *WatchdogContext) void {
-            std.Thread.sleep(300 * std.time.ns_per_s); // 5 minute timeout
+            std.Thread.sleep(10 * std.time.ns_per_s); // 10 second timeout for debugging
             if (!wctx.done.load(.seq_cst)) {
                 printError("Phase 1 (Codegen) TIMEOUT after 5 minutes", .{});
                 const file_idx = wctx.ctx.current_file.load(.seq_cst);
