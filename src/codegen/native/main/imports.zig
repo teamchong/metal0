@@ -464,8 +464,9 @@ pub fn collectImports(
 
             // Check if it's a stub module (test-only, no implementation needed)
             if (module_aliases.isStubModule(python_module)) {
-                // Stub module - silently skip without marking as skipped
-                // (skipped modules cause compileError, stubs are intentionally ignored)
+                // Stub module - intentionally ignored (test-only placeholder)
+                // Note: Not marked as skipped because stubs are expected to be unavailable
+                std.debug.print("  Skipping stub module (test-only): {s}\n", .{python_module});
                 continue;
             }
 
@@ -501,9 +502,9 @@ pub fn collectImports(
                 std.debug.print("ERROR: CPython builtin module '{s}' not found in module_aliases or stdlib_gen.\n", .{python_module});
                 std.debug.print("       To fix: Add mapping in src/codegen/native/module_aliases.zig\n", .{});
                 std.debug.print("       Or implement in packages/runtime/src/Lib/{s}.zig\n", .{python_module});
-                // Mark as skipped but note this is an unhandled builtin
-                try self.markSkippedModule(python_module);
-                continue;
+                std.debug.print("       Failing compilation - builtin modules are required.\n", .{});
+                // Fail immediately instead of silently continuing
+                return error.MissingBuiltinModule;
             }
 
             // Check if it's a C extension first - C extensions loaded via c_interop at runtime

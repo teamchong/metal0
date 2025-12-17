@@ -86,6 +86,7 @@ pub const CodegenError = error{
     OutOfMemory,
     UnsupportedModule,
     UnsupportedSyntax,
+    MissingBuiltinModule,
 } || native_types.InferError;
 
 /// Tracks a function with decorators for later application
