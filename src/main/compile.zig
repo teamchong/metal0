@@ -973,7 +973,7 @@ fn collectDwarfFunctionInfo(allocator: std.mem.Allocator, dw: *debug_info.DebugI
                 if (current_func) |func| {
                     var f = func.*;
                     f.variables = current_func_vars.toOwnedSlice(allocator) catch &[_]debug_info.dwarf.VariableInfo{};
-                    functions.append(allocator, f) catch {};
+                    functions.append(allocator, f) catch unreachable;
                     current_func_vars = std.ArrayList(debug_info.dwarf.VariableInfo){};
                 }
 
