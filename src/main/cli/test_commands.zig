@@ -431,7 +431,9 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                     .force = false,
                     .emit_zig_only = true,
                 };
-                compile_mod.compileFile(arena.allocator(), opts) catch {
+                compile_mod.compileFile(arena.allocator(), opts) catch |err| {
+                    // FAIL LOUD: Print error details for debugging
+                    std.debug.print("ERROR: Codegen failed for '{s}': {}\n", .{ task.file_path, err });
                     _ = ctx.codegen_fail.fetchAdd(1, .seq_cst);
                     continue;
                 };
@@ -704,20 +706,33 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                         }
 
                         // Read and compile
-                        const zig_file = std.fs.cwd().openFile(task.zig_path, .{}) catch continue;
+                        const zig_file = std.fs.cwd().openFile(task.zig_path, .{}) catch |err| {
+                            std.debug.print("ERROR: Failed to open '{s}': {}\n", .{ task.zig_path, err });
+                            continue;
+                        };
                         defer zig_file.close();
 
-                        const zig_code = zig_file.readToEndAlloc(ctx.allocator, 10 * 1024 * 1024) catch continue;
+                        const zig_code = zig_file.readToEndAlloc(ctx.allocator, 10 * 1024 * 1024) catch |err| {
+                            std.debug.print("ERROR: Failed to read '{s}': {}\n", .{ task.zig_path, err });
+                            continue;
+                        };
                         defer ctx.allocator.free(zig_code);
 
                         // Use fast linking if runtime archive is available
                         if (ctx.use_runtime_archive) {
-                            compileWithRuntimeArchive(ctx.allocator, zig_code, task.bin_path) catch {
+                            compileWithRuntimeArchive(ctx.allocator, zig_code, task.bin_path) catch |err| {
                                 // Fall back to full compilation
-                                compiler.compileZigWithOptions(ctx.allocator, zig_code, task.bin_path, &.{}, false, .{}) catch continue;
+                                std.debug.print("WARN: Fast linking failed for '{s}': {}, falling back to full compilation\n", .{ task.bin_path, err });
+                                compiler.compileZigWithOptions(ctx.allocator, zig_code, task.bin_path, &.{}, false, .{}) catch |err2| {
+                                    std.debug.print("ERROR: Compilation failed for '{s}': {}\n", .{ task.bin_path, err2 });
+                                    continue;
+                                };
                             };
                         } else {
-                            compiler.compileZigWithOptions(ctx.allocator, zig_code, task.bin_path, &.{}, false, .{}) catch continue;
+                            compiler.compileZigWithOptions(ctx.allocator, zig_code, task.bin_path, &.{}, false, .{}) catch |err| {
+                                std.debug.print("ERROR: Compilation failed for '{s}': {}\n", .{ task.bin_path, err });
+                                continue;
+                            };
                         }
                         _ = ctx.compile_ok.fetchAdd(1, .seq_cst);
                     }
