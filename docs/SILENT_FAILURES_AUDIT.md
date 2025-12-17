@@ -403,3 +403,125 @@ grep -n "write.*catch {}" src/codegen/native/*_mod.zig
 grep -n "\.put(.*catch {}" src/codegen/native/*_mod.zig
 ```
 
+
+---
+
+## 🔴 MORE CRITICAL FINDINGS - Data Loss in Collections
+
+### 11. Queue.put() Silently Drops Items on OOM
+**Severity:** 🔴 CRITICAL  
+**Location:** `src/codegen/native/queue_mod.zig:5`
+
+**Code:**
+```zig
+pub fn put(__self: *@This(), item: []const u8) void {
+    __self.mutex.lock();
+    defer __self.mutex.unlock();
+    __self.items.append(__global_allocator, item) catch {};  // ❌ Data lost!
+}
+```
+
+**Impact:** Items silently lost on OOM, thread-safe code becomes incorrect
+
+---
+
+### 12. MultiprocessingQueue.put() Silent Data Loss  
+**Severity:** 🔴 CRITICAL
+**Location:** `src/codegen/native/multiprocessing_mod.zig:8`
+
+**Code:**
+```zig
+pub fn put(__self: *@This(), item: anytype, block: bool, timeout: ?f64) void {
+    _ = block; _ = timeout;
+    __self.items.append(__global_allocator, @ptrCast(&item)) catch {};  // ❌ Lost!
+}
+```
+
+**Impact:** Inter-process communication data loss, race conditions
+
+---
+
+### 13. CSV Reader Drops Fields/Rows on OOM
+**Severity:** 🟠 HIGH  
+**Location:** `src/codegen/native/csv_mod.zig:7,8`
+
+**Code:**
+```zig
+// CSV reader
+while (it.next()) |f| fs.append(__global_allocator, f) catch continue;  // ❌ Drop field!
+
+// DictReader  
+while (it.next()) |fh| hs.append(__global_allocator, fh) catch continue;  // ❌ Drop header!
+r.put(s.fieldnames.?[i], v) catch {};  // ❌ Drop value!
+```
+
+**Impact:** Incomplete CSV parsing, data corruption
+
+---
+
+### 14. Array Module Silent Data Loss
+**Severity:** 🟠 HIGH
+**Location:** `src/codegen/native/array_mod.zig:175`
+
+**Code:**
+```zig
+pub fn extend(__self: *@This(), iterable: anytype) void {
+    for (iterable) |x| __self.append(__global_allocator, x) catch {};  // ❌ Skip items!
+}
+
+pub fn fromlist(__self: *@This__, list: []i64) void {
+    for (list) |x| __self.append(__global_allocator, x) catch {};  // ❌ Skip items!
+}
+```
+
+**Impact:** Arrays silently incomplete, wrong length
+
+---
+
+## Pattern Summary
+
+**Silent Data Loss Pattern:**
+```zig
+collection.append(item) catch {};  // ❌ WRONG - item is lost
+collection.put(key, value) catch {};  // ❌ WRONG - entry is lost
+```
+
+**Correct Patterns:**
+```zig
+// Option 1: Return error to caller
+collection.append(item) catch |err| return err;
+
+// Option 2: Panic with message
+collection.append(item) catch @panic("OOM: Failed to add item");
+
+// Option 3: Return bool success indicator (if API allows)
+pub fn put(item: T) bool {
+    collection.append(item) catch return false;
+    return true;
+}
+```
+
+---
+
+## Audit Progress
+
+| Category | Files | Audited | Critical Issues |
+|----------|-------|---------|-----------------|
+| Module stubs | 308 | 10 | 6 data corruption |
+| Runtime | ~100 | 5 | 1 (itertools) |
+| Codegen | ~50 | 10 | 3 (test runner) |
+| **TOTAL** | **~458** | **25** | **10** |
+
+**Critical Issues Found So Far:**
+1. ✅ CI test parsing - FIXED
+2. ✅ Unittest exit codes - FIXED  
+3. ✅ Test runner logging - FIXED
+4. ⏳ Itertools OOM - Documented
+5. ⏳ xml.parse() - Documented
+6. ⏳ gzip.close() - Documented
+7. ⏳ configparser - Documented
+8. ⏳ queue.put() - Documented
+9. ⏳ multiprocessing.put() - Documented
+10. ⏳ csv reader - Documented
+11. ⏳ array.extend() - Documented
+
