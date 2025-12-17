@@ -150,6 +150,22 @@ pub const NameGen = struct {
         return std.fmt.allocPrint(self.allocator, "__m{d}_cr", .{id});
     }
 
+    /// Generate a generic unique name with custom hint
+    /// Use this for any temporary variable/label not covered by specialized methods
+    /// Examples: fresh("set") -> "__m5_set", fresh("item") -> "__m6_item"
+    pub fn fresh(self: *NameGen, hint: []const u8) ![]const u8 {
+        const id = self.counter;
+        self.counter += 1;
+        return std.fmt.allocPrint(self.allocator, "__m{d}_{s}", .{ id, hint });
+    }
+
+    /// Get next unique ID without allocating (for inline emission with emitFmt)
+    pub fn nextId(self: *NameGen) usize {
+        const id = self.counter;
+        self.counter += 1;
+        return id;
+    }
+
     /// Generate a unique inner loop variable name
     /// Used for inner variable bindings in for loops
     pub fn innerVar(self: *NameGen, original: []const u8) ![]const u8 {

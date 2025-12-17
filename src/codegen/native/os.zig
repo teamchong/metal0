@@ -12,35 +12,37 @@ const H = m.H;
 // === Comptime helper generators for OS-specific patterns ===
 
 /// Generate os_X_blk: { const _path = arg; ...body...; break :os_X_blk result; }
+/// Uses unified NameGen for unique block labels (body uses _path which is block-scoped)
 fn pathBlock(comptime name: []const u8, comptime body: []const u8, comptime result: []const u8) H {
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // os.path operations require at least 1 argument
             if (args.len == 0) return error.UnsupportedSyntax;
-            const block_id = try self.emitUniqueBlockLabel("os_" ++ name);
-            try self.emit(": { const _path = ");
+            // Use unified name generator for unique block label ID
+            const id = self.nextNameId();
+            // _path is safe because it's block-scoped (inside the labeled block)
+            try self.emitFmt("__m{d}_" ++ name ++ ": {{ const _path = ", .{id});
             try self.genExpr(args[0]);
             try self.emit("; " ++ body);
-            try self.emitBreakToBlock("os_" ++ name, block_id);
-            try self.emit(" " ++ result ++ "; }");
+            try self.emitFmt("break :__m{d}_" ++ name ++ " " ++ result ++ "; }}", .{id});
         }
     }.f;
 }
 
 /// Generate simple void-returning path operation
 fn pathVoid(comptime name: []const u8, comptime op: []const u8) H {
-    return pathBlock(name, op ++ " catch {}; ", "{}");
+    // Note: {{}} is escaped to produce {} in output
+    return pathBlock(name, op ++ " catch {{}}; ", "{{}}");
 }
 
 /// Generate os_X_blk: { const _builtin = @import("builtin"); break :os_X_blk switch(_builtin.os.tag) { .windows => win, else => posix }; }
+/// Uses unified NameGen for unique block labels
 fn osSwitch(comptime name: []const u8, comptime win: []const u8, comptime posix: []const u8) H {
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             _ = args;
-            const block_id = try self.emitUniqueBlockLabel("os_" ++ name);
-            try self.emit(": { const _builtin = @import(\"builtin\"); ");
-            try self.emitBreakToBlock("os_" ++ name, block_id);
-            try self.emit(" switch (_builtin.os.tag) { .windows => " ++ win ++ ", else => " ++ posix ++ " }; }");
+            const id = self.nextNameId();
+            try self.emitFmt("__m{d}_" ++ name ++ ": {{ const _builtin = @import(\"builtin\"); break :__m{d}_" ++ name ++ " switch (_builtin.os.tag) {{ .windows => " ++ win ++ ", else => " ++ posix ++ " }}; }}", .{ id, id });
         }
     }.f;
 }
@@ -377,24 +379,24 @@ fn genPathJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genPathSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    const block_id = try self.emitUniqueBlockLabel("os_path_split");
-    try self.emit(": { const _path = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_path_split: {{ const _path = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; const _dirname = std.fs.path.dirname(_path) orelse \"\"; const _basename = std.fs.path.basename(_path); ");
-    try self.emitBreakToBlock("os_path_split", block_id);
-    try self.emit(" .{ .@\"0\" = _dirname, .@\"1\" = _basename }; }");
+    try self.emitFmt("; const _dirname = std.fs.path.dirname(_path) orelse \"\"; const _basename = std.fs.path.basename(_path); break :__m{d}_path_split .{{ .@\"0\" = _dirname, .@\"1\" = _basename }}; }}", .{id});
 }
 
 fn genPathSplitext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_path_splitext_blk: { const _path = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_path_splitext: {{ const _path = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; const _ext = std.fs.path.extension(_path); const _root = if (_ext.len > 0) _path[0.._path.len - _ext.len] else _path; break :os_path_splitext_blk .{ .@\"0\" = _root, .@\"1\" = _ext }; }");
+    try self.emitFmt("; const _ext = std.fs.path.extension(_path); const _root = if (_ext.len > 0) _path[0.._path.len - _ext.len] else _path; break :__m{d}_path_splitext .{{ .@\"0\" = _root, .@\"1\" = _ext }}; }}", .{id});
 }
 
 fn genPathGetsize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_path_getsize_blk: { const _path = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_path_getsize: {{ const _path = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; const _stat = std.fs.cwd().statFile(_path) catch break :os_path_getsize_blk @as(i64, 0); break :os_path_getsize_blk @as(i64, @intCast(_stat.size)); }");
+    try self.emitFmt("; const _stat = std.fs.cwd().statFile(_path) catch break :__m{d}_path_getsize @as(i64, 0); break :__m{d}_path_getsize @as(i64, @intCast(_stat.size)); }}", .{ id, id });
 }

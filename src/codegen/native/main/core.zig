@@ -1561,6 +1561,19 @@ pub const NativeCodegen = struct {
         try self.emitFmt("break :" ++ prefix ++ "_blk_{d}", .{block_id});
     }
 
+    /// Generate a fresh unique name using the unified NameGen system
+    /// Use this for ALL generated names (variables, labels, temps) to prevent collisions
+    /// Example: freshName("set") -> "__m5_set", freshName("item") -> "__m6_item"
+    pub fn freshName(self: *NativeCodegen, hint: []const u8) ![]const u8 {
+        return self.name_gen.fresh(hint);
+    }
+
+    /// Get next unique ID for inline emission (doesn't allocate string)
+    /// Use with emitFmt: emitFmt("blk_{d}", .{self.nextNameId()})
+    pub fn nextNameId(self: *NativeCodegen) usize {
+        return self.name_gen.nextId();
+    }
+
     /// Static indent strings for O(1) lookup instead of O(n) loop
     /// Supports up to 20 levels of nesting (80 spaces)
     const INDENT_STRINGS = [_][]const u8{
