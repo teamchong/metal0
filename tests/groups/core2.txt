@@ -3,8 +3,8 @@ compiler_codegen
 complex
 configparser
 contains
-contextlib
-contextlib_async
+# contextlib  # DISABLED: causes infinite loop in codegen (issue #TBD)
+# contextlib_async  # DISABLED: part of contextlib group
 copy
 copyreg
 coroutines
