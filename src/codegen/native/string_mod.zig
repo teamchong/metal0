@@ -1,6 +1,7 @@
 /// Python string module - string constants and utilities
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const ast = @import("analysis.ast");
 
 // Public exports for use in builtins.zig
 pub const genAsciiLowercase = h.c("\"abcdefghijklmnopqrstuvwxyz\"");
@@ -9,10 +10,22 @@ pub const genAsciiLetters = h.c("\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRS
 pub const genDigits = h.c("\"0123456789\"");
 pub const genPunctuation = h.c("\"!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~\"");
 
-const capwordsBody = "; var _result: std.ArrayList(u8) = .{}; var _cap_next = true; for (_s) |c| { if (c == ' ') { _result.append(__global_allocator, ' ') catch continue; _cap_next = true; } else if (_cap_next and c >= 'a' and c <= 'z') { _result.append(__global_allocator, c - 32) catch continue; _cap_next = false; } else { _result.append(__global_allocator, c) catch continue; _cap_next = false; } } break :capwords_blk _result.items; }";
 const tmpl = "struct { template: []const u8, pub fn substitute(__self: @This(), _: anytype) []const u8 { return __self.template; } pub fn safe_substitute(__self: @This(), _: anytype) []const u8 { return __self.template; } }";
 
-pub const genCapwords = h.wrap("capwords_blk: { const _s = ", capwordsBody, "\"\"");
+/// Generate string.capwords(s) - capitalize first letter of each word
+/// Emits: capwords_{id}: { const _s = arg; var _result: std.ArrayList(u8) = .{}; ... break :capwords_{id} _result.items; }
+pub fn genCapwords(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("\"\"");
+        return;
+    }
+    const id = h.emitUniqueBlockStart(self, "capwords") catch 0;
+    try self.emit("const _s = ");
+    try self.genExpr(args[0]);
+    try self.emit("; var _result: std.ArrayList(u8) = .{}; var _cap_next = true; for (_s) |c| { if (c == ' ') { _result.append(__global_allocator, ' ') catch continue; _cap_next = true; } else if (_cap_next and c >= 'a' and c <= 'z') { _result.append(__global_allocator, c - 32) catch continue; _cap_next = false; } else { _result.append(__global_allocator, c) catch continue; _cap_next = false; } }");
+    try h.emitBlockBreak(self, "capwords", id);
+    try self.emit("_result.items; }");
+}
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "ascii_lowercase", genAsciiLowercase }, .{ "ascii_uppercase", genAsciiUppercase },

@@ -106,8 +106,8 @@ pub const Funcs = std.StaticStringMap(H).initComptime(.{
     .{ "read", genRead },
     .{ "write", genWrite },
     .{ "open", genOpen },
-    .{ "pipe", m.c("os_pipe_blk: { const _p = std.posix.pipe() catch break :os_pipe_blk .{ @as(i64, -1), @as(i64, -1) }; break :os_pipe_blk .{ @as(i64, @intCast(_p[0])), @as(i64, @intCast(_p[1])) }; }") },
-    .{ "fdopen", m.wrap("os_fdopen_blk: { const _fd_int: i64 = ", "; const _builtin = @import(\"builtin\"); const _handle = if (comptime _builtin.os.tag == .windows) @as(*anyopaque, @ptrFromInt(@as(usize, @intCast(_fd_int)))) else @as(std.posix.fd_t, @intCast(_fd_int)); break :os_fdopen_blk std.fs.File{ .handle = _handle }; }", "std.io.getStdIn()") },
+    .{ "pipe", genPipe },
+    .{ "fdopen", genFdopen },
     .{ "fsync", m.wrap("std.posix.fsync(@intCast(", "))", "{}") },
     .{ "isatty", m.wrap("std.posix.isatty(@intCast(", "))", "false") },
     .{ "sync", m.c("{}") },
@@ -293,6 +293,23 @@ fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("; const _flags = @as(u32, @intCast(");
     try self.genExpr(args[1]);
     try self.emitFmt(")); _ = _flags; const _f = std.fs.cwd().openFile(_p, .{{}}) catch break :__m{d}_open @as(i64, -1); break :__m{d}_open if (comptime @import(\"builtin\").os.tag == .windows) @as(i64, @intFromPtr(_f.handle)) else @as(i64, @intCast(_f.handle)); }}", .{ id, id });
+}
+
+fn genPipe(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    _ = args;
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_pipe: {{ const _p = std.posix.pipe() catch break :__m{d}_pipe .{{ @as(i64, -1), @as(i64, -1) }}; break :__m{d}_pipe .{{ @as(i64, @intCast(_p[0])), @as(i64, @intCast(_p[1])) }}; }}", .{ id, id, id });
+}
+
+fn genFdopen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("std.io.getStdIn()");
+        return;
+    }
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_fdopen: {{ const _fd_int: i64 = ", .{id});
+    try self.genExpr(args[0]);
+    try self.emitFmt("; const _builtin = @import(\"builtin\"); const _handle = if (comptime _builtin.os.tag == .windows) @as(*anyopaque, @ptrFromInt(@as(usize, @intCast(_fd_int)))) else @as(std.posix.fd_t, @intCast(_fd_int)); break :__m{d}_fdopen std.fs.File{{ .handle = _handle }}; }}", .{id});
 }
 
 fn genUrandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

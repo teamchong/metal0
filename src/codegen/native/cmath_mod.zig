@@ -1,9 +1,25 @@
 /// Python cmath module - Mathematical functions for complex numbers
 const std = @import("std");
+const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");
+const NativeCodegen = @import("main.zig").NativeCodegen;
+const CodegenError = @import("main.zig").CodegenError;
+
+/// Complex sqrt: sqrt(x) for real numbers, returns complex result if negative
+fn genSqrt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit(".{ .re = 0.0, .im = 0.0 }");
+        return;
+    }
+    var em = self.exprEmitter();
+    const id = em.reserveLabelId();
+    try self.emitFmt("__m{d}_cmath_sqrt: {{ const __x = @as(f64, @floatFromInt(", .{id});
+    try self.genExpr(args[0]);
+    try self.emitFmt(")); if (__x >= 0) break :__m{d}_cmath_sqrt .{{ .re = @sqrt(__x), .im = 0.0 }}; break :__m{d}_cmath_sqrt .{{ .re = 0.0, .im = @sqrt(-__x) }}; }}", .{ id, id });
+}
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "sqrt", h.wrap("cmath_sqrt_blk: { const __x = @as(f64, @floatFromInt(", ")); if (__x >= 0) break :cmath_sqrt_blk .{ .re = @sqrt(__x), .im = 0.0 }; break :cmath_sqrt_blk .{ .re = 0.0, .im = @sqrt(-__x) }; }", ".{ .re = 0.0, .im = 0.0 }") },
+    .{ "sqrt", genSqrt },
     .{ "exp", h.complexBuiltin("@exp", "1.0") }, .{ "log", h.complexBuiltin("@log", "0.0") }, .{ "log10", h.complexBuiltin("@log10", "0.0") },
     .{ "sin", h.complexBuiltin("@sin", "0.0") }, .{ "cos", h.complexBuiltin("@cos", "1.0") }, .{ "tan", h.complexBuiltin("@tan", "0.0") },
     .{ "asin", h.complexStdMath("asin", "0.0") }, .{ "acos", h.complexStdMath("acos", "0.0") }, .{ "atan", h.complexStdMath("atan", "0.0") },

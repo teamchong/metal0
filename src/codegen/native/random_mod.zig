@@ -8,7 +8,6 @@ const expr_emitter = @import("expr_emitter.zig");
 
 const prng = "var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); const _r = _prng.random(); ";
 const randintBody = "); " ++ prng ++ "break :blk a + @as(i64, @intCast(_r.int(u64) % @as(u64, @intCast(b - a + 1)))); }";
-const sampleBody = "); " ++ prng ++ "var res: std.ArrayListUnmanaged(@TypeOf(__sample_seq[0])) = .{}; var idx: std.ArrayListUnmanaged(usize) = .{}; for (__sample_seq, 0..) |_, i| idx.append(__global_allocator, i) catch continue; _r.shuffle(usize, idx.items); for (idx.items[0..@min(k, idx.items.len)]) |i| res.append(__global_allocator, __sample_seq[i]) catch continue; break :__sample_blk res.items; }";
 const uniformBody = "; " ++ prng ++ "const rv = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :blk a + (b - a) * rv; }";
 const gaussBody = "; " ++ prng ++ "const u1 = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); const u2 = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :blk mu + sigma * @sqrt(-2.0 * @log(u1)) * @cos(2.0 * std.math.pi * u2); }";
 
@@ -25,10 +24,10 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "random", h.c("blk: { " ++ prng ++ "break :blk @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); }") },
     .{ "randint", genRandint },
     .{ "randrange", genRandrange },
-    .{ "choice", h.wrap("__choice_blk: { const __choice_seq = ", "; " ++ prng ++ "const _len = if (@TypeOf(__choice_seq) == runtime.PyValue) __choice_seq.pyLen() else __choice_seq.len; const _idx = _r.int(usize) % _len; break :__choice_blk if (@TypeOf(__choice_seq) == runtime.PyValue) __choice_seq.pyAt(_idx) else __choice_seq[_idx]; }", "undefined") },
+    .{ "choice", genChoice },
     .{ "choices", genChoices },
-    .{ "shuffle", h.wrap("__shuf_blk: { const __shuf_seq = ", "; " ++ prng ++ "const _items = if (@hasField(@TypeOf(__shuf_seq), \"items\")) __shuf_seq.items else __shuf_seq; _r.shuffle(@TypeOf(_items[0]), _items); break :__shuf_blk; }", "{}") },
-    .{ "sample", h.wrap2("__sample_blk: { const __sample_seq = ", "; const k: usize = @intCast(", sampleBody, "&[_]i64{}") },
+    .{ "shuffle", genShuffle },
+    .{ "sample", genSample },
     // Continuous distributions
     .{ "uniform", h.wrap2("blk: { const a: f64 = ", "; const b: f64 = ", uniformBody, "0.0") },
     .{ "gauss", h.wrap2("blk: { const mu: f64 = ", "; const sigma: f64 = ", gaussBody, "0.0") },
@@ -97,12 +96,38 @@ pub fn genRandrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 }
 
+fn genChoice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("undefined"); return; }
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_choice: {{ const __choice_seq_{d} = ", .{ id, id });
+    try self.genExpr(args[0]);
+    try self.emitFmt("; " ++ prng ++ "const _len_{d} = if (@TypeOf(__choice_seq_{d}) == runtime.PyValue) __choice_seq_{d}.pyLen() else __choice_seq_{d}.len; const _idx_{d} = _r.int(usize) % _len_{d}; break :__m{d}_choice if (@TypeOf(__choice_seq_{d}) == runtime.PyValue) __choice_seq_{d}.pyAt(_idx_{d}) else __choice_seq_{d}[_idx_{d}]; }}", .{ id, id, id, id, id, id, id, id, id, id, id, id });
+}
+
 fn genChoices(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
     const id = self.nextNameId();
     try self.emitFmt("__m{d}_choices: {{ const __choices_seq = ", .{id}); try self.genExpr(args[0]); try self.emit("; const k: usize = ");
     if (args.len > 1) { try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit(")"); } else try self.emit("1");
     try self.emitFmt("; " ++ prng ++ "var res: std.ArrayListUnmanaged(@TypeOf(__choices_seq[0])) = .{{}}; var i: usize = 0; while (i < k) : (i += 1) res.append(__global_allocator, __choices_seq[_prng.random().int(usize) % __choices_seq.len]) catch continue; break :__m{d}_choices res.items; }}", .{id});
+}
+
+fn genShuffle(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) { try self.emit("{}"); return; }
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_shuffle: {{ const __shuf_seq_{d} = ", .{ id, id });
+    try self.genExpr(args[0]);
+    try self.emitFmt("; " ++ prng ++ "const _items_{d} = if (@hasField(@TypeOf(__shuf_seq_{d}), \"items\")) __shuf_seq_{d}.items else __shuf_seq_{d}; _r.shuffle(@TypeOf(_items_{d}[0]), _items_{d}); break :__m{d}_shuffle; }}", .{ id, id, id, id, id, id, id });
+}
+
+fn genSample(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len < 2) { try self.emit("&[_]i64{{}}"); return; }
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_sample: {{ const __sample_seq_{d} = ", .{ id, id });
+    try self.genExpr(args[0]);
+    try self.emitFmt("; const k_{d}: usize = @intCast(", .{id});
+    try self.genExpr(args[1]);
+    try self.emitFmt("); " ++ prng ++ "var res_{d}: std.ArrayListUnmanaged(@TypeOf(__sample_seq_{d}[0])) = .{{}}; var idx_{d}: std.ArrayListUnmanaged(usize) = .{{}}; for (__sample_seq_{d}, 0..) |_, i| idx_{d}.append(__global_allocator, i) catch continue; _r.shuffle(usize, idx_{d}.items); for (idx_{d}.items[0..@min(k_{d}, idx_{d}.items.len)]) |i| res_{d}.append(__global_allocator, __sample_seq_{d}[i]) catch continue; break :__m{d}_sample res_{d}.items; }}", .{ id, id, id, id, id, id, id, id, id, id, id, id, id });
 }
 
 /// gammavariate(alpha, beta) - Gamma distribution
