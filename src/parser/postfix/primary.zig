@@ -370,7 +370,7 @@ fn parseString(self: *Parser) ParseError!ast.Node {
 
     // Track the final allocated string for cleanup when parser is deinitialized
     if (prev_allocated) |_| {
-        self.allocated_strings.append(self.allocator, result_str) catch {};
+        self.allocated_strings.append(self.allocator, result_str) catch unreachable;
     }
 
     // Strip quotes from the final string - use stripQuotes for proper handling
@@ -519,7 +519,7 @@ fn parseRawString(self: *Parser) ParseError!ast.Node {
     }
 
     if (prev_allocated) |_| {
-        self.allocated_strings.append(self.allocator, result_str) catch {};
+        self.allocated_strings.append(self.allocator, result_str) catch unreachable;
     }
 
     // Strip quotes from the final raw string
