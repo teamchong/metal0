@@ -113,7 +113,7 @@ pub fn genRepeat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 1) {
         try self.emit("var _i: usize = 0; while (_i < @as(usize, @intCast("); try self.genExpr(args[1]);
         try self.emit("))) : (_i += 1) { _result.append(__global_allocator, "); try self.genExpr(args[0]); try self.emit(") catch continue; }");
-    } else { try self.emit("_result.append(__global_allocator, "); try self.genExpr(args[0]); try self.emit(") catch {};"); }
+    } else { try self.emit("_result.append(__global_allocator, "); try self.genExpr(args[0]); try self.emit(") catch unreachable;"); }
     try self.emit(" break :repeat_blk _result; }");
 }
 
@@ -149,7 +149,7 @@ pub fn genZipLongest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 fn genAccumulate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayListUnmanaged(i64){}"); return; }
     try self.emit("accumulate_blk: { const _iter = "); try emitIter(self, args[0]);
-    try self.emit("; var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; var _acc: @TypeOf(_iter[0]) = _iter[0]; _result.append(__global_allocator, _acc) catch {}; for (_iter[1..]) |item| { _acc = ");
+    try self.emit("; var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; var _acc: @TypeOf(_iter[0]) = _iter[0]; _result.append(__global_allocator, _acc) catch unreachable; for (_iter[1..]) |item| { _acc = ");
     if (args.len > 1) { try self.genExpr(args[1]); try self.emit("(_acc, item)"); } else try self.emit("_acc + item");
     try self.emit("; _result.append(__global_allocator, _acc) catch continue; } break :accumulate_blk _result; }");
 }

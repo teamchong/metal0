@@ -16,7 +16,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "MethodWrapperType", h.c("\"method-wrapper\"") }, .{ "ClassMethodDescriptorType", h.c("\"classmethod_descriptor\"") },
     .{ "MethodDescriptorType", h.c("\"method_descriptor\"") }, .{ "CapsuleType", h.c("\"PyCapsule\"") },
     .{ "MappingProxyType", h.pass("struct { data: hashmap_helper.StringHashMap([]const u8) = hashmap_helper.StringHashMap([]const u8).init(__global_allocator) }{}") },
-    .{ "SimpleNamespace", h.c("struct { attrs: hashmap_helper.StringHashMap([]const u8) = .{}, pub fn get(__self: *@This(), name: []const u8) ?[]const u8 { return __self.attrs.get(name); } pub fn set(__self: *@This(), name: []const u8, value: []const u8) void { __self.attrs.put(name, value) catch {}; } pub fn __repr__(__self: *@This()) []const u8 { _ = __self; return \"namespace()\"; } }{}") },
+    .{ "SimpleNamespace", h.c("struct { attrs: hashmap_helper.StringHashMap([]const u8) = .{}, pub fn get(__self: *@This(), name: []const u8) ?[]const u8 { return __self.attrs.get(name); } pub fn set(__self: *@This(), name: []const u8, value: []const u8) void { __self.attrs.put(name, value) catch unreachable; } pub fn __repr__(__self: *@This()) []const u8 { _ = __self; return \"namespace()\"; } }{}") },
     .{ "DynamicClassAttribute", h.c("struct { fget: ?*anyopaque = null }{}") },
     .{ "resolve_bases", h.pass("&[_][]const u8{}") }, .{ "prepare_class", h.c("hashmap_helper.StringHashMap([]const u8).init(__global_allocator)") },
     .{ "get_original_bases", h.c("&[_][]const u8{}") }, .{ "coroutine", h.pass("@as(?*anyopaque, null)") },

@@ -231,7 +231,7 @@ pub fn genChainMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     for (args) |arg| {
         try self.emit("_maps.append(__global_allocator, ");
         try self.genExpr(arg);
-        try self.emit(") catch {}; ");
+        try self.emit(") catch unreachable; ");
     }
     try self.emit("break :chainmap_blk _maps; }");
 }

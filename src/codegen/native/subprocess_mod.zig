@@ -13,9 +13,9 @@ const read_stdout = "const _out = _child.stdout.?.readToEndAlloc(__global_alloca
 
 const runBody = "; " ++ child_init ++ "; _ = " ++ child_spawn ++ " .{ .returncode = -1, .stdout = \"\", .stderr = \"\" }; const _r = " ++ child_wait ++ " .{ .returncode = -1, .stdout = \"\", .stderr = \"\" }; break :blk .{ .returncode = @as(i64, @intCast(_r.Exited)), .stdout = \"\", .stderr = \"\" }; }";
 const callBody = "; " ++ child_init ++ "; _ = " ++ child_spawn ++ " @as(i64, -1); const _r = " ++ child_wait ++ " @as(i64, -1); break :blk @as(i64, @intCast(_r.Exited)); }";
-const checkOutputBody = "; " ++ child_init ++ "; _child.stdout_behavior = .Pipe; _ = " ++ child_spawn ++ " \"\"; " ++ read_stdout ++ "; _ = _child.wait() catch {}; break :blk _out; }";
+const checkOutputBody = "; " ++ child_init ++ "; _child.stdout_behavior = .Pipe; _ = " ++ child_spawn ++ " \"\"; " ++ read_stdout ++ "; _ = _child.wait() catch unreachable; break :blk _out; }";
 const popenBody = "; " ++ child_init ++ "; _child.stdout_behavior = .Pipe; _child.stderr_behavior = .Pipe; break :blk _child; }";
-const getoutputBody = "; const _argv = [_][]const u8{ \"/bin/sh\", \"-c\", _cmd }; var _child = std.process.Child.init(&_argv, __global_allocator); _child.stdout_behavior = .Pipe; _ = " ++ child_spawn ++ " \"\"; " ++ read_stdout ++ "; _ = _child.wait() catch {}; break :blk _out; }";
+const getoutputBody = "; const _argv = [_][]const u8{ \"/bin/sh\", \"-c\", _cmd }; var _child = std.process.Child.init(&_argv, __global_allocator); _child.stdout_behavior = .Pipe; _ = " ++ child_spawn ++ " \"\"; " ++ read_stdout ++ "; _ = _child.wait() catch unreachable; break :blk _out; }";
 const getstatusoutputBody = "; const _argv = [_][]const u8{ \"/bin/sh\", \"-c\", _cmd }; var _child = std.process.Child.init(&_argv, __global_allocator); _child.stdout_behavior = .Pipe; _ = " ++ child_spawn ++ " .{ @as(i64, -1), \"\" }; " ++ read_stdout ++ "; const _r = " ++ child_wait ++ " .{ @as(i64, -1), _out }; break :blk .{ @as(i64, @intCast(_r.Exited)), _out }; }";
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
