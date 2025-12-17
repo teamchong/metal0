@@ -55,7 +55,7 @@ pub const BreakpointManager = struct {
         var result: std.ArrayList(Breakpoint) = .{};
         for (breakpoints.items) |bp| {
             if (std.mem.eql(u8, bp.file, filename) and bp.line == lineno) {
-                result.append(allocator, bp) catch continue;
+                result.append(allocator, bp) catch unreachable;
             }
         }
         return result.toOwnedSlice(allocator) catch &[_]Breakpoint{};

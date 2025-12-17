@@ -119,7 +119,7 @@ pub const Profile = struct {
 
         var stats_iter = self.stats.iterator();
         while (stats_iter.next()) |entry| {
-            entries.append(self.allocator, .{ .key = entry.key_ptr.*, .stat = entry.value_ptr }) catch continue;
+            entries.append(self.allocator, .{ .key = entry.key_ptr.*, .stat = entry.value_ptr }) catch unreachable;
         }
 
         // Sort based on sort key

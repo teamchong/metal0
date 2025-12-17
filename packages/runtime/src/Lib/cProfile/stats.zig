@@ -30,7 +30,7 @@ pub const Stats = struct {
 
         var iter = stats.iterator();
         while (iter.next()) |entry| {
-            entries.append(allocator, entry.value_ptr.*) catch continue;
+            entries.append(allocator, entry.value_ptr.*) catch unreachable;
             total_calls += entry.value_ptr.ncalls;
             total_time += entry.value_ptr.tottime;
         }

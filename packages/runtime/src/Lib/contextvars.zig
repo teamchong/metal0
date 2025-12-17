@@ -184,7 +184,7 @@ pub const Context = struct {
     pub fn keys(self: *const Self) []const []const u8 {
         var result: std.ArrayList([]const u8) = .{};
         for (self.data.keys()) |key| {
-            result.append(self.allocator, key) catch continue;
+            result.append(self.allocator, key) catch unreachable;
         }
         return result.toOwnedSlice(self.allocator) catch &[_][]const u8{};
     }
@@ -193,7 +193,7 @@ pub const Context = struct {
     pub fn values(self: *const Self) []const ContextValue {
         var result: std.ArrayList(ContextValue) = .{};
         for (self.data.values()) |val| {
-            result.append(self.allocator, val) catch continue;
+            result.append(self.allocator, val) catch unreachable;
         }
         return result.toOwnedSlice(self.allocator) catch &[_]ContextValue{};
     }
