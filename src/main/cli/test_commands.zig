@@ -463,9 +463,9 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var codegen_done = std.atomic.Value(bool).init(false);
     const watchdog = std.Thread.spawn(.{}, struct {
         fn run(done: *std.atomic.Value(bool)) void {
-            std.Thread.sleep(600 * std.time.ns_per_s); // 10 minute timeout
+            std.Thread.sleep(300 * std.time.ns_per_s); // 5 minute timeout
             if (!done.load(.seq_cst)) {
-                printError("Phase 1 (Codegen) TIMEOUT after 10 minutes", .{});
+                printError("Phase 1 (Codegen) TIMEOUT after 5 minutes", .{});
                 printError("One or more test files caused infinite loop in codegen", .{});
                 printError("This is a compiler bug - please bisect to find hanging file", .{});
                 std.process.exit(1);
