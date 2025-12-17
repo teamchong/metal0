@@ -485,13 +485,18 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 4.7: Pre-populate module_level_vars with global vars from analysis
     // This must happen BEFORE PHASE 5 (class definitions) so that method body generation
     // can detect and rename local variables that would shadow module-level globals
+    std.debug.print("generate(): Phase 4.7 - Pre-populating module_level_vars with {d} global vars...\n", .{analysis.global_vars.len});
     for (analysis.global_vars) |var_name| {
         try self.module_level_vars.put(var_name, {});
     }
+    std.debug.print("generate(): Phase 4.7 complete.\n", .{});
 
     // PHASE 5: Generate imports, class and function definitions (before main)
     // In module mode, wrap functions in pub struct
+    std.debug.print("generate(): Phase 5 - Generating class and function definitions...\n", .{});
+    std.debug.print("generate():   Mode: {s}\n", .{@tagName(self.mode)});
     if (self.mode == .module) {
+        std.debug.print("generate():   Module mode detected.\n", .{});
         // Module mode: emit __global_allocator for f-strings and other allocating operations
         // This is needed because modules are compiled separately and don't have main() setup
         if (analysis.needs_allocator) {
@@ -507,8 +512,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             self.indent();
         }
     }
+    std.debug.print("generate():   Module mode setup complete.\n", .{});
 
-    for (module.body) |stmt| {
+    std.debug.print("generate(): Phase 5.1 - Processing {d} module body statements...\n", .{module.body.len});
+    for (module.body, 0..) |stmt, i| {
+        std.debug.print("generate():   Phase 5.1 - Statement {d}/{d}: {s}\n", .{i+1, module.body.len, @tagName(stmt)});
         if (stmt == .import_stmt) {
             try statements.genImport(self, stmt.import_stmt);
         } else if (stmt == .import_from) {
@@ -620,13 +628,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     try self.emitIndent();
                     try self.emit("pub const ");
                     // Generate target name
-                    for (stmt.assign.targets, 0..) |target, i| {
+                    for (stmt.assign.targets, 0..) |target, target_idx| {
                         if (target == .name) {
                             const var_name = target.name.id;
                             try self.declareVar(var_name);
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                         }
-                        if (i < stmt.assign.targets.len - 1) {
+                        if (target_idx < stmt.assign.targets.len - 1) {
                             try self.emit(", ");
                         }
                     }

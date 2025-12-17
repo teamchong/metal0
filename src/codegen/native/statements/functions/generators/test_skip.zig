@@ -521,6 +521,47 @@ fn hasLambdaUsingClasses(node: ast.Node, class_names: []const []const u8) bool {
             for (c.args) |arg| if (hasLambdaUsingClasses(arg, class_names)) break :blk true;
             break :blk false;
         },
+        .for_stmt => |f| blk: {
+            for (f.body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            if (f.orelse_body) |else_body| {
+                for (else_body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            }
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            for (w.body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            if (w.orelse_body) |else_body| {
+                for (else_body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            }
+            break :blk false;
+        },
+        .if_stmt => |i| blk: {
+            for (i.body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            for (i.else_body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            for (t.else_body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            for (t.finalbody) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            for (t.handlers) |h| {
+                for (h.body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            }
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            for (w.body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            break :blk false;
+        },
+        .function_def => |f| blk: {
+            for (f.body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            break :blk false;
+        },
+        .class_def => |c| blk: {
+            for (c.body) |s| if (hasLambdaUsingClasses(s, class_names)) break :blk true;
+            break :blk false;
+        },
+        .expr_stmt => |e| hasLambdaUsingClasses(e.value.*, class_names),
         else => false,
     };
 }
