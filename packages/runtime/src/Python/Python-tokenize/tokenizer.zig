@@ -46,7 +46,7 @@ pub const Tokenizer = struct {
             .indent_stack = std.ArrayList(u32).init(allocator),
         };
         // Start with 0 indentation
-        self.indent_stack.append(0) catch {};
+        self.indent_stack.append(0) catch unreachable;
         return self;
     }
 
