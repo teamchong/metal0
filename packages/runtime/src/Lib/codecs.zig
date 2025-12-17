@@ -189,7 +189,7 @@ pub const IncrementalEncoder = struct {
 
     pub fn setstate(self: *Self, state: struct { buffer: []u8, state: i32 }) void {
         self.buffer.clearRetainingCapacity();
-        self.buffer.appendSlice(self.allocator, state.buffer) catch {};
+        self.buffer.appendSlice(self.allocator, state.buffer) catch unreachable;
     }
 };
 
@@ -230,7 +230,7 @@ pub const IncrementalDecoder = struct {
 
     pub fn setstate(self: *Self, state: struct { buffer: []u8, state: i32 }) void {
         self.buffer.clearRetainingCapacity();
-        self.buffer.appendSlice(self.allocator, state.buffer) catch {};
+        self.buffer.appendSlice(self.allocator, state.buffer) catch unreachable;
     }
 };
 

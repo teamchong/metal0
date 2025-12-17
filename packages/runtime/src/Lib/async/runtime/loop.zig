@@ -294,7 +294,7 @@ pub const SimpleScheduler = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        self.completed.append(self.allocator, task) catch {};
+        self.completed.append(self.allocator, task) catch unreachable;
         self.total_completed += 1;
     }
 

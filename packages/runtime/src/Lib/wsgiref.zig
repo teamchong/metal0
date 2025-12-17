@@ -55,7 +55,7 @@ pub const ResponseHeaders = struct {
 
         if (headers) |h| {
             for (h) |header| {
-                self.headers.append(allocator, .{ .name = header[0], .value = header[1] }) catch {};
+                self.headers.append(allocator, .{ .name = header[0], .value = header[1] }) catch unreachable;
             }
         }
 

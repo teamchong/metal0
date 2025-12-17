@@ -55,7 +55,7 @@ pub fn main(allocator: std.mem.Allocator) void {
     PREFIXES = .{};
 
     // Add standard prefixes
-    PREFIXES.append(allocator, "/usr/local") catch {};
+    PREFIXES.append(allocator, "/usr/local") catch unreachable;
     PREFIXES.append(allocator, "/usr") catch {};
 
     // Determine user directories

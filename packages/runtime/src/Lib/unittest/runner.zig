@@ -146,7 +146,7 @@ pub var maxDiff: ?usize = 640;
 pub fn fail(msg: []const u8) noreturn {
     std.debug.print("AssertionError: {s}\n", .{msg});
     if (global_result) |result| {
-        result.addFail(msg) catch {};
+        result.addFail(msg) catch unreachable;
     }
     @panic("Test failed");
 }

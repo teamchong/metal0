@@ -101,7 +101,7 @@ pub const Tk = struct {
     pub fn after(self: *Self, ms: u32, callback: *const fn () void) void {
         const now = std.time.nanoTimestamp();
         const due = now + @as(i64, ms) * std.time.ns_per_ms;
-        self.scheduled.append(self.widget.allocator, .{ .due_time = due, .callback = callback }) catch {};
+        self.scheduled.append(self.widget.allocator, .{ .due_time = due, .callback = callback }) catch unreachable;
     }
 
     /// Cancel a scheduled callback (by finding and removing it)

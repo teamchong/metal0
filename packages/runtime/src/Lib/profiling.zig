@@ -166,7 +166,7 @@ pub const Profiler = struct {
         var result: std.ArrayList(FunctionStats) = .{};
         var iter = self.stats.iterator();
         while (iter.next()) |entry| {
-            result.append(self.allocator, entry.value_ptr.*) catch {};
+            result.append(self.allocator, entry.value_ptr.*) catch unreachable;
         }
         return result.items;
     }

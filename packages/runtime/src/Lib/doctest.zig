@@ -118,22 +118,22 @@ pub const DocTestParser = struct {
                 if (source_lines.items.len > 0) {
                     const src = source_lines.toOwnedSlice(allocator) catch "";
                     const want = output_lines.toOwnedSlice(allocator) catch "";
-                    test_obj.examples.append(allocator, Example.init(src, want)) catch {};
+                    test_obj.examples.append(allocator, Example.init(src, want)) catch unreachable;
                     output_lines.clearRetainingCapacity();
                 }
                 // Start new source
-                source_lines.appendSlice(allocator, trimmed[4..]) catch {};
+                source_lines.appendSlice(allocator, trimmed[4..]) catch unreachable;
                 collecting_output = true;
             } else if (std.mem.startsWith(u8, trimmed, "... ")) {
                 // Continuation line - append to source with newline
                 if (source_lines.items.len > 0) {
-                    source_lines.append(allocator, '\n') catch {};
-                    source_lines.appendSlice(allocator, trimmed[4..]) catch {};
+                    source_lines.append(allocator, '\n') catch unreachable;
+                    source_lines.appendSlice(allocator, trimmed[4..]) catch unreachable;
                 }
             } else if (collecting_output and trimmed.len > 0) {
                 // Output line
-                output_lines.appendSlice(allocator, trimmed) catch {};
-                output_lines.append(allocator, '\n') catch {};
+                output_lines.appendSlice(allocator, trimmed) catch unreachable;
+                output_lines.append(allocator, '\n') catch unreachable;
             } else if (trimmed.len == 0) {
                 collecting_output = false;
             }
@@ -143,7 +143,7 @@ pub const DocTestParser = struct {
         if (source_lines.items.len > 0) {
             const src = source_lines.toOwnedSlice(allocator) catch "";
             const want = output_lines.toOwnedSlice(allocator) catch "";
-            test_obj.examples.append(allocator, Example.init(src, want)) catch {};
+            test_obj.examples.append(allocator, Example.init(src, want)) catch unreachable;
         }
 
         return test_obj;
