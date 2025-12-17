@@ -126,18 +126,23 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         // Track that we've imported this root module
         try imported_roots.put(root_mod_name, {});
     }
+    std.debug.print("generate(): Import processing loop complete.\n", .{});
 
     // PHASE 2: Register all classes for inheritance support
+    std.debug.print("generate(): Phase 2 - Registering classes...\n", .{});
     for (module.body) |stmt| {
         if (stmt == .class_def) {
             try self.class_registry.registerClass(stmt.class_def.name, stmt.class_def);
         }
     }
+    std.debug.print("generate(): Phase 2 complete.\n", .{});
 
     // PHASE 2.1: Register async functions for comptime optimization analysis
     // Also collect ALL module-level function names for parameter shadowing detection
     // And collect module-level variable names for hoisted var type derivation
-    for (module.body) |stmt| {
+    std.debug.print("generate(): Phase 2.1 - Registering functions and variables...\n", .{});
+    for (module.body, 0..) |stmt, i| {
+        std.debug.print("generate():   Processing statement {d}/{d}: {s}\n", .{i+1, module.body.len, @tagName(stmt)});
         if (stmt == .function_def) {
             const func = stmt.function_def;
             // Register function name to detect parameter shadowing
@@ -165,20 +170,26 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             }
         }
     }
+    std.debug.print("generate(): Phase 2.1 complete.\n", .{});
 
     // PHASE 2.5: Analyze mutations for list ArrayList vs fixed array decision
+    std.debug.print("generate(): Phase 2.5 - Analyzing mutations...\n", .{});
     const mutation_analyzer = @import("../../../analysis/native_types/mutation_analyzer.zig");
     var mutations = try mutation_analyzer.analyzeMutations(module, self.allocator);
+    std.debug.print("generate(): Phase 2.5 - Mutations analyzed.\n", .{});
     defer {
         for (mutations.values()) |*info| {
             @constCast(info).mutation_types.deinit(self.allocator);
         }
         mutations.deinit();
     }
+    std.debug.print("generate(): Setting mutation_info pointer...\n", .{});
     self.mutation_info = &mutations;
+    std.debug.print("generate(): mutation_info pointer set.\n", .{});
 
     // PHASE 3: Generate imports based on analysis (minimal for smaller WASM)
     // Check if any imported modules require runtime
+    std.debug.print("generate(): Phase 3 - Generating imports...\n", .{});
     var needs_runtime_for_imports = false;
     for (imported_modules.items) |mod_name| {
         if (self.import_registry.lookup(mod_name)) |info| {
@@ -190,46 +201,63 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     }
 
     // Always import std and runtime - DCE removes if unused
+    std.debug.print("generate(): Emitting std and runtime imports...\n", .{});
     try self.emit("const std = @import(\"std\");\n");
     try self.emit("const runtime = @import(\"runtime\");\n");
+    std.debug.print("generate(): Base imports emitted.\n", .{});
     if (analysis.needs_string_utils) {
+        std.debug.print("generate(): Emitting string_utils import...\n", .{});
         // string_utils is a submodule of runtime, access via runtime.string_utils
         try self.emit("const string_utils = runtime.string_utils;\n");
     }
     if (analysis.needs_hashmap_helper) {
+        std.debug.print("generate(): Emitting hashmap_helper import...\n", .{});
         // Use runtime.hashmap_helper - hashmap_helper is re-exported from runtime module
         try self.emit("const hashmap_helper = runtime.hashmap_helper;\n");
     }
+    std.debug.print("generate(): Emitting allocator_helper import...\n", .{});
     // Always import allocator_helper - needs_allocator defaults to true and most code uses it
     // Use runtime.allocator_helper - allocator_helper is re-exported from runtime module
     try self.emit("const allocator_helper = runtime.allocator_helper;\n");
 
+    std.debug.print("generate(): Emitting {d} inline module imports...\n", .{inlined_modules.items.len});
     // Emit @import statements for compiled user/stdlib modules (collected in PHASE 1.6)
     for (inlined_modules.items) |import_stmt| {
+        std.debug.print("generate():   Emitting: {s}", .{import_stmt});
         try self.emit(import_stmt);
     }
+    std.debug.print("generate(): Inline module imports emitted.\n", .{});
 
     // PHASE 3.5: Generate C library imports (if any detected)
+    std.debug.print("generate(): Phase 3.5 - Checking for C library imports...\n", .{});
     if (self.import_ctx) |ctx| {
+        std.debug.print("generate(): Generating C import block...\n", .{});
         const c_import_block = try ctx.generateCImportBlock(self.allocator);
         defer self.allocator.free(c_import_block);
+        std.debug.print("generate(): C import block generated ({d} bytes).\n", .{c_import_block.len});
         if (c_import_block.len > 0) {
             try self.emit(c_import_block);
         }
     }
+    std.debug.print("generate(): Phase 3.5 complete.\n", .{});
 
     // PHASE 3.6: Generate c_interop import if C extension modules are used
+    std.debug.print("generate(): Phase 3.6 - Checking for C extension modules...\n", .{});
     if (self.c_extension_modules.count() > 0) {
         try self.emit("const c_interop = @import(\"c_interop\");\n");
     }
+    std.debug.print("generate(): Phase 3.6 complete.\n", .{});
 
     // PHASE 3.7: Emit module assignments for registry modules
     // Note: Compiled user/stdlib modules already emitted via @import above
     // Track emitted module consts to avoid duplicates (e.g., import _pyio appearing twice)
+    std.debug.print("generate(): Phase 3.7 - Emitting module assignments...\n", .{});
     var emitted_module_consts = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer emitted_module_consts.deinit();
 
-    for (imported_modules.items) |mod_name| {
+    std.debug.print("generate(): Processing {d} imported modules for registry...\n", .{imported_modules.items.len});
+    for (imported_modules.items, 0..) |mod_name, i| {
+        std.debug.print("generate():   Phase 3.7 - Processing module {d}/{d}: {s}\n", .{i+1, imported_modules.items.len, mod_name});
         // Skip 'builtins' module - it's handled specially in dispatch
         // builtins.func() calls are dispatched to built-in function handlers directly
         if (std.mem.eql(u8, mod_name, "builtins")) {
@@ -309,10 +337,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // User modules without registry entry are handled via @import above
         }
     }
+    std.debug.print("generate(): Phase 3.7 module registry loop complete.\n", .{});
 
     // PHASE 3.7.1: Emit import aliases (import X as Y -> const Y = @"X";)
     // Skip C extension modules - they don't have Zig aliases, they're called via c_interop
+    std.debug.print("generate(): Phase 3.7.1 - Emitting {d} import aliases...\n", .{self.import_aliases.count()});
     for (self.import_aliases.keys()) |alias| {
+        std.debug.print("generate():   Emitting alias: {s}\n", .{alias});
         const module_name = self.import_aliases.get(alias).?;
         // Skip C extension modules - they are loaded at runtime via c_interop.callModuleFunction
         if (self.isCExtensionModule(module_name) or self.isCExtensionModule(alias)) {
@@ -324,20 +355,28 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), module_name);
         try self.emit(";\n");
     }
+    std.debug.print("generate(): Phase 3.7.1 complete.\n", .{});
 
+    std.debug.print("generate(): Emitting newline separator...\n", .{});
     try self.emit("\n");
 
     // PHASE 3.6: Generate from-import symbol re-exports
+    std.debug.print("generate(): Phase 3.6 - Generating from-import symbols...\n", .{});
     try from_imports_gen.generateFromImports(self);
+    std.debug.print("generate(): Phase 3.6 complete.\n", .{});
 
     // PHASE 3.7: Emit module-level type aliases BEFORE class definitions
     // Type aliases like `F = fractions.Fraction` must be at module level because
     // class methods (e.g., DummyFloat._richcmp) need them at compile time.
+    std.debug.print("generate(): Phase 3.7 - Emitting module-level type aliases...\n", .{});
     try emitModuleLevelTypeAliases(self, module.body);
+    std.debug.print("generate(): Phase 3.7 type aliases complete.\n", .{});
 
     // PHASE 3.8: Pre-pass to detect optional import patterns (try: import X except: X = None)
     // This MUST happen before class/function generation so methods using X can be skipped
-    for (module.body) |stmt| {
+    std.debug.print("generate(): Phase 3.8 - Detecting optional import patterns...\n", .{});
+    for (module.body, 0..) |stmt, i| {
+        std.debug.print("generate():   Phase 3.8 - Statement {d}/{d}: {s}\n", .{i+1, module.body.len, @tagName(stmt)});
         if (stmt == .try_stmt) {
             // Check if this is an optional import pattern
             const try_node = stmt.try_stmt;
@@ -363,17 +402,23 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             }
         }
     }
+    std.debug.print("generate(): Phase 3.8 complete.\n", .{});
 
     // PHASE 4: Define __name__ constant (for if __name__ == "__main__" support)
+    std.debug.print("generate(): Phase 4 - Defining __name__ constant...\n", .{});
     try self.emit("const __name__ = \"__main__\";\n");
     // Track __name__ as module-level so local assignments get renamed to avoid shadowing
     try self.module_level_vars.put("__name__", {});
+    std.debug.print("generate(): __name__ defined.\n", .{});
 
     // PHASE 4.0.1: Define __file__ constant (Python magic variable for source file path)
+    std.debug.print("generate(): Phase 4.0.1 - Defining __file__ constant...\n", .{});
     try self.emit("const __file__: []const u8 = \"");
     if (self.source_file_path) |path| {
+        std.debug.print("generate():   Escaping file path ({d} chars): {s}\n", .{path.len, path});
         // Escape special characters in the path
-        for (path) |c| {
+        for (path, 0..) |c, i| {
+            if (i % 10 == 0) std.debug.print("generate():   Processing char {d}/{d}\n", .{i+1, path.len});
             if (c == '\\') {
                 try self.emit("\\\\");
             } else if (c == '"') {
@@ -382,38 +427,60 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 try self.output.append(self.allocator, c);
             }
         }
+        std.debug.print("generate():   File path escaped.\n", .{});
     } else {
         try self.emit("<unknown>");
     }
+    std.debug.print("generate():   Emitting closing quote...\n", .{});
     try self.emit("\";\n\n");
+    std.debug.print("generate():   __file__ definition complete.\n", .{});
     // Track __file__ as module-level so local assignments get renamed to avoid shadowing
+    std.debug.print("generate():   Tracking __file__ as module-level var...\n", .{});
     try self.module_level_vars.put("__file__", {});
+    std.debug.print("generate():   __file__ tracked.\n", .{});
 
     // PHASE 4.1: Emit source directory for runtime eval subprocess
     // This allows eval() to spawn metal0 subprocess with correct import paths
+    std.debug.print("generate(): Phase 4.1 - Emitting source directory...\n", .{});
     if (source_file_dir) |dir| {
+        std.debug.print("generate():   Source dir ({d} chars): {s}\n", .{dir.len, dir});
+        std.debug.print("generate():   Emitting metadata comment...\n", .{});
         try self.emit("// metal0 metadata for runtime eval subprocess\n");
+        std.debug.print("generate():   Emitting const declaration...\n", .{});
         try self.emit("pub const __metal0_source_dir: []const u8 = \"");
+        std.debug.print("generate():   Escaping source dir path...\n", .{});
         // Escape any special characters in the path
-        for (dir) |c| {
+        for (dir, 0..) |c, i| {
+            if (i % 5 == 0) std.debug.print("generate():     Char {d}/{d}: '{c}'\n", .{i+1, dir.len, c});
             if (c == '\\') {
+                std.debug.print("generate():     Found backslash at {d}, emitting escaped version...\n", .{i});
                 try self.emit("\\\\");
             } else if (c == '"') {
+                std.debug.print("generate():     Found quote at {d}, emitting escaped version...\n", .{i});
                 try self.emit("\\\"");
             } else {
+                std.debug.print("generate():     Appending char '{c}' at index {d}...\n", .{c, i});
                 try self.output.append(self.allocator, c);
+                std.debug.print("generate():     Char appended.\n", .{});
             }
         }
+        std.debug.print("generate():   Source dir escaped, emitting closing quote...\n", .{});
         try self.emit("\";\n\n");
+        std.debug.print("generate():   Source dir emitted.\n", .{});
     }
+    std.debug.print("generate(): Phase 4.1 complete.\n", .{});
 
     // PHASE 4.5: Pre-generate closure wrapper types for functions that return closures
     // This allows the function signature to reference the closure type by name
+    std.debug.print("generate(): Phase 4.5 - Generating closure wrapper types...\n", .{});
     try genClosureWrapperTypes(self, module);
+    std.debug.print("generate(): Phase 4.5 complete.\n", .{});
 
     // PHASE 4.6: Analyze functions that return test classes (factory pattern)
     // This enables unittest discovery for classes assigned via tuple unpacking
+    std.debug.print("generate(): Phase 4.6 - Analyzing test factories...\n", .{});
     try analyzeTestFactories(self, module);
+    std.debug.print("generate(): Phase 4.6 complete.\n", .{});
 
     // PHASE 4.7: Pre-populate module_level_vars with global vars from analysis
     // This must happen BEFORE PHASE 5 (class definitions) so that method body generation
