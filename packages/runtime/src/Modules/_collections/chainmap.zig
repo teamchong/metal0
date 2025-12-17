@@ -92,7 +92,7 @@ pub fn ChainMap(comptime K: type, comptime V: type) type {
             for (self.maps.items) |map| {
                 var it = map.keyIterator();
                 while (it.next()) |key| {
-                    seen.put(key.*, {}) catch {};
+                    seen.put(key.*, {}) catch unreachable;
                 }
             }
             return seen.count();
