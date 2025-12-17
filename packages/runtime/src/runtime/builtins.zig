@@ -376,11 +376,11 @@ pub fn pyListAppend(allocator: std.mem.Allocator, list_ptr: anytype, item: anyty
     // Check if it's an ArrayList-like type with append method
     if (info == .@"struct" and @hasField(T, "items") and @hasDecl(T, "append")) {
         // ArrayList - use standard append
-        list_ptr.append(allocator, item) catch {};
+        list_ptr.append(allocator, item) catch unreachable;
     } else if (T == PyValue) {
         // PyValue.list is *ArrayListUnmanaged(PyValue) - can mutate via pointer
         if (list_ptr.* == .list) {
-            list_ptr.list.append(allocator, PyValue.from(item)) catch {};
+            list_ptr.list.append(allocator, PyValue.from(item)) catch unreachable;
         }
     }
 }
@@ -410,7 +410,7 @@ pub fn pyListExtend(allocator: std.mem.Allocator, list_ptr: anytype, other: anyt
                 list_ptr.list.appendSlice(allocator, other.list.items) catch {};
             } else if (other_info == .pointer and other_info.pointer.size == .Slice) {
                 for (other) |item| {
-                    list_ptr.list.append(allocator, PyValue.from(item)) catch {};
+                    list_ptr.list.append(allocator, PyValue.from(item)) catch unreachable;
                 }
             }
         }
