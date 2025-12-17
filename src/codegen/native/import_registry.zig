@@ -321,6 +321,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("queue", .zig_runtime, "std", null);
     try registry.register("copy", .zig_runtime, "std", null);
     try registry.register("operator", .zig_runtime, null, null);
+    try registry.register("builtins", .zig_runtime, null, null);
     try registry.register("ast", .zig_runtime, "runtime.ast_executor", null);
     try registry.register("contextlib", .zig_runtime, "std", null);
     try registry.register("string", .zig_runtime, "std", null);
