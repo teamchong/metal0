@@ -43,4 +43,4 @@ pyclbr
 pyexpat
 queue
 quopri
-# raise  # DISABLED: hangs in Phase 1 codegen (infinite loop)
+raise
