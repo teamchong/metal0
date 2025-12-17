@@ -174,13 +174,13 @@ fn SwapItemContext(comptime K: type, comptime V: type) type {
 
         pub fn init(dict: *std.AutoHashMap(K, V), key: K, new_val: V) Self {
             const old = dict.get(key);
-            dict.put(key, new_val) catch {};
+            dict.put(key, new_val) catch unreachable;
             return .{ .dict = dict, .key = key, .old_val = old };
         }
 
         pub fn restore(self: *Self) void {
             if (self.old_val) |old| {
-                self.dict.put(self.key, old) catch {};
+                self.dict.put(self.key, old) catch unreachable;
             } else {
                 _ = self.dict.remove(self.key);
             }
