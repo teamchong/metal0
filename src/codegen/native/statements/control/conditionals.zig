@@ -525,6 +525,9 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
     if (is_feature_macros_subscript) {
         // FeatureMacros subscript returns comptime bool - use directly
         try self.genExpr(if_stmt.condition.*);
+    } else if (cond_type == .bool) {
+        // Bool type - use directly without wrapping
+        try self.genExpr(if_stmt.condition.*);
     } else if (is_class_comparison) {
         // Class comparison - wrap with .__bool__() since dunder may return non-bool
         // The comparison result (e.g., SymbolicBool) is not an error union, but __bool__() returns !bool
