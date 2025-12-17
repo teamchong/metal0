@@ -397,9 +397,9 @@ pub fn pyListExtend(allocator: std.mem.Allocator, list_ptr: anytype, other: anyt
         const other_info = @typeInfo(OtherT);
 
         if (other_info == .@"struct" and @hasField(OtherT, "items")) {
-            list_ptr.appendSlice(allocator, other.items) catch {};
+            list_ptr.appendSlice(allocator, other.items) catch unreachable;
         } else if (other_info == .pointer and other_info.pointer.size == .Slice) {
-            list_ptr.appendSlice(allocator, other) catch {};
+            list_ptr.appendSlice(allocator, other) catch unreachable;
         }
     } else if (T == PyValue) {
         // PyValue.list is *ArrayListUnmanaged(PyValue) - can mutate via pointer
@@ -407,7 +407,7 @@ pub fn pyListExtend(allocator: std.mem.Allocator, list_ptr: anytype, other: anyt
             const OtherT = @TypeOf(other);
             const other_info = @typeInfo(OtherT);
             if (OtherT == PyValue and other == .list) {
-                list_ptr.list.appendSlice(allocator, other.list.items) catch {};
+                list_ptr.list.appendSlice(allocator, other.list.items) catch unreachable;
             } else if (other_info == .pointer and other_info.pointer.size == .Slice) {
                 for (other) |item| {
                     list_ptr.list.append(allocator, PyValue.from(item)) catch unreachable;
@@ -426,12 +426,12 @@ pub fn pyListInsert(allocator: std.mem.Allocator, list_ptr: anytype, index: anyt
     // Check if it's an ArrayList-like type with insert method
     if (info == .@"struct" and @hasField(T, "items") and @hasDecl(T, "insert")) {
         const idx: usize = @intCast(index);
-        list_ptr.insert(allocator, idx, item) catch {};
+        list_ptr.insert(allocator, idx, item) catch unreachable;
     } else if (T == PyValue) {
         // PyValue.list is *ArrayListUnmanaged(PyValue) - can mutate via pointer
         if (list_ptr.* == .list) {
             const idx: usize = @intCast(index);
-            list_ptr.list.insert(allocator, idx, PyValue.from(item)) catch {};
+            list_ptr.list.insert(allocator, idx, PyValue.from(item)) catch unreachable;
         }
     }
 }
@@ -450,13 +450,13 @@ pub fn pyDictKeys(allocator: std.mem.Allocator, d: anytype) std.ArrayListUnmanag
     if (info == .@"struct" and @hasDecl(T, "keys")) {
         // HashMap-like with keys() method
         for (d.keys()) |key| {
-            result_keys.append(allocator, key) catch {};
+            result_keys.append(allocator, key) catch unreachable;
         }
     } else if (info == .@"struct" and @hasDecl(T, "iterator")) {
         // ArrayHashMap-like with iterator
         var dict_iter = d.iterator();
         while (dict_iter.next()) |entry| {
-            result_keys.append(allocator, entry.key_ptr.*) catch {};
+            result_keys.append(allocator, entry.key_ptr.*) catch unreachable;
         }
     } else if (T == PyValue) {
         // PyValue.dict - extract from ptr
@@ -464,7 +464,7 @@ pub fn pyDictKeys(allocator: std.mem.Allocator, d: anytype) std.ArrayListUnmanag
             const hashmap_helper = @import("utils.hashmap_helper");
             const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(d.ptr));
             for (map_ptr.keys()) |key| {
-                result_keys.append(allocator, key) catch {};
+                result_keys.append(allocator, key) catch unreachable;
             }
         }
     }
@@ -481,13 +481,13 @@ pub fn pyDictValues(allocator: std.mem.Allocator, d: anytype) std.ArrayListUnman
     if (info == .@"struct" and @hasDecl(T, "values")) {
         // HashMap-like with values() method
         for (d.values()) |val| {
-            result_values.append(allocator, PyValue.from(val)) catch {};
+            result_values.append(allocator, PyValue.from(val)) catch unreachable;
         }
     } else if (info == .@"struct" and @hasDecl(T, "iterator")) {
         // ArrayHashMap-like with iterator
         var dict_iter = d.iterator();
         while (dict_iter.next()) |entry| {
-            result_values.append(allocator, PyValue.from(entry.value_ptr.*)) catch {};
+            result_values.append(allocator, PyValue.from(entry.value_ptr.*)) catch unreachable;
         }
     } else if (T == PyValue) {
         // PyValue.dict - extract from ptr
@@ -495,7 +495,7 @@ pub fn pyDictValues(allocator: std.mem.Allocator, d: anytype) std.ArrayListUnman
             const hashmap_helper = @import("utils.hashmap_helper");
             const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(d.ptr));
             for (map_ptr.values()) |val| {
-                result_values.append(allocator, val) catch {};
+                result_values.append(allocator, val) catch unreachable;
             }
         }
     }
@@ -513,7 +513,7 @@ pub fn pyDictItems(allocator: std.mem.Allocator, d: anytype) std.ArrayListUnmana
         // HashMap-like with iterator
         var dict_iter = d.iterator();
         while (dict_iter.next()) |entry| {
-            result_items.append(allocator, .{ entry.key_ptr.*, PyValue.from(entry.value_ptr.*) }) catch {};
+            result_items.append(allocator, .{ entry.key_ptr.*, PyValue.from(entry.value_ptr.*) }) catch unreachable;
         }
     } else if (T == PyValue) {
         // PyValue.dict - extract from ptr
@@ -522,7 +522,7 @@ pub fn pyDictItems(allocator: std.mem.Allocator, d: anytype) std.ArrayListUnmana
             const map_ptr: *hashmap_helper.StringHashMap(PyValue) = @ptrCast(@alignCast(d.ptr));
             var map_iter = map_ptr.iterator();
             while (map_iter.next()) |entry| {
-                result_items.append(allocator, .{ entry.key_ptr.*, entry.value_ptr.* }) catch {};
+                result_items.append(allocator, .{ entry.key_ptr.*, entry.value_ptr.* }) catch unreachable;
             }
         }
     }
@@ -609,7 +609,7 @@ pub fn pyDictUpdate(allocator: std.mem.Allocator, dict_ptr: anytype, other: anyt
         if (other_info == .@"struct" and @hasDecl(OtherT, "iterator")) {
             var other_iter = other.iterator();
             while (other_iter.next()) |entry| {
-                dict_ptr.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                dict_ptr.put(entry.key_ptr.*, entry.value_ptr.*) catch unreachable;
             }
         }
     }
@@ -642,7 +642,7 @@ pub fn pyDictCopy(allocator: std.mem.Allocator, d: anytype) @TypeOf(d) {
         var copy = T.init(allocator);
         var dict_iter = d.iterator();
         while (dict_iter.next()) |entry| {
-            copy.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+            copy.put(entry.key_ptr.*, entry.value_ptr.*) catch unreachable;
         }
         return copy;
     }
@@ -662,7 +662,7 @@ pub fn pyDictSetdefault(allocator: std.mem.Allocator, dict_ptr: anytype, key: []
             return PyValue.from(v);
         }
         const def_val = PyValue.from(default);
-        dict_ptr.put(key, def_val) catch {};
+        dict_ptr.put(key, def_val) catch unreachable;
         return def_val;
     }
     return PyValue.from(default);
@@ -699,13 +699,13 @@ pub fn pySetAdd(allocator: std.mem.Allocator, set_ptr: anytype, elem: anytype) v
 
     if (info == .@"struct" and @hasDecl(T, "put")) {
         // HashMap-like with put() method
-        set_ptr.put(elem, {}) catch {};
+        set_ptr.put(elem, {}) catch unreachable;
     } else if (T == PyValue) {
         // PyValue.set - extract from ptr
         if (set_ptr.* == .ptr) {
             const hashmap_helper = @import("utils.hashmap_helper");
             const map_ptr: *hashmap_helper.StringHashMap(void) = @ptrCast(@alignCast(set_ptr.ptr));
-            map_ptr.put(elem, {}) catch {};
+            map_ptr.put(elem, {}) catch unreachable;
         }
     }
     _ = allocator;

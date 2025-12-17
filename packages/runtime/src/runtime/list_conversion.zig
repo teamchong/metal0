@@ -17,12 +17,12 @@ fn listFromPyValue(allocator: std.mem.Allocator, value: PyValue) std.ArrayListUn
     switch (value) {
         .tuple => |items| {
             for (items) |item| {
-                list.append(allocator, item) catch {};
+                list.append(allocator, item) catch unreachable;
             }
         },
         .list => |l| {
             for (l.items) |item| {
-                list.append(allocator, item) catch {};
+                list.append(allocator, item) catch unreachable;
             }
         },
         .string => |s| {
@@ -157,13 +157,13 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
                     switch (base) {
                         .tuple => |items| {
                             for (items) |item| {
-                                list.append(allocator, item) catch {};
+                                list.append(allocator, item) catch unreachable;
                             }
                             return list;
                         },
                         .list => |l| {
                             for (l.items) |item| {
-                                list.append(allocator, item) catch {};
+                                list.append(allocator, item) catch unreachable;
                             }
                             return list;
                         },
@@ -185,13 +185,13 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
                 switch (base) {
                     .tuple => |items| {
                         for (items) |item| {
-                            list.append(allocator, item) catch {};
+                            list.append(allocator, item) catch unreachable;
                         }
                         return list;
                     },
                     .list => |l| {
                         for (l.items) |item| {
-                            list.append(allocator, item) catch {};
+                            list.append(allocator, item) catch unreachable;
                         }
                         return list;
                     },
