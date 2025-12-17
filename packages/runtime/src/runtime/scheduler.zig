@@ -387,7 +387,7 @@ pub const Scheduler = struct {
                             _ = self.active_threads.fetchSub(1, .release);
                             // Do NOT deinit - waiter owns the thread
                         } else {
-                            queue.push(task) catch {};
+                            queue.push(task) catch unreachable;
                         }
                     }
                     self.allocator.free(ready);
