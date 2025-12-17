@@ -3,8 +3,8 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 
 const genFileIO = h.wrap("blk: { const path = ", "; break :blk std.fs.cwd().openFile(path, .{}) catch null; }", "@as(?std.fs.File, null)");
-const genBytesIO = h.wrap("blk: { const init = ", "; var bio: std.ArrayList(u8) = .{}; bio.appendSlice(__global_allocator, init) catch {}; break :blk .{ .buffer = bio, .pos = 0 }; }", ".{ .buffer = .{}, .pos = 0 }");
-const genStringIO = h.wrap("blk: { const init = ", "; var sio: std.ArrayList(u8) = .{}; sio.appendSlice(__global_allocator, init) catch {}; break :blk .{ .buffer = sio, .pos = 0 }; }", ".{ .buffer = .{}, .pos = 0 }");
+const genBytesIO = h.wrap("blk: { const init = ", "; var bio: std.ArrayList(u8) = .{}; bio.appendSlice(__global_allocator, init) catch unreachable; break :blk .{ .buffer = bio, .pos = 0 }; }", ".{ .buffer = .{}, .pos = 0 }");
+const genStringIO = h.wrap("blk: { const init = ", "; var sio: std.ArrayList(u8) = .{}; sio.appendSlice(__global_allocator, init) catch unreachable; break :blk .{ .buffer = sio, .pos = 0 }; }", ".{ .buffer = .{}, .pos = 0 }");
 const genBuffered = h.wrap("blk: { const raw = ", "; break :blk .{ .raw = raw, .buffer_size = 8192 }; }", ".{ .raw = null, .buffer_size = 8192 }");
 const genTextIO = h.wrap("blk: { const buf = ", "; break :blk .{ .buffer = buf, .encoding = \"utf-8\" }; }", ".{ .buffer = null, .encoding = \"utf-8\" }");
 
