@@ -81,7 +81,8 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Generate block that builds list of (index, value) tuples
     // Two-Flow: Use runtime.iterSlice for universal handling (ArrayList, PyValue, slice, etc.)
-    try self.emit("(enum_blk: {\n");
+    const enum_id = self.nextNameId();
+    try self.emitFmt("(__m{d}_enum: {{\n", .{enum_id});
     self.indent();
     try self.emitIndent();
     try self.emit("const __enum_iterable = ");
@@ -111,7 +112,7 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("break :enum_blk __enum_result;\n");
+    try self.emitFmt("break :__m{d}_enum __enum_result;\n", .{enum_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("})");
@@ -241,7 +242,8 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     const needs_wrap = producesBlockExpression(args[0]);
 
-    try self.emit("blk: {\n");
+    const sum_id = self.nextNameId();
+    try self.emitFmt("__m{d}_sum: {{\n", .{sum_id});
     // If block expression, create temp variable first
     if (needs_wrap) {
         try self.emit("const __iterable = ");
@@ -260,7 +262,7 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     }
     try self.emit(") |item| { total += item; }\n");
-    try self.emit("break :blk total;\n");
+    try self.emitFmt("break :__m{d}_sum total;\n", .{sum_id});
     try self.emit("}");
 }
 
@@ -290,7 +292,8 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     const needs_wrap = producesBlockExpression(args[0]);
 
-    try self.emit("blk: {\n");
+    const all_id = self.nextNameId();
+    try self.emitFmt("__m{d}_all: {{\n", .{all_id});
     // If block expression, create temp variable first
     if (needs_wrap) {
         try self.emit("const __iterable = ");
@@ -305,9 +308,9 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(".items");
     }
     try self.emit(") |item| {\n");
-    try self.emit("if (item == 0) break :blk false;\n");
+    try self.emitFmt("if (item == 0) break :__m{d}_all false;\n", .{all_id});
     try self.emit("}\n");
-    try self.emit("break :blk true;\n");
+    try self.emitFmt("break :__m{d}_all true;\n", .{all_id});
     try self.emit("}");
 }
 
@@ -338,15 +341,14 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // }
 
     // Use unique label to avoid conflicts with outer blocks
-    var em = self.exprEmitter();
-    const any_label_id = em.reserveLabelId();
+    const any_id = self.nextNameId();
 
     // Check if argument is a list/tuple literal (fixed array) or genexp/listcomp (ArrayList)
     const is_list_literal = (args[0] == .list or args[0] == .tuple);
     const is_arraylist = (args[0] == .genexp or args[0] == .listcomp);
     const needs_wrap = producesBlockExpression(args[0]);
 
-    try self.output.writer(self.allocator).print("any_{d}: {{\n", .{any_label_id});
+    try self.emitFmt("__m{d}_any: {{\n", .{any_id});
     // If block expression, create temp variable first
     if (needs_wrap) {
         try self.emit("const __iterable = ");
@@ -372,9 +374,9 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit(") |item| {\n");
     // Use comptime type check for truthy semantics - bool vs int
-    try self.output.writer(self.allocator).print("if (@TypeOf(item) == bool) {{ if (item) break :any_{d} true; }} else {{ if (item != 0) break :any_{d} true; }}\n", .{ any_label_id, any_label_id });
+    try self.emitFmt("if (@TypeOf(item) == bool) {{ if (item) break :__m{d}_any true; }} else {{ if (item != 0) break :__m{d}_any true; }}\n", .{ any_id, any_id });
     try self.emit("}\n");
-    try self.output.writer(self.allocator).print("break :any_{d} false;\n", .{any_label_id});
+    try self.emitFmt("break :__m{d}_any false;\n", .{any_id});
     try self.emit("}");
 }
 
@@ -395,12 +397,13 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Use __sorted_copy to avoid shadowing any imported 'copy' module
     const alloc_name = "__global_allocator";
 
-    try self.emit("blk: {\n");
+    const sorted_id = self.nextNameId();
+    try self.emitFmt("__m{d}_sorted: {{\n", .{sorted_id});
     try self.emitFmt("const __sorted_copy = try {s}.dupe(i64, ", .{alloc_name});
     try self.genExpr(args[0]);
     try self.emit(");\n");
     try self.emit("std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));\n");
-    try self.emit("break :blk __sorted_copy;\n");
+    try self.emitFmt("break :__m{d}_sorted __sorted_copy;\n", .{sorted_id});
     try self.emit("}");
 }
 
@@ -433,7 +436,8 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (is_dict) {
         // For dicts, reversed() returns reversed keys
-        try self.emit("__rev_dict_blk: {\n");
+        const rev_dict_id = self.nextNameId();
+        try self.emitFmt("__m{d}_rev_dict: {{\n", .{rev_dict_id});
         try self.emit("const _raw_iterable = ");
         try self.genExpr(args[0]);
         try self.emit(";\n");
@@ -444,7 +448,7 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
         try self.emitFmt("const __reversed_copy = {s}{s}.dupe([]const u8, _iterable.keys()){s};\n", .{ try_prefix, alloc_name, catch_suffix });
         try self.emit("std.mem.reverse([]const u8, __reversed_copy);\n");
-        try self.emit("break :__rev_dict_blk __reversed_copy;\n");
+        try self.emitFmt("break :__m{d}_rev_dict __reversed_copy;\n", .{rev_dict_id});
         try self.emit("}");
         return;
     }
@@ -474,7 +478,8 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     //   break :blk copy;  // or PyBytes.init(copy) for bytes
     // }
 
-    try self.emit("blk: {\n");
+    const rev_id = self.nextNameId();
+    try self.emitFmt("__m{d}_rev: {{\n", .{rev_id});
     try self.emit("const _rev_input = ");
     try self.genExpr(args[0]);
     try self.emit(";\n");
@@ -484,9 +489,9 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitFmt("std.mem.reverse({s}, __reversed_copy);\n", .{elem_zig_type});
     if (is_bytes) {
         // Wrap result in PyBytes for bytes input
-        try self.emit("break :blk runtime.builtins.PyBytes.init(__reversed_copy);\n");
+        try self.emitFmt("break :__m{d}_rev runtime.builtins.PyBytes.init(__reversed_copy);\n", .{rev_id});
     } else {
-        try self.emit("break :blk __reversed_copy;\n");
+        try self.emitFmt("break :__m{d}_rev __reversed_copy;\n", .{rev_id});
     }
     try self.emit("}");
 }
@@ -496,7 +501,8 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Supports common patterns like map(str.strip, items) and map(int, items)
 pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        try self.emit("(blk_map: { @panic(\"map() requires 2 arguments\"); })");
+        const map_err_id = self.nextNameId();
+        try self.emitFmt("(__m{d}_map_err: {{ @panic(\"map() requires 2 arguments\"); }})", .{map_err_id});
         return;
     }
 
@@ -517,7 +523,8 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // Handle str.strip, str.upper, str.lower, etc.
             if (std.mem.eql(u8, type_name, "str")) {
                 const pattern = StrMethodPatterns.get(method_name) orelse "const __mapped = __map_item; // unsupported str method\n";
-                try self.emit("__map_blk: {\n");
+                const map_str_id = self.nextNameId();
+                try self.emitFmt("__m{d}_map_str: {{\n", .{map_str_id});
                 self.indent();
                 try self.emitIndent();
                 try self.emit("var __map_result = std.ArrayListUnmanaged([]const u8){};\n");
@@ -540,7 +547,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.emitIndent();
                 try self.emit("}\n");
                 try self.emitIndent();
-                try self.emit("break :__map_blk __map_result;\n");
+                try self.emitFmt("break :__m{d}_map_str __map_result;\n", .{map_str_id});
                 self.dedent();
                 try self.emitIndent();
                 try self.emit("}");
@@ -554,7 +561,8 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const func_name = func.name.id;
         if (TypeConvResultTypes.get(func_name)) |result_type| {
             const conv_pattern = TypeConvPatterns.get(func_name) orelse "const __mapped = __map_item;\n";
-            try self.emit("__map_blk: {\n");
+            const map_conv_id = self.nextNameId();
+            try self.emitFmt("__m{d}_map_conv: {{\n", .{map_conv_id});
             self.indent();
             try self.emitIndent();
             try self.emitFmt("var __map_result = std.ArrayListUnmanaged({s}){{}};\n", .{result_type});
@@ -577,7 +585,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emitIndent();
             try self.emit("}\n");
             try self.emitIndent();
-            try self.emit("break :__map_blk __map_result;\n");
+            try self.emitFmt("break :__m{d}_map_conv __map_result;\n", .{map_conv_id});
             self.dedent();
             try self.emitIndent();
             try self.emit("}");
@@ -595,7 +603,8 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try result_type.toZigType(self.allocator, &type_buf);
         const zig_result_type = type_buf.items;
 
-        try self.emit("(__map_blk: {\n");
+        const map_lambda_id = self.nextNameId();
+        try self.emitFmt("(__m{d}_map_lambda: {{\n", .{map_lambda_id});
         self.indent();
         try self.emitIndent();
         try self.emitFmt("var __map_result = std.ArrayListUnmanaged({s}){{}};\n", .{zig_result_type});
@@ -635,7 +644,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitIndent();
         try self.emit("}\n");
         try self.emitIndent();
-        try self.emit("break :__map_blk __map_result;\n");
+        try self.emitFmt("break :__m{d}_map_lambda __map_result;\n", .{map_lambda_id});
         self.dedent();
         try self.emitIndent();
         try self.emit("})");
@@ -645,7 +654,8 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Fallback: Generate runtime map using anytype
     // For unknown functions, we store the iterable first, then infer from first element
     // Use iterSlice to handle all iterable types (ArrayList, PyValue, slice, etc.)
-    try self.emit("(__map_blk: {\n");
+    const map_fallback_id = self.nextNameId();
+    try self.emitFmt("(__m{d}_map: {{\n", .{map_fallback_id});
     self.indent();
     try self.emitIndent();
     try self.emit("const __map_iterable = ");
@@ -671,7 +681,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("}\n");
     try self.emitIndent();
-    try self.emit("break :__map_blk __map_result;\n");
+    try self.emitFmt("break :__m{d}_map __map_result;\n", .{map_fallback_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("})");
@@ -694,7 +704,8 @@ pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For now, users should use explicit for loops with if conditions
     // Use a block expression that returns a valid type but panics with a clear message
     // This prevents "unreachable code" errors after the filter() call
-    try self.emit("(blk_filter: { @panic(\"filter() not supported - use explicit for loop with if instead\"); })");
+    const filter_err_id = self.nextNameId();
+    try self.emitFmt("(__m{d}_filter_err: {{ @panic(\"filter() not supported - use explicit for loop with if instead\"); }})", .{filter_err_id});
 }
 
 /// Generate code for iter(iterable)

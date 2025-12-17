@@ -12,13 +12,15 @@ fn needsItems(self: *NativeCodegen, arg: ast.Node) bool {
     return container_traits.isList(t) or t == .deque;
 }
 
-fn predFilter(self: *NativeCodegen, args: []ast.Node, comptime label: []const u8, comptime body: []const u8) CodegenError!void {
+fn predFilter(self: *NativeCodegen, args: []ast.Node, comptime hint: []const u8, comptime body: []const u8) CodegenError!void {
     if (args.len < 2) { try self.emit("std.ArrayListUnmanaged(i64){}"); return; }
-    try self.emit(label ++ "_blk: { const _pred = "); try self.genExpr(args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_" ++ hint ++ ": {{ const _pred = ", .{id}); try self.genExpr(args[0]);
     try self.emit("; const _iter = ");
     // Use emitIter to handle block expressions properly
     try emitIter(self, args[1]);
-    try self.emit("; var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; " ++ body ++ " break :" ++ label ++ "_blk _result; }");
+    try self.emit("; var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; " ++ body);
+    try self.emitFmt(" break :__m{d}_" ++ hint ++ " _result; }}", .{id});
 }
 pub fn emitIter(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
     // Check if this is a range() call - generate native Zig range instead of PyObject
@@ -44,9 +46,10 @@ pub fn emitIter(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
 fn emitNativeRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate a comptime-friendly range: &[_]i64{start..stop} or runtime ArrayList
     // For simplicity, generate a block that builds an ArrayList
-    try self.emit("(range_slice_blk: { var __rs = std.ArrayListUnmanaged(i64){}; ");
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_range: {{ var __rs = std.ArrayListUnmanaged(i64){{}}; ", .{id});
     if (args.len == 0) {
-        try self.emit("break :range_slice_blk __rs.items; })");
+        try self.emitFmt("break :__m{d}_range __rs.items; }})", .{id});
         return;
     }
 
@@ -70,7 +73,7 @@ fn emitNativeRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
         try self.emit("; while (if (__step > 0) __i < __stop else __i > __stop) : (__i += __step) { __rs.append(__global_allocator, __i) catch continue; }");
     }
-    try self.emit(" break :range_slice_blk __rs.items; })");
+    try self.emitFmt(" break :__m{d}_range __rs.items; }})", .{id});
 }
 
 const pt = h.pass("std.ArrayListUnmanaged(i64){}");
@@ -98,9 +101,10 @@ fn genFilterfalse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 pub fn genChain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("std.ArrayListUnmanaged(i64){}"); return; }
-    try self.emit("chain_blk: { var _result = std.ArrayListUnmanaged(i64){}; ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_chain: {{ var _result = std.ArrayListUnmanaged(i64){{}}; ", .{id});
     for (args) |arg| { try self.emit("for ("); try emitIter(self, arg); try self.emit(") |item| { _result.append(__global_allocator, item) catch continue; } "); }
-    try self.emit("break :chain_blk _result; }");
+    try self.emitFmt("break :__m{d}_chain _result; }}", .{id});
 }
 
 pub fn genRepeat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -109,20 +113,22 @@ pub fn genRepeat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("return error.TypeError");
         return;
     }
-    try self.emit("repeat_blk: { var _result = std.ArrayListUnmanaged(i64){}; ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_repeat: {{ var _result = std.ArrayListUnmanaged(i64){{}}; ", .{id});
     if (args.len > 1) {
         try self.emit("var _i: usize = 0; while (_i < @as(usize, @intCast("); try self.genExpr(args[1]);
         try self.emit("))) : (_i += 1) { _result.append(__global_allocator, "); try self.genExpr(args[0]); try self.emit(") catch continue; }");
     } else { try self.emit("_result.append(__global_allocator, "); try self.genExpr(args[0]); try self.emit(") catch unreachable;"); }
-    try self.emit(" break :repeat_blk _result; }");
+    try self.emitFmt(" break :__m{d}_repeat _result; }}", .{id});
 }
 
 pub fn genCount(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("count_blk: { const _start = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_count: {{ const _start = ", .{id});
     if (args.len >= 1) try self.genExpr(args[0]) else try self.emit("@as(i64, 0)");
     try self.emit("; const _step = ");
     if (args.len >= 2) try self.genExpr(args[1]) else try self.emit("@as(i64, 1)");
-    try self.emit("; break :count_blk .{ .start = _start, .step = _step }; }");
+    try self.emitFmt("; break :__m{d}_count .{{ .start = _start, .step = _step }}; }}", .{id});
 }
 
 pub fn genIslice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -130,43 +136,48 @@ pub fn genIslice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("std.ArrayListUnmanaged(i64){}");
         return;
     }
-    try self.emit("islice_blk: { const _iter = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_islice: {{ const _iter = ", .{id});
     try emitIter(self, args[0]);
     try self.emit("; const _stop = @as(usize, @intCast(");
     try self.genExpr(args[1]);
-    try self.emit(")); var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; for (_iter[0..@min(_stop, _iter.len)]) |item| { _result.append(__global_allocator, item) catch continue; } break :islice_blk _result; }");
+    try self.emitFmt(")); var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){{}}; for (_iter[0..@min(_stop, _iter.len)]) |item| {{ _result.append(__global_allocator, item) catch continue; }} break :__m{d}_islice _result; }}", .{id});
 }
 
 pub fn genZipLongest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("std.ArrayListUnmanaged(struct { @\"0\": i64 }){}"); return; }
     if (args.len >= 2) {
-        try self.emit("zip_longest_blk: { const _a = "); try self.genExpr(args[0]);
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_zip_longest: {{ const _a = ", .{id}); try self.genExpr(args[0]);
         try self.emit("; const _b = "); try self.genExpr(args[1]);
-        try self.emit("; const _len = @max(_a.items.len, _b.items.len); var _result = std.ArrayListUnmanaged(struct { @\"0\": i64, @\"1\": i64 }){}; for (0.._len) |i| { const _va = if (i < _a.items.len) _a.items[i] else 0; const _vb = if (i < _b.items.len) _b.items[i] else 0; _result.append(__global_allocator, .{ .@\"0\" = _va, .@\"1\" = _vb }) catch continue; } break :zip_longest_blk _result; }");
+        try self.emitFmt("; const _len = @max(_a.items.len, _b.items.len); var _result = std.ArrayListUnmanaged(struct {{ @\"0\": i64, @\"1\": i64 }}){{}}; for (0.._len) |i| {{ const _va = if (i < _a.items.len) _a.items[i] else 0; const _vb = if (i < _b.items.len) _b.items[i] else 0; _result.append(__global_allocator, .{{ .@\"0\" = _va, .@\"1\" = _vb }}) catch continue; }} break :__m{d}_zip_longest _result; }}", .{id});
     } else try self.genExpr(args[0]);
 }
 
 fn genAccumulate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayListUnmanaged(i64){}"); return; }
-    try self.emit("accumulate_blk: { const _iter = "); try emitIter(self, args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_accumulate: {{ const _iter = ", .{id}); try emitIter(self, args[0]);
     try self.emit("; var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; var _acc: @TypeOf(_iter[0]) = _iter[0]; _result.append(__global_allocator, _acc) catch unreachable; for (_iter[1..]) |item| { _acc = ");
     if (args.len > 1) { try self.genExpr(args[1]); try self.emit("(_acc, item)"); } else try self.emit("_acc + item");
-    try self.emit("; _result.append(__global_allocator, _acc) catch continue; } break :accumulate_blk _result; }");
+    try self.emitFmt("; _result.append(__global_allocator, _acc) catch continue; }} break :__m{d}_accumulate _result; }}", .{id});
 }
 
 fn genStarmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("std.ArrayListUnmanaged(i64){}"); return; }
-    try self.emit("starmap_blk: { const _func = "); try self.genExpr(args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_starmap: {{ const _func = ", .{id}); try self.genExpr(args[0]);
     try self.emit("; const _iter = "); try emitIter(self, args[1]);
-    try self.emit("; var _result = std.ArrayListUnmanaged(@TypeOf(_func(_iter[0].@\"0\", _iter[0].@\"1\"))){}; for (_iter) |item| { _result.append(__global_allocator, _func(item.@\"0\", item.@\"1\")) catch continue; } break :starmap_blk _result; }");
+    try self.emitFmt("; var _result = std.ArrayListUnmanaged(@TypeOf(_func(_iter[0].@\"0\", _iter[0].@\"1\"))){{}}; for (_iter) |item| {{ _result.append(__global_allocator, _func(item.@\"0\", item.@\"1\")) catch continue; }} break :__m{d}_starmap _result; }}", .{id});
 }
 
 fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("std.ArrayListUnmanaged(i64){}"); return; }
     // Use runtime helper to avoid comptime explosion
-    try self.emit("compress_blk: { const _data = "); try emitIter(self, args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_compress: {{ const _data = ", .{id}); try emitIter(self, args[0]);
     try self.emit("; const _selectors = "); try emitIter(self, args[1]);
-    try self.emit("; break :compress_blk (try runtime.itertools_ops.compress(@TypeOf(_data[0]), __global_allocator, _data, _selectors)).items; }");
+    try self.emitFmt("; break :__m{d}_compress (try runtime.itertools_ops.compress(@TypeOf(_data[0]), __global_allocator, _data, _selectors)).items; }}", .{id});
 }
 
 fn genTee(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -177,8 +188,9 @@ fn genTee(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 fn genPairwise(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayListUnmanaged(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
     // Use runtime helper to avoid comptime explosion
-    try self.emit("pairwise_blk: { const _iter = "); try emitIter(self, args[0]);
-    try self.emit("; break :pairwise_blk (try runtime.itertools_ops.pairwise(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_pairwise: {{ const _iter = ", .{id}); try emitIter(self, args[0]);
+    try self.emitFmt("; break :__m{d}_pairwise (try runtime.itertools_ops.pairwise(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }}", .{id});
 }
 
 /// itertools.cycle(iterable) - cycle through iterable indefinitely (returns slice for bounded use)
@@ -198,48 +210,50 @@ fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Handles 1, 2, or 3 iterables
 pub fn genProduct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("std.ArrayListUnmanaged(struct { @\"0\": i64 }){}"); return; }
+    const id = self.nextNameId();
     if (args.len == 1) {
         // Single iterable: wrap each element in a tuple
-        try self.emit("product1_blk: {\n const _a = "); try emitIter(self, args[0]);
+        try self.emitFmt("__m{d}_product: {{\n const _a = ", .{id}); try emitIter(self, args[0]);
         try self.emit(";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]) }){};\n ");
         try self.emit("for (_a) |item| { _result.append(__global_allocator, .{ .@\"0\" = item }) catch continue; }\n ");
-        try self.emit("break :product1_blk _result;\n }");
+        try self.emitFmt("break :__m{d}_product _result;\n }}", .{id});
         return;
     }
     if (args.len == 2) {
         // Two iterables: Cartesian product
-        try self.emit("product2_blk: {\n const _a = "); try emitIter(self, args[0]);
+        try self.emitFmt("__m{d}_product: {{\n const _a = ", .{id}); try emitIter(self, args[0]);
         try self.emit(";\n const _b = "); try emitIter(self, args[1]);
         try self.emit(";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]), @\"1\": @TypeOf(_b[0]) }){};\n ");
         try self.emit("for (_a) |a| { for (_b) |b| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } }\n ");
-        try self.emit("break :product2_blk _result;\n }");
+        try self.emitFmt("break :__m{d}_product _result;\n }}", .{id});
         return;
     }
     // Three or more iterables: nested Cartesian product
-    try self.emit("product3_blk: {\n const _a = "); try emitIter(self, args[0]);
+    try self.emitFmt("__m{d}_product: {{\n const _a = ", .{id}); try emitIter(self, args[0]);
     try self.emit(";\n const _b = "); try emitIter(self, args[1]);
     try self.emit(";\n const _c = "); try emitIter(self, args[2]);
     try self.emit(";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]), @\"1\": @TypeOf(_b[0]), @\"2\": @TypeOf(_c[0]) }){};\n ");
     try self.emit("for (_a) |a| { for (_b) |b| { for (_c) |c| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b, .@\"2\" = c }) catch continue; } } }\n ");
-    try self.emit("break :product3_blk _result;\n }");
+    try self.emitFmt("break :__m{d}_product _result;\n }}", .{id});
 }
 
 /// Generate product with repeat=N where N is known at compile time
 /// This generates N nested loops
 pub fn genProductWithRepeat(self: *NativeCodegen, iter: ast.Node, repeat: i64) CodegenError!void {
     if (repeat <= 0) { try self.emit("std.ArrayListUnmanaged(struct {}){}"); return; }
+    const id = self.nextNameId();
     if (repeat == 1) {
         // Single iteration - wrap each in tuple
-        try self.emit("product_r1_blk: {\n const _a = "); try emitIter(self, iter);
+        try self.emitFmt("__m{d}_product_repeat: {{\n const _a = ", .{id}); try emitIter(self, iter);
         try self.emit(";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]) }){};\n ");
         try self.emit("for (_a) |item| { _result.append(__global_allocator, .{ .@\"0\" = item }) catch continue; }\n ");
-        try self.emit("break :product_r1_blk _result;\n }");
+        try self.emitFmt("break :__m{d}_product_repeat _result;\n }}", .{id});
         return;
     }
 
     // Generate N nested loops for repeat=N
     // Start block
-    try self.emit("product_repeat_blk: {\n const _iter = ");
+    try self.emitFmt("__m{d}_product_repeat: {{\n const _iter = ", .{id});
     try emitIter(self, iter);
     try self.emit(";\n");
 
@@ -273,48 +287,53 @@ pub fn genProductWithRepeat(self: *NativeCodegen, iter: ast.Node, repeat: i64) C
         try self.emit("} ");
     }
 
-    try self.emit("\nbreak :product_repeat_blk _result;\n }");
+    try self.emitFmt("\nbreak :__m{d}_product_repeat _result;\n }}", .{id});
 }
 
 /// itertools.permutations(iterable, r=None) - r-length permutations
 fn genPermutations(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayListUnmanaged(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
     // Generate 2-permutations (most common case)
-    try self.emit("perms_blk: { const _iter = "); try emitIter(self, args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_perms: {{ const _iter = ", .{id}); try emitIter(self, args[0]);
     try self.emit("; var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_iter[0]), @\"1\": @TypeOf(_iter[0]) }){}; ");
     try self.emit("for (_iter, 0..) |a, i| { for (_iter, 0..) |b, j| { if (i != j) _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } } ");
-    try self.emit("break :perms_blk _result; }");
+    try self.emitFmt("break :__m{d}_perms _result; }}", .{id});
 }
 
 /// itertools.combinations(iterable, r) - r-length combinations
 fn genCombinations(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayListUnmanaged(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
     // Use runtime helper to avoid comptime explosion
-    try self.emit("combs_blk: { const _iter = "); try emitIter(self, args[0]);
-    try self.emit("; break :combs_blk (try runtime.itertools_ops.combinations(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_combs: {{ const _iter = ", .{id}); try emitIter(self, args[0]);
+    try self.emitFmt("; break :__m{d}_combs (try runtime.itertools_ops.combinations(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }}", .{id});
 }
 
 /// itertools.combinations_with_replacement(iterable, r) - r-length combinations with replacement
 fn genCombinationsWithReplacement(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayListUnmanaged(struct { @\"0\": i64, @\"1\": i64 }){}"); return; }
     // Use runtime helper to avoid comptime explosion
-    try self.emit("combswr_blk: { const _iter = "); try emitIter(self, args[0]);
-    try self.emit("; break :combswr_blk (try runtime.itertools_ops.combinationsWithReplacement(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_combswr: {{ const _iter = ", .{id}); try emitIter(self, args[0]);
+    try self.emitFmt("; break :__m{d}_combswr (try runtime.itertools_ops.combinationsWithReplacement(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }}", .{id});
 }
 
 /// itertools.groupby(iterable, key=None) - group consecutive equal elements
 fn genGroupby(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("std.ArrayListUnmanaged(struct { key: i64, group: std.ArrayListUnmanaged(i64) }){}"); return; }
     // Use runtime helper to avoid comptime explosion
-    try self.emit("groupby_blk: { const _iter = "); try emitIter(self, args[0]);
-    try self.emit("; break :groupby_blk (try runtime.itertools_ops.groupby(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_groupby: {{ const _iter = ", .{id}); try emitIter(self, args[0]);
+    try self.emitFmt("; break :__m{d}_groupby (try runtime.itertools_ops.groupby(@TypeOf(_iter[0]), __global_allocator, _iter)).items; }}", .{id});
 }
 
 /// itertools.batched(iterable, n) - batch iterable into tuples of size n
 fn genBatched(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("std.ArrayListUnmanaged(std.ArrayListUnmanaged(i64)){}"); return; }
     // Use runtime helper to avoid comptime explosion
-    try self.emit("batched_blk: { const _iter = "); try emitIter(self, args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_batched: {{ const _iter = ", .{id}); try emitIter(self, args[0]);
     try self.emit("; const _n = @as(usize, @intCast("); try self.genExpr(args[1]);
-    try self.emit(")); break :batched_blk (try runtime.itertools_ops.batched(@TypeOf(_iter[0]), __global_allocator, _iter, _n)).items; }");
+    try self.emitFmt(")); break :__m{d}_batched (try runtime.itertools_ops.batched(@TypeOf(_iter[0]), __global_allocator, _iter, _n)).items; }}", .{id});
 }

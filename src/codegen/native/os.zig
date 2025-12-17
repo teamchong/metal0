@@ -198,54 +198,63 @@ fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 fn genStat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // os.stat() requires 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_stat_blk: { const _path = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_stat: {{ const _path = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; const _stat = std.fs.cwd().statFile(_path) catch break :os_stat_blk struct { st_size: i64 = 0, st_mode: u32 = 0, st_ino: u64 = 0, st_mtime: i64 = 0, st_atime: i64 = 0, st_ctime: i64 = 0 }{}; break :os_stat_blk .{ .st_size = @as(i64, @intCast(_stat.size)), .st_mode = @as(u32, @intCast(_stat.mode)), .st_ino = _stat.inode, .st_mtime = @as(i64, @intCast(@divFloor(_stat.mtime, 1_000_000_000))), .st_atime = @as(i64, @intCast(@divFloor(_stat.atime, 1_000_000_000))), .st_ctime = @as(i64, @intCast(@divFloor(_stat.ctime, 1_000_000_000))) }; }");
+    try self.emitFmt("; const _stat = std.fs.cwd().statFile(_path) catch break :__m{d}_stat struct {{ st_size: i64 = 0, st_mode: u32 = 0, st_ino: u64 = 0, st_mtime: i64 = 0, st_atime: i64 = 0, st_ctime: i64 = 0 }}{{}}; break :__m{d}_stat .{{ .st_size = @as(i64, @intCast(_stat.size)), .st_mode = @as(u32, @intCast(_stat.mode)), .st_ino = _stat.inode, .st_mtime = @as(i64, @intCast(@divFloor(_stat.mtime, 1_000_000_000))), .st_atime = @as(i64, @intCast(@divFloor(_stat.atime, 1_000_000_000))), .st_ctime = @as(i64, @intCast(@divFloor(_stat.ctime, 1_000_000_000))) }}; }}", .{ id, id });
 }
 
 fn genChmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // os.chmod() requires 2 arguments
     if (args.len < 2) return error.UnsupportedSyntax;
-    try self.emit("os_chmod_blk: { const _path = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_chmod: {{ const _path = ", .{id});
     try self.genExpr(args[0]);
     try self.emit("; const _mode: std.fs.File.Mode = @intCast(");
     try self.genExpr(args[1]);
-    try self.emit("); const _f = std.fs.cwd().openFile(_path, .{}) catch break :os_chmod_blk {}; defer _f.close(); _f.chmod(_mode) catch {}; break :os_chmod_blk {}; }");
+    try self.emitFmt("); const _f = std.fs.cwd().openFile(_path, .{{}}) catch break :__m{d}_chmod {{}}; defer _f.close(); _f.chmod(_mode) catch {{}}; break :__m{d}_chmod {{}}; }}", .{ id, id });
 }
 
 fn genAccess(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // os.access() requires 2 arguments
     if (args.len < 2) return error.UnsupportedSyntax;
-    try self.emit("os_access_blk: { const _p = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_access: {{ const _p = ", .{id});
     try self.genExpr(args[0]);
     try self.emit("; _ = ");
     try self.genExpr(args[1]);
-    try self.emit("; _ = std.fs.cwd().statFile(_p) catch break :os_access_blk false; break :os_access_blk true; }");
+    try self.emitFmt("; _ = std.fs.cwd().statFile(_p) catch break :__m{d}_access false; break :__m{d}_access true; }}", .{ id, id });
 }
 
 fn genTruncate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return error.UnsupportedSyntax;
-    try self.emit("os_truncate_blk: { const _p = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_truncate: {{ const _p = ", .{id});
     try self.genExpr(args[0]);
     try self.emit("; const _len = @as(u64, @intCast(");
     try self.genExpr(args[1]);
-    try self.emit(")); var _f = std.fs.cwd().openFile(_p, .{ .mode = .write_only }) catch break :os_truncate_blk {}; defer _f.close(); _f.setEndPos(_len) catch {}; break :os_truncate_blk {}; }");
+    try self.emitFmt(")); var _f = std.fs.cwd().openFile(_p, .{{ .mode = .write_only }}) catch break :__m{d}_truncate {{}}; defer _f.close(); _f.setEndPos(_len) catch {{}}; break :__m{d}_truncate {{}}; }}", .{ id, id });
 }
 
 fn genKill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return error.UnsupportedSyntax;
-    try self.emit("os_kill_blk: { const _pid: std.posix.pid_t = @intCast(");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_kill: {{ const _pid: std.posix.pid_t = @intCast(", .{id});
     try self.genExpr(args[0]);
     try self.emit("); const _sig: u6 = @intCast(");
     try self.genExpr(args[1]);
-    try self.emit("); _ = std.posix.kill(_pid, _sig) catch {}; break :os_kill_blk {}; }");
+    try self.emitFmt("); _ = std.posix.kill(_pid, _sig) catch {{}}; break :__m{d}_kill {{}}; }}", .{id});
 }
 
 fn genSystem(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_system_blk: { const _cmd = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_system: {{ const _cmd = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; const _argv = [_][]const u8{ \"/bin/sh\", \"-c\", _cmd }; var _child = std.process.Child.init(.{ .argv = &_argv, .allocator = __global_allocator }); _ = _child.spawn() catch break :os_system_blk @as(i64, -1); const _r = _child.wait() catch break :os_system_blk @as(i64, -1); break :os_system_blk @as(i64, @intCast(_r.Exited)); }");
+    try self.emit("; const _argv = [_][]const u8{ \"/bin/sh\", \"-c\", _cmd }; var _child = std.process.Child.init(.{ .argv = &_argv, .allocator = __global_allocator }); ");
+    try self.emitFmt("_ = _child.spawn() catch break :__m{d}_system @as(i64, -1); ", .{id});
+    try self.emitFmt("const _r = _child.wait() catch break :__m{d}_system @as(i64, -1); ", .{id});
+    try self.emitFmt("break :__m{d}_system @as(i64, @intCast(_r.Exited)); }}", .{id});
 }
 
 fn genDup2(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -259,11 +268,12 @@ fn genDup2(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genRead(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return error.UnsupportedSyntax;
-    try self.emit("os_read_blk: { const _fd = @as(std.posix.fd_t, @intCast(");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_read: {{ const _fd = @as(std.posix.fd_t, @intCast(", .{id});
     try self.genExpr(args[0]);
     try self.emit(")); const _n = @as(usize, @intCast(");
     try self.genExpr(args[1]);
-    try self.emit(")); var _buf = try __global_allocator.alloc(u8, _n); const _read = std.posix.read(_fd, _buf) catch 0; break :os_read_blk _buf[0.._read]; }");
+    try self.emitFmt(")); var _buf = try __global_allocator.alloc(u8, _n); const _read = std.posix.read(_fd, _buf) catch 0; break :__m{d}_read _buf[0.._read]; }}", .{id});
 }
 
 fn genWrite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -277,29 +287,33 @@ fn genWrite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return error.UnsupportedSyntax;
-    try self.emit("os_open_blk: { const _p = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_open: {{ const _p = ", .{id});
     try self.genExpr(args[0]);
     try self.emit("; const _flags = @as(u32, @intCast(");
     try self.genExpr(args[1]);
-    try self.emit(")); _ = _flags; const _f = std.fs.cwd().openFile(_p, .{}) catch break :os_open_blk @as(i64, -1); break :os_open_blk if (comptime @import(\"builtin\").os.tag == .windows) @as(i64, @intFromPtr(_f.handle)) else @as(i64, @intCast(_f.handle)); }");
+    try self.emitFmt(")); _ = _flags; const _f = std.fs.cwd().openFile(_p, .{{}}) catch break :__m{d}_open @as(i64, -1); break :__m{d}_open if (comptime @import(\"builtin\").os.tag == .windows) @as(i64, @intFromPtr(_f.handle)) else @as(i64, @intCast(_f.handle)); }}", .{ id, id });
 }
 
 fn genUrandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_urandom_blk: { const _n = @as(usize, @intCast(");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_urandom: {{ const _n = @as(usize, @intCast(", .{id});
     try self.genExpr(args[0]);
-    try self.emit(")); var _buf = try __global_allocator.alloc(u8, _n); std.crypto.random.bytes(_buf); break :os_urandom_blk _buf; }");
+    try self.emitFmt(")); var _buf = try __global_allocator.alloc(u8, _n); std.crypto.random.bytes(_buf); break :__m{d}_urandom _buf; }}", .{id});
 }
 
 fn genWalk(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_walk_blk: { const _root = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_walk: {{ const _root = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; var _results: std.ArrayListUnmanaged(struct { []const u8, std.ArrayListUnmanaged([]const u8), std.ArrayListUnmanaged([]const u8) }) = .{}; var _dirs: std.ArrayListUnmanaged([]const u8) = .{}; _dirs.append(__global_allocator, _root) catch unreachable; while (_dirs.items.len > 0) { const _cur = _dirs.pop(); var _subdirs: std.ArrayListUnmanaged([]const u8) = .{}; var _files: std.ArrayListUnmanaged([]const u8) = .{}; var _dir = std.fs.cwd().openDir(_cur, .{ .iterate = true }) catch continue; defer _dir.close(); var _it = _dir.iterate(); while (_it.next() catch null) |_e| { const _name = __global_allocator.dupe(u8, _e.name) catch continue; if (_e.kind == .directory) { _subdirs.append(__global_allocator, _name) catch unreachable; const _full = std.fs.path.join(__global_allocator, &.{_cur, _name}) catch continue; _dirs.append(__global_allocator, _full) catch unreachable; } else { _files.append(__global_allocator, _name) catch unreachable; } } _results.append(__global_allocator, .{ _cur, _subdirs, _files }) catch unreachable; } break :os_walk_blk _results; }");
+    try self.emitFmt("; var _results: std.ArrayListUnmanaged(struct {{ []const u8, std.ArrayListUnmanaged([]const u8), std.ArrayListUnmanaged([]const u8) }}) = .{{}}; var _dirs: std.ArrayListUnmanaged([]const u8) = .{{}}; _dirs.append(__global_allocator, _root) catch unreachable; while (_dirs.items.len > 0) {{ const _cur = _dirs.pop(); var _subdirs: std.ArrayListUnmanaged([]const u8) = .{{}}; var _files: std.ArrayListUnmanaged([]const u8) = .{{}}; var _dir = std.fs.cwd().openDir(_cur, .{{ .iterate = true }}) catch continue; defer _dir.close(); var _it = _dir.iterate(); while (_it.next() catch null) |_e| {{ const _name = __global_allocator.dupe(u8, _e.name) catch continue; if (_e.kind == .directory) {{ _subdirs.append(__global_allocator, _name) catch unreachable; const _full = std.fs.path.join(__global_allocator, &.{{_cur, _name}}) catch continue; _dirs.append(__global_allocator, _full) catch unreachable; }} else {{ _files.append(__global_allocator, _name) catch unreachable; }} }} _results.append(__global_allocator, .{{ _cur, _subdirs, _files }}) catch unreachable; }} break :__m{d}_walk _results; }}", .{id});
 }
 
 fn genScandir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("os_scandir_blk: { ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_scandir: {{ ", .{id});
     if (args.len >= 1) {
         try self.emit("const _dir_path = ");
         try self.genExpr(args[0]);
@@ -307,60 +321,68 @@ fn genScandir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     } else {
         try self.emit("const _dir_path = \".\"; ");
     }
-    try self.emit("const DirEntry = struct { name: []const u8, path: []const u8, is_dir: bool, is_file: bool }; var _entries: std.ArrayListUnmanaged(DirEntry) = .{}; var _dir = std.fs.cwd().openDir(_dir_path, .{ .iterate = true }) catch break :os_scandir_blk _entries; defer _dir.close(); var _iter = _dir.iterate(); while (_iter.next() catch null) |entry| { const _name = __global_allocator.dupe(u8, entry.name) catch continue; const _path = std.fs.path.join(__global_allocator, &.{_dir_path, _name}) catch continue; _entries.append(__global_allocator, .{ .name = _name, .path = _path, .is_dir = entry.kind == .directory, .is_file = entry.kind == .file }) catch continue; } break :os_scandir_blk _entries; }");
+    try self.emitFmt("const DirEntry = struct {{ name: []const u8, path: []const u8, is_dir: bool, is_file: bool }}; var _entries: std.ArrayListUnmanaged(DirEntry) = .{{}}; var _dir = std.fs.cwd().openDir(_dir_path, .{{ .iterate = true }}) catch break :__m{d}_scandir _entries; defer _dir.close(); var _iter = _dir.iterate(); while (_iter.next() catch null) |entry| {{ const _name = __global_allocator.dupe(u8, entry.name) catch continue; const _path = std.fs.path.join(__global_allocator, &.{{_dir_path, _name}}) catch continue; _entries.append(__global_allocator, .{{ .name = _name, .path = _path, .is_dir = entry.kind == .directory, .is_file = entry.kind == .file }}) catch continue; }} break :__m{d}_scandir _entries; }}", .{ id, id });
 }
 
 fn genSymlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return error.UnsupportedSyntax;
-    try self.emit("os_symlink_blk: { const _src = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_symlink: {{ const _src = ", .{id});
     try self.genExpr(args[0]);
     try self.emit("; const _dst = ");
     try self.genExpr(args[1]);
-    try self.emit("; std.fs.cwd().symLink(_src, _dst, .{}) catch {}; break :os_symlink_blk {}; }");
+    try self.emitFmt("; std.fs.cwd().symLink(_src, _dst, .{{}}) catch {{}}; break :__m{d}_symlink {{}}; }}", .{id});
 }
 
 fn genReadlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_readlink_blk: { const _p = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_readlink: {{ const _p = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; var _buf: [4096]u8 = undefined; break :os_readlink_blk std.fs.cwd().readLink(_p, &_buf) catch \"\"; }");
+    try self.emitFmt("; var _buf: [4096]u8 = undefined; break :__m{d}_readlink std.fs.cwd().readLink(_p, &_buf) catch \"\"; }}", .{id});
 }
 
 fn genIslink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_islink_blk: { const _p = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_islink: {{ const _p = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; const _s = std.fs.cwd().statFile(_p) catch break :os_islink_blk false; break :os_islink_blk _s.kind == .sym_link; }");
+    try self.emitFmt("; const _s = std.fs.cwd().statFile(_p) catch break :__m{d}_islink false; break :__m{d}_islink _s.kind == .sym_link; }}", .{ id, id });
 }
 
 // === os.path handlers ===
 
 fn genPathExists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_path_exists_blk: { const _path = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_path_exists: {{ const _path = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; _ = std.fs.cwd().statFile(_path) catch { _ = std.fs.cwd().openDir(_path, .{}) catch break :os_path_exists_blk false; break :os_path_exists_blk true; }; break :os_path_exists_blk true; }");
+    try self.emit("; _ = std.fs.cwd().statFile(_path) catch { _ = std.fs.cwd().openDir(_path, .{}) catch break :__m");
+    try self.emitFmt("{d}_path_exists false; break :__m{d}_path_exists true; }}; break :__m{d}_path_exists true; }}", .{ id, id, id });
 }
 
 fn genPathIsdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_path_isdir_blk: { const _path = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_path_isdir: {{ const _path = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; var _dir = std.fs.cwd().openDir(_path, .{}) catch break :os_path_isdir_blk false; _dir.close(); break :os_path_isdir_blk true; }");
+    try self.emitFmt("; var _dir = std.fs.cwd().openDir(_path, .{{}}) catch break :__m{d}_path_isdir false; _dir.close(); break :__m{d}_path_isdir true; }}", .{ id, id });
 }
 
 fn genPathIsfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_path_isfile_blk: { const _path = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_path_isfile: {{ const _path = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; const _stat = std.fs.cwd().statFile(_path) catch break :os_path_isfile_blk false; _ = _stat; break :os_path_isfile_blk true; }");
+    try self.emitFmt("; const _stat = std.fs.cwd().statFile(_path) catch break :__m{d}_path_isfile false; _ = _stat; break :__m{d}_path_isfile true; }}", .{ id, id });
 }
 
 fn genPathAbspath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("os_path_abspath_blk: { const _path = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_path_abspath: {{ const _path = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; const _cwd = std.process.getCwdAlloc(__global_allocator) catch break :os_path_abspath_blk _path; break :os_path_abspath_blk std.fs.path.join(__global_allocator, &[_][]const u8{_cwd, _path}) catch _path; }");
+    try self.emitFmt("; const _cwd = std.process.getCwdAlloc(__global_allocator) catch break :__m{d}_path_abspath _path; break :__m{d}_path_abspath std.fs.path.join(__global_allocator, &[_][]const u8{{_cwd, _path}}) catch _path; }}", .{ id, id });
 }
 
 fn genPathJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -372,12 +394,13 @@ fn genPathJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         return;
     }
-    try self.emit("os_path_join_blk: { const _paths = [_][]const u8{ ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_path_join: {{ const _paths = [_][]const u8{{ ", .{id});
     for (args, 0..) |arg, i| {
         try self.genExpr(arg);
         if (i < args.len - 1) try self.emit(", ");
     }
-    try self.emit(" }; break :os_path_join_blk std.fs.path.join(__global_allocator, &_paths) catch \"\"; }");
+    try self.emitFmt(" }}; break :__m{d}_path_join std.fs.path.join(__global_allocator, &_paths) catch \"\"; }}", .{id});
 }
 
 fn genPathSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

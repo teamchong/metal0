@@ -41,7 +41,8 @@ pub fn genPartial(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     // Emit a struct that wraps the function and its captured arguments
     // When called, it calls func with captured args first, then new args
-    try self.emit("partial_blk: {\n");
+    const partial_id = self.nextNameId();
+    try self.emitFmt("__m{d}_partial: {{\n", .{partial_id});
     self.indent();
     try self.emitIndent();
     try self.emit("const _func = ");
@@ -76,10 +77,10 @@ pub fn genPartial(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitIndent();
         try self.emit("};\n");
         try self.emitIndent();
-        try self.emit("break :partial_blk Partial{ .captured = _captured, .func = _func };\n");
+        try self.emitFmt("break :__m{d}_partial Partial{{ .captured = _captured, .func = _func }};\n", .{partial_id});
     } else {
         try self.emitIndent();
-        try self.emit("break :partial_blk _func;\n");
+        try self.emitFmt("break :__m{d}_partial _func;\n", .{partial_id});
     }
     self.dedent();
     try self.emitIndent();
@@ -97,7 +98,8 @@ pub fn genCachedProperty(self: *NativeCodegen, args: []ast.Node) CodegenError!vo
 pub fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("@compileError(\"functools.reduce requires at least 2 arguments\")"); return; }
     const iter_type = self.type_inferrer.inferExpr(args[1]) catch .unknown;
-    try self.emit("reduce_blk: { const _func = "); try self.genExpr(args[0]);
+    const reduce_id = self.nextNameId();
+    try self.emitFmt("__m{d}_reduce: {{ const _func = ", .{reduce_id}); try self.genExpr(args[0]);
     try self.emit("; const _iterable = "); try self.genExpr(args[1]);
     if (container_traits.isList(iter_type) or iter_type == .deque) try self.emit(".items");
     try self.emit("; ");
@@ -105,5 +107,5 @@ pub fn genReduce(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("var _acc: @TypeOf(_iterable[0]) = "); try self.genExpr(args[2]);
         try self.emit("; for (_iterable) |item| { _acc = _func(_acc, item); }");
     } else try self.emit("var _first = true; var _acc: @TypeOf(_iterable[0]) = undefined; for (_iterable) |item| { if (_first) { _acc = item; _first = false; } else { _acc = _func(_acc, item); } }");
-    try self.emit(" break :reduce_blk _acc; }");
+    try self.emitFmt(" break :__m{d}_reduce _acc; }}", .{reduce_id});
 }

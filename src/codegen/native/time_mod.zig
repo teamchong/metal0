@@ -39,10 +39,11 @@ fn genSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // When inside try body (assertRaises), wrap in block that returns error union
         // so expectError can catch the error. Otherwise, silently convert to 0.0 on error.
         if (self.inside_try_body) {
-            // Generate: __sleep_blk: { const _v = runtime.floatBuiltinCall(...) catch |e| break :__sleep_blk @as(anyerror!void, e); std.Thread.sleep(...); break :__sleep_blk @as(anyerror!void, {}); }
-            try self.emit("__sleep_blk: { const __sleep_v = runtime.floatBuiltinCall(");
+            // Generate: __m{d}_sleep: { const _v = runtime.floatBuiltinCall(...) catch |e| break :__m{d}_sleep @as(anyerror!void, e); std.Thread.sleep(...); break :__m{d}_sleep @as(anyerror!void, {}); }
+            const id = self.nextNameId();
+            try self.emitFmt("__m{d}_sleep: {{ const __sleep_v = runtime.floatBuiltinCall(", .{id});
             try self.genExpr(args[0]);
-            try self.emit(", .{}) catch |e| break :__sleep_blk @as(anyerror!void, e); std.Thread.sleep(@as(u64, @intFromFloat(__sleep_v * 1_000_000_000))); break :__sleep_blk @as(anyerror!void, {}); }");
+            try self.emitFmt(", .{{}}) catch |e| break :__m{d}_sleep @as(anyerror!void, e); std.Thread.sleep(@as(u64, @intFromFloat(__sleep_v * 1_000_000_000))); break :__m{d}_sleep @as(anyerror!void, {{}}); }}", .{ id, id });
         } else {
             try self.emit("std.Thread.sleep(@as(u64, @intFromFloat((runtime.floatBuiltinCall(");
             try self.genExpr(args[0]);

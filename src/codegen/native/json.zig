@@ -44,13 +44,14 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(")");
     } else {
         // String literal or native string - wrap in PyString first
-        try self.emit("blk: { const json_str_obj = try runtime.PyString.create(");
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_json_loads: {{ const json_str_obj = try runtime.PyString.create(", .{id});
         try self.emit(alloc_name);
         try self.emit(", ");
         try self.genExpr(args[0]);
         try self.emit("); defer runtime.decref(json_str_obj, ");
         try self.emit(alloc_name);
-        try self.emit("); break :blk try runtime.json.loads(json_str_obj, ");
+        try self.emitFmt("); break :__m{d}_json_loads try runtime.json.loads(json_str_obj, ", .{id});
         try self.emit(alloc_name);
         try self.emit("); }");
     }
@@ -90,7 +91,8 @@ pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code to convert native dict to PyDict and dump as JSON
 fn genJsonDumpsDict(self: *NativeCodegen, dict_expr: ast.Node, value_type: NativeType) CodegenError!void {
-    try self.emit("json_blk: {\n");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_json: {{\n", .{id});
     self.indent();
     try self.emitIndent();
 
@@ -131,7 +133,7 @@ fn genJsonDumpsDict(self: *NativeCodegen, dict_expr: ast.Node, value_type: Nativ
     try self.emit("runtime.decref(_py_dict, __global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("break :json_blk _result;\n");
+    try self.emitFmt("break :__m{d}_json _result;\n", .{id});
 
     self.dedent();
     try self.emitIndent();
@@ -140,7 +142,8 @@ fn genJsonDumpsDict(self: *NativeCodegen, dict_expr: ast.Node, value_type: Nativ
 
 /// Generate code to convert native list to PyList and dump as JSON
 fn genJsonDumpsList(self: *NativeCodegen, list_expr: ast.Node, elem_type: NativeType) CodegenError!void {
-    try self.emit("json_blk: {\n");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_json: {{\n", .{id});
     self.indent();
     try self.emitIndent();
 
@@ -178,7 +181,7 @@ fn genJsonDumpsList(self: *NativeCodegen, list_expr: ast.Node, elem_type: Native
     try self.emit("runtime.decref(_py_list, __global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("break :json_blk _result;\n");
+    try self.emitFmt("break :__m{d}_json _result;\n", .{id});
 
     self.dedent();
     try self.emitIndent();
@@ -225,7 +228,8 @@ pub fn genJsonLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // json.load() requires at least 1 argument
     if (args.len < 1) return error.UnsupportedSyntax;
 
-    try self.emit("json_load_blk: {\n");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_json_load: {{\n", .{id});
     self.indent();
     try self.emitIndent();
     try self.emit("const _file = ");
@@ -234,7 +238,7 @@ pub fn genJsonLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _content = try runtime.PyFile.read(_file, __global_allocator);\n");
     try self.emitIndent();
-    try self.emit("break :json_load_blk try runtime.json.loads(_content, __global_allocator);\n");
+    try self.emitFmt("break :__m{d}_json_load try runtime.json.loads(_content, __global_allocator);\n", .{id});
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
@@ -246,7 +250,8 @@ pub fn genJsonDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // json.dump() requires at least 2 arguments
     if (args.len < 2) return error.UnsupportedSyntax;
 
-    try self.emit("json_dump_blk: {\n");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_json_dump: {{\n", .{id});
     self.indent();
     try self.emitIndent();
     try self.emit("const _obj = ");
@@ -261,7 +266,7 @@ pub fn genJsonDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("_ = runtime.PyFile.write(_file, _json_str) catch 0;\n");
     try self.emitIndent();
-    try self.emit("break :json_dump_blk null;\n");
+    try self.emitFmt("break :__m{d}_json_dump null;\n", .{id});
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

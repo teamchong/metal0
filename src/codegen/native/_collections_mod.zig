@@ -7,11 +7,42 @@ const NativeCodegen = h.NativeCodegen;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "deque", genDeque },
-    .{ "_deque_iterator", h.wrap("blk: { const d = ", "; break :blk .{ .deque = d, .index = 0 }; }", ".{ .deque = null, .index = 0 }") },
-    .{ "_deque_reverse_iterator", h.wrap("blk: { const d = ", "; break :blk .{ .deque = d, .index = d.items.len }; }", ".{ .deque = null, .index = 0 }") },
+    .{ "_deque_iterator", genDequeIterator },
+    .{ "_deque_reverse_iterator", genDequeReverseIterator },
     .{ "_count_elements", h.c("{}") },
 });
 
 fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) { try self.emit("blk: { var d = std.ArrayListUnmanaged(@TypeOf("); try self.genExpr(args[0]); try self.emit("[0])).init(__global_allocator); d.appendSlice("); try self.genExpr(args[0]); try self.emit(") catch unreachable; break :blk .{ .items = d.items, .maxlen = null }; }"); } else { try self.emit(".{ .items = &[_]@TypeOf(0){}, .maxlen = null }"); }
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_deque: {{ var d = std.ArrayListUnmanaged(@TypeOf(", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("[0])).init(__global_allocator); d.appendSlice(");
+        try self.genExpr(args[0]);
+        try self.emitFmt(") catch unreachable; break :__m{d}_deque .{{ .items = d.items, .maxlen = null }}; }}", .{id});
+    } else {
+        try self.emit(".{ .items = &[_]@TypeOf(0){}, .maxlen = null }");
+    }
+}
+
+fn genDequeIterator(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_deque_iter: {{ const d = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emitFmt("; break :__m{d}_deque_iter .{{ .deque = d, .index = 0 }}; }}", .{id});
+    } else {
+        try self.emit(".{ .deque = null, .index = 0 }");
+    }
+}
+
+fn genDequeReverseIterator(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_deque_riter: {{ const d = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emitFmt("; break :__m{d}_deque_riter .{{ .deque = d, .index = d.items.len }}; }}", .{id});
+    } else {
+        try self.emit(".{ .deque = null, .index = 0 }");
+    }
 }

@@ -14,11 +14,12 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
     if (args.len > 1) {
-        try self.emit("blk: { var _h = try hashlib.new(");
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_hash_new: {{ var _h = try hashlib.new(", .{id});
         try self.genExpr(args[0]);
-        try self.emit("); _h.update(");
+        try self.emitFmt("); _h.update(", .{});
         try self.genExpr(args[1]);
-        try self.emit("); break :blk _h; }");
+        try self.emitFmt("); break :__m{d}_hash_new _h; }}", .{id});
     } else {
         try self.emit("try hashlib.new(");
         try self.genExpr(args[0]);

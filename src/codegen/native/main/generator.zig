@@ -1435,19 +1435,20 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
         // Initialize sys.executable (compute once to avoid block label collisions)
         try self.emitIndent();
-        try self.emit("__sys_executable = sys_exec_blk: {\n");
+        const id = self.nextNameId();
+        try self.emitFmt("__sys_executable = __m{d}_sys_exec: {{\n", .{id});
         try self.emitIndent();
         try self.emit("    const b = @import(\"builtin\");\n");
         try self.emitIndent();
         try self.emit("    const is_wasm = b.os.tag == .wasi or b.os.tag == .freestanding;\n");
         try self.emitIndent();
-        try self.emit("    if (comptime is_wasm) break :sys_exec_blk \"\";\n");
+        try self.emitFmt("    if (comptime is_wasm) break :__m{d}_sys_exec \"\";\n", .{id});
         try self.emitIndent();
         try self.emit("    const args = std.os.argv;\n");
         try self.emitIndent();
-        try self.emit("    if (args.len > 0) break :sys_exec_blk std.mem.span(args[0]);\n");
+        try self.emitFmt("    if (args.len > 0) break :__m{d}_sys_exec std.mem.span(args[0]);\n", .{id});
         try self.emitIndent();
-        try self.emit("    break :sys_exec_blk \"\";\n");
+        try self.emitFmt("    break :__m{d}_sys_exec \"\";\n", .{id});
         try self.emitIndent();
         try self.emit("};\n");
 

@@ -1343,7 +1343,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             if (is_async_call) {
                 // Auto-await: wrap async call with scheduler init + wait + result extraction
-                try self.emit("(blk: {\n");
+                const id = self.nextNameId();
+                try self.emitFmt("(__m{d}_async: {{\n", .{id});
                 try self.emitIndent();
                 // Initialize scheduler if needed (first async call)
                 try self.emit("    if (!runtime.scheduler_initialized) {\n");
@@ -1366,7 +1367,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emitIndent();
                 try self.emit("    const __result = __thread.result orelse unreachable;\n");
                 try self.emitIndent();
-                try self.emit("    break :blk @as(*i64, @ptrCast(@alignCast(__result))).*;\n");
+                try self.emitFmt("    break :__m{d}_async @as(*i64, @ptrCast(@alignCast(__result))).*;\n", .{id});
                 try self.emitIndent();
                 try self.emit("});\n");
             } else {
@@ -1761,7 +1762,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     if (is_nested and is_pyvalue_key) {
                         // Unknown container with string/pyvalue key - likely dict access
                         // Use runtime type check
-                        try self.emit("blk: {\n");
+                        const id = self.nextNameId();
+                        try self.emitFmt("__m{d}_dict: {{\n", .{id});
                         self.indent_level += 1;
                         try self.emitIndent();
                         try self.emit("const __cont = ");

@@ -136,9 +136,10 @@ fn emitCallableInvocation(
                 return;
             } else if (attr.value.* == .call) {
                 if (FloatMethods.get(attr.attr)) |info| {
-                    try self.emit("__ar_obj_blk: { const __ar_obj = ");
+                    const id = self.nextNameId();
+                    try self.emitFmt("__m{d}_ar_obj: {{ const __ar_obj = ", .{id});
                     try parent.genExpr(self, attr.value.*);
-                    try self.emit("; break :__ar_obj_blk (runtime.float");
+                    try self.emitFmt("; break :__m{d}_ar_obj (runtime.float", .{id});
                     try self.emit(info.func);
                     try self.emit(if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
                     // FloorBig/CeilBig return error unions
@@ -156,9 +157,10 @@ fn emitCallableInvocation(
                     }
                     try self.emit("; }");
                 } else {
-                    try self.emit("__ar_obj_blk: { const __ar_obj = ");
+                    const id = self.nextNameId();
+                    try self.emitFmt("__m{d}_ar_obj: {{ const __ar_obj = ", .{id});
                     try parent.genExpr(self, attr.value.*);
-                    try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
+                    try self.emitFmt("; break :__m{d}_ar_obj __ar_obj.@\"", .{id});
                     try self.emit(attr.attr);
                     try self.emit("\"(");
                     for (call_args, 0..) |arg, i| {
@@ -205,13 +207,14 @@ fn emitCallableInvocation(
                 .{ "reverse", {} },
             });
             if (no_arg_methods.has(attr.attr) and call_args.len > 0) {
-                try self.emit("__ar_noarg_blk: { ");
+                const id = self.nextNameId();
+                try self.emitFmt("__m{d}_ar_noarg: {{ ", .{id});
                 for (call_args) |arg| {
                     try self.emit("_ = ");
                     try parent.genExpr(self, arg);
                     try self.emit("; ");
                 }
-                try self.emit("break :__ar_noarg_blk error.TypeError; }");
+                try self.emitFmt("break :__m{d}_ar_noarg error.TypeError; }}", .{id});
             } else {
                 try parent.genExpr(self, attr.value.*);
                 try self.emit(".@\"");
@@ -230,22 +233,24 @@ fn emitCallableInvocation(
         // Check for list methods that need special handling in assertRaises context
         if (std.mem.eql(u8, attr.attr, "extend")) {
             // List.extend() in assertRaises context - use runtime helper
-            // Generate: __ar_obj_blk: { var __ar_list = <list_expr>; try runtime.listExtendIterable(__global_allocator, &__ar_list, <arg>); break :__ar_obj_blk {}; }
-            try self.emit("__ar_obj_blk: { var __ar_list = ");
+            // Generate: __m{d}_ar_obj: { var __ar_list = <list_expr>; try runtime.listExtendIterable(__global_allocator, &__ar_list, <arg>); break :__m{d}_ar_obj {}; }
+            const id = self.nextNameId();
+            try self.emitFmt("__m{d}_ar_obj: {{ var __ar_list = ", .{id});
             try parent.genExpr(self, attr.value.*);
             try self.emit("; try runtime.listExtendIterable(__global_allocator, &__ar_list, ");
             if (call_args.len > 0) {
                 try parent.genExpr(self, call_args[0]);
             }
-            try self.emit("); break :__ar_obj_blk {}; }");
+            try self.emitFmt("); break :__m{d}_ar_obj {{}}; }}", .{id});
             return;
         }
 
         // Check for float methods that need runtime dispatch (as_integer_ratio, __floor__, etc.)
         if (FloatMethods.get(attr.attr)) |info| {
-            try self.emit("__ar_obj_blk: { const __ar_obj = ");
+            const id = self.nextNameId();
+            try self.emitFmt("__m{d}_ar_obj: {{ const __ar_obj = ", .{id});
             try parent.genExpr(self, attr.value.*);
-            try self.emit("; break :__ar_obj_blk (runtime.float");
+            try self.emitFmt("; break :__m{d}_ar_obj (runtime.float", .{id});
             try self.emit(info.func);
             try self.emit(if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
             // FloorBig/CeilBig return error unions
@@ -264,9 +269,10 @@ fn emitCallableInvocation(
             try self.emit("; }");
             return;
         }
-        try self.emit("__ar_obj_blk: { const __ar_obj = ");
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_ar_obj: {{ const __ar_obj = ", .{id});
         try parent.genExpr(self, attr.value.*);
-        try self.emit("; break :__ar_obj_blk __ar_obj.@\"");
+        try self.emitFmt("; break :__m{d}_ar_obj __ar_obj.@\"", .{id});
         try self.emit(attr.attr);
         try self.emit("\"(");
         for (call_args, 0..) |arg, i| {
@@ -278,9 +284,10 @@ fn emitCallableInvocation(
     }
 
     if (callable == .lambda) {
-        try self.emit("ar_closure_blk: { const __ar_closure = ");
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_ar_closure: {{ const __ar_closure = ", .{id});
         try parent.genExpr(self, callable);
-        try self.emit("; break :ar_closure_blk __ar_closure.call(");
+        try self.emitFmt("; break :__m{d}_ar_closure __ar_closure.call(", .{id});
         for (call_args, 0..) |arg, i| {
             if (i > 0) try self.emit(", ");
             try parent.genExpr(self, arg);
@@ -705,7 +712,8 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         // 1. Evaluates both expressions
         // 2. Extracts slices with explicit type annotation (forces coercion)
         // 3. Compares with std.mem.eql using concrete type (no monomorphization)
-        try self.emit("if (__ae_blk: { const __ae_raw_a = ");
+        const id = self.nextNameId();
+        try self.emitFmt("if (__m{d}_ae: {{ const __ae_raw_a = ", .{id});
         try parent.genExpr(self, args[0]);
         try self.emit("; const __ae_raw_b = ");
         try parent.genExpr(self, args[1]);
@@ -717,7 +725,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         try self.emit(slice_type.?);
         try self.emit(" = runtime.container_dispatch.getSlice(@TypeOf(__ae_raw_b), __ae_raw_b);");
         // Compare with concrete type
-        try self.emit(" break :__ae_blk !std.mem.eql(");
+        try self.emitFmt(" break :__m{d}_ae !std.mem.eql(", .{id});
         try self.emit(elem_type.?);
         try self.emit(", __ae_slice_a, __ae_slice_b); }) return error.AssertionFailed;");
         return;
@@ -1105,22 +1113,24 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 
     // Check if callable is 'eval' - special handling needed
     if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "eval")) {
-        // Generate: blk: { _ = runtime.eval(...) catch break :blk {}; @panic("assertRaises: expected exception"); }
+        // Generate: __m{d}_ar_eval: { _ = runtime.eval(...) catch break :__m{d}_ar_eval {}; @panic("assertRaises: expected exception"); }
         // Note: eval-string-only variable discards are now handled in assign.zig
-        try self.emit("blk: { _ = runtime.eval(__global_allocator, ");
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_ar_eval: {{ _ = runtime.eval(__global_allocator, ", .{id});
         if (args.len > 2) {
             try parent.genExpr(self, args[2]);
         } else {
             try self.emit("\"\"");
         }
-        try self.emit(") catch break :blk {}; return error.ExpectedExceptionNotRaised; }");
+        try self.emitFmt(") catch break :__m{d}_ar_eval {{}}; return error.ExpectedExceptionNotRaised; }}", .{id});
         return;
     }
 
     // Check if callable is 'compile' - special handling needed
     if (args[1] == .name and std.mem.eql(u8, args[1].name.id, "compile")) {
-        // Generate: blk: { _ = runtime.compile_builtin(...) catch break :blk {}; @panic("assertRaises: expected exception"); }
-        try self.emit("blk: { _ = runtime.compile_builtin(__global_allocator, ");
+        // Generate: __m{d}_ar_compile: { _ = runtime.compile_builtin(...) catch break :__m{d}_ar_compile {}; @panic("assertRaises: expected exception"); }
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_ar_compile: {{ _ = runtime.compile_builtin(__global_allocator, ", .{id});
         if (args.len > 2) {
             try parent.genExpr(self, args[2]); // source
             try self.emit(", ");
@@ -1138,7 +1148,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         } else {
             try self.emit("\"exec\"");
         }
-        try self.emit(") catch break :blk {}; return error.ExpectedExceptionNotRaised; }");
+        try self.emitFmt(") catch break :__m{d}_ar_compile {{}}; return error.ExpectedExceptionNotRaised; }}", .{id});
         return;
     }
 
@@ -1196,13 +1206,14 @@ pub fn genAssertRaisesRegexWithKwargs(self: *NativeCodegen, obj: ast.Node, args:
     // Set inside_try_body so error-returning functions propagate errors instead of swallowing them
     const prev_inside_try = self.inside_try_body;
     self.inside_try_body = true;
-    // Generate: __ar_blk: { _ = <regex>; _ = <call_with_kwargs> catch break :__ar_blk {}; @panic(...); }
-    try self.emit("__ar_blk: { _ = ");
+    // Generate: __m{d}_ar: { _ = <regex>; _ = <call_with_kwargs> catch break :__m{d}_ar {}; @panic(...); }
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_ar: {{ _ = ", .{id});
     try parent.genExpr(self, args[1]); // regex parameter
     try self.emit("; _ = ");
     try emitCallableInvocation(self, args[2], call_args, keyword_args);
     self.inside_try_body = prev_inside_try;
-    try self.emit(" catch break :__ar_blk {}; return error.ExpectedExceptionNotRaised; }");
+    try self.emitFmt(" catch break :__m{d}_ar {{}}; return error.ExpectedExceptionNotRaised; }}", .{id});
 }
 
 /// Generate code for self.assertRaisesRegex(exception, regex, callable, *args)
@@ -1219,15 +1230,16 @@ pub fn genAssertRaisesRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
     // Similar to assertRaises but with regex check on error message
     // For AOT, we just check that an error is raised
     // Reference the regex parameter to avoid unused variable warning
-    // Use __ar_blk to avoid conflicts with nested blk: labels
-    try self.emit("__ar_blk: { _ = ");
+    // Use __m{d}_ar to avoid conflicts with nested blk: labels
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_ar: {{ _ = ", .{id});
     try parent.genExpr(self, args[1]); // regex parameter
     try self.emit("; _ = ");
 
     try emitCallableInvocation(self, args[2], call_args, &.{});
     self.inside_try_body = prev_inside_try;
     // Catch error directly on call - can't store first since error propagates immediately
-    try self.emit(" catch break :__ar_blk {}; return error.ExpectedExceptionNotRaised; }");
+    try self.emitFmt(" catch break :__m{d}_ar {{}}; return error.ExpectedExceptionNotRaised; }}", .{id});
 }
 
 /// Generate code for self.assertWarns(warning, callable, *args)

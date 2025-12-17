@@ -25,7 +25,8 @@ pub fn genSetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // 1. PyType objects (metaclass instances) - use .setattr() method
     // 2. Regular objects with __dict__ - use __dict__.put()
     // Use comptime type introspection to select the correct approach
-    try self.emit("blk: { const __sa_obj = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_setattr: {{ const __sa_obj = ", .{id});
     try self.genExpr(args[0]);
     try self.emit("; const __sa_name = ");
     try self.genExpr(args[1]);
@@ -45,7 +46,7 @@ pub fn genSetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("} else if (@hasField(@typeInfo(__sa_obj_type).pointer.child, \"__dict__\")) { ");
         try self.emit("try @constCast(&__sa_obj.__dict__).put(__sa_name_str, runtime.PyValue.from(__sa_val)); ");
     }
-    try self.emit("} break :blk {}; }");
+    try self.emitFmt("}} break :__m{d}_setattr {{}}; }}", .{id});
 }
 
 pub fn genHasattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

@@ -470,10 +470,9 @@ fn genSortedWithKwargs(self: *NativeCodegen, args: []ast.Node, kwargs: []const a
     }
 
     const alloc_name = "__global_allocator";
-    var em = self.exprEmitter();
-    const id = em.reserveLabelId();
+    const sorted_id = self.nextNameId();
 
-    try self.emitFmt("sorted_{d}: {{\n", .{id});
+    try self.emitFmt("__m{d}_sorted: {{\n", .{sorted_id});
 
     // Generate the iterable expression
     try self.emitFmt("const __sorted_copy = try {s}.dupe(i64, ", .{alloc_name});
@@ -506,5 +505,5 @@ fn genSortedWithKwargs(self: *NativeCodegen, args: []ast.Node, kwargs: []const a
         try self.emit("std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));\n");
     }
 
-    try self.emitFmt("break :sorted_{d} __sorted_copy;\n}}", .{id});
+    try self.emitFmt("break :__m{d}_sorted __sorted_copy;\n}}", .{sorted_id});
 }

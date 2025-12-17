@@ -68,7 +68,22 @@ const genLcm = h.wrap2("blk: { const __lcm_a = @abs(@as(i64, ", ")); const __lcm
 const genComb = h.wrap2("blk: { const n = @as(u64, @intCast(", ")); const k = @as(u64, @intCast(", ")); if (k > n) break :blk @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) { result = result * (n - i) / (i + 1); } break :blk @as(i64, @intCast(result)); }", "@as(i64, 0)");
 
 fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 1) { try self.emit("blk: { const n = @as(u64, @intCast("); try self.genExpr(args[0]); try self.emit(")); const k = "); if (args.len >= 2) { try self.emit("@as(u64, @intCast("); try self.genExpr(args[1]); try self.emit("))"); } else try self.emit("n"); try self.emit("; if (k > n) break :blk @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) { result *= (n - i); } break :blk @as(i64, @intCast(result)); }"); } else try self.emit("@as(i64, 0)");
+    if (args.len >= 1) {
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_perm: {{ const n = @as(u64, @intCast(", .{id});
+        try self.genExpr(args[0]);
+        try self.emit(")); const k = ");
+        if (args.len >= 2) {
+            try self.emit("@as(u64, @intCast(");
+            try self.genExpr(args[1]);
+            try self.emit("))");
+        } else {
+            try self.emit("n");
+        }
+        try self.emitFmt("; if (k > n) break :__m{d}_perm @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) {{ result *= (n - i); }} break :__m{d}_perm @as(i64, @intCast(result)); }}", .{ id, id });
+    } else {
+        try self.emit("@as(i64, 0)");
+    }
 }
 const genFrexp = h.wrap("blk: { const val = @as(f64, ", "); const result = std.math.frexp(val); break :blk .{ result.significand, result.exponent }; }", ".{ @as(f64, 0.0), @as(i32, 0) }");
 const genModf = h.wrap("blk: { const val = @as(f64, ", "); const frac = val - @trunc(val); break :blk .{ frac, @trunc(val) }; }", ".{ @as(f64, 0.0), @as(f64, 0.0) }");

@@ -105,10 +105,11 @@ pub fn genCounterSubtract(self: *NativeCodegen, obj: ast.Node, args: []ast.Node)
 /// Returns sum of all counts
 pub fn genCounterTotal(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    // Generate: blk: { var sum: i64 = 0; for (counter.values()) |v| sum += v; break :blk sum; }
-    try self.emit("counter_total_blk: { var __sum: i64 = 0; for (");
+    // Generate: __m{id}_counter_total: { var sum: i64 = 0; for (counter.values()) |v| sum += v; break :__m{id}_counter_total sum; }
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_counter_total: {{ var __sum: i64 = 0; for (", .{id});
     try self.genExpr(obj);
-    try self.emit(".values()) |__v| { __sum += __v; } break :counter_total_blk __sum; }");
+    try self.emitFmt(".values()) |__v| {{ __sum += __v; }} break :__m{d}_counter_total __sum; }}", .{id});
 }
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
@@ -165,19 +166,31 @@ pub fn genUserList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 }
 
-// Counter and Deque need comptime dispatch to handle ArrayList vs slice
-// Use runtime.iterSlice() to normalize ArrayList to slice first
-pub const genCounter = h.wrap(
-    "counter_blk: { const _iter_raw = ",
-    "; const _iterable = runtime.iterSlice(_iter_raw); var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator); for (_iterable) |item| { const entry = _counter.getOrPut(item) catch continue; if (entry.found_existing) { entry.value_ptr.* += 1; } else { entry.value_ptr.* = 1; } } break :counter_blk _counter; }",
-    "hashmap_helper.StringHashMap(i64).init(__global_allocator)",
-);
+// Counter needs dynamic unique IDs for each invocation
+pub fn genCounter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const id = self.nextNameId();
+    if (args.len > 0) {
+        try self.emitFmt("__m{d}_counter: {{ const _iter_raw = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; const _iterable = runtime.iterSlice(_iter_raw); var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator); for (_iterable) |item| { const entry = _counter.getOrPut(item) catch continue; if (entry.found_existing) { entry.value_ptr.* += 1; } else { entry.value_ptr.* = 1; } } break :__m");
+        try self.emitFmt("{d}_counter _counter; }}", .{id});
+    } else {
+        try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
+    }
+}
 
-pub const genDeque = h.wrap(
-    "deque_blk: { const _iter_raw = ",
-    "; const _iterable = runtime.iterSlice(_iter_raw); var _deque = std.ArrayListUnmanaged(@TypeOf(_iterable[0])){}; for (_iterable) |item| { _deque.append(__global_allocator, item) catch continue; } break :deque_blk _deque; }",
-    "std.ArrayListUnmanaged(i64){}",
-);
+// Deque needs dynamic unique IDs for each invocation
+pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const id = self.nextNameId();
+    if (args.len > 0) {
+        try self.emitFmt("__m{d}_deque: {{ const _iter_raw = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; const _iterable = runtime.iterSlice(_iter_raw); var _deque = std.ArrayListUnmanaged(@TypeOf(_iterable[0])){{}}; for (_iterable) |item| { _deque.append(__global_allocator, item) catch continue; } break :__m");
+        try self.emitFmt("{d}_deque _deque; }}", .{id});
+    } else {
+        try self.emit("std.ArrayListUnmanaged(i64){}");
+    }
+}
 
 /// Generate code for collections.namedtuple(typename, field_names)
 /// Returns a struct type that can be instantiated
@@ -221,11 +234,12 @@ pub fn genNamedtuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for collections.ChainMap(*maps)
 /// A ChainMap groups multiple dicts into a single view
 pub fn genChainMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const id = self.nextNameId();
     if (args.len == 0) {
-        try self.emit("chainmap_blk: { var _maps = std.ArrayListUnmanaged(hashmap_helper.StringHashMap(*runtime.PyObject)){}; break :chainmap_blk _maps; }");
+        try self.emitFmt("__m{d}_chainmap: {{ var _maps = std.ArrayListUnmanaged(hashmap_helper.StringHashMap(*runtime.PyObject)){{}}; break :__m{d}_chainmap _maps; }}", .{ id, id });
         return;
     }
-    try self.emit("chainmap_blk: { var _maps = std.ArrayListUnmanaged(@TypeOf(");
+    try self.emitFmt("__m{d}_chainmap: {{ var _maps = std.ArrayListUnmanaged(@TypeOf(", .{id});
     try self.genExpr(args[0]);
     try self.emit(")){}; ");
     for (args) |arg| {
@@ -233,5 +247,5 @@ pub fn genChainMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(arg);
         try self.emit(") catch unreachable; ");
     }
-    try self.emit("break :chainmap_blk _maps; }");
+    try self.emitFmt("break :__m{d}_chainmap _maps; }}", .{id});
 }

@@ -99,56 +99,62 @@ pub fn genRandrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genChoices(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    try self.emit("__choices_blk: { const __choices_seq = "); try self.genExpr(args[0]); try self.emit("; const k: usize = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_choices: {{ const __choices_seq = ", .{id}); try self.genExpr(args[0]); try self.emit("; const k: usize = ");
     if (args.len > 1) { try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit(")"); } else try self.emit("1");
-    try self.emit("; " ++ prng ++ "var res: std.ArrayListUnmanaged(@TypeOf(__choices_seq[0])) = .{}; var i: usize = 0; while (i < k) : (i += 1) res.append(__global_allocator, __choices_seq[_prng.random().int(usize) % __choices_seq.len]) catch continue; break :__choices_blk res.items; }");
+    try self.emitFmt("; " ++ prng ++ "var res: std.ArrayListUnmanaged(@TypeOf(__choices_seq[0])) = .{{}}; var i: usize = 0; while (i < k) : (i += 1) res.append(__global_allocator, __choices_seq[_prng.random().int(usize) % __choices_seq.len]) catch continue; break :__m{d}_choices res.items; }}", .{id});
 }
 
 /// gammavariate(alpha, beta) - Gamma distribution
 fn genGammavariate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("@as(f64, 0)"); return; }
-    try self.emit("gamma_blk: { const _alpha: f64 = "); try self.genExpr(args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_gamma: {{ const _alpha: f64 = ", .{id}); try self.genExpr(args[0]);
     try self.emit("; const _beta: f64 = "); try self.genExpr(args[1]);
-    try self.emit("; " ++ prng ++ "if (_alpha <= 0 or _beta <= 0) break :gamma_blk @as(f64, 0); ");
+    try self.emitFmt("; " ++ prng ++ "if (_alpha <= 0 or _beta <= 0) break :__m{d}_gamma @as(f64, 0); ", .{id});
     // Marsaglia and Tsang's method for alpha >= 1
     try self.emit("const d = _alpha - 1.0 / 3.0; const c = 1.0 / @sqrt(9.0 * d); var x: f64 = 0; var v: f64 = 0; ");
     try self.emit("while (true) { const u1 = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ");
     try self.emit("const u2 = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ");
     try self.emit("x = @sqrt(-2.0 * @log(u1)) * @cos(2.0 * std.math.pi * u2); v = 1.0 + c * x; ");
     try self.emit("if (v > 0) { v = v * v * v; if (u1 < 1.0 - 0.0331 * (x * x) * (x * x) or @log(u1) < 0.5 * x * x + d * (1.0 - v + @log(v))) break; } } ");
-    try self.emit("break :gamma_blk d * v / _beta; }");
+    try self.emitFmt("break :__m{d}_gamma d * v / _beta; }}", .{id});
 }
 
 /// betavariate(alpha, beta) - Beta distribution
 fn genBetavariate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("@as(f64, 0.5)"); return; }
-    try self.emit("beta_blk: { const _a: f64 = "); try self.genExpr(args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_beta: {{ const _a: f64 = ", .{id}); try self.genExpr(args[0]);
     try self.emit("; const _b: f64 = "); try self.genExpr(args[1]);
     try self.emit("; " ++ prng ++ "const u1 = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ");
     try self.emit("const u2 = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ");
-    try self.emit("_ = _a; _ = _b; break :beta_blk u1 / (u1 + u2); }");
+    try self.emitFmt("_ = _a; _ = _b; break :__m{d}_beta u1 / (u1 + u2); }}", .{id});
 }
 
 /// paretovariate(alpha) - Pareto distribution
 fn genParetovariate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("@as(f64, 1)"); return; }
-    try self.emit("pareto_blk: { const _alpha: f64 = "); try self.genExpr(args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_pareto: {{ const _alpha: f64 = ", .{id}); try self.genExpr(args[0]);
     try self.emit("; " ++ prng ++ "const u = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ");
-    try self.emit("break :pareto_blk 1.0 / std.math.pow(f64, u, 1.0 / _alpha); }");
+    try self.emitFmt("break :__m{d}_pareto 1.0 / std.math.pow(f64, u, 1.0 / _alpha); }}", .{id});
 }
 
 /// weibullvariate(alpha, beta) - Weibull distribution
 fn genWeibullvariate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("@as(f64, 0)"); return; }
-    try self.emit("weibull_blk: { const _alpha: f64 = "); try self.genExpr(args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_weibull: {{ const _alpha: f64 = ", .{id}); try self.genExpr(args[0]);
     try self.emit("; const _beta: f64 = "); try self.genExpr(args[1]);
     try self.emit("; " ++ prng ++ "const u = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ");
-    try self.emit("break :weibull_blk _alpha * std.math.pow(f64, -@log(u), 1.0 / _beta); }");
+    try self.emitFmt("break :__m{d}_weibull _alpha * std.math.pow(f64, -@log(u), 1.0 / _beta); }}", .{id});
 }
 
 /// triangular(low, high, mode) - Triangular distribution
 fn genTriangular(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("tri_blk: { const _low: f64 = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_tri: {{ const _low: f64 = ", .{id});
     if (args.len > 0) try self.genExpr(args[0]) else try self.emit("0.0");
     try self.emit("; const _high: f64 = ");
     if (args.len > 1) try self.genExpr(args[1]) else try self.emit("1.0");
@@ -156,25 +162,27 @@ fn genTriangular(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 2) try self.genExpr(args[2]) else try self.emit("(_low + _high) / 2.0");
     try self.emit("; " ++ prng ++ "const u = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ");
     try self.emit("const c = (_mode - _low) / (_high - _low); ");
-    try self.emit("break :tri_blk if (u < c) _low + @sqrt(u * (_high - _low) * (_mode - _low)) else _high - @sqrt((1.0 - u) * (_high - _low) * (_high - _mode)); }");
+    try self.emitFmt("break :__m{d}_tri if (u < c) _low + @sqrt(u * (_high - _low) * (_mode - _low)) else _high - @sqrt((1.0 - u) * (_high - _low) * (_high - _mode)); }}", .{id});
 }
 
 /// lognormvariate(mu, sigma) - Log-normal distribution
 fn genLognormvariate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("@as(f64, 1)"); return; }
-    try self.emit("lognorm_blk: { const _mu: f64 = "); try self.genExpr(args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_lognorm: {{ const _mu: f64 = ", .{id}); try self.genExpr(args[0]);
     try self.emit("; const _sigma: f64 = "); try self.genExpr(args[1]);
     try self.emit("; " ++ prng ++ "const u1 = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ");
     try self.emit("const u2 = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ");
     try self.emit("const z = @sqrt(-2.0 * @log(u1)) * @cos(2.0 * std.math.pi * u2); ");
-    try self.emit("break :lognorm_blk @exp(_mu + _sigma * z); }");
+    try self.emitFmt("break :__m{d}_lognorm @exp(_mu + _sigma * z); }}", .{id});
 }
 
 /// vonmisesvariate(mu, kappa) - von Mises distribution (circular)
 fn genVonmises(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("@as(f64, 0)"); return; }
-    try self.emit("vonmises_blk: { const _mu: f64 = "); try self.genExpr(args[0]);
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_vonmises: {{ const _mu: f64 = ", .{id}); try self.genExpr(args[0]);
     try self.emit("; const _kappa: f64 = "); try self.genExpr(args[1]);
     try self.emit("; " ++ prng ++ "const u = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ");
-    try self.emit("_ = _kappa; break :vonmises_blk _mu + 2.0 * std.math.pi * u - std.math.pi; }");
+    try self.emitFmt("_ = _kappa; break :__m{d}_vonmises _mu + 2.0 * std.math.pi * u - std.math.pi; }}", .{id});
 }

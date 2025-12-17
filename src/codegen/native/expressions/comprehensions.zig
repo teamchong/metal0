@@ -354,7 +354,8 @@ fn genExprWithSubs(
                     try self.emit(")}");
                 } else {
                     // General case: generate list with substitution
-                    try self.emit("blk: { var _bytes_list = std.ArrayListUnmanaged(u8){}; ");
+                    const id = self.nextNameId();
+                    try self.emitFmt("__m{d}_blk: {{ var _bytes_list = std.ArrayListUnmanaged(u8){{}}; ", .{id});
                     if (c.args[0] == .list) {
                         for (c.args[0].list.elts) |elt| {
                             try self.emit("try _bytes_list.append(__global_allocator, @intCast(");
@@ -366,7 +367,7 @@ fn genExprWithSubs(
                         try genExprWithSubs(self, c.args[0], subs);
                         try self.emit(").items) |_item| try _bytes_list.append(__global_allocator, @intCast(_item)); ");
                     }
-                    try self.emit("break :blk _bytes_list.items; }");
+                    try self.emitFmt("break :__m{d}_blk _bytes_list.items; }}", .{id});
                 }
             } else if (c.func.* == .name and (std.mem.eql(u8, c.func.name.id, "set") or std.mem.eql(u8, c.func.name.id, "frozenset")) and c.args.len == 1) {
                 // set([x]) or frozenset([x]) in comprehension - needs argument substitution

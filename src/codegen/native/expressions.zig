@@ -105,6 +105,9 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 return;
             }
 
+            // Note: name_to_use computation uses anonymous block (:blk) which is inline/comptime
+            // and doesn't need unique ID - it's never generated as Zig code
+
             // Handle 'self' in methods - emit as-is, NOT as runtime.builtins.self
             if (std.mem.eql(u8, name_to_use, "self") and self.inside_method_with_self) {
                 try self.emit("self");
@@ -300,12 +303,14 @@ fn genNamedExpr(self: *NativeCodegen, ne: ast.Node.NamedExpr) CodegenError!void 
         else => return error.UnsupportedSyntax, // Walrus target must be a name
     };
 
-    // Generate: (blk: { target = value; break :blk target; })
-    try self.emit("(blk: { ");
+    // Generate: (__m{id}_walrus: { target = value; break :__m{id}_walrus target; })
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_walrus: {{", .{id});
+    try self.emit(" ");
     try self.emit(target_name);
     try self.emit(" = ");
     try genExpr(self, ne.value.*);
-    try self.emit("; break :blk ");
+    try self.emitFmt("; break :__m{d}_walrus ", .{id});
     try self.emit(target_name);
     try self.emit("; })");
 }
@@ -473,13 +478,14 @@ fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!v
     }
 
     // For regular coroutine calls: await expr → wait for green thread and get result
-    try self.emit("(__await_blk: {\n");
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_await: {{\n", .{id});
     try self.emit("    const __thread = ");
     try genExpr(self, await_node.value.*);
     try self.emit(";\n");
     try self.emit("    runtime.scheduler.?.wait(__thread);\n");
     try self.emit("    const __result = __thread.result orelse unreachable;\n");
-    try self.output.writer(self.allocator).print("    break :__await_blk @as(*{s}, @ptrCast(@alignCast(__result))).*;\n", .{result_type});
+    try self.output.writer(self.allocator).print("    break :__m{d}_await @as(*{s}, @ptrCast(@alignCast(__result))).*;\n", .{ id, result_type });
     try self.emit("})");
 }
 

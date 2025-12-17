@@ -206,15 +206,13 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
 
 /// Generate comptime-optimized dict literal
 fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const u8) CodegenError!void {
-    const label = try std.fmt.allocPrint(self.allocator, "dict_{d}", .{@intFromPtr(dict.keys.ptr)});
-    defer self.allocator.free(label);
+    const dict_id = self.nextNameId();
 
     // Infer key type from first key using getDictKeyType
     const key_type = try self.type_inferrer.inferExpr(dict.keys[0]);
     const key_classification = type_traits.getDictKeyType(key_type);
 
-    try self.emit(label);
-    try self.emit(": {\n");
+    try self.emitFmt("__m{d}_dict: {{\n", .{dict_id});
     self.indent();
     try self.emitIndent();
 
@@ -273,7 +271,8 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emit("inline for (_kvs) |kv| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const cast_val = if (@TypeOf(kv[1]) != V) cast_blk: {\n");
+    const cast_id = self.nextNameId();
+    try self.emitFmt("const cast_val = if (@TypeOf(kv[1]) != V) __m{d}_cast: {{\n", .{cast_id});
     self.indent();
 
     // Int to float cast
@@ -281,7 +280,7 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emit("if (V == f64 and (@TypeOf(kv[1]) == i64 or @TypeOf(kv[1]) == comptime_int)) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("break :cast_blk @as(f64, @floatFromInt(kv[1]));\n");
+    try self.emitFmt("break :__m{d}_cast @as(f64, @floatFromInt(kv[1]));\n", .{cast_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -291,7 +290,7 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emit("if (V == f64 and @TypeOf(kv[1]) == comptime_float) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("break :cast_blk @as(f64, kv[1]);\n");
+    try self.emitFmt("break :__m{d}_cast @as(f64, kv[1]);\n", .{cast_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -311,7 +310,7 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emit("if (child == .array and child.array.child == u8) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("break :cast_blk @as([]const u8, kv[1]);\n");
+    try self.emitFmt("break :__m{d}_cast @as([]const u8, kv[1]);\n", .{cast_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -327,7 +326,7 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emit("if (V == ?void and @TypeOf(kv[1]) == @TypeOf(null)) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("break :cast_blk null;\n");
+    try self.emitFmt("break :__m{d}_cast null;\n", .{cast_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
@@ -337,14 +336,14 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emit("if (V == runtime.PyValue) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("break :cast_blk try runtime.toPyValue(__global_allocator, kv[1]);\n");
+    try self.emitFmt("break :__m{d}_cast try runtime.toPyValue(__global_allocator, kv[1]);\n", .{cast_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("}\n");
 
     // Default fallback
     try self.emitIndent();
-    try self.emit("break :cast_blk kv[1];\n");
+    try self.emitFmt("break :__m{d}_cast kv[1];\n", .{cast_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("} else kv[1];\n");
@@ -367,9 +366,7 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.emit("break :");
-    try self.emit(label);
-    try self.emit(" _dict;\n");
+    try self.emitFmt("break :__m{d}_dict _dict;\n", .{dict_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("}");
@@ -435,9 +432,8 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     }
 
     // Use unique label to avoid conflicts with nested dict literals
-    var em = self.exprEmitter();
-    const label_id = em.reserveLabelId();
-    try self.emitFmt("dict_blk_{d}: {{\n", .{label_id});
+    const label_id = self.nextNameId();
+    try self.emitFmt("__m{d}_dict: {{\n", .{label_id});
     self.indent();
     try self.emitIndent();
     if (uses_int_keys) {
@@ -549,8 +545,8 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     }
 
     try self.emitIndent();
-    // Use the label_id from ExprEmitter
-    try self.emitFmt("break :dict_blk_{d} map;\n", .{label_id});
+    // Use the label_id from NameGen
+    try self.emitFmt("break :__m{d}_dict map;\n", .{label_id});
     self.dedent();
     try self.emitIndent();
     try self.emit("}");

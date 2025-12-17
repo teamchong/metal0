@@ -208,8 +208,9 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         if (generated.len <= 10) break :blk false;
 
         // Pattern 1: Labeled block expressions
-        if (std.mem.startsWith(u8, generated, "(blk: {") and
-            std.mem.indexOf(u8, generated, "break :blk") != null)
+        // Matches both old style "(blk: {" and new style "(__m{d}_xxx: {"
+        if ((std.mem.startsWith(u8, generated, "(blk: {") and std.mem.indexOf(u8, generated, "break :blk") != null) or
+            (std.mem.startsWith(u8, generated, "(__m") and std.mem.indexOf(u8, generated, ": {") != null and std.mem.indexOf(u8, generated, "break :__m") != null))
         {
             break :blk true;
         }
@@ -268,9 +269,11 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     }
     // If we added "_ = " prefix, it's an assignment that always needs semicolon
     else if (!added_discard_prefix and generated.len > 0 and generated[generated.len - 1] == '}') {
-        // Check for labeled blocks (e.g., "blk: {", "sub_0: {", "slice_1: {", "comp_2: {")
+        // Check for labeled blocks (e.g., "blk: {", "sub_0: {", "slice_1: {", "comp_2: {", "__m{d}_xxx: {")
         // Pattern: identifier followed by colon and space then brace
         const is_labeled_block = blk: {
+            // Check for new unique ID label pattern __m{d}_xxx: {
+            if (std.mem.indexOf(u8, generated, "__m") != null and std.mem.indexOf(u8, generated, ": {") != null) break :blk true;
             // Check for common label patterns
             if (std.mem.indexOf(u8, generated, "blk: {") != null) break :blk true;
             if (std.mem.indexOf(u8, generated, "__asyncio_run: {") != null) break :blk true;

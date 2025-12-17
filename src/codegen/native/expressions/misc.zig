@@ -86,9 +86,11 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
         // Handle void assertion calls inside mixed tuples by emitting {}
         if (isVoidAssertionCall(elem)) {
             // Emit the assertion as a statement block that produces void
-            try self.emit("blk: { ");
+            const id = self.nextNameId();
+            try self.emitFmt("__m{d}_void_assert: {{ ", .{id});
             try genExpr(self, elem);
-            try self.emit(" break :blk {}; }");
+            try self.emitFmt(" break :__m{d}_void_assert ", .{id});
+            try self.emit("{}; }");
             continue;
         }
 
@@ -157,9 +159,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // In Python: t["a"] raises TypeError: tuple indices must be integers or slices, not str
                     // Use _ = on the tuple value to mark it as used, then return error
                     // This allows the error to be caught by assertRaisesRegex context
-                    try self.emit("blk: { _ = &");
+                    const id = self.nextNameId();
+                    try self.emitFmt("__m{d}_typeerr: {{ _ = &", .{id});
                     try genExpr(self, subscript.value.*);
-                    try self.emit("; break :blk try @as(anyerror!@TypeOf({}), error.TypeError); }");
+                    try self.emitFmt("; break :__m{d}_typeerr try @as(anyerror!@TypeOf(", .{id});
+                    try self.emit("{}), error.TypeError); }");
                 } else {
                     // Non-constant tuple index - use runtime helper to avoid comptime explosion
                     // The inline for is still needed internally, but it's compiled once per tuple type

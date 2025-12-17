@@ -171,12 +171,16 @@ pub fn wrapN(comptime n: usize, comptime pre: []const u8, comptime suf: []const 
     } }.f;
 }
 
-/// Generates log: blk: { const _m = arg; std.debug.print("LEVEL: {s}\n", .{_m}); break :blk; }
+/// Generates log: __m{id}_log: { const _m = arg; std.debug.print("LEVEL: {s}\n", .{_m}); break :__m{id}_log; }
 pub fn logLevel(comptime level: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) return error.UnsupportedSyntax;
-        try self.emit("blk: { const _m = "); try self.genExpr(args[0]);
-        try self.emit("; std.debug.print(\"" ++ level ++ ": {s}\\n\", .{_m}); break :blk; }");
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("__m{d}_log: {{ const _m = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; std.debug.print(\"" ++ level ++ ": {s}\\n\", .{_m}); break :__m");
+        try self.emitFmt("{d}_log; }}", .{id});
     } }.f;
 }
 
@@ -224,8 +228,12 @@ pub fn complexStdMath(comptime fn_name: []const u8, comptime d: []const u8) H {
 pub fn b64enc(comptime encoder: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) return error.UnsupportedSyntax;
-        try self.emit("blk: { const d = "); try self.genExpr(args[0]);
-        try self.emit("; const len = std.base64." ++ encoder ++ ".Encoder.calcSize(d.len); const buf = __global_allocator.alloc(u8, len) catch break :blk \"\"; break :blk std.base64." ++ encoder ++ ".Encoder.encode(buf, d); }");
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("__m{d}_b64enc: {{ const d = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; const len = std.base64." ++ encoder ++ ".Encoder.calcSize(d.len); const buf = __global_allocator.alloc(u8, len) catch break :__m");
+        try self.emitFmt("{d}_b64enc \"\"; break :__m{d}_b64enc std.base64." ++ encoder ++ ".Encoder.encode(buf, d); }}", .{id, id});
     } }.f;
 }
 
@@ -233,8 +241,12 @@ pub fn b64enc(comptime encoder: []const u8) H {
 pub fn b64dec(comptime decoder: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) return error.UnsupportedSyntax;
-        try self.emit("blk: { const d = "); try self.genExpr(args[0]);
-        try self.emit("; const len = std.base64." ++ decoder ++ ".Decoder.calcSizeForSlice(d) catch break :blk \"\"; const buf = __global_allocator.alloc(u8, len) catch break :blk \"\"; std.base64." ++ decoder ++ ".Decoder.decode(buf, d) catch break :blk \"\"; break :blk buf; }");
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("__m{d}_b64dec: {{ const d = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; const len = std.base64." ++ decoder ++ ".Decoder.calcSizeForSlice(d) catch break :__m");
+        try self.emitFmt("{d}_b64dec \"\"; const buf = __global_allocator.alloc(u8, len) catch break :__m{d}_b64dec \"\"; std.base64." ++ decoder ++ ".Decoder.decode(buf, d) catch break :__m{d}_b64dec \"\"; break :__m{d}_b64dec buf; }}", .{id, id, id, id});
     } }.f;
 }
 
@@ -242,7 +254,12 @@ pub fn b64dec(comptime decoder: []const u8) H {
 pub fn stub(comptime result: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) return error.UnsupportedSyntax;
-        try self.emit("blk: { _ = "); try self.genExpr(args[0]); try self.emit("; break :blk " ++ result ++ "; }");
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("__m{d}_stub: {{ _ = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; break :__m");
+        try self.emitFmt("{d}_stub " ++ result ++ "; }}", .{id});
     } }.f;
 }
 
@@ -251,7 +268,14 @@ pub fn stub(comptime result: []const u8) H {
 /// Generates hash constructor: hashlib.name() with optional initial data
 pub fn hashNew(comptime name: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit("(blk: { var _h = hashlib." ++ name ++ "(); _h.update("); try self.genExpr(args[0]); try self.emit("); break :blk _h; })"); } else try self.emit("hashlib." ++ name ++ "()");
+        if (args.len > 0) {
+            var em = self.exprEmitter();
+            const id = em.reserveLabelId();
+            try self.emitFmt("(__m{d}_hash: {{ var _h = hashlib." ++ name ++ "(); _h.update(", .{id});
+            try self.genExpr(args[0]);
+            try self.emit("); break :__m");
+            try self.emitFmt("{d}_hash _h; }})", .{id});
+        } else try self.emit("hashlib." ++ name ++ "()");
     } }.f;
 }
 
@@ -259,8 +283,15 @@ pub fn hashNew(comptime name: []const u8) H {
 pub fn compareDigest() H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len < 2) return error.UnsupportedSyntax;
-        try self.emit("blk: { const _a = "); try self.genExpr(args[0]); try self.emit("; const _b = "); try self.genExpr(args[1]);
-        try self.emit("; if (_a.len != _b.len) break :blk false; var _diff: u8 = 0; for (_a, _b) |a_byte, b_byte| { _diff |= a_byte ^ b_byte; } break :blk _diff == 0; }");
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("__m{d}_cmp: {{ const _a = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; const _b = ");
+        try self.genExpr(args[1]);
+        try self.emit("; if (_a.len != _b.len) break :__m");
+        try self.emitFmt("{d}_cmp false; var _diff: u8 = 0; for (_a, _b) |a_byte, b_byte| {{ _diff |= a_byte ^ b_byte; }} break :__m", .{id});
+        try self.emitFmt("{d}_cmp _diff == 0; }}", .{id});
     } }.f;
 }
 
@@ -282,10 +313,17 @@ pub fn charFunc(comptime label: []const u8, comptime default: []const u8, compti
     } }.f;
 }
 
-/// Check condition on arg: blk: { const x = arg; break :blk condition; }
+/// Check condition on arg: __m{id}_check: { const x = arg; break :__m{id}_check condition; }
 pub fn checkCond(comptime cond: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit("blk: { const x = "); try self.genExpr(args[0]); try self.emit("; break :blk " ++ cond ++ "; }"); } else try self.emit("false");
+        if (args.len > 0) {
+            var em = self.exprEmitter();
+            const id = em.reserveLabelId();
+            try self.emitFmt("__m{d}_check: {{ const x = ", .{id});
+            try self.genExpr(args[0]);
+            try self.emit("; break :__m");
+            try self.emitFmt("{d}_check " ++ cond ++ "; }}", .{id});
+        } else try self.emit("false");
     } }.f;
 }
 
@@ -301,7 +339,12 @@ pub fn debugPrint(comptime prefix: []const u8, comptime fmt: []const u8, comptim
 pub fn bufPrint(comptime fmt: []const u8, comptime default: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) { try self.emit(default); return; }
-        try self.emit("blk: { var buf: [4096]u8 = undefined; break :blk std.fmt.bufPrint(&buf, \"" ++ fmt ++ "\", .{"); try self.genExpr(args[0]); try self.emit("}) catch \"\"; }");
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("__m{d}_buf: {{ var buf: [4096]u8 = undefined; break :__m{d}_buf std.fmt.bufPrint(&buf, \"", .{ id, id });
+        try self.emit(fmt ++ "\", .{");
+        try self.genExpr(args[0]);
+        try self.emit("}) catch \"\"; }");
     } }.f;
 }
 
@@ -309,7 +352,13 @@ pub fn bufPrint(comptime fmt: []const u8, comptime default: []const u8) H {
 pub fn structField(comptime field: []const u8, comptime rest: []const u8, comptime default: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) { try self.emit(default); return; }
-        try self.emit("blk: { const _v = "); try self.genExpr(args[0]); try self.emit("; break :blk .{ ." ++ field ++ " = _v" ++ rest ++ " }; }");
+        var em = self.exprEmitter();
+        const id = em.reserveLabelId();
+        try self.emitFmt("__m{d}_struct: {{ const _v = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; break :__m");
+        try self.emitFmt("{d}_struct .{{ ." ++ field ++ " = _v" ++ rest ++ " }}", .{id});
+        try self.emit("; }");
     } }.f;
 }
 

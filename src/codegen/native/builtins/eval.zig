@@ -49,7 +49,8 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     //     defer _vm_N.deinit();
     //     _vm_N.execute(&_program_N)
     // }
-    try self.emit("blk: {\n");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_eval: {{\n", .{id});
 
     // Emit bytecode as static const array
     try self.emit("    const _bytecode_");
@@ -59,9 +60,9 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     // Serialize bytecode and emit as byte array
     const serialized = program.serialize(self.allocator) catch {
         try self.emit("// serialization failed\n");
-        try self.emit("break :blk try runtime.eval(__global_allocator, \"");
+        try self.emitFmt("break :__m{d}_eval try runtime.eval(__global_allocator, \"", .{id});
         try escapeZigString(self, source);
-        try self.emit("\");\n}");
+        try self.emit("\");\n}}");
         return;
     };
     defer self.allocator.free(serialized);
@@ -91,11 +92,11 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     try emitInt(self, blob_id);
     try self.emit(".deinit();\n");
 
-    try self.emit("    break :blk try _vm_");
+    try self.emitFmt("    break :__m{d}_eval try _vm_", .{id});
     try emitInt(self, blob_id);
     try self.emit(".execute(&_program_");
     try emitInt(self, blob_id);
-    try self.emit(");\n}");
+    try self.emit(");\n}}");
 }
 
 /// Helper to emit integer as decimal string

@@ -42,11 +42,12 @@ fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return error.UnsupportedSyntax;
-    try self.emit("pickle_dump_blk: { const _pickle_data = try runtime.pickle.dumps(");
+    const dump_id = self.nextNameId();
+    try self.emitFmt("__m{d}_pickle_dump: {{ const _pickle_data = try runtime.pickle.dumps(", .{dump_id});
     try self.genExpr(args[0]);
     try self.emit(", __global_allocator); const _file = ");
     try self.genExpr(args[1]);
-    try self.emit("; _ = _file.write(_pickle_data) catch 0; break :pickle_dump_blk; }");
+    try self.emitFmt("; _ = _file.write(_pickle_data) catch 0; break :__m{d}_pickle_dump; }}", .{dump_id});
 }
 
 fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -54,7 +55,8 @@ fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("runtime.pickle.PickleValue{ .none = {} }");
         return;
     }
-    try self.emit("pickle_load_blk: { const _file = ");
+    const load_id = self.nextNameId();
+    try self.emitFmt("__m{d}_pickle_load: {{ const _file = ", .{load_id});
     try self.genExpr(args[0]);
-    try self.emit("; const _content = _file.readToEndAlloc(__global_allocator, 100 * 1024 * 1024) catch break :pickle_load_blk runtime.pickle.PickleValue{ .none = {} }; break :pickle_load_blk (runtime.pickle.loads(_content, __global_allocator) catch runtime.pickle.PickleValue{ .none = {} }); }");
+    try self.emitFmt("; const _content = _file.readToEndAlloc(__global_allocator, 100 * 1024 * 1024) catch break :__m{d}_pickle_load runtime.pickle.PickleValue{{ .none = {{}} }}; break :__m{d}_pickle_load (runtime.pickle.loads(_content, __global_allocator) catch runtime.pickle.PickleValue{{ .none = {{}} }}); }}", .{ load_id, load_id });
 }

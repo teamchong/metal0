@@ -19,7 +19,15 @@ fn genFmt(comptime prefix: []const u8, comptime fmt: []const u8, comptime defaul
     }.f;
 }
 fn sideEffect(self: *NativeCodegen, args: []ast.Node, comptime default: []const u8) CodegenError!void {
-    if (args.len >= 1 and args[0] == .call) { try self.emit("blk: { _ = "); try self.genExpr(args[0]); try self.emit("; break :blk " ++ default ++ "; }"); } else try self.emit(default);
+    if (args.len >= 1 and args[0] == .call) {
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_side: {{ _ = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emitFmt("; break :__m{d}_side ", .{id});
+        try self.emit(default ++ "; }");
+    } else {
+        try self.emit(default);
+    }
 }
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
@@ -78,10 +86,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2 and (args[0] == .call or args[1] == .call)) {
-        try self.emit("blk: { ");
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_isinstance: {{ ", .{id});
         if (args[0] == .call) { try self.emit("_ = "); try self.genExpr(args[0]); try self.emit("; "); }
         if (args[1] == .call) { try self.emit("_ = "); try self.genExpr(args[1]); try self.emit("; "); }
-        try self.emit("break :blk true; }");
+        try self.emitFmt("break :__m{d}_isinstance true; }}", .{id});
     } else try sideEffect(self, args, "true");
 }
 fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "true"); }

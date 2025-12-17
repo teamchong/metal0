@@ -58,11 +58,12 @@ pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) 
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
     // Return a struct that can be unpacked: { BigInt, BigInt }
     // The IntegerRatioResult has .numerator and .denominator, we convert to anonymous tuple
-    try self.emit("blk: { const __ratio = try runtime.floatAsIntegerRatioBigInt(");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_ratio: {{ const __ratio = try runtime.floatAsIntegerRatioBigInt(", .{id});
     try self.emit(alloc_name);
     try self.emit(", ");
     try emitFloatExpr(self, obj);
-    try self.emit("); break :blk .{ __ratio.numerator, __ratio.denominator }; }");
+    try self.emitFmt("); break :__m{d}_ratio .{{ __ratio.numerator, __ratio.denominator }}; }}", .{id});
 }
 
 /// Generate float.hex() - returns hexadecimal string representation
@@ -168,10 +169,11 @@ pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try self.emit("))");
     } else {
         // Round to ndigits decimal places - returns float, not int
-        try self.emit("blk: { const __ndigits = ");
+        const id = self.nextNameId();
+        try self.emitFmt("__m{d}_round: {{ const __ndigits = ", .{id});
         try self.genExpr(args[0]);
         try self.emit("; const __mult = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(__ndigits))); ");
-        try self.emit("break :blk @round(");
+        try self.emitFmt("break :__m{d}_round @round(", .{id});
         try emitFloatExpr(self, obj);
         try self.emit(" * __mult) / __mult; }");
     }

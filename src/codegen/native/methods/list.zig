@@ -87,23 +87,23 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Check element type of list
     // Both .pyvalue and .unknown map to runtime.PyValue in Zig code (see core.zig:toZigType)
-    const elem_is_pyvalue = blk: {
+    const elem_is_pyvalue = pyvalue: {
         if (container_traits.isList(list_type)) {
             const elem_type = list_type.list.*;
             const elem_tag = @as(std.meta.Tag(@TypeOf(elem_type)), elem_type);
-            break :blk (elem_tag == .pyvalue or elem_tag == .unknown);
+            break :pyvalue (elem_tag == .pyvalue or elem_tag == .unknown);
         }
-        break :blk false;
+        break :pyvalue false;
     };
 
     // Check if list expects PyCallable elements (for callable lists like [bytes, str, lambda: ...])
-    const elem_is_callable = blk: {
+    const elem_is_callable = callable: {
         if (container_traits.isList(list_type)) {
             const elem_type = list_type.list.*;
             const type_traits = @import("../../../analysis/traits/type_traits.zig");
-            break :blk type_traits.isCallable(elem_type);
+            break :callable type_traits.isCallable(elem_type);
         }
-        break :blk false;
+        break :callable false;
     };
 
     // Check if the item being appended is a lambda expression or a lambda variable
@@ -126,9 +126,10 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                try self.emit("callable_blk: { const __callable_temp = ");
+                const id = self.nextNameId();
+                try self.emitFmt("__m{d}_callable: {{ const __callable_temp = ", .{id});
                 try self.genExpr(args[0]);
-                try self.emit("; break :callable_blk runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }");
+                try self.emitFmt("; break :__m{d}_callable runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }}", .{id});
             } else {
                 try self.genExpr(args[0]);
             }
@@ -146,9 +147,10 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                try self.emit("callable_blk: { const __callable_temp = ");
+                const id = self.nextNameId();
+                try self.emitFmt("__m{d}_callable: {{ const __callable_temp = ", .{id});
                 try self.genExpr(args[0]);
-                try self.emit("; break :callable_blk runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }");
+                try self.emitFmt("; break :__m{d}_callable runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }}", .{id});
             } else {
                 try self.genExpr(args[0]);
             }
@@ -169,9 +171,10 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                try self.emit("callable_blk: { const __callable_temp = ");
+                const id = self.nextNameId();
+                try self.emitFmt("__m{d}_callable: {{ const __callable_temp = ", .{id});
                 try self.genExpr(args[0]);
-                try self.emit("; break :callable_blk runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }");
+                try self.emitFmt("; break :__m{d}_callable runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }}", .{id});
             } else {
                 try self.genExpr(args[0]);
             }
@@ -189,9 +192,10 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                try self.emit("callable_blk: { const __callable_temp = ");
+                const id = self.nextNameId();
+                try self.emitFmt("__m{d}_callable: {{ const __callable_temp = ", .{id});
                 try self.genExpr(args[0]);
-                try self.emit("; break :callable_blk runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }");
+                try self.emitFmt("; break :__m{d}_callable runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }}", .{id});
             } else {
                 try self.genExpr(args[0]);
             }
@@ -275,13 +279,13 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         }
     } else {
         // Check if argument might have __iter__ instead of .items
-        const might_have_iter = blk: {
+        const might_have_iter = iter: {
             // Check if it's a class instance call like BadLen()
             if (arg == .call and arg.call.func.* == .name) {
                 const func_name = arg.call.func.name.id;
                 // Class constructors start with uppercase
                 if (func_name.len > 0 and func_name[0] >= 'A' and func_name[0] <= 'Z') {
-                    break :blk true;
+                    break :iter true;
                 }
             }
             // Check if it's a variable that's a class instance
@@ -290,11 +294,11 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
                 if (self.getVarType(var_name)) |vt| {
                     const type_traits = @import("../../../analysis/traits/type_traits.zig");
                     if (type_traits.isClassInstance(vt)) {
-                        break :blk true;
+                        break :iter true;
                     }
                 }
             }
-            break :blk false;
+            break :iter false;
         };
 
         if (might_have_iter) {
@@ -475,9 +479,10 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
         // std.AutoHashMap.clone() and std.HashMap.clone() take no arguments
         // (they use the allocator stored internally)
         if (needsTempVariable(obj)) {
-            try self.emit("blk: { const __list_temp = ");
+            const id = self.nextNameId();
+            try self.emitFmt("__m{d}_copy: {{ const __list_temp = ", .{id});
             try self.genExpr(obj);
-            try self.emit("; break :blk try __list_temp.clone(); }");
+            try self.emitFmt("; break :__m{d}_copy try __list_temp.clone(); }}", .{id});
         } else {
             try self.emit("try ");
             try emitObjExpr(self, obj);
@@ -486,9 +491,10 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     } else {
         // ArrayList.clone() requires allocator argument
         if (needsTempVariable(obj)) {
-            try self.emit("blk: { const __list_temp = ");
+            const id = self.nextNameId();
+            try self.emitFmt("__m{d}_copy: {{ const __list_temp = ", .{id});
             try self.genExpr(obj);
-            try self.emit("; break :blk try __list_temp.clone(__global_allocator); }");
+            try self.emitFmt("; break :__m{d}_copy try __list_temp.clone(__global_allocator); }}", .{id});
         } else {
             try self.emit("try ");
             try emitObjExpr(self, obj);

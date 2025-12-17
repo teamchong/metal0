@@ -37,7 +37,8 @@ fn emitStringExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 /// Two-Flow: Extracts filename string from PyValue if uncertain
 pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
-        try self.emit("(blk_open: { @panic(\"open() requires at least 1 argument\"); })");
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_open: {{ @panic(\"open() requires at least 1 argument\"); }})", .{id});
         return;
     }
 
@@ -59,7 +60,8 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Generate Zig code for file opening
     // Use a wrapper struct that provides Python-like file API
-    try self.emit("blk: {\n");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_open: {{\n", .{id});
     try self.emitIndent();
     try self.emit("    const __filename = ");
     // Two-Flow: Extract string from PyValue if filename is uncertain
@@ -78,7 +80,7 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     try self.emitIndent();
-    try self.emit("    break :blk try runtime.PyFile.create(__global_allocator, __file, ");
+    try self.emitFmt("    break :__m{d}_open try runtime.PyFile.create(__global_allocator, __file, ", .{id});
     if (mode) |m| {
         // Two-Flow: Extract string from PyValue if mode is uncertain
         try emitStringExpr(self, m);
@@ -94,7 +96,8 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: Extracts prompt string from PyValue if uncertain
 pub fn genInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 1) {
-        try self.emit("(blk_input: { @panic(\"input() takes at most 1 argument\"); })");
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_input: {{ @panic(\"input() takes at most 1 argument\"); }})", .{id});
         return;
     }
     try self.emit("runtime.builtins.input(__global_allocator, ");
@@ -184,7 +187,8 @@ pub fn genPrintWithKeywords(self: *NativeCodegen, args: []ast.Node, keyword_args
 /// Returns an async iterator object
 pub fn genAiter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("(blk_aiter: { @panic(\"aiter() takes exactly one argument\"); })");
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_aiter: {{ @panic(\"aiter() takes exactly one argument\"); }})", .{id});
         return;
     }
     // For now, just return the object (which should have __aiter__)
@@ -195,7 +199,8 @@ pub fn genAiter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Returns the next item from async iterator
 pub fn genAnext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("(blk_anext: { @panic(\"anext() missing required argument\"); })");
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_anext: {{ @panic(\"anext() missing required argument\"); }})", .{id});
         return;
     }
     // For now, call __anext__ on the object
@@ -212,7 +217,8 @@ pub fn genAnext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// In AOT, we just pass through since decoration is handled elsewhere
 pub fn genStaticmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("(blk_staticmethod: { @panic(\"staticmethod requires an argument\"); })");
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_staticmethod: {{ @panic(\"staticmethod requires an argument\"); }})", .{id});
         return;
     }
     try self.genExpr(args[0]);
@@ -222,7 +228,8 @@ pub fn genStaticmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 /// In AOT, we just pass through since decoration is handled elsewhere
 pub fn genClassmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("(blk_classmethod: { @panic(\"classmethod requires an argument\"); })");
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_classmethod: {{ @panic(\"classmethod requires an argument\"); }})", .{id});
         return;
     }
     try self.genExpr(args[0]);
