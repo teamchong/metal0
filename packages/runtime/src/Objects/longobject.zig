@@ -101,7 +101,7 @@ pub fn computePowers(allocator: Allocator, w: i64, base: i64, more_than: i64, ne
 
     var ws = std.ArrayList(i64){};
     defer ws.deinit(allocator);
-    ws.append(allocator, w) catch {};
+    ws.append(allocator, w) catch unreachable;
 
     // Phase 1: Determine which exponents are needed
     while (ws.items.len > 0) {
@@ -115,9 +115,9 @@ pub fn computePowers(allocator: Allocator, w: i64, base: i64, more_than: i64, ne
         const hi = curr_w - lo;
         const which = if (need_hi) hi else lo;
         need.put(which, {}) catch {};
-        ws.append(allocator, which) catch {};
+        ws.append(allocator, which) catch unreachable;
         if (lo != hi) {
-            ws.append(allocator, curr_w - which) catch {};
+            ws.append(allocator, curr_w - which) catch unreachable;
         }
     }
 
@@ -131,7 +131,7 @@ pub fn computePowers(allocator: Allocator, w: i64, base: i64, more_than: i64, ne
     // Copy need to cands
     var need_iter = need.keyIterator();
     while (need_iter.next()) |key| {
-        cands.append(allocator, key.*) catch {};
+        cands.append(allocator, key.*) catch unreachable;
     }
 
     while (cands.items.len > 0) {
@@ -155,7 +155,7 @@ pub fn computePowers(allocator: Allocator, w: i64, base: i64, more_than: i64, ne
         };
         if (lo > more_than and !in_cands) {
             extra.put(lo, {}) catch {};
-            cands.append(allocator, lo) catch {};
+            cands.append(allocator, lo) catch unreachable;
         }
     }
 
@@ -165,11 +165,11 @@ pub fn computePowers(allocator: Allocator, w: i64, base: i64, more_than: i64, ne
 
     var need_iter2 = need.keyIterator();
     while (need_iter2.next()) |key| {
-        all_exponents.append(allocator, key.*) catch {};
+        all_exponents.append(allocator, key.*) catch unreachable;
     }
     var extra_iter = extra.keyIterator();
     while (extra_iter.next()) |key| {
-        all_exponents.append(allocator, key.*) catch {};
+        all_exponents.append(allocator, key.*) catch unreachable;
     }
 
     // Sort
