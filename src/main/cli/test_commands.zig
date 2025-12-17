@@ -810,8 +810,16 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                     // Track compile failures
                     ctx.failed_mutex.lock();
                     defer ctx.failed_mutex.unlock();
-                    const name_copy = ctx.allocator.dupe(u8, test_name) catch continue;
-                    ctx.failed_tests.append(ctx.allocator, .{ .name = name_copy, .status = .compile_fail }) catch {};
+                    const name_copy = ctx.allocator.dupe(u8, test_name) catch {
+                        printError("CRITICAL: Failed to allocate memory for compile-fail test name '{s}'\n", .{test_name});
+                        std.process.exit(1);
+                    };
+                    ctx.failed_tests.append(ctx.allocator, .{ .name = name_copy, .status = .compile_fail }) catch |err| {
+                        printError("CRITICAL: Failed to record compilation failure for test '{s}': {}\n", .{test_name, err});
+                        printError("Test failure tracking is broken - CI may report incorrect results.\n", .{});
+                        // Don't continue - we need to know about this failure
+                        std.process.exit(1);
+                    };
                     continue;
                 };
 
@@ -827,8 +835,15 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                         // Track timeouts
                         ctx.failed_mutex.lock();
                         defer ctx.failed_mutex.unlock();
-                        const name_copy = ctx.allocator.dupe(u8, test_name) catch continue;
-                        ctx.failed_tests.append(ctx.allocator, .{ .name = name_copy, .status = .timeout }) catch {};
+                        const name_copy = ctx.allocator.dupe(u8, test_name) catch {
+                            printError("CRITICAL: Failed to allocate memory for timeout test name '{s}'\n", .{test_name});
+                            std.process.exit(1);
+                        };
+                        ctx.failed_tests.append(ctx.allocator, .{ .name = name_copy, .status = .timeout }) catch |err| {
+                            printError("CRITICAL: Failed to record timeout for test '{s}': {}\n", .{test_name, err});
+                            printError("Test failure tracking is broken - CI may report incorrect results.\n", .{});
+                            std.process.exit(1);
+                        };
                     },
                     .failed => {
                         _ = ctx.run_fail.fetchAdd(1, .seq_cst);
@@ -836,8 +851,15 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                         // Track failures
                         ctx.failed_mutex.lock();
                         defer ctx.failed_mutex.unlock();
-                        const name_copy = ctx.allocator.dupe(u8, test_name) catch continue;
-                        ctx.failed_tests.append(ctx.allocator, .{ .name = name_copy, .status = .failed }) catch {};
+                        const name_copy = ctx.allocator.dupe(u8, test_name) catch {
+                            printError("CRITICAL: Failed to allocate memory for failed test name '{s}'\n", .{test_name});
+                            std.process.exit(1);
+                        };
+                        ctx.failed_tests.append(ctx.allocator, .{ .name = name_copy, .status = .failed }) catch |err| {
+                            printError("CRITICAL: Failed to record failure for test '{s}': {}\n", .{test_name, err});
+                            printError("Test failure tracking is broken - CI may report incorrect results.\n", .{});
+                            std.process.exit(1);
+                        };
                     },
                 }
             }
