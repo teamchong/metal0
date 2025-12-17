@@ -150,7 +150,8 @@ fn genGetcwd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("os_listdir_blk: { ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_listdir: {{ ", .{id});
     if (args.len >= 1) {
         try self.emit("const _dir_path = ");
         try self.genExpr(args[0]);
@@ -158,16 +159,17 @@ fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     } else {
         try self.emit("const _dir_path = \".\"; ");
     }
-    try self.emit("var _entries: std.ArrayListUnmanaged([]const u8) = .{}; var _dir = std.fs.cwd().openDir(_dir_path, .{ .iterate = true }) catch break :os_listdir_blk _entries; defer _dir.close(); var _iter = _dir.iterate(); while (_iter.next() catch null) |entry| { const _name = __global_allocator.dupe(u8, entry.name) catch continue; _entries.append(__global_allocator, _name) catch continue; } break :os_listdir_blk _entries; }");
+    try self.emitFmt("var _entries: std.ArrayListUnmanaged([]const u8) = .{{}}; var _dir = std.fs.cwd().openDir(_dir_path, .{{ .iterate = true }}) catch break :__m{d}_listdir _entries; defer _dir.close(); var _iter = _dir.iterate(); while (_iter.next() catch null) |entry| {{ const _name = __global_allocator.dupe(u8, entry.name) catch continue; _entries.append(__global_allocator, _name) catch continue; }} break :__m{d}_listdir _entries; }}", .{ id, id });
 }
 
 fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // os.getenv() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
+    const id = self.nextNameId();
     // Note: std.posix.getenv unavailable on Windows - use comptime check
-    try self.emit("os_getenv_blk: { const _key = ");
+    try self.emitFmt("__m{d}_getenv: {{ const _key = ", .{id});
     try self.genExpr(args[0]);
-    try self.emit("; _ = _key; break :os_getenv_blk if (comptime @import(\"builtin\").os.tag == .windows) @as(?[]const u8, ");
+    try self.emitFmt("; _ = _key; break :__m{d}_getenv if (comptime @import(\"builtin\").os.tag == .windows) @as(?[]const u8, ", .{id});
     if (args.len >= 2) {
         try self.genExpr(args[1]);
     } else {
@@ -185,11 +187,12 @@ fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // os.rename() requires 2 arguments
     if (args.len < 2) return error.UnsupportedSyntax;
-    try self.emit("os_rename_blk: { const _old = ");
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_rename: {{ const _old = ", .{id});
     try self.genExpr(args[0]);
     try self.emit("; const _new = ");
     try self.genExpr(args[1]);
-    try self.emit("; std.fs.cwd().rename(_old, _new) catch {}; break :os_rename_blk {}; }");
+    try self.emitFmt("; std.fs.cwd().rename(_old, _new) catch {{}}; break :__m{d}_rename {{}}; }}", .{id});
 }
 
 fn genStat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
