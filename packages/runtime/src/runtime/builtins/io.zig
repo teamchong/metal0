@@ -13,7 +13,7 @@ const PyBytes = repr.PyBytes;
 /// input([prompt]) - read line from stdin
 pub fn input(allocator: std.mem.Allocator, prompt: []const u8) []const u8 {
     if (prompt.len > 0) {
-        _ = std.posix.write(std.posix.STDOUT_FILENO, prompt) catch {};
+        _ = std.posix.write(std.posix.STDOUT_FILENO, prompt) catch unreachable;
     }
 
     const stdin_file = std.fs.File{ .handle = std.posix.STDIN_FILENO };
