@@ -87,7 +87,7 @@ pub fn printWithOptions(
 
     // Write to file or stdout
     const handle = if (file) |f| f.handle else std.posix.STDOUT_FILENO;
-    _ = std.posix.write(handle, output.items) catch {};
+    _ = std.posix.write(handle, output.items) catch unreachable;
 }
 
 fn printValueToList(output: *std.ArrayListUnmanaged(u8), value: anytype, allocator: std.mem.Allocator) void {
