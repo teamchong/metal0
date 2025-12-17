@@ -149,13 +149,17 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, _: [
 
     // Build call graph for unified function analysis
     if (tree == .module) {
+        std.debug.print("  Building call graph for module: {s}\n", .{module_path});
         try codegen.buildCallGraph(tree.module);
+        std.debug.print("  Call graph built for module: {s}\n", .{module_path});
     }
 
+    std.debug.print("  Generating Zig code for module: {s}\n", .{module_path});
     const zig_code = if (tree == .module)
         try codegen.generate(tree.module)
     else
         return error.InvalidAST;
+    std.debug.print("  Zig code generation complete for module: {s}\n", .{module_path});
     // zig_code allocated by arena - no defer needed
 
     // Save to project .metal0 directory (or source-relative if no project)
@@ -292,8 +296,9 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
             }
 
             _ = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer, &mod_registry) catch |err| {
-                std.debug.print("Warning: Could not pre-compile module {s}: {}\n", .{ module_name, err });
-                continue;
+                std.debug.print("ERROR: Failed to pre-compile module '{s}': {}\n", .{ module_name, err });
+                std.debug.print("  This module is required but could not be compiled.\n", .{});
+                return err;
             };
         }
     }
@@ -303,23 +308,32 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
     // PHASE 5: Native Codegen - Generate native Zig code (no PyObject overhead)
     std.debug.print("Generating native Zig code...\n", .{});
     var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    std.debug.print("NativeCodegen.init() completed\n", .{});
     defer native_gen.deinit();
 
     // Copy module traits from pre-compilation phase to native_gen
     // This allows call sites to lookup function traits for proper codegen
+    std.debug.print("Copying module registry...\n", .{});
     for (mod_registry.modules.keys()) |mod_name| {
         if (mod_registry.modules.get(mod_name)) |mod_info| {
             try native_gen.module_registry.registerModule(mod_name, mod_info);
         }
     }
+    std.debug.print("Module registry copied.\n", .{});
 
     // Pass import context to codegen
+    std.debug.print("Setting import context...\n", .{});
     native_gen.setImportContext(&import_ctx);
+    std.debug.print("Import context set.\n", .{});
 
     // Build call graph for unified function analysis
+    std.debug.print("Building call graph...\n", .{});
     try native_gen.buildCallGraph(tree.module);
+    std.debug.print("Call graph built.\n", .{});
 
+    std.debug.print("Generating Zig code...\n", .{});
     const zig_code = try native_gen.generate(tree.module);
+    std.debug.print("Zig code generated.\n", .{});
 
     // Native codegen always produces binaries (not shared libraries)
     std.debug.print("Compiling to native binary...\n", .{});
@@ -387,7 +401,9 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
             if (std.fs.cwd().access(local_path, .{})) |_| {
                 // Compile as module (with pub functions)
                 compileModule(aa, local_path, module_name) catch |err| {
-                    std.debug.print("Warning: Failed to compile local module {s}: {}\n", .{ module_name, err });
+                    std.debug.print("ERROR: Failed to compile local module '{s}': {}\n", .{ module_name, err });
+                    std.debug.print("  File: {s}\n", .{local_path});
+                    return err;
                 };
             } else |_| {}
         }
@@ -398,14 +414,24 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
     _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 1);
 
     // Type inference
+    std.debug.print("Type inference...\n", .{});
     var type_inferrer = try native_types.TypeInferrer.init(aa);
     try type_inferrer.analyze(tree.module);
+    std.debug.print("Type inference done.\n", .{});
 
     // Codegen
+    std.debug.print("Initializing codegen...\n", .{});
     var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    std.debug.print("Codegen initialized.\n", .{});
     defer native_gen.deinit();
+
+    std.debug.print("Building call graph...\n", .{});
     try native_gen.buildCallGraph(tree.module);
+    std.debug.print("Call graph built.\n", .{});
+
+    std.debug.print("Generating Zig code...\n", .{});
     const zig_code = try native_gen.generate(tree.module);
+    std.debug.print("Zig code generated successfully.\n", .{});
 
     // Write .zig file to project .metal0 directory (or source-relative if no project)
     const zig_path = if (project_root) |root|
@@ -535,25 +561,37 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         const module_info = entry.value_ptr.*;
 
         // Skip the main file itself
-        if (std.mem.eql(u8, module_path, opts.input_file)) continue;
+        if (std.mem.eql(u8, module_path, opts.input_file)) {
+            std.debug.print("  Skipping main file: {s}\n", .{module_path});
+            continue;
+        }
 
         // Compile module using the proper module name
         std.debug.print("  Compiling module: {s} (as {s})\n", .{ module_path, module_info.module_name });
+        std.debug.print("  Calling compileModule()...\n", .{});
         compileModule(aa, module_path, module_info.module_name) catch |err| {
-            std.debug.print("  Warning: Failed to compile module {s}: {}\n", .{ module_path, err });
-            continue;
+            std.debug.print("ERROR: Failed to compile imported module '{s}': {}\n", .{ module_path, err });
+            std.debug.print("  Module name: {s}\n", .{module_info.module_name});
+            return err;
         };
+        std.debug.print("  compileModule() returned successfully for {s}\n", .{module_path});
     }
+    std.debug.print("Module compilation loop complete.\n", .{});
 
     // PHASE 2.5: C Library Import Detection
+    std.debug.print("Phase 2.5: C Library Import Detection...\n", .{});
     var import_ctx = c_interop.ImportContext.init(aa);
     try utils.detectImports(&import_ctx, tree);
+    std.debug.print("Phase 2.5 complete.\n", .{});
 
     // PHASE 3: Semantic Analysis - Analyze variable lifetimes and mutations
+    std.debug.print("Phase 3: Semantic Analysis...\n", .{});
     var semantic_info = semantic_types.SemanticInfo.init(aa);
     _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 1);
+    std.debug.print("Phase 3 complete.\n", .{});
 
     // PHASE 4: Type Inference - Infer native Zig types
+    std.debug.print("Phase 4: Type Inference...\n", .{});
     std.debug.print("Inferring types...\n", .{});
     var type_inferrer = try native_types.TypeInferrer.init(aa);
 
@@ -662,6 +700,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // PHASE 5: Native Codegen - Generate native Zig code (no PyObject overhead)
     std.debug.print("Generating native Zig code...\n", .{});
     var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    std.debug.print("NativeCodegen.init() completed\n", .{});
     defer native_gen.deinit();
 
     // Copy module traits from pre-compilation phase to native_gen
@@ -697,9 +736,13 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     }
 
     // Build call graph for unified function analysis (before codegen)
+    std.debug.print("compileFile: Building call graph...\n", .{});
     try native_gen.buildCallGraph(tree.module);
+    std.debug.print("compileFile: Call graph built.\n", .{});
 
+    std.debug.print("compileFile: Generating Zig code...\n", .{});
     const zig_code = try native_gen.generate(tree.module);
+    std.debug.print("compileFile: Zig code generated successfully.\n", .{});
 
     // Get C libraries collected during import processing
     const c_libs = try native_gen.c_libraries.toOwnedSlice(aa);

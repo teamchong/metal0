@@ -1118,7 +1118,9 @@ pub const NativeCodegen = struct {
     /// Build call graph from module AST for unified function analysis
     /// Call this once before generate() to enable traits-based codegen decisions
     pub fn buildCallGraph(self: *NativeCodegen, module: ast.Node.Module) !void {
+        std.debug.print("buildCallGraph() starting...\n", .{});
         self.call_graph = try function_traits.buildCallGraph(module, self.allocator);
+        std.debug.print("buildCallGraph() completed.\n", .{});
     }
 
     /// Query: Should function use state machine async? (has I/O await)

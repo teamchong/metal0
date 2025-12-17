@@ -33,31 +33,44 @@ const UTILS_PREFIX = "utils.";      // For utils.hashmap_helper, utils.allocator
 
 /// Generate native Zig code for module
 pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
+    std.debug.print("generate(): Starting...\n", .{});
+
     // PHASE 1: Analyze module to determine requirements
+    std.debug.print("generate(): Phase 1 - Analyzing module...\n", .{});
     const analysis = try analyzer.analyzeModule(module, self.allocator);
     defer if (analysis.global_vars.len > 0) self.allocator.free(analysis.global_vars);
+    std.debug.print("generate(): Phase 1 complete.\n", .{});
 
     // PHASE 1.1: Build call graph for function trait analysis (error handling, allocator needs, etc.)
+    std.debug.print("generate(): Phase 1.1 - Building call graph...\n", .{});
     try self.buildCallGraph(module);
+    std.debug.print("generate(): Phase 1.1 complete.\n", .{});
 
     // Pre-register global variables so they can be detected during method generation
     // This prevents local variables with the same name from shadowing module-level vars
+    std.debug.print("generate(): Registering {d} global vars...\n", .{analysis.global_vars.len});
     for (analysis.global_vars) |var_name| {
         try self.markGlobalVar(var_name);
     }
+    std.debug.print("generate(): Global vars registered.\n", .{});
 
     // PHASE 1.5: Get source file directory for import resolution
+    std.debug.print("generate(): Phase 1.5 - Getting source file directory...\n", .{});
     const source_file_dir = if (self.source_file_path) |path|
         try import_resolver.getFileDirectory(path, self.allocator)
     else
         null;
     defer if (source_file_dir) |dir| self.allocator.free(dir);
+    std.debug.print("generate(): Phase 1.5 complete.\n", .{});
 
     // PHASE 1.6: Collect imports and compile imported modules as inlined structs
+    std.debug.print("generate(): Phase 1.6 - Collecting imports...\n", .{});
     var imported_modules = try imports.collectImports(self, module, source_file_dir);
     defer imported_modules.deinit(self.allocator);
+    std.debug.print("generate(): Phase 1.6 complete - {d} imports collected.\n", .{imported_modules.items.len});
 
     // Store compiled module structs for later emission
+    std.debug.print("generate(): Initializing inlined_modules list...\n", .{});
     var inlined_modules = std.ArrayList([]const u8){};
     defer {
         for (inlined_modules.items) |code| self.allocator.free(code);
@@ -66,10 +79,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // Generate @import() statements for compiled modules
     // Track which root modules have been imported to avoid duplicates
+    std.debug.print("generate(): Initializing imported_roots map...\n", .{});
     var imported_roots = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer imported_roots.deinit();
 
-    for (imported_modules.items) |mod_name| {
+    std.debug.print("generate(): Processing {d} imported modules...\n", .{imported_modules.items.len});
+    for (imported_modules.items, 0..) |mod_name, i| {
+        std.debug.print("generate():   Processing import {d}/{d}: {s}\n", .{i+1, imported_modules.items.len, mod_name});
         // Extract root module name from dotted path (e.g., "test.support" -> "test")
         const root_mod_name = if (std.mem.indexOfScalar(u8, mod_name, '.')) |dot_idx|
             mod_name[0..dot_idx]

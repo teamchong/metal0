@@ -216,8 +216,9 @@ fn compileModuleAsStructWithPrefix(
 
             const submod_struct = compileModuleAsStructWithPrefix(submod_name, submod_prefix, pkg_info.package_dir, allocator, // Recursive call uses base allocator for return value
                 main_type_inferrer, main_module_registry) catch |err| {
-                std.debug.print("Warning: Could not compile submodule {s}.{s}: {}\n", .{ module_name, submod_name, err });
-                continue;
+                std.debug.print("ERROR: Failed to compile submodule '{s}.{s}': {}\n", .{ module_name, submod_name, err });
+                std.debug.print("  Submodules are required for the parent module to work.\n", .{});
+                return err;
             };
             defer allocator.free(submod_struct); // Free recursive call's return value
 
