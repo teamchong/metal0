@@ -109,12 +109,12 @@ pub fn computePowers(allocator: Allocator, w: i64, base: i64, more_than: i64, ne
         if (curr_w <= more_than or seen.contains(curr_w)) {
             continue;
         }
-        seen.put(curr_w, {}) catch {};
+        seen.put(curr_w, {}) catch unreachable;
 
         const lo = @divFloor(curr_w, 2);
         const hi = curr_w - lo;
         const which = if (need_hi) hi else lo;
-        need.put(which, {}) catch {};
+        need.put(which, {}) catch unreachable;
         ws.append(allocator, which) catch unreachable;
         if (lo != hi) {
             ws.append(allocator, curr_w - which) catch unreachable;
@@ -154,7 +154,7 @@ pub fn computePowers(allocator: Allocator, w: i64, base: i64, more_than: i64, ne
             break :blk false;
         };
         if (lo > more_than and !in_cands) {
-            extra.put(lo, {}) catch {};
+            extra.put(lo, {}) catch unreachable;
             cands.append(allocator, lo) catch unreachable;
         }
     }
@@ -193,7 +193,7 @@ pub fn computePowers(allocator: Allocator, w: i64, base: i64, more_than: i64, ne
         } else {
             result = std.math.pow(i64, base, @intCast(n));
         }
-        d.put(n, result) catch {};
+        d.put(n, result) catch unreachable;
     }
 
     // Build result dict with only needed exponents
@@ -201,7 +201,7 @@ pub fn computePowers(allocator: Allocator, w: i64, base: i64, more_than: i64, ne
     var need_iter3 = need.keyIterator();
     while (need_iter3.next()) |key| {
         if (d.get(key.*)) |val| {
-            result_dict.put(key.*, val) catch {};
+            result_dict.put(key.*, val) catch unreachable;
         }
     }
 
