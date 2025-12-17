@@ -464,18 +464,18 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
         try self.emit(", void).init(__global_allocator);\n");
     }
 
-    // Add each element (use catch unreachable since allocation failures are rare)
+    // Add each element (use try for error handling)
     for (set_node.elts) |elem| {
         try self.emitIndent();
         if (is_float) {
             // Convert float to bits for hashing
-            try self.emit("_set.put(@bitCast(");
+            try self.emit("try _set.put(@bitCast(");
             try genExpr(self, elem);
-            try self.emit("), {}) catch unreachable;\n");
+            try self.emit("), {});\n");
         } else {
-            try self.emit("_set.put(");
+            try self.emit("try _set.put(");
             try genExpr(self, elem);
-            try self.emit(", {}) catch unreachable;\n");
+            try self.emit(", {});\n");
         }
     }
 
