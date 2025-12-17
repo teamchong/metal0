@@ -215,6 +215,7 @@ const non_subclassable_types = std.StaticStringMap(void).initComptime(.{
 });
 
 pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!void {
+    std.debug.print("genClassDef: START processing class '{s}'\n", .{class.name});
 
     // Check for non-subclassable types (bool, NoneType, etc.)
     // These must raise TypeError at runtime, not compile time, because the class
@@ -446,10 +447,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Only register classes defined at module level - classes inside functions
     // are not directly accessible and must be discovered through module-level bindings
     if (is_unittest_class and self.current_function_name == null) {
+        std.debug.print("genClassDef: Processing unittest class '{s}'\n", .{class.name});
         const core = @import("../../main/core.zig");
         var test_methods = std.ArrayList(core.TestMethodInfo){};
         // Build class_names_list ONCE per class (not per method) - PERFORMANCE OPTIMIZATION
         // This avoids iterating through all registered classes 15+ times for large test classes
+        std.debug.print("genClassDef: Building class_names_list...\n", .{});
         var class_names_list: std.ArrayList([]const u8) = .{};
         defer class_names_list.deinit(self.allocator);
         var classes_iter = self.class_registry.classes.iterator();
@@ -457,16 +460,19 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             try class_names_list.append(self.allocator, entry.key_ptr.*);
         }
         const class_names = class_names_list.items;
+        std.debug.print("genClassDef: Built class_names_list with {d} classes\n", .{class_names.len});
 
         var has_setUp = false;
         var has_tearDown = false;
         var has_setup_class = false;
         var has_teardown_class = false;
-        for (class.body) |stmt| {
+        std.debug.print("genClassDef: Scanning {d} class body statements for test methods...\n", .{class.body.len});
+        for (class.body, 0..) |stmt, idx| {
             if (stmt == .function_def) {
                 const method = stmt.function_def;
                 const method_name = method.name;
                 if (std.mem.startsWith(u8, method_name, "test_") or std.mem.startsWith(u8, method_name, "test")) {
+                    std.debug.print("genClassDef:   Processing test method {d}: {s}\n", .{idx, method_name});
 
                     // Check if method body has fallible operations (needs allocator param)
                     const method_needs_allocator = function_traits.analyzeNeedsAllocator(method, class.name);
@@ -554,6 +560,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 }
             }
         }
+        std.debug.print("genClassDef: Test method scan complete, appending TestClassInfo...\n", .{});
         try self.unittest_classes.append(self.allocator, core.TestClassInfo{
             .class_name = class.name,
             .test_methods = try test_methods.toOwnedSlice(self.allocator),
@@ -562,8 +569,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             .has_setup_class = has_setup_class,
             .has_teardown_class = has_teardown_class,
         });
+        std.debug.print("genClassDef: TestClassInfo appended successfully\n", .{});
     }
 
+    std.debug.print("genClassDef: Starting class body generation...\n", .{});
     // Track class nesting depth for allocator parameter naming
     self.class_nesting_depth += 1;
     defer self.class_nesting_depth -= 1;
@@ -611,12 +620,15 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // OR when inside a nested class (class_nesting_depth > 1)
     // This handles: 1) classes inside functions, 2) classes inside classes
     const needs_save_restore = self.func_local_uses.count() > 0 or self.class_nesting_depth > 1;
+    std.debug.print("genClassDef: needs_save_restore = {}\n", .{needs_save_restore});
     if (needs_save_restore) {
+        std.debug.print("genClassDef: Saving state (copying hashmaps)...\n", .{});
         // Copy current func_local_uses
         var it = self.func_local_uses.iterator();
         while (it.next()) |entry| {
             try saved_func_local_uses.put(entry.key_ptr.*, {});
         }
+        std.debug.print("genClassDef:   Copied func_local_uses\n", .{});
 
         // Copy current func_local_mutations
         var mut_it = self.func_local_mutations.iterator();
@@ -659,8 +671,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         while (hv_it.next()) |entry| {
             try saved_hoisted_vars.put(entry.key_ptr.*, {});
         }
+        std.debug.print("genClassDef: State save complete\n", .{});
     }
 
+    std.debug.print("genClassDef: Checking method nesting depth...\n", .{});
     // If we're entering a class while inside a method with 'self',
     // increment method_nesting_depth so nested class methods use __self
     const bump_method_depth = self.inside_method_with_self;
@@ -669,18 +683,24 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         self.method_nesting_depth -= 1;
     };
 
+    std.debug.print("genClassDef: Checking for captured vars...\n", .{});
     // Check if this class captures outer mutable variables
     // If this class doesn't have captures but inherits from a parent that does,
     // and this class doesn't override the methods that use those captures,
     // then we need to inherit the parent's captures
     var captured_vars = self.nested_class_captures.get(class.name);
+    std.debug.print("genClassDef:   captured_vars for '{s}' = {}\n", .{class.name, captured_vars != null});
     if (captured_vars == null and class.bases.len > 0) {
+        std.debug.print("genClassDef:   Checking parent '{s}' for captures...\n", .{class.bases[0]});
         // Check if parent has captures that we need to inherit
         const parent_captures_opt = self.nested_class_captures.get(class.bases[0]);
+        std.debug.print("genClassDef:   parent_captures_opt = {}\n", .{parent_captures_opt != null});
         if (parent_captures_opt) |parent_captures| {
+            std.debug.print("genClassDef:   Parent has captures, checking parent def...\n", .{});
             // Check if we inherit methods that use the captures (i.e., we don't override them)
             // by checking if parent has methods that child doesn't have
             const parent_def = self.nested_class_defs.get(class.bases[0]);
+            std.debug.print("genClassDef:   parent_def = {}\n", .{parent_def != null});
             if (parent_def) |parent| {
                 // Build list of child method names
                 var has_methods_using_captures = false;
@@ -712,7 +732,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             }
         }
     }
+    std.debug.print("genClassDef: Captured vars check complete\n", .{});
 
+    std.debug.print("genClassDef: Generating unique class name...\n", .{});
     // Generate unique class name if this name is already declared in current scope
     // This handles Python's ability to redefine a class name in the same function:
     // class S(str): def __add__(self, o): return "3"
@@ -721,8 +743,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // ALSO: In Zig, local constants can't shadow module-level constants. So if we're
     // inside a function and there's a module-level class with the same name, rename local.
     var effective_class_name: []const u8 = class.name;
+    std.debug.print("genClassDef:   Checking shadows_module_class...\n", .{});
     const shadows_module_class = self.current_function_name != null and self.class_registry.getClass(class.name) != null;
+    std.debug.print("genClassDef:   shadows_module_class = {}\n", .{shadows_module_class});
+    std.debug.print("genClassDef:   Checking is_declared...\n", .{});
     const is_declared = self.isDeclared(class.name);
+    std.debug.print("genClassDef:   is_declared = {}\n", .{is_declared});
     if (is_declared or shadows_module_class) {
         // Generate a unique name based on pointer address
         const unique_name = try std.fmt.allocPrint(self.allocator, "{s}_{d}", .{ class.name, @intFromPtr(class.name.ptr) });
@@ -735,7 +761,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             try self.hoisted_local_classes.put(class.name, unique_name);
         }
     }
+    std.debug.print("genClassDef:   effective_class_name = '{s}'\n", .{effective_class_name});
 
+    std.debug.print("genClassDef: Scanning for lazy attrs ({d} body statements)...\n", .{class.body.len});
     // Track complex class attributes that need lazy-computed methods
     // Instead of pre-generating outside the struct (which breaks Zig scope rules),
     // we generate lazy-computed methods with threadlocal caching inside the struct.
@@ -750,7 +778,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
     var next_closure_type_idx: usize = 0;
 
-    for (class.body) |stmt| {
+    std.debug.print("genClassDef:   Starting lazy attrs loop...\n", .{});
+    for (class.body, 0..) |stmt, idx| {
+        std.debug.print("genClassDef:     Lazy attrs check {d}/{d}\n", .{idx + 1, class.body.len});
         if (stmt == .assign) {
             const assign = stmt.assign;
             if (assign.targets.len > 0 and assign.targets[0] == .name) {
@@ -850,13 +880,16 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             }
         }
     }
+    std.debug.print("genClassDef:   Lazy attrs loop complete\n", .{});
 
+    std.debug.print("genClassDef: Starting pre-hoist pass 0 (scanning {d} body statements for nested classes)...\n", .{class.body.len});
     // Pre-hoist pass 0: Generate class-body-level nested classes at FILE LEVEL
     // These must be generated BEFORE the parent struct so they can be referenced from anywhere
     // e.g., class Outer: class Inner: ... (Inner needs to be accessible from child classes)
-    for (class.body) |stmt| {
+    for (class.body, 0..) |stmt, idx| {
         if (stmt == .class_def) {
             const nested_class = stmt.class_def;
+            std.debug.print("genClassDef:   Found nested class at index {d}: {s}\n", .{idx, nested_class.name});
 
             // Generate mangled name: Outer__Inner
             const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ class.name, nested_class.name });
@@ -887,7 +920,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             try self.class_registry.registerClass(mangled_name, nested_class);
         }
     }
+    std.debug.print("genClassDef: Pre-hoist pass 0 complete\n", .{});
 
+    std.debug.print("genClassDef: Emitting struct definition...\n", .{});
     // Generate: const ClassName = struct {
     // Use pub const for top-level classes in module mode so they're accessible from importers
     try self.emitIndent();
@@ -966,11 +1001,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Note: Class-body-level nested classes are now generated at file level (before struct definition)
     // See "Pre-hoist pass 0" above the struct opening for nested class generation
 
+    std.debug.print("genClassDef: Starting pre-hoist pass 1 (hoistAllLocalClassesFromMethods)...\n", .{});
     // Pre-hoist pass 1: Hoist locally-defined classes from ALL method bodies to struct level
     // This MUST happen BEFORE generating any fields or methods, because Zig requires
     // all const declarations to appear before any pub fn declarations in a struct
     try body.hoistAllLocalClassesFromMethods(self, class);
+    std.debug.print("genClassDef: Pre-hoist pass 1 complete\n", .{});
 
+    std.debug.print("genClassDef: Pre-generating closure types...\n", .{});
     // Pre-generate closure types for lazy class attributes at struct level
     // This allows us to reference these types in function signatures without relying on @TypeOf
     {
@@ -1035,7 +1073,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             }
         }
     }
+    std.debug.print("genClassDef: Closure types pre-generation complete\n", .{});
 
+    std.debug.print("genClassDef: Adding captured variable fields...\n", .{});
     // Add pointer fields for captured outer variables
     if (captured_vars) |vars| {
         try self.emitIndent();
@@ -1096,7 +1136,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
         try self.emit("\n");
     }
+    std.debug.print("genClassDef: Captured variable fields complete\n", .{});
 
+    std.debug.print("genClassDef: Adding builtin base fields...\n", .{});
     // For builtin base classes, add the base value field first
     if (builtin_base) |base_info| {
         try self.emitIndent();
@@ -1114,54 +1156,76 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             try self.output.writer(self.allocator).print("{s}: {s} = {s},\n", .{ field.name, field.zig_type, field.default });
         }
     }
+    std.debug.print("genClassDef: Builtin/complex parent fields complete\n", .{});
 
+    std.debug.print("genClassDef: Generating class fields from __init__...\n", .{});
     // Extract fields from __init__ body (self.x = ...)
     // If no __init__, extract from __new__ or parent's __init__ (since they set attributes)
     if (init_method) |init| {
+        std.debug.print("genClassDef:   Has __init__, generating fields...\n", .{});
         try body.genClassFields(self, class.name, init);
     } else if (new_method) |new| {
+        std.debug.print("genClassDef:   Has __new__, generating fields...\n", .{});
         try body.genClassFields(self, class.name, new);
     } else if (parent_class) |_| {
+        std.debug.print("genClassDef:   No __init__, checking parent...\n", .{});
         // No __init__ - recursively find __init__ in parent chain
         if (findInheritedInit(self, parent_class)) |inherited_init| {
+            std.debug.print("genClassDef:   Found inherited __init__, generating fields...\n", .{});
             try body.genClassFields(self, class.name, inherited_init);
         }
     }
+    std.debug.print("genClassDef: Class fields generation complete\n", .{});
 
+    std.debug.print("genClassDef: Generating setUp fields for unittest class...\n", .{});
     // For unittest classes, also extract fields from setUp method (without adding __dict__ again)
     if (is_unittest_class) {
         if (setUp_method) |setUp| {
+            std.debug.print("genClassDef:   Has setUp, generating fields...\n", .{});
             try body.genClassFieldsNoDict(self, class.name, setUp);
         }
     }
+    std.debug.print("genClassDef: setUp fields complete\n", .{});
 
+    std.debug.print("genClassDef: Generating class-level attribute fields...\n", .{});
     // Fix 35: Generate class-level attribute fields
     // Class attributes like `all_comp_classes = (...)` become struct fields
     try body.genClassAttributeFields(self, class.body);
+    std.debug.print("genClassDef: Class-level attribute fields complete\n", .{});
 
+    std.debug.print("genClassDef: Generating init() method...\n", .{});
+    std.debug.print("genClassDef:   init_method = {}, new_method = {}, parent_class = {}\n", .{init_method != null, new_method != null, parent_class != null});
     // Generate init() method from __init__, __new__, or inherit from parent
     // Priority: __init__ > __new__ > parent __init__ > default
     if (init_method) |init| {
+        std.debug.print("genClassDef:   Has __init__, calling genInitMethodWithBuiltinBase...\n", .{});
         try body.genInitMethodWithBuiltinBase(self, class.name, init, builtin_base, complex_parent, captured_vars, class.body);
     } else if (new_method) |new| {
+        std.debug.print("genClassDef:   Has __new__, calling genInitMethodFromNew...\n", .{});
         // No __init__ but has __new__ - use __new__'s parameters for init
         try body.genInitMethodFromNew(self, class.name, new, builtin_base, complex_parent, captured_vars, class.body);
     } else if (parent_class) |_| {
+        std.debug.print("genClassDef:   Has parent, finding inherited init...\n", .{});
         // No __init__ but has parent class - inherit parent's __init__ signature
         // Recursively search the parent chain for __init__
         const parent_init = findInheritedInit(self, parent_class);
         if (parent_init) |pinit| {
+            std.debug.print("genClassDef:   Found inherited init, calling genInitMethodWithBuiltinBase...\n", .{});
             // Use parent's __init__ signature for our init
             try body.genInitMethodWithBuiltinBase(self, class.name, pinit, builtin_base, complex_parent, captured_vars, class.body);
         } else {
+            std.debug.print("genClassDef:   No inherited init, generating default...\n", .{});
             // No __init__ in parent chain, generate default
             try body.genDefaultInitMethodWithBuiltinBase(self, class.name, builtin_base, complex_parent, captured_vars);
         }
     } else {
+        std.debug.print("genClassDef:   No __init__ or parent, generating default...\n", .{});
         // No __init__ or __new__ defined, generate default init method
         try body.genDefaultInitMethodWithBuiltinBase(self, class.name, builtin_base, complex_parent, captured_vars);
     }
+    std.debug.print("genClassDef: init() method complete\n", .{});
 
+    std.debug.print("genClassDef: Building child method names list...\n", .{});
     // Build list of child method names for override detection
     var child_method_names = std.ArrayList([]const u8){};
     defer child_method_names.deinit(self.allocator);
@@ -1170,7 +1234,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             try child_method_names.append(self.allocator, stmt.function_def.name);
         }
     }
+    std.debug.print("genClassDef: Child method names list built ({d} methods)\n", .{child_method_names.items.len});
 
+    std.debug.print("genClassDef: Checking for mutating methods...\n", .{});
     // Check if this class has any mutating methods (excluding __init__)
     // If so, track it in mutable_classes so instances use `var` not `const`
     var has_mutating_method = false;
@@ -1184,11 +1250,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             }
         }
     }
+    std.debug.print("genClassDef: Mutating methods check complete (has_mutating_method = {})\n", .{has_mutating_method});
     if (has_mutating_method) {
         const class_name_copy = try self.arena.allocator().dupe(u8, class.name);
         try self.mutable_classes.put(class_name_copy, {});
     }
 
+    std.debug.print("genClassDef: Registering builtin attributes...\n", .{});
     // Register class-level callable builtin attributes BEFORE generating methods
     // This includes type constructors (int, str) and functions (enumerate, len, range)
     // so that self.enum(...) or self.int_class(...) can be detected and handled properly
@@ -1208,12 +1276,21 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             }
         }
     }
+    std.debug.print("genClassDef: Builtin attributes registered\n", .{});
 
+    std.debug.print("genClassDef: Generating polymorphic return helpers...\n", .{});
     // Generate polymorphic return type helper functions (before methods that use them)
     try body.genPolymorphicReturnHelpers(self, class);
+    std.debug.print("genClassDef: Polymorphic return helpers complete\n", .{});
 
+    std.debug.print("genClassDef: Generating class methods ({d} methods)...\n", .{child_method_names.items.len});
     // Generate regular methods (non-__init__)
+    // NOTE: CRASH LOCATION - test_raise.py TestContext class (13 methods) causes SIGILL (exit 132)
+    // Crashes inside genClassMethods when processing one of the 13 test methods
+    // Likely test_3118 or test_3611 which have nested functions and local classes
+    // Stack overflow or infinite recursion suspected
     try body.genClassMethods(self, class, captured_vars);
+    std.debug.print("genClassDef: Class methods generation complete\n", .{});
 
     // Generate blocked __bool__/__len__ methods (when assigned to None)
     // Python: __bool__ = None or __len__ = None blocks the method from being called
