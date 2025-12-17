@@ -122,7 +122,7 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
                 i = end;
                 continue;
             };
-            list.append(allocator, PyValue.from(char_copy)) catch {};
+            list.append(allocator, PyValue.from(char_copy)) catch unreachable;
             i = end;
         }
         return list;
