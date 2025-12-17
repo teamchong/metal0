@@ -99,7 +99,7 @@ const complex_parents = std.StaticStringMap(C).initComptime(.{
         },
         .field_init = &[_]C.FieldInit{
             .{ .field_name = "typecode", .init_code = "typecode" },
-            .{ .field_name = "__array_items", .init_code = "blk: { var arr = std.ArrayList(i64){}; arr.appendSlice({alloc}, data) catch {}; break :blk arr; }" },
+            .{ .field_name = "__array_items", .init_code = "blk: { var arr = std.ArrayList(i64){}; arr.appendSlice({alloc}, data) catch unreachable; break :blk arr; }" },
         },
     } },
 });

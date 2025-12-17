@@ -89,9 +89,9 @@ pub fn genFileSeek(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
     if (args.len > 1) {
         try self.emit("const _whence: u2 = @intCast("); try self.genExpr(args[1]); try self.emit("); ");
         try self.emit("const _w: std.fs.File.SeekableStream.SeekTo = switch (_whence) { 0 => .start, 1 => .cur, 2 => .end, else => .start }; ");
-        try self.emit("_f.file.seekTo(@intCast(_offset)) catch {}; ");
+        try self.emit("_f.file.seekTo(@intCast(_offset)) catch |err| { _ = err; }; ");
     } else {
-        try self.emit("_f.file.seekTo(@intCast(_offset)) catch {}; ");
+        try self.emit("_f.file.seekTo(@intCast(_offset)) catch |err| { _ = err; }; ");
     }
     try self.emit("break :seek_blk {}; }");
 }
@@ -115,9 +115,9 @@ pub fn genFileTruncate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     try self.emit("truncate_blk: { const _f = "); try self.genExpr(obj);
     if (args.len > 0) {
         try self.emit("; const _size: u64 = @intCast("); try self.genExpr(args[0]); try self.emit("); ");
-        try self.emit("_f.file.setEndPos(_size) catch {}; ");
+        try self.emit("_f.file.setEndPos(_size) catch |err| { _ = err; }; ");
     } else {
-        try self.emit("; const _pos = _f.file.getPos() catch 0; _f.file.setEndPos(_pos) catch {}; ");
+        try self.emit("; const _pos = _f.file.getPos() catch 0; _f.file.setEndPos(_pos) catch |err| { _ = err; }; ");
     }
     try self.emit("break :truncate_blk {}; }");
 }
