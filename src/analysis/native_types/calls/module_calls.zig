@@ -60,8 +60,18 @@ pub fn inferModuleFunctionCall(
     const CTYPES_HASH = comptime fnv_hash.hash("ctypes");
     const HTTP_HASH = comptime fnv_hash.hash("http");
     const REQUESTS_HASH = comptime fnv_hash.hash("requests");
+    const SUPPORT_HASH = comptime fnv_hash.hash("support");
 
     switch (module_hash) {
+        SUPPORT_HASH => {
+            // test.support module - check_sanitizer returns bool
+            const func_hash = fnv_hash.hash(func_name);
+            const CHECK_SANITIZER_HASH = comptime fnv_hash.hash("check_sanitizer");
+            if (func_hash == CHECK_SANITIZER_HASH) {
+                return .bool;
+            }
+            return .unknown;
+        },
         HTTP_HASH, REQUESTS_HASH => {
             // http/requests module - get/post return http_response
             const func_hash = fnv_hash.hash(func_name);
