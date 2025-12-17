@@ -35,7 +35,7 @@ fn listFromPyValue(allocator: std.mem.Allocator, value: PyValue) std.ArrayListUn
                     i = end;
                     continue;
                 };
-                list.append(allocator, PyValue.from(char_copy)) catch {};
+                list.append(allocator, PyValue.from(char_copy)) catch unreachable;
                 i = end;
             }
         },
@@ -64,12 +64,12 @@ pub fn listFromTuple(allocator: std.mem.Allocator, tuple: anytype) std.ArrayList
         // Handle anonymous struct (tuple)
         inline for (info.@"struct".fields) |field| {
             const val = @field(tuple, field.name);
-            list.append(allocator, PyValue.from(val)) catch {};
+            list.append(allocator, PyValue.from(val)) catch unreachable;
         }
     } else if (info == .array) {
         // Handle fixed-size array
         for (tuple) |item| {
-            list.append(allocator, PyValue.from(item)) catch {};
+            list.append(allocator, PyValue.from(item)) catch unreachable;
         }
     }
 
@@ -92,7 +92,7 @@ pub fn listFromString(allocator: std.mem.Allocator, str: []const u8) std.ArrayLi
             i = end;
             continue;
         };
-        list.append(allocator, char_copy) catch {};
+        list.append(allocator, char_copy) catch unreachable;
         i = end;
     }
 
@@ -131,7 +131,7 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
     // Handle slices
     if (info == .pointer and info.pointer.size == .slice) {
         for (iterable) |item| {
-            list.append(allocator, PyValue.from(item)) catch {};
+            list.append(allocator, PyValue.from(item)) catch unreachable;
         }
         return list;
     }
@@ -139,7 +139,7 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
     // Handle arrays
     if (info == .array) {
         for (iterable) |item| {
-            list.append(allocator, PyValue.from(item)) catch {};
+            list.append(allocator, PyValue.from(item)) catch unreachable;
         }
         return list;
     }
@@ -202,7 +202,7 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
             if (base_info == .@"struct") {
                 inline for (base_info.@"struct".fields) |field| {
                     const val = @field(base, field.name);
-                    list.append(allocator, PyValue.from(val)) catch {};
+                    list.append(allocator, PyValue.from(val)) catch unreachable;
                 }
                 return list;
             }
@@ -210,7 +210,7 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
         // Regular tuple - iterate over fields
         inline for (info.@"struct".fields) |field| {
             const val = @field(iterable, field.name);
-            list.append(allocator, PyValue.from(val)) catch {};
+            list.append(allocator, PyValue.from(val)) catch unreachable;
         }
         return list;
     }
@@ -218,7 +218,7 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
     // Handle NativeList first (has .items which is ArrayList, not slice)
     if (T == NativeList) {
         for (iterable.items.items) |item| {
-            list.append(allocator, item) catch {}; // NativeList items are already PyValue
+            list.append(allocator, item) catch unreachable; // NativeList items are already PyValue
         }
         return list;
     }
@@ -226,7 +226,7 @@ pub fn listFromAny(allocator: std.mem.Allocator, iterable: anytype) std.ArrayLis
     // Handle ArrayListUnmanaged
     if (info == .@"struct" and @hasField(T, "items")) {
         for (iterable.items) |item| {
-            list.append(allocator, PyValue.from(item)) catch {};
+            list.append(allocator, PyValue.from(item)) catch unreachable;
         }
         return list;
     }

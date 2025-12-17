@@ -383,7 +383,7 @@ pub const Netpoller = struct {
                 if (self.timers.get(timer_id)) |timer| {
                     // Wake the thread
                     timer.thread.state = .ready;
-                    self.ready_threads.append(self.allocator, timer.thread) catch {};
+                    self.ready_threads.append(self.allocator, timer.thread) catch unreachable;
                     self.total_completed += 1;
                     _ = self.timers.remove(timer_id);
                 }
@@ -394,7 +394,7 @@ pub const Netpoller = struct {
             const fd: std.posix.fd_t = @intCast(event.ident);
             if (self.pending.get(fd)) |pending| {
                 pending.thread.state = .ready;
-                self.ready_threads.append(self.allocator, pending.thread) catch {};
+                self.ready_threads.append(self.allocator, pending.thread) catch unreachable;
                 self.total_completed += 1;
                 _ = self.pending.remove(fd);
             }
@@ -424,7 +424,7 @@ pub const Netpoller = struct {
 
             if (self.pending.get(fd)) |pending| {
                 pending.thread.state = .ready;
-                self.ready_threads.append(self.allocator, pending.thread) catch {};
+                self.ready_threads.append(self.allocator, pending.thread) catch unreachable;
                 self.total_completed += 1;
                 _ = self.pending.remove(fd);
             }
