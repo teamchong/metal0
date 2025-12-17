@@ -310,7 +310,7 @@ pub fn WeakSet(comptime T: type) type {
             while (it.next()) |entry| {
                 if (entry.value_ptr.deref()) |obj| {
                     if (!other.contains(obj)) {
-                        to_remove.append(self.allocator, entry.key_ptr.*) catch continue;
+                        to_remove.append(self.allocator, entry.key_ptr.*) catch unreachable;
                     }
                 }
             }

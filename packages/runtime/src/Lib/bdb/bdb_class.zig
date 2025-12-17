@@ -160,7 +160,7 @@ pub const Bdb = struct {
         var result: std.ArrayList(*Breakpoint) = .{};
         for (self.breakpoints.items) |*bp| {
             if (std.mem.eql(u8, bp.file, filename) and bp.line == lineno and bp.enabled) {
-                result.append(self.allocator, bp) catch continue;
+                result.append(self.allocator, bp) catch unreachable;
             }
         }
         return result;

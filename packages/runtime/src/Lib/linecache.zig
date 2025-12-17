@@ -102,18 +102,18 @@ pub fn checkcache(filename: ?[]const u8) void {
         var iter = cache.?.iterator();
         while (iter.next()) |entry| {
             const file = std.fs.cwd().openFile(entry.key_ptr.*, .{}) catch {
-                to_remove.append(cache_allocator, entry.key_ptr.*) catch continue;
+                to_remove.append(cache_allocator, entry.key_ptr.*) catch unreachable;
                 continue;
             };
             defer file.close();
 
             const stat = file.stat() catch {
-                to_remove.append(cache_allocator, entry.key_ptr.*) catch continue;
+                to_remove.append(cache_allocator, entry.key_ptr.*) catch unreachable;
                 continue;
             };
 
             if (stat.size != entry.value_ptr.size or stat.mtime != entry.value_ptr.mtime) {
-                to_remove.append(cache_allocator, entry.key_ptr.*) catch continue;
+                to_remove.append(cache_allocator, entry.key_ptr.*) catch unreachable;
             }
         }
 

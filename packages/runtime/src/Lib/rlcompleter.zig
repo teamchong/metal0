@@ -79,14 +79,14 @@ pub const Completer = struct {
         // Add matching keywords
         for (PYTHON_KEYWORDS) |keyword| {
             if (std.mem.startsWith(u8, keyword, text)) {
-                self.matches.append(self.allocator,keyword) catch continue;
+                self.matches.append(self.allocator,keyword) catch unreachable;
             }
         }
 
         // Add matching builtins
         for (BUILTIN_NAMES) |name| {
             if (std.mem.startsWith(u8, name, text)) {
-                self.matches.append(self.allocator,name) catch continue;
+                self.matches.append(self.allocator,name) catch unreachable;
             }
         }
 
@@ -94,7 +94,7 @@ pub const Completer = struct {
         var it = self.namespace.iterator();
         while (it.next()) |entry| {
             if (std.mem.startsWith(u8, entry.key_ptr.*, text)) {
-                self.matches.append(self.allocator,entry.key_ptr.*) catch continue;
+                self.matches.append(self.allocator,entry.key_ptr.*) catch unreachable;
             }
         }
     }
@@ -115,7 +115,7 @@ pub const Completer = struct {
                 @memcpy(full_match[0..last_dot], text[0..last_dot]);
                 full_match[last_dot] = '.';
                 @memcpy(full_match[last_dot + 1 ..], method);
-                self.matches.append(self.allocator,full_match) catch continue;
+                self.matches.append(self.allocator,full_match) catch unreachable;
             }
         }
     }

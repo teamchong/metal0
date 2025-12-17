@@ -212,7 +212,7 @@ pub fn processTokens(tokens: []const struct { type: TokenType, value: []const u8
                     }
                 }
 
-                indent_stack.append(allocator_helper.fast_allocator, ws) catch continue;
+                indent_stack.append(allocator_helper.fast_allocator, ws) catch unreachable;
             },
             .dedent => {
                 if (indent_stack.items.len > 0) {

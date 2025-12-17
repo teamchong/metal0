@@ -152,7 +152,7 @@ pub fn WeakValueDictionary(comptime K: type, comptime V: type) type {
             var iter = self.entries.iterator();
             while (iter.next()) |entry| {
                 if (!entry.value_ptr.alive()) {
-                    to_remove.append(self.allocator, entry.key_ptr.*) catch continue;
+                    to_remove.append(self.allocator, entry.key_ptr.*) catch unreachable;
                 }
             }
 
