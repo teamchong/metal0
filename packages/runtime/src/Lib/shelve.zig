@@ -121,9 +121,9 @@ pub fn Shelf(comptime V: type) type {
             var result: std.ArrayList([]const u8) = .{};
             var iter = self.dict.iterator();
             while (iter.next()) |entry| {
-                result.append(self.allocator, entry.key_ptr.*) catch continue;
+                result.append(self.allocator, entry.key_ptr.*) catch unreachable;
             }
-            return result.toOwnedSlice(self.allocator) catch &[_][]const u8{};
+            return result.toOwnedSlice(self.allocator) catch unreachable;
         }
 
         /// Get number of items

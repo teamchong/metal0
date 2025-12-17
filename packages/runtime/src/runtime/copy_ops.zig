@@ -51,7 +51,7 @@ pub fn deepCopy(comptime T: type, allocator: std.mem.Allocator, src: T) CopyErro
         // Zig 0.15: ArrayListUnmanaged has no .init(), use direct initialization
         var copy: T = if (@hasDecl(T, "init")) T.init(allocator) else .{};
         for (src.items) |item| {
-            copy.append(allocator, item) catch continue;
+            copy.append(allocator, item) catch unreachable;
         }
         return copy;
     }

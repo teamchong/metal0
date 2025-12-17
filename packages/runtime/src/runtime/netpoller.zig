@@ -449,7 +449,7 @@ pub const Netpoller = struct {
         var iter = self.timers.iterator();
         while (iter.next()) |entry| {
             if (entry.value_ptr.deadline_ns <= now) {
-                expired.append(self.allocator, entry.key_ptr.*) catch continue;
+                expired.append(self.allocator, entry.key_ptr.*) catch unreachable;
             }
         }
 
@@ -457,7 +457,7 @@ pub const Netpoller = struct {
         for (expired.items) |timer_id| {
             if (self.timers.get(timer_id)) |timer| {
                 timer.thread.state = .ready;
-                self.ready_threads.append(self.allocator, timer.thread) catch {};
+                self.ready_threads.append(self.allocator, timer.thread) catch unreachable;
                 self.total_completed += 1;
                 _ = self.timers.remove(timer_id);
             }

@@ -87,10 +87,10 @@ pub fn rglobCollect(allocator: std.mem.Allocator, base_path: []const u8, pattern
 
     var it = dir.iterate();
     while (it.next() catch null) |entry| {
-        const full_path = std.fs.path.join(allocator, &.{ base_path, entry.name }) catch continue;
+        const full_path = std.fs.path.join(allocator, &.{ base_path, entry.name }) catch unreachable;
 
         if (globMatch(pattern, entry.name)) {
-            entries.append(allocator, full_path) catch continue;
+            entries.append(allocator, full_path) catch unreachable;
         }
 
         // Recurse into directories
