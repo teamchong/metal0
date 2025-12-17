@@ -40,7 +40,7 @@ pub const OutputChecker = struct {
         result.appendSlice(self.allocator, got) catch return "";
         result.append(self.allocator, '\n') catch return "";
 
-        return result.toOwnedSlice(self.allocator) catch "";
+        return result.toOwnedSlice(self.allocator) catch unreachable;
     }
 };
 
@@ -116,8 +116,8 @@ pub const DocTestParser = struct {
             if (std.mem.startsWith(u8, trimmed, ">>> ")) {
                 // New example - save previous if any
                 if (source_lines.items.len > 0) {
-                    const src = source_lines.toOwnedSlice(allocator) catch "";
-                    const want = output_lines.toOwnedSlice(allocator) catch "";
+                    const src = source_lines.toOwnedSlice(allocator) catch unreachable;
+                    const want = output_lines.toOwnedSlice(allocator) catch unreachable;
                     test_obj.examples.append(allocator, Example.init(src, want)) catch unreachable;
                     output_lines.clearRetainingCapacity();
                 }
@@ -141,8 +141,8 @@ pub const DocTestParser = struct {
 
         // Save last example
         if (source_lines.items.len > 0) {
-            const src = source_lines.toOwnedSlice(allocator) catch "";
-            const want = output_lines.toOwnedSlice(allocator) catch "";
+            const src = source_lines.toOwnedSlice(allocator) catch unreachable;
+            const want = output_lines.toOwnedSlice(allocator) catch unreachable;
             test_obj.examples.append(allocator, Example.init(src, want)) catch unreachable;
         }
 
