@@ -545,15 +545,11 @@ pub fn collectImports(
                     // Module was compiled by import_scanner - add to imports
                     try imports.append(self.allocator, python_module);
                 } else {
-                    // External package not in registry and not a C extension - skip with warning
-                    std.debug.print("Warning: External module '{s}' not found, skipping import\n", .{python_module});
-                    try self.markSkippedModule(python_module);
-                    // Also mark any alias as skipped
-                    for (self.import_aliases.keys()) |alias| {
-                        if (std.mem.eql(u8, self.import_aliases.get(alias).?, python_module)) {
-                            try self.markSkippedModule(alias);
-                        }
-                    }
+                    // External package not in registry and not a C extension - FAIL FAST
+                    std.debug.print("ERROR: External module '{s}' not found\n", .{python_module});
+                    std.debug.print("  This module is required but not implemented in the runtime.\n", .{});
+                    std.debug.print("  Either implement it or mark the test as platform-specific.\n", .{});
+                    return error.MissingModule;
                 }
             }
         }
