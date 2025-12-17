@@ -630,10 +630,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                 }
             }
 
-            const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer, &mod_registry2) catch {
-                // Track this failed module so codegen can skip it
-                try failed_modules.put(module_name, {});
-                continue;
+            const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer, &mod_registry2) catch |err| {
+                std.debug.print("ERROR: Failed to compile imported module '{s}': {}\n", .{ module_name, err });
+                std.debug.print("  Module compilation is required for correct code generation.\n", .{});
+                std.debug.print("  Check the module source for syntax or semantic errors.\n", .{});
+                return err;
             };
 
             // Write compiled module to source-relative .metal0 directory so generator.zig can @import it
@@ -641,8 +642,10 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
             const module_source_path = try std.fmt.allocPrint(aa, "{s}/{s}.py", .{ source_file_dir orelse ".", module_name });
             const cache_path = try build_dirs.zigPath(aa, module_source_path);
             try build_dirs.ensureParentDir(cache_path);
-            const cache_file = std.fs.cwd().createFile(cache_path, .{}) catch {
-                continue;
+            const cache_file = std.fs.cwd().createFile(cache_path, .{}) catch |err| {
+                std.debug.print("ERROR: Failed to create cache file '{s}': {}\n", .{ cache_path, err });
+                std.debug.print("  Unable to write generated Zig code to cache.\n", .{});
+                return err;
             };
             defer cache_file.close();
 
@@ -652,8 +655,9 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                 \\const runtime = @import("runtime");
                 \\
             ;
-            cache_file.writeAll(imports_header) catch {
-                continue;
+            cache_file.writeAll(imports_header) catch |err| {
+                std.debug.print("ERROR: Failed to write imports header to '{s}': {}\n", .{ cache_path, err });
+                return err;
             };
 
             // Add imports for this module's own dependencies
@@ -670,18 +674,25 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                     if (try import_resolver.resolveImportSource(dep_name, source_file_dir, aa)) |_| {
                         // Generate import for this dependency
                         const dep_import = try std.fmt.allocPrint(aa, "const {s} = @import(\"./{s}.zig\");\n", .{ dep_name, dep_name });
-                        cache_file.writeAll(dep_import) catch continue;
+                        cache_file.writeAll(dep_import) catch |err| {
+                            std.debug.print("ERROR: Failed to write dependency import to '{s}': {}\n", .{ cache_path, err });
+                            return err;
+                        };
                     }
                 }
             }
-            cache_file.writeAll("\n") catch {};
+            cache_file.writeAll("\n") catch |err| {
+                std.debug.print("ERROR: Failed to write newline to '{s}': {}\n", .{ cache_path, err });
+                return err;
+            };
 
             // Extract module-level declarations (e.g., __gpa, __global_allocator)
             // These must be written before the struct body since functions may reference them
             const module_decls = extractModuleLevelDecls(compiled);
             if (module_decls.len > 0) {
-                cache_file.writeAll(module_decls) catch {
-                    continue;
+                cache_file.writeAll(module_decls) catch |err| {
+                    std.debug.print("ERROR: Failed to write module declarations to '{s}': {}\n", .{ cache_path, err });
+                    return err;
                 };
             }
 
@@ -689,8 +700,9 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
             // Input: "pub const mod = struct { pub fn add... };"
             // Output: "pub fn add..."
             const struct_body = extractStructBody(compiled);
-            cache_file.writeAll(struct_body) catch {
-                continue;
+            cache_file.writeAll(struct_body) catch |err| {
+                std.debug.print("ERROR: Failed to write struct body to '{s}': {}\n", .{ cache_path, err });
+                return err;
             };
         }
     }
