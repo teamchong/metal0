@@ -41,8 +41,13 @@ runs:
           TOTAL=${TOTAL:-0}
           FAILED=$((TOTAL - PASSED))
         else
-          echo "Failed to parse test output, using exit code: $TEST_EXIT"
-          exit $TEST_EXIT
+          echo "CRITICAL ERROR: Failed to parse test output - test runner output format may be broken"
+          echo "--- BEGIN test_output_clean.txt ---"
+          cat test_output_clean.txt
+          echo "--- END test_output_clean.txt ---"
+          echo "This is a critical failure - test output must be parseable"
+          echo "Expected format: 'All N tests passed' or 'N/N passed'"
+          exit 1
         fi
 
         # Generate summary
@@ -85,8 +90,13 @@ runs:
           TOTAL=${TOTAL:-0}
           FAILED=$((TOTAL - PASSED))
         else
-          echo "Failed to parse test output, using exit code: $TEST_EXIT"
-          exit $TEST_EXIT
+          echo "CRITICAL ERROR: Failed to parse test output - test runner output format may be broken"
+          echo "--- BEGIN test_output_clean.txt ---"
+          cat test_output_clean.txt
+          echo "--- END test_output_clean.txt ---"
+          echo "This is a critical failure - test output must be parseable"
+          echo "Expected format: 'All N tests passed' or 'N/N passed'"
+          exit 1
         fi
 
         # Generate summary
