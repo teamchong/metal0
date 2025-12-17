@@ -782,7 +782,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
             self.indent();
             try self.emitIndent();
             try self.genExpr(aug.target.*);
-            try self.emit(".append(__global_allocator, __ext_item) catch {};\n");
+            try self.emit(".append(__global_allocator, __ext_item) catch unreachable;\n");
             self.dedent();
             try self.emitIndent();
             // Fallback: if types don't match, try PyValue conversion for heterogeneous lists
@@ -790,7 +790,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
             self.indent();
             try self.emitIndent();
             try self.genExpr(aug.target.*);
-            try self.emit(".append(__global_allocator, try runtime.PyValue.fromAlloc(__global_allocator, __ext_item)) catch {};\n");
+            try self.emit(".append(__global_allocator, try runtime.PyValue.fromAlloc(__global_allocator, __ext_item)) catch unreachable;\n");
             self.dedent();
             try self.emitIndent();
             try self.emit("}\n");

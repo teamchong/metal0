@@ -104,7 +104,7 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("for (__enum_slice) |__enum_item| {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("__enum_result.append(__global_allocator, .{__enum_idx, __enum_item}) catch {};\n");
+    try self.emit("__enum_result.append(__global_allocator, .{__enum_idx, __enum_item}) catch unreachable;\n");
     try self.emitIndent();
     try self.emit("__enum_idx += 1;\n");
     self.dedent();
@@ -535,7 +535,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.emitIndent();
                 try self.emit(pattern);
                 try self.emitIndent();
-                try self.emit("__map_result.append(__global_allocator, __mapped) catch {};\n");
+                try self.emit("__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
                 self.dedent();
                 try self.emitIndent();
                 try self.emit("}\n");
@@ -572,7 +572,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emitIndent();
             try self.emit(conv_pattern);
             try self.emitIndent();
-            try self.emit("__map_result.append(__global_allocator, __mapped) catch {};\n");
+            try self.emit("__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
             self.dedent();
             try self.emitIndent();
             try self.emit("}\n");
@@ -630,7 +630,7 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
 
         try self.emitIndent();
-        try self.emit("__map_result.append(__global_allocator, __mapped) catch {};\n");
+        try self.emit("__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
         self.dedent();
         try self.emitIndent();
         try self.emit("}\n");
