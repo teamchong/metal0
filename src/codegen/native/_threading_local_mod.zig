@@ -1,9 +1,52 @@
 /// Python _threading_local module - Internal threading.local support
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "local", h.c(".{}") }, .{ "_localimpl", h.c(".{ .key = \"\", .dicts = .{}, .localargs = .{}, .localkwargs = .{}, .loclock = .{} }") },
-    .{ "_localimpl_create_dict", h.c(".{}") }, .{ "__init__", h.c("{}") },
-    .{ "__getattribute__", h.c("null") }, .{ "__setattr__", h.c("{}") }, .{ "__delattr__", h.c("{}") },
+    .{ "local", genLocal },
+    .{ "_localimpl", genLocalimpl },
+    .{ "_localimpl_create_dict", genLocalimplCreateDict },
+    .{ "__init__", genInit },
+    .{ "__getattribute__", genGetattribute },
+    .{ "__setattr__", genSetattr },
+    .{ "__delattr__", genDelattr },
 });
+
+fn genLocal(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genLocalimpl(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw(".{ .key = \"\", .dicts = .{}, .localargs = .{}, .localkwargs = .{}, .loclock = .{} }"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genLocalimplCreateDict(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genInit(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genGetattribute(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSetattr(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genDelattr(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}
+
