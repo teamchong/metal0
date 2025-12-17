@@ -1097,7 +1097,7 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
 
     // CI runners are slow (2 vCPU) - give more time
     const is_ci = std.posix.getenv("CI") != null;
-    const timeout_secs: u64 = if (is_ci) 600 else 300; // 10 min for CI, 5 min locally
+    const timeout_secs: u64 = if (is_ci) 900 else 600; // 15 min for CI, 10 min locally
     std.debug.print("Running batch compilation: zig build -j{d} (timeout: {d}s)...\n", .{ jobs, timeout_secs });
 
     // Spawn batch build process with manual timeout
