@@ -152,11 +152,10 @@ pub fn genUserList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("std.ArrayListUnmanaged(*runtime.PyObject){}");
         } else {
             // Non-variable - wrap in discard block
-            const id = try h.emitUniqueBlockStart(self, "discard");
-            try self.emit("_ = ");
+            const id = self.nextNameId();
+            try self.emitFmt("(__m{d}_discard: {{ _ = ", .{id});
             try self.genExpr(arg);
-            try h.emitBlockBreak(self, "discard", id);
-            try self.emit("std.ArrayListUnmanaged(*runtime.PyObject){}; }");
+            try self.emitFmt("; break :__m{d}_discard std.ArrayListUnmanaged(*runtime.PyObject){{}}; }})", .{id});
         }
     } else {
         try self.emit("std.ArrayListUnmanaged(*runtime.PyObject){}");

@@ -52,19 +52,17 @@ pub fn discard(comptime ret: []const u8) H {
                 try self.emit(ret);
                 return;
             }
-            // Generate: blk: { _ = arg1; _ = arg2; break :blk default; }
-            const id = emitUniqueBlockStart(self, "discard") catch 0;
+            // Generate: __m{id}_discard: { _ = arg1; _ = arg2; break :__m{id}_discard default; }
+            const id = self.nextNameId();
+            try self.emitFmt("(__m{d}_discard: {{ ", .{id});
             for (args, 0..) |arg, i| {
-                // Emit: _ = arg; (semicolon only needed before next arg, emitBlockBreak adds one)
+                // Emit: _ = arg; (semicolon only needed before next arg)
                 if (i > 0) try self.emit(" ");
                 try self.emit("_ = ");
                 try self.genExpr(arg);
                 if (i < args.len - 1) try self.emit(";"); // semicolon between args, not after last
             }
-            // emitBlockBreak adds "; break :label " so no trailing semicolon needed on last arg
-            try emitBlockBreak(self, "discard", id);
-            try self.emit(ret);
-            try self.emit("; }");
+            try self.emitFmt("; break :__m{d}_discard {s}; }})", .{ id, ret });
         }
     }.f;
 }
@@ -271,19 +269,6 @@ pub fn codecResult(comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) { try self.emit(".{ "); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[0]); try self.emit(".len }"); } else try self.emit(d);
     } }.f;
-}
-
-/// Emit a unique labeled block start and return the label ID for break
-pub fn emitUniqueBlockStart(self: *NativeCodegen, prefix: []const u8) CodegenError!u64 {
-    var em = self.exprEmitter();
-    const id = em.reserveLabelId();
-    try self.emitFmt("{s}_{d}: {{ ", .{ prefix, id });
-    return id;
-}
-
-/// Emit a break with unique label
-pub fn emitBlockBreak(self: *NativeCodegen, prefix: []const u8, id: u64) CodegenError!void {
-    try self.emitFmt("; break :{s}_{d} ", .{ prefix, id });
 }
 
 // === Complex number helpers (cmath) ===
