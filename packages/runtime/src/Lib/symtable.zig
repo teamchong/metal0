@@ -300,7 +300,7 @@ pub const SymbolTable = struct {
         var identifiers: std.ArrayList([]const u8) = .{};
         var iter = self.symbols.iterator();
         while (iter.next()) |entry| {
-            identifiers.append(self.allocator, entry.key_ptr.*) catch continue;
+            identifiers.append(self.allocator, entry.key_ptr.*) catch unreachable;
         }
         return identifiers.toOwnedSlice(self.allocator) catch &[_][]const u8{};
     }

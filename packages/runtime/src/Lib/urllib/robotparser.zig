@@ -66,7 +66,7 @@ pub const RobotFileParser = struct {
 
             var iter = std.mem.splitScalar(u8, body, '\n');
             while (iter.next()) |line| {
-                lines.append(self.allocator, line) catch continue;
+                lines.append(self.allocator, line) catch unreachable;
             }
 
             try self.parseLines(lines.items);
