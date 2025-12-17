@@ -453,9 +453,17 @@ pub fn shiftL(comptime pre: []const u8, comptime post: []const u8, comptime defa
 }
 
 // === Advanced Pattern Helpers (Maintainability Infrastructure) ===
+//
+// These helpers provide reusable code generation patterns with automatic unique ID management.
+// All helpers use nextNameId() internally to prevent label shadowing issues.
 
 /// Generates a list membership checker: for (items) |item| if (compare(__search, __item)) break :label true;
 /// Use for functions like iskeyword that check if a value is in a compile-time list.
+///
+/// Example usage:
+///   const keywords = "\"if\", \"for\", \"while\"";
+///   const genIskeyword = listContains("iskw", keywords, "std.mem.eql(u8, __search, __item)");
+///
 /// @param name: block name identifier
 /// @param list_items: comma-separated list items (e.g., "\"foo\", \"bar\"")
 /// @param compare: comparison expression using __search and __item (e.g., "std.mem.eql(u8, __search, __item)")
@@ -471,6 +479,10 @@ pub fn listContains(comptime name: []const u8, comptime list_items: []const u8, 
 }
 
 /// Generates optional unwrapping: if (opt) |val| expr else default
+///
+/// Example usage:
+///   const genGetEnv = unwrapOptional("genv", "__v", "\"\"");  // Returns env var or empty string
+///
 /// @param name: block name identifier
 /// @param expr: expression to evaluate using __v (the unwrapped value)
 /// @param d: default value if optional is null
@@ -486,6 +498,10 @@ pub fn unwrapOptional(comptime name: []const u8, comptime expr: []const u8, comp
 }
 
 /// Generates try-with-default pattern: (expr) catch default
+///
+/// Example usage:
+///   const genParseInt = tryOrDefault("pint", "std.fmt.parseInt(i64, __v, 10)", "0");
+///
 /// @param name: block name identifier
 /// @param expr: expression that may fail, using __v (the captured arg)
 /// @param d: default value on error
@@ -501,6 +517,10 @@ pub fn tryOrDefault(comptime name: []const u8, comptime expr: []const u8, compti
 }
 
 /// Generates allocPrint call: try std.fmt.allocPrint(__global_allocator, fmt, .{arg})
+///
+/// Example usage:
+///   const genHexStr = allocPrint("hex", "{x:0>8}");  // Format arg as 8-digit hex
+///
 /// @param name: block name identifier
 /// @param fmt: format string (use {{}} for format specifiers)
 pub fn allocPrint(comptime name: []const u8, comptime fmt: []const u8) H {
@@ -515,6 +535,10 @@ pub fn allocPrint(comptime name: []const u8, comptime fmt: []const u8) H {
 }
 
 /// Generates conditional expression: if (condition) then_expr else else_expr
+///
+/// Example usage:
+///   const genIsPositive = conditional("ispos", "__v > 0", "\"positive\"", "\"non-positive\"");
+///
 /// @param name: block name identifier
 /// @param condition: boolean expression using __v
 /// @param then_expr: expression if true (can use __v)
