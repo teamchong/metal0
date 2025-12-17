@@ -1857,7 +1857,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         try self.emit("for (__slice_src.items) |__item| {\n");
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("__slice_target.append(__global_allocator, __item) catch {};\n");
+                        try self.emit("__slice_target.append(__global_allocator, __item) catch unreachable;\n");
                         self.indent_level -= 1;
                         try self.emitIndent();
                         try self.emit("}\n");
