@@ -60,11 +60,11 @@ pub fn setattr_builtin(obj: *PyObject, name: []const u8, value: PyValue) void {
 
     // Get or create attribute map for this object
     if (dynamic_attrs) |*attrs| {
-        const result = attrs.getOrPut(allocator, obj_id) catch return;
+        const result = attrs.getOrPut(allocator, obj_id) catch unreachable;
         if (!result.found_existing) {
             result.value_ptr.* = hashmap_helper.StringHashMap(PyValue).init(allocator);
         }
-        result.value_ptr.put(allocator, name, value) catch return;
+        result.value_ptr.put(allocator, name, value) catch unreachable;
     }
 }
 
