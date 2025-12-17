@@ -451,3 +451,81 @@ pub fn shiftL(comptime pre: []const u8, comptime post: []const u8, comptime defa
         try self.emit(pre); try self.genExpr(args[0]); try self.emit(post);
     } }.f;
 }
+
+// === Advanced Pattern Helpers (Maintainability Infrastructure) ===
+
+/// Generates a list membership checker: for (items) |item| if (compare(__search, __item)) break :label true;
+/// Use for functions like iskeyword that check if a value is in a compile-time list.
+/// @param name: block name identifier
+/// @param list_items: comma-separated list items (e.g., "\"foo\", \"bar\"")
+/// @param compare: comparison expression using __search and __item (e.g., "std.mem.eql(u8, __search, __item)")
+pub fn listContains(comptime name: []const u8, comptime list_items: []const u8, comptime compare: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit("false"); return; }
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_{s}: {{ const __search = ", .{ id, name });
+        try self.genExpr(args[0]);
+        try self.emitFmt("; const __items = [_][]const u8{{ {s} }}; for (__items) |__item| {{ if ({s}) break :__m{d}_{s} true; }} break :__m{d}_{s} false; }})",
+            .{ list_items, compare, id, name, id, name });
+    } }.f;
+}
+
+/// Generates optional unwrapping: if (opt) |val| expr else default
+/// @param name: block name identifier
+/// @param expr: expression to evaluate using __v (the unwrapped value)
+/// @param d: default value if optional is null
+pub fn unwrapOptional(comptime name: []const u8, comptime expr: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(d); return; }
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_{s}: {{ const __opt = ", .{ id, name });
+        try self.genExpr(args[0]);
+        try self.emitFmt("; break :__m{d}_{s} if (__opt) |__v| {s} else {s}; }})",
+            .{ id, name, expr, d });
+    } }.f;
+}
+
+/// Generates try-with-default pattern: (expr) catch default
+/// @param name: block name identifier
+/// @param expr: expression that may fail, using __v (the captured arg)
+/// @param d: default value on error
+pub fn tryOrDefault(comptime name: []const u8, comptime expr: []const u8, comptime d: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(d); return; }
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_{s}: {{ const __v = ", .{ id, name });
+        try self.genExpr(args[0]);
+        try self.emitFmt("; break :__m{d}_{s} ({s}) catch {s}; }})",
+            .{ id, name, expr, d });
+    } }.f;
+}
+
+/// Generates allocPrint call: try std.fmt.allocPrint(__global_allocator, fmt, .{arg})
+/// @param name: block name identifier
+/// @param fmt: format string (use {{}} for format specifiers)
+pub fn allocPrint(comptime name: []const u8, comptime fmt: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit("\"\""); return; }
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_{s}: {{ const __v = ", .{ id, name });
+        try self.genExpr(args[0]);
+        try self.emitFmt("; break :__m{d}_{s} try std.fmt.allocPrint(__global_allocator, \"{s}\", .{{__v}}); }})",
+            .{ id, name, fmt });
+    } }.f;
+}
+
+/// Generates conditional expression: if (condition) then_expr else else_expr
+/// @param name: block name identifier
+/// @param condition: boolean expression using __v
+/// @param then_expr: expression if true (can use __v)
+/// @param else_expr: expression if false (can use __v)
+pub fn conditional(comptime name: []const u8, comptime condition: []const u8, comptime then_expr: []const u8, comptime else_expr: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        if (args.len == 0) { try self.emit(else_expr); return; }
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_{s}: {{ const __v = ", .{ id, name });
+        try self.genExpr(args[0]);
+        try self.emitFmt("; break :__m{d}_{s} if ({s}) {s} else {s}; }})",
+            .{ id, name, condition, then_expr, else_expr });
+    } }.f;
+}
