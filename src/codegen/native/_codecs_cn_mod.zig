@@ -1,7 +1,16 @@
-/// Python _codecs_cn module - Chinese codecs
+/// Python _codecs_MODULE module - Chinese codecs
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "getcodec", h.c(".{ .name = \"gb2312\" }") },
+    .{ "getcodec", genGetcodec },
 });
+
+fn genGetcodec(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    const codec = builder_mod.ZigValue.raw(".{ .name = \"gb2312\" }");
+    try b.emitValue(codec, builder_mod.EmitConfig.forExpression());
+}
