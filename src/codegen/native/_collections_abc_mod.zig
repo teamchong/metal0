@@ -1,8 +1,14 @@
 /// Python _collections_abc module - Abstract Base Classes for containers
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
-const genTypeMarker = h.c("@TypeOf(.{})");
+fn genTypeMarker(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@TypeOf(.{})"), builder_mod.EmitConfig.forExpression());
+}
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Awaitable", genTypeMarker }, .{ "Coroutine", genTypeMarker }, .{ "AsyncIterable", genTypeMarker },
