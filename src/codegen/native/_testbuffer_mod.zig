@@ -1,7 +1,10 @@
 /// Python _testbuffer module - Buffer protocol test support
 /// Provides ndarray and buffer flag constants for testing PEP-3118
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 // Buffer flags (from Python's buffer protocol)
 // These match CPython's definitions in Include/cpython/object.h
@@ -37,43 +40,194 @@ pub const ND_VAREXPORT: i64 = 0x040;
 
 pub const Consts = std.StaticStringMap(h.H).initComptime(.{
     // PyBUF_* constants
-    .{ "PyBUF_SIMPLE", h.c("@as(i64, 0)") },
-    .{ "PyBUF_WRITABLE", h.c("@as(i64, 0x0001)") },
-    .{ "PyBUF_WRITE", h.c("@as(i64, 0x0001)") },
-    .{ "PyBUF_READ", h.c("@as(i64, 0x100)") },
-    .{ "PyBUF_FORMAT", h.c("@as(i64, 0x0004)") },
-    .{ "PyBUF_ND", h.c("@as(i64, 0x0008)") },
-    .{ "PyBUF_STRIDES", h.c("@as(i64, 0x0018)") },
-    .{ "PyBUF_C_CONTIGUOUS", h.c("@as(i64, 0x0038)") },
-    .{ "PyBUF_F_CONTIGUOUS", h.c("@as(i64, 0x0058)") },
-    .{ "PyBUF_ANY_CONTIGUOUS", h.c("@as(i64, 0x0098)") },
-    .{ "PyBUF_INDIRECT", h.c("@as(i64, 0x0118)") },
-    .{ "PyBUF_CONTIG", h.c("@as(i64, 0x0009)") },
-    .{ "PyBUF_CONTIG_RO", h.c("@as(i64, 0x0008)") },
-    .{ "PyBUF_STRIDED", h.c("@as(i64, 0x0019)") },
-    .{ "PyBUF_STRIDED_RO", h.c("@as(i64, 0x0018)") },
-    .{ "PyBUF_RECORDS", h.c("@as(i64, 0x001d)") },
-    .{ "PyBUF_RECORDS_RO", h.c("@as(i64, 0x001c)") },
-    .{ "PyBUF_FULL", h.c("@as(i64, 0x011d)") },
-    .{ "PyBUF_FULL_RO", h.c("@as(i64, 0x011c)") },
+    .{ "PyBUF_SIMPLE", genPyBufSimple },
+    .{ "PyBUF_WRITABLE", genPyBufWritable },
+    .{ "PyBUF_WRITE", genPyBufWrite },
+    .{ "PyBUF_READ", genPyBufRead },
+    .{ "PyBUF_FORMAT", genPyBufFormat },
+    .{ "PyBUF_ND", genPyBufNd },
+    .{ "PyBUF_STRIDES", genPyBufStrides },
+    .{ "PyBUF_C_CONTIGUOUS", genPyBufCContiguous },
+    .{ "PyBUF_F_CONTIGUOUS", genPyBufFContiguous },
+    .{ "PyBUF_ANY_CONTIGUOUS", genPyBufAnyContiguous },
+    .{ "PyBUF_INDIRECT", genPyBufIndirect },
+    .{ "PyBUF_CONTIG", genPyBufContig },
+    .{ "PyBUF_CONTIG_RO", genPyBufContigRo },
+    .{ "PyBUF_STRIDED", genPyBufStrided },
+    .{ "PyBUF_STRIDED_RO", genPyBufStridedRo },
+    .{ "PyBUF_RECORDS", genPyBufRecords },
+    .{ "PyBUF_RECORDS_RO", genPyBufRecordsRo },
+    .{ "PyBUF_FULL", genPyBufFull },
+    .{ "PyBUF_FULL_RO", genPyBufFullRo },
     // ND_* constants
-    .{ "ND_MAX_NDIM", h.c("@as(i64, 64)") },
-    .{ "ND_WRITABLE", h.c("@as(i64, 0x001)") },
-    .{ "ND_FORTRAN", h.c("@as(i64, 0x002)") },
-    .{ "ND_PIL", h.c("@as(i64, 0x004)") },
-    .{ "ND_REDIRECT", h.c("@as(i64, 0x008)") },
-    .{ "ND_GETBUF_FAIL", h.c("@as(i64, 0x010)") },
-    .{ "ND_GETBUF_UNDEFINED", h.c("@as(i64, 0x020)") },
-    .{ "ND_VAREXPORT", h.c("@as(i64, 0x040)") },
+    .{ "ND_MAX_NDIM", genNdMaxNdim },
+    .{ "ND_WRITABLE", genNdWritable },
+    .{ "ND_FORTRAN", genNdFortran },
+    .{ "ND_PIL", genNdPil },
+    .{ "ND_REDIRECT", genNdRedirect },
+    .{ "ND_GETBUF_FAIL", genNdGetbufFail },
+    .{ "ND_GETBUF_UNDEFINED", genNdGetbufUndefined },
+    .{ "ND_VAREXPORT", genNdVarexport },
     // ndarray class - returns a stub struct
-    .{ "ndarray", h.c("runtime.TestBuffer.ndarray") },
+    .{ "ndarray", genNdarray },
     // staticarray for testing
-    .{ "staticarray", h.c("runtime.TestBuffer.staticarray") },
+    .{ "staticarray", genStaticarray },
     // get_sizeof_void_p - returns pointer size
-    .{ "get_sizeof_void_p", h.c("@as(i64, @sizeOf(*anyopaque))") },
+    .{ "get_sizeof_void_p", genGetSizeofVoidP },
 });
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Note: get_sizeof_void_p is a constant (in Consts), not a function
     // So calls like get_sizeof_void_p() should just use the constant value
 });
+
+fn genPyBufSimple(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufWritable(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0001)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufWrite(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0001)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufRead(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x100)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufFormat(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0004)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufNd(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0008)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufStrides(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0018)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufCContiguous(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0038)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufFContiguous(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0058)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufAnyContiguous(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0098)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufIndirect(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0118)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufContig(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0009)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufContigRo(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0008)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufStrided(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0019)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufStridedRo(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x0018)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufRecords(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x001d)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufRecordsRo(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x001c)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufFull(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x011d)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPyBufFullRo(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x011c)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genNdMaxNdim(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.int(64), builder_mod.EmitConfig.forExpression());
+}
+
+fn genNdWritable(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x001)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genNdFortran(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x002)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genNdPil(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x004)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genNdRedirect(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x008)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genNdGetbufFail(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x010)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genNdGetbufUndefined(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x020)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genNdVarexport(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0x040)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genNdarray(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("runtime.TestBuffer.ndarray"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genStaticarray(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("runtime.TestBuffer.staticarray"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genGetSizeofVoidP(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, @sizeOf(*anyopaque))"), builder_mod.EmitConfig.forExpression());
+}
+
