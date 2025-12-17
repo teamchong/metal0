@@ -44,7 +44,7 @@ pub fn accumulate(comptime T: type, allocator: std.mem.Allocator, iter: []const 
     if (iter.len == 0) return result;
 
     var acc: T = iter[0];
-    result.append(allocator, acc) catch {};
+    result.append(allocator, acc) catch unreachable;
 
     for (iter[1..]) |item| {
         if (func) |f| {
@@ -73,19 +73,19 @@ pub fn groupby(comptime T: type, allocator: std.mem.Allocator, iter: []const T) 
 
     var cur_key = iter[0];
     var cur_group: std.ArrayListUnmanaged(T) = .{};
-    cur_group.append(allocator, cur_key) catch {};
+    cur_group.append(allocator, cur_key) catch unreachable;
 
     for (iter[1..]) |item| {
         if (item == cur_key) {
             cur_group.append(allocator, item) catch continue;
         } else {
-            result.append(allocator, .{ .key = cur_key, .group = cur_group }) catch {};
+            result.append(allocator, .{ .key = cur_key, .group = cur_group }) catch unreachable;
             cur_key = item;
             cur_group = .{};
-            cur_group.append(allocator, item) catch {};
+            cur_group.append(allocator, item) catch unreachable;
         }
     }
-    result.append(allocator, .{ .key = cur_key, .group = cur_group }) catch {};
+    result.append(allocator, .{ .key = cur_key, .group = cur_group }) catch unreachable;
     return result;
 }
 
