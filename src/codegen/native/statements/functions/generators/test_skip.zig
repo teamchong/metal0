@@ -360,7 +360,9 @@ pub fn hasTypeParameterDefault(args: []const ast.Arg) bool {
 
 /// Check if test calls self.method() with class argument
 pub fn callsSelfMethodWithClassArg(stmts: []const ast.Node, class_names: []const []const u8) bool {
-    for (stmts) |stmt| if (stmtCallsSelfMethodWithClassArg(stmt, class_names)) return true;
+    for (stmts) |stmt| {
+        if (stmtCallsSelfMethodWithClassArg(stmt, class_names)) return true;
+    }
     return false;
 }
 

@@ -13,6 +13,11 @@ pub fn hoistAllLocalClassesFromMethods(self: *NativeCodegen, class: ast.Node.Cla
     for (class.body) |stmt| {
         if (stmt == .function_def) {
             const method = stmt.function_def;
+            // OPTIMIZATION: Skip unittest test methods - they never return local classes
+            // This saves expensive AST traversal for test_* methods that only make assertions
+            if (std.mem.startsWith(u8, method.name, "test_")) {
+                continue;
+            }
             try hoistLocalClassesFromMethod(self, method);
         }
     }

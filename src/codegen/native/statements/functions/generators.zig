@@ -215,9 +215,6 @@ const non_subclassable_types = std.StaticStringMap(void).initComptime(.{
 });
 
 pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!void {
-    std.debug.print("genClassDef(): Processing class '{s}'\n", .{class.name});
-    std.debug.print("genClassDef():   Bases: {d}\n", .{class.bases.len});
-    std.debug.print("genClassDef():   Body statements: {d}\n", .{class.body.len});
 
     // Check for non-subclassable types (bool, NoneType, etc.)
     // These must raise TypeError at runtime, not compile time, because the class
@@ -279,7 +276,6 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     }
 
     // Find __init__, __new__, and setUp methods to determine struct fields
-    std.debug.print("genClassDef():   Searching for special methods...\n", .{});
     var init_method: ?ast.Node.FunctionDef = null;
     var new_method: ?ast.Node.FunctionDef = null;
     var setUp_method: ?ast.Node.FunctionDef = null;
@@ -287,25 +283,19 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         if (stmt == .function_def) {
             if (std.mem.eql(u8, stmt.function_def.name, "__init__")) {
                 init_method = stmt.function_def;
-                std.debug.print("genClassDef():     Found __init__\n", .{});
             } else if (std.mem.eql(u8, stmt.function_def.name, "__new__")) {
                 new_method = stmt.function_def;
-                std.debug.print("genClassDef():     Found __new__\n", .{});
             } else if (std.mem.eql(u8, stmt.function_def.name, "setUp")) {
                 setUp_method = stmt.function_def;
-                std.debug.print("genClassDef():     Found setUp\n", .{});
             }
         }
     }
-    std.debug.print("genClassDef():   Special method search complete.\n", .{});
 
     // Register nested class fields in type_inferrer.class_fields
     // This is needed so isDynamicAttribute() can find fields of nested classes
     // IMPORTANT: Only do this if analysis phase didn't already populate the class info
     // (analysis phase populates property_methods/property_getters which we must preserve)
-    std.debug.print("genClassDef():   Registering class fields...\n", .{});
     if (init_method) |init| {
-        std.debug.print("genClassDef():     Processing __init__ body ({d} statements)\n", .{init.body.len});
         // Check if class_fields was already populated by analysis phase
         if (self.type_inferrer.class_fields.get(class.name)) |existing_info| {
             // Analysis phase already populated this class - merge fields only
@@ -416,16 +406,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             });
         }
     }
-    std.debug.print("genClassDef():   Field registration complete.\n", .{});
 
     // Check for base classes - we support single inheritance
-    std.debug.print("genClassDef():   Checking for base classes ({d} bases)...\n", .{class.bases.len});
     var parent_class: ?ast.Node.ClassDef = null;
     var is_unittest_class = false;
     var builtin_base: ?BuiltinBaseInfo = null;
     var complex_parent: ?ComplexParentInfo = null;
     if (class.bases.len > 0) {
-        std.debug.print("genClassDef():     Base class: '{s}'\n", .{class.bases[0]});
         // First check if it's a builtin base type (simple types like int, float)
         builtin_base = getBuiltinBaseInfo(class.bases[0]);
 
@@ -461,6 +448,16 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     if (is_unittest_class and self.current_function_name == null) {
         const core = @import("../../main/core.zig");
         var test_methods = std.ArrayList(core.TestMethodInfo){};
+        // Build class_names_list ONCE per class (not per method) - PERFORMANCE OPTIMIZATION
+        // This avoids iterating through all registered classes 15+ times for large test classes
+        var class_names_list: std.ArrayList([]const u8) = .{};
+        defer class_names_list.deinit(self.allocator);
+        var classes_iter = self.class_registry.classes.iterator();
+        while (classes_iter.next()) |entry| {
+            try class_names_list.append(self.allocator, entry.key_ptr.*);
+        }
+        const class_names = class_names_list.items;
+
         var has_setUp = false;
         var has_tearDown = false;
         var has_setup_class = false;
@@ -469,84 +466,54 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             if (stmt == .function_def) {
                 const method = stmt.function_def;
                 const method_name = method.name;
-                std.debug.print("genClassDef():     Checking method: {s}\n", .{method_name});
                 if (std.mem.startsWith(u8, method_name, "test_") or std.mem.startsWith(u8, method_name, "test")) {
-                    std.debug.print("genClassDef():       This is a test method, analyzing allocator needs...\n", .{});
+
                     // Check if method body has fallible operations (needs allocator param)
                     const method_needs_allocator = function_traits.analyzeNeedsAllocator(method, class.name);
-                    std.debug.print("genClassDef():       Allocator analysis complete (needs_allocator = {any})\n", .{method_needs_allocator});
-
-                    // Check for decorators that indicate test should be skipped on non-CPython:
-                    // 1. @support.cpython_only - tests CPython implementation details
-                    // 2. @unittest.skipUnless(_pylong, ...) - requires CPython's _pylong module
-                    // 3. @unittest.skipUnless(_decimal, ...) - requires CPython's _decimal module
-                    // 4. Parameters with type defaults (cls=float) - requires runtime type manipulation
-                    // 5. Calls self.method(ClassName) - passes class as runtime argument
-                    // This is NOT us artificially skipping tests - it's respecting Python's own test annotations
-
-                    // Collect all registered class names for type argument detection
-                    std.debug.print("genClassDef():       Building class names list...\n", .{});
-                    var class_names_list = std.ArrayList([]const u8){};
-                    var classes_iter = self.class_registry.classes.iterator();
-                    while (classes_iter.next()) |entry| {
-                        try class_names_list.append(self.allocator, entry.key_ptr.*);
-                    }
-                    const class_names = class_names_list.items;
-                    std.debug.print("genClassDef():       Class names list built ({d} classes)\n", .{class_names.len});
 
                     // First check unittest skip decorators (skipIf, skipUnless, skip)
                     // These are evaluated at compile time for platform/module checks
-                    std.debug.print("genClassDef():       Evaluating skip decorators ({d} decorators)...\n", .{method.decorators.len});
                     const decorator_skip = test_skip.evaluateSkipDecorators(method.decorators, &self.skipped_modules);
-                    std.debug.print("genClassDef():       Skip decorators evaluated\n", .{});
 
-                    std.debug.print("genClassDef():       Determining skip reason...\n", .{});
+                    const has_cpython_only = test_skip.hasCPythonOnlyDecorator(method.decorators);
+                    const has_skip_unless = test_skip.hasSkipUnlessCPythonModule(method.decorators);
+                    const has_skip_if_none = test_skip.hasSkipIfModuleIsNone(method.decorators, &self.skipped_modules);
+                    const has_type_param = test_skip.hasTypeParameterDefault(method.args);
+
                     const skip_reason: ?[]const u8 = if (decorator_skip) |reason|
                         reason
-                    else if (test_skip.hasCPythonOnlyDecorator(method.decorators))
+                    else if (has_cpython_only)
                         "CPython implementation test (not applicable to metal0)"
-                    else if (test_skip.hasSkipUnlessCPythonModule(method.decorators))
+                    else if (has_skip_unless)
                         "Requires CPython-only module (_pylong or _decimal)"
-                    else if (test_skip.hasSkipIfModuleIsNone(method.decorators, &self.skipped_modules))
+                    else if (has_skip_if_none)
                         "Requires unavailable optional module"
-                    else if (test_skip.hasTypeParameterDefault(method.args))
+                    else if (has_type_param)
                         "Test uses runtime type parameters (cls=float)"
-                    else if (blk: {
-                        std.debug.print("genClassDef():         Checking callsSelfMethodWithClassArg...\n", .{});
-                        break :blk test_skip.callsSelfMethodWithClassArg(method.body, class_names);
-                    })
-                        "Test passes class as runtime argument (self.method(ClassName))"
-                    else if (blk: {
-                        std.debug.print("genClassDef():         Checking hasSkipDocstring...\n", .{});
-                        break :blk test_skip.hasSkipDocstring(method.body);
-                    })
-                        "Marked skip in docstring"
-                    else if (blk: {
-                        std.debug.print("genClassDef():         Checking isPickleIteratorTest...\n", .{});
-                        break :blk test_skip.isPickleIteratorTest(method_name);
-                    })
-                        "Pickle iterator reconstruction not supported (requires __reduce__ protocol)"
-                    else if (blk: {
-                        std.debug.print("genClassDef():         Checking requiresExceptionContextManager...\n", .{});
-                        break :blk test_skip.requiresExceptionContextManager(method_name);
-                    })
-                        "Requires exception context manager support (assertRaisesRegex)"
-                    else if (blk: {
-                        std.debug.print("genClassDef():         Checking hasNestedBuiltinSubclassInLambda...\n", .{});
-                        const result = test_skip.hasNestedBuiltinSubclassInLambda(method.body);
-                        std.debug.print("genClassDef():         hasNestedBuiltinSubclassInLambda complete (result = {any})\n", .{result});
-                        break :blk result;
-                    })
-                        "Uses nested builtin subclass (str/bytes/bytearray) in lambda factory"
-                    else if (blk: {
-                        std.debug.print("genClassDef():         Checking usesAssertRaisesWithOperatorEqNe...\n", .{});
-                        break :blk test_skip.usesAssertRaisesWithOperatorEqNe(method.body);
-                    })
-                        "Uses assertRaises with operator.eq/ne (requires __eq__=None runtime dispatch)"
-                    else if (test_skip.usesCPythonInternalModules(method.body))
-                        "Uses CPython internal modules (_pylong/_decimal)"
-                    else
-                        null;
+                    else blk: {
+                        if (test_skip.callsSelfMethodWithClassArg(method.body, class_names)) {
+                            break :blk "Test passes class as runtime argument (self.method(ClassName))";
+                        }
+                        if (test_skip.hasSkipDocstring(method.body)) {
+                            break :blk "Marked skip in docstring";
+                        }
+                        if (test_skip.isPickleIteratorTest(method_name)) {
+                            break :blk "Pickle iterator reconstruction not supported (requires __reduce__ protocol)";
+                        }
+                        if (test_skip.requiresExceptionContextManager(method_name)) {
+                            break :blk "Requires exception context manager support (assertRaisesRegex)";
+                        }
+                        if (test_skip.hasNestedBuiltinSubclassInLambda(method.body)) {
+                            break :blk "Uses nested builtin subclass (str/bytes/bytearray) in lambda factory";
+                        }
+                        if (test_skip.usesAssertRaisesWithOperatorEqNe(method.body)) {
+                            break :blk "Uses assertRaises with operator.eq/ne (requires __eq__=None runtime dispatch)";
+                        }
+                        if (test_skip.usesCPythonInternalModules(method.body)) {
+                            break :blk "Uses CPython internal modules (_pylong/_decimal)";
+                        }
+                        break :blk null;
+                    };
 
                     // Count @mock.patch.object decorators (each injects a mock param)
                     const mock_count = test_skip.countMockPatchDecorators(method.decorators);
@@ -709,7 +676,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     var captured_vars = self.nested_class_captures.get(class.name);
     if (captured_vars == null and class.bases.len > 0) {
         // Check if parent has captures that we need to inherit
-        if (self.nested_class_captures.get(class.bases[0])) |parent_captures| {
+        const parent_captures_opt = self.nested_class_captures.get(class.bases[0]);
+        if (parent_captures_opt) |parent_captures| {
             // Check if we inherit methods that use the captures (i.e., we don't override them)
             // by checking if parent has methods that child doesn't have
             const parent_def = self.nested_class_defs.get(class.bases[0]);
@@ -754,7 +722,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // inside a function and there's a module-level class with the same name, rename local.
     var effective_class_name: []const u8 = class.name;
     const shadows_module_class = self.current_function_name != null and self.class_registry.getClass(class.name) != null;
-    if (self.isDeclared(class.name) or shadows_module_class) {
+    const is_declared = self.isDeclared(class.name);
+    if (is_declared or shadows_module_class) {
         // Generate a unique name based on pointer address
         const unique_name = try std.fmt.allocPrint(self.allocator, "{s}_{d}", .{ class.name, @intFromPtr(class.name.ptr) });
         effective_class_name = unique_name;
