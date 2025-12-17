@@ -95,7 +95,7 @@ pub const ModuleFinder = struct {
         finder.debug = debug;
 
         for (path) |p| {
-            finder.path.append(allocator, p) catch {};
+            finder.path.append(allocator, p) catch unreachable;
         }
 
         if (excludes) |excl| {
@@ -106,7 +106,7 @@ pub const ModuleFinder = struct {
 
         if (replace_paths) |rp| {
             for (rp) |r| {
-                finder.replace_paths.append(allocator, r) catch {};
+                finder.replace_paths.append(allocator, r) catch unreachable;
             }
         }
 
@@ -319,7 +319,7 @@ pub const ModuleFinder = struct {
     pub fn anyMissing(self: *Self) []const []const u8 {
         var result: std.ArrayList([]const u8) = .{};
         for (self.badmodules.keys()) |name| {
-            result.append(self.allocator, name) catch {};
+            result.append(self.allocator, name) catch unreachable;
         }
         return result.toOwnedSlice(self.allocator) catch &[_][]const u8{};
     }
@@ -347,11 +347,11 @@ pub fn AddPackagePath(allocator: std.mem.Allocator, packagename: []const u8, pat
     if (package_paths) |*paths| {
         if (paths.getPtr(packagename)) |existing| {
             // Add to existing package path list
-            existing.append(allocator, path) catch {};
+            existing.append(allocator, path) catch unreachable;
         } else {
             // Create new path list for this package
             var path_list: std.ArrayList([]const u8) = .{};
-            path_list.append(allocator, path) catch {};
+            path_list.append(allocator, path) catch unreachable;
             paths.put(allocator, packagename, path_list) catch unreachable;
         }
     }

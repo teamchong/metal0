@@ -304,7 +304,7 @@ pub const Snapshot = struct {
                     .filename = entry.key_ptr.*,
                     .lineno = 0,
                 };
-                empty_traceback.frames.append(allocator, frame) catch {};
+                empty_traceback.frames.append(allocator, frame) catch unreachable;
 
                 try result.append(allocator, .{
                     .traceback = empty_traceback,

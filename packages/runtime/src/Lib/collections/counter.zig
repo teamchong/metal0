@@ -54,7 +54,7 @@ pub fn Counter(comptime T: type) type {
 
             while (iter.next()) |entry| {
                 if (entry.value_ptr.* <= 0) {
-                    to_remove.append(self.allocator, entry.key_ptr.*) catch {};
+                    to_remove.append(self.allocator, entry.key_ptr.*) catch unreachable;
                 }
             }
 

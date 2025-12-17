@@ -270,7 +270,7 @@ pub const Bdb = struct {
     pub fn setup(self: *Self, frame: *FrameInfo) void {
         self.curframe = frame;
         self.stack.clearRetainingCapacity();
-        self.stack.append(frame) catch {};
+        self.stack.append(frame) catch unreachable;
         self.curindex = 0;
     }
 
@@ -307,7 +307,7 @@ pub const Bdb = struct {
             // Stepping through, might need to stop
         }
 
-        self.stack.append(self.allocator, frame) catch {};
+        self.stack.append(self.allocator, frame) catch unreachable;
     }
 
     /// Called on line execution

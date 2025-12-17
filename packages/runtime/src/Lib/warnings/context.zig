@@ -32,7 +32,7 @@ pub const CatchWarnings = struct {
         self.module = state.getState(self.allocator);
         // Save current filters
         for (self.module.?.filters.items) |f| {
-            self.saved_filters.append(self.allocator, f) catch {};
+            self.saved_filters.append(self.allocator, f) catch unreachable;
         }
         return &self.log;
     }
@@ -41,7 +41,7 @@ pub const CatchWarnings = struct {
         // Restore saved filters
         self.module.?.filters.clearRetainingCapacity();
         for (self.saved_filters.items) |f| {
-            self.module.?.filters.append(self.allocator, f) catch {};
+            self.module.?.filters.append(self.allocator, f) catch unreachable;
         }
     }
 };

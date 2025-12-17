@@ -343,7 +343,7 @@ pub const MessageIterator = struct {
 
     pub fn init(root: *Message) MessageIterator {
         var stack: std.ArrayList(*Message) = .{};
-        stack.append(root.allocator, root) catch {};
+        stack.append(root.allocator, root) catch unreachable;
         return .{
             .stack = stack,
             .allocator = root.allocator,
@@ -364,7 +364,7 @@ pub const MessageIterator = struct {
             var i = parts.len;
             while (i > 0) {
                 i -= 1;
-                self.stack.append(self.allocator, parts[i]) catch {};
+                self.stack.append(self.allocator, parts[i]) catch unreachable;
             }
         }
 

@@ -197,8 +197,8 @@ pub fn split(path: []const u8) struct { head: []const u8, tail: []const u8 } {
             // Combine drive and head
             if (d.len > 0) {
                 var combined: std.ArrayList(u8) = .{};
-                combined.appendSlice(allocator_helper.fast_allocator, d) catch {};
-                combined.appendSlice(allocator_helper.fast_allocator, head) catch {};
+                combined.appendSlice(allocator_helper.fast_allocator, d) catch unreachable;
+                combined.appendSlice(allocator_helper.fast_allocator, head) catch unreachable;
                 return .{ .head = combined.items, .tail = tail };
             }
 

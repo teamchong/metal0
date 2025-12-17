@@ -14,7 +14,7 @@ pub fn pushFrame(allocator: std.mem.Allocator, filename: []const u8, lineno: usi
     if (call_stack_allocator == null) {
         call_stack_allocator = allocator;
     }
-    call_stack.append(allocator, .{ .filename = filename, .lineno = lineno, .function = function }) catch {};
+    call_stack.append(allocator, .{ .filename = filename, .lineno = lineno, .function = function }) catch unreachable;
 }
 
 /// Pop a frame from the call stack (called by generated code on function exit)

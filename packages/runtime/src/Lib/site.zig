@@ -56,7 +56,7 @@ pub fn main(allocator: std.mem.Allocator) void {
 
     // Add standard prefixes
     PREFIXES.append(allocator, "/usr/local") catch unreachable;
-    PREFIXES.append(allocator, "/usr") catch {};
+    PREFIXES.append(allocator, "/usr") catch unreachable;
 
     // Determine user directories
     if (std.posix.getenv("PYTHONUSERBASE")) |base| {

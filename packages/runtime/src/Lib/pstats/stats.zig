@@ -119,7 +119,7 @@ pub const Stats = struct {
     pub fn sortStats(self: *Self, keys: []const types.SortKey) *Self {
         self.sort_keys.clearRetainingCapacity();
         for (keys) |key| {
-            self.sort_keys.append(self.allocator, key) catch {};
+            self.sort_keys.append(self.allocator, key) catch unreachable;
         }
         return self;
     }
@@ -129,7 +129,7 @@ pub const Stats = struct {
         self.sort_keys.clearRetainingCapacity();
         for (key_strings) |s| {
             if (types.SortKey.fromString(s)) |key| {
-                self.sort_keys.append(self.allocator, key) catch {};
+                self.sort_keys.append(self.allocator, key) catch unreachable;
             }
         }
         return self;

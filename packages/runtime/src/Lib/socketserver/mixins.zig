@@ -85,7 +85,7 @@ pub fn ForkingMixIn(comptime ServerType: type) type {
                 }
             } else {
                 // Parent process - track the child
-                self.active_children.append(self.allocator, fork_result) catch {};
+                self.active_children.append(self.allocator, fork_result) catch unreachable;
 
                 // Close connection in parent (child has it)
                 std.posix.close(conn);

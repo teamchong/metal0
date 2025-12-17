@@ -141,7 +141,7 @@ pub const FileInput = struct {
                 self.filelineno_ += 1;
 
                 // Append newline to match Python behavior
-                self.line_buffer.append(self.allocator, '\n') catch {};
+                self.line_buffer.append(self.allocator, '\n') catch unreachable;
 
                 return self.line_buffer.items;
             } else {

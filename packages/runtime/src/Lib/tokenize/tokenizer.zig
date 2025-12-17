@@ -31,7 +31,7 @@ pub const Tokenizer = struct {
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Self {
         var indent_stack: std.ArrayList(u32) = .{};
-        indent_stack.append(allocator, 0) catch {};
+        indent_stack.append(allocator, 0) catch unreachable;
 
         return .{
             .source = source,
@@ -74,7 +74,7 @@ pub const Tokenizer = struct {
 
             const current_indent = self.indent_stack.items[self.indent_stack.items.len - 1];
             if (indent > current_indent) {
-                self.indent_stack.append(self.allocator, indent) catch {};
+                self.indent_stack.append(self.allocator, indent) catch unreachable;
                 return TokenInfo.init(
                     .INDENT,
                     "",
@@ -412,6 +412,6 @@ pub const Tokenizer = struct {
         self.pending_dedents = 0;
         self.done = false;
         self.indent_stack.clearRetainingCapacity();
-        self.indent_stack.append(self.allocator, 0) catch {};
+        self.indent_stack.append(self.allocator, 0) catch unreachable;
     }
 };
