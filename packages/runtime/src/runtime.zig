@@ -16,6 +16,11 @@ pub const println = print_utils.println;
 
 /// Re-export hashmap_helper for generated code (so it can use runtime.hashmap_helper)
 pub const hashmap_helper = @import("utils.hashmap_helper");
+
+// Type-erased callable (prevents monomorphization explosion in decorators)
+const callable = @import("runtime/callable.zig");
+pub const AnyCallable = callable.AnyCallable;
+
 const pyint = @import("Objects/intobject.zig");
 pub const PyInt = pyint.PyInt;
 const pyfloat = @import("Objects/floatobject.zig");

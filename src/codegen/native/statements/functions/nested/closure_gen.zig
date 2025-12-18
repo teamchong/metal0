@@ -57,22 +57,15 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: b
     }
 
     // Case 2: Captured variable is itself a closure
-    // Closures have complex parameterized types (AnyClosure1, AnyClosure2, etc.)
-    // that can't be expressed statically. Use @TypeOf() to infer from the actual value.
-    // Note: anytype can only be used in function params, not struct fields.
+    // Using @TypeOf() causes monomorphization explosion - each unique function type creates
+    // a separate capture struct type, leading to O(n²) compilation when decorating n functions
+    // Solution: Use runtime.AnyCallable vtable wrapper (same as Case 5)
     if (self.closure_vars.contains(var_name)) {
         if (is_mutated) {
-            try self.emit(": *@TypeOf(");
+            try self.emit(": *runtime.AnyCallable");
         } else {
-            try self.emit(": @TypeOf(");
+            try self.emit(": runtime.AnyCallable");
         }
-        // Check if variable was renamed (e.g., nested function `raiseVE` -> `__local_raiseVE_10`)
-        if (self.var_renames.get(var_name)) |renamed| {
-            try self.emit(renamed);
-        } else {
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        }
-        try self.emit(")");
         return;
     }
 
@@ -112,21 +105,15 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: b
         }
     }
 
-    // Case 5: If type is still unknown, use @TypeOf() to let Zig infer from the actual variable
-    // This handles captured variables from outer scopes where type lookup fails due to scope mismatch
-    // (e.g., inner function capturing outer function's typed parameter)
+    // Case 5: If type is still unknown, use runtime.AnyCallable
+    // This uses vtable dispatch to prevent monomorphization explosion
+    // Wraps the function with function pointers for .call() and .__name__
     if (var_type == .unknown) {
         if (is_mutated) {
-            try self.emit(": *@TypeOf(");
+            try self.emit(": *runtime.AnyCallable");
         } else {
-            try self.emit(": @TypeOf(");
+            try self.emit(": runtime.AnyCallable");
         }
-        if (self.var_renames.get(var_name)) |renamed| {
-            try self.emit(renamed);
-        } else {
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        }
-        try self.emit(")");
         return;
     }
 
@@ -417,6 +404,7 @@ pub fn genStandardClosure(
         try self.output.writer(self.allocator).print("_ = &{s};\n", .{capture_param_name});
     }
 
+
     // Create mutable local copies for parameters that are reassigned in body
     // (anytype params are const, but Python allows reassigning parameters)
     for (func.args) |arg| {
@@ -482,10 +470,22 @@ pub fn genStandardClosure(
 
     // Add captured variable renames so they get prefixed with capture struct access
     // For mutated/nonlocal captures, add .* to dereference the pointer
+    // For AnyCallable-wrapped captures, mark them as closures so .call() is generated
     var capture_renames = std.ArrayList([]const u8){};
     defer capture_renames.deinit(self.allocator);
 
     for (captured_vars) |var_name| {
+        // Check if this is an AnyCallable-wrapped capture
+        const var_type = self.getLocalVarType(var_name) orelse
+            self.getVarType(var_name) orelse
+            self.type_inferrer.getScopedVar(var_name) orelse
+            .unknown;
+
+        // Mark AnyCallable vars as closures so they get .call() treatment
+        if (var_type == .unknown) {
+            try self.closure_vars.put(var_name, {});
+        }
+
         const rename = if (mutated_captures.contains(var_name))
             // Mutated/nonlocal captures are pointers - need dereference
             try std.fmt.allocPrint(
@@ -812,10 +812,31 @@ pub fn genStandardClosure(
             // then fall back to current var_renames, then the original name
             const actual_name = outer_capture_renames.get(var_name) orelse
                 self.var_renames.get(var_name) orelse var_name;
+
+            // Check if this is an AnyCallable-wrapped capture
+            // (either unknown type OR a closure from closure_vars)
+            const var_type = self.getLocalVarType(var_name) orelse
+                self.getVarType(var_name) orelse
+                self.type_inferrer.getScopedVar(var_name) orelse
+                .unknown;
+            const is_any_callable = var_type == .unknown or self.closure_vars.contains(var_name);
+
             if (mutated_captures.contains(var_name)) {
-                try self.output.writer(self.allocator).print(" .{s} = &{s}", .{ var_name, actual_name });
+                // Mutated captures: take pointer
+                if (is_any_callable) {
+                    // Wrap with AnyCallable to prevent monomorphization
+                    try self.output.writer(self.allocator).print(" .{s} = &runtime.AnyCallable.wrap(@TypeOf({s}), {s})", .{ var_name, actual_name, actual_name });
+                } else {
+                    try self.output.writer(self.allocator).print(" .{s} = &{s}", .{ var_name, actual_name });
+                }
             } else {
-                try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, actual_name });
+                // Non-mutated captures: use value directly
+                if (is_any_callable) {
+                    // Wrap with AnyCallable to prevent monomorphization
+                    try self.output.writer(self.allocator).print(" .{s} = runtime.AnyCallable.wrap(@TypeOf({s}), {s})", .{ var_name, actual_name, actual_name });
+                } else {
+                    try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, actual_name });
+                }
             }
         }
         try self.emit(" } };\n");
