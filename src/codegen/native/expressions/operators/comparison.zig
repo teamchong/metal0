@@ -988,12 +988,11 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     .Eq => {
                         const has_eq = if (class_info) |info| info.methods.contains("__eq__") else false;
                         if (has_eq) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            // __eq__ returns bool (not error union), so no try needed
                             try genExpr(self, current_left);
                             try self.emit(".__eq__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try self.emit(")");
                         } else {
                             // PyValue fallback - compiles once
                             try self.emit("runtime.PyValue.from(");
@@ -1008,19 +1007,18 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_eq = if (class_info) |info| info.methods.contains("__eq__") else false;
 
                         if (has_ne) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            // __ne__ returns bool (not error union), so no try needed
                             try genExpr(self, current_left);
                             try self.emit(".__ne__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try self.emit(")");
                         } else if (has_eq) {
-                            // Use !toBool(try a.__eq__(b))
-                            try self.emit("!runtime.toBool(try ");
+                            // Use !__eq__() - no try needed
+                            try self.emit("!");
                             try genExpr(self, current_left);
                             try self.emit(".__eq__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try self.emit(")");
                         } else {
                             // PyValue fallback
                             try self.emit("!runtime.PyValue.from(");
@@ -1196,12 +1194,11 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     .Eq => {
                         const has_eq = if (right_class_info) |info| info.methods.contains("__eq__") else false;
                         if (has_eq) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            // __eq__ returns bool (not error union), so no try needed
                             try genExpr(self, compare.comparators[i]);
                             try self.emit(".__eq__(");
                             try genExpr(self, current_left);
-                            try self.emit("))");
+                            try self.emit(")");
                         } else {
                             try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
@@ -1214,19 +1211,18 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_ne = if (right_class_info) |info| info.methods.contains("__ne__") else false;
                         const has_eq = if (right_class_info) |info| info.methods.contains("__eq__") else false;
                         if (has_ne) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            // __ne__ returns bool (not error union), so no try needed
                             try genExpr(self, compare.comparators[i]);
                             try self.emit(".__ne__(");
                             try genExpr(self, current_left);
-                            try self.emit("))");
+                            try self.emit(")");
                         } else if (has_eq) {
-                            // Use !toBool(try b.__eq__(a))
-                            try self.emit("!runtime.toBool(try ");
+                            // Use !__eq__() - no try needed
+                            try self.emit("!");
                             try genExpr(self, compare.comparators[i]);
                             try self.emit(".__eq__(");
                             try genExpr(self, current_left);
-                            try self.emit("))");
+                            try self.emit(")");
                         } else {
                             try self.emit("!runtime.PyValue.from(");
                             try genExpr(self, current_left);

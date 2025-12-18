@@ -94,9 +94,14 @@ pub fn pyTupleEql(a: anytype, b: @TypeOf(a)) bool {
         return std.mem.eql(ElemT, &a, &b);
     }
 
-    // Handle structs (tuples) - convert to PyValue to avoid recursive inline for
-    // This prevents monomorphization explosion for complex nested types
+    // Handle structs (tuples) - check for __eq__ method first
     if (info == .@"struct") {
+        // Class instances with __eq__ - call it directly
+        if (@hasDecl(T, "__eq__")) {
+            return a.__eq__(b);
+        }
+        // Regular structs/tuples - convert to PyValue to avoid recursive inline for
+        // This prevents monomorphization explosion for complex nested types
         const a_pv = PyValue.from(a);
         const b_pv = PyValue.from(b);
         return pyValueEql(a_pv, b_pv);
@@ -271,9 +276,14 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             const ElemT = std.meta.Elem(@TypeOf(a.items));
             return std.mem.eql(ElemT, a.items, b.items);
         }
-        // Special case: structs (tuples) - use PyValue conversion to avoid recursive inline for
-        // This prevents monomorphization explosion for complex nested types
+        // Special case: structs (tuples) - check for __eq__ method first
         if (a_info == .@"struct") {
+            // Class instances with __eq__ - call it directly
+            if (@hasDecl(A, "__eq__")) {
+                return a.__eq__(b);
+            }
+            // Regular structs/tuples - use PyValue conversion to avoid recursive inline for
+            // This prevents monomorphization explosion for complex nested types
             const a_pv = PyValue.from(a);
             const b_pv = PyValue.from(b);
             return pyValueEql(a_pv, b_pv);

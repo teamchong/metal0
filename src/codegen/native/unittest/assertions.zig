@@ -763,19 +763,19 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         return;
     }
 
-    // === GENERIC FALLBACK: Use PyValue.from().eql() ===
-    // For all other cases (class instances, dicts, sets, mixed types),
-    // use PyValue.from().eql() which compiles ONCE instead of O(n²) monomorphization.
-    // PyValue.eql() handles all comparison semantics internally:
+    // === GENERIC FALLBACK: Use runtime.pyAnyEql() ===
+    // For all other cases (dicts, sets, mixed types without __eq__),
+    // use runtime.pyAnyEql() which handles __eq__ methods on class instances.
+    // This handles all comparison semantics:
     // - Same-type comparisons (floats with NaN, ints, strings)
     // - Cross-type comparisons (int vs float)
     // - Container comparisons (lists, dicts, sets)
-    // - PyObject/class instance comparisons (via PyObject interface)
-    try self.emit("if (!runtime.PyValue.from(");
+    // - Class instance comparisons (calls __eq__ if available)
+    try self.emit("if (!runtime.pyAnyEql(");
     try parent.genExpr(self, args[0]);
-    try self.emit(").eql(runtime.PyValue.from(");
+    try self.emit(", ");
     try parent.genExpr(self, args[1]);
-    try self.emit("))) return error.AssertionFailed;");
+    try self.emit(")) return error.AssertionFailed;");
 }
 
 pub const genAssertTrue = gen1ArgAssert("assertTrue");
