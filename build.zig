@@ -82,6 +82,8 @@ pub fn build(b: *std.Build) void {
     const builder_mod = b.addModule("codegen.builder", .{
         .root_source_file = b.path("src/codegen/builder/builder.zig"),
     });
+    // Builder needs NameGen for unified ID generation
+    builder_mod.addImport("codegen.name_gen", name_gen);
 
     const ast = b.addModule("analysis.ast", .{
         .root_source_file = b.path("src/ast.zig"),

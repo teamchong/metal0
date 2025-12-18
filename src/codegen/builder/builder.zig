@@ -134,6 +134,7 @@ pub const Local = @import("local_allocator.zig").Local;
 
 pub const ZigBuilder = @import("zig_builder.zig").ZigBuilder;
 pub const FuncParam = @import("zig_builder.zig").FuncParam;
+pub const NameGen = @import("zig_builder.zig").NameGen;
 
 // ============================================
 // Convenience functions

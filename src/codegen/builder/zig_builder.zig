@@ -49,6 +49,10 @@ const ScopeHandle = @import("emit_context.zig").ScopeHandle;
 
 const LocalAllocator = @import("local_allocator.zig").LocalAllocator;
 
+/// Import NameGen for unified ID generation
+const name_gen_mod = @import("codegen.name_gen");
+pub const NameGen = name_gen_mod.NameGen;
+
 /// Main builder struct for Zig code generation
 pub const ZigBuilder = struct {
     allocator: Allocator,
@@ -85,11 +89,12 @@ pub const ZigBuilder = struct {
     /// Current indent level
     indent_level: usize,
 
-    /// Unique ID counter for scopes/labels
-    id_counter: u32,
+    /// External name generator (shared with NativeCodegen for unified IDs)
+    /// When null, uses internal fallback counter
+    name_gen: ?*NameGen,
 
-    /// Name counter for generated names
-    name_counter: usize,
+    /// Internal fallback counter (only used when name_gen is null, e.g., in tests)
+    internal_counter: usize,
 
     /// Line counter for debug info
     line_counter: usize,
@@ -107,6 +112,34 @@ pub const ZigBuilder = struct {
     // Initialization
     // ============================================
 
+    /// Initialize builder with external NameGen (for integration with NativeCodegen)
+    pub fn initWithNameGen(allocator: Allocator, name_gen: *NameGen) !ZigBuilder {
+        var builder = ZigBuilder{
+            .allocator = allocator,
+            // Zig 0.15: ArrayList is empty struct, allocator passed to methods
+            .preamble = .{},
+            .types = .{},
+            .header = .{},
+            .body = .{},
+            .type_pool = TypePool.init(allocator),
+            .locals = LocalAllocator.init(allocator),
+            .scope_stack = .{},
+            .indent_level = 0,
+            .name_gen = name_gen,
+            .internal_counter = 0,
+            .line_counter = 1,
+            .in_function = false,
+            .function_returns_error = false,
+            .bindings = std.StringHashMap(ZigType).init(allocator),
+        };
+
+        // Start with module scope (Zig 0.15: pass allocator)
+        try builder.scope_stack.append(allocator, ScopeContext.module());
+
+        return builder;
+    }
+
+    /// Initialize builder standalone (for tests or independent use)
     pub fn init(allocator: Allocator) !ZigBuilder {
         var builder = ZigBuilder{
             .allocator = allocator,
@@ -119,8 +152,8 @@ pub const ZigBuilder = struct {
             .locals = LocalAllocator.init(allocator),
             .scope_stack = .{},
             .indent_level = 0,
-            .id_counter = 0,
-            .name_counter = 0,
+            .name_gen = null,
+            .internal_counter = 0,
             .line_counter = 1,
             .in_function = false,
             .function_returns_error = false,
@@ -216,18 +249,50 @@ pub const ZigBuilder = struct {
         if (self.indent_level > 0) self.indent_level -= 1;
     }
 
-    /// Generate a unique ID
-    fn nextId(self: *ZigBuilder) u32 {
-        const id = self.id_counter;
-        self.id_counter += 1;
+    /// Generate a unique ID (uses external NameGen if available, fallback to internal counter)
+    fn nextId(self: *ZigBuilder) usize {
+        if (self.name_gen) |ng| {
+            return ng.nextId();
+        }
+        const id = self.internal_counter;
+        self.internal_counter += 1;
         return id;
     }
 
-    /// Generate a unique name
+    /// Generate a unique name using the unified naming scheme
+    /// Uses external NameGen if available, otherwise uses internal counter
     pub fn freshName(self: *ZigBuilder, hint: []const u8) ![]const u8 {
-        const id = self.name_counter;
-        self.name_counter += 1;
+        if (self.name_gen) |ng| {
+            return ng.fresh(hint);
+        }
+        const id = self.internal_counter;
+        self.internal_counter += 1;
         return std.fmt.allocPrint(self.allocator, "__m{d}_{s}", .{ id, hint });
+    }
+
+    /// Generate a unique block label
+    pub fn freshBlockLabel(self: *ZigBuilder) ![]const u8 {
+        if (self.name_gen) |ng| {
+            return ng.blockLabel();
+        }
+        const id = self.internal_counter;
+        self.internal_counter += 1;
+        return std.fmt.allocPrint(self.allocator, "__m{d}_b", .{id});
+    }
+
+    /// Generate a unique temp name
+    pub fn freshTemp(self: *ZigBuilder) ![]const u8 {
+        if (self.name_gen) |ng| {
+            return ng.temp();
+        }
+        const id = self.internal_counter;
+        self.internal_counter += 1;
+        return std.fmt.allocPrint(self.allocator, "__m{d}_t", .{id});
+    }
+
+    /// Get the raw ID for use with emitFmt (for gradual migration)
+    pub fn getNextId(self: *ZigBuilder) usize {
+        return self.nextId();
     }
 
     /// Get current scope
@@ -773,6 +838,63 @@ pub const ZigBuilder = struct {
         try self.writeFmt("break :{s} ", .{label});
         try self.emitValue(value, EmitConfig.forExpression());
         try self.write(";\n");
+    }
+
+    // ============================================
+    // Inline Block Expression API
+    // ============================================
+    //
+    // These APIs emit labeled blocks as expressions (wrapped in parentheses),
+    // suitable for use within larger expressions. Unlike beginBlock/endBlock
+    // which emit statement-style blocks with newlines.
+    //
+    // Example output: (__m0_blk: { const x = 1; break :__m0_blk x + 1; })
+
+    /// Generate a fresh label for an inline block expression
+    /// Use this with emitInlineBlockStart/emitInlineBlockBreak/emitInlineBlockEnd
+    pub fn freshInlineLabel(self: *ZigBuilder, hint: []const u8) ![]const u8 {
+        if (self.name_gen) |ng| {
+            return ng.fresh(hint);
+        }
+        const id = self.internal_counter;
+        self.internal_counter += 1;
+        return std.fmt.allocPrint(self.allocator, "__m{d}_{s}", .{ id, hint });
+    }
+
+    /// Start an inline block expression: (__m{id}_{hint}: {
+    /// Returns the label for use with emitInlineBlockBreak
+    pub fn emitInlineBlockStart(self: *ZigBuilder, hint: []const u8) ![]const u8 {
+        const label = try self.freshInlineLabel(hint);
+        try self.writeFmt("({s}: {{ ", .{label});
+        return label;
+    }
+
+    /// Emit break with value for inline block: break :label value;
+    /// Note: No indent/newline - this is inline
+    pub fn emitInlineBlockBreak(self: *ZigBuilder, label: []const u8, value: ZigValue) !void {
+        try self.writeFmt("break :{s} ", .{label});
+        try self.emitValue(value, EmitConfig.forExpression());
+        try self.write("; ");
+    }
+
+    /// End an inline block expression: })
+    pub fn emitInlineBlockEnd(self: *ZigBuilder) !void {
+        try self.write("})");
+    }
+
+    /// Emit a complete inline block expression with a single break value
+    /// Output: (__m{id}_{hint}: { body break :__m{id}_{hint} result; })
+    pub fn emitInlineBlock(self: *ZigBuilder, hint: []const u8, body: []const u8, result: ZigValue) !void {
+        const label = try self.freshInlineLabel(hint);
+        try self.writeFmt("({s}: {{ {s} break :{s} ", .{ label, body, label });
+        try self.emitValue(result, EmitConfig.forExpression());
+        try self.write("; })");
+    }
+
+    /// Emit a complete inline block with raw body and raw result (for migration)
+    pub fn emitInlineBlockRaw(self: *ZigBuilder, hint: []const u8, body: []const u8, result: []const u8) !void {
+        const label = try self.freshInlineLabel(hint);
+        try self.writeFmt("({s}: {{ {s} break :{s} {s}; }})", .{ label, body, label, result });
     }
 
     // ============================================

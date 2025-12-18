@@ -2,6 +2,7 @@
 /// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "PREFIXES", h.c("runtime.NativeList.init()") },
@@ -19,11 +20,21 @@ const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
 fn genGetuserbase(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_gub: {{ const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\"); break :__m{d}_gub std.fmt.allocPrint(__global_allocator, \"{{s}}/.local\", .{{home}}) catch \"\"; }})", .{ id, id });
+    const b = try self.getBuilder();
+    // Using emitInlineBlockRaw for inline labeled block expression
+    try b.emitInlineBlockRaw(
+        "gub",
+        "const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");",
+        "std.fmt.allocPrint(__global_allocator, \"{s}/.local\", .{home}) catch \"\"",
+    );
 }
 
 fn genGetusersitepackages(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_gusp: {{ const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\"); break :__m{d}_gusp std.fmt.allocPrint(__global_allocator, \"{{s}}/.local/lib/python3/site-packages\", .{{home}}) catch \"\"; }})", .{ id, id });
+    const b = try self.getBuilder();
+    // Using emitInlineBlockRaw for inline labeled block expression
+    try b.emitInlineBlockRaw(
+        "gusp",
+        "const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");",
+        "std.fmt.allocPrint(__global_allocator, \"{s}/.local/lib/python3/site-packages\", .{home}) catch \"\"",
+    );
 }

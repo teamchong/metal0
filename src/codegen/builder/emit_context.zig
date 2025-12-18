@@ -262,7 +262,7 @@ pub const ScopeContext = struct {
     kind: ScopeKind,
 
     /// Scope ID (for unique labels)
-    id: u32,
+    id: usize,
 
     /// Indent level at scope entry
     indent_level: usize,
@@ -297,7 +297,7 @@ pub const ScopeContext = struct {
     }
 
     /// Create a function scope
-    pub fn function(id: u32, parent: ?*const ScopeContext) ScopeContext {
+    pub fn function(id: usize, parent: ?*const ScopeContext) ScopeContext {
         return .{
             .kind = .function,
             .id = id,
@@ -311,7 +311,7 @@ pub const ScopeContext = struct {
     }
 
     /// Create a loop scope
-    pub fn loop(id: u32, parent: *const ScopeContext, label: ?[]const u8) ScopeContext {
+    pub fn loop(id: usize, parent: *const ScopeContext, label: ?[]const u8) ScopeContext {
         return .{
             .kind = .loop,
             .id = id,
@@ -325,7 +325,7 @@ pub const ScopeContext = struct {
     }
 
     /// Create a conditional scope
-    pub fn conditional(id: u32, parent: *const ScopeContext) ScopeContext {
+    pub fn conditional(id: usize, parent: *const ScopeContext) ScopeContext {
         return .{
             .kind = .conditional,
             .id = id,
@@ -339,7 +339,7 @@ pub const ScopeContext = struct {
     }
 
     /// Create a try scope
-    pub fn tryBlock(id: u32, parent: *const ScopeContext) ScopeContext {
+    pub fn tryBlock(id: usize, parent: *const ScopeContext) ScopeContext {
         return .{
             .kind = .try_block,
             .id = id,
@@ -353,7 +353,7 @@ pub const ScopeContext = struct {
     }
 
     /// Create a labeled block scope
-    pub fn labeledBlock(id: u32, parent: *const ScopeContext, label: []const u8) ScopeContext {
+    pub fn labeledBlock(id: usize, parent: *const ScopeContext, label: []const u8) ScopeContext {
         return .{
             .kind = .labeled_block,
             .id = id,
@@ -402,18 +402,18 @@ pub const ScopeContext = struct {
 
 /// Handle for RAII-style scope management
 pub const ScopeHandle = struct {
-    id: u32,
+    id: usize,
     kind: ScopeKind,
     start_pos: usize, // Position in output buffer at scope start
 
     /// Check if this handle is valid
     pub fn isValid(self: ScopeHandle) bool {
-        return self.id != std.math.maxInt(u32);
+        return self.id != std.math.maxInt(usize);
     }
 
     /// Invalid handle constant
     pub const invalid = ScopeHandle{
-        .id = std.math.maxInt(u32),
+        .id = std.math.maxInt(usize),
         .kind = .module,
         .start_pos = 0,
     };

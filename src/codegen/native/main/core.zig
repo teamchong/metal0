@@ -1582,14 +1582,15 @@ pub const NativeCodegen = struct {
     /// Get or create the structured ZigBuilder (lazy initialization)
     /// Use this during Phase 1 migration to access type-safe codegen APIs
     /// The builder can coexist with existing emit()/emitFmt() calls
+    /// NOTE: The builder shares the same NameGen as NativeCodegen for unified ID generation
     pub fn getBuilder(self: *NativeCodegen) CodegenError!*builder_mod.ZigBuilder {
         if (self.builder) |b| {
             return b;
         }
 
-        // Lazy initialization - create builder on first use
+        // Lazy initialization - create builder on first use with shared NameGen
         const b = try self.allocator.create(builder_mod.ZigBuilder);
-        b.* = try builder_mod.ZigBuilder.init(self.allocator);
+        b.* = try builder_mod.ZigBuilder.initWithNameGen(self.allocator, &self.name_gen);
         self.builder = b;
         return b;
     }

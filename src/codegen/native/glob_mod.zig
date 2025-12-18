@@ -34,11 +34,12 @@ fn genEscape(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.string(""), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_esc: {{ const _path = ", .{id});
+    // Using builder's inline block API
+    const label = try b.emitInlineBlockStart("esc");
+    try self.emit("const _path = ");
     try self.genExpr(args[0]);
-    try self.emit("; var _result: std.ArrayList(u8) = .{}; for (_path) |c| { if (c == '*' or c == '?' or c == '[') { _result.append(__global_allocator, '[') catch continue; _result.append(__global_allocator, c) catch continue; _result.append(__global_allocator, ']') catch continue; } else { _result.append(__global_allocator, c) catch continue; } } break :__m");
-    try self.emitFmt("{d}_esc _result.items; }})", .{id});
+    try self.emitFmt("; var _result: std.ArrayList(u8) = .{{}}; for (_path) |c| {{ if (c == '*' or c == '?' or c == '[') {{ _result.append(__global_allocator, '[') catch continue; _result.append(__global_allocator, c) catch continue; _result.append(__global_allocator, ']') catch continue; }} else {{ _result.append(__global_allocator, c) catch continue; }} }} break :{s} _result.items; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genHasMagic(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -47,9 +48,10 @@ fn genHasMagic(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_hm: {{ const _s = ", .{id});
+    // Using builder's inline block API with getNextId() for unified ID generation
+    const label = try b.emitInlineBlockStart("hm");
+    try self.emit("const _s = ");
     try self.genExpr(args[0]);
-    try self.emit("; for (_s) |c| { if (c == '*' or c == '?' or c == '[') break :__m");
-    try self.emitFmt("{d}_hm true; }} break :__m{d}_hm false; }})", .{ id, id });
+    try self.emitFmt("; for (_s) |c| {{ if (c == '*' or c == '?' or c == '[') break :{s} true; }} break :{s} false; ", .{ label, label });
+    try b.emitInlineBlockEnd();
 }
