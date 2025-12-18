@@ -21,11 +21,11 @@ fn genIskeyword(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_iskw: {{ const __search = ", .{id});
+    const label = try b.emitInlineBlockStart("iskw");
+    try self.emit("const __search = ");
     try self.genExpr(args[0]);
-    try self.emit("; const __items = [_][]const u8{ " ++ kwlist ++ " }; for (__items) |__item| { if (std.mem.eql(u8, __search, __item)) break :__m");
-    try self.emitFmt("{d}_iskw true; }} break :__m{d}_iskw false; }})", .{ id, id });
+    try self.emitFmt("; const __items = [_][]const u8{{ {s} }}; for (__items) |__item| {{ if (std.mem.eql(u8, __search, __item)) break :{s} true; }} break :{s} false; ", .{ kwlist, label, label });
+    try b.emitInlineBlockEnd();
 }
 
 fn genIssoftkeyword(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -34,11 +34,11 @@ fn genIssoftkeyword(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!voi
         try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_issk: {{ const __search = ", .{id});
+    const label = try b.emitInlineBlockStart("issk");
+    try self.emit("const __search = ");
     try self.genExpr(args[0]);
-    try self.emit("; const __items = [_][]const u8{ " ++ softkwlist ++ " }; for (__items) |__item| { if (std.mem.eql(u8, __search, __item)) break :__m");
-    try self.emitFmt("{d}_issk true; }} break :__m{d}_issk false; }})", .{ id, id });
+    try self.emitFmt("; const __items = [_][]const u8{{ {s} }}; for (__items) |__item| {{ if (std.mem.eql(u8, __search, __item)) break :{s} true; }} break :{s} false; ", .{ softkwlist, label, label });
+    try b.emitInlineBlockEnd();
 }
 
 fn genKwlist(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

@@ -3,6 +3,7 @@
 const std = @import("std");
 const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 const expr_emitter = @import("expr_emitter.zig");
@@ -38,38 +39,46 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genRandom(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_rand: {{ " ++ prng ++ "break :__m{d}_rand @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); }})", .{ id, id });
+    const b = try self.getBuilder();
+    try b.emitInlineBlockRaw("rand", prng, "@as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32)))");
 }
 
 fn genUniform(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("0.0"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_uni: {{ const _a: f64 = ", .{id}); try self.genExpr(args[0]);
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("uni");
+    try self.emit("const _a: f64 = "); try self.genExpr(args[0]);
     try self.emit("; const _b: f64 = "); try self.genExpr(args[1]);
-    try self.emitFmt("; " ++ prng ++ "const _rv = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :__m{d}_uni _a + (_b - _a) * _rv; }})", .{id});
+    try self.emitFmt("; {s}const _rv = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :{s} _a + (_b - _a) * _rv; ", .{ prng, label });
+    try b.emitInlineBlockEnd();
 }
 
 fn genGauss(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("0.0"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_gauss: {{ const _mu: f64 = ", .{id}); try self.genExpr(args[0]);
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("gauss");
+    try self.emit("const _mu: f64 = "); try self.genExpr(args[0]);
     try self.emit("; const _sigma: f64 = "); try self.genExpr(args[1]);
-    try self.emitFmt("; " ++ prng ++ "const _u1 = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); const _u2 = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :__m{d}_gauss _mu + _sigma * @sqrt(-2.0 * @log(_u1)) * @cos(2.0 * std.math.pi * _u2); }})", .{id});
+    try self.emitFmt("; {s}const _u1 = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); const _u2 = @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :{s} _mu + _sigma * @sqrt(-2.0 * @log(_u1)) * @cos(2.0 * std.math.pi * _u2); ", .{ prng, label });
+    try b.emitInlineBlockEnd();
 }
 
 fn genExpovariate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("0.0"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_expo: {{ const _lambd: f64 = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; " ++ prng ++ "const _u = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :__m{d}_expo -@log(_u) / _lambd; }})", .{id});
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("expo");
+    try self.emit("const _lambd: f64 = "); try self.genExpr(args[0]);
+    try self.emitFmt("; {s}const _u = @as(f64, @floatFromInt(_r.int(u32) + 1)) / @as(f64, @floatFromInt(std.math.maxInt(u32))); break :{s} -@log(_u) / _lambd; ", .{ prng, label });
+    try b.emitInlineBlockEnd();
 }
 
 fn genRandbits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("0"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_bits: {{ const _k: u6 = @intCast(", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("); " ++ prng ++ "break :__m{d}_bits @as(i64, @intCast(_r.int(u64) & ((@as(u64, 1) << _k) - 1))); }})", .{id});
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("bits");
+    try self.emit("const _k: u6 = @intCast("); try self.genExpr(args[0]);
+    try self.emitFmt("); {s}break :{s} @as(i64, @intCast(_r.int(u64) & ((@as(u64, 1) << _k) - 1))); ", .{ prng, label });
+    try b.emitInlineBlockEnd();
 }
 
 pub fn genRandrange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
