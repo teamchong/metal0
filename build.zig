@@ -61,6 +61,11 @@ pub fn build(b: *std.Build) void {
         },
         .flags = libdeflate_flags,
     });
+    // Link compression libraries (same as CPython does)
+    // bz2 module uses libbz2 (bzlib.h) - CPython: Modules/_bz2module.c
+    // lzma module uses liblzma (lzma.h) - CPython: Modules/_lzmamodule.c
+    runtime.linkSystemLibrary("bz2", .{});
+    runtime.linkSystemLibrary("lzma", .{});
     const collections = b.addModule("collections", .{
         .root_source_file = b.path("packages/collections/collections.zig"),
     });
