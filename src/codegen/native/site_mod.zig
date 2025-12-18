@@ -20,21 +20,17 @@ const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
 fn genGetuserbase(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const b = try self.getBuilder();
-    // Using emitInlineBlockRaw for inline labeled block expression
-    try b.emitInlineBlockRaw(
-        "gub",
-        "const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");",
-        "std.fmt.allocPrint(__global_allocator, \"{s}/.local\", .{home}) catch \"\"",
-    );
+    // Use self.emit (not builder) to write to correct output buffer
+    const label = try self.emitInlineBlockStart("gub");
+    try self.emit("const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");");
+    try self.emitFmt("break :{s} std.fmt.allocPrint(__global_allocator, \"{{s}}/.local\", .{{home}}) catch \"\"; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genGetusersitepackages(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const b = try self.getBuilder();
-    // Using emitInlineBlockRaw for inline labeled block expression
-    try b.emitInlineBlockRaw(
-        "gusp",
-        "const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");",
-        "std.fmt.allocPrint(__global_allocator, \"{s}/.local/lib/python3/site-packages\", .{home}) catch \"\"",
-    );
+    // Use self.emit (not builder) to write to correct output buffer
+    const label = try self.emitInlineBlockStart("gusp");
+    try self.emit("const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");");
+    try self.emitFmt("break :{s} std.fmt.allocPrint(__global_allocator, \"{{s}}/.local/lib/python3/site-packages\", .{{home}}) catch \"\"; ", .{label});
+    try self.emitInlineBlockEnd();
 }

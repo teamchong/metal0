@@ -38,6 +38,9 @@ fn genUuid1(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genGetnode(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitInlineBlockRaw("gn", "var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp()));", "@as(i64, @intCast(_prng.random().int(u48)))");
+    // Use self.emit (not builder) to write to correct output buffer
+    const label = try self.emitInlineBlockStart("gn");
+    try self.emit("var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp()));");
+    try self.emitFmt("break :{s} @as(i64, @intCast(_prng.random().int(u48))); ", .{label});
+    try self.emitInlineBlockEnd();
 }

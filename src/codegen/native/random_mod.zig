@@ -39,8 +39,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genRandom(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitInlineBlockRaw("rand", prng, "@as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32)))");
+    // Use self.emit (not builder) to write to correct output buffer
+    const label = try self.emitInlineBlockStart("rand");
+    try self.emit(prng);
+    try self.emitFmt("break :{s} @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genUniform(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -144,7 +147,8 @@ fn genChoice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const id = b.getNextId();
             try c.emitFmt("const __choice_seq_{d} = ", .{id});
             try c.genExpr(a[0]);
-            try c.output.writer(c.allocator).print("; " ++ prng ++ "const _len_{d} = if (@TypeOf(__choice_seq_{d}) == runtime.PyValue) __choice_seq_{d}.pyLen() else __choice_seq_{d}.len; const _idx_{d} = _r.int(usize) % _len_{d}; break :{s} if (@TypeOf(__choice_seq_{d}) == runtime.PyValue) __choice_seq_{d}.pyAt(_idx_{d}) else __choice_seq_{d}[_idx_{d}]; ", .{ id, id, id, id, id, id, label, id, id, id, id, id });
+            // Note: no trailing space after semicolon - withInlineBlock checks last byte for ';'
+            try c.output.writer(c.allocator).print("; " ++ prng ++ "const _len_{d} = if (@TypeOf(__choice_seq_{d}) == runtime.PyValue) __choice_seq_{d}.pyLen() else __choice_seq_{d}.len; const _idx_{d} = _r.int(usize) % _len_{d}; break :{s} if (@TypeOf(__choice_seq_{d}) == runtime.PyValue) __choice_seq_{d}.pyAt(_idx_{d}) else __choice_seq_{d}[_idx_{d}];", .{ id, id, id, id, id, id, label, id, id, id, id, id });
         }
     }.emit);
 }
