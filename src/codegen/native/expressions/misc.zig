@@ -538,7 +538,24 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         // Escape attribute name if it's a Zig keyword (e.g., "test")
         try genExpr(self, attr.value.*);
         try self.emit(".");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+
+        // Handle Python name mangling for private attributes
+        // Python mangles __attr to _ClassName__attr when accessed from outside
+        // But Zig struct has the field as __attr (unmangled)
+        // So we need to demangle: _Rat__num -> __num
+        const attr_name = blk: {
+            // Check if attr starts with underscore and contains __ later (mangled pattern)
+            if (std.mem.startsWith(u8, attr.attr, "_") and attr.attr.len > 2) {
+                // Find the double underscore after class name prefix
+                if (std.mem.indexOf(u8, attr.attr[1..], "__")) |pos| {
+                    // Return the part after the class name prefix (includes __)
+                    // e.g., _Rat__num -> __num
+                    break :blk attr.attr[1 + pos ..];
+                }
+            }
+            break :blk attr.attr;
+        };
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
     }
 }
 

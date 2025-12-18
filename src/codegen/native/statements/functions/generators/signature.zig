@@ -1546,6 +1546,39 @@ pub fn genMethodSignatureWithSkip(
             const param_type = pythonTypeToZig(arg.type_annotation);
             try self.emit(param_type);
         } else if (self.getVarType(arg.name)) |var_type| {
+            // Check if this is a dunder arithmetic method that needs anytype for polymorphism
+            // Methods like __add__, __sub__, etc. need to accept multiple types (int, Rat, float, etc.)
+            // So we use anytype instead of *runtime.PyObject
+            const is_dunder_arithmetic = std.mem.startsWith(u8, method.name, "__") and
+                (std.mem.eql(u8, method.name, "__add__") or
+                std.mem.eql(u8, method.name, "__sub__") or
+                std.mem.eql(u8, method.name, "__mul__") or
+                std.mem.eql(u8, method.name, "__truediv__") or
+                std.mem.eql(u8, method.name, "__floordiv__") or
+                std.mem.eql(u8, method.name, "__mod__") or
+                std.mem.eql(u8, method.name, "__pow__") or
+                std.mem.eql(u8, method.name, "__radd__") or
+                std.mem.eql(u8, method.name, "__rsub__") or
+                std.mem.eql(u8, method.name, "__rmul__") or
+                std.mem.eql(u8, method.name, "__rtruediv__") or
+                std.mem.eql(u8, method.name, "__rfloordiv__") or
+                std.mem.eql(u8, method.name, "__rmod__") or
+                std.mem.eql(u8, method.name, "__rpow__") or
+                std.mem.eql(u8, method.name, "__eq__") or
+                std.mem.eql(u8, method.name, "__ne__") or
+                std.mem.eql(u8, method.name, "__lt__") or
+                std.mem.eql(u8, method.name, "__le__") or
+                std.mem.eql(u8, method.name, "__gt__") or
+                std.mem.eql(u8, method.name, "__ge__"));
+
+            if (is_dunder_arithmetic and std.mem.eql(u8, arg.name, "other")) {
+                // Force anytype for polymorphic dunder methods
+                try self.emit("anytype");
+                try self.anytype_params.put(arg.name, {});
+                param_index += 1;
+                continue;
+            }
+
             // Try inferred type from type inferrer
             const var_type_tag = @as(std.meta.Tag(@TypeOf(var_type)), var_type);
             if (var_type_tag != .unknown) {
