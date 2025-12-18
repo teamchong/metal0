@@ -126,12 +126,12 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                const b2 = try self.getBuilder();
-                const label2 = try b2.emitInlineBlockStart("callable");
+                // Use self.emitInlineBlockStart (not builder) to write to same output buffer
+                const label2 = try self.emitInlineBlockStart("callable");
                 try self.emit("const __callable_temp = ");
                 try self.genExpr(args[0]);
                 try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
-                try b2.emitInlineBlockEnd();
+                try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }
@@ -149,12 +149,12 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                const b2 = try self.getBuilder();
-                const label2 = try b2.emitInlineBlockStart("callable");
+                // Use self.emitInlineBlockStart (not builder) to write to same output buffer
+                const label2 = try self.emitInlineBlockStart("callable");
                 try self.emit("const __callable_temp = ");
                 try self.genExpr(args[0]);
                 try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
-                try b2.emitInlineBlockEnd();
+                try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }
@@ -175,12 +175,12 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                const b2 = try self.getBuilder();
-                const label2 = try b2.emitInlineBlockStart("callable");
+                // Use self.emitInlineBlockStart (not builder) to write to same output buffer
+                const label2 = try self.emitInlineBlockStart("callable");
                 try self.emit("const __callable_temp = ");
                 try self.genExpr(args[0]);
                 try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
-                try b2.emitInlineBlockEnd();
+                try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }
@@ -198,12 +198,12 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                const b2 = try self.getBuilder();
-                const label2 = try b2.emitInlineBlockStart("callable");
+                // Use self.emitInlineBlockStart (not builder) to write to same output buffer
+                const label2 = try self.emitInlineBlockStart("callable");
                 try self.emit("const __callable_temp = ");
                 try self.genExpr(args[0]);
                 try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
-                try b2.emitInlineBlockEnd();
+                try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }

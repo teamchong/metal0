@@ -1175,8 +1175,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             try self.emit("}");
                         } else {
                             // assertRaises or normal context: use block expression
+                            // emitInlineBlockStart already emits "(__label: { "
                             const label = try self.emitInlineBlockStart("kwarg_err");
-                            try self.emit("(\n");
+                            try self.emit("\n");
                             self.indent();
                             try self.emitIndent();
                             try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
@@ -1186,8 +1187,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             try self.emitFmt("break :{s} error.TypeError;\n", .{label});
                             self.dedent();
                             try self.emitIndent();
+                            // emitInlineBlockEnd already emits "})"
                             try self.emitInlineBlockEnd();
-                            try self.emit(")");
                         }
                         return;
                     }
