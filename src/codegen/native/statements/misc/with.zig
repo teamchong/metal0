@@ -883,38 +883,41 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             // (at the start of genWith) to ensure body variables can reference it
 
             // Open a block for defer scope - the defer will close the file at end of body
-            try self.emitIndent();
-            try self.emit("{\n");
+            try b.writeIndent();
+            try b.write("{\n");
             self.indent();
+
+            // Capture the context manager expression
+            const ctx_expr_val = try self.captureExpr(with_node.context_expr.*);
 
             // For file types, assign directly and defer close
             // For other context managers, call __enter__() and defer __exit__()
-            try self.emitIndent();
+            try b.writeIndent();
             if (context_type == .file) {
                 // File context manager - assign directly, it returns self from __enter__
-                try self.emit(var_name);
-                try self.emit(" = ");
-                try self.genExpr(with_node.context_expr.*);
-                try self.emit(";\n");
-                try self.emitIndent();
-                try self.emit("defer runtime.PyFile.close(");
-                try self.emit(var_name);
-                try self.emit(");\n");
+                try b.write(var_name);
+                try b.write(" = ");
+                try b.emitValue(ctx_expr_val, .{});
+                try b.write(";\n");
+                try b.writeIndent();
+                try b.write("defer runtime.PyFile.close(");
+                try b.write(var_name);
+                try b.write(");\n");
             } else {
                 // General context manager - store CM, call __enter__(), defer __exit__()
                 // Use var since __enter__/__exit__ may take *@This() (mutable self)
                 // Use unique name for nested with statements
                 const cm_name = try b.freshName("with_cm");
-                try self.output.writer(self.allocator).print("var {s} = ", .{cm_name});
-                try self.genExpr(with_node.context_expr.*);
-                try self.emit(";\n");
+                try b.writeFmt("var {s} = ", .{cm_name});
+                try b.emitValue(ctx_expr_val, .{});
+                try b.write(";\n");
                 // Defer __exit__ before calling __enter__ (Python semantics)
-                try self.emitIndent();
-                try self.output.writer(self.allocator).print("defer {{ _ = {s}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{cm_name});
+                try b.writeIndent();
+                try b.writeFmt("defer {{ _ = {s}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{cm_name});
                 // Call __enter__() and assign result to target variable
-                try self.emitIndent();
-                try self.emit(var_name);
-                try self.output.writer(self.allocator).print(" = try {s}.__enter__(__global_allocator);\n", .{cm_name});
+                try b.writeIndent();
+                try b.write(var_name);
+                try b.writeFmt(" = try {s}.__enter__(__global_allocator);\n", .{cm_name});
             }
         } else if (target.* == .tuple or target.* == .list) {
             // Tuple/list unpacking target: `with ctx() as (a, b):`
@@ -931,14 +934,16 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             // Use unique name for nested with statements
             const cm_name = try b.freshName("with_cm");
             const val_name = try b.freshName("with_val");
-            try self.emitIndent();
+            const ctx_expr_tuple = try self.captureExpr(with_node.context_expr.*);
+
+            try b.writeIndent();
             if (context_type == .file) {
-                try self.output.writer(self.allocator).print("const {s} = ", .{cm_name});
+                try b.writeFmt("const {s} = ", .{cm_name});
             } else {
-                try self.output.writer(self.allocator).print("var {s} = ", .{cm_name});
+                try b.writeFmt("var {s} = ", .{cm_name});
             }
-            try self.genExpr(with_node.context_expr.*);
-            try self.emit(";\n");
+            try b.emitValue(ctx_expr_tuple, .{});
+            try b.write(";\n");
 
             // Add defer for cleanup (calls __exit__ / close on the context manager)
             try self.emitIndent();
@@ -1076,6 +1081,11 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             }
         }
     }
+
+    // Flush builder output to self.output BEFORE generating body
+    // This ensures context manager setup is emitted before body statements
+    const builder_output = b.getBody();
+    try self.output.appendSlice(self.allocator, builder_output);
 
     // Generate body
     // If we're inside an assertRaises context (from a parent with statement),
