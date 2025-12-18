@@ -15,10 +15,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genOpen(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_aifc: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("aifc");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :__m{d}_aifc .{{ .file = __v, .mode = \"rb\" }}; }})", .{id});
+        try self.emitFmt("; break :{s} .{{ .file = __v, .mode = \"rb\" }}; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .file = @as(?*anyopaque, null), .mode = \"rb\" }"), builder_mod.EmitConfig.forExpression());
     }

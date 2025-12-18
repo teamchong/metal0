@@ -24,10 +24,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genZoneInfo(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_zi: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("zi");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :__m{d}_zi .{{ .key = __v }}; }})", .{id});
+        try self.emitFmt("; break :{s} .{{ .key = __v }}; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .key = \"UTC\" }"), builder_mod.EmitConfig.forExpression());
     }

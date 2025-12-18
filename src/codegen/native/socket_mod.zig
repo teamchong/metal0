@@ -89,32 +89,43 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genSocket(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_sock: {{ const _sock = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch break :__m{d}_sock @as(i64, -1); break :__m{d}_sock @as(i64, @intCast(_sock)); }})", .{ id, id, id });
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("sock");
+    try self.emitFmt("const _sock = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch break :{s} @as(i64, -1); break :{s} @as(i64, @intCast(_sock)); ", .{ label, label });
+    try b.emitInlineBlockEnd();
 }
 
 fn genCreateConn(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("@as(i64, -1)"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_conn: {{ const _addr_tuple = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; const _host = _addr_tuple.@\"0\"; const _port = _addr_tuple.@\"1\"; const _sock = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch break :__m{d}_conn @as(i64, -1); var _addr: std.posix.sockaddr.in = .{{ .family = std.posix.AF.INET, .port = std.mem.nativeToBig(u16, @intCast(_port)), .addr = __m{d}_addr: {{ if (std.mem.eql(u8, _host, \"localhost\") or std.mem.eql(u8, _host, \"127.0.0.1\")) {{ break :__m{d}_addr .{{ .s_addr = std.mem.nativeToBig(u32, 0x7f000001) }}; }} else {{ break :__m{d}_addr .{{ .s_addr = 0 }}; }} }}, .zero = [_]u8{{0}} ** 8 }}; std.posix.connect(_sock, @ptrCast(&_addr), @sizeOf(@TypeOf(_addr))) catch break :__m{d}_conn @as(i64, -1); break :__m{d}_conn @as(i64, @intCast(_sock)); }})", .{ id, id, id, id, id, id });
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("conn");
+    const addr_id = b.getNextId();
+    try self.emit("const _addr_tuple = "); try self.genExpr(args[0]);
+    try self.emitFmt("; const _host = _addr_tuple.@\"0\"; const _port = _addr_tuple.@\"1\"; const _sock = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch break :{s} @as(i64, -1); var _addr: std.posix.sockaddr.in = .{{ .family = std.posix.AF.INET, .port = std.mem.nativeToBig(u16, @intCast(_port)), .addr = __m{d}_addr: {{ if (std.mem.eql(u8, _host, \"localhost\") or std.mem.eql(u8, _host, \"127.0.0.1\")) {{ break :__m{d}_addr .{{ .s_addr = std.mem.nativeToBig(u32, 0x7f000001) }}; }} else {{ break :__m{d}_addr .{{ .s_addr = 0 }}; }} }}, .zero = [_]u8{{0}} ** 8 }}; std.posix.connect(_sock, @ptrCast(&_addr), @sizeOf(@TypeOf(_addr))) catch break :{s} @as(i64, -1); break :{s} @as(i64, @intCast(_sock)); ", .{ label, addr_id, addr_id, addr_id, label, label });
+    try b.emitInlineBlockEnd();
 }
 
 fn genGethostname(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_ghn: {{ var _buf: [std.posix.HOST_NAME_MAX]u8 = undefined; const _result = std.posix.gethostname(&_buf); if (_result) |_name| {{ break :__m{d}_ghn __global_allocator.dupe(u8, _name) catch \"\"; }} else |_| break :__m{d}_ghn \"\"; }})", .{ id, id, id });
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("ghn");
+    try self.emitFmt("var _buf: [std.posix.HOST_NAME_MAX]u8 = undefined; const _result = std.posix.gethostname(&_buf); if (_result) |_name| {{ break :{s} __global_allocator.dupe(u8, _name) catch \"\"; }} else |_| break :{s} \"\"; ", .{ label, label });
+    try b.emitInlineBlockEnd();
 }
 
 fn genInetAton(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("\"\""); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_aton: {{ const _ip_str = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; var _parts: [4]u8 = undefined; var _iter = std.mem.splitScalar(u8, _ip_str, '.'); var _i: usize = 0; while (_iter.next()) |_part| : (_i += 1) {{ if (_i >= 4) break; _parts[_i] = std.fmt.parseInt(u8, _part, 10) catch 0; }} break :__m{d}_aton __global_allocator.dupe(u8, &_parts) catch \"\"; }})", .{id});
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("aton");
+    try self.emit("const _ip_str = "); try self.genExpr(args[0]);
+    try self.emitFmt("; var _parts: [4]u8 = undefined; var _iter = std.mem.splitScalar(u8, _ip_str, '.'); var _i: usize = 0; while (_iter.next()) |_part| : (_i += 1) {{ if (_i >= 4) break; _parts[_i] = std.fmt.parseInt(u8, _part, 10) catch 0; }} break :{s} __global_allocator.dupe(u8, &_parts) catch \"\"; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genInetNtoa(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("\"0.0.0.0\""); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_ntoa: {{ const _packed = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; if (_packed.len < 4) break :__m{d}_ntoa \"0.0.0.0\"; var _buf: [16]u8 = undefined; const _len = std.fmt.bufPrint(&_buf, \"{{d}}.{{d}}.{{d}}.{{d}}\", .{{ _packed[0], _packed[1], _packed[2], _packed[3] }}) catch break :__m{d}_ntoa \"0.0.0.0\"; break :__m{d}_ntoa __global_allocator.dupe(u8, _len) catch \"0.0.0.0\"; }})", .{ id, id, id });
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("ntoa");
+    try self.emit("const _packed = "); try self.genExpr(args[0]);
+    try self.emitFmt("; if (_packed.len < 4) break :{s} \"0.0.0.0\"; var _buf: [16]u8 = undefined; const _len = std.fmt.bufPrint(&_buf, \"{{d}}.{{d}}.{{d}}.{{d}}\", .{{ _packed[0], _packed[1], _packed[2], _packed[3] }}) catch break :{s} \"0.0.0.0\"; break :{s} __global_allocator.dupe(u8, _len) catch \"0.0.0.0\"; ", .{ label, label, label });
+    try b.emitInlineBlockEnd();
 }

@@ -70,8 +70,9 @@ const genComb = h.wrap2Blk("comb", "const _n = @as(u64, @intCast(__v0)); const _
 
 fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 1) {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_perm: {{ const n = @as(u64, @intCast(", .{id});
+        const b = try self.getBuilder();
+        const label = try b.emitInlineBlockStart("perm");
+        try self.emit("const n = @as(u64, @intCast(");
         try self.genExpr(args[0]);
         try self.emit(")); const k = ");
         if (args.len >= 2) {
@@ -81,7 +82,8 @@ fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else {
             try self.emit("n");
         }
-        try self.emitFmt("; if (k > n) break :__m{d}_perm @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) {{ result *= (n - i); }} break :__m{d}_perm @as(i64, @intCast(result)); }}", .{ id, id });
+        try self.emitFmt("; if (k > n) break :{s} @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) {{ result *= (n - i); }} break :{s} @as(i64, @intCast(result)); ", .{ label, label });
+        try b.emitInlineBlockEnd();
     } else {
         try self.emit("@as(i64, 0)");
     }

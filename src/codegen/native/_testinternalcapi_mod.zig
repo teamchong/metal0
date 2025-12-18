@@ -48,11 +48,11 @@ fn genSizeofTimeT(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
 fn genPyTimeFromSeconds(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_ts: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("ts");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_ts @as(i64, 0); }})", .{id});
+        try self.emitFmt("; _ = __v; break :{s} @as(i64, 0); ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
     }
@@ -61,11 +61,11 @@ fn genPyTimeFromSeconds(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError
 fn genPyTimeFromSecondsObject(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_tso: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("tso");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_tso @as(i64, 0); }})", .{id});
+        try self.emitFmt("; _ = __v; break :{s} @as(i64, 0); ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
     }
@@ -74,11 +74,11 @@ fn genPyTimeFromSecondsObject(self: *h.NativeCodegen, args: []ast.Node) h.Codege
 fn genPyTimeAsTimeval(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_ttv: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("ttv");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_ttv .{{ .tv_sec = @as(i64, 0), .tv_usec = @as(i64, 0) }}; }})", .{id});
+        try self.emitFmt("; _ = __v; break :{s} .{{ .tv_sec = @as(i64, 0), .tv_usec = @as(i64, 0) }}; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .tv_sec = @as(i64, 0), .tv_usec = @as(i64, 0) }"), builder_mod.EmitConfig.forExpression());
     }
@@ -87,11 +87,11 @@ fn genPyTimeAsTimeval(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!v
 fn genPyTimeAsTimespec(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_tts: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("tts");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_tts .{{ .tv_sec = @as(i64, 0), .tv_nsec = @as(i64, 0) }}; }})", .{id});
+        try self.emitFmt("; _ = __v; break :{s} .{{ .tv_sec = @as(i64, 0), .tv_nsec = @as(i64, 0) }}; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .tv_sec = @as(i64, 0), .tv_nsec = @as(i64, 0) }"), builder_mod.EmitConfig.forExpression());
     }
@@ -100,11 +100,11 @@ fn genPyTimeAsTimespec(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!
 fn genPyTimeAsTivevalClamp(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_ttvc: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("ttvc");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_ttvc .{{ .tv_sec = @as(i64, 0), .tv_usec = @as(i64, 0) }}; }})", .{id});
+        try self.emitFmt("; _ = __v; break :{s} .{{ .tv_sec = @as(i64, 0), .tv_usec = @as(i64, 0) }}; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .tv_sec = @as(i64, 0), .tv_usec = @as(i64, 0) }"), builder_mod.EmitConfig.forExpression());
     }
@@ -113,11 +113,11 @@ fn genPyTimeAsTivevalClamp(self: *h.NativeCodegen, args: []ast.Node) h.CodegenEr
 fn genPyTimeAsTimespecClamp(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_ttsc: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("ttsc");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_ttsc .{{ .tv_sec = @as(i64, 0), .tv_nsec = @as(i64, 0) }}; }})", .{id});
+        try self.emitFmt("; _ = __v; break :{s} .{{ .tv_sec = @as(i64, 0), .tv_nsec = @as(i64, 0) }}; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .tv_sec = @as(i64, 0), .tv_nsec = @as(i64, 0) }"), builder_mod.EmitConfig.forExpression());
     }
@@ -126,11 +126,11 @@ fn genPyTimeAsTimespecClamp(self: *h.NativeCodegen, args: []ast.Node) h.CodegenE
 fn genPyTimeAsMilliseconds(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_tms: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("tms");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_tms @as(i64, 0); }})", .{id});
+        try self.emitFmt("; _ = __v; break :{s} @as(i64, 0); ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
     }
@@ -139,11 +139,11 @@ fn genPyTimeAsMilliseconds(self: *h.NativeCodegen, args: []ast.Node) h.CodegenEr
 fn genPyTimeAsMicroseconds(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_tus: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("tus");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_tus @as(i64, 0); }})", .{id});
+        try self.emitFmt("; _ = __v; break :{s} @as(i64, 0); ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
     }
@@ -152,11 +152,11 @@ fn genPyTimeAsMicroseconds(self: *h.NativeCodegen, args: []ast.Node) h.CodegenEr
 fn genPyTimeObjectToTimeT(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_ott: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("ott");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_ott @as(i64, 0); }})", .{id});
+        try self.emitFmt("; _ = __v; break :{s} @as(i64, 0); ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
     }
@@ -165,11 +165,11 @@ fn genPyTimeObjectToTimeT(self: *h.NativeCodegen, args: []ast.Node) h.CodegenErr
 fn genPyTimeObjectToTimeval(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_otv: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("otv");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_otv .{{ .tv_sec = @as(i64, 0), .tv_usec = @as(i64, 0) }}; }})", .{id});
+        try self.emitFmt("; _ = __v; break :{s} .{{ .tv_sec = @as(i64, 0), .tv_usec = @as(i64, 0) }}; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .tv_sec = @as(i64, 0), .tv_usec = @as(i64, 0) }"), builder_mod.EmitConfig.forExpression());
     }
@@ -178,11 +178,11 @@ fn genPyTimeObjectToTimeval(self: *h.NativeCodegen, args: []ast.Node) h.CodegenE
 fn genPyTimeObjectToTimespec(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_ots: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("ots");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_ots .{{ .tv_sec = @as(i64, 0), .tv_nsec = @as(i64, 0) }}; }})", .{id});
+        try self.emitFmt("; _ = __v; break :{s} .{{ .tv_sec = @as(i64, 0), .tv_nsec = @as(i64, 0) }}; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .tv_sec = @as(i64, 0), .tv_nsec = @as(i64, 0) }"), builder_mod.EmitConfig.forExpression());
     }

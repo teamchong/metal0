@@ -33,24 +33,27 @@ fn emitNbytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genTokenBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_token: {{ ", .{id});
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("token");
     try emitNbytes(self, args);
-    try self.emitFmt(" break :__m{d}_token _buf; }}", .{id});
+    try self.emitFmt(" break :{s} _buf; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 fn genTokenHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_token: {{ ", .{id});
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("token");
     try emitNbytes(self, args);
-    try self.emitFmt(" const _hex = __global_allocator.alloc(u8, _nbytes * 2) catch break :__m{d}_token \"\"; ", .{id});
+    try self.emitFmt(" const _hex = __global_allocator.alloc(u8, _nbytes * 2) catch break :{s} \"\"; ", .{label});
     try self.emit("const _hex_chars = \"0123456789abcdef\"; for (_buf, 0..) |b, i| { _hex[i * 2] = _hex_chars[b >> 4]; _hex[i * 2 + 1] = _hex_chars[b & 0xf]; } ");
-    try self.emitFmt("break :__m{d}_token _hex; }}", .{id});
+    try self.emitFmt("break :{s} _hex; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 fn genTokenUrlsafe(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_token: {{ ", .{id});
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("token");
     try emitNbytes(self, args);
-    try self.emitFmt(" const _encoded_len = std.base64.url_safe_no_pad.Encoder.calcSize(_nbytes); const _result = __global_allocator.alloc(u8, _encoded_len) catch break :__m{d}_token \"\"; ", .{id});
+    try self.emitFmt(" const _encoded_len = std.base64.url_safe_no_pad.Encoder.calcSize(_nbytes); const _result = __global_allocator.alloc(u8, _encoded_len) catch break :{s} \"\"; ", .{label});
     try self.emit("_ = std.base64.url_safe_no_pad.Encoder.encode(_result, _buf); ");
-    try self.emitFmt("break :__m{d}_token _result; }}", .{id});
+    try self.emitFmt("break :{s} _result; ", .{label});
+    try b.emitInlineBlockEnd();
 }

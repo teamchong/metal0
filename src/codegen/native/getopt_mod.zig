@@ -18,13 +18,13 @@ fn genGetopt(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{ &[_]struct { []const u8, []const u8 }{}, &[_][]const u8{} }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_go: {{ const argv = ", .{id});
+    const label = try b.emitInlineBlockStart("go");
+    try self.emit("const argv = ");
     try self.genExpr(args[0]);
     try self.emit("; const shortopts = ");
     try self.genExpr(args[1]);
-    try self.emit("; _ = shortopts; var opts: std.ArrayList(struct { []const u8, []const u8 }) = .{}; var remaining: std.ArrayList([]const u8) = .{}; for (argv) |arg| { remaining.append(__global_allocator, arg) catch unreachable; } break :__m");
-    try self.emitFmt("{d}_go .{{ opts.items, remaining.items }}; }})", .{id});
+    try self.emitFmt("; _ = shortopts; var opts: std.ArrayList(struct {{ []const u8, []const u8 }}) = .{{}}; var remaining: std.ArrayList([]const u8) = .{{}}; for (argv) |arg| {{ remaining.append(__global_allocator, arg) catch unreachable; }} break :{s} .{{ opts.items, remaining.items }}; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genGetoptError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

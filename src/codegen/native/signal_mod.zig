@@ -34,7 +34,9 @@ const CodegenError = h.CodegenError;
 
 fn genRaiseSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("{}"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_rs: {{ const sig = @as(u6, @intCast(", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt(")); _ = std.posix.raise(sig); break :__m{d}_rs {{}}; }})", .{id});
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("rs");
+    try self.emit("const sig = @as(u6, @intCast("); try self.genExpr(args[0]);
+    try self.emitFmt(")); _ = std.posix.raise(sig); break :{s} {{}}; ", .{label});
+    try b.emitInlineBlockEnd();
 }

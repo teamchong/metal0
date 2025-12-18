@@ -20,10 +20,12 @@ pub fn genCapwords(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void
         try self.emit("\"\"");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_capwords: {{ const _s = ", .{id});
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("capwords");
+    try self.emit("const _s = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; var _result: std.ArrayList(u8) = .{{}}; var _cap_next = true; for (_s) |c| {{ if (c == ' ') {{ _result.append(__global_allocator, ' ') catch continue; _cap_next = true; }} else if (_cap_next and c >= 'a' and c <= 'z') {{ _result.append(__global_allocator, c - 32) catch continue; _cap_next = false; }} else {{ _result.append(__global_allocator, c) catch continue; _cap_next = false; }} }} break :__m{d}_capwords _result.items; }})", .{id});
+    try self.emitFmt("; var _result: std.ArrayList(u8) = .{{}}; var _cap_next = true; for (_s) |c| {{ if (c == ' ') {{ _result.append(__global_allocator, ' ') catch continue; _cap_next = true; }} else if (_cap_next and c >= 'a' and c <= 'z') {{ _result.append(__global_allocator, c - 32) catch continue; _cap_next = false; }} else {{ _result.append(__global_allocator, c) catch continue; _cap_next = false; }} }} break :{s} _result.items; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
