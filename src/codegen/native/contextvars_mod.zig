@@ -19,10 +19,11 @@ fn genContextVar(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(default), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_cv: {{ const __v = ", .{id});
+    const label = try b.emitInlineBlockStart("cv");
+    try self.emit("const __v = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; break :__m{d}_cv .{{ .name = __v, .value = null }}; }})", .{id});
+    try self.emitFmt("; break :{s} .{{ .name = __v, .value = null }}; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genToken(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
