@@ -3,8 +3,16 @@
 //! Provides reading and writing of LZMA/XZ-compressed files and streams.
 //!
 //! Mirrors: CPython Lib/lzma.py
+//!
+//! Like CPython, this links against system liblzma (lzma.h).
+//! CPython equivalent: Modules/_lzmamodule.c
 
 const std = @import("std");
+
+// Link against system liblzma (same as CPython does)
+const c = @cImport({
+    @cInclude("lzma.h");
+});
 
 // ============================================================================
 // Constants
