@@ -1,8 +1,6 @@
 /// Python pickle module - Full object serialization with proper protocol support
-/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
-const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
@@ -34,9 +32,8 @@ fn genDumps(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 }
 
 fn genLoads(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len == 0) {
-        try b.emitValue(builder_mod.ZigValue.raw("runtime.pickle.PickleValue{ .none = {} }"), builder_mod.EmitConfig.forExpression());
+        try self.emit("runtime.pickle.PickleValue{ .none = {} }");
         return;
     }
     // Use the compile-once helper to avoid @TypeOf introspection at each call site
@@ -60,9 +57,8 @@ fn genDump(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 }
 
 fn genLoad(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len < 1) {
-        try b.emitValue(builder_mod.ZigValue.raw("runtime.pickle.PickleValue{ .none = {} }"), builder_mod.EmitConfig.forExpression());
+        try self.emit("runtime.pickle.PickleValue{ .none = {} }");
         return;
     }
     try self.withInlineBlock("pickle_load", args, struct {
@@ -75,31 +71,27 @@ fn genLoad(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 }
 
 fn genHighestProtocol(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.int(5), builder_mod.EmitConfig.forExpression());
+    // Emit directly to output buffer (not builder) for attribute access detection
+    try self.emit("5");
 }
 
 fn genDefaultProtocol(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.int(4), builder_mod.EmitConfig.forExpression());
+    // Emit directly to output buffer (not builder) for attribute access detection
+    try self.emit("4");
 }
 
 fn genPicklingError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("error.PicklingError"), builder_mod.EmitConfig.forExpression());
+    try self.emit("error.PicklingError");
 }
 
 fn genUnpicklingError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("error.UnpicklingError"), builder_mod.EmitConfig.forExpression());
+    try self.emit("error.UnpicklingError");
 }
 
 fn genPickler(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("runtime.pickle.Pickler.init(__global_allocator, 4)"), builder_mod.EmitConfig.forExpression());
+    try self.emit("runtime.pickle.Pickler.init(__global_allocator, 4)");
 }
 
 fn genUnpickler(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("runtime.pickle.Unpickler"), builder_mod.EmitConfig.forExpression());
+    try self.emit("runtime.pickle.Unpickler");
 }

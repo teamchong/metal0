@@ -497,6 +497,7 @@ pub fn inferExprTyped(
                     std.mem.eql(u8, obj_name, "hashlib") or
                     std.mem.eql(u8, obj_name, "time") or
                     std.mem.eql(u8, obj_name, "platform") or
+                    std.mem.eql(u8, obj_name, "pickle") or // pickle.HIGHEST_PROTOCOL, etc.
                     std.mem.eql(u8, obj_name, "re"))
                 {
                     break :blk .certain;

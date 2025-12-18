@@ -988,11 +988,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     .Eq => {
                         const has_eq = if (class_info) |info| info.methods.contains("__eq__") else false;
                         if (has_eq) {
-                            // Direct method call - no anytype monomorphization
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, current_left);
                             try self.emit(".__eq__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             // PyValue fallback - compiles once
                             try self.emit("runtime.PyValue.from(");
@@ -1007,18 +1008,19 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_eq = if (class_info) |info| info.methods.contains("__eq__") else false;
 
                         if (has_ne) {
-                            // Direct __ne__ call
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, current_left);
                             try self.emit(".__ne__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else if (has_eq) {
-                            // Use !a.__eq__(b)
-                            try self.emit("!");
+                            // Use !toBool(try a.__eq__(b))
+                            try self.emit("!runtime.toBool(try ");
                             try genExpr(self, current_left);
                             try self.emit(".__eq__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             // PyValue fallback
                             try self.emit("!runtime.PyValue.from(");
@@ -1032,11 +1034,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_lt = if (class_info) |info| info.methods.contains("__lt__") else false;
 
                         if (has_lt) {
-                            // Direct method call
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, current_left);
                             try self.emit(".__lt__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             // PyValue fallback
                             try self.emit("runtime.PyValue.from(");
@@ -1050,10 +1053,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_le = if (class_info) |info| info.methods.contains("__le__") else false;
 
                         if (has_le) {
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, current_left);
                             try self.emit(".__le__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
@@ -1066,10 +1071,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_gt = if (class_info) |info| info.methods.contains("__gt__") else false;
 
                         if (has_gt) {
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, current_left);
                             try self.emit(".__gt__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
@@ -1082,10 +1089,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_ge = if (class_info) |info| info.methods.contains("__ge__") else false;
 
                         if (has_ge) {
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, current_left);
                             try self.emit(".__ge__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
@@ -1116,10 +1125,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         // a < b where b is class instance → b.__gt__(a)
                         const has_gt = if (right_class_info) |info| info.methods.contains("__gt__") else false;
                         if (has_gt) {
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, compare.comparators[i]);
                             try self.emit(".__gt__(");
                             try genExpr(self, current_left);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
@@ -1132,10 +1143,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         // a <= b where b is class instance → b.__ge__(a)
                         const has_ge = if (right_class_info) |info| info.methods.contains("__ge__") else false;
                         if (has_ge) {
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, compare.comparators[i]);
                             try self.emit(".__ge__(");
                             try genExpr(self, current_left);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
@@ -1148,10 +1161,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         // a > b where b is class instance → b.__lt__(a)
                         const has_lt = if (right_class_info) |info| info.methods.contains("__lt__") else false;
                         if (has_lt) {
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, compare.comparators[i]);
                             try self.emit(".__lt__(");
                             try genExpr(self, current_left);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
@@ -1164,10 +1179,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         // a >= b where b is class instance → b.__le__(a)
                         const has_le = if (right_class_info) |info| info.methods.contains("__le__") else false;
                         if (has_le) {
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, compare.comparators[i]);
                             try self.emit(".__le__(");
                             try genExpr(self, current_left);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
@@ -1179,10 +1196,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     .Eq => {
                         const has_eq = if (right_class_info) |info| info.methods.contains("__eq__") else false;
                         if (has_eq) {
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, compare.comparators[i]);
                             try self.emit(".__eq__(");
                             try genExpr(self, current_left);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             try self.emit("runtime.PyValue.from(");
                             try genExpr(self, current_left);
@@ -1195,16 +1214,19 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_ne = if (right_class_info) |info| info.methods.contains("__ne__") else false;
                         const has_eq = if (right_class_info) |info| info.methods.contains("__eq__") else false;
                         if (has_ne) {
+                            // Dunder returns object - wrap with try and convert to bool
+                            try self.emit("runtime.toBool(try ");
                             try genExpr(self, compare.comparators[i]);
                             try self.emit(".__ne__(");
                             try genExpr(self, current_left);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else if (has_eq) {
-                            try self.emit("!");
+                            // Use !toBool(try b.__eq__(a))
+                            try self.emit("!runtime.toBool(try ");
                             try genExpr(self, compare.comparators[i]);
                             try self.emit(".__eq__(");
                             try genExpr(self, current_left);
-                            try self.emit(")");
+                            try self.emit("))");
                         } else {
                             try self.emit("!runtime.PyValue.from(");
                             try genExpr(self, current_left);
