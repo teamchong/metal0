@@ -70,19 +70,21 @@ const genComb = h.wrap2Blk("comb", "const _n = @as(u64, @intCast(__v0)); const _
 
 fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 1) {
-        const label = try self.emitInlineBlockStart("perm");
-        try self.emit("const n = @as(u64, @intCast(");
-        try self.genExpr(args[0]);
-        try self.emit(")); const k = ");
-        if (args.len >= 2) {
-            try self.emit("@as(u64, @intCast(");
-            try self.genExpr(args[1]);
-            try self.emit("))");
-        } else {
-            try self.emit("n");
-        }
-        try self.emitFmt("; if (k > n) break :{s} @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) {{ result *= (n - i); }} break :{s} @as(i64, @intCast(result)); ", .{ label, label });
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("perm", args, struct {
+            fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const n = @as(u64, @intCast(");
+                try c.genExpr(a[0]);
+                try c.emit(")); const k = ");
+                if (a.len >= 2) {
+                    try c.emit("@as(u64, @intCast(");
+                    try c.genExpr(a[1]);
+                    try c.emit("))");
+                } else {
+                    try c.emit("n");
+                }
+                try c.emitFmt("; if (k > n) break :{s} @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) {{ result *= (n - i); }} break :{s} @as(i64, @intCast(result))", .{ label, label });
+            }
+        }.emit);
     } else {
         try self.emit("@as(i64, 0)");
     }

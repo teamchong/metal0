@@ -145,33 +145,32 @@ fn extractTypecode(arg: ast.Node) ?u8 {
 
 /// Custom handler for array.array(typecode, initializer?) that uses the typecode to determine element type
 fn genArray(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    // Determine typecode - default to 'l' if not a constant
-    const typecode: u8 = if (args.len > 0) extractTypecode(args[0]) orelse 'l' else 'l';
+    try self.withInlineBlock("arr", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            // Determine typecode - default to 'l' if not a constant
+            const tc: u8 = if (a.len > 0) extractTypecode(a[0]) orelse 'l' else 'l';
 
-    const label = try self.emitInlineBlockStart("arr");
+            // Discard arguments (still need to evaluate them for side effects)
+            if (a.len > 0) {
+                try c.emit("runtime.discard(");
+                try c.genExpr(a[0]);
+                try c.emit(")");
+                if (a.len > 1) {
+                    try c.emit("; ");
+                    // For initializers, populate the array from the bytes
+                    try c.emit("var __arr_init = ");
+                    try genArrayStructDef(c, tc);
+                    try c.emit("; __arr_init.frombytes(");
+                    try c.genExpr(a[1]);
+                    try c.emitFmt("); break :{s} __arr_init", .{label});
+                    return;
+                }
+            }
 
-    // Discard arguments (still need to evaluate them for side effects)
-    if (args.len > 0) {
-        try self.emit("runtime.discard(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
-        if (args.len > 1) {
-            try self.emit("; ");
-            // For initializers, populate the array from the bytes
-            try self.emit("var __arr_init = ");
-            try genArrayStructDef(self, typecode);
-            try self.emit("; __arr_init.frombytes(");
-            try self.genExpr(args[1]);
-            try self.emitFmt("); break :{s} __arr_init; ", .{label});
-            try self.emitInlineBlockEnd();
-            return;
+            try c.emitFmt("break :{s} ", .{label});
+            try genArrayStructDef(c, tc);
         }
-    }
-
-    try self.emitFmt("break :{s} ", .{label});
-    try genArrayStructDef(self, typecode);
-    try self.emit("; ");
-    try self.emitInlineBlockEnd();
+    }.emit);
 }
 
 /// Inline struct definition for default array.array (typecode 'l')
