@@ -12,6 +12,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genOpen(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len > 0) {
         // With argument: .{ .path = __v, .data = hashmap_helper.StringHashMap([]const u8).init(__global_allocator) }
         try self.emit(".{ .path = ");
@@ -19,7 +20,6 @@ fn genOpen(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try self.emit(", .data = hashmap_helper.StringHashMap([]const u8).init(__global_allocator) }");
     } else {
         // Without argument: default struct
-        const b = try self.getBuilder();
         try b.emitValue(builder_mod.ZigValue.raw(".{ .path = \"\", .data = hashmap_helper.StringHashMap([]const u8).init(__global_allocator) }"), builder_mod.EmitConfig.forExpression());
     }
 }

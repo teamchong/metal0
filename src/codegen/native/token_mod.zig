@@ -110,11 +110,11 @@ fn genExactTokenTypes(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void
 fn genIsterminal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try b.emitInlineBlockStart("isterminal");
+        const label = try self.emitInlineBlockStart("isterminal");
         try self.emit("const x = ");
         try self.genExpr(args[0]);
         try self.emitFmt("; break :{s} x < 256; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
     }
@@ -123,11 +123,11 @@ fn genIsterminal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 fn genIsnonterminal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try b.emitInlineBlockStart("isnonterminal");
+        const label = try self.emitInlineBlockStart("isnonterminal");
         try self.emit("const x = ");
         try self.genExpr(args[0]);
         try self.emitFmt("; break :{s} x >= 256; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
     }
@@ -136,11 +136,11 @@ fn genIsnonterminal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!voi
 fn genIseof(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try b.emitInlineBlockStart("iseof");
+        const label = try self.emitInlineBlockStart("iseof");
         try self.emit("const x = ");
         try self.genExpr(args[0]);
         try self.emitFmt("; break :{s} x == 0; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
     }

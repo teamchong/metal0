@@ -18,13 +18,13 @@ fn genGetopt(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{ &[_]struct { []const u8, []const u8 }{}, &[_][]const u8{} }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try b.emitInlineBlockStart("go");
+    const label = try self.emitInlineBlockStart("go");
     try self.emit("const argv = ");
     try self.genExpr(args[0]);
     try self.emit("; const shortopts = ");
     try self.genExpr(args[1]);
     try self.emitFmt("; _ = shortopts; var opts: std.ArrayList(struct {{ []const u8, []const u8 }}) = .{{}}; var remaining: std.ArrayList([]const u8) = .{{}}; for (argv) |arg| {{ remaining.append(__global_allocator, arg) catch unreachable; }} break :{s} .{{ opts.items, remaining.items }}; ", .{label});
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 fn genGetoptError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

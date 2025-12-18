@@ -23,21 +23,21 @@ fn genDecode(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
 }
 
 fn genEncodestring(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len > 0) {
         // Pass through the first argument
         try self.genExpr(args[0]);
     } else {
-        const b = try self.getBuilder();
         try b.emitValue(builder_mod.ZigValue.string(""), builder_mod.EmitConfig.forExpression());
     }
 }
 
 fn genDecodestring(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len > 0) {
         // Pass through the first argument
         try self.genExpr(args[0]);
     } else {
-        const b = try self.getBuilder();
         try b.emitValue(builder_mod.ZigValue.string(""), builder_mod.EmitConfig.forExpression());
     }
 }

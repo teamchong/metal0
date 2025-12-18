@@ -42,16 +42,15 @@ pub fn genLstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     _ = args;
 
     // Allocate a copy to avoid "Invalid free" when result is used with defer
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_lstrip: {{\n", .{id});
-    try self.emit("    const _text = ");
+    const label = try self.emitInlineBlockStart("lstrip");
+    try self.emit("const _text = ");
     try emitStringExpr(self, obj);
-    try self.emit(";\n");
-    try self.emit("    const _trimmed = std.mem.trimLeft(u8, _text, \" \\t\\n\\r\");\n");
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _trimmed.len);\n");
-    try self.emit("    @memcpy(_result, _trimmed);\n");
-    try self.emitFmt("    break :__m{d}_lstrip _result;\n", .{id});
-    try self.emit("}");
+    try self.emit("; ");
+    try self.emit("const _trimmed = std.mem.trimLeft(u8, _text, \" \\t\\n\\r\"); ");
+    try self.emit("const _result = try __global_allocator.alloc(u8, _trimmed.len); ");
+    try self.emit("@memcpy(_result, _trimmed); ");
+    try self.emitFmt("break :{s} _result; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code for text.rstrip()
@@ -61,16 +60,15 @@ pub fn genRstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     _ = args;
 
     // Allocate a copy to avoid "Invalid free" when result is used with defer
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_rstrip: {{\n", .{id});
-    try self.emit("    const _text = ");
+    const label = try self.emitInlineBlockStart("rstrip");
+    try self.emit("const _text = ");
     try emitStringExpr(self, obj);
-    try self.emit(";\n");
-    try self.emit("    const _trimmed = std.mem.trimRight(u8, _text, \" \\t\\n\\r\");\n");
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _trimmed.len);\n");
-    try self.emit("    @memcpy(_result, _trimmed);\n");
-    try self.emitFmt("    break :__m{d}_rstrip _result;\n", .{id});
-    try self.emit("}");
+    try self.emit("; ");
+    try self.emit("const _trimmed = std.mem.trimRight(u8, _text, \" \\t\\n\\r\"); ");
+    try self.emit("const _result = try __global_allocator.alloc(u8, _trimmed.len); ");
+    try self.emit("@memcpy(_result, _trimmed); ");
+    try self.emitFmt("break :{s} _result; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code for text.capitalize()
@@ -79,19 +77,18 @@ pub fn genRstrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 pub fn genCapitalize(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_capitalize: {{\n", .{id});
-    try self.emit("    const _text = ");
+    const label = try self.emitInlineBlockStart("capitalize");
+    try self.emit("const _text = ");
     try emitStringExpr(self, obj);
-    try self.emit(";\n");
-    try self.emitFmt("    if (_text.len == 0) break :__m{d}_capitalize _text;\n", .{id});
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
-    try self.emit("    _result[0] = std.ascii.toUpper(_text[0]);\n");
-    try self.emit("    for (_text[1..], 0..) |_c, _idx| {\n");
-    try self.emit("        _result[_idx + 1] = std.ascii.toLower(_c);\n");
-    try self.emit("    }\n");
-    try self.emitFmt("    break :__m{d}_capitalize _result;\n", .{id});
-    try self.emit("}");
+    try self.emit("; ");
+    try self.emitFmt("if (_text.len == 0) break :{s} _text; ", .{label});
+    try self.emit("const _result = try __global_allocator.alloc(u8, _text.len); ");
+    try self.emit("_result[0] = std.ascii.toUpper(_text[0]); ");
+    try self.emit("for (_text[1..], 0..) |_c, _idx| { ");
+    try self.emit("_result[_idx + 1] = std.ascii.toLower(_c); ");
+    try self.emit("} ");
+    try self.emitFmt("break :{s} _result; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code for text.title()
@@ -100,24 +97,23 @@ pub fn genCapitalize(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 pub fn genTitle(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_title: {{\n", .{id});
-    try self.emit("    const _text = ");
+    const label = try self.emitInlineBlockStart("title");
+    try self.emit("const _text = ");
     try emitStringExpr(self, obj);
-    try self.emit(";\n");
-    try self.emitFmt("    if (_text.len == 0) break :__m{d}_title _text;\n", .{id});
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
-    try self.emit("    var _prev_space = true;\n");
-    try self.emit("    for (_text, 0..) |_c, _idx| {\n");
-    try self.emit("        if (_prev_space and std.ascii.isAlphabetic(_c)) {\n");
-    try self.emit("            _result[_idx] = std.ascii.toUpper(_c);\n");
-    try self.emit("        } else {\n");
-    try self.emit("            _result[_idx] = std.ascii.toLower(_c);\n");
-    try self.emit("        }\n");
-    try self.emit("        _prev_space = !std.ascii.isAlphanumeric(_c);\n");
-    try self.emit("    }\n");
-    try self.emitFmt("    break :__m{d}_title _result;\n", .{id});
-    try self.emit("}");
+    try self.emit("; ");
+    try self.emitFmt("if (_text.len == 0) break :{s} _text; ", .{label});
+    try self.emit("const _result = try __global_allocator.alloc(u8, _text.len); ");
+    try self.emit("var _prev_space = true; ");
+    try self.emit("for (_text, 0..) |_c, _idx| { ");
+    try self.emit("if (_prev_space and std.ascii.isAlphabetic(_c)) { ");
+    try self.emit("_result[_idx] = std.ascii.toUpper(_c); ");
+    try self.emit("} else { ");
+    try self.emit("_result[_idx] = std.ascii.toLower(_c); ");
+    try self.emit("} ");
+    try self.emit("_prev_space = !std.ascii.isAlphanumeric(_c); ");
+    try self.emit("} ");
+    try self.emitFmt("break :{s} _result; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code for text.swapcase()
@@ -126,23 +122,22 @@ pub fn genTitle(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 pub fn genSwapcase(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
 
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_swapcase: {{\n", .{id});
-    try self.emit("    const _text = ");
+    const label = try self.emitInlineBlockStart("swapcase");
+    try self.emit("const _text = ");
     try emitStringExpr(self, obj);
-    try self.emit(";\n");
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
-    try self.emit("    for (_text, 0..) |_c, _idx| {\n");
-    try self.emit("        if (std.ascii.isUpper(_c)) {\n");
-    try self.emit("            _result[_idx] = std.ascii.toLower(_c);\n");
-    try self.emit("        } else if (std.ascii.isLower(_c)) {\n");
-    try self.emit("            _result[_idx] = std.ascii.toUpper(_c);\n");
-    try self.emit("        } else {\n");
-    try self.emit("            _result[_idx] = _c;\n");
-    try self.emit("        }\n");
-    try self.emit("    }\n");
-    try self.emitFmt("    break :__m{d}_swapcase _result;\n", .{id});
-    try self.emit("}");
+    try self.emit("; ");
+    try self.emit("const _result = try __global_allocator.alloc(u8, _text.len); ");
+    try self.emit("for (_text, 0..) |_c, _idx| { ");
+    try self.emit("if (std.ascii.isUpper(_c)) { ");
+    try self.emit("_result[_idx] = std.ascii.toLower(_c); ");
+    try self.emit("} else if (std.ascii.isLower(_c)) { ");
+    try self.emit("_result[_idx] = std.ascii.toUpper(_c); ");
+    try self.emit("} else { ");
+    try self.emit("_result[_idx] = _c; ");
+    try self.emit("} ");
+    try self.emit("} ");
+    try self.emitFmt("break :{s} _result; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code for text.index(sub[, start[, end]])
@@ -159,28 +154,27 @@ pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try self.genExpr(args[0]);
         try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1");
     } else {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_index: {{\n", .{id});
-        try self.emit("    const __idx_text = ");
+        const label = try self.emitInlineBlockStart("index");
+        try self.emit("const __idx_text = ");
         try emitStringExpr(self, obj);
-        try self.emit(";\n");
-        try self.emit("    const __idx_sub = ");
+        try self.emit("; ");
+        try self.emit("const __idx_sub = ");
         try self.genExpr(args[0]);
-        try self.emit(";\n");
-        try self.emit("    const __idx_start = @as(usize, @intCast(");
+        try self.emit("; ");
+        try self.emit("const __idx_start = @as(usize, @intCast(");
         try self.genExpr(args[1]);
-        try self.emit("));\n");
+        try self.emit(")); ");
         if (args.len >= 3) {
-            try self.emit("    const __idx_end = @min(@as(usize, @intCast(");
+            try self.emit("const __idx_end = @min(@as(usize, @intCast(");
             try self.genExpr(args[2]);
-            try self.emit(")), __idx_text.len);\n");
+            try self.emit(")), __idx_text.len); ");
         } else {
-            try self.emit("    const __idx_end = __idx_text.len;\n");
+            try self.emit("const __idx_end = __idx_text.len; ");
         }
-        try self.emitFmt("    if (__idx_start >= __idx_end) break :__m{d}_index @as(i64, -1);\n", .{id});
-        try self.emit("    const __idx_slice = __idx_text[__idx_start..__idx_end];\n");
-        try self.emitFmt("    break :__m{d}_index if (std.mem.indexOf(u8, __idx_slice, __idx_sub)) |idx| @as(i64, @intCast(idx + __idx_start)) else -1;\n", .{id});
-        try self.emit("}");
+        try self.emitFmt("if (__idx_start >= __idx_end) break :{s} @as(i64, -1); ", .{label});
+        try self.emit("const __idx_slice = __idx_text[__idx_start..__idx_end]; ");
+        try self.emitFmt("break :{s} if (std.mem.indexOf(u8, __idx_slice, __idx_sub)) |idx| @as(i64, @intCast(idx + __idx_start)) else -1; ", .{label});
+        try self.emitInlineBlockEnd();
     }
 }
 
@@ -199,28 +193,27 @@ pub fn genRfind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try self.genExpr(args[0]);
         try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1)");
     } else {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_rfind: {{\n", .{id});
-        try self.emit("    const __rfind_text = ");
+        const label = try self.emitInlineBlockStart("rfind");
+        try self.emit("const __rfind_text = ");
         try emitStringExpr(self, obj);
-        try self.emit(";\n");
-        try self.emit("    const __rfind_sub = ");
+        try self.emit("; ");
+        try self.emit("const __rfind_sub = ");
         try self.genExpr(args[0]);
-        try self.emit(";\n");
-        try self.emit("    const __rfind_start = @as(usize, @intCast(");
+        try self.emit("; ");
+        try self.emit("const __rfind_start = @as(usize, @intCast(");
         try self.genExpr(args[1]);
-        try self.emit("));\n");
+        try self.emit(")); ");
         if (args.len >= 3) {
-            try self.emit("    const __rfind_end = @min(@as(usize, @intCast(");
+            try self.emit("const __rfind_end = @min(@as(usize, @intCast(");
             try self.genExpr(args[2]);
-            try self.emit(")), __rfind_text.len);\n");
+            try self.emit(")), __rfind_text.len); ");
         } else {
-            try self.emit("    const __rfind_end = __rfind_text.len;\n");
+            try self.emit("const __rfind_end = __rfind_text.len; ");
         }
-        try self.emitFmt("    if (__rfind_start >= __rfind_end) break :__m{d}_rfind @as(i64, -1);\n", .{id});
-        try self.emit("    const __rfind_slice = __rfind_text[__rfind_start..__rfind_end];\n");
-        try self.emitFmt("    break :__m{d}_rfind if (std.mem.lastIndexOf(u8, __rfind_slice, __rfind_sub)) |idx| @as(i64, @intCast(idx + __rfind_start)) else -1;\n", .{id});
-        try self.emit("}");
+        try self.emitFmt("if (__rfind_start >= __rfind_end) break :{s} @as(i64, -1); ", .{label});
+        try self.emit("const __rfind_slice = __rfind_text[__rfind_start..__rfind_end]; ");
+        try self.emitFmt("break :{s} if (std.mem.lastIndexOf(u8, __rfind_slice, __rfind_sub)) |idx| @as(i64, @intCast(idx + __rfind_start)) else -1; ", .{label});
+        try self.emitInlineBlockEnd();
     }
 }
 
@@ -239,28 +232,27 @@ pub fn genRindex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.genExpr(args[0]);
         try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1)");
     } else {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_rindex: {{\n", .{id});
-        try self.emit("    const __ridx_text = ");
+        const label = try self.emitInlineBlockStart("rindex");
+        try self.emit("const __ridx_text = ");
         try emitStringExpr(self, obj);
-        try self.emit(";\n");
-        try self.emit("    const __ridx_sub = ");
+        try self.emit("; ");
+        try self.emit("const __ridx_sub = ");
         try self.genExpr(args[0]);
-        try self.emit(";\n");
-        try self.emit("    const __ridx_start = @as(usize, @intCast(");
+        try self.emit("; ");
+        try self.emit("const __ridx_start = @as(usize, @intCast(");
         try self.genExpr(args[1]);
-        try self.emit("));\n");
+        try self.emit(")); ");
         if (args.len >= 3) {
-            try self.emit("    const __ridx_end = @min(@as(usize, @intCast(");
+            try self.emit("const __ridx_end = @min(@as(usize, @intCast(");
             try self.genExpr(args[2]);
-            try self.emit(")), __ridx_text.len);\n");
+            try self.emit(")), __ridx_text.len); ");
         } else {
-            try self.emit("    const __ridx_end = __ridx_text.len;\n");
+            try self.emit("const __ridx_end = __ridx_text.len; ");
         }
-        try self.emitFmt("    if (__ridx_start >= __ridx_end) break :__m{d}_rindex @as(i64, -1);\n", .{id});
-        try self.emit("    const __ridx_slice = __ridx_text[__ridx_start..__ridx_end];\n");
-        try self.emitFmt("    break :__m{d}_rindex if (std.mem.lastIndexOf(u8, __ridx_slice, __ridx_sub)) |idx| @as(i64, @intCast(idx + __ridx_start)) else -1;\n", .{id});
-        try self.emit("}");
+        try self.emitFmt("if (__ridx_start >= __ridx_end) break :{s} @as(i64, -1); ", .{label});
+        try self.emit("const __ridx_slice = __ridx_text[__ridx_start..__ridx_end]; ");
+        try self.emitFmt("break :{s} if (std.mem.lastIndexOf(u8, __ridx_slice, __ridx_sub)) |idx| @as(i64, @intCast(idx + __ridx_start)) else -1; ", .{label});
+        try self.emitInlineBlockEnd();
     }
 }
 
@@ -271,29 +263,28 @@ pub fn genLjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     // str.ljust() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
 
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_ljust: {{\n", .{id});
-    try self.emit("    const _text = ");
+    const label = try self.emitInlineBlockStart("ljust");
+    try self.emit("const _text = ");
     try emitStringExpr(self, obj);
-    try self.emit(";\n");
-    try self.emit("    const _width = @as(usize, @intCast(");
+    try self.emit("; ");
+    try self.emit("const _width = @as(usize, @intCast(");
     try self.genExpr(args[0]);
-    try self.emit("));\n");
+    try self.emit(")); ");
 
     if (args.len >= 2) {
-        try self.emit("    const _fill = ");
+        try self.emit("const _fill = ");
         try self.genExpr(args[1]);
-        try self.emit("[0];\n");
+        try self.emit("[0]; ");
     } else {
-        try self.emit("    const _fill: u8 = ' ';\n");
+        try self.emit("const _fill: u8 = ' '; ");
     }
 
-    try self.emitFmt("    if (_text.len >= _width) break :__m{d}_ljust _text;\n", .{id});
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _width);\n");
-    try self.emit("    @memcpy(_result[0.._text.len], _text);\n");
-    try self.emit("    @memset(_result[_text.len..], _fill);\n");
-    try self.emitFmt("    break :__m{d}_ljust _result;\n", .{id});
-    try self.emit("}");
+    try self.emitFmt("if (_text.len >= _width) break :{s} _text; ", .{label});
+    try self.emit("const _result = try __global_allocator.alloc(u8, _width); ");
+    try self.emit("@memcpy(_result[0.._text.len], _text); ");
+    try self.emit("@memset(_result[_text.len..], _fill); ");
+    try self.emitFmt("break :{s} _result; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code for text.rjust(width[, fillchar])
@@ -303,30 +294,29 @@ pub fn genRjust(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     // str.rjust() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
 
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_rjust: {{\n", .{id});
-    try self.emit("    const _text = ");
+    const label = try self.emitInlineBlockStart("rjust");
+    try self.emit("const _text = ");
     try emitStringExpr(self, obj);
-    try self.emit(";\n");
-    try self.emit("    const _width = @as(usize, @intCast(");
+    try self.emit("; ");
+    try self.emit("const _width = @as(usize, @intCast(");
     try self.genExpr(args[0]);
-    try self.emit("));\n");
+    try self.emit(")); ");
 
     if (args.len >= 2) {
-        try self.emit("    const _fill = ");
+        try self.emit("const _fill = ");
         try self.genExpr(args[1]);
-        try self.emit("[0];\n");
+        try self.emit("[0]; ");
     } else {
-        try self.emit("    const _fill: u8 = ' ';\n");
+        try self.emit("const _fill: u8 = ' '; ");
     }
 
-    try self.emitFmt("    if (_text.len >= _width) break :__m{d}_rjust _text;\n", .{id});
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _width);\n");
-    try self.emit("    const _pad = _width - _text.len;\n");
-    try self.emit("    @memset(_result[0.._pad], _fill);\n");
-    try self.emit("    @memcpy(_result[_pad..], _text);\n");
-    try self.emitFmt("    break :__m{d}_rjust _result;\n", .{id});
-    try self.emit("}");
+    try self.emitFmt("if (_text.len >= _width) break :{s} _text; ", .{label});
+    try self.emit("const _result = try __global_allocator.alloc(u8, _width); ");
+    try self.emit("const _pad = _width - _text.len; ");
+    try self.emit("@memset(_result[0.._pad], _fill); ");
+    try self.emit("@memcpy(_result[_pad..], _text); ");
+    try self.emitFmt("break :{s} _result; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code for text.center(width[, fillchar])
@@ -336,32 +326,31 @@ pub fn genCenter(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // str.center() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
 
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_center: {{\n", .{id});
-    try self.emit("    const _text = ");
+    const label = try self.emitInlineBlockStart("center");
+    try self.emit("const _text = ");
     try emitStringExpr(self, obj);
-    try self.emit(";\n");
-    try self.emit("    const _width = @as(usize, @intCast(");
+    try self.emit("; ");
+    try self.emit("const _width = @as(usize, @intCast(");
     try self.genExpr(args[0]);
-    try self.emit("));\n");
+    try self.emit(")); ");
 
     if (args.len >= 2) {
-        try self.emit("    const _fill = ");
+        try self.emit("const _fill = ");
         try self.genExpr(args[1]);
-        try self.emit("[0];\n");
+        try self.emit("[0]; ");
     } else {
-        try self.emit("    const _fill: u8 = ' ';\n");
+        try self.emit("const _fill: u8 = ' '; ");
     }
 
-    try self.emitFmt("    if (_text.len >= _width) break :__m{d}_center _text;\n", .{id});
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _width);\n");
-    try self.emit("    const _total_pad = _width - _text.len;\n");
-    try self.emit("    const _left_pad = _total_pad / 2;\n");
-    try self.emit("    @memset(_result[0.._left_pad], _fill);\n");
-    try self.emit("    @memcpy(_result[_left_pad.._left_pad + _text.len], _text);\n");
-    try self.emit("    @memset(_result[_left_pad + _text.len..], _fill);\n");
-    try self.emitFmt("    break :__m{d}_center _result;\n", .{id});
-    try self.emit("}");
+    try self.emitFmt("if (_text.len >= _width) break :{s} _text; ", .{label});
+    try self.emit("const _result = try __global_allocator.alloc(u8, _width); ");
+    try self.emit("const _total_pad = _width - _text.len; ");
+    try self.emit("const _left_pad = _total_pad / 2; ");
+    try self.emit("@memset(_result[0.._left_pad], _fill); ");
+    try self.emit("@memcpy(_result[_left_pad.._left_pad + _text.len], _text); ");
+    try self.emit("@memset(_result[_left_pad + _text.len..], _fill); ");
+    try self.emitFmt("break :{s} _result; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code for text.zfill(width)
@@ -371,19 +360,18 @@ pub fn genZfill(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     // str.zfill() requires exactly 1 argument
     if (args.len != 1) return error.UnsupportedSyntax;
 
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_zfill: {{\n", .{id});
-    try self.emit("    const _text = ");
+    const label = try self.emitInlineBlockStart("zfill");
+    try self.emit("const _text = ");
     try emitStringExpr(self, obj);
-    try self.emit(";\n");
-    try self.emit("    const _width = ");
+    try self.emit("; ");
+    try self.emit("const _width = ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emitFmt("    if (_text.len >= _width) break :__m{d}_zfill _text;\n", .{id});
-    try self.emit("    const _result = try __global_allocator.alloc(u8, @intCast(_width));\n");
-    try self.emit("    const _pad = @as(usize, @intCast(_width)) - _text.len;\n");
-    try self.emit("    @memset(_result[0.._pad], '0');\n");
-    try self.emit("    @memcpy(_result[_pad..], _text);\n");
-    try self.emitFmt("    break :__m{d}_zfill _result;\n", .{id});
-    try self.emit("}");
+    try self.emit("; ");
+    try self.emitFmt("if (_text.len >= _width) break :{s} _text; ", .{label});
+    try self.emit("const _result = try __global_allocator.alloc(u8, @intCast(_width)); ");
+    try self.emit("const _pad = @as(usize, @intCast(_width)) - _text.len; ");
+    try self.emit("@memset(_result[0.._pad], '0'); ");
+    try self.emit("@memcpy(_result[_pad..], _text); ");
+    try self.emitFmt("break :{s} _result; ", .{label});
+    try self.emitInlineBlockEnd();
 }

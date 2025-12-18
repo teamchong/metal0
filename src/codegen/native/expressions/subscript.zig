@@ -893,15 +893,15 @@ pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) Code
         const index = subscript.slice.index.*;
         const index_type = self.type_inferrer.inferExpr(index) catch .unknown;
 
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_sub_lhs: {{{{ const __base = ", .{id});
+        const label = try self.emitInlineBlockStart("sub_lhs");
+        try self.emit("{{ const __base = ");
         // Emit the base expression (could be nested subscript or simple name)
         if (subscript.value.* == .subscript) {
             try genSubscriptLHS(self, subscript.value.subscript);
         } else {
             try genExpr(self, subscript.value.*);
         }
-        try self.emitFmt("; break :__m{d}_sub_lhs if (@TypeOf(__base) == runtime.PyValue) __base.pyDictGetPtr(", .{id});
+        try self.emitFmt("; break :{s} if (@TypeOf(__base) == runtime.PyValue) __base.pyDictGetPtr(", .{label});
         if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
             try genExpr(self, index);
             try self.emit(".asString()");
@@ -915,7 +915,8 @@ pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) Code
         } else {
             try genExpr(self, index);
         }
-        try self.emit(").?.*; }}}}");
+        try self.emit(").?.*; }}");
+        try self.emitInlineBlockEnd();
         return;
     }
 

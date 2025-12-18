@@ -21,11 +21,11 @@ fn genFmt(comptime prefix: []const u8, comptime fmt: []const u8, comptime defaul
 }
 fn sideEffect(self: *NativeCodegen, args: []ast.Node, comptime default: []const u8) CodegenError!void {
     if (args.len >= 1 and args[0] == .call) {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_side: {{ _ = ", .{id});
+        const label = try self.emitInlineBlockStart("side");
+        try self.emit("_ = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :__m{d}_side ", .{id});
-        try self.emit(default ++ "; }");
+        try self.emitFmt("; break :{s} " ++ default ++ "; ", .{label});
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit(default);
     }
@@ -87,16 +87,16 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2 and (args[0] == .call or args[1] == .call)) {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_isinstance: {{ ", .{id});
+        const label = try self.emitInlineBlockStart("isinstance");
         if (args[0] == .call) { try self.emit("_ = "); try self.genExpr(args[0]); try self.emit("; "); }
         if (args[1] == .call) { try self.emit("_ = "); try self.genExpr(args[1]); try self.emit("; "); }
-        try self.emitFmt("break :__m{d}_isinstance true; }}", .{id});
+        try self.emitFmt("break :{s} true; ", .{label});
+        try self.emitInlineBlockEnd();
     } else try sideEffect(self, args, "true");
 }
 fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "true"); }
 fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "@as(?*anyopaque, null)"); }
-fn genVoid(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "{}"); }
+fn genVoid(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "{{}}"); }
 pub fn genSlice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // slice(stop) or slice(start, stop) or slice(start, stop, step)
     try self.emit(".{ .start = ");

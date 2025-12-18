@@ -12,14 +12,14 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genLoad(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    _ = args;
     const b = try self.getBuilder();
+    _ = args;
     try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
 }
 
 fn genLoads(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    _ = args;
     const b = try self.getBuilder();
+    _ = args;
     try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
 }
 

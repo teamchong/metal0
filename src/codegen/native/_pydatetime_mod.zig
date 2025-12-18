@@ -19,7 +19,7 @@ fn genDate(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .year = 1970, .month = 1, .day = 1 }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try b.emitInlineBlockStart("date");
+    const label = try self.emitInlineBlockStart("date");
     try self.emit("const y = ");
     try self.genExpr(args[0]);
     try self.emit("; const m = ");
@@ -27,7 +27,7 @@ fn genDate(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     try self.emit("; const d = ");
     try self.genExpr(args[2]);
     try self.emitFmt("; break :{s} .{{ .year = y, .month = m, .day = d }}; ", .{label});
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 fn genTime(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
@@ -41,7 +41,7 @@ fn genDatetime(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .year = 1970, .month = 1, .day = 1, .hour = 0, .minute = 0, .second = 0, .microsecond = 0, .tzinfo = null }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try b.emitInlineBlockStart("dt");
+    const label = try self.emitInlineBlockStart("dt");
     try self.emit("const y = ");
     try self.genExpr(args[0]);
     try self.emit("; const m = ");
@@ -49,7 +49,7 @@ fn genDatetime(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     try self.emit("; const d = ");
     try self.genExpr(args[2]);
     try self.emitFmt("; break :{s} .{{ .year = y, .month = m, .day = d, .hour = 0, .minute = 0, .second = 0, .microsecond = 0, .tzinfo = null }}; ", .{label});
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 fn genTimedelta(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

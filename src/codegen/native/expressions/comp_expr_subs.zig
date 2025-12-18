@@ -322,8 +322,8 @@ fn genBytesCallWithSubs(
         try self.emit(")}");
     } else {
         // General case: generate list with substitution
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_blk: {{ var _bytes_list = std.ArrayListUnmanaged(u8){{}}; ", .{id});
+        const label = try self.emitInlineBlockStart("blk");
+        try self.emit("var _bytes_list = std.ArrayListUnmanaged(u8){}; ");
         if (c.args[0] == .list) {
             for (c.args[0].list.elts) |elt| {
                 try self.emit("try _bytes_list.append(__global_allocator, @intCast(");
@@ -335,7 +335,8 @@ fn genBytesCallWithSubs(
             try genExprWithSubs(self, c.args[0], subs);
             try self.emit(").items) |_item| try _bytes_list.append(__global_allocator, @intCast(_item)); ");
         }
-        try self.emitFmt("break :__m{d}_blk _bytes_list.items; }}", .{id});
+        try self.emitFmt("break :{s} _bytes_list.items; ", .{label});
+        try self.emitInlineBlockEnd();
     }
 }
 
@@ -346,9 +347,8 @@ fn genSetCallWithSubs(
     subs: *const hashmap_helper.StringHashMap([]const u8),
 ) CodegenError!void {
     // Generate: set_blk: { var _set = ...; for (<arg>) |_item| { try _set.put(_item, {}); } break :set_blk _set; }
-    var em = self.exprEmitter();
-    const set_label = em.reserveLabelId();
-    try self.emitFmt("set_{d}: {{\n", .{set_label});
+    const label = try self.emitInlineBlockStart("set");
+    try self.emit("\n");
     self.indent();
     try self.emitIndent();
     try self.emit("var _set = std.AutoHashMap(i64, void).init(__global_allocator);\n");
@@ -376,10 +376,10 @@ fn genSetCallWithSubs(
         try self.emit("}\n");
     }
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :set_{d} _set;\n", .{set_label});
+    try self.emitFmt("break :{s} _set;\n", .{label});
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate subscript with substitutions
@@ -391,9 +391,8 @@ fn genSubscriptWithSubs(
     switch (sub.slice) {
         .slice => |sr| {
             // It's a slice - generate slice with substitutions
-            var em = self.exprEmitter();
-            const label_id = em.reserveLabelId();
-            try self.emitFmt("slice_{d}: {{ const __s = ", .{label_id});
+            const label = try self.emitInlineBlockStart("slice");
+            try self.emit("const __s = ");
             try genExprWithSubs(self, sub.value.*, subs);
             try self.emit("; const __start = @min(");
             if (sr.lower) |lower| {
@@ -407,7 +406,8 @@ fn genSubscriptWithSubs(
             } else {
                 try self.emit("__s.len");
             }
-            try self.output.writer(self.allocator).print(", __s.len); break :slice_{d} if (__start < __end) __s[__start..__end] else \"\"; }}", .{label_id});
+            try self.emitFmt(", __s.len); break :{s} if (__start < __end) __s[__start..__end] else \"\"; ", .{label});
+            try self.emitInlineBlockEnd();
         },
         .index => |idx| {
             // Simple index with substitution

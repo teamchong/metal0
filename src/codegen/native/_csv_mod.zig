@@ -27,11 +27,11 @@ fn genRW(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(default), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try b.emitInlineBlockStart("csv");
+    const label = try self.emitInlineBlockStart("csv");
     try self.emit("const __v = ");
     try self.genExpr(args[0]);
     try self.emitFmt("; break :{s} .{{ .file = __v, .dialect = \"excel\" }}; ", .{label});
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 fn genRegisterDialect(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

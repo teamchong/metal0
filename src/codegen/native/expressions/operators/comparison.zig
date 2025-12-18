@@ -318,13 +318,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const key_type = try self.inferExprScoped(dict_lit.keys[0]);
                         const uses_int_keys = type_traits.isIntegral(key_type);
 
-                        const id = self.nextNameId();
-                        try self.emitFmt("(__m{d}_dict_in: {{ const __d = ", .{id});
+                        const label = try self.emitInlineBlockStart("dict_in");
+                        try self.emit("const __d = ");
                         try genExpr(self, compare.comparators[i]); // dict literal
                         if (op == .In) {
-                            try self.emitFmt("; break :__m{d}_dict_in __d.contains(", .{id});
+                            try self.emitFmt("; break :{s} __d.contains(", .{label});
                         } else {
-                            try self.emitFmt("; break :__m{d}_dict_in !__d.contains(", .{id});
+                            try self.emitFmt("; break :{s} !__d.contains(", .{label});
                         }
                         if (uses_int_keys) {
                             // Cast to i64 for AutoHashMap key type
@@ -334,7 +334,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         } else {
                             try genExpr(self, current_left); // key
                         }
-                        try self.emit("); }}");
+                        try self.emit("); ");
+                        try self.emitInlineBlockEnd();
                     }
                 } else {
                     if (op == .In) {
@@ -670,8 +671,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     // After operations like u += (2,3), variable becomes a slice (from runtime.tupleConcat)
                     // For slices, compare .ptr; for actual tuples, compare &
                     // Use container_dispatch.isSlice to reduce monomorphization
-                    const id = self.nextNameId();
-                    try self.emitFmt("__m{d}_tuple_is: {{\n", .{id});
+                    const label = try self.emitInlineBlockStart("tuple_is");
+                    try self.emit("\n");
                     try self.emit("const __left = ");
                     try genExpr(self, current_left);
                     try self.emit(";\n");
@@ -681,28 +682,28 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try self.emit("// Different types = different identity for 'is'\n");
                     try self.emit("if (@TypeOf(__left) != @TypeOf(__right)) {\n");
                     if (op == .Is) {
-                        try self.emitFmt("break :__m{d}_tuple_is false;\n", .{id});
+                        try self.emitFmt("break :{s} false;\n", .{label});
                     } else {
-                        try self.emitFmt("break :__m{d}_tuple_is true;\n", .{id});
+                        try self.emitFmt("break :{s} true;\n", .{label});
                     }
                     try self.emit("}\n");
                     try self.emit("// Same type - compare addresses (use container_dispatch to reduce monomorphization)\n");
                     try self.emit("if (runtime.container_dispatch.isSlice(@TypeOf(__left))) {\n");
                     // Slices - compare .ptr
                     if (op == .Is) {
-                        try self.emitFmt("break :__m{d}_tuple_is __left.ptr == __right.ptr;\n", .{id});
+                        try self.emitFmt("break :{s} __left.ptr == __right.ptr;\n", .{label});
                     } else {
-                        try self.emitFmt("break :__m{d}_tuple_is __left.ptr != __right.ptr;\n", .{id});
+                        try self.emitFmt("break :{s} __left.ptr != __right.ptr;\n", .{label});
                     }
                     try self.emit("}} else {{\n");
                     // Tuples/structs - compare addresses
                     if (op == .Is) {
-                        try self.emitFmt("break :__m{d}_tuple_is &__left == &__right;\n", .{id});
+                        try self.emitFmt("break :{s} &__left == &__right;\n", .{label});
                     } else {
-                        try self.emitFmt("break :__m{d}_tuple_is &__left != &__right;\n", .{id});
+                        try self.emitFmt("break :{s} &__left != &__right;\n", .{label});
                     }
                     try self.emit("}}\n");
-                    try self.emit("}}");
+                    try self.emitInlineBlockEnd();
                 } else {
                     // For primitives (int, bool, None), identity is same as equality
                     try genExpr(self, current_left);

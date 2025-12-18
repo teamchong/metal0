@@ -12,8 +12,9 @@ const statDefault = ".{ .st_size = 0, .st_mode = 0 }";
 
 fn genGetcwd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_getcwd: {{ var buf: [4096]u8 = undefined; break :__m{d}_getcwd std.fs.cwd().realpath(\".\", &buf) catch \".\"; }}", .{ id, id });
+    const label = try self.emitInlineBlockStart("getcwd");
+    try self.emitFmt("var buf: [4096]u8 = undefined; break :{s} std.fs.cwd().realpath(\".\", &buf) catch \".\"; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genChdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -21,10 +22,11 @@ fn genChdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("{}");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_chdir: {{ const path = ", .{id});
+    const label = try self.emitInlineBlockStart("chdir");
+    try self.emit("const path = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; std.posix.chdir(path) catch unreachable; break :__m{d}_chdir {{}}; }}", .{id});
+    try self.emitFmt("; std.posix.chdir(path) catch unreachable; break :{s} {{}}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genMkdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -32,10 +34,11 @@ fn genMkdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("{}");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_mkdir: {{ const path = ", .{id});
+    const label = try self.emitInlineBlockStart("mkdir");
+    try self.emit("const path = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; std.fs.cwd().makeDir(path) catch unreachable; break :__m{d}_mkdir {{}}; }}", .{id});
+    try self.emitFmt("; std.fs.cwd().makeDir(path) catch unreachable; break :{s} {{}}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genRmdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -43,10 +46,11 @@ fn genRmdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("{}");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_rmdir: {{ const path = ", .{id});
+    const label = try self.emitInlineBlockStart("rmdir");
+    try self.emit("const path = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; std.fs.cwd().deleteDir(path) catch unreachable; break :__m{d}_rmdir {{}}; }}", .{id});
+    try self.emitFmt("; std.fs.cwd().deleteDir(path) catch unreachable; break :{s} {{}}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genUnlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -54,10 +58,11 @@ fn genUnlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("{}");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_unlink: {{ const path = ", .{id});
+    const label = try self.emitInlineBlockStart("unlink");
+    try self.emit("const path = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; std.fs.cwd().deleteFile(path) catch unreachable; break :__m{d}_unlink {{}}; }}", .{id});
+    try self.emitFmt("; std.fs.cwd().deleteFile(path) catch unreachable; break :{s} {{}}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -65,12 +70,13 @@ fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("{}");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_rename: {{ const src = ", .{id});
+    const label = try self.emitInlineBlockStart("rename");
+    try self.emit("const src = ");
     try self.genExpr(args[0]);
     try self.emit("; const dst = ");
     try self.genExpr(args[1]);
-    try self.emitFmt("; std.fs.cwd().rename(src, dst) catch unreachable; break :__m{d}_rename {{}}; }}", .{id});
+    try self.emitFmt("; std.fs.cwd().rename(src, dst) catch unreachable; break :{s} {{}}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genStat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -78,12 +84,13 @@ fn genStat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(statDefault);
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_stat: {{ const path = ", .{id});
+    const label = try self.emitInlineBlockStart("stat");
+    try self.emit("const path = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; const stat = std.fs.cwd().statFile(path) catch break :__m{d}_stat ", .{id});
+    try self.emitFmt("; const stat = std.fs.cwd().statFile(path) catch break :{s} ", .{label});
     try self.emit(statDefault);
-    try self.emitFmt("; break :__m{d}_stat .{{ .st_size = @intCast(stat.size), .st_mode = @intCast(@intFromEnum(stat.kind)) }}; }}", .{id});
+    try self.emitFmt("; break :{s} .{{ .st_size = @intCast(stat.size), .st_mode = @intCast(@intFromEnum(stat.kind)) }}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -91,10 +98,11 @@ fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("@as(?[]const u8, null)");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_getenv: {{ const path = ", .{id});
+    const label = try self.emitInlineBlockStart("getenv");
+    try self.emit("const path = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; _ = path; break :__m{d}_getenv if (comptime @import(\"builtin\").os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv(path); }}", .{id});
+    try self.emitFmt("; _ = path; break :{s} if (comptime @import(\"builtin\").os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv(path); ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genKill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -102,12 +110,13 @@ fn genKill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("{}");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_kill: {{ const pid = ", .{id});
+    const label = try self.emitInlineBlockStart("kill");
+    try self.emit("const pid = ");
     try self.genExpr(args[0]);
     try self.emit("; const sig = ");
     try self.genExpr(args[1]);
-    try self.emitFmt("; _ = std.c.kill(@intCast(pid), @intCast(sig)); break :__m{d}_kill {{}}; }}", .{id});
+    try self.emitFmt("; _ = std.c.kill(@intCast(pid), @intCast(sig)); break :{s} {{}}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -115,10 +124,11 @@ fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("@as(i32, -1)");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_open: {{ const path = ", .{id});
+    const label = try self.emitInlineBlockStart("open");
+    try self.emit("const path = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; const file = std.fs.cwd().openFile(path, .{{}}) catch break :__m{d}_open @as(i32, -1); break :__m{d}_open if (comptime @import(\"builtin\").os.tag == .windows) @as(i32, @truncate(@as(i64, @intFromPtr(file.handle)))) else @intCast(file.handle); }}", .{ id, id });
+    try self.emitFmt("; const file = std.fs.cwd().openFile(path, .{{}}) catch break :{s} @as(i32, -1); break :{s} if (comptime @import(\"builtin\").os.tag == .windows) @as(i32, @truncate(@as(i64, @intFromPtr(file.handle)))) else @intCast(file.handle); ", .{ label, label });
+    try self.emitInlineBlockEnd();
 }
 
 fn genClose(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -126,10 +136,11 @@ fn genClose(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("{}");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_close: {{ const fd = ", .{id});
+    const label = try self.emitInlineBlockStart("close");
+    try self.emit("const fd = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; std.posix.close(@intCast(fd)); break :__m{d}_close {{}}; }}", .{id});
+    try self.emitFmt("; std.posix.close(@intCast(fd)); break :{s} {{}}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genAccess(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -137,10 +148,11 @@ fn genAccess(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("false");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_access: {{ const path = ", .{id});
+    const label = try self.emitInlineBlockStart("access");
+    try self.emit("const path = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; _ = std.fs.cwd().statFile(path) catch break :__m{d}_access false; break :__m{d}_access true; }}", .{ id, id });
+    try self.emitFmt("; _ = std.fs.cwd().statFile(path) catch break :{s} false; break :{s} true; ", .{ label, label });
+    try self.emitInlineBlockEnd();
 }
 
 fn genSymlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -148,12 +160,13 @@ fn genSymlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("{}");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_symlink: {{ const src = ", .{id});
+    const label = try self.emitInlineBlockStart("symlink");
+    try self.emit("const src = ");
     try self.genExpr(args[0]);
     try self.emit("; const dst = ");
     try self.genExpr(args[1]);
-    try self.emitFmt("; std.fs.cwd().symLink(src, dst, .{{}}) catch unreachable; break :__m{d}_symlink {{}}; }}", .{id});
+    try self.emitFmt("; std.fs.cwd().symLink(src, dst, .{{}}) catch unreachable; break :{s} {{}}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genReadlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -161,10 +174,11 @@ fn genReadlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("\"\"");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_readlink: {{ const path = ", .{id});
+    const label = try self.emitInlineBlockStart("readlink");
+    try self.emit("const path = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; var buf: [4096]u8 = undefined; break :__m{d}_readlink std.fs.cwd().readLink(path, &buf) catch \"\"; }}", .{id});
+    try self.emitFmt("; var buf: [4096]u8 = undefined; break :{s} std.fs.cwd().readLink(path, &buf) catch \"\"; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genUrandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -172,10 +186,11 @@ fn genUrandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("\"\"");
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_urandom: {{ const n = ", .{id});
+    const label = try self.emitInlineBlockStart("urandom");
+    try self.emit("const n = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; var buf = __global_allocator.alloc(u8, @intCast(n)) catch break :__m{d}_urandom \"\"; std.crypto.random.bytes(buf); break :__m{d}_urandom buf; }}", .{ id, id });
+    try self.emitFmt("; var buf = __global_allocator.alloc(u8, @intCast(n)) catch break :{s} \"\"; std.crypto.random.bytes(buf); break :{s} buf; ", .{ label, label });
+    try self.emitInlineBlockEnd();
 }
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{

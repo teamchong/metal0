@@ -32,11 +32,11 @@ fn genNew(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"sha256\", .digest_size = 32 }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try b.emitInlineBlockStart("new");
+    const label = try self.emitInlineBlockStart("new");
     try self.emit("const name = ");
     try self.genExpr(args[0]);
     try self.emitFmt("; break :{s} .{{ .name = name, .digest_size = if (std.mem.eql(u8, name, \"md5\")) @as(u8, 16) else if (std.mem.eql(u8, name, \"sha1\")) @as(u8, 20) else if (std.mem.eql(u8, name, \"sha256\")) @as(u8, 32) else if (std.mem.eql(u8, name, \"sha384\")) @as(u8, 48) else if (std.mem.eql(u8, name, \"sha512\")) @as(u8, 64) else @as(u8, 32) }}; ", .{label});
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 fn genOpensslMd5(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

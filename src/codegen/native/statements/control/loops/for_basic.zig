@@ -480,10 +480,11 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
         } else if (producesBlockExpression(iter)) {
             // Block expression (reversed(), etc.) - wrap in temp variable for .items access
             // Can't do `blk: {...}.items` directly in for loop operand
-            const id = self.nextNameId();
-            try self.emitFmt("__m{d}_iter: {{ const __iter = ", .{id});
+            const label = try self.emitInlineBlockStart("iter");
+            try self.emit(" const __iter = ");
             try self.genExpr(iter);
-            try self.emitFmt("; break :__m{d}_iter __iter.items; }}", .{id});
+            try self.emitFmt("; break :{s} __iter.items; ", .{label});
+            try self.emitInlineBlockEnd();
         } else {
             // Variable that holds ArrayList
             try self.genExpr(iter);
@@ -1589,10 +1590,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 try self.emit(")");
             } else if (producesBlockExpression(for_stmt.iter.*)) {
                 // Wrap block expression: blk: { const __iter = <expr>; break :blk __iter.items; }
-                const id = self.nextNameId();
-                try self.emitFmt("__m{d}_iter: {{ const __iter = ", .{id});
+                const label = try self.emitInlineBlockStart("iter");
+                try self.emit(" const __iter = ");
                 try self.genExpr(for_stmt.iter.*);
-                try self.emitFmt("; break :__m{d}_iter __iter.items; }}", .{id});
+                try self.emitFmt("; break :{s} __iter.items; ", .{label});
+                try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(for_stmt.iter.*);
                 try self.emit(".items");

@@ -17,35 +17,33 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genBisectLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len < 2) {
-        const b = try self.getBuilder();
         try b.emitValue(builder_mod.ZigValue.int(0), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const b = try self.getBuilder();
-    const label = try b.emitInlineBlockStart("bsl");
+    const label = try self.emitInlineBlockStart("bsl");
     try self.emit("const arr = ");
     try self.genExpr(args[0]);
     try self.emit("; const x = ");
     try self.genExpr(args[1]);
     try self.emitFmt("; var lo: usize = 0; var hi: usize = arr.len; while (lo < hi) {{ const mid = (lo + hi) / 2; if (arr[mid] < x) {{ lo = mid + 1; }} else {{ hi = mid; }} }} break :{s} @as(i64, @intCast(lo)); ", .{label});
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 fn genBisectRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len < 2) {
-        const b = try self.getBuilder();
         try b.emitValue(builder_mod.ZigValue.int(0), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const b = try self.getBuilder();
-    const label = try b.emitInlineBlockStart("bsr");
+    const label = try self.emitInlineBlockStart("bsr");
     try self.emit("const arr = ");
     try self.genExpr(args[0]);
     try self.emit("; const x = ");
     try self.genExpr(args[1]);
     try self.emitFmt("; var lo: usize = 0; var hi: usize = arr.len; while (lo < hi) {{ const mid = (lo + hi) / 2; if (x < arr[mid]) {{ hi = mid; }} else {{ lo = mid + 1; }} }} break :{s} @as(i64, @intCast(lo)); ", .{label});
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 fn genInsort(self: *NativeCodegen, _: []ast.Node) CodegenError!void {

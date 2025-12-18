@@ -22,42 +22,48 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("void{}"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_run: {{ const _cmd = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; var _child = std.process.Child.init(&_cmd, __global_allocator); _ = _child.spawn() catch break :__m{d}_run .{{ .returncode = -1, .stdout = \"\", .stderr = \"\" }}; const _r = _child.wait() catch break :__m{d}_run .{{ .returncode = -1, .stdout = \"\", .stderr = \"\" }}; break :__m{d}_run .{{ .returncode = @as(i64, @intCast(_r.Exited)), .stdout = \"\", .stderr = \"\" }}; }})", .{ id, id, id });
+    const label = try self.emitInlineBlockStart("run");
+    try self.emit("const _cmd = "); try self.genExpr(args[0]);
+    try self.emitFmt("; var _child = std.process.Child.init(&_cmd, __global_allocator); _ = _child.spawn() catch break :{s} .{{ .returncode = -1, .stdout = \"\", .stderr = \"\" }}; const _r = _child.wait() catch break :{s} .{{ .returncode = -1, .stdout = \"\", .stderr = \"\" }}; break :{s} .{{ .returncode = @as(i64, @intCast(_r.Exited)), .stdout = \"\", .stderr = \"\" }}; ", .{ label, label, label });
+    try self.emitInlineBlockEnd();
 }
 
 fn genCall(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("void{}"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_call: {{ const _cmd = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; var _child = std.process.Child.init(&_cmd, __global_allocator); _ = _child.spawn() catch break :__m{d}_call @as(i64, -1); const _r = _child.wait() catch break :__m{d}_call @as(i64, -1); break :__m{d}_call @as(i64, @intCast(_r.Exited)); }})", .{ id, id, id });
+    const label = try self.emitInlineBlockStart("call");
+    try self.emit("const _cmd = "); try self.genExpr(args[0]);
+    try self.emitFmt("; var _child = std.process.Child.init(&_cmd, __global_allocator); _ = _child.spawn() catch break :{s} @as(i64, -1); const _r = _child.wait() catch break :{s} @as(i64, -1); break :{s} @as(i64, @intCast(_r.Exited)); ", .{ label, label, label });
+    try self.emitInlineBlockEnd();
 }
 
 fn genCheckOutput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("\"\""); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_chk: {{ const _cmd = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; var _child = std.process.Child.init(&_cmd, __global_allocator); _child.stdout_behavior = .Pipe; _ = _child.spawn() catch break :__m{d}_chk \"\"; const _out = _child.stdout.?.readToEndAlloc(__global_allocator, 1024 * 1024) catch break :__m{d}_chk \"\"; _ = _child.wait() catch unreachable; break :__m{d}_chk _out; }})", .{ id, id, id });
+    const label = try self.emitInlineBlockStart("chk");
+    try self.emit("const _cmd = "); try self.genExpr(args[0]);
+    try self.emitFmt("; var _child = std.process.Child.init(&_cmd, __global_allocator); _child.stdout_behavior = .Pipe; _ = _child.spawn() catch break :{s} \"\"; const _out = _child.stdout.?.readToEndAlloc(__global_allocator, 1024 * 1024) catch break :{s} \"\"; _ = _child.wait() catch unreachable; break :{s} _out; ", .{ label, label, label });
+    try self.emitInlineBlockEnd();
 }
 
 fn genPopen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("void{}"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_pop: {{ const _cmd = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; var _child = std.process.Child.init(&_cmd, __global_allocator); _child.stdout_behavior = .Pipe; _child.stderr_behavior = .Pipe; break :__m{d}_pop _child; }})", .{id});
+    const label = try self.emitInlineBlockStart("pop");
+    try self.emit("const _cmd = "); try self.genExpr(args[0]);
+    try self.emitFmt("; var _child = std.process.Child.init(&_cmd, __global_allocator); _child.stdout_behavior = .Pipe; _child.stderr_behavior = .Pipe; break :{s} _child; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genGetOutput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("\"\""); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_gout: {{ const _cmd = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; const _argv = [_][]const u8{{ \"/bin/sh\", \"-c\", _cmd }}; var _child = std.process.Child.init(&_argv, __global_allocator); _child.stdout_behavior = .Pipe; _ = _child.spawn() catch break :__m{d}_gout \"\"; const _out = _child.stdout.?.readToEndAlloc(__global_allocator, 1024 * 1024) catch break :__m{d}_gout \"\"; _ = _child.wait() catch unreachable; break :__m{d}_gout _out; }})", .{ id, id, id });
+    const label = try self.emitInlineBlockStart("gout");
+    try self.emit("const _cmd = "); try self.genExpr(args[0]);
+    try self.emitFmt("; const _argv = [_][]const u8{{ \"/bin/sh\", \"-c\", _cmd }}; var _child = std.process.Child.init(&_argv, __global_allocator); _child.stdout_behavior = .Pipe; _ = _child.spawn() catch break :{s} \"\"; const _out = _child.stdout.?.readToEndAlloc(__global_allocator, 1024 * 1024) catch break :{s} \"\"; _ = _child.wait() catch unreachable; break :{s} _out; ", .{ label, label, label });
+    try self.emitInlineBlockEnd();
 }
 
 fn genGetStatusOutput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit(".{ @as(i64, -1), \"\" }"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_gso: {{ const _cmd = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; const _argv = [_][]const u8{{ \"/bin/sh\", \"-c\", _cmd }}; var _child = std.process.Child.init(&_argv, __global_allocator); _child.stdout_behavior = .Pipe; _ = _child.spawn() catch break :__m{d}_gso .{{ @as(i64, -1), \"\" }}; const _out = _child.stdout.?.readToEndAlloc(__global_allocator, 1024 * 1024) catch break :__m{d}_gso .{{ @as(i64, -1), \"\" }}; const _r = _child.wait() catch break :__m{d}_gso .{{ @as(i64, -1), _out }}; break :__m{d}_gso .{{ @as(i64, @intCast(_r.Exited)), _out }}; }})", .{ id, id, id, id });
+    const label = try self.emitInlineBlockStart("gso");
+    try self.emit("const _cmd = "); try self.genExpr(args[0]);
+    try self.emitFmt("; const _argv = [_][]const u8{{ \"/bin/sh\", \"-c\", _cmd }}; var _child = std.process.Child.init(&_argv, __global_allocator); _child.stdout_behavior = .Pipe; _ = _child.spawn() catch break :{s} .{{ @as(i64, -1), \"\" }}; const _out = _child.stdout.?.readToEndAlloc(__global_allocator, 1024 * 1024) catch break :{s} .{{ @as(i64, -1), \"\" }}; const _r = _child.wait() catch break :{s} .{{ @as(i64, -1), _out }}; break :{s} .{{ @as(i64, @intCast(_r.Exited)), _out }}; ", .{ label, label, label, label });
+    try self.emitInlineBlockEnd();
 }

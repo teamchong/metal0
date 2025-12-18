@@ -147,6 +147,7 @@ fn isTypingNoOp(expr: ast.Node) bool {
 
 /// Generate assignment statement with automatic defer cleanup
 pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!void {
+    const b = try self.getBuilder();
     // Clear target_dict_value_type context at end of assignment
     // This ensures dict codegen context doesn't leak to subsequent statements
     defer self.target_dict_value_type = null;
@@ -1341,8 +1342,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             if (is_async_call) {
                 // Auto-await: wrap async call with scheduler init + wait + result extraction
-                const id = self.nextNameId();
-                try self.emitFmt("(__m{d}_async: {{\n", .{id});
+                const label = try self.emitInlineBlockStart("async");
+                try self.emit("\n");
                 try self.emitIndent();
                 // Initialize scheduler if needed (first async call)
                 try self.emit("    if (!runtime.scheduler_initialized) {\n");
@@ -1365,9 +1366,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emitIndent();
                 try self.emit("    const __result = __thread.result orelse unreachable;\n");
                 try self.emitIndent();
-                try self.emitFmt("    break :__m{d}_async @as(*i64, @ptrCast(@alignCast(__result))).*;\n", .{id});
+                try self.emitFmt("    break :{s} @as(*i64, @ptrCast(@alignCast(__result))).*;\n", .{label});
                 try self.emitIndent();
-                try self.emit("});\n");
+                try self.emitInlineBlockEnd();
+                try self.emit(");\n");
             } else {
                 // Emit value normally
                 try self.genExpr(assign.value.*);
@@ -1569,16 +1571,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // assigning to fields of block expressions
             if (attr.value.* == .call) {
                 // Generate: { var __tmp_N = B.init(...); __tmp_N.x = value; }
-                const tmp_id = self.nextNameId();
+                const tmp_name = try b.freshTemp();
                 try self.emitIndent();
                 try self.emit("{\n");
                 self.indent_level += 1;
                 try self.emitIndent();
-                try self.emitFmt("var __m{d}_attr_tmp = ", .{tmp_id});
+                try self.emitFmt("var {s} = ", .{tmp_name});
                 try self.genExpr(attr.value.*);
                 try self.emit(";\n");
                 try self.emitIndent();
-                try self.emitFmt("__m{d}_attr_tmp.", .{tmp_id});
+                try self.emitFmt("{s}.", .{tmp_name});
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
                 try self.emit(" = ");
                 try self.genExpr(assign.value.*);
@@ -1759,8 +1761,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     if (is_nested and is_pyvalue_key) {
                         // Unknown container with string/pyvalue key - likely dict access
                         // Use runtime type check
-                        const id = self.nextNameId();
-                        try self.emitFmt("__m{d}_dict: {{\n", .{id});
+                        _ = try self.emitInlineBlockStart("dict");
+                        try self.emit("\n");
                         self.indent_level += 1;
                         try self.emitIndent();
                         try self.emit("const __cont = ");
@@ -1810,7 +1812,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         try self.emit("}\n");
                         self.indent_level -= 1;
                         try self.emitIndent();
-                        try self.emit("}\n");
+                        try self.emitInlineBlockEnd();
+                        try self.emit("\n");
                     } else {
                         if (is_nested) {
                             try self.genSubscriptLHS(subscript.value.subscript);

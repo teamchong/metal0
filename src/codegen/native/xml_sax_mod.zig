@@ -18,7 +18,8 @@ const CodegenError = h.CodegenError;
 
 fn genInputSource(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit(".{ .system_id = @as(?[]const u8, null), .public_id = @as(?[]const u8, null), .encoding = @as(?[]const u8, null), .byte_stream = @as(?*anyopaque, null), .character_stream = @as(?*anyopaque, null) }"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_is: {{ const system_id = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; break :__m{d}_is .{{ .system_id = system_id, .public_id = @as(?[]const u8, null), .encoding = @as(?[]const u8, null), .byte_stream = @as(?*anyopaque, null), .character_stream = @as(?*anyopaque, null) }}; }})", .{id});
+    const label = try self.emitInlineBlockStart("is");
+    try self.emit("const system_id = "); try self.genExpr(args[0]);
+    try self.emitFmt("; break :{s} .{{ .system_id = system_id, .public_id = @as(?[]const u8, null), .encoding = @as(?[]const u8, null), .byte_stream = @as(?*anyopaque, null), .character_stream = @as(?*anyopaque, null) }}; ", .{label});
+    try self.emitInlineBlockEnd();
 }

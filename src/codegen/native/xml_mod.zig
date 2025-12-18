@@ -23,22 +23,25 @@ const CodegenError = h.CodegenError;
 
 fn genParse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit(element_tree_struct); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_parse: {{ const _src = ", .{id}); try self.genExpr(args[0]);
-    try self.output.writer(self.allocator).print("; const f = std.fs.cwd().openFile(_src, .{{}}) catch break :__m{d}_parse {s}; defer f.close(); const content = f.readToEndAlloc(__global_allocator, 10*1024*1024) catch break :__m{d}_parse {s}; _ = content; break :__m{d}_parse {s}; }})", .{ id, element_tree_struct, id, element_tree_struct, id, element_tree_struct });
+    const label = try self.emitInlineBlockStart("parse");
+    try self.emit("const _src = "); try self.genExpr(args[0]);
+    try self.emitFmt("; const f = std.fs.cwd().openFile(_src, .{{}}) catch break :{s} {s}; defer f.close(); const content = f.readToEndAlloc(__global_allocator, 10*1024*1024) catch break :{s} {s}; _ = content; break :{s} {s}; ", .{ label, element_tree_struct, label, element_tree_struct, label, element_tree_struct });
+    try self.emitInlineBlockEnd();
 }
 
 fn genTostring(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("\"\""); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_tos: {{ const e = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; var r: std.ArrayList(u8) = .{{}}; r.appendSlice(__global_allocator, \"<\") catch unreachable; r.appendSlice(__global_allocator, e.tag) catch unreachable; r.appendSlice(__global_allocator, \">\") catch unreachable; r.appendSlice(__global_allocator, e.text) catch unreachable; r.appendSlice(__global_allocator, \"</\") catch unreachable; r.appendSlice(__global_allocator, e.tag) catch unreachable; r.appendSlice(__global_allocator, \">\") catch unreachable; break :__m{d}_tos r.items; }})", .{id});
+    const label = try self.emitInlineBlockStart("tos");
+    try self.emit("const e = "); try self.genExpr(args[0]);
+    try self.emitFmt("; var r: std.ArrayList(u8) = .{{}}; r.appendSlice(__global_allocator, \"<\") catch unreachable; r.appendSlice(__global_allocator, e.tag) catch unreachable; r.appendSlice(__global_allocator, \">\") catch unreachable; r.appendSlice(__global_allocator, e.text) catch unreachable; r.appendSlice(__global_allocator, \"</\") catch unreachable; r.appendSlice(__global_allocator, e.tag) catch unreachable; r.appendSlice(__global_allocator, \">\") catch unreachable; break :{s} r.items; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genSubElement(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("Element{}"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_sub: {{ var p = ", .{id}); try self.genExpr(args[0]);
+    const label = try self.emitInlineBlockStart("sub");
+    try self.emit("var p = "); try self.genExpr(args[0]);
     try self.emit("; const t = "); try self.genExpr(args[1]);
-    try self.emitFmt("; var c = Element{{ .tag = t }}; p.children.append(__global_allocator, &c) catch unreachable; break :__m{d}_sub c; }})", .{id});
+    try self.emitFmt("; var c = Element{{ .tag = t }}; p.children.append(__global_allocator, &c) catch unreachable; break :{s} c; ", .{label});
+    try self.emitInlineBlockEnd();
 }

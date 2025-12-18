@@ -1604,6 +1604,22 @@ pub const NativeCodegen = struct {
         return null;
     }
 
+    /// Emit inline block start: (__m{id}_hint: {
+    /// Uses builder for label generation but writes to codegen output
+    /// Returns the label name for use in break statements
+    pub fn emitInlineBlockStart(self: *NativeCodegen, hint: []const u8) CodegenError![]const u8 {
+        const b = try self.getBuilder();
+        const label = try b.freshInlineLabel(hint);
+        try self.emitFmt("({s}: {{ ", .{label});
+        return label;
+    }
+
+    /// Emit inline block end: })
+    /// Writes directly to codegen output
+    pub fn emitInlineBlockEnd(self: *NativeCodegen) CodegenError!void {
+        try self.emit("})");
+    }
+
     /// Capture an AST expression as a raw ZigValue
     /// This is the bridge between existing emit-based codegen and the new builder API
     /// Usage: const val = try self.captureExpr(expr);
@@ -1632,6 +1648,7 @@ pub const NativeCodegen = struct {
     /// Emit a ZigValue to the output buffer
     /// This allows mixing builder-style values with emit-style output
     pub fn emitZigValue(self: *NativeCodegen, value: builder_mod.ZigValue) CodegenError!void {
+        const b = try self.getBuilder();
         switch (value) {
             .none => {},
             .certain_int => |v| try self.emitFmt("{d}", .{v}),
@@ -1674,7 +1691,6 @@ pub const NativeCodegen = struct {
             .raw_expr => |expr| try self.emit(expr),
             else => {
                 // For complex values, use builder to emit and copy
-                const b = try self.getBuilder();
                 const start = b.body.items.len;
                 try b.emitValue(value, builder_mod.EmitConfig.forExpression());
                 const emitted = b.body.items[start..];

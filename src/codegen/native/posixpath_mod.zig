@@ -37,13 +37,12 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genAbspath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("abspath");
+        const label = try self.emitInlineBlockStart("abspath");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emit("; var buf: [4096]u8 = undefined; ");
         try self.emitFmt("break :{s} std.fs.cwd().realpath(path, &buf) catch path; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("\"\"");
     }
@@ -51,13 +50,12 @@ fn genAbspath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genBasename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("basename");
+        const label = try self.emitInlineBlockStart("basename");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emit("; ");
         try self.emitFmt("break :{s} std.fs.path.basename(path); ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("\"\"");
     }
@@ -65,13 +63,12 @@ fn genBasename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genDirname(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("dirname");
+        const label = try self.emitInlineBlockStart("dirname");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emit("; ");
         try self.emitFmt("break :{s} std.fs.path.dirname(path) orelse \"\"; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("\"\"");
     }
@@ -79,13 +76,12 @@ fn genDirname(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genExists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("exists");
+        const label = try self.emitInlineBlockStart("exists");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emitFmt("; _ = std.fs.cwd().statFile(path) catch break :{s} false; ", .{label});
         try self.emitFmt("break :{s} true; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("false");
     }
@@ -93,14 +89,13 @@ fn genExists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genExpanduser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("expanduser");
+        const label = try self.emitInlineBlockStart("expanduser");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emit("; if (path.len > 0 and path[0] == '~') { const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\"); ");
         try self.emitFmt("break :{s} std.fmt.allocPrint(__global_allocator, \"{{s}}{{s}}\", .{{ home, path[1..] }}) catch path; }} ", .{label});
         try self.emitFmt("break :{s} path; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("\"\"");
     }
@@ -108,13 +103,12 @@ fn genExpanduser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genGetsize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("getsize");
+        const label = try self.emitInlineBlockStart("getsize");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emitFmt("; const stat = std.fs.cwd().statFile(path) catch break :{s} @as(i64, 0); ", .{label});
         try self.emitFmt("break :{s} @intCast(stat.size); ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("@as(i64, 0)");
     }
@@ -122,13 +116,12 @@ fn genGetsize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIsabs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("isabs");
+        const label = try self.emitInlineBlockStart("isabs");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emit("; ");
         try self.emitFmt("break :{s} path.len > 0 and path[0] == '/'; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("false");
     }
@@ -136,13 +129,12 @@ fn genIsabs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIsdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("isdir");
+        const label = try self.emitInlineBlockStart("isdir");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emitFmt("; const dir = std.fs.cwd().openDir(path, .{{}}) catch break :{s} false; ", .{label});
         try self.emitFmt("dir.close(); break :{s} true; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("false");
     }
@@ -150,13 +142,12 @@ fn genIsdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIsfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("isfile");
+        const label = try self.emitInlineBlockStart("isfile");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emitFmt("; const stat = std.fs.cwd().statFile(path) catch break :{s} false; ", .{label});
         try self.emitFmt("break :{s} stat.kind == .file; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("false");
     }
@@ -164,13 +155,12 @@ fn genIsfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIslink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("islink");
+        const label = try self.emitInlineBlockStart("islink");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emitFmt("; const stat = std.fs.cwd().statFile(path) catch break :{s} false; ", .{label});
         try self.emitFmt("break :{s} stat.kind == .sym_link; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("false");
     }
@@ -178,8 +168,7 @@ fn genIslink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("join");
+        const label = try self.emitInlineBlockStart("join");
         try self.emit("var parts: [16][]const u8 = undefined; var count: usize = 0; ");
         for (args, 0..) |arg, i| {
             try self.emitFmt("parts[{d}] = ", .{i});
@@ -187,7 +176,7 @@ fn genJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("; count += 1; ");
         }
         try self.emitFmt("break :{s} std.fs.path.join(__global_allocator, parts[0..count]) catch \"\"; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("\"\"");
     }
@@ -195,13 +184,12 @@ fn genJoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genLexists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("lexists");
+        const label = try self.emitInlineBlockStart("lexists");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emitFmt("; _ = std.fs.cwd().statFile(path) catch break :{s} false; ", .{label});
         try self.emitFmt("break :{s} true; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("false");
     }
@@ -209,13 +197,12 @@ fn genLexists(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genRealpath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("realpath");
+        const label = try self.emitInlineBlockStart("realpath");
         try self.emit("const path = ");
         try self.genExpr(args[0]);
         try self.emit("; var buf: [4096]u8 = undefined; ");
         try self.emitFmt("break :{s} std.fs.cwd().realpath(path, &buf) catch path; ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("\"\"");
     }
@@ -223,15 +210,14 @@ fn genRealpath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genSamefile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
-        const b = try self.getBuilder();
-        const label = try b.emitInlineBlockStart("samefile");
+        const label = try self.emitInlineBlockStart("samefile");
         try self.emit("const p1 = ");
         try self.genExpr(args[0]);
         try self.emit("; const p2 = ");
         try self.genExpr(args[1]);
         try self.emit("; ");
         try self.emitFmt("break :{s} std.mem.eql(u8, p1, p2); ", .{label});
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit("false");
     }
@@ -239,11 +225,12 @@ fn genSamefile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_split: {{ const path = ", .{id});
+        const label = try self.emitInlineBlockStart("split");
+        try self.emit("const path = ");
         try self.genExpr(args[0]);
-        try self.emit("; const dir = std.fs.path.dirname(path) orelse \"\"; const base = std.fs.path.basename(path); break :__m");
-        try self.emitFmt("{d}_split .{{ dir, base }}; }}", .{id});
+        try self.emit("; const dir = std.fs.path.dirname(path) orelse \"\"; const base = std.fs.path.basename(path); ");
+        try self.emitFmt("break :{s} .{{ dir, base }}; ", .{label});
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit(".{ \"\", \"\" }");
     }
@@ -251,11 +238,12 @@ fn genSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genSplitdrive(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_splitdrive: {{ const path = ", .{id});
+        const label = try self.emitInlineBlockStart("splitdrive");
+        try self.emit("const path = ");
         try self.genExpr(args[0]);
-        try self.emit("; break :__m");
-        try self.emitFmt("{d}_splitdrive .{{ \"\", path }}; }}", .{id});
+        try self.emit("; ");
+        try self.emitFmt("break :{s} .{{ \"\", path }}; ", .{label});
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit(".{ \"\", \"\" }");
     }
@@ -263,11 +251,12 @@ fn genSplitdrive(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genSplitext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_splitext: {{ const path = ", .{id});
+        const label = try self.emitInlineBlockStart("splitext");
+        try self.emit("const path = ");
         try self.genExpr(args[0]);
-        try self.emit("; const ext = std.fs.path.extension(path); const stem_len = path.len - ext.len; break :__m");
-        try self.emitFmt("{d}_splitext .{{ path[0..stem_len], ext }}; }}", .{id});
+        try self.emit("; const ext = std.fs.path.extension(path); const stem_len = path.len - ext.len; ");
+        try self.emitFmt("break :{s} .{{ path[0..stem_len], ext }}; ", .{label});
+        try self.emitInlineBlockEnd();
     } else {
         try self.emit(".{ \"\", \"\" }");
     }

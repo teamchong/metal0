@@ -303,16 +303,16 @@ fn genNamedExpr(self: *NativeCodegen, ne: ast.Node.NamedExpr) CodegenError!void 
         else => return error.UnsupportedSyntax, // Walrus target must be a name
     };
 
-    // Generate: (__m{id}_walrus: { target = value; break :__m{id}_walrus target; })
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_walrus: {{", .{id});
+    // Generate: (label: { target = value; break :label target; })
+    const label = try self.emitInlineBlockStart("walrus");
     try self.emit(" ");
     try self.emit(target_name);
     try self.emit(" = ");
     try genExpr(self, ne.value.*);
-    try self.emitFmt("; break :__m{d}_walrus ", .{id});
+    try self.emitFmt("; break :{s} ", .{label});
     try self.emit(target_name);
-    try self.emit("; })");
+    try self.emit("; ");
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate conditional expression (ternary): body if condition else orelse_value
@@ -478,15 +478,15 @@ fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!v
     }
 
     // For regular coroutine calls: await expr → wait for green thread and get result
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_await: {{\n", .{id});
+    const label = try self.emitInlineBlockStart("await");
+    try self.emit("\n");
     try self.emit("    const __thread = ");
     try genExpr(self, await_node.value.*);
     try self.emit(";\n");
     try self.emit("    runtime.scheduler.?.wait(__thread);\n");
     try self.emit("    const __result = __thread.result orelse unreachable;\n");
-    try self.output.writer(self.allocator).print("    break :__m{d}_await @as(*{s}, @ptrCast(@alignCast(__result))).*;\n", .{ id, result_type });
-    try self.emit("})");
+    try self.output.writer(self.allocator).print("    break :{s} @as(*{s}, @ptrCast(@alignCast(__result))).*;\n", .{ label, result_type });
+    try self.emitInlineBlockEnd();
 }
 
 /// Convert Python format specifier to Zig format specifier

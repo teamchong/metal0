@@ -29,8 +29,9 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genUrljoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("\"\""); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_join: {{ const _base = ", .{id}); try self.genExpr(args[0]);
+    const label = try self.emitInlineBlockStart("join");
+    try self.emit("const _base = "); try self.genExpr(args[0]);
     try self.emit("; const _url = "); try self.genExpr(args[1]);
-    try self.emitFmt("; if (std.mem.indexOf(u8, _url, \"://\") != null) break :__m{d}_join _url; if (_url.len > 0 and _url[0] == '/') {{ if (std.mem.indexOf(u8, _base, \"://\")) |i| {{ if (std.mem.indexOfScalarPos(u8, _base, i + 3, '/')) |j| {{ var r: std.ArrayList(u8) = .{{}}; r.appendSlice(__global_allocator, _base[0..j]) catch unreachable; r.appendSlice(__global_allocator, _url) catch unreachable; break :__m{d}_join r.items; }} }} }} break :__m{d}_join _url; }})", .{ id, id, id });
+    try self.emitFmt("; if (std.mem.indexOf(u8, _url, \"://\") != null) break :{s} _url; if (_url.len > 0 and _url[0] == '/') {{ if (std.mem.indexOf(u8, _base, \"://\")) |i| {{ if (std.mem.indexOfScalarPos(u8, _base, i + 3, '/')) |j| {{ var r: std.ArrayList(u8) = .{{}}; r.appendSlice(__global_allocator, _base[0..j]) catch unreachable; r.appendSlice(__global_allocator, _url) catch unreachable; break :{s} r.items; }} }} }} break :{s} _url; ", .{ label, label, label });
+    try self.emitInlineBlockEnd();
 }

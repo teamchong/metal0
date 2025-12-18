@@ -20,7 +20,8 @@ const CodegenError = h.CodegenError;
 
 fn genFileCookieJar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit(".{ .filename = @as(?[]const u8, null), .delayload = false }"); return; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_fcj: {{ const filename = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; break :__m{d}_fcj .{{ .filename = filename, .delayload = false }}; }})", .{id});
+    const label = try self.emitInlineBlockStart("fcj");
+    try self.emit("const filename = "); try self.genExpr(args[0]);
+    try self.emitFmt("; break :{s} .{{ .filename = filename, .delayload = false }}; ", .{label});
+    try self.emitInlineBlockEnd();
 }

@@ -126,10 +126,12 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                const id = self.nextNameId();
-                try self.emitFmt("__m{d}_callable: {{ const __callable_temp = ", .{id});
+                const b2 = try self.getBuilder();
+                const label2 = try b2.emitInlineBlockStart("callable");
+                try self.emit("const __callable_temp = ");
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :__m{d}_callable runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }}", .{id});
+                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try b2.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }
@@ -147,10 +149,12 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                const id = self.nextNameId();
-                try self.emitFmt("__m{d}_callable: {{ const __callable_temp = ", .{id});
+                const b2 = try self.getBuilder();
+                const label2 = try b2.emitInlineBlockStart("callable");
+                try self.emit("const __callable_temp = ");
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :__m{d}_callable runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }}", .{id});
+                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try b2.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }
@@ -171,10 +175,12 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                const id = self.nextNameId();
-                try self.emitFmt("__m{d}_callable: {{ const __callable_temp = ", .{id});
+                const b2 = try self.getBuilder();
+                const label2 = try b2.emitInlineBlockStart("callable");
+                try self.emit("const __callable_temp = ");
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :__m{d}_callable runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }}", .{id});
+                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try b2.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }
@@ -192,10 +198,12 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
-                const id = self.nextNameId();
-                try self.emitFmt("__m{d}_callable: {{ const __callable_temp = ", .{id});
+                const b2 = try self.getBuilder();
+                const label2 = try b2.emitInlineBlockStart("callable");
+                try self.emit("const __callable_temp = ");
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :__m{d}_callable runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); }}", .{id});
+                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try b2.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }
@@ -479,10 +487,11 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
         // std.AutoHashMap.clone() and std.HashMap.clone() take no arguments
         // (they use the allocator stored internally)
         if (needsTempVariable(obj)) {
-            const id = self.nextNameId();
-            try self.emitFmt("__m{d}_copy: {{ const __list_temp = ", .{id});
+            const label = try self.emitInlineBlockStart("copy");
+            try self.emit("const __list_temp = ");
             try self.genExpr(obj);
-            try self.emitFmt("; break :__m{d}_copy try __list_temp.clone(); }}", .{id});
+            try self.emitFmt("; break :{s} try __list_temp.clone(); ", .{label});
+            try self.emitInlineBlockEnd();
         } else {
             try self.emit("try ");
             try emitObjExpr(self, obj);
@@ -491,10 +500,11 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     } else {
         // ArrayList.clone() requires allocator argument
         if (needsTempVariable(obj)) {
-            const id = self.nextNameId();
-            try self.emitFmt("__m{d}_copy: {{ const __list_temp = ", .{id});
+            const label = try self.emitInlineBlockStart("copy");
+            try self.emit("const __list_temp = ");
             try self.genExpr(obj);
-            try self.emitFmt("; break :__m{d}_copy try __list_temp.clone(__global_allocator); }}", .{id});
+            try self.emitFmt("; break :{s} try __list_temp.clone(__global_allocator); ", .{label});
+            try self.emitInlineBlockEnd();
         } else {
             try self.emit("try ");
             try emitObjExpr(self, obj);

@@ -20,14 +20,14 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genChunk(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try b.emitInlineBlockStart("chunk");
+        const label = try self.emitInlineBlockStart("chunk");
         try self.emit("const __v = ");
         try self.genExpr(args[0]);
         try self.emit("; _ = __v;");
         try self.emit(" break :");
         try self.emit(label);
         try self.emit(" .{ .closed = false, .align = true, .bigendian = true, .inclheader = false, .chunkname = &[_]u8{0} ** 4, .chunksize = 0, .size_read = 0 }; ");
-        try b.emitInlineBlockEnd();
+        try self.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .closed = false, .align = true, .bigendian = true, .inclheader = false, .chunkname = &[_]u8{0} ** 4, .chunksize = 0, .size_read = 0 }"), builder_mod.EmitConfig.forExpression());
     }

@@ -43,8 +43,8 @@ pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     const fmt_str = getFormatStr(args[0]);
     const fmt_off: usize = if (fmt_str) |f| getFmtOff(f) else 0;
-    const pack_id = self.nextNameId();
-    try self.emitFmt("__m{d}_struct_pack: {{ const _fmt = ", .{pack_id}); try self.genExpr(args[0]);
+    const label = try self.emitInlineBlockStart("struct_pack");
+    try self.emit("const _fmt = "); try self.genExpr(args[0]);
     try self.emit("; var _buf: [1024]u8 = undefined; var _pos: usize = 0; ");
     for (args[1..], 0..) |arg, i| {
         const fc: u8 = if (fmt_str) |f| (if (i + fmt_off < f.len) f[i + fmt_off] else 'i') else 'i';
@@ -54,14 +54,15 @@ pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("); @memcpy(_buf[_pos..][0.._bytes"); try emitNum(self, i); try self.emit(".len], _bytes"); try emitNum(self, i);
         try self.emit("); _pos += _bytes"); try emitNum(self, i); try self.emit(".len; ");
     }
-    try self.emitFmt("_ = _fmt; break :__m{d}_struct_pack _buf[0.._pos]; }}", .{pack_id});
+    try self.emitFmt("_ = _fmt; break :{s} _buf[0.._pos]; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 pub fn genUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return error.UnsupportedSyntax;
     const fmt_str = getFormatStr(args[0]);
-    const unpack_id = self.nextNameId();
-    try self.emitFmt("__m{d}_struct_unpack: {{ const _fmt = ", .{unpack_id}); try self.genExpr(args[0]);
+    const label = try self.emitInlineBlockStart("struct_unpack");
+    try self.emit("const _fmt = "); try self.genExpr(args[0]);
     try self.emit("; const _raw_data = "); try self.genExpr(args[1]);
     // Handle PyBytes (has .data field) vs raw slice
     try self.emit("; const _data = if (@TypeOf(_raw_data) == runtime.builtins.PyBytes) _raw_data.data else _raw_data; _ = _fmt; ");
@@ -77,10 +78,14 @@ pub fn genUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             }
             try self.emit(", _data[_pos..][0.."); try self.emit(getUnpackSize(c)); try self.emit("])); _pos += "); try self.emit(getUnpackSize(c)); try self.emit("; ");
         }
-        try self.emitFmt("break :__m{d}_struct_unpack .{{", .{unpack_id});
+        try self.emitFmt("break :{s} .{{", .{label});
         for (0..fmt.len) |i| { if (i > 0) try self.emit(", "); try self.emit("_val"); try emitNum(self, i); }
-        try self.emit("}; }");
-    } else try self.emitFmt("const _val = std.mem.bytesToValue(i32, _data[0..4]); break :__m{d}_struct_unpack .{{_val}}; }}", .{unpack_id});
+        try self.emit("}; ");
+        try self.emitInlineBlockEnd();
+    } else {
+        try self.emitFmt("const _val = std.mem.bytesToValue(i32, _data[0..4]); break :{s} .{{_val}}; ", .{label});
+        try self.emitInlineBlockEnd();
+    }
 }
 
 // struct.calcsize: handle both []const u8 and PyValue (from generators)
@@ -89,10 +94,11 @@ pub fn genCalcsize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("@as(i64, 0)");
         return;
     }
-    const calcsize_id = self.nextNameId();
-    try self.emitFmt("__m{d}_struct_calcsize: {{ const _raw_fmt = ", .{calcsize_id});
+    const label = try self.emitInlineBlockStart("struct_calcsize");
+    try self.emit("const _raw_fmt = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; const _fmt = if (@TypeOf(_raw_fmt) == runtime.PyValue) _raw_fmt.asString() else _raw_fmt; var _size: usize = 0; for (_fmt) |c| {{ _size += switch (c) {{ 'b', 'B', 'c', '?', 'x' => 1, 'h', 'H' => 2, 'i', 'I', 'l', 'L', 'f' => 4, 'q', 'Q', 'd' => 8, else => 0 }}; }} break :__m{d}_struct_calcsize @as(i64, @intCast(_size)); }}", .{calcsize_id});
+    try self.emitFmt("; const _fmt = if (@TypeOf(_raw_fmt) == runtime.PyValue) _raw_fmt.asString() else _raw_fmt; var _size: usize = 0; for (_fmt) |c| {{ _size += switch (c) {{ 'b', 'B', 'c', '?', 'x' => 1, 'h', 'H' => 2, 'i', 'I', 'l', 'L', 'f' => 4, 'q', 'Q', 'd' => 8, else => 0 }}; }} break :{s} @as(i64, @intCast(_size)); ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genPackInto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -101,8 +107,8 @@ fn genPackInto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("runtime.builtins.structPackIntoNoArgs()");
         return;
     }
-    const pack_into_id = self.nextNameId();
-    try self.emitFmt("__m{d}_struct_pack_into: {{ const _fmt = ", .{pack_into_id}); try self.genExpr(args[0]);
+    const label = try self.emitInlineBlockStart("struct_pack_into");
+    try self.emit("const _fmt = "); try self.genExpr(args[0]);
     try self.emit("; const _buf = "); try self.genExpr(args[1]);
     try self.emit("; var _offset: usize = @intCast("); try self.genExpr(args[2]); try self.emit("); _ = _fmt; ");
     for (args[3..], 0..) |arg, i| {
@@ -111,16 +117,18 @@ fn genPackInto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("); @memcpy(_buf[_offset..][0.._bytes"); try emitNum(self, i); try self.emit(".len], _bytes"); try emitNum(self, i);
         try self.emit("); _offset += _bytes"); try emitNum(self, i); try self.emit(".len; ");
     }
-    try self.emitFmt("break :__m{d}_struct_pack_into; }}", .{pack_into_id});
+    try self.emitFmt("break :{s}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genUnpackFrom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return error.UnsupportedSyntax;
-    const unpack_from_id = self.nextNameId();
-    try self.emitFmt("__m{d}_struct_unpack_from: {{ const _fmt = ", .{unpack_from_id}); try self.genExpr(args[0]);
+    const label = try self.emitInlineBlockStart("struct_unpack_from");
+    try self.emit("const _fmt = "); try self.genExpr(args[0]);
     try self.emit("; const _data = "); try self.genExpr(args[1]); try self.emit("; const _offset: usize = ");
     if (args.len > 2) { try self.emit("@intCast("); try self.genExpr(args[2]); try self.emit(")"); } else try self.emit("0");
-    try self.emitFmt("; _ = _fmt; const _val = std.mem.bytesToValue(i32, _data[_offset..][0..4]); break :__m{d}_struct_unpack_from .{{_val}}; }}", .{unpack_from_id});
+    try self.emitFmt("; _ = _fmt; const _val = std.mem.bytesToValue(i32, _data[_offset..][0..4]); break :{s} .{{_val}}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genIterUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -128,10 +136,11 @@ fn genIterUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("struct { pub fn next(__self: *@This()) ?i32 { _ = __self; return null; } }{}");
         return;
     }
-    const iter_unpack_id = self.nextNameId();
-    try self.emitFmt("__m{d}_struct_iter_unpack: {{ const _fmt = ", .{iter_unpack_id});
+    const label = try self.emitInlineBlockStart("struct_iter_unpack");
+    try self.emit("const _fmt = ");
     try self.genExpr(args[0]);
     try self.emit("; const _data = ");
     try self.genExpr(args[1]);
-    try self.emitFmt("; _ = _fmt; _ = _data; break :__m{d}_struct_iter_unpack struct {{ items: []const u8, pos: usize = 0, pub fn next(__self: *@This()) ?i32 {{ if (__self.pos + 4 <= __self.items.len) {{ const val = std.mem.bytesToValue(i32, __self.items[__self.pos..][0..4]); __self.pos += 4; return val; }} return null; }} }}{{ .items = _data }}; }}", .{iter_unpack_id});
+    try self.emitFmt("; _ = _fmt; _ = _data; break :{s} struct {{ items: []const u8, pos: usize = 0, pub fn next(__self: *@This()) ?i32 {{ if (__self.pos + 4 <= __self.items.len) {{ const val = std.mem.bytesToValue(i32, __self.items[__self.pos..][0..4]); __self.pos += 4; return val; }} return null; }} }}{{ .items = _data }}; ", .{label});
+    try self.emitInlineBlockEnd();
 }

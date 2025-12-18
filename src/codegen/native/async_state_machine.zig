@@ -959,13 +959,13 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
             if (call.func.* == .name) {
                 const func_name = call.func.*.name.id;
                 if (std.mem.eql(u8, func_name, "sum")) {
-                    // sum(list) -> __m{id}_sum: { var total = 0; for (list.items) |i| total += i; break :__m{id}_sum total; }
-                    const id = self.nextNameId();
-                    try self.emitFmt("__m{d}_sum: {{\nvar total: i64 = 0;\nfor (", .{id});
+                    const label = try self.emitInlineBlockStart("sum");
+                    try self.emit("\nvar total: i64 = 0;\nfor (");
                     if (call.args.len > 0) {
                         try genExprInFrame(self, call.args[0], frame_fields);
                     }
-                    try self.emitFmt(".items) |item| {{ total += item; }}\nbreak :__m{d}_sum total;\n}}", .{id});
+                    try self.emitFmt(".items) |item| {{ total += item; }}\nbreak :{s} total;\n", .{label});
+                    try self.emitInlineBlockEnd();
                     return;
                 }
             }
@@ -994,9 +994,8 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
                         fn_name = elem_call.func.*.name.id;
                     }
                 }
-                const id = self.nextNameId();
-                try self.emitFmt("__m{d}_comp: {{\n", .{id});
-                try self.emit("    var __comp_result = std.ArrayListUnmanaged(*");
+                const label = try self.emitInlineBlockStart("comp");
+                try self.emit("\n    var __comp_result = std.ArrayListUnmanaged(*");
                 try self.emit(fn_name);
                 try self.emit("_Frame){{}};\n");
                 // Generate for loop
@@ -1020,7 +1019,8 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
                     try self.emit(" catch unreachable) catch unreachable;\n");
                     try self.emit("    }\n");
                 }
-                try self.emitFmt("    break :__m{d}_comp __comp_result;\n}}", .{id});
+                try self.emitFmt("    break :{s} __comp_result;\n", .{label});
+                try self.emitInlineBlockEnd();
             } else {
                 // Fallback to regular list comp
                 try self.genExpr(node);

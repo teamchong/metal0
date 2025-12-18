@@ -148,8 +148,7 @@ fn genArray(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     // Determine typecode - default to 'l' if not a constant
     const typecode: u8 = if (args.len > 0) extractTypecode(args[0]) orelse 'l' else 'l';
 
-    const b = try self.getBuilder();
-    const label = try b.emitInlineBlockStart("arr");
+    const label = try self.emitInlineBlockStart("arr");
 
     // Discard arguments (still need to evaluate them for side effects)
     if (args.len > 0) {
@@ -164,7 +163,7 @@ fn genArray(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
             try self.emit("; __arr_init.frombytes(");
             try self.genExpr(args[1]);
             try self.emitFmt("); break :{s} __arr_init; ", .{label});
-            try b.emitInlineBlockEnd();
+            try self.emitInlineBlockEnd();
             return;
         }
     }
@@ -172,7 +171,7 @@ fn genArray(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     try self.emitFmt("break :{s} ", .{label});
     try genArrayStructDef(self, typecode);
     try self.emit("; ");
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 /// Inline struct definition for default array.array (typecode 'l')

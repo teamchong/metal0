@@ -20,41 +20,47 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 const prng_init = "var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); const _rand = _prng.random(); var _buf: [64]u8 = undefined; ";
 
 fn genMktemp(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_mkt: {{ " ++ prng_init ++ "const _name = std.fmt.bufPrint(&_buf, \"/tmp/tmp", .{id});
+    const label = try self.emitInlineBlockStart("mkt");
+    try self.emit(prng_init ++ "const _name = std.fmt.bufPrint(&_buf, \"/tmp/tmp");
     try self.emit("{x:0>8}");
-    try self.emitFmt("\", .{{_rand.int(u32)}}) catch break :__m{d}_mkt \"/tmp/tmpXXXXXXXX\"; break :__m{d}_mkt _name; }})", .{ id, id });
+    try self.emitFmt("\", .{{_rand.int(u32)}}) catch break :{s} \"/tmp/tmpXXXXXXXX\"; break :{s} _name; ", .{ label, label });
+    try self.emitInlineBlockEnd();
 }
 
 fn genMkdtemp(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_mkd: {{ " ++ prng_init ++ "const _name = std.fmt.bufPrint(&_buf, \"/tmp/tmp", .{id});
+    const label = try self.emitInlineBlockStart("mkd");
+    try self.emit(prng_init ++ "const _name = std.fmt.bufPrint(&_buf, \"/tmp/tmp");
     try self.emit("{x:0>8}");
-    try self.emitFmt("\", .{{_rand.int(u32)}}) catch break :__m{d}_mkd \"/tmp/tmpXXXXXXXX\"; std.fs.makeDirAbsolute(_name) catch unreachable; break :__m{d}_mkd _name; }})", .{ id, id });
+    try self.emitFmt("\", .{{_rand.int(u32)}}) catch break :{s} \"/tmp/tmpXXXXXXXX\"; std.fs.makeDirAbsolute(_name) catch unreachable; break :{s} _name; ", .{ label, label });
+    try self.emitInlineBlockEnd();
 }
 
 fn genMkstemp(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_mks: {{ " ++ prng_init ++ "const _name = std.fmt.bufPrint(&_buf, \"/tmp/tmp", .{id});
+    const label = try self.emitInlineBlockStart("mks");
+    try self.emit(prng_init ++ "const _name = std.fmt.bufPrint(&_buf, \"/tmp/tmp");
     try self.emit("{x:0>8}");
-    try self.emitFmt("\", .{{_rand.int(u32)}}) catch break :__m{d}_mks .{{ @as(i64, -1), \"\" }}; const _file = std.fs.createFileAbsolute(_name, .{{}}) catch break :__m{d}_mks .{{ @as(i64, -1), _name }}; break :__m{d}_mks .{{ if (comptime @import(\"builtin\").os.tag == .windows) @as(i64, @intFromPtr(_file.handle)) else @as(i64, @intCast(_file.handle)), _name }}; }})", .{ id, id, id });
+    try self.emitFmt("\", .{{_rand.int(u32)}}) catch break :{s} .{{ @as(i64, -1), \"\" }}; const _file = std.fs.createFileAbsolute(_name, .{{}}) catch break :{s} .{{ @as(i64, -1), _name }}; break :{s} .{{ if (comptime @import(\"builtin\").os.tag == .windows) @as(i64, @intFromPtr(_file.handle)) else @as(i64, @intCast(_file.handle)), _name }}; ", .{ label, label, label });
+    try self.emitInlineBlockEnd();
 }
 
 fn genNamedTempFile(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_ntf: {{ " ++ prng_init ++ "const _name = std.fmt.bufPrint(&_buf, \"/tmp/tmp", .{id});
+    const label = try self.emitInlineBlockStart("ntf");
+    try self.emit(prng_init ++ "const _name = std.fmt.bufPrint(&_buf, \"/tmp/tmp");
     try self.emit("{x:0>8}");
-    try self.emitFmt("\", .{{_rand.int(u32)}}) catch break :__m{d}_ntf struct {{ name: []const u8, file: ?std.fs.File }}{{ .name = \"\", .file = null }}; const _file = std.fs.createFileAbsolute(_name, .{{}}) catch break :__m{d}_ntf struct {{ name: []const u8, file: ?std.fs.File }}{{ .name = _name, .file = null }}; break :__m{d}_ntf struct {{ name: []const u8, file: ?std.fs.File }}{{ .name = _name, .file = _file }}; }})", .{ id, id, id });
+    try self.emitFmt("\", .{{_rand.int(u32)}}) catch break :{s} struct {{ name: []const u8, file: ?std.fs.File }}{{ .name = \"\", .file = null }}; const _file = std.fs.createFileAbsolute(_name, .{{}}) catch break :{s} struct {{ name: []const u8, file: ?std.fs.File }}{{ .name = _name, .file = null }}; break :{s} struct {{ name: []const u8, file: ?std.fs.File }}{{ .name = _name, .file = _file }}; ", .{ label, label, label });
+    try self.emitInlineBlockEnd();
 }
 
 fn genSpooledTempFile(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_stf: {{ var _buf: std.ArrayList(u8) = .{{}}; break :__m{d}_stf struct {{ buffer: std.ArrayList(u8), pos: usize = 0, pub fn write(__self: *@This(), data: []const u8) void {{ __self.buffer.appendSlice(__global_allocator, data) catch unreachable; }} pub fn read(__self: *@This()) []const u8 {{ return __self.buffer.items; }} pub fn seek(__self: *@This(), pos: usize) void {{ __self.pos = pos; }} pub fn tell(__self: *@This()) usize {{ return __self.pos; }} pub fn close(__self: *@This()) void {{ __self.buffer.deinit(__global_allocator); }} }}{{ .buffer = _buf }}; }})", .{ id, id });
+    const label = try self.emitInlineBlockStart("stf");
+    try self.emitFmt("var _buf2: std.ArrayList(u8) = .{{}}; break :{s} struct {{ buffer: std.ArrayList(u8), pos: usize = 0, pub fn write(__self: *@This(), data: []const u8) void {{ __self.buffer.appendSlice(__global_allocator, data) catch unreachable; }} pub fn read(__self: *@This()) []const u8 {{ return __self.buffer.items; }} pub fn seek(__self: *@This(), pos: usize) void {{ __self.pos = pos; }} pub fn tell(__self: *@This()) usize {{ return __self.pos; }} pub fn close(__self: *@This()) void {{ __self.buffer.deinit(__global_allocator); }} }}{{ .buffer = _buf2 }}; ", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 fn genTempDir(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_td: {{ " ++ prng_init ++ "const _name = std.fmt.bufPrint(&_buf, \"/tmp/tmpdir", .{id});
+    const label = try self.emitInlineBlockStart("td");
+    try self.emit(prng_init ++ "const _name = std.fmt.bufPrint(&_buf, \"/tmp/tmpdir");
     try self.emit("{x:0>8}");
-    try self.emitFmt("\", .{{_rand.int(u32)}}) catch break :__m{d}_td struct {{ name: []const u8 }}{{ .name = \"\" }}; std.fs.makeDirAbsolute(_name) catch unreachable; break :__m{d}_td struct {{ name: []const u8, pub fn cleanup(__self: *@This()) void {{ std.fs.deleteTreeAbsolute(__self.name) catch unreachable; }} pub fn __enter__(__self: *@This()) []const u8 {{ return __self.name; }} pub fn __exit__(__self: *@This(), _: anytype) void {{ __self.cleanup(); }} }}{{ .name = _name }}; }})", .{ id, id });
+    try self.emitFmt("\", .{{_rand.int(u32)}}) catch break :{s} struct {{ name: []const u8 }}{{ .name = \"\" }}; std.fs.makeDirAbsolute(_name) catch unreachable; break :{s} struct {{ name: []const u8, pub fn cleanup(__self: *@This()) void {{ std.fs.deleteTreeAbsolute(__self.name) catch unreachable; }} pub fn __enter__(__self: *@This()) []const u8 {{ return __self.name; }} pub fn __exit__(__self: *@This(), _: anytype) void {{ __self.cleanup(); }} }}{{ .name = _name }}; ", .{ label, label });
+    try self.emitInlineBlockEnd();
 }

@@ -14,11 +14,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genRegister(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len > 0) {
         // Pass through the first argument
         try self.genExpr(args[0]);
     } else {
-        const b = try self.getBuilder();
         try b.emitValue(builder_mod.ZigValue.raw("@as(?*anyopaque, null)"), builder_mod.EmitConfig.forExpression());
     }
 }

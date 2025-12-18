@@ -10,6 +10,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genRobotFileParser(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len > 0) {
         // With argument: .{ .url = __v, .last_checked = @as(i64, 0) }
         try self.emit(".{ .url = ");
@@ -17,7 +18,6 @@ fn genRobotFileParser(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!v
         try self.emit(", .last_checked = @as(i64, 0) }");
     } else {
         // Without argument: default struct
-        const b = try self.getBuilder();
         try b.emitValue(builder_mod.ZigValue.raw(".{ .url = \"\", .last_checked = @as(i64, 0) }"), builder_mod.EmitConfig.forExpression());
     }
 }

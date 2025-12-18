@@ -47,8 +47,7 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // Use state machine if ANY async function has I/O (for consistency)
             if (self.anyAsyncHasIO()) {
                 // State machine approach: create frame and poll until done
-                const id = self.nextNameId();
-                try self.emitFmt("__m{d}_asyncio_run: {{\n", .{id});
+                const label = try self.emitInlineBlockStart("asyncio_run");
                 try self.emit("    const __main_frame = try ");
                 try self.emit(actual_name);
                 try self.emit("_async();\n");
@@ -59,12 +58,11 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.emit("        // Yield to allow other work\n");
                 try self.emit("        std.Thread.yield() catch {{}};\n");
                 try self.emit("    }\n");
-                try self.emitFmt("    break :__m{d}_asyncio_run;\n", .{id});
-                try self.emit("}");
+                try self.emitFmt("    break :{s};\n", .{label});
+                try self.emitInlineBlockEnd();
             } else {
                 // Thread-based approach: spawn and wait
-                const id = self.nextNameId();
-                try self.emitFmt("__m{d}_asyncio_run: {{\n", .{id});
+                const label = try self.emitInlineBlockStart("asyncio_run");
                 try self.emit("    if (!runtime.scheduler_initialized) {\n");
                 try self.emit("        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
                 try self.emit("        runtime.scheduler = try runtime.Scheduler.init(__global_allocator, __num_threads);\n");
@@ -75,8 +73,8 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.emit(actual_name);
                 try self.emit("_async();\n");
                 try self.emit("    runtime.scheduler.?.wait(__main_thread);\n");
-                try self.emitFmt("    break :__m{d}_asyncio_run;\n", .{id});
-                try self.emit("}");
+                try self.emitFmt("    break :{s};\n", .{label});
+                try self.emitInlineBlockEnd();
             }
             return;
         }
@@ -92,8 +90,7 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     // Use thread pool for CPU-bound (parallel execution across cores)
     if (self.anyAsyncHasIO()) { // State machine for I/O operations
         // State machine: poll all frames concurrently using netpoller
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_gather: {{\n", .{id});
+        const label = try self.emitInlineBlockStart("gather");
         try self.emit("    var __results: std.ArrayListUnmanaged(i64) = .{{}};\n");
 
         // Handle starred expression (asyncio.gather(*tasks))
@@ -126,12 +123,11 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
             // Direct args - not commonly used with state machines
             try self.emit("    // Direct gather args not yet implemented for state machines\n");
         }
-        try self.emitFmt("    break :__m{d}_gather __results;\n", .{id});
-        try self.emit("}");
+        try self.emitFmt("    break :{s} __results;\n", .{label});
+        try self.emitInlineBlockEnd();
     } else {
         // Thread-based approach
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_gather: {{\n", .{id});
+        const label = try self.emitInlineBlockStart("gather");
         try self.emit("    var __threads: std.ArrayListUnmanaged(*runtime.GreenThread) = .{{}};\n");
         try self.emit("    defer __threads.deinit(__global_allocator);\n");
 
@@ -160,8 +156,8 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
             try self.emit("            try __results.append(__global_allocator, @as(*i64, @ptrCast(@alignCast(__r))).*);\n");
         try self.emit("        }\n");
         try self.emit("    }\n");
-        try self.emitFmt("    break :__m{d}_gather __results;\n", .{id});
-        try self.emit("}");
+        try self.emitFmt("    break :{s} __results;\n", .{label});
+        try self.emitInlineBlockEnd();
     }
 }
 
@@ -188,14 +184,13 @@ pub fn genAsyncioSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
     // Use runtime.sleep which does chunked sleeping with yields
     // Use labeled block expression that returns void to avoid trailing ; issues
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_sleep: {{\n", .{id});
+    const label = try self.emitInlineBlockStart("sleep");
     try self.emit("    const __sleep_secs: f64 = try @as(anyerror!f64, ");
     try self.genExpr(args[0]);
     try self.emit(");\n");
     try self.emit("    runtime.sleep(__sleep_secs);\n");
-    try self.emitFmt("    break :__m{d}_sleep;\n", .{id});
-    try self.emit("}");
+    try self.emitFmt("    break :{s};\n", .{label});
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code for asyncio.Queue(maxsize)
@@ -239,8 +234,7 @@ pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             // Query function_traits for async strategy
             if (self.shouldUseStateMachineAsync(func_name)) {
                 // State machine approach: create frame and poll until done
-                const id = self.nextNameId();
-                try self.emitFmt("__m{d}_await: {{\n", .{id});
+                const label = try self.emitInlineBlockStart("await");
                 try self.emit("    const __frame = try ");
                 try self.emit(func_name);
                 try self.emit("_async(");
@@ -255,15 +249,14 @@ pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
                 try self.emit("        if (");
                 try self.emit(func_name);
                 try self.emit("_poll(__frame)) |__result| {\n");
-                try self.emitFmt("            break :__m{d}_await __result;\n", .{id});
+                try self.emitFmt("            break :{s} __result;\n", .{label});
                 try self.emit("        }\n");
                 try self.emit("        std.Thread.yield() catch {{}};\n");
                 try self.emit("    }\n");
-                try self.emit("}");
+                try self.emitInlineBlockEnd();
             } else {
                 // Thread-based approach: spawn and wait
-                const id = self.nextNameId();
-                try self.emitFmt("__m{d}_await: {{\n", .{id});
+                const label = try self.emitInlineBlockStart("await");
                 try self.emit("    const __thread = try ");
                 try self.emit(func_name);
                 try self.emit("_async(");
@@ -274,8 +267,8 @@ pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
                 }
                 try self.emit(");\n");
                 try self.emit("    runtime.scheduler.?.wait(__thread);\n");
-                try self.emitFmt("    break :__m{d}_await if (__thread.result) |__r| @as(*i64, @ptrCast(@alignCast(__r))).* else 0;\n", .{id});
-                try self.emit("}");
+                try self.emitFmt("    break :{s} if (__thread.result) |__r| @as(*i64, @ptrCast(@alignCast(__r))).* else 0;\n", .{label});
+                try self.emitInlineBlockEnd();
             }
             return;
         }

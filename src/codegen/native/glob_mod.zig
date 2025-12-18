@@ -18,7 +18,7 @@ fn genGlob(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw("&[_][]const u8{}"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try b.emitInlineBlockStart("glob");
+    const label = try self.emitInlineBlockStart("glob");
     // Generate inner match loop label using format with the builder's ID counter
     const inner_id = b.getNextId();
     try self.emit("const _pattern = ");
@@ -27,7 +27,7 @@ fn genGlob(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     // Handle the inner {s}/{s} format in two parts to avoid fmt parsing issues
     try self.emit("{s}/{s}");
     try self.emitFmt("\", .{{_dir_path, entry.name}}) catch continue; _results.append(__global_allocator, _full) catch continue; }} }} break :{s} _results.items; ", .{label});
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 fn genEscape(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -37,11 +37,11 @@ fn genEscape(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         return;
     }
     // Using builder's inline block API
-    const label = try b.emitInlineBlockStart("esc");
+    const label = try self.emitInlineBlockStart("esc");
     try self.emit("const _path = ");
     try self.genExpr(args[0]);
     try self.emitFmt("; var _result: std.ArrayList(u8) = .{{}}; for (_path) |c| {{ if (c == '*' or c == '?' or c == '[') {{ _result.append(__global_allocator, '[') catch continue; _result.append(__global_allocator, c) catch continue; _result.append(__global_allocator, ']') catch continue; }} else {{ _result.append(__global_allocator, c) catch continue; }} }} break :{s} _result.items; ", .{label});
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 fn genHasMagic(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -51,9 +51,9 @@ fn genHasMagic(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         return;
     }
     // Using builder's inline block API with getNextId() for unified ID generation
-    const label = try b.emitInlineBlockStart("hm");
+    const label = try self.emitInlineBlockStart("hm");
     try self.emit("const _s = ");
     try self.genExpr(args[0]);
     try self.emitFmt("; for (_s) |c| {{ if (c == '*' or c == '?' or c == '[') break :{s} true; }} break :{s} false; ", .{ label, label });
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }

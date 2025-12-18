@@ -11,6 +11,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genZipimporter(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len > 0) {
         // With argument: .{ .archive = __v, .prefix = "" }
         try self.emit(".{ .archive = ");
@@ -18,7 +19,6 @@ fn genZipimporter(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void 
         try self.emit(", .prefix = \"\" }");
     } else {
         // Without argument: default struct
-        const b = try self.getBuilder();
         try b.emitValue(builder_mod.ZigValue.raw(".{ .archive = \"\", .prefix = \"\" }"), builder_mod.EmitConfig.forExpression());
     }
 }

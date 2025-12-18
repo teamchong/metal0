@@ -44,16 +44,17 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(")");
     } else {
         // String literal or native string - wrap in PyString first
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_json_loads: {{ const json_str_obj = try runtime.PyString.create(", .{id});
+        const label = try self.emitInlineBlockStart("json_loads");
+        try self.emit(" const json_str_obj = try runtime.PyString.create(");
         try self.emit(alloc_name);
         try self.emit(", ");
         try self.genExpr(args[0]);
         try self.emit("); defer runtime.decref(json_str_obj, ");
         try self.emit(alloc_name);
-        try self.emitFmt("); break :__m{d}_json_loads try runtime.json.loads(json_str_obj, ", .{id});
+        try self.emitFmt("); break :{s} try runtime.json.loads(json_str_obj, ", .{label});
         try self.emit(alloc_name);
-        try self.emit("); }");
+        try self.emit("); ");
+        try self.emitInlineBlockEnd();
     }
 }
 
@@ -91,8 +92,8 @@ pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code to convert native dict to PyDict and dump as JSON
 fn genJsonDumpsDict(self: *NativeCodegen, dict_expr: ast.Node, value_type: NativeType) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_json: {{\n", .{id});
+    const label = try self.emitInlineBlockStart("json");
+    try self.emit("\n");
     self.indent();
     try self.emitIndent();
 
@@ -133,17 +134,17 @@ fn genJsonDumpsDict(self: *NativeCodegen, dict_expr: ast.Node, value_type: Nativ
     try self.emit("runtime.decref(_py_dict, __global_allocator);\n");
 
     try self.emitIndent();
-    try self.emitFmt("break :__m{d}_json _result;\n", .{id});
+    try self.emitFmt("break :{s} _result;\n", .{label});
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code to convert native list to PyList and dump as JSON
 fn genJsonDumpsList(self: *NativeCodegen, list_expr: ast.Node, elem_type: NativeType) CodegenError!void {
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_json: {{\n", .{id});
+    const label = try self.emitInlineBlockStart("json");
+    try self.emit("\n");
     self.indent();
     try self.emitIndent();
 
@@ -181,11 +182,11 @@ fn genJsonDumpsList(self: *NativeCodegen, list_expr: ast.Node, elem_type: Native
     try self.emit("runtime.decref(_py_list, __global_allocator);\n");
 
     try self.emitIndent();
-    try self.emitFmt("break :__m{d}_json _result;\n", .{id});
+    try self.emitFmt("break :{s} _result;\n", .{label});
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code to convert a native value to PyObject
@@ -228,8 +229,8 @@ pub fn genJsonLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // json.load() requires at least 1 argument
     if (args.len < 1) return error.UnsupportedSyntax;
 
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_json_load: {{\n", .{id});
+    const label = try self.emitInlineBlockStart("json_load");
+    try self.emit("\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const _file = ");
@@ -238,10 +239,10 @@ pub fn genJsonLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("const _content = try runtime.PyFile.read(_file, __global_allocator);\n");
     try self.emitIndent();
-    try self.emitFmt("break :__m{d}_json_load try runtime.json.loads(_content, __global_allocator);\n", .{id});
+    try self.emitFmt("break :{s} try runtime.json.loads(_content, __global_allocator);\n", .{label});
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code for json.dump(obj, file)
@@ -250,8 +251,8 @@ pub fn genJsonDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // json.dump() requires at least 2 arguments
     if (args.len < 2) return error.UnsupportedSyntax;
 
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_json_dump: {{\n", .{id});
+    const label = try self.emitInlineBlockStart("json_dump");
+    try self.emit("\n");
     self.indent();
     try self.emitIndent();
     try self.emit("const _obj = ");
@@ -266,10 +267,10 @@ pub fn genJsonDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emitIndent();
     try self.emit("_ = runtime.PyFile.write(_file, _json_str) catch 0;\n");
     try self.emitIndent();
-    try self.emitFmt("break :__m{d}_json_dump null;\n", .{id});
+    try self.emitFmt("break :{s} null;\n", .{label});
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try self.emitInlineBlockEnd();
 }
 
 /// Generate code for json.JSONEncoder class

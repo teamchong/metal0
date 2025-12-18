@@ -1175,18 +1175,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             try self.emit("}");
                         } else {
                             // assertRaises or normal context: use block expression
-                            const id = self.nextNameId();
-                            try self.emitFmt("(__m{d}_kwarg_err: {{\n", .{id});
+                            const label = try self.emitInlineBlockStart("kwarg_err");
+                            try self.emit("(\n");
                             self.indent();
                             try self.emitIndent();
                             try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), raw_func_name);
                             try self.emit("() does not take keyword arguments\", @src().line);\n");
                             try self.emitIndent();
-                            try self.emitFmt("break :__m{d}_kwarg_err error.TypeError;\n", .{id});
+                            try self.emitFmt("break :{s} error.TypeError;\n", .{label});
                             self.dedent();
                             try self.emitIndent();
-                            try self.emit("})");
+                            try self.emitInlineBlockEnd();
+                            try self.emit(")");
                         }
                         return;
                     }
@@ -1658,11 +1659,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     // This handles cases where we pass a PyValue to a function expecting string/int/etc
                     // For uncertain types, let the runtime handle conversion via PyValue
                     // EXCEPTION: Skip wrapping when calling an anytype callable - pass args directly
-                    const id = self.nextNameId();
-                    try self.emitFmt("__m{d}_pyval_arg: {{", .{id});
-                    try self.emit(" const __pv = ");
+                    const label = try self.emitInlineBlockStart("pyval_arg");
+                    try self.emit("const __pv = ");
                     try genExpr(self, arg);
-                    try self.emitFmt("; break :__m{d}_pyval_arg if (@TypeOf(__pv) == runtime.PyValue) __pv.asString() else __pv; }}", .{id});
+                    try self.emitFmt("; break :{s} if (@TypeOf(__pv) == runtime.PyValue) __pv.asString() else __pv; ", .{label});
+                    try self.emitInlineBlockEnd();
                     continue;
                 }
                 try genExpr(self, arg);
@@ -1672,8 +1673,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             if (is_kwarg_func) {
                 // Generate a block expression that creates and populates a PyDict
                 if (call.args.len > 0) try self.emit(", ");
-                const id = self.nextNameId();
-                try self.emitFmt("__m{d}_kwargs: {{\n", .{id});
+                const label = try self.emitInlineBlockStart("kwargs");
+                try self.emit("\n");
                 self.indent_level += 1;
                 try self.emitIndent();
                 try self.emit("const __kwargs = try runtime.PyDict.create(__global_allocator);\n");
@@ -1692,10 +1693,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
 
                 try self.emitIndent();
-                try self.emitFmt("break :__m{d}_kwargs __kwargs;\n", .{id});
+                try self.emitFmt("break :{s} __kwargs;\n", .{label});
                 self.indent_level -= 1;
                 try self.emitIndent();
-                try self.emit("}}");
+                try self.emitInlineBlockEnd();
             } else {
                 // Add keyword arguments as positional arguments (non-kwarg functions)
                 // Map keyword arguments to correct parameter positions using function signature

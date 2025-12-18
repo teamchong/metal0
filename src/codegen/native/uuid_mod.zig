@@ -22,17 +22,15 @@ const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
 fn genUuid4(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const b = try self.getBuilder();
-    const label = try b.emitInlineBlockStart("uuid4");
+    const label = try self.emitInlineBlockStart("uuid4");
     try self.emitFmt("var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); const _rand = _prng.random(); var _bytes: [16]u8 = undefined; _rand.bytes(&_bytes); _bytes[6] = (_bytes[6] & 0x0f) | 0x40; _bytes[8] = (_bytes[8] & 0x3f) | 0x80; var _buf: [36]u8 = undefined; _ = std.fmt.bufPrint(&_buf, {s}{s} catch break :{s} \"\"; break :{s} &_buf; ", .{ UuidFmt, UuidBytesArgs, label, label });
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 fn genUuid1(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const b = try self.getBuilder();
-    const label = try b.emitInlineBlockStart("uuid1");
+    const label = try self.emitInlineBlockStart("uuid1");
     try self.emitFmt("const _ts = std.time.nanoTimestamp(); var _prng = std.Random.DefaultPrng.init(@intCast(_ts)); const _rand = _prng.random(); var _bytes: [16]u8 = undefined; const _time_bytes = std.mem.asBytes(&_ts); @memcpy(_bytes[0..8], _time_bytes[0..8]); _rand.bytes(_bytes[8..16]); _bytes[6] = (_bytes[6] & 0x0f) | 0x10; _bytes[8] = (_bytes[8] & 0x3f) | 0x80; var _buf: [36]u8 = undefined; _ = std.fmt.bufPrint(&_buf, {s}{s} catch break :{s} \"\"; break :{s} &_buf; ", .{ UuidFmt, UuidBytesArgs, label, label });
-    try b.emitInlineBlockEnd();
+    try self.emitInlineBlockEnd();
 }
 
 fn genGetnode(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
