@@ -281,10 +281,11 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emit("inline for (_kvs) |kv| {\n");
     self.indent();
     try self.emitIndent();
-    const b2 = try self.getBuilder();
-    const cast_label = try b2.emitInlineBlockStart("cast");
+    // Generate unique label for cast block
+    const id = self.nextNameId();
+    const cast_label = try std.fmt.allocPrint(self.arena.allocator(), "__m{d}_cast", .{id});
     try self.emit("const cast_val = if (@TypeOf(kv[1]) != V) ");
-    try self.emitFmt(":{s} {{\n", .{cast_label});
+    try self.emitFmt("({s}: {{\n", .{cast_label});
     self.indent();
 
     // Int to float cast
@@ -358,7 +359,7 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     try self.emitFmt("break :{s} kv[1];\n", .{cast_label});
     self.dedent();
     try self.emitIndent();
-    try self.emit("} else kv[1];\n");
+    try self.emit("}) else kv[1];\n");
     try self.emitIndent();
     switch (key_classification) {
         .int => {

@@ -62,7 +62,7 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
         try self.emit("// serialization failed\n");
         try self.emitFmt("break :__m{d}_eval try runtime.eval(__global_allocator, \"", .{id});
         try escapeZigString(self, source);
-        try self.emit("\");\n}}");
+        try self.emit("\");\n}");
         return;
     };
     defer self.allocator.free(serialized);
@@ -96,7 +96,7 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     try emitInt(self, blob_id);
     try self.emit(".execute(&_program_");
     try emitInt(self, blob_id);
-    try self.emit(");\n}}");
+    try self.emit(");\n}");
 }
 
 /// Helper to emit integer as decimal string
