@@ -89,21 +89,25 @@ pub fn genTimedelta(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// dt.weekday() - return day of week (0=Monday, 6=Sunday)
 pub fn genWeekday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("@as(i64, 0)"); return; }
-    const label = try self.emitInlineBlockStart("wd");
-    try self.emit("_ = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; break :{s} @as(i64, 0); ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("wd", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("_ = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; break :{s} @as(i64, 0); ", .{label});
+        }
+    }.emit);
 }
 
 /// dt.isoweekday() - return ISO day of week (1=Monday, 7=Sunday)
 pub fn genIsoweekday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("@as(i64, 1)"); return; }
-    const label = try self.emitInlineBlockStart("iwd");
-    try self.emit("_ = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; break :{s} @as(i64, 1); ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("iwd", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("_ = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; break :{s} @as(i64, 1); ", .{label});
+        }
+    }.emit);
 }
 
 /// dt.replace(...) - return copy with replaced fields
@@ -226,11 +230,13 @@ pub fn genDatetimeCombine(self: *NativeCodegen, args: []ast.Node) CodegenError!v
 /// datetime.date.fromtimestamp(ts)
 pub fn genDateFromTimestamp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("runtime.datetime.Date.today()"); return; }
-    const label = try self.emitInlineBlockStart("dt");
-    try self.emit("const _dt = runtime.datetime.Datetime.fromTimestamp(@intCast(");
-    try self.genExpr(args[0]);
-    try self.emitFmt(")); break :{s} runtime.datetime.Date{{ .year = _dt.year, .month = _dt.month, .day = _dt.day }}; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("dt", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _dt = runtime.datetime.Datetime.fromTimestamp(@intCast(");
+            try c.genExpr(a[0]);
+            try c.emitFmt(")); break :{s} runtime.datetime.Date{{ .year = _dt.year, .month = _dt.month, .day = _dt.day }}; ", .{label});
+        }
+    }.emit);
 }
 
 /// datetime.date.fromisoformat(string)
