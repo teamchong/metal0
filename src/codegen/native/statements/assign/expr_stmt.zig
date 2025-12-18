@@ -40,6 +40,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     }
 
     // Special handling for unittest.main() - generates complete block with its own structure
+    // Also handle assertion methods - they generate complete if statements with semicolons
     if (expr == .call and expr.call.func.* == .attribute) {
         const attr = expr.call.func.attribute;
         if (attr.value.* == .name) {
@@ -47,6 +48,12 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             const method_name = attr.attr;
             if (std.mem.eql(u8, obj_name, "unittest") and std.mem.eql(u8, method_name, "main")) {
                 // unittest.main() generates its own complete output
+                try self.genExpr(expr);
+                return;
+            }
+            // Assertion methods (assertEqual, assertNotEqual, etc.) generate complete if statements
+            // with their own semicolons - don't add another one
+            if (std.mem.eql(u8, obj_name, "self") and std.mem.startsWith(u8, method_name, "assert")) {
                 try self.genExpr(expr);
                 return;
             }
